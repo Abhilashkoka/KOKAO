@@ -25,56 +25,6 @@ export async function requireTenant(
     const claims = auth?.sessionClaims as { userId?: string } | undefined;
     const clerkUserId = claims?.userId ?? auth?.userId ?? null;
 
-    // TEMP DEBUG (auth 401 investigation): log what Clerk sees without leaking
-    // any secret values — cookie presence as booleans + non-secret JWT claims.
-    const cookieHeader = req.headers.cookie ?? "";
-    let sessionClaimsDebug: Record<string, unknown> = {};
-    try {
-      const m = cookieHeader.match(/(?:^|;\s*)__session=([^;]+)/);
-      if (m) {
-        const token = decodeURIComponent(m[1]);
-        const parts = token.split(".");
-        sessionClaimsDebug.jwtParts = parts.length;
-        if (parts.length === 3) {
-          const payload = JSON.parse(
-            Buffer.from(parts[1], "base64url").toString("utf8"),
-          ) as Record<string, unknown>;
-          const nowSec = Math.floor(Date.now() / 1000);
-          sessionClaimsDebug = {
-            jwtParts: 3,
-            iss: payload.iss,
-            azp: payload.azp,
-            hasSub: Boolean(payload.sub),
-            iat: payload.iat,
-            exp: payload.exp,
-            nbf: payload.nbf,
-            nowSec,
-            expired:
-              typeof payload.exp === "number" ? payload.exp < nowSec : null,
-            notYetValid:
-              typeof payload.nbf === "number" ? payload.nbf > nowSec : null,
-          };
-        }
-      } else {
-        sessionClaimsDebug.noSessionCookieMatch = true;
-      }
-    } catch (e) {
-      sessionClaimsDebug.decodeError = String(e);
-    }
-    req.log.info(
-      {
-        authUserId: auth?.userId ?? null,
-        authSessionId: (auth as { sessionId?: string } | undefined)?.sessionId ?? null,
-        authStatus: (auth as { status?: string } | undefined)?.status ?? null,
-        authReason: (auth as { reason?: string } | undefined)?.reason ?? null,
-        hasCookieHeader: cookieHeader.length > 0,
-        hasSessionCookie: cookieHeader.includes("__session"),
-        hasClientCookie: cookieHeader.includes("__client"),
-        sessionClaimsDebug,
-      },
-      "requireTenant auth debug",
-    );
-
     if (!clerkUserId) {
       res.status(401).json({ error: "Unauthorized" });
       return;
