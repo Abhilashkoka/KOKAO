@@ -165,6 +165,26 @@ export interface BrandKitUpdate {
   logoPath?: string | null;
 }
 
+export interface FacebookPage {
+  id: string;
+  name: string;
+}
+
+export interface FacebookPagesResult {
+  pages: FacebookPage[];
+}
+
+export interface PublishFacebookRequest {
+  /** @minLength 1 */
+  pageId: string;
+}
+
+export interface PublishFacebookResult {
+  postId: string;
+  /** @nullable */
+  permalink?: string | null;
+}
+
 export interface ContentItem {
   id: number;
   title: string;

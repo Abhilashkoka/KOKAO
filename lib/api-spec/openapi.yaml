@@ -749,6 +749,68 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /facebook/pages:
+    get:
+      operationId: listFacebookPages
+      tags: [facebook]
+      summary: List Facebook Pages the connected account manages
+      responses:
+        "200":
+          description: Facebook Pages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FacebookPagesResult"
+        "502":
+          description: Facebook API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /content/{id}/publish-facebook:
+    post:
+      operationId: publishContentToFacebook
+      tags: [facebook]
+      summary: Publish a content item to a Facebook Page
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishFacebookRequest"
+      responses:
+        "200":
+          description: Published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishFacebookResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Facebook API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /storage/uploads/request-url:
     post:
       tags: [Storage]
@@ -1116,6 +1178,37 @@ components:
         logoPath:
           type: ["string", "null"]
 
+    FacebookPage:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+    FacebookPagesResult:
+      type: object
+      required: [pages]
+      properties:
+        pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/FacebookPage"
+    PublishFacebookRequest:
+      type: object
+      required: [pageId]
+      properties:
+        pageId:
+          type: string
+          minLength: 1
+    PublishFacebookResult:
+      type: object
+      required: [postId]
+      properties:
+        postId:
+          type: string
+        permalink:
+          type: ["string", "null"]
     ContentItem:
       type: object
       required:

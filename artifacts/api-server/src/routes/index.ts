@@ -8,6 +8,7 @@ import contentRouter from "./content";
 import aiRouter from "./ai";
 import schedulesRouter from "./schedules";
 import accountsRouter from "./accounts";
+import facebookRouter from "./facebook";
 import adminRouter from "./admin";
 import { requireTenant } from "../middlewares/requireTenant";
 
@@ -27,6 +28,7 @@ router.use(contentRouter);
 router.use(aiRouter);
 router.use(schedulesRouter);
 router.use(accountsRouter);
+router.use(facebookRouter);
 router.use(adminRouter);
 
 export default router;

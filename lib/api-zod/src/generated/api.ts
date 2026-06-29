@@ -633,6 +633,37 @@ export const DeleteAccountResponse = zod.void()
 
 
 /**
+ * @summary List Facebook Pages the connected account manages
+ */
+export const ListFacebookPagesResponse = zod.object({
+  "pages": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string()
+}))
+})
+
+
+/**
+ * @summary Publish a content item to a Facebook Page
+ */
+export const PublishContentToFacebookParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+
+export const PublishContentToFacebookBody = zod.object({
+  "pageId": zod.string().min(1)
+})
+
+export const PublishContentToFacebookResponse = zod.object({
+  "postId": zod.string(),
+  "permalink": zod.string().nullish()
+})
+
+
+/**
  * Returns a presigned GCS URL for direct upload. The client sends JSON
  * metadata here, then uploads the file directly to the returned URL.
  * @summary Request a presigned URL for file upload

@@ -3,18 +3,22 @@ import {
   useListContent, 
   useDeleteContent,
   useUpdateContent,
-  getListContentQueryKey
+  useListFacebookPages,
+  usePublishContentToFacebook,
+  getListContentQueryKey,
+  getListFacebookPagesQueryKey
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Calendar, Edit, MoreVertical, Trash2, LayoutGrid } from "lucide-react";
+import { Edit, MoreVertical, Trash2, LayoutGrid, Send } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export function LibraryPage() {
   const { data: content, isLoading } = useListContent();
@@ -26,6 +30,45 @@ export function LibraryPage() {
   const [editItem, setEditItem] = useState<any | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editCaption, setEditCaption] = useState("");
+
+  const [publishItem, setPublishItem] = useState<any | null>(null);
+  const [selectedPageId, setSelectedPageId] = useState("");
+  const publishContent = usePublishContentToFacebook();
+  const {
+    data: fbPages,
+    isLoading: pagesLoading,
+    isError: pagesError,
+  } = useListFacebookPages({
+    query: { enabled: !!publishItem, queryKey: getListFacebookPagesQueryKey() },
+  });
+
+  const openPublish = (item: any) => {
+    setSelectedPageId("");
+    setPublishItem(item);
+  };
+
+  const handlePublish = () => {
+    if (!publishItem || !selectedPageId) return;
+    publishContent.mutate(
+      { id: publishItem.id, data: { pageId: selectedPageId } },
+      {
+        onSuccess: () => {
+          toast({ title: "Published to Facebook" });
+          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+          setPublishItem(null);
+        },
+        onError: (err: any) => {
+          toast({
+            title: "Publish failed",
+            description:
+              err?.response?.data?.error ||
+              "Could not publish to Facebook. Please try again.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
 
   const handleDelete = (id: number) => {
     if (!confirm("Are you sure you want to delete this content?")) return;
@@ -112,6 +155,7 @@ export function LibraryPage() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => openEdit(item)}><Edit className="h-4 w-4 mr-2" /> Edit</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => openPublish(item)}><Send className="h-4 w-4 mr-2" /> Publish to Facebook</DropdownMenuItem>
                       <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(item.id)}><Trash2 className="h-4 w-4 mr-2" /> Delete</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -155,6 +199,53 @@ export function LibraryPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditItem(null)}>Cancel</Button>
             <Button onClick={handleUpdate} disabled={updateContent.isPending}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!publishItem} onOpenChange={(open) => !open && setPublishItem(null)}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle>Publish to Facebook</DialogTitle>
+            <DialogDescription>
+              Choose which Facebook Page to post this content to. The caption and image will be published to the selected Page.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Facebook Page</label>
+              {pagesLoading ? (
+                <Skeleton className="h-10 w-full" />
+              ) : pagesError ? (
+                <p className="text-sm text-destructive">
+                  Could not load your Facebook Pages. Check that the connected access token is valid.
+                </p>
+              ) : (fbPages?.pages?.length ?? 0) === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No Facebook Pages found for the connected account.
+                </p>
+              ) : (
+                <Select value={selectedPageId} onValueChange={setSelectedPageId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a Page" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {fbPages?.pages?.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPublishItem(null)}>Cancel</Button>
+            <Button
+              onClick={handlePublish}
+              disabled={!selectedPageId || publishContent.isPending}
+            >
+              {publishContent.isPending ? "Publishing..." : "Publish"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

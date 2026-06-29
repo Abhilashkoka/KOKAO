@@ -35,11 +35,14 @@ import type {
   ContentItem,
   ContentUpdate,
   ErrorEnvelope,
+  FacebookPagesResult,
   HealthStatus,
   ImageRequest,
   ImageResult,
   MeProfile,
   Plan,
+  PublishFacebookRequest,
+  PublishFacebookResult,
   ScheduleInput,
   ScheduleUpdate,
   ScheduledPost,
@@ -2263,6 +2266,154 @@ export const useDeleteAccount = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getDeleteAccountMutationOptions(options));
+    }
+
+export const getListFacebookPagesUrl = () => {
+
+
+
+
+  return `/api/facebook/pages`
+}
+
+/**
+ * @summary List Facebook Pages the connected account manages
+ */
+export const listFacebookPages = async ( options?: RequestInit): Promise<FacebookPagesResult> => {
+
+  return customFetch<FacebookPagesResult>(getListFacebookPagesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListFacebookPagesQueryKey = () => {
+    return [
+    `/api/facebook/pages`
+    ] as const;
+    }
+
+
+export const getListFacebookPagesQueryOptions = <TData = Awaited<ReturnType<typeof listFacebookPages>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listFacebookPages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListFacebookPagesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listFacebookPages>>> = ({ signal }) => listFacebookPages({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listFacebookPages>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListFacebookPagesQueryResult = NonNullable<Awaited<ReturnType<typeof listFacebookPages>>>
+export type ListFacebookPagesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List Facebook Pages the connected account manages
+ */
+
+export function useListFacebookPages<TData = Awaited<ReturnType<typeof listFacebookPages>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listFacebookPages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListFacebookPagesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getPublishContentToFacebookUrl = (id: number,) => {
+
+
+
+
+  return `/api/content/${id}/publish-facebook`
+}
+
+/**
+ * @summary Publish a content item to a Facebook Page
+ */
+export const publishContentToFacebook = async (id: number,
+    publishFacebookRequest: PublishFacebookRequest, options?: RequestInit): Promise<PublishFacebookResult> => {
+
+  return customFetch<PublishFacebookResult>(getPublishContentToFacebookUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(publishFacebookRequest)
+  }
+);}
+
+
+
+
+export const getPublishContentToFacebookMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishContentToFacebook>>, TError,{id: number;data: BodyType<PublishFacebookRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof publishContentToFacebook>>, TError,{id: number;data: BodyType<PublishFacebookRequest>}, TContext> => {
+
+const mutationKey = ['publishContentToFacebook'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof publishContentToFacebook>>, {id: number;data: BodyType<PublishFacebookRequest>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  publishContentToFacebook(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PublishContentToFacebookMutationResult = NonNullable<Awaited<ReturnType<typeof publishContentToFacebook>>>
+    export type PublishContentToFacebookMutationBody = BodyType<PublishFacebookRequest>
+    export type PublishContentToFacebookMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Publish a content item to a Facebook Page
+ */
+export const usePublishContentToFacebook = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishContentToFacebook>>, TError,{id: number;data: BodyType<PublishFacebookRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof publishContentToFacebook>>,
+        TError,
+        {id: number;data: BodyType<PublishFacebookRequest>},
+        TContext
+      > => {
+      return useMutation(getPublishContentToFacebookMutationOptions(options));
     }
 
 export const getRequestUploadUrlUrl = () => {
