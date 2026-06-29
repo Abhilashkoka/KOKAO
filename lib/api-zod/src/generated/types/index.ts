@@ -8,6 +8,10 @@
 
 export * from './accountInput';
 export * from './accountInputPlatform';
+export * from './adminStats';
+export * from './adminStatsTenantsByPlan';
+export * from './adminTenant';
+export * from './adminTenantCounts';
 export * from './brandKit';
 export * from './brandKitInput';
 export * from './brandKitUpdate';
@@ -34,6 +38,8 @@ export * from './scheduleUpdateStatus';
 export * from './tenant';
 export * from './tenantSettings';
 export * from './tenantSettingsPlan';
+export * from './updateTenantPlanBody';
+export * from './updateTenantPlanBodyPlan';
 export * from './uploadUrlRequest';
 export * from './uploadUrlResponse';
 export * from './usage';

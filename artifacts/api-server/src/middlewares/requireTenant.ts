@@ -2,10 +2,17 @@ import type { Request, Response, NextFunction } from "express";
 import { getAuth } from "@clerk/express";
 import { db, tenantsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { fetchVerifiedEmail } from "../lib/clerkUser";
+import { isSuperadminEmail } from "../lib/superadmins";
 
 /**
  * Resolves the Clerk-authenticated user to a SocialForge tenant, auto-provisioning
- * one on first authenticated request. Attaches `req.tenantId` and `req.clerkUserId`.
+ * one on first authenticated request. Attaches `req.tenantId`, `req.clerkUserId`,
+ * `req.tenantEmail`, and `req.isSuperadmin`.
+ *
+ * NOTE: `req.isSuperadmin` here is derived from the cached tenant email and is only
+ * a UI hint (exposed via /me). The authoritative authorization gate is
+ * `requireSuperadmin`, which re-checks the live verified Clerk email.
  * Responds 401 when there is no authenticated session.
  */
 export async function requireTenant(
@@ -34,9 +41,10 @@ export async function requireTenant(
     if (!tenant) {
       // Conflict-safe provisioning: concurrent first requests for the same
       // clerkUserId race here, so insert-on-conflict-do-nothing then reselect.
+      const email = await fetchVerifiedEmail(clerkUserId);
       await db
         .insert(tenantsTable)
-        .values({ clerkUserId, name: "My Workspace" })
+        .values({ clerkUserId, email, name: "My Workspace" })
         .onConflictDoNothing();
       tenant = (
         await db
@@ -52,8 +60,25 @@ export async function requireTenant(
       return;
     }
 
+    // Backfill email for tenants provisioned before we captured it.
+    if (!tenant.email) {
+      const email = await fetchVerifiedEmail(clerkUserId);
+      if (email) {
+        const updated = (
+          await db
+            .update(tenantsTable)
+            .set({ email })
+            .where(eq(tenantsTable.id, tenant.id))
+            .returning()
+        )[0];
+        if (updated) tenant = updated;
+      }
+    }
+
     req.tenantId = tenant.id;
     req.clerkUserId = clerkUserId;
+    req.tenantEmail = tenant.email ?? null;
+    req.isSuperadmin = isSuperadminEmail(tenant.email);
     next();
   } catch (error) {
     req.log.error({ err: error }, "Failed to resolve tenant");

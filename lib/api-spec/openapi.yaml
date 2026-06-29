@@ -24,6 +24,8 @@ tags:
     description: Scheduled posts queue.
   - name: accounts
     description: Connected social accounts.
+  - name: admin
+    description: Cross-tenant superadmin operations.
 paths:
   /healthz:
     get:
@@ -95,6 +97,81 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Plan"
+
+  /admin/tenants:
+    get:
+      operationId: adminListTenants
+      tags: [admin]
+      summary: List all tenants with usage and resource counts (superadmin only)
+      responses:
+        "200":
+          description: List of tenants
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminTenant"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/tenants/{id}:
+    patch:
+      operationId: adminUpdateTenantPlan
+      tags: [admin]
+      summary: Update a tenant's subscription plan (superadmin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTenantPlanBody"
+      responses:
+        "200":
+          description: Updated tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminTenant"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/stats:
+    get:
+      operationId: adminGetStats
+      tags: [admin]
+      summary: Platform-wide aggregate stats (superadmin only)
+      responses:
+        "200":
+          description: Platform stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStats"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /brand-kits:
     get:
@@ -718,7 +795,7 @@ components:
           description: Max scheduled posts. -1 means unlimited.
     MeProfile:
       type: object
-      required: [tenant, usage, limits]
+      required: [tenant, usage, limits, isSuperadmin]
       properties:
         tenant:
           $ref: "#/components/schemas/Tenant"
@@ -726,6 +803,9 @@ components:
           $ref: "#/components/schemas/Usage"
         limits:
           $ref: "#/components/schemas/PlanLimits"
+        isSuperadmin:
+          type: boolean
+          description: Whether the current user has cross-tenant superadmin access.
     Plan:
       type: object
       required: [id, name, priceLabel, limits, features]
@@ -742,6 +822,76 @@ components:
           type: array
           items:
             type: string
+
+    AdminTenantCounts:
+      type: object
+      required: [content, brandKits, scheduledPosts, connectedAccounts]
+      properties:
+        content:
+          type: integer
+        brandKits:
+          type: integer
+        scheduledPosts:
+          type: integer
+        connectedAccounts:
+          type: integer
+    AdminTenant:
+      type: object
+      required: [id, email, name, plan, aiModel, isSuperadmin, createdAt]
+      properties:
+        id:
+          type: integer
+        email:
+          type: ["string", "null"]
+        name:
+          type: string
+        plan:
+          type: string
+        aiModel:
+          type: string
+        isSuperadmin:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        counts:
+          $ref: "#/components/schemas/AdminTenantCounts"
+        usage:
+          $ref: "#/components/schemas/Usage"
+    AdminStats:
+      type: object
+      required:
+        - totalTenants
+        - tenantsByPlan
+        - totalContent
+        - totalScheduledPosts
+        - totalConnectedAccounts
+      properties:
+        totalTenants:
+          type: integer
+        tenantsByPlan:
+          type: object
+          required: [free, pro, business]
+          properties:
+            free:
+              type: integer
+            pro:
+              type: integer
+            business:
+              type: integer
+        totalContent:
+          type: integer
+        totalScheduledPosts:
+          type: integer
+        totalConnectedAccounts:
+          type: integer
+    UpdateTenantPlanBody:
+      type: object
+      required: [plan]
+      properties:
+        plan:
+          type: string
+          enum: [free, pro, business]
 
     BrandKit:
       type: object

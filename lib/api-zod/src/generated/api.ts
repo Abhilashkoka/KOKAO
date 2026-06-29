@@ -38,7 +38,8 @@ export const GetMeResponse = zod.object({
   "images": zod.number().describe('Monthly image generation limit. -1 means unlimited.'),
   "brandKits": zod.number().describe('Max brand kits. -1 means unlimited.'),
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
-})
+}),
+  "isSuperadmin": zod.boolean().describe('Whether the current user has cross-tenant superadmin access.')
 })
 
 
@@ -80,6 +81,81 @@ export const ListPlansResponseItem = zod.object({
   "features": zod.array(zod.string())
 })
 export const ListPlansResponse = zod.array(ListPlansResponseItem)
+
+
+/**
+ * @summary List all tenants with usage and resource counts (superadmin only)
+ */
+export const AdminListTenantsResponseItem = zod.object({
+  "id": zod.number(),
+  "email": zod.string().nullable(),
+  "name": zod.string(),
+  "plan": zod.string(),
+  "aiModel": zod.string(),
+  "isSuperadmin": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "counts": zod.object({
+  "content": zod.number(),
+  "brandKits": zod.number(),
+  "scheduledPosts": zod.number(),
+  "connectedAccounts": zod.number()
+}).optional(),
+  "usage": zod.object({
+  "captions": zod.number(),
+  "images": zod.number(),
+  "periodStart": zod.coerce.date()
+}).optional()
+})
+export const AdminListTenantsResponse = zod.array(AdminListTenantsResponseItem)
+
+
+/**
+ * @summary Update a tenant's subscription plan (superadmin only)
+ */
+export const AdminUpdateTenantPlanParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AdminUpdateTenantPlanBody = zod.object({
+  "plan": zod.enum(['free', 'pro', 'business'])
+})
+
+export const AdminUpdateTenantPlanResponse = zod.object({
+  "id": zod.number(),
+  "email": zod.string().nullable(),
+  "name": zod.string(),
+  "plan": zod.string(),
+  "aiModel": zod.string(),
+  "isSuperadmin": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "counts": zod.object({
+  "content": zod.number(),
+  "brandKits": zod.number(),
+  "scheduledPosts": zod.number(),
+  "connectedAccounts": zod.number()
+}).optional(),
+  "usage": zod.object({
+  "captions": zod.number(),
+  "images": zod.number(),
+  "periodStart": zod.coerce.date()
+}).optional()
+})
+
+
+/**
+ * @summary Platform-wide aggregate stats (superadmin only)
+ */
+export const AdminGetStatsResponse = zod.object({
+  "totalTenants": zod.number(),
+  "tenantsByPlan": zod.object({
+  "free": zod.number(),
+  "pro": zod.number(),
+  "business": zod.number()
+}),
+  "totalContent": zod.number(),
+  "totalScheduledPosts": zod.number(),
+  "totalConnectedAccounts": zod.number()
+})
 
 
 /**

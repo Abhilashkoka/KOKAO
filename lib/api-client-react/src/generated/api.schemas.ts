@@ -59,6 +59,8 @@ export interface MeProfile {
   tenant: Tenant;
   usage: Usage;
   limits: PlanLimits;
+  /** Whether the current user has cross-tenant superadmin access. */
+  isSuperadmin: boolean;
 }
 
 export interface Plan {
@@ -67,6 +69,53 @@ export interface Plan {
   priceLabel: string;
   limits: PlanLimits;
   features: string[];
+}
+
+export interface AdminTenantCounts {
+  content: number;
+  brandKits: number;
+  scheduledPosts: number;
+  connectedAccounts: number;
+}
+
+export interface AdminTenant {
+  id: number;
+  /** @nullable */
+  email: string | null;
+  name: string;
+  plan: string;
+  aiModel: string;
+  isSuperadmin: boolean;
+  createdAt: string;
+  counts?: AdminTenantCounts;
+  usage?: Usage;
+}
+
+export type AdminStatsTenantsByPlan = {
+  free: number;
+  pro: number;
+  business: number;
+};
+
+export interface AdminStats {
+  totalTenants: number;
+  tenantsByPlan: AdminStatsTenantsByPlan;
+  totalContent: number;
+  totalScheduledPosts: number;
+  totalConnectedAccounts: number;
+}
+
+export type UpdateTenantPlanBodyPlan = typeof UpdateTenantPlanBodyPlan[keyof typeof UpdateTenantPlanBodyPlan];
+
+
+export const UpdateTenantPlanBodyPlan = {
+  free: 'free',
+  pro: 'pro',
+  business: 'business',
+} as const;
+
+export interface UpdateTenantPlanBody {
+  plan: UpdateTenantPlanBodyPlan;
 }
 
 export interface BrandKit {

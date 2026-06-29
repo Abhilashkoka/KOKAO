@@ -8,6 +8,7 @@ import { SchedulePage } from "@/pages/schedule";
 import { BrandKitsPage } from "@/pages/brand-kits";
 import { AccountsPage } from "@/pages/accounts";
 import { SettingsPage } from "@/pages/settings";
+import { AdminPage } from "@/pages/admin";
 
 import { Switch, Route, useLocation, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
@@ -128,6 +129,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/brand-kits" component={() => <ProtectedRoute component={BrandKitsPage} />} />
             <Route path="/accounts" component={() => <ProtectedRoute component={AccountsPage} />} />
             <Route path="/settings" component={() => <ProtectedRoute component={SettingsPage} />} />
+            <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} />} />
             
             <Route component={NotFound} />
           </Switch>

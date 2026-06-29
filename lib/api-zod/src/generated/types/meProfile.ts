@@ -13,4 +13,6 @@ export interface MeProfile {
   tenant: Tenant;
   usage: Usage;
   limits: PlanLimits;
+  /** Whether the current user has cross-tenant superadmin access. */
+  isSuperadmin: boolean;
 }

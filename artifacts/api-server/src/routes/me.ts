@@ -29,6 +29,7 @@ router.get("/me", async (req: Request, res: Response) => {
       periodStart: usage.periodStart.toISOString(),
     },
     limits: getPlanLimits(tenant.plan),
+    isSuperadmin: req.isSuperadmin,
   });
 });
 

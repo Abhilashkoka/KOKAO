@@ -5,6 +5,7 @@ import { z } from "zod/v4";
 export const tenantsTable = pgTable("tenants", {
   id: serial("id").primaryKey(),
   clerkUserId: text("clerk_user_id").notNull().unique(),
+  email: text("email"),
   name: text("name").notNull(),
   plan: text("plan").notNull().default("free"),
   aiModel: text("ai_model").notNull().default("gpt-5.4"),

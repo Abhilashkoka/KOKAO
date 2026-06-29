@@ -8,10 +8,12 @@ import {
   Palette, 
   Share2, 
   Settings,
+  Shield,
   Menu,
   LogOut
 } from "lucide-react";
 import { useState } from "react";
+import { useGetMe } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
@@ -25,9 +27,15 @@ const NAV_ITEMS = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
+const ADMIN_NAV_ITEM = { href: "/admin", label: "Admin", icon: Shield };
+
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { isLoaded } = useAuth();
+  const { data: me } = useGetMe();
+  const navItems = me?.isSuperadmin
+    ? [...NAV_ITEMS, ADMIN_NAV_ITEM]
+    : NAV_ITEMS;
   
   if (!isLoaded) {
     return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse flex flex-col items-center gap-4"><div className="h-8 w-8 bg-primary/20 rounded-full"></div><div className="text-muted-foreground">Loading workspace...</div></div></div>;
@@ -35,7 +43,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const NavLinks = () => (
     <div className="flex flex-col gap-2">
-      {NAV_ITEMS.map((item) => {
+      {navItems.map((item) => {
         const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
         return (
           <Link key={item.href} href={item.href}>

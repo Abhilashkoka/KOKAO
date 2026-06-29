@@ -8,6 +8,7 @@ import contentRouter from "./content";
 import aiRouter from "./ai";
 import schedulesRouter from "./schedules";
 import accountsRouter from "./accounts";
+import adminRouter from "./admin";
 import { requireTenant } from "../middlewares/requireTenant";
 
 const router: IRouter = Router();
@@ -26,5 +27,6 @@ router.use(contentRouter);
 router.use(aiRouter);
 router.use(schedulesRouter);
 router.use(accountsRouter);
+router.use(adminRouter);
 
 export default router;

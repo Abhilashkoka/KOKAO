@@ -5,6 +5,8 @@ declare global {
     interface Request {
       tenantId: number;
       clerkUserId: string;
+      tenantEmail: string | null;
+      isSuperadmin: boolean;
     }
   }
 }

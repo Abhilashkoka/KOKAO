@@ -21,6 +21,8 @@ import type {
 
 import type {
   AccountInput,
+  AdminStats,
+  AdminTenant,
   BrandKit,
   BrandKitInput,
   BrandKitUpdate,
@@ -41,6 +43,7 @@ import type {
   ScheduledPost,
   Tenant,
   TenantSettings,
+  UpdateTenantPlanBody,
   UploadUrlRequest,
   UploadUrlResponse
 } from './api.schemas';
@@ -362,6 +365,231 @@ export function useListPlans<TData = Awaited<ReturnType<typeof listPlans>>, TErr
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getListPlansQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminListTenantsUrl = () => {
+
+
+
+
+  return `/api/admin/tenants`
+}
+
+/**
+ * @summary List all tenants with usage and resource counts (superadmin only)
+ */
+export const adminListTenants = async ( options?: RequestInit): Promise<AdminTenant[]> => {
+
+  return customFetch<AdminTenant[]>(getAdminListTenantsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListTenantsQueryKey = () => {
+    return [
+    `/api/admin/tenants`
+    ] as const;
+    }
+
+
+export const getAdminListTenantsQueryOptions = <TData = Awaited<ReturnType<typeof adminListTenants>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListTenants>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListTenantsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListTenants>>> = ({ signal }) => adminListTenants({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListTenants>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListTenantsQueryResult = NonNullable<Awaited<ReturnType<typeof adminListTenants>>>
+export type AdminListTenantsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List all tenants with usage and resource counts (superadmin only)
+ */
+
+export function useAdminListTenants<TData = Awaited<ReturnType<typeof adminListTenants>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListTenants>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListTenantsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateTenantPlanUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/tenants/${id}`
+}
+
+/**
+ * @summary Update a tenant's subscription plan (superadmin only)
+ */
+export const adminUpdateTenantPlan = async (id: number,
+    updateTenantPlanBody: UpdateTenantPlanBody, options?: RequestInit): Promise<AdminTenant> => {
+
+  return customFetch<AdminTenant>(getAdminUpdateTenantPlanUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateTenantPlanBody)
+  }
+);}
+
+
+
+
+export const getAdminUpdateTenantPlanMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateTenantPlan>>, TError,{id: number;data: BodyType<UpdateTenantPlanBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateTenantPlan>>, TError,{id: number;data: BodyType<UpdateTenantPlanBody>}, TContext> => {
+
+const mutationKey = ['adminUpdateTenantPlan'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateTenantPlan>>, {id: number;data: BodyType<UpdateTenantPlanBody>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminUpdateTenantPlan(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateTenantPlanMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateTenantPlan>>>
+    export type AdminUpdateTenantPlanMutationBody = BodyType<UpdateTenantPlanBody>
+    export type AdminUpdateTenantPlanMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update a tenant's subscription plan (superadmin only)
+ */
+export const useAdminUpdateTenantPlan = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateTenantPlan>>, TError,{id: number;data: BodyType<UpdateTenantPlanBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateTenantPlan>>,
+        TError,
+        {id: number;data: BodyType<UpdateTenantPlanBody>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateTenantPlanMutationOptions(options));
+    }
+
+export const getAdminGetStatsUrl = () => {
+
+
+
+
+  return `/api/admin/stats`
+}
+
+/**
+ * @summary Platform-wide aggregate stats (superadmin only)
+ */
+export const adminGetStats = async ( options?: RequestInit): Promise<AdminStats> => {
+
+  return customFetch<AdminStats>(getAdminGetStatsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetStatsQueryKey = () => {
+    return [
+    `/api/admin/stats`
+    ] as const;
+    }
+
+
+export const getAdminGetStatsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetStats>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetStats>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetStatsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetStats>>> = ({ signal }) => adminGetStats({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetStats>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetStatsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetStats>>>
+export type AdminGetStatsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Platform-wide aggregate stats (superadmin only)
+ */
+
+export function useAdminGetStats<TData = Awaited<ReturnType<typeof adminGetStats>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetStats>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetStatsQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
