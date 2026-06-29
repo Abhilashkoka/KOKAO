@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "1Nd3jBaMVreIJmsgSIuDy"
+uri = "file://artifacts/socialforge/public/hero-image.png"
+type = "image"
+title = "SocialForge marketing hero image"

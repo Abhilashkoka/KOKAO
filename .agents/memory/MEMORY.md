@@ -1,0 +1,2 @@
+- [Express router auth gating](express-router-auth-gating.md) — an unpathed `router.use(mw)` inside a sub-router runs for ALL requests passing through it; gate auth once, public routers first.
+- [Object storage default ACL](object-storage-default-acl.md) — the storage scaffold ships private-object GET + upload-url routes unauthenticated; re-gate them before shipping.

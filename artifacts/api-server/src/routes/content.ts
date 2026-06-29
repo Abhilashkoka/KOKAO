@@ -1,0 +1,94 @@
+import { Router, type IRouter, type Request, type Response } from "express";
+import { db, contentItemsTable } from "@workspace/db";
+import { and, eq, desc } from "drizzle-orm";
+import { CreateContentBody, UpdateContentBody } from "@workspace/api-zod";
+import { serializeContent } from "../lib/serializers";
+
+const router: IRouter = Router();
+
+router.param("id", (req, res, next, value) => {
+  const id = Number(value);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  next();
+});
+
+router.get("/content", async (req: Request, res: Response) => {
+  const rows = await db
+    .select()
+    .from(contentItemsTable)
+    .where(eq(contentItemsTable.tenantId, req.tenantId))
+    .orderBy(desc(contentItemsTable.createdAt));
+  res.json(rows.map(serializeContent));
+});
+
+router.post("/content", async (req: Request, res: Response) => {
+  const parsed = CreateContentBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const created = (
+    await db
+      .insert(contentItemsTable)
+      .values({ ...parsed.data, tenantId: req.tenantId })
+      .returning()
+  )[0]!;
+  res.status(201).json(serializeContent(created));
+});
+
+router.get("/content/:id", async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const row = (
+    await db
+      .select()
+      .from(contentItemsTable)
+      .where(and(eq(contentItemsTable.id, id), eq(contentItemsTable.tenantId, req.tenantId)))
+      .limit(1)
+  )[0];
+  if (!row) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  res.json(serializeContent(row));
+});
+
+router.patch("/content/:id", async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const parsed = UpdateContentBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const updated = (
+    await db
+      .update(contentItemsTable)
+      .set({ ...parsed.data, updatedAt: new Date() })
+      .where(and(eq(contentItemsTable.id, id), eq(contentItemsTable.tenantId, req.tenantId)))
+      .returning()
+  )[0];
+  if (!updated) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  res.json(serializeContent(updated));
+});
+
+router.delete("/content/:id", async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const deleted = (
+    await db
+      .delete(contentItemsTable)
+      .where(and(eq(contentItemsTable.id, id), eq(contentItemsTable.tenantId, req.tenantId)))
+      .returning()
+  )[0];
+  if (!deleted) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  res.status(204).end();
+});
+
+export default router;

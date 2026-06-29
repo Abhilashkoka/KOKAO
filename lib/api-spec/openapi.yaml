@@ -3,13 +3,27 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: SocialForge API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: Storage
+    description: Object storage upload and serving endpoints.
+  - name: account
+    description: Current tenant profile, settings, usage, and plans.
+  - name: brand-kits
+    description: Brand kit management.
+  - name: content
+    description: Content library items.
+  - name: ai
+    description: AI caption and image generation.
+  - name: schedules
+    description: Scheduled posts queue.
+  - name: accounts
+    description: Connected social accounts.
 paths:
   /healthz:
     get:
@@ -24,6 +38,614 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /me:
+    get:
+      operationId: getMe
+      tags: [account]
+      summary: Get current tenant profile, usage, and plan limits
+      responses:
+        "200":
+          description: Current profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeProfile"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /me/settings:
+    patch:
+      operationId: updateSettings
+      tags: [account]
+      summary: Update tenant settings (name, plan, AI model)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantSettings"
+      responses:
+        "200":
+          description: Updated tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /plans:
+    get:
+      operationId: listPlans
+      tags: [account]
+      summary: List available subscription plans
+      responses:
+        "200":
+          description: List of plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Plan"
+
+  /brand-kits:
+    get:
+      operationId: listBrandKits
+      tags: [brand-kits]
+      summary: List brand kits
+      responses:
+        "200":
+          description: List of brand kits
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BrandKit"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: createBrandKit
+      tags: [brand-kits]
+      summary: Create a brand kit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandKitInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandKit"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}:
+    get:
+      operationId: getBrandKit
+      tags: [brand-kits]
+      summary: Get a brand kit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Brand kit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandKit"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: updateBrandKit
+      tags: [brand-kits]
+      summary: Update a brand kit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandKitUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandKit"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteBrandKit
+      tags: [brand-kits]
+      summary: Delete a brand kit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /content:
+    get:
+      operationId: listContent
+      tags: [content]
+      summary: List content items
+      responses:
+        "200":
+          description: List of content items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ContentItem"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: createContent
+      tags: [content]
+      summary: Create a content item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContentInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentItem"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /content/{id}:
+    get:
+      operationId: getContent
+      tags: [content]
+      summary: Get a content item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Content item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentItem"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: updateContent
+      tags: [content]
+      summary: Update a content item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContentUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentItem"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteContent
+      tags: [content]
+      summary: Delete a content item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /ai/generate-caption:
+    post:
+      operationId: generateCaption
+      tags: [ai]
+      summary: Generate an AI caption with hashtags
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CaptionRequest"
+      responses:
+        "200":
+          description: Generated caption
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaptionResult"
+        "402":
+          description: Quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/generate-image:
+    post:
+      operationId: generateImage
+      tags: [ai]
+      summary: Generate an AI image and persist it to storage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImageRequest"
+      responses:
+        "200":
+          description: Generated image
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageResult"
+        "402":
+          description: Quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /schedules:
+    get:
+      operationId: listSchedules
+      tags: [schedules]
+      summary: List scheduled posts
+      responses:
+        "200":
+          description: List of scheduled posts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScheduledPost"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: createSchedule
+      tags: [schedules]
+      summary: Schedule a content item for publishing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduledPost"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /schedules/{id}:
+    patch:
+      operationId: updateSchedule
+      tags: [schedules]
+      summary: Update a scheduled post
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduledPost"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteSchedule
+      tags: [schedules]
+      summary: Cancel a scheduled post
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /accounts:
+    get:
+      operationId: listAccounts
+      tags: [accounts]
+      summary: List connected social accounts
+      responses:
+        "200":
+          description: List of connected accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConnectedAccount"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: createAccount
+      tags: [accounts]
+      summary: Connect a social account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectedAccount"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /accounts/{id}:
+    delete:
+      operationId: deleteAccount
+      tags: [accounts]
+      summary: Disconnect a social account
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /storage/uploads/request-url:
+    post:
+      tags: [Storage]
+      operationId: requestUploadUrl
+      summary: Request a presigned URL for file upload
+      description: |
+        Returns a presigned GCS URL for direct upload. The client sends JSON
+        metadata here, then uploads the file directly to the returned URL.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadUrlRequest"
+      responses:
+        "200":
+          description: Presigned upload URL generated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadUrlResponse"
+        "400":
+          description: Missing or invalid required fields.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Failed to generate upload URL.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /storage/public-objects/{filePath}:
+    get:
+      tags: [Storage]
+      operationId: getPublicObject
+      summary: Serve a public asset from PUBLIC_OBJECT_SEARCH_PATHS
+      description: |
+        Unconditionally public — no authentication or ACL checks.
+      parameters:
+        - name: filePath
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Relative file path within the public search paths.
+      responses:
+        "200":
+          description: Object content streamed with correct Content-Type.
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: File not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Failed to serve public object.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /storage/objects/{objectPath}:
+    get:
+      tags: [Storage]
+      operationId: getStorageObject
+      summary: Serve an object entity from PRIVATE_OBJECT_DIR
+      parameters:
+        - name: objectPath
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Object path within the private object dir (e.g. `uploads/some-uuid`).
+      responses:
+        "200":
+          description: Object content streamed with correct Content-Type.
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Object not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Failed to serve object.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
 components:
   schemas:
     HealthStatus:
@@ -33,4 +655,396 @@ components:
           type: string
       required:
         - status
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
 
+    Tenant:
+      type: object
+      required: [id, name, plan, aiModel, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        plan:
+          type: string
+        aiModel:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    TenantSettings:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        plan:
+          type: string
+          enum: [free, pro, business]
+        aiModel:
+          type: string
+          minLength: 1
+    Usage:
+      type: object
+      required: [captions, images, periodStart]
+      properties:
+        captions:
+          type: integer
+        images:
+          type: integer
+        periodStart:
+          type: string
+          format: date-time
+    PlanLimits:
+      type: object
+      required: [captions, images, brandKits, scheduledPosts]
+      properties:
+        captions:
+          type: integer
+          description: Monthly caption generation limit. -1 means unlimited.
+        images:
+          type: integer
+          description: Monthly image generation limit. -1 means unlimited.
+        brandKits:
+          type: integer
+          description: Max brand kits. -1 means unlimited.
+        scheduledPosts:
+          type: integer
+          description: Max scheduled posts. -1 means unlimited.
+    MeProfile:
+      type: object
+      required: [tenant, usage, limits]
+      properties:
+        tenant:
+          $ref: "#/components/schemas/Tenant"
+        usage:
+          $ref: "#/components/schemas/Usage"
+        limits:
+          $ref: "#/components/schemas/PlanLimits"
+    Plan:
+      type: object
+      required: [id, name, priceLabel, limits, features]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        priceLabel:
+          type: string
+        limits:
+          $ref: "#/components/schemas/PlanLimits"
+        features:
+          type: array
+          items:
+            type: string
+
+    BrandKit:
+      type: object
+      required:
+        - id
+        - name
+        - primaryColor
+        - secondaryColor
+        - accentColor
+        - voice
+        - hashtags
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        primaryColor:
+          type: string
+        secondaryColor:
+          type: string
+        accentColor:
+          type: string
+        voice:
+          type: string
+        hashtags:
+          type: array
+          items:
+            type: string
+        logoPath:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    BrandKitInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        primaryColor:
+          type: string
+        secondaryColor:
+          type: string
+        accentColor:
+          type: string
+        voice:
+          type: string
+        hashtags:
+          type: array
+          items:
+            type: string
+        logoPath:
+          type: ["string", "null"]
+    BrandKitUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        primaryColor:
+          type: string
+        secondaryColor:
+          type: string
+        accentColor:
+          type: string
+        voice:
+          type: string
+        hashtags:
+          type: array
+          items:
+            type: string
+        logoPath:
+          type: ["string", "null"]
+
+    ContentItem:
+      type: object
+      required:
+        - id
+        - title
+        - caption
+        - platform
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        caption:
+          type: string
+        imagePath:
+          type: ["string", "null"]
+        imagePrompt:
+          type: ["string", "null"]
+        platform:
+          type: string
+        status:
+          type: string
+        brandKitId:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ContentInput:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        caption:
+          type: string
+        imagePath:
+          type: ["string", "null"]
+        imagePrompt:
+          type: ["string", "null"]
+        platform:
+          type: string
+        status:
+          type: string
+          enum: [draft, scheduled, published]
+        brandKitId:
+          type: ["integer", "null"]
+    ContentUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+        caption:
+          type: string
+        imagePath:
+          type: ["string", "null"]
+        imagePrompt:
+          type: ["string", "null"]
+        platform:
+          type: string
+        status:
+          type: string
+          enum: [draft, scheduled, published]
+        brandKitId:
+          type: ["integer", "null"]
+
+    CaptionRequest:
+      type: object
+      required: [prompt]
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          description: Topic or idea for the post.
+        platform:
+          type: string
+        brandKitId:
+          type: ["integer", "null"]
+        tone:
+          type: string
+    CaptionResult:
+      type: object
+      required: [caption, hashtags]
+      properties:
+        caption:
+          type: string
+        hashtags:
+          type: array
+          items:
+            type: string
+    ImageRequest:
+      type: object
+      required: [prompt]
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+        size:
+          type: string
+          enum: ["1024x1024", "1536x1024", "1024x1536"]
+        brandKitId:
+          type: ["integer", "null"]
+    ImageResult:
+      type: object
+      required: [imagePath, b64Json]
+      properties:
+        imagePath:
+          type: string
+        b64Json:
+          type: string
+
+    ScheduledPost:
+      type: object
+      required:
+        - id
+        - contentItemId
+        - platform
+        - scheduledAt
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: integer
+        contentItemId:
+          type: integer
+        platform:
+          type: string
+        scheduledAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ScheduleInput:
+      type: object
+      required: [contentItemId, platform, scheduledAt]
+      properties:
+        contentItemId:
+          type: integer
+        platform:
+          type: string
+          minLength: 1
+        scheduledAt:
+          type: string
+          format: date-time
+    ScheduleUpdate:
+      type: object
+      properties:
+        platform:
+          type: string
+          minLength: 1
+        scheduledAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [pending, published, failed, cancelled]
+
+    ConnectedAccount:
+      type: object
+      required: [id, platform, accountName, status, createdAt]
+      properties:
+        id:
+          type: integer
+        platform:
+          type: string
+        accountName:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    AccountInput:
+      type: object
+      required: [platform, accountName]
+      properties:
+        platform:
+          type: string
+          enum: [instagram, facebook, linkedin, youtube]
+        accountName:
+          type: string
+          minLength: 1
+
+    UploadUrlRequest:
+      type: object
+      required: [name, size, contentType]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Original file name.
+        size:
+          type: integer
+          minimum: 1
+          description: File size in bytes.
+        contentType:
+          type: string
+          minLength: 1
+          description: MIME type of the file (e.g. `image/jpeg`).
+    UploadUrlResponse:
+      type: object
+      required: [uploadURL, objectPath]
+      properties:
+        uploadURL:
+          type: string
+          format: uri
+          description: Presigned GCS URL for PUT upload.
+        objectPath:
+          type: string
+          description: Normalized object path (e.g. `/objects/uploads/uuid`).
+        metadata:
+          $ref: "#/components/schemas/UploadUrlRequest"
