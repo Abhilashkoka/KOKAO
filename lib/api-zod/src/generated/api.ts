@@ -39,7 +39,8 @@ export const GetMeResponse = zod.object({
   "brandKits": zod.number().describe('Max brand kits. -1 means unlimited.'),
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
-  "isSuperadmin": zod.boolean().describe('Whether the current user has cross-tenant superadmin access.')
+  "isSuperadmin": zod.boolean().describe('Whether the current user has cross-tenant superadmin access.'),
+  "isOwner": zod.boolean().describe('Whether the current user is an allowlisted (root) owner. Only owners may grant or revoke the superadmin role for other tenants.')
 })
 
 
@@ -92,7 +93,8 @@ export const AdminListTenantsResponseItem = zod.object({
   "name": zod.string(),
   "plan": zod.string(),
   "aiModel": zod.string(),
-  "isSuperadmin": zod.boolean(),
+  "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
+  "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
   "createdAt": zod.coerce.date(),
   "counts": zod.object({
   "content": zod.number(),
@@ -126,7 +128,42 @@ export const AdminUpdateTenantPlanResponse = zod.object({
   "name": zod.string(),
   "plan": zod.string(),
   "aiModel": zod.string(),
-  "isSuperadmin": zod.boolean(),
+  "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
+  "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
+  "createdAt": zod.coerce.date(),
+  "counts": zod.object({
+  "content": zod.number(),
+  "brandKits": zod.number(),
+  "scheduledPosts": zod.number(),
+  "connectedAccounts": zod.number()
+}).optional(),
+  "usage": zod.object({
+  "captions": zod.number(),
+  "images": zod.number(),
+  "periodStart": zod.coerce.date()
+}).optional()
+})
+
+
+/**
+ * @summary Grant or revoke a tenant's superadmin role (superadmin only)
+ */
+export const AdminUpdateTenantSuperadminParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AdminUpdateTenantSuperadminBody = zod.object({
+  "isSuperadmin": zod.boolean()
+})
+
+export const AdminUpdateTenantSuperadminResponse = zod.object({
+  "id": zod.number(),
+  "email": zod.string().nullable(),
+  "name": zod.string(),
+  "plan": zod.string(),
+  "aiModel": zod.string(),
+  "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
+  "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
   "createdAt": zod.coerce.date(),
   "counts": zod.object({
   "content": zod.number(),

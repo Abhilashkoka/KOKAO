@@ -23,6 +23,16 @@ export async function requireSuperadmin(
   next: NextFunction,
 ): Promise<void> {
   try {
+    // Granted-in-app superadmins are trusted directly from the DB flag (loaded
+    // fresh each request by requireTenant) — no Clerk lookup needed.
+    if (req.tenantIsSuperadmin) {
+      req.isSuperadmin = true;
+      next();
+      return;
+    }
+
+    // Otherwise this can only be a "root" (allowlisted) superadmin, which must
+    // be verified against the live verified Clerk email.
     const liveEmail = await fetchVerifiedEmail(req.clerkUserId);
     if (!isSuperadminEmail(liveEmail)) {
       res.status(403).json({ error: "Forbidden" });

@@ -154,6 +154,48 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/tenants/{id}/superadmin:
+    patch:
+      operationId: adminUpdateTenantSuperadmin
+      tags: [admin]
+      summary: Grant or revoke a tenant's superadmin role (superadmin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTenantSuperadminBody"
+      responses:
+        "200":
+          description: Updated tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminTenant"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/stats:
     get:
       operationId: adminGetStats
@@ -795,7 +837,7 @@ components:
           description: Max scheduled posts. -1 means unlimited.
     MeProfile:
       type: object
-      required: [tenant, usage, limits, isSuperadmin]
+      required: [tenant, usage, limits, isSuperadmin, isOwner]
       properties:
         tenant:
           $ref: "#/components/schemas/Tenant"
@@ -806,6 +848,11 @@ components:
         isSuperadmin:
           type: boolean
           description: Whether the current user has cross-tenant superadmin access.
+        isOwner:
+          type: boolean
+          description: >-
+            Whether the current user is an allowlisted (root) owner. Only owners
+            may grant or revoke the superadmin role for other tenants.
     Plan:
       type: object
       required: [id, name, priceLabel, limits, features]
@@ -837,7 +884,8 @@ components:
           type: integer
     AdminTenant:
       type: object
-      required: [id, email, name, plan, aiModel, isSuperadmin, createdAt]
+      required:
+        [id, email, name, plan, aiModel, isSuperadmin, isAllowlisted, createdAt]
       properties:
         id:
           type: integer
@@ -851,6 +899,12 @@ components:
           type: string
         isSuperadmin:
           type: boolean
+          description: Effective superadmin status (granted in-app or allowlisted).
+        isAllowlisted:
+          type: boolean
+          description: >-
+            Built-in/env allowlisted superadmin. Locked: cannot be revoked
+            in-app.
         createdAt:
           type: string
           format: date-time
@@ -892,6 +946,12 @@ components:
         plan:
           type: string
           enum: [free, pro, business]
+    UpdateTenantSuperadminBody:
+      type: object
+      required: [isSuperadmin]
+      properties:
+        isSuperadmin:
+          type: boolean
 
     BrandKit:
       type: object

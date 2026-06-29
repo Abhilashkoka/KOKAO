@@ -32,7 +32,7 @@ SocialForge is a multi-tenant SaaS web app for AI-powered social media content: 
 - API routes: `artifacts/api-server/src/routes/` — auth gating lives in `routes/index.ts`
 - Tenant provisioning: `artifacts/api-server/src/middlewares/requireTenant.ts`
 - Plan limits / quota helpers: `artifacts/api-server/src/lib/plans.ts`, `lib/usage.ts`
-- Superadmin: allowlist `artifacts/api-server/src/lib/superadmins.ts`, gate `middlewares/requireSuperadmin.ts`, routes `routes/admin.ts`, live verified-email helper `lib/clerkUser.ts`, page `artifacts/socialforge/src/pages/admin.tsx`
+- Superadmin: allowlist `artifacts/api-server/src/lib/superadmins.ts`, grantable DB flag `tenants.isSuperadmin`, gate `middlewares/requireSuperadmin.ts`, routes `routes/admin.ts` (owner-only `PATCH /admin/tenants/:id/superadmin`), live verified-email helper `lib/clerkUser.ts`, page `artifacts/socialforge/src/pages/admin.tsx`
 - Frontend: `artifacts/socialforge/src/`
 
 ## Architecture decisions
@@ -42,7 +42,9 @@ SocialForge is a multi-tenant SaaS web app for AI-powered social media content: 
 - Quotas: AI caption/image endpoints enforce per-tenant monthly limits and return HTTP 402 when exceeded; usage is metered via `usageEvents`.
 - AI is owner/tenant-configurable via `tenant.aiModel`. Images go to object storage; endpoints return both a stored `imagePath` and `b64Json` for instant preview.
 - Web auth uses Clerk session cookies (same-origin via proxy) — the frontend does NOT use `setAuthTokenGetter` or a custom API base URL.
-- Cross-tenant superadmin is designated by an email allowlist (built-in `abhilash.koka1@gmail.com`, extendable via `SUPERADMIN_EMAILS` env). The `/admin/*` gate (`requireSuperadmin`) checks the user's LIVE verified Clerk email each request — only verified emails count, and it fails closed (403) on any Clerk error. The cached `tenants.email` column is only a UI hint (drives `/me` `isSuperadmin` and the nav link); it is never the security boundary. Do not gate authorization on the cached column.
+- Cross-tenant superadmin is BOTH a permanent email allowlist (built-in `abhilash.koka1@gmail.com`, extendable via `SUPERADMIN_EMAILS` env) AND a grantable per-tenant DB flag (`tenants.isSuperadmin`). Effective superadmin = DB flag OR allowlisted email. The `/admin/*` gate (`requireSuperadmin`) trusts the DB flag as a fast-path (read fresh each request, so revoke is immediate), otherwise falls back to checking the user's LIVE verified Clerk email — only verified emails count, and it fails closed (403) on any Clerk error. The cached `tenants.email` column is only a UI hint (drives `/me` `isSuperadmin`/`isOwner` and the nav link); it is never the security boundary. Do not gate authorization on the cached column.
+- Role management (grant/revoke superadmin) is OWNER-ONLY: `PATCH /admin/tenants/:id/superadmin` independently re-checks that the ACTOR is allowlisted via their LIVE verified email (a merely granted superadmin cannot mint/remove superadmins) and rejects writes whose TARGET is allowlisted (owners are permanent, shown as "Owner" with a locked toggle). `/me` exposes `isOwner` so the UI disables role controls for non-owner superadmins.
+- Frontend admin page denies access when ANY admin endpoint returns 403 (authoritative), not just on the cached `me.isSuperadmin` — React Query serves that stale after a live revoke, so a revoked user would otherwise keep seeing the dashboard.
 
 ## Product
 
@@ -52,7 +54,7 @@ SocialForge is a multi-tenant SaaS web app for AI-powered social media content: 
 - Scheduling: schedule posts to a calendar (records only for now).
 - Connected accounts: Instagram/Facebook/LinkedIn/YouTube records (no live OAuth yet).
 - Settings: workspace name, AI model, plan; view available plans.
-- Admin dashboard (superadmin only, `/admin`): platform stats, all-tenants table with counts/usage, and per-tenant plan changes.
+- Admin dashboard (superadmin only, `/admin`): platform stats, all-tenants table with counts/usage, per-tenant plan changes, and (owners only) grant/revoke of the superadmin role per tenant.
 
 ## User preferences
 

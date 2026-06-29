@@ -15,7 +15,10 @@ export interface AdminTenant {
   name: string;
   plan: string;
   aiModel: string;
+  /** Effective superadmin status (granted in-app or allowlisted). */
   isSuperadmin: boolean;
+  /** Built-in/env allowlisted superadmin. Locked: cannot be revoked in-app. */
+  isAllowlisted: boolean;
   createdAt: Date;
   counts?: AdminTenantCounts;
   usage?: Usage;

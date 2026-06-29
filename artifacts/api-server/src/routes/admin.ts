@@ -10,9 +10,14 @@ import {
 } from "@workspace/db";
 import { eq, sql, desc, gte } from "drizzle-orm";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
-import { AdminUpdateTenantPlanBody } from "@workspace/api-zod";
+import {
+  AdminUpdateTenantPlanBody,
+  AdminUpdateTenantSuperadminBody,
+} from "@workspace/api-zod";
 import { isSuperadminEmail } from "../lib/superadmins";
+import { fetchVerifiedEmail } from "../lib/clerkUser";
 import { currentPeriodStart } from "../lib/usage";
+import type { Tenant } from "@workspace/db";
 
 const router: IRouter = Router();
 
@@ -27,6 +32,21 @@ router.param("id", (req, res, next, value) => {
   }
   next();
 });
+
+function serializeAdminTenant(t: Tenant) {
+  const isAllowlisted = isSuperadminEmail(t.email);
+  return {
+    id: t.id,
+    email: t.email ?? null,
+    name: t.name,
+    plan: t.plan,
+    aiModel: t.aiModel,
+    // Effective: granted in-app OR allowlisted by email.
+    isSuperadmin: t.isSuperadmin || isAllowlisted,
+    isAllowlisted,
+    createdAt: t.createdAt.toISOString(),
+  };
+}
 
 async function countByTenant(
   table:
@@ -85,13 +105,7 @@ router.get("/admin/tenants", async (_req: Request, res: Response) => {
 
   res.json(
     tenants.map((t) => ({
-      id: t.id,
-      email: t.email ?? null,
-      name: t.name,
-      plan: t.plan,
-      aiModel: t.aiModel,
-      isSuperadmin: isSuperadminEmail(t.email),
-      createdAt: t.createdAt.toISOString(),
+      ...serializeAdminTenant(t),
       counts: {
         content: contentCounts.get(t.id) ?? 0,
         brandKits: brandKitCounts.get(t.id) ?? 0,
@@ -169,15 +183,69 @@ router.patch("/admin/tenants/:id", async (req: Request, res: Response) => {
     return;
   }
 
-  res.json({
-    id: updated.id,
-    email: updated.email ?? null,
-    name: updated.name,
-    plan: updated.plan,
-    aiModel: updated.aiModel,
-    isSuperadmin: isSuperadminEmail(updated.email),
-    createdAt: updated.createdAt.toISOString(),
-  });
+  res.json(serializeAdminTenant(updated));
 });
+
+/**
+ * PATCH /admin/tenants/:id/superadmin
+ * Grant or revoke the in-app superadmin role for a tenant.
+ *
+ * Authorization: restricted to allowlisted (root) OWNERS — a merely granted
+ * superadmin must not be able to mint or remove other superadmins. The actor's
+ * LIVE verified Clerk email is resolved here so a stale cached flag can never
+ * authorize role management; it fails closed.
+ *
+ * Allowlisted owners are permanent: their access derives from the email
+ * allowlist, not this flag, so writes against an allowlisted target (including
+ * self) are rejected to keep the DB state semantically clean and to prevent
+ * self-lockout.
+ */
+router.patch(
+  "/admin/tenants/:id/superadmin",
+  async (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    const parsed = AdminUpdateTenantSuperadminBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+
+    const actorEmail = await fetchVerifiedEmail(req.clerkUserId);
+    if (!isSuperadminEmail(actorEmail)) {
+      res
+        .status(403)
+        .json({ error: "Only owners can change superadmin roles" });
+      return;
+    }
+
+    const target = (
+      await db.select().from(tenantsTable).where(eq(tenantsTable.id, id))
+    )[0];
+    if (!target) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+
+    if (isSuperadminEmail(target.email)) {
+      res.status(400).json({ error: "Allowlisted owners cannot be modified" });
+      return;
+    }
+
+    const updated = (
+      await db
+        .update(tenantsTable)
+        .set({ isSuperadmin: parsed.data.isSuperadmin, updatedAt: new Date() })
+        .where(eq(tenantsTable.id, id))
+        .returning()
+    )[0];
+
+    if (!updated) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+
+    res.json(serializeAdminTenant(updated));
+  },
+);
 
 export default router;

@@ -2,6 +2,7 @@ import {
   useAdminListTenants,
   useAdminGetStats,
   useAdminUpdateTenantPlan,
+  useAdminUpdateTenantSuperadmin,
   getAdminListTenantsQueryKey,
   getAdminGetStatsQueryKey,
   useGetMe,
@@ -30,6 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Users, Layers, Calendar, Share2, ShieldAlert } from "lucide-react";
@@ -40,16 +42,41 @@ const PLAN_LABELS: Record<string, string> = {
   business: "Business",
 };
 
+function isForbidden(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    (error as { status?: number }).status === 403
+  );
+}
+
 export function AdminPage() {
   const { data: me } = useGetMe();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: tenants, isLoading: tenantsLoading } = useAdminListTenants();
-  const { data: stats, isLoading: statsLoading } = useAdminGetStats();
+  const {
+    data: tenants,
+    isLoading: tenantsLoading,
+    error: tenantsError,
+  } = useAdminListTenants();
+  const {
+    data: stats,
+    isLoading: statsLoading,
+    error: statsError,
+  } = useAdminGetStats();
   const updatePlan = useAdminUpdateTenantPlan();
+  const updateSuperadmin = useAdminUpdateTenantSuperadmin();
 
-  if (me && !me.isSuperadmin) {
+  // Deny on the cached hint OR when the server authoritatively returns 403 —
+  // the latter covers live revocation even while `me` is still stale-cached.
+  const accessDenied =
+    (me && !me.isSuperadmin) ||
+    isForbidden(tenantsError) ||
+    isForbidden(statsError);
+
+  if (accessDenied) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <ShieldAlert className="h-12 w-12 text-muted-foreground mb-4" />
@@ -78,6 +105,32 @@ export function AdminPage() {
           toast({
             title: "Update failed",
             description: "Could not update the tenant plan.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handleSuperadminChange = (tenantId: number, isSuperadmin: boolean) => {
+    updateSuperadmin.mutate(
+      { id: tenantId, data: { isSuperadmin } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminListTenantsQueryKey(),
+          });
+          toast({
+            title: isSuperadmin ? "Superadmin granted" : "Superadmin revoked",
+            description: isSuperadmin
+              ? "This workspace now has admin access."
+              : "Admin access removed from this workspace.",
+          });
+        },
+        onError: () => {
+          toast({
+            title: "Update failed",
+            description: "Could not change superadmin access.",
             variant: "destructive",
           });
         },
@@ -166,6 +219,7 @@ export function AdminPage() {
                     <TableHead className="text-right">Brand Kits</TableHead>
                     <TableHead className="text-right">Accounts</TableHead>
                     <TableHead>Plan</TableHead>
+                    <TableHead>Superadmin</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -216,6 +270,30 @@ export function AdminPage() {
                             <SelectItem value="business">Business</SelectItem>
                           </SelectContent>
                         </Select>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={t.isSuperadmin}
+                            disabled={
+                              !me?.isOwner ||
+                              t.isAllowlisted ||
+                              updateSuperadmin.isPending
+                            }
+                            onCheckedChange={(checked) =>
+                              handleSuperadminChange(t.id, checked)
+                            }
+                            aria-label={`Toggle superadmin for ${t.name}`}
+                          />
+                          {t.isAllowlisted && (
+                            <span
+                              className="text-xs text-muted-foreground"
+                              title="Built-in superadmin set via the allowlist; cannot be changed here."
+                            >
+                              Owner
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

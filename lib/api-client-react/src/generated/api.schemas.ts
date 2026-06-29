@@ -61,6 +61,8 @@ export interface MeProfile {
   limits: PlanLimits;
   /** Whether the current user has cross-tenant superadmin access. */
   isSuperadmin: boolean;
+  /** Whether the current user is an allowlisted (root) owner. Only owners may grant or revoke the superadmin role for other tenants. */
+  isOwner: boolean;
 }
 
 export interface Plan {
@@ -85,7 +87,10 @@ export interface AdminTenant {
   name: string;
   plan: string;
   aiModel: string;
+  /** Effective superadmin status (granted in-app or allowlisted). */
   isSuperadmin: boolean;
+  /** Built-in/env allowlisted superadmin. Locked: cannot be revoked in-app. */
+  isAllowlisted: boolean;
   createdAt: string;
   counts?: AdminTenantCounts;
   usage?: Usage;
@@ -116,6 +121,10 @@ export const UpdateTenantPlanBodyPlan = {
 
 export interface UpdateTenantPlanBody {
   plan: UpdateTenantPlanBodyPlan;
+}
+
+export interface UpdateTenantSuperadminBody {
+  isSuperadmin: boolean;
 }
 
 export interface BrandKit {

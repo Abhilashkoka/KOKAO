@@ -5,6 +5,7 @@ import { UpdateSettingsBody } from "@workspace/api-zod";
 import { serializeTenant } from "../lib/serializers";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage } from "../lib/usage";
+import { isSuperadminEmail } from "../lib/superadmins";
 
 const router: IRouter = Router();
 
@@ -30,6 +31,9 @@ router.get("/me", async (req: Request, res: Response) => {
     },
     limits: getPlanLimits(tenant.plan),
     isSuperadmin: req.isSuperadmin,
+    // UI hint only: role-management authorization is enforced server-side
+    // against the live verified email in the admin route.
+    isOwner: isSuperadminEmail(tenant.email),
   });
 });
 

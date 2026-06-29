@@ -44,6 +44,7 @@ import type {
   Tenant,
   TenantSettings,
   UpdateTenantPlanBody,
+  UpdateTenantSuperadminBody,
   UploadUrlRequest,
   UploadUrlResponse
 } from './api.schemas';
@@ -523,6 +524,77 @@ export const useAdminUpdateTenantPlan = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAdminUpdateTenantPlanMutationOptions(options));
+    }
+
+export const getAdminUpdateTenantSuperadminUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/tenants/${id}/superadmin`
+}
+
+/**
+ * @summary Grant or revoke a tenant's superadmin role (superadmin only)
+ */
+export const adminUpdateTenantSuperadmin = async (id: number,
+    updateTenantSuperadminBody: UpdateTenantSuperadminBody, options?: RequestInit): Promise<AdminTenant> => {
+
+  return customFetch<AdminTenant>(getAdminUpdateTenantSuperadminUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateTenantSuperadminBody)
+  }
+);}
+
+
+
+
+export const getAdminUpdateTenantSuperadminMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateTenantSuperadmin>>, TError,{id: number;data: BodyType<UpdateTenantSuperadminBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateTenantSuperadmin>>, TError,{id: number;data: BodyType<UpdateTenantSuperadminBody>}, TContext> => {
+
+const mutationKey = ['adminUpdateTenantSuperadmin'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateTenantSuperadmin>>, {id: number;data: BodyType<UpdateTenantSuperadminBody>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminUpdateTenantSuperadmin(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateTenantSuperadminMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateTenantSuperadmin>>>
+    export type AdminUpdateTenantSuperadminMutationBody = BodyType<UpdateTenantSuperadminBody>
+    export type AdminUpdateTenantSuperadminMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Grant or revoke a tenant's superadmin role (superadmin only)
+ */
+export const useAdminUpdateTenantSuperadmin = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateTenantSuperadmin>>, TError,{id: number;data: BodyType<UpdateTenantSuperadminBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateTenantSuperadmin>>,
+        TError,
+        {id: number;data: BodyType<UpdateTenantSuperadminBody>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateTenantSuperadminMutationOptions(options));
     }
 
 export const getAdminGetStatsUrl = () => {

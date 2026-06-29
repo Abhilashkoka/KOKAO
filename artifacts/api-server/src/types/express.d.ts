@@ -7,6 +7,7 @@ declare global {
       clerkUserId: string;
       tenantEmail: string | null;
       isSuperadmin: boolean;
+      tenantIsSuperadmin: boolean;
     }
   }
 }

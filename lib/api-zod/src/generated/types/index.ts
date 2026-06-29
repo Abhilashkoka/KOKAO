@@ -40,6 +40,7 @@ export * from './tenantSettings';
 export * from './tenantSettingsPlan';
 export * from './updateTenantPlanBody';
 export * from './updateTenantPlanBodyPlan';
+export * from './updateTenantSuperadminBody';
 export * from './uploadUrlRequest';
 export * from './uploadUrlResponse';
 export * from './usage';

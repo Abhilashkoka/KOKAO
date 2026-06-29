@@ -15,4 +15,6 @@ export interface MeProfile {
   limits: PlanLimits;
   /** Whether the current user has cross-tenant superadmin access. */
   isSuperadmin: boolean;
+  /** Whether the current user is an allowlisted (root) owner. Only owners may grant or revoke the superadmin role for other tenants. */
+  isOwner: boolean;
 }

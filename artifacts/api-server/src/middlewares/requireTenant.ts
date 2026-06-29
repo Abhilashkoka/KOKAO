@@ -78,7 +78,10 @@ export async function requireTenant(
     req.tenantId = tenant.id;
     req.clerkUserId = clerkUserId;
     req.tenantEmail = tenant.email ?? null;
-    req.isSuperadmin = isSuperadminEmail(tenant.email);
+    // Granted-in-app flag (DB-backed), trusted directly by requireSuperadmin.
+    req.tenantIsSuperadmin = tenant.isSuperadmin;
+    // Effective hint for the UI (/me): granted in-app OR allowlisted by email.
+    req.isSuperadmin = tenant.isSuperadmin || isSuperadminEmail(tenant.email);
     next();
   } catch (error) {
     req.log.error({ err: error }, "Failed to resolve tenant");
