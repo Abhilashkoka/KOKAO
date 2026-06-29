@@ -18,28 +18,61 @@ interface ManagedPage {
 }
 
 /**
- * The configured FACEBOOK_PAGE_ACCESS_TOKEN is treated as a USER access token
- * with pages_show_list / pages_read_engagement / pages_manage_posts. We resolve
- * the per-Page access token at request time via /me/accounts so a Page token is
- * always fresh and the user can choose which Page to publish to.
+ * Resolve the Facebook Page(s) the configured FACEBOOK_PAGE_ACCESS_TOKEN can
+ * publish to. The token may be either:
+ *  - a USER access token (pages_show_list/pages_manage_posts): we list managed
+ *    Pages via /me/accounts and use each Page's own access token; or
+ *  - a PAGE access token: /me/accounts is empty, so the token itself is the
+ *    Page token and /me resolves to that single Page.
+ * Supporting both means the user can paste whichever token Graph API Explorer
+ * hands them.
  */
 async function fetchManagedPages(): Promise<ManagedPage[]> {
-  const userToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
-  if (!userToken) {
+  const token = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
+  if (!token) {
     throw new Error("FACEBOOK_PAGE_ACCESS_TOKEN is not configured");
   }
-  const url = `${GRAPH_BASE}/me/accounts?fields=id,name,access_token&access_token=${encodeURIComponent(
-    userToken,
-  )}`;
-  const res = await fetch(url);
-  const json = (await res.json()) as {
+
+  // Try the user-token path first.
+  const accRes = await fetch(
+    `${GRAPH_BASE}/me/accounts?fields=id,name,access_token&access_token=${encodeURIComponent(
+      token,
+    )}`,
+  );
+  const accJson = (await accRes.json()) as {
     data?: ManagedPage[];
     error?: { message?: string };
   };
-  if (!res.ok || json.error) {
-    throw new Error(json.error?.message || `Facebook API error (${res.status})`);
+  if (accRes.ok && Array.isArray(accJson.data) && accJson.data.length > 0) {
+    return accJson.data;
   }
-  return json.data ?? [];
+
+  // Fall back to treating it as a Page token: /me resolves to the Page itself.
+  const meRes = await fetch(
+    `${GRAPH_BASE}/me?fields=id,name,category&access_token=${encodeURIComponent(
+      token,
+    )}`,
+  );
+  const meJson = (await meRes.json()) as {
+    id?: string;
+    name?: string;
+    category?: string;
+    error?: { message?: string };
+  };
+  if (!meRes.ok || meJson.error) {
+    throw new Error(
+      meJson.error?.message ||
+        accJson.error?.message ||
+        `Facebook API error (${meRes.status})`,
+    );
+  }
+  // A Page identity carries a `category`; a user identity does not.
+  if (meJson.id && meJson.category) {
+    return [{ id: meJson.id, name: meJson.name ?? "Facebook Page", access_token: token }];
+  }
+
+  // Valid user token but no managed Pages.
+  return [];
 }
 
 router.param("id", (req, res, next, value) => {
