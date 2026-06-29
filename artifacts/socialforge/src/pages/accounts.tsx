@@ -22,6 +22,25 @@ const ICONS: Record<string, any> = {
   youtube: { icon: Youtube, color: "text-red-600", bg: "bg-red-600/10" },
 };
 
+const HANDLE_HINTS: Record<string, { placeholder: string; hint: string }> = {
+  instagram: {
+    placeholder: "@yourbrand",
+    hint: "Open the Instagram app or instagram.com and go to your profile. Your handle is the @username shown at the top of your profile.",
+  },
+  facebook: {
+    placeholder: "Your Page name",
+    hint: "Go to facebook.com and open your Page. The name appears at the top of the Page, and the @handle is shown under it (Page Settings > Username).",
+  },
+  linkedin: {
+    placeholder: "Your name or company",
+    hint: "On linkedin.com, open your profile or company page. Your public handle is in the URL, e.g. linkedin.com/in/your-handle or /company/your-company.",
+  },
+  youtube: {
+    placeholder: "@yourchannel",
+    hint: "On youtube.com, click your avatar > Your channel. Your handle is the @name shown under the channel title (or in Settings > Channel).",
+  },
+};
+
 export function AccountsPage() {
   const { data: accounts, isLoading } = useListAccounts();
   const createAccount = useCreateAccount();
@@ -141,7 +160,14 @@ export function AccountsPage() {
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Account Handle / Name</label>
-              <Input value={accountName} onChange={e => setAccountName(e.target.value)} placeholder="@yourbrand" />
+              <Input
+                value={accountName}
+                onChange={e => setAccountName(e.target.value)}
+                placeholder={HANDLE_HINTS[platform]?.placeholder ?? "@yourbrand"}
+              />
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {HANDLE_HINTS[platform]?.hint}
+              </p>
             </div>
           </div>
           <DialogFooter>
