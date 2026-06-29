@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Share2, Plus, Trash2, CheckCircle2, Instagram, Facebook, Linkedin, Youtube } from "lucide-react";
+import { Share2, Plus, Trash2, CheckCircle2, Instagram, Facebook, Linkedin, Youtube, Loader2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const ICONS: Record<string, any> = {
@@ -62,7 +62,14 @@ export function AccountsPage() {
         queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
         setOpen(false);
         setAccountName("");
-      }
+      },
+      onError: (err: any) => {
+        toast({
+          variant: "destructive",
+          title: "Couldn't connect account",
+          description: err?.response?.data?.message || err?.message || "Please try again.",
+        });
+      },
     });
   };
 
@@ -171,8 +178,14 @@ export function AccountsPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={createAccount.isPending || !accountName}>Connect</Button>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={createAccount.isPending}>Cancel</Button>
+            <Button onClick={handleCreate} disabled={createAccount.isPending || !accountName}>
+              {createAccount.isPending ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Connecting...</>
+              ) : (
+                "Connect"
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
