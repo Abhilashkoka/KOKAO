@@ -1,3 +1,4 @@
 - [Express router auth gating](express-router-auth-gating.md) — an unpathed `router.use(mw)` inside a sub-router runs for ALL requests passing through it; gate auth once, public routers first.
 - [Object storage default ACL](object-storage-default-acl.md) — the storage scaffold ships private-object GET + upload-url routes unauthenticated; re-gate them before shipping.
 - [Superadmin authz via live verified email](superadmin-live-email-authz.md) — gate role on live verified Clerk email, not a cached column; effective=DB flag OR allowlist; grant/revoke is owner-only; admin UI must deny on 403, not stale me.
+- [Server-side URL fetch SSRF guard](server-side-url-fetch-ssrf.md) — any endpoint fetching a user URL must block private/loopback IPs incl. all IPv6-mapped IPv4 forms (canonicalize to bytes, don't string-match), re-validate redirects, cap body.

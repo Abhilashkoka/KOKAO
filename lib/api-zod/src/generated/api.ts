@@ -459,6 +459,62 @@ export const GenerateImageResponse = zod.object({
 
 
 /**
+ * @summary Suggest trending post topic ideas for a niche
+ */
+
+
+
+export const SuggestTopicsBody = zod.object({
+  "niche": zod.string().min(1).describe('The niche or topic area to brainstorm ideas for.'),
+  "brandKitId": zod.number().nullish()
+})
+
+export const SuggestTopicsResponse = zod.object({
+  "ideas": zod.array(zod.string())
+})
+
+
+/**
+ * @summary Fetch an article URL and summarize it into a title and summary
+ */
+
+
+
+export const SummarizeUrlBody = zod.object({
+  "url": zod.string().min(1).describe('The article URL to fetch and summarize.')
+})
+
+export const SummarizeUrlResponse = zod.object({
+  "title": zod.string(),
+  "summary": zod.string()
+})
+
+
+/**
+ * @summary Generate tailored captions and image prompts for multiple platforms in one run
+ */
+
+
+
+
+export const GenerateCampaignBody = zod.object({
+  "prompt": zod.string().min(1).describe('Topic, idea, or summary to base the campaign on.'),
+  "platforms": zod.array(zod.string()).min(1).describe('Target platforms (e.g. instagram, facebook, linkedin, twitter).'),
+  "brandKitId": zod.number().nullish(),
+  "tone": zod.string().optional()
+})
+
+export const GenerateCampaignResponse = zod.object({
+  "posts": zod.array(zod.object({
+  "platform": zod.string(),
+  "caption": zod.string(),
+  "hashtags": zod.array(zod.string()),
+  "imagePrompt": zod.string()
+}))
+})
+
+
+/**
  * @summary List scheduled posts
  */
 export const ListSchedulesResponseItem = zod.object({

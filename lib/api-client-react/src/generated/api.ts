@@ -26,6 +26,8 @@ import type {
   BrandKit,
   BrandKitInput,
   BrandKitUpdate,
+  CampaignRequest,
+  CampaignResult,
   CaptionRequest,
   CaptionResult,
   ConnectedAccount,
@@ -41,8 +43,12 @@ import type {
   ScheduleInput,
   ScheduleUpdate,
   ScheduledPost,
+  SummarizeUrlRequest,
+  SummarizeUrlResult,
   Tenant,
   TenantSettings,
+  TopicIdeasRequest,
+  TopicIdeasResult,
   UpdateTenantPlanBody,
   UpdateTenantSuperadminBody,
   UploadUrlRequest,
@@ -1542,6 +1548,216 @@ export const useGenerateImage = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getGenerateImageMutationOptions(options));
+    }
+
+export const getSuggestTopicsUrl = () => {
+
+
+
+
+  return `/api/ai/suggest-topics`
+}
+
+/**
+ * @summary Suggest trending post topic ideas for a niche
+ */
+export const suggestTopics = async (topicIdeasRequest: TopicIdeasRequest, options?: RequestInit): Promise<TopicIdeasResult> => {
+
+  return customFetch<TopicIdeasResult>(getSuggestTopicsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(topicIdeasRequest)
+  }
+);}
+
+
+
+
+export const getSuggestTopicsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof suggestTopics>>, TError,{data: BodyType<TopicIdeasRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof suggestTopics>>, TError,{data: BodyType<TopicIdeasRequest>}, TContext> => {
+
+const mutationKey = ['suggestTopics'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof suggestTopics>>, {data: BodyType<TopicIdeasRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  suggestTopics(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SuggestTopicsMutationResult = NonNullable<Awaited<ReturnType<typeof suggestTopics>>>
+    export type SuggestTopicsMutationBody = BodyType<TopicIdeasRequest>
+    export type SuggestTopicsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Suggest trending post topic ideas for a niche
+ */
+export const useSuggestTopics = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof suggestTopics>>, TError,{data: BodyType<TopicIdeasRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof suggestTopics>>,
+        TError,
+        {data: BodyType<TopicIdeasRequest>},
+        TContext
+      > => {
+      return useMutation(getSuggestTopicsMutationOptions(options));
+    }
+
+export const getSummarizeUrlUrl = () => {
+
+
+
+
+  return `/api/ai/summarize-url`
+}
+
+/**
+ * @summary Fetch an article URL and summarize it into a title and summary
+ */
+export const summarizeUrl = async (summarizeUrlRequest: SummarizeUrlRequest, options?: RequestInit): Promise<SummarizeUrlResult> => {
+
+  return customFetch<SummarizeUrlResult>(getSummarizeUrlUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(summarizeUrlRequest)
+  }
+);}
+
+
+
+
+export const getSummarizeUrlMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof summarizeUrl>>, TError,{data: BodyType<SummarizeUrlRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof summarizeUrl>>, TError,{data: BodyType<SummarizeUrlRequest>}, TContext> => {
+
+const mutationKey = ['summarizeUrl'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof summarizeUrl>>, {data: BodyType<SummarizeUrlRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  summarizeUrl(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SummarizeUrlMutationResult = NonNullable<Awaited<ReturnType<typeof summarizeUrl>>>
+    export type SummarizeUrlMutationBody = BodyType<SummarizeUrlRequest>
+    export type SummarizeUrlMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Fetch an article URL and summarize it into a title and summary
+ */
+export const useSummarizeUrl = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof summarizeUrl>>, TError,{data: BodyType<SummarizeUrlRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof summarizeUrl>>,
+        TError,
+        {data: BodyType<SummarizeUrlRequest>},
+        TContext
+      > => {
+      return useMutation(getSummarizeUrlMutationOptions(options));
+    }
+
+export const getGenerateCampaignUrl = () => {
+
+
+
+
+  return `/api/ai/generate-campaign`
+}
+
+/**
+ * @summary Generate tailored captions and image prompts for multiple platforms in one run
+ */
+export const generateCampaign = async (campaignRequest: CampaignRequest, options?: RequestInit): Promise<CampaignResult> => {
+
+  return customFetch<CampaignResult>(getGenerateCampaignUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(campaignRequest)
+  }
+);}
+
+
+
+
+export const getGenerateCampaignMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateCampaign>>, TError,{data: BodyType<CampaignRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generateCampaign>>, TError,{data: BodyType<CampaignRequest>}, TContext> => {
+
+const mutationKey = ['generateCampaign'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generateCampaign>>, {data: BodyType<CampaignRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  generateCampaign(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GenerateCampaignMutationResult = NonNullable<Awaited<ReturnType<typeof generateCampaign>>>
+    export type GenerateCampaignMutationBody = BodyType<CampaignRequest>
+    export type GenerateCampaignMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Generate tailored captions and image prompts for multiple platforms in one run
+ */
+export const useGenerateCampaign = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateCampaign>>, TError,{data: BodyType<CampaignRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generateCampaign>>,
+        TError,
+        {data: BodyType<CampaignRequest>},
+        TContext
+      > => {
+      return useMutation(getGenerateCampaignMutationOptions(options));
     }
 
 export const getListSchedulesUrl = () => {

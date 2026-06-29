@@ -266,6 +266,60 @@ export interface ImageResult {
   b64Json: string;
 }
 
+export interface TopicIdeasRequest {
+  /**
+     * The niche or topic area to brainstorm ideas for.
+     * @minLength 1
+     */
+  niche: string;
+  /** @nullable */
+  brandKitId?: number | null;
+}
+
+export interface TopicIdeasResult {
+  ideas: string[];
+}
+
+export interface SummarizeUrlRequest {
+  /**
+     * The article URL to fetch and summarize.
+     * @minLength 1
+     */
+  url: string;
+}
+
+export interface SummarizeUrlResult {
+  title: string;
+  summary: string;
+}
+
+export interface CampaignRequest {
+  /**
+     * Topic, idea, or summary to base the campaign on.
+     * @minLength 1
+     */
+  prompt: string;
+  /**
+     * Target platforms (e.g. instagram, facebook, linkedin, twitter).
+     * @minItems 1
+     */
+  platforms: string[];
+  /** @nullable */
+  brandKitId?: number | null;
+  tone?: string;
+}
+
+export interface CampaignPost {
+  platform: string;
+  caption: string;
+  hashtags: string[];
+  imagePrompt: string;
+}
+
+export interface CampaignResult {
+  posts: CampaignPost[];
+}
+
 export interface ScheduledPost {
   id: number;
   contentItemId: number;

@@ -507,6 +507,90 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/suggest-topics:
+    post:
+      operationId: suggestTopics
+      tags: [ai]
+      summary: Suggest trending post topic ideas for a niche
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TopicIdeasRequest"
+      responses:
+        "200":
+          description: Topic ideas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TopicIdeasResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/summarize-url:
+    post:
+      operationId: summarizeUrl
+      tags: [ai]
+      summary: Fetch an article URL and summarize it into a title and summary
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SummarizeUrlRequest"
+      responses:
+        "200":
+          description: Article summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SummarizeUrlResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Could not fetch or parse the URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/generate-campaign:
+    post:
+      operationId: generateCampaign
+      tags: [ai]
+      summary: Generate tailored captions and image prompts for multiple platforms in one run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CampaignRequest"
+      responses:
+        "200":
+          description: Generated campaign
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignResult"
+        "402":
+          description: Quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /schedules:
     get:
@@ -1149,6 +1233,81 @@ components:
           type: string
         b64Json:
           type: string
+
+    TopicIdeasRequest:
+      type: object
+      required: [niche]
+      properties:
+        niche:
+          type: string
+          minLength: 1
+          description: The niche or topic area to brainstorm ideas for.
+        brandKitId:
+          type: ["integer", "null"]
+    TopicIdeasResult:
+      type: object
+      required: [ideas]
+      properties:
+        ideas:
+          type: array
+          items:
+            type: string
+    SummarizeUrlRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          minLength: 1
+          description: The article URL to fetch and summarize.
+    SummarizeUrlResult:
+      type: object
+      required: [title, summary]
+      properties:
+        title:
+          type: string
+        summary:
+          type: string
+    CampaignRequest:
+      type: object
+      required: [prompt, platforms]
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          description: Topic, idea, or summary to base the campaign on.
+        platforms:
+          type: array
+          minItems: 1
+          description: Target platforms (e.g. instagram, facebook, linkedin, twitter).
+          items:
+            type: string
+        brandKitId:
+          type: ["integer", "null"]
+        tone:
+          type: string
+    CampaignPost:
+      type: object
+      required: [platform, caption, hashtags, imagePrompt]
+      properties:
+        platform:
+          type: string
+        caption:
+          type: string
+        hashtags:
+          type: array
+          items:
+            type: string
+        imagePrompt:
+          type: string
+    CampaignResult:
+      type: object
+      required: [posts]
+      properties:
+        posts:
+          type: array
+          items:
+            $ref: "#/components/schemas/CampaignPost"
 
     ScheduledPost:
       type: object
