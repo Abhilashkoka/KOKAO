@@ -25,6 +25,22 @@ export async function requireTenant(
     const claims = auth?.sessionClaims as { userId?: string } | undefined;
     const clerkUserId = claims?.userId ?? auth?.userId ?? null;
 
+    // TEMP DEBUG (auth 401 investigation): log what Clerk sees without leaking
+    // any secret values — cookie presence as booleans only.
+    const cookieHeader = req.headers.cookie ?? "";
+    req.log.info(
+      {
+        authUserId: auth?.userId ?? null,
+        authSessionId: (auth as { sessionId?: string } | undefined)?.sessionId ?? null,
+        authStatus: (auth as { status?: string } | undefined)?.status ?? null,
+        authReason: (auth as { reason?: string } | undefined)?.reason ?? null,
+        hasCookieHeader: cookieHeader.length > 0,
+        hasSessionCookie: cookieHeader.includes("__session"),
+        hasClientCookie: cookieHeader.includes("__client"),
+      },
+      "requireTenant auth debug",
+    );
+
     if (!clerkUserId) {
       res.status(401).json({ error: "Unauthorized" });
       return;
