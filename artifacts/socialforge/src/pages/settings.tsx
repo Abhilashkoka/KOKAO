@@ -110,8 +110,8 @@ export function SettingsPage() {
                   <span>Captions</span>
                   <span>{me?.usage.captions} / {me?.limits.captions === -1 ? '∞' : me?.limits.captions}</span>
                 </div>
-                {me?.limits.captions !== -1 && (
-                  <Progress value={(me!.usage.captions / me!.limits.captions) * 100} className="h-2" />
+                {me && me.limits.captions !== -1 && (
+                  <Progress value={(me.usage.captions / me.limits.captions) * 100} className="h-2" />
                 )}
               </div>
               <div className="space-y-2">
@@ -119,8 +119,8 @@ export function SettingsPage() {
                   <span>Images</span>
                   <span>{me?.usage.images} / {me?.limits.images === -1 ? '∞' : me?.limits.images}</span>
                 </div>
-                {me?.limits.images !== -1 && (
-                  <Progress value={(me!.usage.images / me!.limits.images) * 100} className="h-2" />
+                {me && me.limits.images !== -1 && (
+                  <Progress value={(me.usage.images / me.limits.images) * 100} className="h-2" />
                 )}
               </div>
             </CardContent>
