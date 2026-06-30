@@ -1286,12 +1286,18 @@ components:
           type: string
     LinkedInStatus:
       type: object
-      required: [connected]
+      required: [connected, configured, redirectUri]
       properties:
         connected:
           type: boolean
         accountName:
           type: ["string", "null"]
+        configured:
+          type: boolean
+          description: Whether the platform-level LinkedIn app credentials are set by the admin.
+        redirectUri:
+          type: string
+          description: The exact OAuth redirect URL to register in the LinkedIn app.
     PublishLinkedInResult:
       type: object
       required: [postId]

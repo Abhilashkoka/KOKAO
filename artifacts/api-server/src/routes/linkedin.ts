@@ -251,6 +251,8 @@ router.get("/linkedin/status", async (req: Request, res: Response) => {
   res.json({
     connected,
     accountName: connected ? account!.accountName : null,
+    configured: isConfigured(),
+    redirectUri: redirectUri(req),
   });
 });
 

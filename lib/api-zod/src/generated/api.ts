@@ -678,7 +678,9 @@ export const GetLinkedinAuthUrlResponse = zod.object({
  */
 export const GetLinkedinStatusResponse = zod.object({
   "connected": zod.boolean(),
-  "accountName": zod.string().nullish()
+  "accountName": zod.string().nullish(),
+  "configured": zod.boolean().describe('Whether the platform-level LinkedIn app credentials are set by the admin.'),
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the LinkedIn app.')
 })
 
 

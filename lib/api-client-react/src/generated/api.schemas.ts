@@ -193,6 +193,10 @@ export interface LinkedInStatus {
   connected: boolean;
   /** @nullable */
   accountName?: string | null;
+  /** Whether the platform-level LinkedIn app credentials are set by the admin. */
+  configured: boolean;
+  /** The exact OAuth redirect URL to register in the LinkedIn app. */
+  redirectUri: string;
 }
 
 export interface PublishLinkedInResult {

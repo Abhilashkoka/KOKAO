@@ -4,7 +4,8 @@ import {
   useCreateAccount,
   useDeleteAccount,
   getListAccountsQueryKey,
-  getLinkedinAuthUrl
+  getLinkedinAuthUrl,
+  useGetLinkedinStatus
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Share2, Plus, Trash2, CheckCircle2, Instagram, Facebook, Linkedin, Youtube, Loader2 } from "lucide-react";
+import { Share2, Plus, Trash2, CheckCircle2, Instagram, Facebook, Linkedin, Youtube, Loader2, Copy, ExternalLink, AlertCircle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const ICONS: Record<string, any> = {
@@ -44,6 +45,7 @@ const HANDLE_HINTS: Record<string, { placeholder: string; hint: string }> = {
 
 export function AccountsPage() {
   const { data: accounts, isLoading } = useListAccounts();
+  const { data: linkedinStatus } = useGetLinkedinStatus();
   const createAccount = useCreateAccount();
   const deleteAccount = useDeleteAccount();
   const queryClient = useQueryClient();
@@ -53,6 +55,12 @@ export function AccountsPage() {
   const [platform, setPlatform] = useState<string>("instagram");
   const [accountName, setAccountName] = useState("");
   const [linkedinConnecting, setLinkedinConnecting] = useState(false);
+
+  const copyRedirect = () => {
+    if (!linkedinStatus?.redirectUri) return;
+    navigator.clipboard.writeText(linkedinStatus.redirectUri);
+    toast({ title: "Redirect URL copied" });
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -144,24 +152,110 @@ export function AccountsPage() {
           <h1 className="text-3xl font-extrabold tracking-tight">Connected Accounts</h1>
           <p className="text-muted-foreground text-lg mt-1">Manage your linked social media profiles.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={handleConnectLinkedin}
-            disabled={linkedinConnecting}
-            className="shadow-sm"
-          >
-            {linkedinConnecting ? (
-              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Connecting...</>
-            ) : (
-              <><Linkedin className="h-4 w-4 mr-2 text-blue-700" /> Connect LinkedIn</>
-            )}
-          </Button>
-          <Button onClick={() => setOpen(true)} className="shadow-md">
-            <Plus className="h-4 w-4 mr-2" /> Connect
-          </Button>
-        </div>
+        <Button onClick={() => setOpen(true)} className="shadow-md">
+          <Plus className="h-4 w-4 mr-2" /> Connect
+        </Button>
       </div>
+
+      <Card className="overflow-hidden border-border">
+        <CardContent className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-blue-700/10 text-blue-700 shrink-0">
+              <Linkedin className="h-6 w-6" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-bold text-lg">LinkedIn Publishing</h3>
+                {linkedinStatus?.connected ? (
+                  <span className="text-xs font-medium text-green-600 flex items-center gap-1 bg-green-600/10 px-2 py-0.5 rounded-full">
+                    <CheckCircle2 className="h-3 w-3" /> Connected
+                  </span>
+                ) : linkedinStatus?.configured ? (
+                  <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                    Not connected
+                  </span>
+                ) : (
+                  <span className="text-xs font-medium text-amber-600 flex items-center gap-1 bg-amber-600/10 px-2 py-0.5 rounded-full">
+                    <AlertCircle className="h-3 w-3" /> Needs setup
+                  </span>
+                )}
+              </div>
+
+              {linkedinStatus?.connected ? (
+                <div className="mt-2 space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Posting as <span className="font-medium text-foreground">{linkedinStatus.accountName}</span>. You can publish content items to your LinkedIn feed from the Content Library.
+                  </p>
+                  <Button variant="outline" size="sm" onClick={handleConnectLinkedin} disabled={linkedinConnecting}>
+                    {linkedinConnecting ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Reconnecting...</>
+                    ) : (
+                      "Reconnect"
+                    )}
+                  </Button>
+                </div>
+              ) : linkedinStatus?.configured ? (
+                <div className="mt-2 space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Connect your LinkedIn account to publish posts directly to your feed. You will be redirected to LinkedIn to authorize access.
+                  </p>
+                  <Button onClick={handleConnectLinkedin} disabled={linkedinConnecting}>
+                    {linkedinConnecting ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Connecting...</>
+                    ) : (
+                      <><Linkedin className="h-4 w-4 mr-2" /> Connect LinkedIn</>
+                    )}
+                  </Button>
+                </div>
+              ) : (
+                <div className="mt-3 space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    LinkedIn publishing requires a one-time setup by the workspace administrator. Once configured, every member can connect their own LinkedIn account and publish from the Content Library.
+                  </p>
+                  <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-3 text-sm">
+                    <p className="font-semibold">Administrator setup</p>
+                    <ol className="list-decimal pl-5 space-y-2 text-muted-foreground">
+                      <li>
+                        Create a LinkedIn app at{" "}
+                        <a
+                          href="https://www.linkedin.com/developers/apps"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-blue-700 font-medium inline-flex items-center gap-1 hover:underline"
+                        >
+                          linkedin.com/developers/apps <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </li>
+                      <li>
+                        In the app's <span className="font-medium text-foreground">Products</span> tab, add both{" "}
+                        <span className="font-medium text-foreground">"Sign In with LinkedIn using OpenID Connect"</span> and{" "}
+                        <span className="font-medium text-foreground">"Share on LinkedIn"</span> (grants posting permission).
+                      </li>
+                      <li>
+                        In the <span className="font-medium text-foreground">Auth</span> tab, add this exact Authorized redirect URL:
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <code className="flex-1 truncate rounded bg-background border border-border px-2 py-1.5 text-xs">
+                            {linkedinStatus?.redirectUri ?? "Loading..."}
+                          </code>
+                          <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={copyRedirect}>
+                            <Copy className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </li>
+                      <li>
+                        Copy the <span className="font-medium text-foreground">Client ID</span> and{" "}
+                        <span className="font-medium text-foreground">Client Secret</span> from the Auth tab and add them as the secrets{" "}
+                        <code className="text-xs bg-background border border-border rounded px-1 py-0.5">LINKEDIN_CLIENT_ID</code> and{" "}
+                        <code className="text-xs bg-background border border-border rounded px-1 py-0.5">LINKEDIN_CLIENT_SECRET</code>.
+                      </li>
+                    </ol>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {items.length === 0 && (
