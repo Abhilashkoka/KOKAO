@@ -5,6 +5,7 @@ import {
   useUpdateContent,
   useListFacebookPages,
   usePublishContentToFacebook,
+  usePublishContentToLinkedin,
   getListContentQueryKey,
   getListFacebookPagesQueryKey
 } from "@workspace/api-client-react";
@@ -13,7 +14,7 @@ import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Edit, MoreVertical, Trash2, LayoutGrid, Send } from "lucide-react";
+import { Edit, MoreVertical, Trash2, LayoutGrid, Send, Linkedin } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,9 @@ export function LibraryPage() {
   const [publishItem, setPublishItem] = useState<any | null>(null);
   const [selectedPageId, setSelectedPageId] = useState("");
   const publishContent = usePublishContentToFacebook();
+
+  const [linkedinItem, setLinkedinItem] = useState<any | null>(null);
+  const publishLinkedin = usePublishContentToLinkedin();
   const {
     data: fbPages,
     isLoading: pagesLoading,
@@ -63,6 +67,32 @@ export function LibraryPage() {
             description:
               err?.response?.data?.error ||
               "Could not publish to Facebook. Please try again.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handlePublishLinkedin = () => {
+    if (!linkedinItem) return;
+    publishLinkedin.mutate(
+      { id: linkedinItem.id },
+      {
+        onSuccess: (res) => {
+          toast({
+            title: "Published to LinkedIn",
+            description: res?.permalink ? "Your post is live on LinkedIn." : undefined,
+          });
+          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+          setLinkedinItem(null);
+        },
+        onError: (err: any) => {
+          toast({
+            title: "Publish failed",
+            description:
+              err?.response?.data?.error ||
+              "Could not publish to LinkedIn. Connect your LinkedIn account on the Accounts page and try again.",
             variant: "destructive",
           });
         },
@@ -156,6 +186,7 @@ export function LibraryPage() {
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => openEdit(item)}><Edit className="h-4 w-4 mr-2" /> Edit</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => openPublish(item)}><Send className="h-4 w-4 mr-2" /> Publish to Facebook</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setLinkedinItem(item)}><Linkedin className="h-4 w-4 mr-2" /> Publish to LinkedIn</DropdownMenuItem>
                       <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(item.id)}><Trash2 className="h-4 w-4 mr-2" /> Delete</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -245,6 +276,31 @@ export function LibraryPage() {
               disabled={!selectedPageId || publishContent.isPending}
             >
               {publishContent.isPending ? "Publishing..." : "Publish"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!linkedinItem} onOpenChange={(open) => !open && setLinkedinItem(null)}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle>Publish to LinkedIn</DialogTitle>
+            <DialogDescription>
+              This posts the caption{linkedinItem?.imagePath ? " and image" : ""} to your connected LinkedIn feed. Make sure you've connected LinkedIn on the Accounts page.
+            </DialogDescription>
+          </DialogHeader>
+          {linkedinItem && (
+            <div className="space-y-2 py-2">
+              <p className="font-medium">{linkedinItem.title}</p>
+              {linkedinItem.caption && (
+                <p className="text-sm text-muted-foreground line-clamp-4">{linkedinItem.caption}</p>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLinkedinItem(null)}>Cancel</Button>
+            <Button onClick={handlePublishLinkedin} disabled={publishLinkedin.isPending}>
+              {publishLinkedin.isPending ? "Publishing..." : "Publish"}
             </Button>
           </DialogFooter>
         </DialogContent>

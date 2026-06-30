@@ -59,11 +59,15 @@ export function serializeSchedule(s: ScheduledPost) {
 }
 
 export function serializeAccount(a: ConnectedAccount) {
+  const canPublish =
+    !!a.accessToken &&
+    (a.tokenExpiresAt === null || a.tokenExpiresAt.getTime() > Date.now());
   return {
     id: a.id,
     platform: a.platform,
     accountName: a.accountName,
     status: a.status,
+    canPublish,
     createdAt: a.createdAt.toISOString(),
   };
 }

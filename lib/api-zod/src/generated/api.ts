@@ -597,6 +597,7 @@ export const ListAccountsResponseItem = zod.object({
   "platform": zod.string(),
   "accountName": zod.string(),
   "status": zod.string(),
+  "canPublish": zod.boolean().describe('True when the account holds a valid token and can publish.'),
   "createdAt": zod.coerce.date()
 })
 export const ListAccountsResponse = zod.array(ListAccountsResponseItem)
@@ -618,6 +619,7 @@ export const CreateAccountResponse = zod.object({
   "platform": zod.string(),
   "accountName": zod.string(),
   "status": zod.string(),
+  "canPublish": zod.boolean().describe('True when the account holds a valid token and can publish.'),
   "createdAt": zod.coerce.date()
 })
 
@@ -658,6 +660,36 @@ export const PublishContentToFacebookBody = zod.object({
 })
 
 export const PublishContentToFacebookResponse = zod.object({
+  "postId": zod.string(),
+  "permalink": zod.string().nullish()
+})
+
+
+/**
+ * @summary Get the LinkedIn OAuth authorization URL to begin connecting
+ */
+export const GetLinkedinAuthUrlResponse = zod.object({
+  "url": zod.string()
+})
+
+
+/**
+ * @summary Whether a LinkedIn account is connected and able to publish
+ */
+export const GetLinkedinStatusResponse = zod.object({
+  "connected": zod.boolean(),
+  "accountName": zod.string().nullish()
+})
+
+
+/**
+ * @summary Publish a content item to the connected LinkedIn member feed
+ */
+export const PublishContentToLinkedinParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const PublishContentToLinkedinResponse = zod.object({
   "postId": zod.string(),
   "permalink": zod.string().nullish()
 })

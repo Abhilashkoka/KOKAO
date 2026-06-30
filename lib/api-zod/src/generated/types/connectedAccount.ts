@@ -11,5 +11,7 @@ export interface ConnectedAccount {
   platform: string;
   accountName: string;
   status: string;
+  /** True when the account holds a valid token and can publish. */
+  canPublish: boolean;
   createdAt: Date;
 }

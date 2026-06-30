@@ -8,6 +8,9 @@ export const connectedAccountsTable = pgTable("connected_accounts", {
   platform: text("platform").notNull(),
   accountName: text("account_name").notNull(),
   status: text("status").notNull().default("connected"),
+  accessToken: text("access_token"),
+  tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
+  providerUserId: text("provider_user_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

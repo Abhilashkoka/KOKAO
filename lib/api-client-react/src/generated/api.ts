@@ -39,10 +39,13 @@ import type {
   HealthStatus,
   ImageRequest,
   ImageResult,
+  LinkedInAuthUrlResult,
+  LinkedInStatus,
   MeProfile,
   Plan,
   PublishFacebookRequest,
   PublishFacebookResult,
+  PublishLinkedInResult,
   ScheduleInput,
   ScheduleUpdate,
   ScheduledPost,
@@ -2414,6 +2417,230 @@ export const usePublishContentToFacebook = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getPublishContentToFacebookMutationOptions(options));
+    }
+
+export const getGetLinkedinAuthUrlUrl = () => {
+
+
+
+
+  return `/api/linkedin/auth/url`
+}
+
+/**
+ * @summary Get the LinkedIn OAuth authorization URL to begin connecting
+ */
+export const getLinkedinAuthUrl = async ( options?: RequestInit): Promise<LinkedInAuthUrlResult> => {
+
+  return customFetch<LinkedInAuthUrlResult>(getGetLinkedinAuthUrlUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLinkedinAuthUrlQueryKey = () => {
+    return [
+    `/api/linkedin/auth/url`
+    ] as const;
+    }
+
+
+export const getGetLinkedinAuthUrlQueryOptions = <TData = Awaited<ReturnType<typeof getLinkedinAuthUrl>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLinkedinAuthUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLinkedinAuthUrlQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLinkedinAuthUrl>>> = ({ signal }) => getLinkedinAuthUrl({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLinkedinAuthUrl>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLinkedinAuthUrlQueryResult = NonNullable<Awaited<ReturnType<typeof getLinkedinAuthUrl>>>
+export type GetLinkedinAuthUrlQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the LinkedIn OAuth authorization URL to begin connecting
+ */
+
+export function useGetLinkedinAuthUrl<TData = Awaited<ReturnType<typeof getLinkedinAuthUrl>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLinkedinAuthUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLinkedinAuthUrlQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetLinkedinStatusUrl = () => {
+
+
+
+
+  return `/api/linkedin/status`
+}
+
+/**
+ * @summary Whether a LinkedIn account is connected and able to publish
+ */
+export const getLinkedinStatus = async ( options?: RequestInit): Promise<LinkedInStatus> => {
+
+  return customFetch<LinkedInStatus>(getGetLinkedinStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLinkedinStatusQueryKey = () => {
+    return [
+    `/api/linkedin/status`
+    ] as const;
+    }
+
+
+export const getGetLinkedinStatusQueryOptions = <TData = Awaited<ReturnType<typeof getLinkedinStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLinkedinStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLinkedinStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLinkedinStatus>>> = ({ signal }) => getLinkedinStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLinkedinStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLinkedinStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getLinkedinStatus>>>
+export type GetLinkedinStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Whether a LinkedIn account is connected and able to publish
+ */
+
+export function useGetLinkedinStatus<TData = Awaited<ReturnType<typeof getLinkedinStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLinkedinStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLinkedinStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getPublishContentToLinkedinUrl = (id: number,) => {
+
+
+
+
+  return `/api/content/${id}/publish-linkedin`
+}
+
+/**
+ * @summary Publish a content item to the connected LinkedIn member feed
+ */
+export const publishContentToLinkedin = async (id: number, options?: RequestInit): Promise<PublishLinkedInResult> => {
+
+  return customFetch<PublishLinkedInResult>(getPublishContentToLinkedinUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getPublishContentToLinkedinMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishContentToLinkedin>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof publishContentToLinkedin>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['publishContentToLinkedin'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof publishContentToLinkedin>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  publishContentToLinkedin(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PublishContentToLinkedinMutationResult = NonNullable<Awaited<ReturnType<typeof publishContentToLinkedin>>>
+
+    export type PublishContentToLinkedinMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Publish a content item to the connected LinkedIn member feed
+ */
+export const usePublishContentToLinkedin = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishContentToLinkedin>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof publishContentToLinkedin>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getPublishContentToLinkedinMutationOptions(options));
     }
 
 export const getRequestUploadUrlUrl = () => {

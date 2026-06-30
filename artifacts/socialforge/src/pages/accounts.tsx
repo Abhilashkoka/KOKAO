@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
   useListAccounts,
   useCreateAccount,
   useDeleteAccount,
-  getListAccountsQueryKey
+  getListAccountsQueryKey,
+  getLinkedinAuthUrl
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -51,6 +52,46 @@ export function AccountsPage() {
   const [open, setOpen] = useState(false);
   const [platform, setPlatform] = useState<string>("instagram");
   const [accountName, setAccountName] = useState("");
+  const [linkedinConnecting, setLinkedinConnecting] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("linkedin");
+    if (!status) return;
+    if (status === "connected") {
+      toast({ title: "LinkedIn connected", description: "You can now publish posts to LinkedIn." });
+      queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
+    } else if (status === "error") {
+      toast({
+        variant: "destructive",
+        title: "LinkedIn connection failed",
+        description:
+          "We couldn't finish connecting your LinkedIn account. Please try again.",
+      });
+    }
+    params.delete("linkedin");
+    params.delete("reason");
+    const qs = params.toString();
+    window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : ""));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleConnectLinkedin = async () => {
+    setLinkedinConnecting(true);
+    try {
+      const { url } = await getLinkedinAuthUrl();
+      window.location.href = url;
+    } catch (err: any) {
+      setLinkedinConnecting(false);
+      toast({
+        variant: "destructive",
+        title: "Couldn't start LinkedIn connection",
+        description:
+          err?.response?.data?.error ||
+          "LinkedIn isn't configured yet. Please try again later.",
+      });
+    }
+  };
 
   const handleCreate = () => {
     if (!accountName) return;
@@ -103,9 +144,23 @@ export function AccountsPage() {
           <h1 className="text-3xl font-extrabold tracking-tight">Connected Accounts</h1>
           <p className="text-muted-foreground text-lg mt-1">Manage your linked social media profiles.</p>
         </div>
-        <Button onClick={() => setOpen(true)} className="shadow-md">
-          <Plus className="h-4 w-4 mr-2" /> Connect
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={handleConnectLinkedin}
+            disabled={linkedinConnecting}
+            className="shadow-sm"
+          >
+            {linkedinConnecting ? (
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Connecting...</>
+            ) : (
+              <><Linkedin className="h-4 w-4 mr-2 text-blue-700" /> Connect LinkedIn</>
+            )}
+          </Button>
+          <Button onClick={() => setOpen(true)} className="shadow-md">
+            <Plus className="h-4 w-4 mr-2" /> Connect
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -134,7 +189,11 @@ export function AccountsPage() {
                     <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-0.5">
                       <span className="capitalize">{acc.platform}</span>
                       <span className="text-muted-foreground/30">•</span>
-                      <span className="text-green-600 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Connected</span>
+                      {acc.canPublish ? (
+                        <span className="text-green-600 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Ready to publish</span>
+                      ) : (
+                        <span className="text-green-600 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Connected</span>
+                      )}
                     </div>
                   </div>
                 </div>

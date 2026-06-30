@@ -1,1 +1,2 @@
-- [Clerk dev 401 from frozen session token](clerk-dev-401.md) — cookie present but getAuth null = expired dev JWT not refreshing (3p-cookie block); decode claims, fix in prod/browser, not code/keys.
+- [LinkedIn publishing](linkedin-publishing.md) — no Replit connector exists; needs manual OAuth app + "Share on LinkedIn" product; Posts API quirks.
+- [Social publishing in SocialForge](social-publishing.md) — "Connect Account" is record-only; real publishing is per-platform (Facebook done, LinkedIn done) via dedicated routes.

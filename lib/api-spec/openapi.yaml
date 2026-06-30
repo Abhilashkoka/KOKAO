@@ -811,6 +811,75 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /linkedin/auth/url:
+    get:
+      operationId: getLinkedinAuthUrl
+      tags: [linkedin]
+      summary: Get the LinkedIn OAuth authorization URL to begin connecting
+      responses:
+        "200":
+          description: Authorization URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedInAuthUrlResult"
+        "503":
+          description: LinkedIn is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /linkedin/status:
+    get:
+      operationId: getLinkedinStatus
+      tags: [linkedin]
+      summary: Whether a LinkedIn account is connected and able to publish
+      responses:
+        "200":
+          description: LinkedIn connection status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedInStatus"
+
+  /content/{id}/publish-linkedin:
+    post:
+      operationId: publishContentToLinkedin
+      tags: [linkedin]
+      summary: Publish a content item to the connected LinkedIn member feed
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishLinkedInResult"
+        "400":
+          description: Invalid input or LinkedIn not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: LinkedIn API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /storage/uploads/request-url:
     post:
       tags: [Storage]
@@ -1209,6 +1278,28 @@ components:
           type: string
         permalink:
           type: ["string", "null"]
+    LinkedInAuthUrlResult:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+    LinkedInStatus:
+      type: object
+      required: [connected]
+      properties:
+        connected:
+          type: boolean
+        accountName:
+          type: ["string", "null"]
+    PublishLinkedInResult:
+      type: object
+      required: [postId]
+      properties:
+        postId:
+          type: string
+        permalink:
+          type: ["string", "null"]
     ContentItem:
       type: object
       required:
@@ -1457,7 +1548,7 @@ components:
 
     ConnectedAccount:
       type: object
-      required: [id, platform, accountName, status, createdAt]
+      required: [id, platform, accountName, status, canPublish, createdAt]
       properties:
         id:
           type: integer
@@ -1467,6 +1558,9 @@ components:
           type: string
         status:
           type: string
+        canPublish:
+          type: boolean
+          description: True when the account holds a valid token and can publish.
         createdAt:
           type: string
           format: date-time

@@ -185,6 +185,22 @@ export interface PublishFacebookResult {
   permalink?: string | null;
 }
 
+export interface LinkedInAuthUrlResult {
+  url: string;
+}
+
+export interface LinkedInStatus {
+  connected: boolean;
+  /** @nullable */
+  accountName?: string | null;
+}
+
+export interface PublishLinkedInResult {
+  postId: string;
+  /** @nullable */
+  permalink?: string | null;
+}
+
 export interface ContentItem {
   id: number;
   title: string;
@@ -379,6 +395,8 @@ export interface ConnectedAccount {
   platform: string;
   accountName: string;
   status: string;
+  /** True when the account holds a valid token and can publish. */
+  canPublish: boolean;
   createdAt: string;
 }
 
