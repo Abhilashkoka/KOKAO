@@ -2,6 +2,7 @@ import express, { type Express } from "express";
 import { requireTenant } from "../middlewares/requireTenant";
 import credentialsRouter from "../routes/credentials";
 import metaRouter from "../routes/meta";
+import linkedinRouter from "../routes/linkedin";
 
 /**
  * Build a minimal Express app that mounts the real tenant gate plus the
@@ -24,6 +25,12 @@ export function createTestApp(): Express {
     };
     next();
   });
-  app.use("/api", requireTenant, credentialsRouter, metaRouter);
+  app.use(
+    "/api",
+    requireTenant,
+    credentialsRouter,
+    metaRouter,
+    linkedinRouter,
+  );
   return app;
 }

@@ -61,6 +61,28 @@ export async function insertConnectedAccount(
   });
 }
 
+export async function insertLinkedinAccount(
+  tenantId: number,
+  opts: {
+    accessToken?: string | null;
+    providerUserId?: string | null;
+    tokenExpiresAt?: Date | null;
+    status?: string;
+    accountName?: string;
+  } = {},
+): Promise<void> {
+  await db.insert(connectedAccountsTable).values({
+    tenantId,
+    platform: "linkedin",
+    accountName: opts.accountName ?? "LinkedIn User",
+    status: opts.status ?? "connected",
+    accessToken: opts.accessToken === undefined ? "li_tok_secret" : opts.accessToken,
+    providerUserId:
+      opts.providerUserId === undefined ? "li_person_123" : opts.providerUserId,
+    tokenExpiresAt: opts.tokenExpiresAt ?? null,
+  });
+}
+
 export async function getConnectedAccount(tenantId: number, platform: string) {
   return (
     await db
