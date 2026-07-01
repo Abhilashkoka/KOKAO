@@ -67,6 +67,7 @@ import {
   getContentItem,
 } from "../test/dbHelpers";
 import { ObjectStorageService } from "../lib/objectStorage";
+import { IG_CONTAINER_POLL } from "./meta";
 
 const app = createTestApp();
 const mockFb = vi.mocked(testFacebookCredentials);
@@ -153,13 +154,23 @@ describe("Facebook publishing gate", () => {
 
   describe("with fetch mocked", () => {
     beforeEach(() => {
-      // Prevent any real Graph API calls; force an error so the handler returns
-      // 502 rather than actually posting.
-      vi.spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(JSON.stringify({ error: { message: "mocked failure" } }), {
-          status: 400,
-          headers: { "content-type": "application/json" },
-        }),
+      // Let the pre-publish re-verification read succeed (so the credential
+      // stays verified and we get past the gate), but force the actual publish
+      // write to fail so the handler returns 502 rather than really posting.
+      vi.spyOn(globalThis, "fetch").mockImplementation(
+        async (input: string | URL | Request) => {
+          const url = typeof input === "string" ? input : input.toString();
+          const json = (body: unknown, status: number) =>
+            new Response(JSON.stringify(body), {
+              status,
+              headers: { "content-type": "application/json" },
+            });
+          if (url.includes("fields=id,name"))
+            return json({ id: lastPathSegment(url), name: "Test Page" }, 200);
+          if (url.includes("fields=id,username"))
+            return json({ id: lastPathSegment(url), username: "testacct" }, 200);
+          return json({ error: { message: "mocked failure" } }, 400);
+        },
       );
     });
 
@@ -250,6 +261,15 @@ const FB_PAGE_TOKEN = "tok_fb_page_secret";
  * while recording every requested URL so tests can assert the access token is
  * never placed in a URL (it must ride in the form body or Authorization header).
  */
+function lastPathSegment(url: string): string {
+  try {
+    const seg = new URL(url).pathname.split("/").filter(Boolean).pop() ?? "";
+    return decodeURIComponent(seg);
+  } catch {
+    return "";
+  }
+}
+
 function mockGraph(calls: string[]) {
   return vi
     .spyOn(globalThis, "fetch")
@@ -266,9 +286,15 @@ function mockGraph(calls: string[]) {
       if (url.includes("/photos")) return json({ id: "PHOTO_1", post_id: "POST_1" });
       if (url.includes("/feed")) return json({ id: "FEED_POST_1" });
       if (url.includes("/media_publish")) return json({ id: "IG_PUBLISHED_1" });
-      if (url.includes("/media")) return json({ id: "IG_CONTAINER_1" });
+      if (url.includes("fields=status_code")) return json({ status_code: "FINISHED" });
       if (url.includes("fields=permalink"))
         return json({ permalink: "https://www.instagram.com/p/abc123/" });
+      // Pre-publish re-verification reads (id must match the entered Page ID).
+      if (url.includes("fields=id,name"))
+        return json({ id: lastPathSegment(url), name: "Test Page" });
+      if (url.includes("fields=id,username"))
+        return json({ id: lastPathSegment(url), username: "testacct" });
+      if (url.includes("/media")) return json({ id: "IG_CONTAINER_1" });
 
       return json({});
     });
@@ -401,14 +427,178 @@ describe("Instagram publishing (happy path)", () => {
       expect(res.body.permalink).toBe("https://www.instagram.com/p/abc123/");
       expect(signSpy).toHaveBeenCalledWith("/objects/uploads/test.png", 900);
 
-      // Two-step flow: create the container, then publish it.
+      // Full flow: create the container, poll its status, then publish it.
       expect(calls.some((u) => u.includes("/IG_OK/media"))).toBe(true);
+      expect(
+        calls.some((u) =>
+          u.includes("/IG_CONTAINER_1?fields=status_code"),
+        ),
+      ).toBe(true);
       expect(calls.some((u) => u.includes("/IG_OK/media_publish"))).toBe(true);
       // The FB page token IG rides on must never appear in any URL.
       expect(calls.every((u) => !u.includes(FB_PAGE_TOKEN))).toBe(true);
 
       const item = await getContentItem(itemId, tenant.tenantId);
       expect(item.status).toBe("published");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("Instagram container readiness", () => {
+  const originalPoll = { ...IG_CONTAINER_POLL };
+
+  beforeEach(() => {
+    // Shrink the poll cap/delays so the timeout path runs instantly.
+    IG_CONTAINER_POLL.maxAttempts = 3;
+    IG_CONTAINER_POLL.initialDelayMs = 1;
+    IG_CONTAINER_POLL.maxDelayMs = 1;
+    IG_CONTAINER_POLL.backoffFactor = 1;
+  });
+
+  afterEach(() => {
+    Object.assign(IG_CONTAINER_POLL, originalPoll);
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * Like mockGraph, but the container status is driven by `statusSequence`:
+   * each status poll returns the next entry (the last entry repeats). Publishing
+   * is only allowed once a FINISHED status is observed.
+   */
+  function mockGraphWithStatus(calls: string[], statusSequence: string[]) {
+    let statusIdx = 0;
+    return vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        calls.push(url);
+        const json = (body: unknown) =>
+          new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+
+        if (url.includes("/media_publish")) return json({ id: "IG_PUBLISHED_1" });
+        if (url.includes("fields=status_code")) {
+          const status =
+            statusSequence[Math.min(statusIdx, statusSequence.length - 1)];
+          statusIdx += 1;
+          return json({ status_code: status });
+        }
+        if (url.includes("fields=permalink"))
+          return json({ permalink: "https://www.instagram.com/p/abc123/" });
+        // Pre-publish re-verification reads.
+        if (url.includes("fields=id,name"))
+          return json({ id: lastPathSegment(url), name: "Test Page" });
+        if (url.includes("fields=id,username"))
+          return json({ id: lastPathSegment(url), username: "testacct" });
+        if (url.includes("/media")) return json({ id: "IG_CONTAINER_1" });
+        return json({});
+      });
+  }
+
+  async function setupVerifiedTenant() {
+    const tenant = await createTenant();
+    await insertConnectedAccount(
+      tenant.tenantId,
+      "instagram",
+      { igUserId: "IG_OK" },
+      "verified",
+    );
+    await insertConnectedAccount(
+      tenant.tenantId,
+      "facebook",
+      { pageId: "PAGE_OK", pageAccessToken: FB_PAGE_TOKEN },
+      "verified",
+    );
+    const itemId = await insertContentItem(tenant.tenantId, {
+      imagePath: "/objects/uploads/test.png",
+    });
+    actAs(tenant.clerkUserId);
+    return { tenant, itemId };
+  }
+
+  it("polls IN_PROGRESS until FINISHED, then publishes", async () => {
+    const calls: string[] = [];
+    mockGraphWithStatus(calls, ["IN_PROGRESS", "IN_PROGRESS", "FINISHED"]);
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getSignedDownloadURL",
+    ).mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
+
+    const { tenant, itemId } = await setupVerifiedTenant();
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-instagram`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("IG_PUBLISHED_1");
+      // Polled three times (two IN_PROGRESS + one FINISHED) before publishing.
+      expect(
+        calls.filter((u) => u.includes("fields=status_code")).length,
+      ).toBe(3);
+      expect(calls.some((u) => u.includes("/media_publish"))).toBe(true);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("returns 502 and never publishes when the container stays IN_PROGRESS past the cap", async () => {
+    const calls: string[] = [];
+    mockGraphWithStatus(calls, ["IN_PROGRESS"]);
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getSignedDownloadURL",
+    ).mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
+
+    const { tenant, itemId } = await setupVerifiedTenant();
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-instagram`,
+      );
+
+      expect(res.status).toBe(502);
+      expect(res.body.error).toMatch(/still processing|did not finish/i);
+      // Polled up to the cap and never attempted to publish.
+      expect(
+        calls.filter((u) => u.includes("fields=status_code")).length,
+      ).toBe(IG_CONTAINER_POLL.maxAttempts);
+      expect(calls.some((u) => u.includes("/media_publish"))).toBe(false);
+
+      // Content item stays unpublished so the user knows it didn't post.
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).not.toBe("published");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("returns 502 and never publishes when the container ends in ERROR", async () => {
+    const calls: string[] = [];
+    mockGraphWithStatus(calls, ["IN_PROGRESS", "ERROR"]);
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getSignedDownloadURL",
+    ).mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
+
+    const { tenant, itemId } = await setupVerifiedTenant();
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-instagram`,
+      );
+
+      expect(res.status).toBe(502);
+      expect(res.body.error).toMatch(/could not process/i);
+      expect(calls.some((u) => u.includes("/media_publish"))).toBe(false);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).not.toBe("published");
     } finally {
       await deleteTenant(tenant.tenantId);
     }

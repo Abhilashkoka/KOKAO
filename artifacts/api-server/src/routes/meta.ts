@@ -14,6 +14,75 @@ const router: IRouter = Router();
 
 const objectStorageService = new ObjectStorageService();
 
+/**
+ * Polling configuration for waiting on an Instagram media container to finish
+ * processing. Exported (and mutable) so tests can shrink the delays and attempt
+ * cap without waiting real seconds.
+ */
+export const IG_CONTAINER_POLL = {
+  maxAttempts: 12,
+  initialDelayMs: 1500,
+  maxDelayMs: 8000,
+  backoffFactor: 1.5,
+};
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Instagram fetches the container's image asynchronously, so a freshly created
+ * container usually reports `status_code: IN_PROGRESS` for a moment. Publishing
+ * before it becomes `FINISHED` fails, so poll the container status (with
+ * capped, backing-off retries) until it's ready. Throws on a definitive
+ * `ERROR`/`EXPIRED` status or once the attempt cap is reached.
+ */
+async function waitForContainerReady(
+  creationId: string,
+  pageToken: string,
+): Promise<void> {
+  let delay = IG_CONTAINER_POLL.initialDelayMs;
+  for (let attempt = 0; attempt < IG_CONTAINER_POLL.maxAttempts; attempt++) {
+    // Token rides in the Authorization header so it never lands in a URL/log.
+    const statusRes = await fetch(
+      `${GRAPH_BASE}/${encodeURIComponent(creationId)}?fields=status_code`,
+      { headers: { Authorization: `Bearer ${pageToken}` } },
+    );
+    const statusJson = (await statusRes.json()) as {
+      status_code?: string;
+      error?: { message?: string };
+    };
+    if (!statusRes.ok || statusJson.error) {
+      throw new Error(
+        statusJson.error?.message ||
+          `Instagram API error while checking media status (${statusRes.status})`,
+      );
+    }
+
+    const status = statusJson.status_code;
+    if (status === "FINISHED") return;
+    if (status === "ERROR" || status === "EXPIRED") {
+      throw new Error(
+        `Instagram could not process the image (status: ${status}). Try publishing again.`,
+      );
+    }
+
+    // IN_PROGRESS (or an unexpected status): wait and retry unless this was the
+    // final attempt.
+    if (attempt < IG_CONTAINER_POLL.maxAttempts - 1) {
+      await sleep(delay);
+      delay = Math.min(
+        Math.round(delay * IG_CONTAINER_POLL.backoffFactor),
+        IG_CONTAINER_POLL.maxDelayMs,
+      );
+    }
+  }
+
+  throw new Error(
+    "Instagram is still processing the image and did not finish in time. Please try publishing again in a moment.",
+  );
+}
+
 router.param("id", (req, res, next, value) => {
   const id = Number(value);
   if (!Number.isInteger(id) || id <= 0) {
@@ -250,7 +319,11 @@ router.post(
         );
       }
 
-      // Step 2: publish the container.
+      // Step 2: wait for Instagram to finish fetching/processing the image.
+      // Publishing an IN_PROGRESS container fails, so poll until it's ready.
+      await waitForContainerReady(createJson.id, pageToken);
+
+      // Step 3: publish the container.
       const publishForm = new URLSearchParams({
         creation_id: createJson.id,
         access_token: pageToken,
