@@ -10,6 +10,7 @@ import {
   useGetFacebookCredentials,
   useGetInstagramCredentials,
   useGetTwitterCredentials,
+  useGetLinkedinStatus,
   getListContentQueryKey
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -52,9 +53,11 @@ export function LibraryPage() {
   const { data: fbCreds } = useGetFacebookCredentials();
   const { data: igCreds } = useGetInstagramCredentials();
   const { data: twCreds } = useGetTwitterCredentials();
+  const { data: linkedinStatus } = useGetLinkedinStatus();
   const fbReady = fbCreds?.verifyStatus === "verified";
   const igReady = igCreds?.verifyStatus === "verified";
   const twReady = twCreds?.verifyStatus === "verified";
+  const liReady = !!linkedinStatus?.connected;
 
   const viewPostAction = (permalink: string | null | undefined) =>
     permalink
@@ -260,7 +263,7 @@ export function LibraryPage() {
                       <DropdownMenuItem onClick={() => openEdit(item)}><Edit className="h-4 w-4 mr-2" /> Edit</DropdownMenuItem>
                       <DropdownMenuItem disabled={!fbReady} onClick={() => setPublishItem(item)}><Facebook className="h-4 w-4 mr-2" /> Publish to Facebook</DropdownMenuItem>
                       <DropdownMenuItem disabled={!igReady} onClick={() => setInstagramItem(item)}><Instagram className="h-4 w-4 mr-2" /> Publish to Instagram</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setLinkedinItem(item)}><Linkedin className="h-4 w-4 mr-2" /> Publish to LinkedIn</DropdownMenuItem>
+                      <DropdownMenuItem disabled={!liReady} onClick={() => setLinkedinItem(item)}><Linkedin className="h-4 w-4 mr-2" /> Publish to LinkedIn</DropdownMenuItem>
                       <DropdownMenuItem disabled={!twReady} onClick={() => setTwitterItem(item)}><Twitter className="h-4 w-4 mr-2" /> Publish to X</DropdownMenuItem>
                       <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(item.id)}><Trash2 className="h-4 w-4 mr-2" /> Delete</DropdownMenuItem>
                     </DropdownMenuContent>
