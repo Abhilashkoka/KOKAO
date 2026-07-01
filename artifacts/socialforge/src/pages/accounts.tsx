@@ -755,6 +755,10 @@ export function AccountsPage() {
                   <span className="text-xs font-medium text-green-600 flex items-center gap-1 bg-green-600/10 px-2 py-0.5 rounded-full">
                     <CheckCircle2 className="h-3 w-3" /> Connected
                   </span>
+                ) : linkedinStatus?.expired ? (
+                  <span className="text-xs font-medium text-destructive flex items-center gap-1 bg-destructive/10 px-2 py-0.5 rounded-full">
+                    <AlertCircle className="h-3 w-3" /> Reconnect needed
+                  </span>
                 ) : linkedinStatus?.configured ? (
                   <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
                     Not connected
@@ -797,14 +801,20 @@ export function AccountsPage() {
                 </div>
               ) : linkedinStatus?.configured ? (
                 <div className="mt-2 space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    Connect your LinkedIn account to publish posts directly to your feed. You will be redirected to LinkedIn to authorize access.
-                  </p>
+                  {linkedinStatus?.expired ? (
+                    <p className="text-sm text-destructive">
+                      Your LinkedIn access token has expired or been revoked, so publishing is paused. Reconnect your account to resume posting.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Connect your LinkedIn account to publish posts directly to your feed. You will be redirected to LinkedIn to authorize access.
+                    </p>
+                  )}
                   <Button onClick={handleConnectLinkedin} disabled={linkedinConnecting}>
                     {linkedinConnecting ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Connecting...</>
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {linkedinStatus?.expired ? "Reconnecting..." : "Connecting..."}</>
                     ) : (
-                      <><Linkedin className="h-4 w-4 mr-2" /> Connect LinkedIn</>
+                      <><Linkedin className="h-4 w-4 mr-2" /> {linkedinStatus?.expired ? "Reconnect LinkedIn" : "Connect LinkedIn"}</>
                     )}
                   </Button>
                 </div>

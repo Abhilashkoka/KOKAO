@@ -1704,6 +1704,11 @@ components:
         redirectUri:
           type: string
           description: The exact OAuth redirect URL to register in the LinkedIn app.
+        expired:
+          type: boolean
+          description: >-
+            True when an account was previously connected but its token has
+            since expired or been revoked, so the user should reconnect.
     PublishLinkedInResult:
       type: object
       required: [postId]

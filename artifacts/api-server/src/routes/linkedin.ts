@@ -112,6 +112,82 @@ async function getLinkedinAccount(tenantId: number) {
   )[0];
 }
 
+/**
+ * How long a LinkedIn live-token check stays fresh before we re-check. Acts as
+ * the rate limiter so repeated Accounts-page loads don't hammer LinkedIn.
+ */
+const LINKEDIN_REVERIFY_STALE_MS = 15 * 60 * 1000;
+
+type LinkedinAccount = NonNullable<Awaited<ReturnType<typeof getLinkedinAccount>>>;
+
+/**
+ * Proactively re-check a stored LinkedIn token against the live userinfo
+ * endpoint when it has gone stale. A token can be revoked by the user before
+ * its stored expiry, so this catches breakage the expiry timestamp alone would
+ * miss. On a definitive rejection the row is flipped to "failed"/error so the
+ * UI prompts a reconnect; transient/network errors only reset the check clock
+ * and never flip a still-valid connection. Never throws.
+ */
+async function reverifyLinkedin(
+  tenantId: number,
+  account: LinkedinAccount,
+): Promise<LinkedinAccount> {
+  if (!account.accessToken) return account;
+  // Expired by timestamp — no need to spend a live call to know it's dead.
+  if (
+    account.tokenExpiresAt !== null &&
+    account.tokenExpiresAt.getTime() <= Date.now()
+  ) {
+    return account;
+  }
+  const fresh =
+    account.verifiedAt !== null &&
+    Date.now() - account.verifiedAt.getTime() < LINKEDIN_REVERIFY_STALE_MS;
+  if (fresh) return account;
+
+  try {
+    const userRes = await fetch(USERINFO_URL, {
+      headers: { Authorization: `Bearer ${account.accessToken}` },
+    });
+    if (userRes.status === 401 || userRes.status === 403) {
+      await db
+        .update(connectedAccountsTable)
+        .set({
+          status: "error",
+          verifyStatus: "failed",
+          verifyError:
+            "Your LinkedIn access token is no longer valid. Reconnect LinkedIn to keep publishing.",
+          verifiedAt: new Date(),
+        })
+        .where(eq(connectedAccountsTable.id, account.id));
+    } else if (userRes.ok) {
+      await db
+        .update(connectedAccountsTable)
+        .set({
+          status: "connected",
+          verifyStatus: "verified",
+          verifyError: null,
+          verifiedAt: new Date(),
+        })
+        .where(eq(connectedAccountsTable.id, account.id));
+    } else {
+      // Unexpected non-auth status: reset the clock, keep prior state.
+      await db
+        .update(connectedAccountsTable)
+        .set({ verifiedAt: new Date() })
+        .where(eq(connectedAccountsTable.id, account.id));
+    }
+  } catch {
+    // Transient/network error: reset the clock, never flip a valid token.
+    await db
+      .update(connectedAccountsTable)
+      .set({ verifiedAt: new Date() })
+      .where(eq(connectedAccountsTable.id, account.id));
+  }
+
+  return (await getLinkedinAccount(tenantId)) ?? account;
+}
+
 router.param("id", (req, res, next, value) => {
   const id = Number(value);
   if (!Number.isInteger(id) || id <= 0) {
@@ -211,6 +287,7 @@ router.get("/linkedin/auth/callback", async (req: Request, res: Response) => {
     }
 
     const accountName = userJson.name || "LinkedIn";
+    const now = new Date();
     const existing = await getLinkedinAccount(req.tenantId);
     if (existing) {
       await db
@@ -221,6 +298,9 @@ router.get("/linkedin/auth/callback", async (req: Request, res: Response) => {
           accessToken,
           tokenExpiresAt: expiresAt,
           providerUserId: userJson.sub,
+          verifyStatus: "verified",
+          verifyError: null,
+          verifiedAt: now,
         })
         .where(eq(connectedAccountsTable.id, existing.id));
     } else {
@@ -232,6 +312,9 @@ router.get("/linkedin/auth/callback", async (req: Request, res: Response) => {
         accessToken,
         tokenExpiresAt: expiresAt,
         providerUserId: userJson.sub,
+        verifyStatus: "verified",
+        verifyError: null,
+        verifiedAt: now,
       });
     }
 
@@ -248,18 +331,32 @@ function serializeStatus(
 ) {
   const connected =
     !!account?.accessToken &&
+    account.verifyStatus !== "failed" &&
     (account.tokenExpiresAt === null ||
       account.tokenExpiresAt.getTime() > Date.now());
+  // A stored account that is no longer usable should prompt a reconnect rather
+  // than looking like it was never connected.
+  const expired = !!account?.accessToken && !connected;
   return {
     connected,
     accountName: connected ? account!.accountName : null,
     configured: isConfigured(),
     redirectUri: redirectUri(req),
+    expired,
   };
 }
 
 router.get("/linkedin/status", async (req: Request, res: Response) => {
-  const account = await getLinkedinAccount(req.tenantId);
+  let account = await getLinkedinAccount(req.tenantId);
+  // Proactively re-check the stored token so a revoked/expired one is caught on
+  // page load and the UI prompts a reconnect, without a manual retest.
+  if (account?.accessToken) {
+    try {
+      account = await reverifyLinkedin(req.tenantId, account);
+    } catch (err) {
+      req.log.error({ err }, "LinkedIn auto re-verify failed");
+    }
+  }
   res.json(serializeStatus(req, account));
 });
 
@@ -346,15 +443,29 @@ router.post(
       return;
     }
 
-    const account = await getLinkedinAccount(req.tenantId);
+    let account = await getLinkedinAccount(req.tenantId);
+    // Re-check the token against LinkedIn right before publishing so a
+    // revoked/expired token is caught here instead of producing a confusing raw
+    // publish error. Force the check regardless of staleness.
+    if (account?.accessToken) {
+      try {
+        account = await reverifyLinkedin(req.tenantId, {
+          ...account,
+          verifiedAt: null,
+        });
+      } catch (err) {
+        req.log.error({ err }, "LinkedIn pre-publish re-verify failed");
+      }
+    }
     const tokenValid =
       !!account?.accessToken &&
+      account.verifyStatus !== "failed" &&
       (account.tokenExpiresAt === null ||
         account.tokenExpiresAt.getTime() > Date.now());
     if (!account || !tokenValid || !account.providerUserId) {
       res.status(400).json({
         error:
-          "LinkedIn is not connected. Connect your LinkedIn account on the Accounts page first.",
+          "LinkedIn is not connected or its access token is no longer valid. Reconnect your LinkedIn account on the Accounts page and try again.",
       });
       return;
     }

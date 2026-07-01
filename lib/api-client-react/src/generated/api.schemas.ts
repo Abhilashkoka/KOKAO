@@ -253,6 +253,8 @@ export interface LinkedInStatus {
   configured: boolean;
   /** The exact OAuth redirect URL to register in the LinkedIn app. */
   redirectUri: string;
+  /** True when an account was previously connected but its token has since expired or been revoked, so the user should reconnect. */
+  expired?: boolean;
 }
 
 export interface PublishLinkedInResult {

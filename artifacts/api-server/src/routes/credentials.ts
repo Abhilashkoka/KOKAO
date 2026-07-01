@@ -32,6 +32,7 @@ import {
   isTwitterAppConfigured,
   type TwitterCredentials,
 } from "../lib/twitterApi";
+import { reverifyFacebook, reverifyInstagram } from "../lib/socialReverify";
 
 const router: IRouter = Router();
 
@@ -334,10 +335,17 @@ function serializeSocialStatus(
 router.get(
   "/social-credentials/facebook",
   async (req: Request, res: Response) => {
-    const [appConfigured, row] = await Promise.all([
-      isMetaAppConfigured(),
-      loadAccountRow(req.tenantId, "facebook"),
-    ]);
+    const appConfigured = await isMetaAppConfigured();
+    let row = await loadAccountRow(req.tenantId, "facebook");
+    // Proactively re-check a stored token so an expired/revoked one flips to
+    // "failed" the moment the page loads, without the user clicking "Re-test".
+    if (appConfigured && row?.encryptedCredentials) {
+      try {
+        row = (await reverifyFacebook(req.tenantId)) ?? row;
+      } catch (err) {
+        req.log.error({ err }, "Facebook auto re-verify failed");
+      }
+    }
     res.json(serializeSocialStatus("facebook", appConfigured, row));
   },
 );
@@ -439,10 +447,17 @@ router.post(
 router.get(
   "/social-credentials/instagram",
   async (req: Request, res: Response) => {
-    const [appConfigured, row] = await Promise.all([
-      isMetaAppConfigured(),
-      loadAccountRow(req.tenantId, "instagram"),
-    ]);
+    const appConfigured = await isMetaAppConfigured();
+    let row = await loadAccountRow(req.tenantId, "instagram");
+    // Proactively re-check a stored account so a broken connection flips to
+    // "failed" the moment the page loads, without the user clicking "Re-test".
+    if (appConfigured && row?.encryptedCredentials) {
+      try {
+        row = (await reverifyInstagram(req.tenantId)) ?? row;
+      } catch (err) {
+        req.log.error({ err }, "Instagram auto re-verify failed");
+      }
+    }
     res.json(serializeSocialStatus("instagram", appConfigured, row));
   },
 );

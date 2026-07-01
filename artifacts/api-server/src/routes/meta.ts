@@ -8,6 +8,7 @@ import {
   type FacebookCredentials,
   type InstagramCredentials,
 } from "../lib/metaApi";
+import { reverifyFacebook, reverifyInstagram } from "../lib/socialReverify";
 
 const router: IRouter = Router();
 
@@ -64,6 +65,14 @@ router.post(
       return;
     }
 
+    // Re-check the stored token against Meta right before publishing so an
+    // expired/revoked token is caught here (and flipped to "failed") instead of
+    // producing a confusing raw publish error.
+    try {
+      await reverifyFacebook(req.tenantId, { force: true });
+    } catch (err) {
+      req.log.error({ err }, "Facebook pre-publish re-verify failed");
+    }
     const fb = await getTenantCredentials<FacebookCredentials>(
       req.tenantId,
       "facebook",
@@ -71,7 +80,7 @@ router.post(
     if (!fb || !fb.verified) {
       res.status(400).json({
         error:
-          "Facebook is not connected or not verified. Add and verify your Page credentials on the Accounts page first.",
+          "Facebook is not connected or its access token is no longer valid. Reconnect your Page on the Accounts page and try again.",
       });
       return;
     }
@@ -170,6 +179,16 @@ router.post(
       return;
     }
 
+    // Re-check the stored credentials against Meta right before publishing so an
+    // expired/revoked token is caught here (and flipped to "failed") instead of
+    // producing a confusing raw publish error. Facebook first, since Instagram
+    // publishing rides on the Page token.
+    try {
+      await reverifyFacebook(req.tenantId, { force: true });
+      await reverifyInstagram(req.tenantId, { force: true });
+    } catch (err) {
+      req.log.error({ err }, "Instagram pre-publish re-verify failed");
+    }
     const [ig, fb] = await Promise.all([
       getTenantCredentials<InstagramCredentials>(req.tenantId, "instagram"),
       getTenantCredentials<FacebookCredentials>(req.tenantId, "facebook"),
@@ -177,14 +196,14 @@ router.post(
     if (!ig || !ig.verified) {
       res.status(400).json({
         error:
-          "Instagram is not connected or not verified. Add and verify your Instagram Business account on the Accounts page first.",
+          "Instagram is not connected or its connection is no longer valid. Reconnect your Instagram Business account on the Accounts page and try again.",
       });
       return;
     }
     if (!fb || !fb.verified) {
       res.status(400).json({
         error:
-          "Instagram publishing needs a verified Facebook Page connection. Reconnect Facebook and try again.",
+          "Instagram publishing needs a valid Facebook Page connection, but the Page token is no longer valid. Reconnect Facebook and try again.",
       });
       return;
     }

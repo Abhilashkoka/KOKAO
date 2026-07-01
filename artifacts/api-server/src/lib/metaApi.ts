@@ -24,6 +24,13 @@ export interface TestResult {
   accountName?: string;
   /** Error message on failure (safe to show; never contains secrets). */
   error?: string;
+  /**
+   * True when the failure was a transient/network problem (we could not reach
+   * Meta) rather than a definitive rejection of the credentials. Callers doing
+   * automatic re-verification use this to avoid flipping a still-valid
+   * connection to "failed" on a momentary network blip.
+   */
+  transient?: boolean;
 }
 
 interface GraphError {
@@ -92,6 +99,7 @@ export async function testMetaAppCredentials(
     return {
       ok: false,
       error: error instanceof Error ? error.message : "Could not reach Meta.",
+      transient: true,
     };
   }
 }
@@ -125,6 +133,7 @@ export async function testFacebookCredentials(
     return {
       ok: false,
       error: error instanceof Error ? error.message : "Could not reach Meta.",
+      transient: true,
     };
   }
 }
@@ -156,6 +165,7 @@ export async function testInstagramCredentials(
     return {
       ok: false,
       error: error instanceof Error ? error.message : "Could not reach Meta.",
+      transient: true,
     };
   }
 }

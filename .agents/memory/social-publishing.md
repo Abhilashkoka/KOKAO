@@ -15,3 +15,14 @@ Real publishing is built per-platform in dedicated routes, NOT through the gener
 `connected_accounts` also carries per-platform encrypted publish credentials (`encryptedCredentials` JSON + `verifyStatus`/`verifiedAt`/`verifyError`), plus the older nullable OAuth-token columns used by LinkedIn. A tenant row can be label-only or publish-capable.
 
 **Why:** Avoids re-discovering that connecting an account ≠ being able to post; each platform needs its own real credential/publish path.
+
+## Auto re-verification of stored tokens
+
+Stored tokens are re-checked automatically (not only via the manual "Re-test now" button): on the Accounts page GET (`/social-credentials/{facebook,instagram}`, `/linkedin/status`) and forced right before each publish. Meta helpers live in `lib/socialReverify.ts` (`reverifyFacebook`/`reverifyInstagram`); LinkedIn has its own `reverifyLinkedin` in `routes/linkedin.ts` (live `userinfo` check).
+
+Rules that matter:
+- **Staleness gate is the rate limiter** (`REVERIFY_STALE_MS`, 15 min) — `verifiedAt` doubles as "last checked at", so bursty page loads don't hammer the platform APIs. `force:true` bypasses it for publishes.
+- **Never flip a valid token to "failed" on a transient/network error.** `TestResult.transient` marks network failures (Meta helpers); on transient we only reset the check clock, keeping prior status. LinkedIn only flips on 401/403 from userinfo.
+- LinkedIn reuses `verifyStatus`/`verifiedAt` (previously unused for it); OAuth callback must set `verifyStatus:"verified"` or a reconnected account stays computed as not-connected. `LinkedInStatus.expired` (openapi) drives the "Reconnect needed" UI vs "Not connected".
+
+**Why:** "Verified" was a lie once a token silently expired — users only found out when a publish failed. These triggers surface breakage proactively without spamming the APIs and without false alarms.
