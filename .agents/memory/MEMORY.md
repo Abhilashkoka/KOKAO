@@ -6,3 +6,4 @@
 - [API route integration tests](api-route-integration-tests.md) — api-server uses vitest; drive routers over node:http with mocked fetch/db/storage to confirm publish flows end-to-end.
 - [OpenAPI zod body name collision](openapi-zod-body-name-collision.md) — never name a request-body schema `<PascalOperationId>Body`; it dup-exports in the api-zod barrel and breaks codegen (TS2308).
 - [Brand Kit module](brand-kit-module.md) — session-scoped endpoints (no tenantId in URL, IDOR avoidance); versioned-JSON payload (edit = new version, deep-clone + spread to preserve sections); keep OpenAPI + routes in lockstep.
+- [Dead-connection e2e seeding](dead-connection-e2e-seeding.md) — how to stably seed dead FB/IG/LinkedIn so the Accounts page shows reconnect prompts (respect reverify staleness + LinkedIn timestamp-expiry).

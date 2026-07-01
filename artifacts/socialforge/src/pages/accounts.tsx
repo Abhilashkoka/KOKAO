@@ -182,8 +182,15 @@ function FacebookCredentialsCard() {
                 <p className="text-sm text-muted-foreground">
                   Paste your Facebook Page ID and a Page access token. We test them immediately and only store them encrypted. Get a Page access token from the Graph API Explorer or your Meta app with the pages_manage_posts and pages_read_engagement permissions.
                 </p>
-                {data?.verifyStatus === "failed" && data?.verifyError && (
-                  <p className="text-sm text-destructive">{data.verifyError}</p>
+                {data?.verifyStatus === "failed" && (
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 space-y-1">
+                    <p className="text-sm font-semibold text-destructive flex items-center gap-1.5">
+                      <AlertCircle className="h-4 w-4 shrink-0" /> Reconnect needed
+                    </p>
+                    <p className="text-sm text-destructive">
+                      {data.verifyError || "Your Facebook Page connection stopped working."} Enter a fresh Page access token below to reconnect.
+                    </p>
+                  </div>
                 )}
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Page ID</label>
@@ -381,8 +388,15 @@ function InstagramCredentialsCard() {
                 <p className="text-sm text-muted-foreground">
                   Enter your Instagram Business account ID (the numeric IG user ID linked to your Facebook Page). We verify it immediately using your Facebook Page token.
                 </p>
-                {data?.verifyStatus === "failed" && data?.verifyError && (
-                  <p className="text-sm text-destructive">{data.verifyError}</p>
+                {data?.verifyStatus === "failed" && (
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 space-y-1">
+                    <p className="text-sm font-semibold text-destructive flex items-center gap-1.5">
+                      <AlertCircle className="h-4 w-4 shrink-0" /> Reconnect needed
+                    </p>
+                    <p className="text-sm text-destructive">
+                      {data.verifyError || "Your Instagram connection stopped working."} Re-enter your Instagram Business account ID below to reconnect.
+                    </p>
+                  </div>
                 )}
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Instagram Business account ID</label>
