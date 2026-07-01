@@ -45,6 +45,8 @@ import type {
   ContentInput,
   ContentItem,
   ContentUpdate,
+  EmailSettingsInput,
+  EmailSettingsStatus,
   ErrorEnvelope,
   FacebookCredentialInput,
   HealthStatus,
@@ -72,6 +74,8 @@ import type {
   ScheduleInput,
   ScheduleUpdate,
   ScheduledPost,
+  SendTestEmailInput,
+  SendTestEmailResult,
   SocialCredentialStatus,
   SummarizeUrlRequest,
   SummarizeUrlResult,
@@ -3759,6 +3763,223 @@ export const useAdminSaveMetaCredentials = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAdminSaveMetaCredentialsMutationOptions(options));
+    }
+
+export const getAdminGetEmailSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/email-settings`
+}
+
+/**
+ * @summary Get email delivery settings and masked credentials (superadmin only)
+ */
+export const adminGetEmailSettings = async ( options?: RequestInit): Promise<EmailSettingsStatus> => {
+
+  return customFetch<EmailSettingsStatus>(getAdminGetEmailSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetEmailSettingsQueryKey = () => {
+    return [
+    `/api/admin/email-settings`
+    ] as const;
+    }
+
+
+export const getAdminGetEmailSettingsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetEmailSettings>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetEmailSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetEmailSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetEmailSettings>>> = ({ signal }) => adminGetEmailSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetEmailSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetEmailSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetEmailSettings>>>
+export type AdminGetEmailSettingsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get email delivery settings and masked credentials (superadmin only)
+ */
+
+export function useAdminGetEmailSettings<TData = Awaited<ReturnType<typeof adminGetEmailSettings>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetEmailSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetEmailSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateEmailSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/email-settings`
+}
+
+/**
+ * @summary Update email delivery settings (pause switch + optional SendGrid creds)
+ */
+export const adminUpdateEmailSettings = async (emailSettingsInput: EmailSettingsInput, options?: RequestInit): Promise<EmailSettingsStatus> => {
+
+  return customFetch<EmailSettingsStatus>(getAdminUpdateEmailSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(emailSettingsInput)
+  }
+);}
+
+
+
+
+export const getAdminUpdateEmailSettingsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateEmailSettings>>, TError,{data: BodyType<EmailSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateEmailSettings>>, TError,{data: BodyType<EmailSettingsInput>}, TContext> => {
+
+const mutationKey = ['adminUpdateEmailSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateEmailSettings>>, {data: BodyType<EmailSettingsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateEmailSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateEmailSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateEmailSettings>>>
+    export type AdminUpdateEmailSettingsMutationBody = BodyType<EmailSettingsInput>
+    export type AdminUpdateEmailSettingsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update email delivery settings (pause switch + optional SendGrid creds)
+ */
+export const useAdminUpdateEmailSettings = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateEmailSettings>>, TError,{data: BodyType<EmailSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateEmailSettings>>,
+        TError,
+        {data: BodyType<EmailSettingsInput>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateEmailSettingsMutationOptions(options));
+    }
+
+export const getAdminSendTestEmailUrl = () => {
+
+
+
+
+  return `/api/admin/email-settings/test`
+}
+
+/**
+ * @summary Send a real test email to verify delivery (superadmin only)
+ */
+export const adminSendTestEmail = async (sendTestEmailInput: SendTestEmailInput, options?: RequestInit): Promise<SendTestEmailResult> => {
+
+  return customFetch<SendTestEmailResult>(getAdminSendTestEmailUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(sendTestEmailInput)
+  }
+);}
+
+
+
+
+export const getAdminSendTestEmailMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSendTestEmail>>, TError,{data: BodyType<SendTestEmailInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSendTestEmail>>, TError,{data: BodyType<SendTestEmailInput>}, TContext> => {
+
+const mutationKey = ['adminSendTestEmail'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSendTestEmail>>, {data: BodyType<SendTestEmailInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminSendTestEmail(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSendTestEmailMutationResult = NonNullable<Awaited<ReturnType<typeof adminSendTestEmail>>>
+    export type AdminSendTestEmailMutationBody = BodyType<SendTestEmailInput>
+    export type AdminSendTestEmailMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Send a real test email to verify delivery (superadmin only)
+ */
+export const useAdminSendTestEmail = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSendTestEmail>>, TError,{data: BodyType<SendTestEmailInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSendTestEmail>>,
+        TError,
+        {data: BodyType<SendTestEmailInput>},
+        TContext
+      > => {
+      return useMutation(getAdminSendTestEmailMutationOptions(options));
     }
 
 export const getGetFacebookCredentialsUrl = () => {

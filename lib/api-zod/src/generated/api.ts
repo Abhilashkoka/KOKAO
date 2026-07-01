@@ -3276,6 +3276,59 @@ export const AdminSaveMetaCredentialsResponse = zod.object({
 
 
 /**
+ * @summary Get email delivery settings and masked credentials (superadmin only)
+ */
+export const AdminGetEmailSettingsResponse = zod.object({
+  "sendingEnabled": zod.boolean().describe('Whether outbound email is currently allowed to send.'),
+  "fromEmail": zod.string().nullish().describe('The configured sender address, if any.'),
+  "apiKeyMasked": zod.string().nullish().describe('Masked stored API key, or null when none is stored.'),
+  "connectorAvailable": zod.boolean().describe('Whether the Replit-managed SendGrid connector is connected.'),
+  "configured": zod.boolean().describe('Whether credentials exist to send with (stored API key or the connected connector). Ignores the pause switch.'),
+  "testStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last test send.'),
+  "testedAt": zod.coerce.date().nullish(),
+  "testError": zod.string().nullish()
+})
+
+
+/**
+ * @summary Update email delivery settings (pause switch + optional SendGrid creds)
+ */
+export const AdminUpdateEmailSettingsBody = zod.object({
+  "sendingEnabled": zod.boolean().describe('Global pause switch. When false, no email is ever sent.'),
+  "fromEmail": zod.string().optional().describe('Verified SendGrid sender address (overrides the connector).'),
+  "apiKey": zod.string().optional().describe('SendGrid API key (write-only). Omit to keep the stored key; provide to replace it. Stored encrypted, never returned.')
+})
+
+export const AdminUpdateEmailSettingsResponse = zod.object({
+  "sendingEnabled": zod.boolean().describe('Whether outbound email is currently allowed to send.'),
+  "fromEmail": zod.string().nullish().describe('The configured sender address, if any.'),
+  "apiKeyMasked": zod.string().nullish().describe('Masked stored API key, or null when none is stored.'),
+  "connectorAvailable": zod.boolean().describe('Whether the Replit-managed SendGrid connector is connected.'),
+  "configured": zod.boolean().describe('Whether credentials exist to send with (stored API key or the connected connector). Ignores the pause switch.'),
+  "testStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last test send.'),
+  "testedAt": zod.coerce.date().nullish(),
+  "testError": zod.string().nullish()
+})
+
+
+/**
+ * @summary Send a real test email to verify delivery (superadmin only)
+ */
+export const adminSendTestEmailBodyToMin = 3;
+
+
+
+export const AdminSendTestEmailBody = zod.object({
+  "to": zod.string().min(adminSendTestEmailBodyToMin).describe('Recipient address for the test email.')
+})
+
+export const AdminSendTestEmailResponse = zod.object({
+  "ok": zod.boolean().describe('Whether SendGrid accepted the test email.'),
+  "error": zod.string().nullish().describe('Failure reason when ok is false.')
+})
+
+
+/**
  * @summary Get the tenant's masked Facebook credentials and verify status
  */
 export const GetFacebookCredentialsResponse = zod.object({

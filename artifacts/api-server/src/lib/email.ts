@@ -1,14 +1,19 @@
 import { logger } from "./logger";
+import { getEmailDeliveryState } from "./emailSettings";
 
 /**
- * Transactional email via the Replit-managed SendGrid connector.
+ * Transactional email via the Replit-managed SendGrid connector OR admin-entered
+ * SendGrid credentials, whichever is configured (manual creds win).
  *
- * Credentials are never hardcoded: the SendGrid API key and verified sender
- * address are fetched at request time from the Replit connectors proxy using
- * the repl/deployment identity token that Replit injects automatically. If the
- * connector has not been set up (no identity token, no connection, or missing
- * settings), every send is a safe no-op that returns `false` — sending email
- * must never be a hard dependency of the code paths that call it.
+ * Connector credentials are never hardcoded: the SendGrid API key and verified
+ * sender are fetched at request time from the Replit connectors proxy using the
+ * repl/deployment identity token Replit injects automatically. If neither manual
+ * creds nor the connector are set up, every send is a safe no-op that returns
+ * `false` — sending email must never be a hard dependency of the callers.
+ *
+ * A global pause switch (`email_settings.sendingEnabled`) can disable all sends
+ * regardless of credentials; `sendEmail` respects it, while `sendTestEmail`
+ * deliberately bypasses it so an admin can verify delivery while still paused.
  */
 
 interface SendGridConfig {
@@ -25,9 +30,9 @@ function replitIdentityToken(): string | null {
 
 /**
  * Resolve the live SendGrid credentials from the connectors proxy. Returns
- * null (never throws) whenever email is not configured so callers can no-op.
+ * null (never throws) whenever the connector is not configured.
  */
-async function getSendGridConfig(): Promise<SendGridConfig | null> {
+async function getConnectorConfig(): Promise<SendGridConfig | null> {
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const token = replitIdentityToken();
   if (!hostname || !token) return null;
@@ -53,12 +58,30 @@ async function getSendGridConfig(): Promise<SendGridConfig | null> {
 }
 
 /**
- * Whether transactional email is currently deliverable (SendGrid connected with
- * valid settings). Never throws. The notification settings UI uses this to show
- * whether the email channel will actually send yet.
+ * Resolve the credentials to send with: admin-entered manual creds take
+ * precedence over the connector. Returns null when nothing is configured.
+ */
+async function resolveConfig(): Promise<SendGridConfig | null> {
+  const state = await getEmailDeliveryState();
+  if (state.manual) return state.manual;
+  return getConnectorConfig();
+}
+
+/** Whether the Replit-managed SendGrid connector alone is currently available. */
+export async function isConnectorEmailAvailable(): Promise<boolean> {
+  return (await getConnectorConfig()) !== null;
+}
+
+/**
+ * Whether transactional email will actually send right now: not paused AND some
+ * credentials (manual or connector) are available. The notification settings UI
+ * uses this to show whether the email channel is live.
  */
 export async function isEmailConfigured(): Promise<boolean> {
-  return (await getSendGridConfig()) !== null;
+  const state = await getEmailDeliveryState();
+  if (!state.enabled) return false;
+  if (state.manual) return true;
+  return (await getConnectorConfig()) !== null;
 }
 
 export interface EmailMessage {
@@ -68,19 +91,19 @@ export interface EmailMessage {
   html?: string;
 }
 
-/**
- * Send a single transactional email. Returns `true` only when SendGrid
- * accepted the message. Returns `false` (and never throws) when email is not
- * configured or the send fails, so notification code can treat email as a
- * best-effort side channel.
- */
-export async function sendEmail(msg: EmailMessage): Promise<boolean> {
-  const config = await getSendGridConfig();
-  if (!config) {
-    logger.info("Email not configured (SendGrid not connected); skipping send");
-    return false;
-  }
+export interface SendResult {
+  ok: boolean;
+  error?: string;
+}
 
+/**
+ * Low-level SendGrid POST. Returns a structured result with a human-readable
+ * error on failure. Never throws.
+ */
+async function postToSendGrid(
+  msg: EmailMessage,
+  config: SendGridConfig,
+): Promise<SendResult> {
   const content: Array<{ type: string; value: string }> = [
     { type: "text/plain", value: msg.text },
   ];
@@ -107,11 +130,54 @@ export async function sendEmail(msg: EmailMessage): Promise<boolean> {
         { status: res.status, body },
         "SendGrid rejected the email send",
       );
-      return false;
+      return {
+        ok: false,
+        error: `SendGrid responded ${res.status}${body ? `: ${body.slice(0, 300)}` : ""}`,
+      };
     }
-    return true;
+    return { ok: true };
   } catch (err) {
     logger.error({ err }, "SendGrid email send threw");
+    return { ok: false, error: "Network error contacting SendGrid" };
+  }
+}
+
+/**
+ * Send a single transactional email. Returns `true` only when SendGrid accepted
+ * the message. Returns `false` (and never throws) when email is paused, not
+ * configured, or the send fails, so notification code can treat email as a
+ * best-effort side channel.
+ */
+export async function sendEmail(msg: EmailMessage): Promise<boolean> {
+  const state = await getEmailDeliveryState();
+  if (!state.enabled) {
+    logger.info("Email sending is paused; skipping send");
     return false;
   }
+
+  const config = state.manual ?? (await getConnectorConfig());
+  if (!config) {
+    logger.info("Email not configured (no SendGrid creds); skipping send");
+    return false;
+  }
+
+  const result = await postToSendGrid(msg, config);
+  return result.ok;
+}
+
+/**
+ * Send a test email to verify delivery. Unlike `sendEmail`, this deliberately
+ * IGNORES the pause switch so an admin can confirm credentials work while email
+ * is still paused for tenants. Returns a structured result for the admin UI.
+ */
+export async function sendTestEmail(msg: EmailMessage): Promise<SendResult> {
+  const config = await resolveConfig();
+  if (!config) {
+    return {
+      ok: false,
+      error:
+        "No SendGrid credentials configured. Enter an API key and sender address, or connect the SendGrid integration.",
+    };
+  }
+  return postToSendGrid(msg, config);
 }

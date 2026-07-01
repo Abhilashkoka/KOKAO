@@ -20,21 +20,34 @@ vi.mock("./email", () => ({
 import { pool } from "@workspace/db";
 import { fetchVerifiedEmail } from "./clerkUser";
 import { sendEmail } from "./email";
-import { notifySocialConnectionFailed } from "./notifications";
-import { createTenant, deleteTenant, getNotifications } from "../test/dbHelpers";
+import { notifySocialConnectionFailed, SOCIAL_CONNECTION_FAILED } from "./notifications";
+import {
+  createTenant,
+  deleteTenant,
+  getNotifications,
+  setNotificationPolicy,
+  clearNotificationPolicy,
+} from "../test/dbHelpers";
 
 const mockFetchEmail = vi.mocked(fetchVerifiedEmail);
 const mockSendEmail = vi.mocked(sendEmail);
 
 const ORIGINAL_DOMAINS = process.env.REPLIT_DOMAINS;
 
-beforeAll(() => {
+beforeAll(async () => {
   process.env.REPLIT_DOMAINS = "socialforge.example.com";
+  // The email channel is off by default (default preference email:false); force
+  // it on globally so this test can exercise the email side channel.
+  await setNotificationPolicy(SOCIAL_CONNECTION_FAILED, {
+    enabled: true,
+    emailPolicy: "forced",
+  });
 });
 
 afterAll(async () => {
   if (ORIGINAL_DOMAINS === undefined) delete process.env.REPLIT_DOMAINS;
   else process.env.REPLIT_DOMAINS = ORIGINAL_DOMAINS;
+  await clearNotificationPolicy(SOCIAL_CONNECTION_FAILED);
   await pool.end();
 });
 

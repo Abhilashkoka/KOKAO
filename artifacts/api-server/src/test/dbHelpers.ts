@@ -5,6 +5,7 @@ import {
   contentItemsTable,
   appCredentialsTable,
   notificationsTable,
+  notificationPoliciesTable,
   type AppCredential,
 } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
@@ -62,6 +63,28 @@ export async function getNotifications(tenantId: number) {
     .select()
     .from(notificationsTable)
     .where(eq(notificationsTable.tenantId, tenantId));
+}
+
+/**
+ * Upsert the global notification policy for a type so tests that exercise the
+ * email side channel establish their own precondition instead of depending on
+ * ambient DB state. Email only fires when the policy is "forced" (or a tenant
+ * opts in), since the built-in default preference is email-off.
+ */
+export async function setNotificationPolicy(
+  type: string,
+  opts: { enabled?: boolean; emailPolicy?: string } = {},
+): Promise<void> {
+  await db.delete(notificationPoliciesTable).where(eq(notificationPoliciesTable.type, type));
+  await db.insert(notificationPoliciesTable).values({
+    type,
+    enabled: opts.enabled ?? true,
+    emailPolicy: opts.emailPolicy ?? "optional",
+  });
+}
+
+export async function clearNotificationPolicy(type: string): Promise<void> {
+  await db.delete(notificationPoliciesTable).where(eq(notificationPoliciesTable.type, type));
 }
 
 export async function insertConnectedAccount(

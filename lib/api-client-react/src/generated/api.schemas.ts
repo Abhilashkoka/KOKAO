@@ -576,6 +576,61 @@ export interface MetaAppCredentialStatus {
   testError?: string | null;
 }
 
+export interface EmailSettingsInput {
+  /** Global pause switch. When false, no email is ever sent. */
+  sendingEnabled: boolean;
+  /** Verified SendGrid sender address (overrides the connector). */
+  fromEmail?: string;
+  /** SendGrid API key (write-only). Omit to keep the stored key; provide to replace it. Stored encrypted, never returned. */
+  apiKey?: string;
+}
+
+export interface EmailSettingsStatus {
+  /** Whether outbound email is currently allowed to send. */
+  sendingEnabled: boolean;
+  /**
+     * The configured sender address, if any.
+     * @nullable
+     */
+  fromEmail?: string | null;
+  /**
+     * Masked stored API key, or null when none is stored.
+     * @nullable
+     */
+  apiKeyMasked?: string | null;
+  /** Whether the Replit-managed SendGrid connector is connected. */
+  connectorAvailable: boolean;
+  /** Whether credentials exist to send with (stored API key or the connected connector). Ignores the pause switch. */
+  configured: boolean;
+  /**
+     * "verified" or "failed" from the last test send.
+     * @nullable
+     */
+  testStatus?: string | null;
+  /** @nullable */
+  testedAt?: string | null;
+  /** @nullable */
+  testError?: string | null;
+}
+
+export interface SendTestEmailInput {
+  /**
+     * Recipient address for the test email.
+     * @minLength 3
+     */
+  to: string;
+}
+
+export interface SendTestEmailResult {
+  /** Whether SendGrid accepted the test email. */
+  ok: boolean;
+  /**
+     * Failure reason when ok is false.
+     * @nullable
+     */
+  error?: string | null;
+}
+
 export interface FacebookCredentialInput {
   /** @minLength 1 */
   pageId: string;

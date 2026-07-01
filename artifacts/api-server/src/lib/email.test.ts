@@ -1,5 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { sendEmail } from "./email";
+import { getEmailDeliveryState } from "./emailSettings";
+
+// The DB-backed delivery state is mocked so these tests exercise only the
+// connector-resolution + SendGrid send path. Individual tests override the
+// return value to simulate the pause switch and manual credentials.
+vi.mock("./emailSettings", () => ({
+  getEmailDeliveryState: vi.fn(async () => ({ enabled: true, manual: null })),
+}));
+
+const mockDeliveryState = vi.mocked(getEmailDeliveryState);
 
 const ORIGINAL_ENV = {
   hostname: process.env.REPLIT_CONNECTORS_HOSTNAME,
@@ -20,6 +30,7 @@ function restoreEnv(): void {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  mockDeliveryState.mockResolvedValue({ enabled: true, manual: null });
 });
 
 afterEach(() => {
@@ -104,6 +115,41 @@ describe("sendEmail", () => {
     // text/plain must come before text/html for SendGrid.
     expect(body.content[0].type).toBe("text/plain");
     expect(body.content[1].type).toBe("text/html");
+  });
+
+  it("no-ops (returns false) when sending is paused, without any fetch", async () => {
+    process.env.REPLIT_CONNECTORS_HOSTNAME = "connectors.example.com";
+    process.env.REPL_IDENTITY = "identity-token";
+    mockDeliveryState.mockResolvedValue({ enabled: false, manual: null });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const ok = await sendEmail({ to: "a@b.com", subject: "s", text: "t" });
+
+    expect(ok).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("uses manual credentials (skips the connector lookup) when configured", async () => {
+    mockDeliveryState.mockResolvedValue({
+      enabled: true,
+      manual: { apiKey: "SG.manual", fromEmail: "sender@manual.com" },
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(null, { status: 202 }));
+
+    const ok = await sendEmail({ to: "user@example.com", subject: "s", text: "t" });
+
+    expect(ok).toBe(true);
+    // Only the SendGrid send fired; no connector-proxy lookup.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.sendgrid.com/v3/mail/send");
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      "Bearer SG.manual",
+    );
+    const body = JSON.parse(init.body as string);
+    expect(body.from.email).toBe("sender@manual.com");
   });
 
   it("returns false when SendGrid rejects the send", async () => {

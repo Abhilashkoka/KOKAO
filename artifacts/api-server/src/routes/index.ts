@@ -16,6 +16,7 @@ import credentialsRouter from "./credentials";
 import linkedinRouter from "./linkedin";
 import notificationsRouter from "./notifications";
 import notificationSettingsRouter from "./notificationSettings";
+import emailSettingsRouter from "./emailSettings";
 import adminRouter from "./admin";
 import { requireTenant } from "../middlewares/requireTenant";
 
@@ -43,6 +44,7 @@ router.use(credentialsRouter);
 router.use(linkedinRouter);
 router.use(notificationsRouter);
 router.use(notificationSettingsRouter);
+router.use(emailSettingsRouter);
 router.use(adminRouter);
 
 export default router;

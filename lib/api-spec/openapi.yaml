@@ -1237,6 +1237,85 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /admin/email-settings:
+    get:
+      operationId: adminGetEmailSettings
+      tags: [email-settings]
+      summary: Get email delivery settings and masked credentials (superadmin only)
+      responses:
+        "200":
+          description: Email delivery settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailSettingsStatus"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminUpdateEmailSettings
+      tags: [email-settings]
+      summary: Update email delivery settings (pause switch + optional SendGrid creds)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailSettingsInput"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailSettingsStatus"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/email-settings/test:
+    post:
+      operationId: adminSendTestEmail
+      tags: [email-settings]
+      summary: Send a real test email to verify delivery (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendTestEmailInput"
+      responses:
+        "200":
+          description: Test send attempted (see ok/error for the result)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendTestEmailResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /social-credentials/facebook:
     get:
       operationId: getFacebookCredentials
@@ -2531,6 +2610,68 @@ components:
           format: date-time
         testError:
           type: ["string", "null"]
+    EmailSettingsInput:
+      type: object
+      required: [sendingEnabled]
+      properties:
+        sendingEnabled:
+          type: boolean
+          description: Global pause switch. When false, no email is ever sent.
+        fromEmail:
+          type: string
+          description: Verified SendGrid sender address (overrides the connector).
+        apiKey:
+          type: string
+          description: >-
+            SendGrid API key (write-only). Omit to keep the stored key; provide
+            to replace it. Stored encrypted, never returned.
+    EmailSettingsStatus:
+      type: object
+      required: [sendingEnabled, connectorAvailable, configured]
+      properties:
+        sendingEnabled:
+          type: boolean
+          description: Whether outbound email is currently allowed to send.
+        fromEmail:
+          type: ["string", "null"]
+          description: The configured sender address, if any.
+        apiKeyMasked:
+          type: ["string", "null"]
+          description: Masked stored API key, or null when none is stored.
+        connectorAvailable:
+          type: boolean
+          description: Whether the Replit-managed SendGrid connector is connected.
+        configured:
+          type: boolean
+          description: >-
+            Whether credentials exist to send with (stored API key or the
+            connected connector). Ignores the pause switch.
+        testStatus:
+          type: ["string", "null"]
+          description: '"verified" or "failed" from the last test send.'
+        testedAt:
+          type: ["string", "null"]
+          format: date-time
+        testError:
+          type: ["string", "null"]
+    SendTestEmailInput:
+      type: object
+      required: [to]
+      properties:
+        to:
+          type: string
+          minLength: 3
+          description: Recipient address for the test email.
+    SendTestEmailResult:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          description: Whether SendGrid accepted the test email.
+        error:
+          type: ["string", "null"]
+          description: Failure reason when ok is false.
     FacebookCredentialInput:
       type: object
       required: [pageId, pageAccessToken]

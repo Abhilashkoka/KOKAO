@@ -8,6 +8,7 @@ export * from "./contentItems";
 export * from "./scheduledPosts";
 export * from "./connectedAccounts";
 export * from "./appCredentials";
+export * from "./emailSettings";
 export * from "./usageEvents";
 export * from "./notifications";
 export * from "./notificationPreferences";
