@@ -132,6 +132,7 @@ export function LibraryPage() {
           toast({
             title: "Published to LinkedIn",
             description: res?.permalink ? "Your post is live on LinkedIn." : undefined,
+            action: viewPostAction(res?.permalink),
           });
           queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
           setLinkedinItem(null);

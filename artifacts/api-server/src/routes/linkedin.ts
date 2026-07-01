@@ -563,9 +563,18 @@ router.post(
         postRes.headers.get("x-linkedin-id") ||
         "";
 
+      const permalink = postId
+        ? `https://www.linkedin.com/feed/update/${postId}`
+        : null;
+
       await db
         .update(contentItemsTable)
-        .set({ status: "published", updatedAt: new Date() })
+        .set({
+          status: "published",
+          postId: postId || null,
+          permalink,
+          updatedAt: new Date(),
+        })
         .where(
           and(
             eq(contentItemsTable.id, id),
@@ -573,9 +582,6 @@ router.post(
           ),
         );
 
-      const permalink = postId
-        ? `https://www.linkedin.com/feed/update/${postId}`
-        : null;
       res.json({ postId, permalink });
     } catch (error) {
       req.log.error({ err: error }, "LinkedIn publish failed");

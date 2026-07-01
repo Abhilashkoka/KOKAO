@@ -234,6 +234,9 @@ describe("LinkedIn publish", () => {
     expect(res.json.postId).toBe("urn:li:share:999");
     expect(res.json.permalink).toContain("urn:li:share:999");
     expect(state.content[0].status).toBe("published");
+    // The permalink is persisted so the library card shows a "View post" link.
+    expect(state.content[0].postId).toBe("urn:li:share:999");
+    expect(state.content[0].permalink).toContain("urn:li:share:999");
 
     // No image initialization for a text-only post.
     expect(fetchCalls.some((c) => c.url.includes("initializeUpload"))).toBe(
