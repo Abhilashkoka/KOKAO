@@ -37,6 +37,16 @@ Dedup ("once per breakage") is TWO-layered and relies on the transition, not a f
 
 **Why:** users not actively in the app otherwise learn a connection died only when a post fails.
 
+## Transient-hiccup resilience on publish (Meta)
+
+Both Meta publish paths in `routes/meta.ts` guard against momentary Graph API "not ready" failures, with a shared distinction between transient vs definitive errors:
+- Instagram: polls the media container `status_code` until `FINISHED` before `media_publish` (config `IG_CONTAINER_POLL`).
+- Facebook photo/feed: writes go through `postToGraphWithRetry` with bounded backoff (config `FB_PUBLISH_RETRY`). It retries ONLY transient errors — HTTP 5xx, `error.is_transient`, or Graph `error.code` 1 (unknown/temporary) or 2 (service temporarily unavailable). Definitive errors (bad token, invalid params, permissions) fail fast with no retry. The body builder is a factory (`buildForm`) because a FormData/Blob body is consumed once per fetch.
+
+Both config objects are exported+mutable so tests shrink delays/attempt caps to run instantly (see the "container readiness" and "transient-error retry" describes in meta.test.ts).
+
+**Why:** a one-off Graph hiccup shouldn't silently fail a post, but retrying a definitive error just fails slower and can double-post.
+
 ## Stale test gotcha
 
 `routes/meta.test.ts` "with fetch mocked" tests expect 502 from publish-facebook, but the publish path force-reverifies first (`reverifyFacebook({force:true})`), and `testFacebookCredentials` treats a mocked 400 as a NON-transient failure → flips the account to `failed` → the gate returns 400, not 502. These 3 assertions are pre-existing/stale (predate the force-reverify-on-publish change), unrelated to notifications work. Adding a router to `test/testApp.ts` also requires updating that shared factory (only mounts a subset of routers).

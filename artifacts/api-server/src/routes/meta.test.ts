@@ -67,7 +67,11 @@ import {
   getContentItem,
 } from "../test/dbHelpers";
 import { ObjectStorageService } from "../lib/objectStorage";
-import { IG_CONTAINER_POLL, IG_PUBLISH_RETRY } from "./meta";
+import {
+  IG_CONTAINER_POLL,
+  IG_PUBLISH_RETRY,
+  FB_PUBLISH_RETRY,
+} from "./meta";
 import { waitForPendingJobs } from "../lib/backgroundJobs";
 
 const app = createTestApp();
@@ -382,6 +386,172 @@ describe("Facebook publishing (happy path)", () => {
 
       const item = await getContentItem(itemId, tenant.tenantId);
       expect(item.status).toBe("published");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("Facebook publish transient-error retry", () => {
+  const originalRetry = { ...FB_PUBLISH_RETRY };
+
+  beforeEach(() => {
+    // Shrink the retry cap/delays so retries run instantly.
+    FB_PUBLISH_RETRY.maxAttempts = 3;
+    FB_PUBLISH_RETRY.initialDelayMs = 1;
+    FB_PUBLISH_RETRY.maxDelayMs = 1;
+    FB_PUBLISH_RETRY.backoffFactor = 1;
+  });
+
+  afterEach(() => {
+    Object.assign(FB_PUBLISH_RETRY, originalRetry);
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * Mock the Graph API so the photo endpoint fails transiently for the first
+   * `failCount` attempts, then succeeds. Pre-publish re-verification reads
+   * always succeed. Records requested URLs.
+   */
+  function mockGraphPhotoTransient(
+    calls: string[],
+    failCount: number,
+    failResponse: { status: number; body: unknown },
+  ) {
+    let photoAttempts = 0;
+    return vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        calls.push(url);
+        const json = (body: unknown, status = 200) =>
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "content-type": "application/json" },
+          });
+
+        if (url.includes("/photos")) {
+          photoAttempts += 1;
+          if (photoAttempts <= failCount) {
+            return json(failResponse.body, failResponse.status);
+          }
+          return json({ id: "PHOTO_1", post_id: "POST_1" });
+        }
+        // Pre-publish re-verification reads.
+        if (url.includes("fields=id,name"))
+          return json({ id: lastPathSegment(url), name: "Test Page" });
+        if (url.includes("fields=id,username"))
+          return json({ id: lastPathSegment(url), username: "testacct" });
+        return json({});
+      });
+  }
+
+  async function setupVerifiedFbTenant() {
+    const tenant = await createTenant();
+    await insertConnectedAccount(
+      tenant.tenantId,
+      "facebook",
+      { pageId: "PAGE_OK", pageAccessToken: FB_PAGE_TOKEN },
+      "verified",
+    );
+    const itemId = await insertContentItem(tenant.tenantId, {
+      imagePath: "/objects/uploads/test.png",
+    });
+    actAs(tenant.clerkUserId);
+    return { tenant, itemId };
+  }
+
+  it("retries a transient Graph error and then publishes", async () => {
+    const calls: string[] = [];
+    // Two transient failures (code 2 = service temporarily unavailable), then success.
+    mockGraphPhotoTransient(calls, 2, {
+      status: 500,
+      body: { error: { message: "temporarily unavailable", code: 2 } },
+    });
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getObjectEntityFile",
+    ).mockResolvedValue({
+      download: async () => [Buffer.from("fake-image-bytes")],
+    } as never);
+
+    const { tenant, itemId } = await setupVerifiedFbTenant();
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-facebook`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("POST_1");
+      // Attempted the photo upload three times (two transient + one success).
+      expect(calls.filter((u) => u.includes("/photos")).length).toBe(3);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("gives up after the attempt cap when the error stays transient (502)", async () => {
+    const calls: string[] = [];
+    mockGraphPhotoTransient(calls, Infinity, {
+      status: 503,
+      body: { error: { message: "still unavailable", is_transient: true } },
+    });
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getObjectEntityFile",
+    ).mockResolvedValue({
+      download: async () => [Buffer.from("fake-image-bytes")],
+    } as never);
+
+    const { tenant, itemId } = await setupVerifiedFbTenant();
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-facebook`,
+      );
+
+      expect(res.status).toBe(502);
+      // Tried exactly the attempt cap and gave up.
+      expect(calls.filter((u) => u.includes("/photos")).length).toBe(
+        FB_PUBLISH_RETRY.maxAttempts,
+      );
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).not.toBe("published");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("does NOT retry a definitive error (fails fast, 502)", async () => {
+    const calls: string[] = [];
+    // A permission/param error (no transient markers) must fail on the first try.
+    mockGraphPhotoTransient(calls, Infinity, {
+      status: 400,
+      body: { error: { message: "Invalid parameter", code: 100 } },
+    });
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getObjectEntityFile",
+    ).mockResolvedValue({
+      download: async () => [Buffer.from("fake-image-bytes")],
+    } as never);
+
+    const { tenant, itemId } = await setupVerifiedFbTenant();
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-facebook`,
+      );
+
+      expect(res.status).toBe(502);
+      expect(res.body.error).toMatch(/Invalid parameter/i);
+      // No retry: exactly one photo attempt.
+      expect(calls.filter((u) => u.includes("/photos")).length).toBe(1);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).not.toBe("published");
     } finally {
       await deleteTenant(tenant.tenantId);
     }

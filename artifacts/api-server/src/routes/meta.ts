@@ -75,6 +75,74 @@ function isRetryableStatus(status: number): boolean {
 }
 
 /**
+ * Bounded retry/backoff configuration for Facebook publish writes. Facebook
+ * photo/feed posts normally succeed on the first try, but the Graph API can
+ * momentarily return a transient error (service temporarily unavailable, a
+ * 5xx, or `is_transient`) — the same class of "not ready yet" hiccup the
+ * Instagram flow guards against. Exported (and mutable) so tests can shrink the
+ * delays and attempt cap without waiting real seconds.
+ */
+export const FB_PUBLISH_RETRY = {
+  maxAttempts: 4,
+  initialDelayMs: 1000,
+  maxDelayMs: 8000,
+  backoffFactor: 2,
+};
+
+type GraphError = {
+  message?: string;
+  code?: number;
+  is_transient?: boolean;
+};
+
+/**
+ * Decide whether a failed Graph API response is a transient hiccup worth
+ * retrying. Definitive errors (bad token, invalid params, permissions) are NOT
+ * retried — retrying them would just fail slower.
+ */
+function isTransientGraphError(status: number, error?: GraphError): boolean {
+  if (status >= 500) return true;
+  if (!error) return false;
+  if (error.is_transient) return true;
+  // code 1 = unknown/temporary, code 2 = service temporarily unavailable.
+  if (error.code === 1 || error.code === 2) return true;
+  return false;
+}
+
+/**
+ * POST to a Graph API endpoint with a bounded, backing-off retry on transient
+ * failures. `buildBody` is called fresh for every attempt because a request
+ * body (FormData/Blob) is consumed once per fetch. Throws the last error once
+ * a definitive failure is seen or the attempt cap is reached.
+ */
+async function postToGraphWithRetry<T extends { error?: GraphError }>(
+  url: string,
+  buildBody: () => FormData,
+  label: string,
+): Promise<T> {
+  let delay = FB_PUBLISH_RETRY.initialDelayMs;
+  let lastError = new Error(label);
+  for (let attempt = 0; attempt < FB_PUBLISH_RETRY.maxAttempts; attempt++) {
+    const res = await fetch(url, { method: "POST", body: buildBody() });
+    const json = (await res.json()) as T;
+    if (res.ok && !json.error) return json;
+
+    lastError = new Error(json.error?.message || `${label} (${res.status})`);
+    const transient = isTransientGraphError(res.status, json.error);
+    if (!transient || attempt === FB_PUBLISH_RETRY.maxAttempts - 1) {
+      throw lastError;
+    }
+
+    await sleep(delay);
+    delay = Math.min(
+      Math.round(delay * FB_PUBLISH_RETRY.backoffFactor),
+      FB_PUBLISH_RETRY.maxDelayMs,
+    );
+  }
+  throw lastError;
+}
+
+/**
  * Instagram fetches the container's image asynchronously, so a freshly created
  * container usually reports `status_code: IN_PROGRESS` for a moment. Publishing
  * before it becomes `FINISHED` fails, so poll the container status (with
@@ -395,48 +463,38 @@ router.post(
         );
         const [buffer] = await file.download();
 
-        const form = new FormData();
-        form.append("access_token", pageAccessToken);
-        if (message) form.append("caption", message);
-        form.append(
-          "source",
-          new Blob([new Uint8Array(buffer)], { type: "image/png" }),
-          "image.png",
-        );
+        // Rebuild the multipart body per attempt: a FormData/Blob body is
+        // consumed once per fetch, so the retry helper needs a fresh one.
+        const buildForm = () => {
+          const form = new FormData();
+          form.append("access_token", pageAccessToken);
+          if (message) form.append("caption", message);
+          form.append(
+            "source",
+            new Blob([new Uint8Array(buffer)], { type: "image/png" }),
+            "image.png",
+          );
+          return form;
+        };
 
-        const fbRes = await fetch(`${GRAPH_BASE}/${pageId}/photos`, {
-          method: "POST",
-          body: form,
-        });
-        const fbJson = (await fbRes.json()) as {
+        const fbJson = await postToGraphWithRetry<{
           id?: string;
           post_id?: string;
-          error?: { message?: string };
-        };
-        if (!fbRes.ok || fbJson.error) {
-          throw new Error(
-            fbJson.error?.message || `Facebook API error (${fbRes.status})`,
-          );
-        }
+          error?: GraphError;
+        }>(`${GRAPH_BASE}/${pageId}/photos`, buildForm, "Facebook API error");
         postId = fbJson.post_id || fbJson.id || "";
       } else {
-        const form = new FormData();
-        form.append("access_token", pageAccessToken);
-        form.append("message", message);
-
-        const fbRes = await fetch(`${GRAPH_BASE}/${pageId}/feed`, {
-          method: "POST",
-          body: form,
-        });
-        const fbJson = (await fbRes.json()) as {
-          id?: string;
-          error?: { message?: string };
+        const buildForm = () => {
+          const form = new FormData();
+          form.append("access_token", pageAccessToken);
+          form.append("message", message);
+          return form;
         };
-        if (!fbRes.ok || fbJson.error) {
-          throw new Error(
-            fbJson.error?.message || `Facebook API error (${fbRes.status})`,
-          );
-        }
+
+        const fbJson = await postToGraphWithRetry<{
+          id?: string;
+          error?: GraphError;
+        }>(`${GRAPH_BASE}/${pageId}/feed`, buildForm, "Facebook API error");
         postId = fbJson.id || "";
       }
 
