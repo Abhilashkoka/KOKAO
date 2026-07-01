@@ -202,3 +202,215 @@ describe("PATCH /admin/tenants/:id/superadmin — role management is owner-only"
     }
   });
 });
+
+describe("GET /admin/tenants — cross-tenant list stays admin-only", () => {
+  it("returns 401 to an unauthenticated caller", async () => {
+    resetAuthState();
+    const res = await request(app).get("/api/admin/tenants");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 to an authenticated non-superadmin (no tenant data leaks)", async () => {
+    const actor = await createTenant({
+      email: `plain-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      const res = await request(app).get("/api/admin/tenants");
+      expect(res.status).toBe(403);
+      expect(Array.isArray(res.body)).toBe(false);
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
+  it("lets a granted (DB-flag) superadmin read the full tenant list", async () => {
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    const other = await createTenant({
+      email: `other-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      const res = await request(app).get("/api/admin/tenants");
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+
+      // The list is cross-tenant: it includes tenants other than the actor.
+      const ids = (res.body as Array<{ id: number }>).map((t) => t.id);
+      expect(ids).toContain(actor.tenantId);
+      expect(ids).toContain(other.tenantId);
+
+      // Each row carries the admin-only counts/usage shape.
+      const row = (res.body as Array<{ id: number }>).find(
+        (t) => t.id === other.tenantId,
+      ) as Record<string, unknown> | undefined;
+      expect(row).toBeDefined();
+      expect(row).toHaveProperty("counts");
+      expect(row).toHaveProperty("usage");
+    } finally {
+      await deleteTenant(actor.tenantId);
+      await deleteTenant(other.tenantId);
+    }
+  });
+
+  it("lets an allowlisted owner read the tenant list", async () => {
+    const owner = await createTenant({ email: OWNER_EMAIL });
+    try {
+      actAs(owner.clerkUserId, OWNER_EMAIL);
+      const res = await request(app).get("/api/admin/tenants");
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+    } finally {
+      await deleteTenant(owner.tenantId);
+    }
+  });
+});
+
+describe("GET /admin/stats — platform stats stay admin-only", () => {
+  it("returns 401 to an unauthenticated caller", async () => {
+    resetAuthState();
+    const res = await request(app).get("/api/admin/stats");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 to an authenticated non-superadmin", async () => {
+    const actor = await createTenant({
+      email: `plain-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      const res = await request(app).get("/api/admin/stats");
+      expect(res.status).toBe(403);
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
+  it("lets a granted (DB-flag) superadmin read platform stats", async () => {
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      const res = await request(app).get("/api/admin/stats");
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("totalTenants");
+      expect(res.body).toHaveProperty("tenantsByPlan");
+      expect(res.body.tenantsByPlan).toHaveProperty("free");
+      expect(res.body.tenantsByPlan).toHaveProperty("pro");
+      expect(res.body.tenantsByPlan).toHaveProperty("business");
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+});
+
+describe("PATCH /admin/tenants/:id — plan override stays admin-only", () => {
+  it("returns 401 to an unauthenticated caller and does not change the plan", async () => {
+    const target = await createTenant({
+      email: `target-${randomUUID()}@example.com`,
+    });
+    try {
+      resetAuthState();
+      const res = await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}`)
+        .send({ plan: "pro" });
+      expect(res.status).toBe(401);
+
+      const after = await getTenant(target.tenantId);
+      expect(after.plan).toBe("free");
+    } finally {
+      await deleteTenant(target.tenantId);
+    }
+  });
+
+  it("returns 403 to an authenticated non-superadmin and does not change the plan", async () => {
+    const actor = await createTenant({
+      email: `plain-${randomUUID()}@example.com`,
+    });
+    const target = await createTenant({
+      email: `target-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      const res = await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}`)
+        .send({ plan: "business" });
+      expect(res.status).toBe(403);
+
+      const after = await getTenant(target.tenantId);
+      expect(after.plan).toBe("free");
+    } finally {
+      await deleteTenant(actor.tenantId);
+      await deleteTenant(target.tenantId);
+    }
+  });
+
+  it("lets a granted (DB-flag) superadmin override a tenant's plan (200, DB persisted)", async () => {
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    const target = await createTenant({
+      email: `target-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      const res = await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}`)
+        .send({ plan: "business" });
+      expect(res.status).toBe(200);
+      expect(res.body.plan).toBe("business");
+
+      const after = await getTenant(target.tenantId);
+      expect(after.plan).toBe("business");
+    } finally {
+      await deleteTenant(actor.tenantId);
+      await deleteTenant(target.tenantId);
+    }
+  });
+
+  it("rejects an invalid plan with 400 and does not write", async () => {
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    const target = await createTenant({
+      email: `target-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      const res = await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}`)
+        .send({ plan: "enterprise" });
+      expect(res.status).toBe(400);
+
+      const after = await getTenant(target.tenantId);
+      expect(after.plan).toBe("free");
+    } finally {
+      await deleteTenant(actor.tenantId);
+      await deleteTenant(target.tenantId);
+    }
+  });
+
+  it("returns 404 for a non-existent tenant id", async () => {
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      // A valid-looking but almost-certainly-unused id.
+      const res = await request(app)
+        .patch(`/api/admin/tenants/2000000000`)
+        .send({ plan: "pro" });
+      expect(res.status).toBe(404);
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+});
