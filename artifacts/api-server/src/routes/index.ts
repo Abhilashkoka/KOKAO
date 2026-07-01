@@ -12,6 +12,7 @@ import metaRouter from "./meta";
 import twitterRouter from "./twitter";
 import credentialsRouter from "./credentials";
 import linkedinRouter from "./linkedin";
+import notificationsRouter from "./notifications";
 import adminRouter from "./admin";
 import { requireTenant } from "../middlewares/requireTenant";
 
@@ -35,6 +36,7 @@ router.use(metaRouter);
 router.use(twitterRouter);
 router.use(credentialsRouter);
 router.use(linkedinRouter);
+router.use(notificationsRouter);
 router.use(adminRouter);
 
 export default router;

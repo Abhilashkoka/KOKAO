@@ -1104,6 +1104,48 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /notifications:
+    get:
+      operationId: listNotifications
+      tags: [notifications]
+      summary: List the current tenant's unread notifications
+      responses:
+        "200":
+          description: Unread notifications, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Notification"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /notifications/{id}/read:
+    post:
+      operationId: markNotificationRead
+      tags: [notifications]
+      summary: Dismiss (mark read) a notification
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Marked read
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /admin/platform-credentials/twitter:
     get:
       operationId: adminGetTwitterCredentials
@@ -1728,6 +1770,25 @@ components:
           type: string
         permalink:
           type: ["string", "null"]
+    Notification:
+      type: object
+      required: [id, type, title, message, createdAt]
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+        platform:
+          type: ["string", "null"]
+        title:
+          type: string
+        message:
+          type: string
+        linkUrl:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
     TwitterAppCredentialInput:
       type: object
       required: [apiKey, apiSecret]

@@ -5,6 +5,7 @@ import metaRouter from "../routes/meta";
 import linkedinRouter from "../routes/linkedin";
 import twitterRouter from "../routes/twitter";
 import adminRouter from "../routes/admin";
+import notificationsRouter from "../routes/notifications";
 
 function attachLogStub(app: Express): void {
   // pino-http normally attaches req.log; stub it so route handlers can log.
@@ -38,6 +39,7 @@ export function createTestApp(): Express {
     metaRouter,
     linkedinRouter,
     twitterRouter,
+    notificationsRouter,
   );
   return app;
 }

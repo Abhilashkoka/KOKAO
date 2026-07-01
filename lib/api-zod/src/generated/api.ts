@@ -921,6 +921,31 @@ export const PublishContentToLinkedinResponse = zod.object({
 
 
 /**
+ * @summary List the current tenant's unread notifications
+ */
+export const ListNotificationsResponseItem = zod.object({
+  "id": zod.number(),
+  "type": zod.string(),
+  "platform": zod.string().nullish(),
+  "title": zod.string(),
+  "message": zod.string(),
+  "linkUrl": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+export const ListNotificationsResponse = zod.array(ListNotificationsResponseItem)
+
+
+/**
+ * @summary Dismiss (mark read) a notification
+ */
+export const MarkNotificationReadParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const MarkNotificationReadResponse = zod.void()
+
+
+/**
  * @summary Get masked app-level X (Twitter) credentials and test status (superadmin only)
  */
 export const AdminGetTwitterCredentialsResponse = zod.object({

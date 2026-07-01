@@ -8,6 +8,7 @@ import {
   type FacebookCredentials,
   type InstagramCredentials,
 } from "./metaApi";
+import { notifySocialConnectionFailed } from "./notifications";
 
 /**
  * How long a stored credential's last verification stays "fresh" before an
@@ -61,6 +62,16 @@ async function writeStatus(
       accountName: values.accountName,
     })
     .where(eq(connectedAccountsTable.id, row.id));
+
+  // Proactively notify the tenant the first time a previously-good connection
+  // breaks, so a user who isn't in the app learns about it before a post fails.
+  if (row.verifyStatus === "verified" && values.verifyStatus === "failed") {
+    await notifySocialConnectionFailed(
+      row.tenantId,
+      row.platform,
+      values.verifyError ?? undefined,
+    );
+  }
 }
 
 /**

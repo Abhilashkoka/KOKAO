@@ -4,6 +4,7 @@ import {
   connectedAccountsTable,
   contentItemsTable,
   appCredentialsTable,
+  notificationsTable,
   type AppCredential,
 } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
@@ -50,7 +51,17 @@ export async function deleteTenant(tenantId: number): Promise<void> {
   await db
     .delete(contentItemsTable)
     .where(eq(contentItemsTable.tenantId, tenantId));
+  await db
+    .delete(notificationsTable)
+    .where(eq(notificationsTable.tenantId, tenantId));
   await db.delete(tenantsTable).where(eq(tenantsTable.id, tenantId));
+}
+
+export async function getNotifications(tenantId: number) {
+  return db
+    .select()
+    .from(notificationsTable)
+    .where(eq(notificationsTable.tenantId, tenantId));
 }
 
 export async function insertConnectedAccount(

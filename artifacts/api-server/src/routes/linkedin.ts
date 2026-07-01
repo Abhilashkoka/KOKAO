@@ -3,6 +3,7 @@ import { db, connectedAccountsTable, contentItemsTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { ObjectStorageService } from "../lib/objectStorage";
+import { notifySocialConnectionFailed } from "../lib/notifications";
 
 const router: IRouter = Router();
 
@@ -160,6 +161,14 @@ async function reverifyLinkedin(
           verifiedAt: new Date(),
         })
         .where(eq(connectedAccountsTable.id, account.id));
+      // Notify once when a previously-good connection first breaks.
+      if (account.verifyStatus === "verified") {
+        await notifySocialConnectionFailed(
+          tenantId,
+          "linkedin",
+          "Your LinkedIn access token is no longer valid. Reconnect LinkedIn to keep publishing.",
+        );
+      }
     } else if (userRes.ok) {
       await db
         .update(connectedAccountsTable)

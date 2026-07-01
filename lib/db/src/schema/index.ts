@@ -5,3 +5,4 @@ export * from "./scheduledPosts";
 export * from "./connectedAccounts";
 export * from "./appCredentials";
 export * from "./usageEvents";
+export * from "./notifications";

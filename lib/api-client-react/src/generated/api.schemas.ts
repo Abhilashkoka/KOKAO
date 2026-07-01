@@ -263,6 +263,18 @@ export interface PublishLinkedInResult {
   permalink?: string | null;
 }
 
+export interface Notification {
+  id: number;
+  type: string;
+  /** @nullable */
+  platform?: string | null;
+  title: string;
+  message: string;
+  /** @nullable */
+  linkUrl?: string | null;
+  createdAt: string;
+}
+
 export interface TwitterAppCredentialInput {
   /** @minLength 1 */
   apiKey: string;

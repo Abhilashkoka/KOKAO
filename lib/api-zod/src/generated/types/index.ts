@@ -38,6 +38,7 @@ export * from './linkedInStatus';
 export * from './meProfile';
 export * from './metaAppCredentialInput';
 export * from './metaAppCredentialStatus';
+export * from './notification';
 export * from './plan';
 export * from './planLimits';
 export * from './publishFacebookResult';

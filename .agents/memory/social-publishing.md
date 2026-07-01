@@ -26,3 +26,15 @@ Rules that matter:
 - LinkedIn reuses `verifyStatus`/`verifiedAt` (previously unused for it); OAuth callback must set `verifyStatus:"verified"` or a reconnected account stays computed as not-connected. `LinkedInStatus.expired` (openapi) drives the "Reconnect needed" UI vs "Not connected".
 
 **Why:** "Verified" was a lie once a token silently expired — users only found out when a publish failed. These triggers surface breakage proactively without spamming the APIs and without false alarms.
+
+## Proactive breakage notifications
+
+When a stored social token transitions verified -> failed, a one-time in-app notification is recorded (`notifications` table + `lib/notifications.ts` `notifySocialConnectionFailed`), shown as a dismissible banner in the web app layout and served by `routes/notifications.ts`. There is NO email infra in this repo (no SMTP/SendGrid/Resend); the task's "done" criteria accept an in-app banner, so that is the mechanism.
+
+Dedup ("once per breakage") is TWO-layered and relies on the transition, not a flag: (1) the call sites fire only when the PRIOR `verifyStatus === "verified"` and the new is `failed` (so a token that is already failed never re-notifies on repeated re-checks), and (2) the helper skips insert if an UNREAD notification of the same type+platform already exists. A reconnect (back to verified) then a later break is a NEW breakage → new notification. The Meta call site is inside `writeStatus` in `socialReverify.ts`; LinkedIn's is the 401/403 branch of `reverifyLinkedin`.
+
+**Why:** users not actively in the app otherwise learn a connection died only when a post fails.
+
+## Stale test gotcha
+
+`routes/meta.test.ts` "with fetch mocked" tests expect 502 from publish-facebook, but the publish path force-reverifies first (`reverifyFacebook({force:true})`), and `testFacebookCredentials` treats a mocked 400 as a NON-transient failure → flips the account to `failed` → the gate returns 400, not 502. These 3 assertions are pre-existing/stale (predate the force-reverify-on-publish change), unrelated to notifications work. Adding a router to `test/testApp.ts` also requires updating that shared factory (only mounts a subset of routers).
