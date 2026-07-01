@@ -10,4 +10,13 @@ export interface PublishLinkedInResult {
   postId: string;
   /** @nullable */
   permalink?: string | null;
+  /** How many follow-up comments carrying caption overflow were posted. */
+  commentsPosted?: number;
+  /** How many follow-up comments the caption overflow required. */
+  commentsTotal?: number;
+  /**
+     * Present when the post published but some follow-up comments with the rest of the caption could not be posted.
+     * @nullable
+     */
+  commentWarning?: string | null;
 }

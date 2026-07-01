@@ -179,11 +179,26 @@ export function LibraryPage() {
       { id: linkedinItem.id },
       {
         onSuccess: (res) => {
-          toast({
-            title: "Published to LinkedIn",
-            description: res?.permalink ? "Your post is live on LinkedIn." : undefined,
-            action: viewPostAction(res?.permalink),
-          });
+          if (res?.commentWarning) {
+            toast({
+              title: "Published, but some comments failed",
+              description: res.commentWarning,
+              variant: "destructive",
+              action: viewPostAction(res?.permalink),
+            });
+          } else {
+            const extra =
+              res?.commentsPosted && res.commentsPosted > 0
+                ? ` The rest of your caption was added as ${res.commentsPosted} comment(s).`
+                : "";
+            toast({
+              title: "Published to LinkedIn",
+              description: res?.permalink
+                ? `Your post is live on LinkedIn.${extra}`
+                : extra.trim() || undefined,
+              action: viewPostAction(res?.permalink),
+            });
+          }
           queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
           setLinkedinItem(null);
         },

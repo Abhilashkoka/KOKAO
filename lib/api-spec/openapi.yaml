@@ -2830,6 +2830,17 @@ components:
           type: string
         permalink:
           type: ["string", "null"]
+        commentsPosted:
+          type: integer
+          description: How many follow-up comments carrying caption overflow were posted.
+        commentsTotal:
+          type: integer
+          description: How many follow-up comments the caption overflow required.
+        commentWarning:
+          type: ["string", "null"]
+          description: >-
+            Present when the post published but some follow-up comments with the
+            rest of the caption could not be posted.
     Notification:
       type: object
       required: [id, type, title, message, createdAt]

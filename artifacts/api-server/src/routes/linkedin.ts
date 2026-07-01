@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { notifySocialConnectionFailed } from "../lib/notifications";
-import { trimToLinkedinLength } from "@workspace/social-limits";
+import { splitForLinkedin } from "@workspace/social-limits";
 
 const router: IRouter = Router();
 
@@ -82,6 +82,43 @@ function verifyState(state: string, tenantId: number): boolean {
  */
 function escapeCommentary(text: string): string {
   return text.replace(/[\\<>@~#*_(){}\[\]|]/g, (c) => `\\${c}`);
+}
+
+/**
+ * Post a single comment on an existing LinkedIn post via the socialActions
+ * Comments API. Unlike the Posts API `commentary` field, comment `message.text`
+ * is plain text (no "Little Text" escaping). The post URN must be URL-encoded
+ * into the path. Throws on any non-2xx response so callers can surface the
+ * failure without dropping the whole publish.
+ */
+async function postLinkedinComment(
+  postUrn: string,
+  author: string,
+  text: string,
+  baseHeaders: Record<string, string>,
+): Promise<void> {
+  const res = await fetch(
+    `${REST_BASE}/socialActions/${encodeURIComponent(postUrn)}/comments`,
+    {
+      method: "POST",
+      headers: { ...baseHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actor: author,
+        object: postUrn,
+        message: { text },
+      }),
+    },
+  );
+  if (res.status !== 201 && !res.ok) {
+    let detail = `LinkedIn comment error (${res.status})`;
+    try {
+      const errJson = (await res.json()) as { message?: string };
+      if (errJson.message) detail = errJson.message;
+    } catch {
+      /* ignore non-JSON body */
+    }
+    throw new Error(detail);
+  }
 }
 
 function imageContentType(path: string): string {
@@ -482,12 +519,15 @@ router.post(
 
     const token = account.accessToken!;
     const author = `urn:li:person:${account.providerUserId}`;
-    // LinkedIn's Posts API rejects commentary longer than its character limit,
-    // so trim the visible text to length BEFORE escaping (the "Little Text"
-    // backslashes are formatting markers, not counted against the limit).
-    const commentary = escapeCommentary(
-      trimToLinkedinLength((item.caption?.trim() || item.title).trim()),
+    // LinkedIn has no native thread, so a caption over the post limit keeps its
+    // first chunk in the post and the remainder goes out as follow-up comments,
+    // so the full message still reaches readers. Split on the VISIBLE text
+    // BEFORE escaping (the "Little Text" backslashes are formatting markers, not
+    // counted against the limit).
+    const { main, comments: overflowComments } = splitForLinkedin(
+      (item.caption?.trim() || item.title).trim(),
     );
+    const commentary = escapeCommentary(main);
 
     const baseHeaders = {
       Authorization: `Bearer ${token}`,
@@ -588,7 +628,41 @@ router.post(
           ),
         );
 
-      res.json({ postId, permalink });
+      // The main post succeeded and is now marked published. Overflow text goes
+      // out as follow-up comments so the full caption reaches readers. A comment
+      // failure must NOT undo the published post — surface it instead of failing
+      // silently. Comments can only be posted when we know the post's URN.
+      let commentsPosted = 0;
+      let commentWarning: string | null = null;
+      if (overflowComments.length > 0) {
+        if (!postId) {
+          commentWarning =
+            "The post was published, but LinkedIn did not return a post id, so the rest of the caption could not be added as comments.";
+        } else {
+          for (const [index, text] of overflowComments.entries()) {
+            try {
+              await postLinkedinComment(postId, author, text, baseHeaders);
+              commentsPosted += 1;
+            } catch (commentError) {
+              req.log.error(
+                { err: commentError, postId },
+                "LinkedIn overflow comment failed",
+              );
+              const remaining = overflowComments.length - index;
+              commentWarning = `The post was published, but ${remaining} of ${overflowComments.length} follow-up comment(s) with the rest of the caption could not be posted.`;
+              break;
+            }
+          }
+        }
+      }
+
+      res.json({
+        postId,
+        permalink,
+        commentsPosted,
+        commentsTotal: overflowComments.length,
+        ...(commentWarning ? { commentWarning } : {}),
+      });
     } catch (error) {
       req.log.error({ err: error }, "LinkedIn publish failed");
       res.status(502).json({

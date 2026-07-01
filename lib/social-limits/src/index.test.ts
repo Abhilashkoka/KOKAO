@@ -4,6 +4,10 @@ import {
   isOverTweetLimit,
   tweetOverBy,
   trimToTweetLength,
+  LINKEDIN_MAX_LENGTH,
+  LINKEDIN_COMMENT_MAX_LENGTH,
+  chunkOnWhitespace,
+  splitForLinkedin,
 } from "./index";
 
 const ELLIPSIS = "\u2026";
@@ -96,5 +100,70 @@ describe("trimToTweetLength", () => {
       expect(isOverTweetLimit(text)).toBe(true);
       expect(trimToTweetLength(text).length).toBe(TWEET_MAX_LENGTH);
     }
+  });
+});
+
+describe("chunkOnWhitespace", () => {
+  it("returns an empty array for empty or whitespace-only input", () => {
+    expect(chunkOnWhitespace("", 10)).toEqual([]);
+    expect(chunkOnWhitespace("   \n ", 10)).toEqual([]);
+  });
+
+  it("returns a single chunk when the text is within the limit", () => {
+    expect(chunkOnWhitespace("hello world", 100)).toEqual(["hello world"]);
+  });
+
+  it("splits on whitespace so words are never cut in half", () => {
+    const chunks = chunkOnWhitespace("aaaa bbbb cccc dddd", 10);
+    for (const c of chunks) expect(c.length).toBeLessThanOrEqual(10);
+    // Re-joining with a single space reproduces the original words in order.
+    expect(chunks.join(" ")).toBe("aaaa bbbb cccc dddd");
+  });
+
+  it("hard-splits a single token longer than the limit", () => {
+    const chunks = chunkOnWhitespace("a".repeat(25), 10);
+    expect(chunks).toEqual(["aaaaaaaaaa", "aaaaaaaaaa", "aaaaa"]);
+  });
+
+  it("keeps every chunk within the limit for mixed content", () => {
+    const text = ("word ".repeat(50) + "x".repeat(40)).trim();
+    for (const c of chunkOnWhitespace(text, 30)) {
+      expect(c.length).toBeLessThanOrEqual(30);
+    }
+  });
+
+  it("throws on a non-positive limit", () => {
+    expect(() => chunkOnWhitespace("hi", 0)).toThrow();
+  });
+});
+
+describe("splitForLinkedin", () => {
+  it("returns text within the post limit as the main post with no comments", () => {
+    const text = "a short caption";
+    expect(splitForLinkedin(text)).toEqual({ main: text, comments: [] });
+  });
+
+  it("does not spill a caption exactly at the post limit into comments", () => {
+    const text = "a".repeat(LINKEDIN_MAX_LENGTH);
+    const { main, comments } = splitForLinkedin(text);
+    expect(main.length).toBe(LINKEDIN_MAX_LENGTH);
+    expect(comments).toEqual([]);
+  });
+
+  it("keeps the first chunk as the post and the remainder as comments", () => {
+    const text = "lorem ".repeat(800).trim();
+    const { main, comments } = splitForLinkedin(text);
+    expect(main.length).toBeLessThanOrEqual(LINKEDIN_MAX_LENGTH);
+    expect(comments.length).toBeGreaterThan(0);
+    for (const c of comments) {
+      expect(c.length).toBeLessThanOrEqual(LINKEDIN_COMMENT_MAX_LENGTH);
+    }
+  });
+
+  it("preserves the full caption text across the post and comments (nothing dropped)", () => {
+    const text = "lorem ".repeat(800).trim();
+    const { main, comments } = splitForLinkedin(text);
+    // Re-joining the visible pieces on whitespace reproduces the words in order.
+    expect([main, ...comments].join(" ")).toBe(text);
   });
 });

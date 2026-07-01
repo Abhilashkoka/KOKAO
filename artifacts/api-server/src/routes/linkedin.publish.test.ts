@@ -2,6 +2,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import express from "express";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+import {
+  LINKEDIN_MAX_LENGTH,
+  splitForLinkedin,
+} from "@workspace/social-limits";
 
 /**
  * End-to-end confirmation of the LinkedIn publish/retest/disconnect flow.
@@ -254,8 +258,12 @@ describe("LinkedIn publish", () => {
     expect(body.author).toBe("urn:li:person:member123");
   });
 
-  it("trims a caption over LinkedIn's limit before sending", async () => {
-    const longCaption = "a".repeat(4000);
+  it("splits a caption over LinkedIn's limit into the post plus follow-up comments", async () => {
+    // A whitespace-friendly caption well over the 3000-char post limit.
+    const longCaption = "lorem ".repeat(800).trim();
+    const { main, comments: expectedComments } = splitForLinkedin(longCaption);
+    expect(expectedComments.length).toBeGreaterThan(0);
+
     seedConnectedAccount();
     seedContentItem({ caption: longCaption });
     fetchHandler = (call) => {
@@ -265,18 +273,78 @@ describe("LinkedIn publish", () => {
           headers: { "x-restli-id": "urn:li:share:555" },
         });
       }
+      if (call.url.includes("/socialActions/")) {
+        return makeRes({ status: 201 });
+      }
       return makeRes();
     };
 
     const res = await drive("POST", "/content/1/publish-linkedin");
 
     expect(res.status).toBe(200);
+    expect(res.json.commentsTotal).toBe(expectedComments.length);
+    expect(res.json.commentsPosted).toBe(expectedComments.length);
+    expect(res.json.commentWarning).toBeUndefined();
+    expect(state.content[0].status).toBe("published");
+
+    // The main post carries the first chunk, still within the post limit.
     const post = fetchCalls.find((c) => c.url.endsWith("/rest/posts"));
     const commentary = (post!.body as Record<string, unknown>)
       .commentary as string;
-    // The visible text is capped at LinkedIn's 3000-char limit (2999 + ellipsis).
-    expect(commentary.length).toBe(3000);
-    expect(commentary.endsWith("\u2026")).toBe(true);
+    expect(commentary.length).toBeLessThanOrEqual(LINKEDIN_MAX_LENGTH);
+    // No overflow was dropped: the remainder went out as comments in order.
+    const commentCalls = fetchCalls.filter((c) =>
+      c.url.includes("/socialActions/"),
+    );
+    expect(commentCalls.length).toBe(expectedComments.length);
+    commentCalls.forEach((c, i) => {
+      const body = c.body as Record<string, any>;
+      expect(body.object).toBe("urn:li:share:555");
+      expect(body.actor).toBe("urn:li:person:member123");
+      expect(body.message.text).toBe(expectedComments[i]);
+      // Comment URN is URL-encoded into the path.
+      expect(c.url).toContain(encodeURIComponent("urn:li:share:555"));
+    });
+    // Sanity: the main chunk is what we escaped into the post commentary.
+    expect(main.length).toBeLessThanOrEqual(LINKEDIN_MAX_LENGTH);
+  });
+
+  it("keeps the post published and surfaces a warning when a comment fails", async () => {
+    const longCaption = "lorem ".repeat(800).trim();
+    const { comments: expectedComments } = splitForLinkedin(longCaption);
+    expect(expectedComments.length).toBeGreaterThan(0);
+
+    seedConnectedAccount();
+    seedContentItem({ caption: longCaption });
+    fetchHandler = (call) => {
+      if (call.url.endsWith("/rest/posts")) {
+        return makeRes({
+          status: 201,
+          headers: { "x-restli-id": "urn:li:share:556" },
+        });
+      }
+      if (call.url.includes("/socialActions/")) {
+        // First comment fails; the rest must not be attempted silently.
+        return makeRes({ status: 500, json: { message: "rate limited" } });
+      }
+      return makeRes();
+    };
+
+    const res = await drive("POST", "/content/1/publish-linkedin");
+
+    expect(res.status).toBe(200);
+    // The main post still counts as published.
+    expect(state.content[0].status).toBe("published");
+    expect(res.json.postId).toBe("urn:li:share:556");
+    expect(res.json.commentsPosted).toBe(0);
+    expect(res.json.commentsTotal).toBe(expectedComments.length);
+    // The failure is surfaced, not silent.
+    expect(res.json.commentWarning).toBeTruthy();
+    // We stop after the first failure rather than hammering the API.
+    const commentCalls = fetchCalls.filter((c) =>
+      c.url.includes("/socialActions/"),
+    );
+    expect(commentCalls.length).toBe(1);
   });
 
   it("publishes a post with an image (init -> upload -> attach)", async () => {

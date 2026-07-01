@@ -3584,7 +3584,10 @@ export const PublishContentToLinkedinParams = zod.object({
 
 export const PublishContentToLinkedinResponse = zod.object({
   "postId": zod.string(),
-  "permalink": zod.string().nullish()
+  "permalink": zod.string().nullish(),
+  "commentsPosted": zod.number().optional().describe('How many follow-up comments carrying caption overflow were posted.'),
+  "commentsTotal": zod.number().optional().describe('How many follow-up comments the caption overflow required.'),
+  "commentWarning": zod.string().nullish().describe('Present when the post published but some follow-up comments with the rest of the caption could not be posted.')
 })
 
 
