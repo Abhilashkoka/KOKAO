@@ -6,6 +6,7 @@ import linkedinRouter from "../routes/linkedin";
 import twitterRouter from "../routes/twitter";
 import adminRouter from "../routes/admin";
 import notificationsRouter from "../routes/notifications";
+import notificationSettingsRouter from "../routes/notificationSettings";
 
 function attachLogStub(app: Express): void {
   // pino-http normally attaches req.log; stub it so route handlers can log.
@@ -40,6 +41,7 @@ export function createTestApp(): Express {
     linkedinRouter,
     twitterRouter,
     notificationsRouter,
+    notificationSettingsRouter,
   );
   return app;
 }

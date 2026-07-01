@@ -5,9 +5,12 @@ import {
   contentItemsTable,
   appCredentialsTable,
   notificationsTable,
+  notificationPreferencesTable,
   notificationPoliciesTable,
   type AppCredential,
+  type NotificationPolicy,
 } from "@workspace/db";
+import type { EmailPolicy } from "../lib/notificationCatalog";
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { encryptJson } from "../lib/secretCrypto";
@@ -55,6 +58,9 @@ export async function deleteTenant(tenantId: number): Promise<void> {
   await db
     .delete(notificationsTable)
     .where(eq(notificationsTable.tenantId, tenantId));
+  await db
+    .delete(notificationPreferencesTable)
+    .where(eq(notificationPreferencesTable.tenantId, tenantId));
   await db.delete(tenantsTable).where(eq(tenantsTable.id, tenantId));
 }
 
@@ -63,28 +69,6 @@ export async function getNotifications(tenantId: number) {
     .select()
     .from(notificationsTable)
     .where(eq(notificationsTable.tenantId, tenantId));
-}
-
-/**
- * Upsert the global notification policy for a type so tests that exercise the
- * email side channel establish their own precondition instead of depending on
- * ambient DB state. Email only fires when the policy is "forced" (or a tenant
- * opts in), since the built-in default preference is email-off.
- */
-export async function setNotificationPolicy(
-  type: string,
-  opts: { enabled?: boolean; emailPolicy?: string } = {},
-): Promise<void> {
-  await db.delete(notificationPoliciesTable).where(eq(notificationPoliciesTable.type, type));
-  await db.insert(notificationPoliciesTable).values({
-    type,
-    enabled: opts.enabled ?? true,
-    emailPolicy: opts.emailPolicy ?? "optional",
-  });
-}
-
-export async function clearNotificationPolicy(type: string): Promise<void> {
-  await db.delete(notificationPoliciesTable).where(eq(notificationPoliciesTable.type, type));
 }
 
 export async function insertConnectedAccount(
@@ -317,6 +301,114 @@ export async function restoreTwitterRow(
       lastTestStatus: snapshot.lastTestStatus,
       lastTestedAt: snapshot.lastTestedAt,
       lastTestError: snapshot.lastTestError,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Per-tenant notification preferences (opt-out model). A missing row means the
+// defaults (in-app on, email on) apply, so tests only insert a row when they
+// want to override a channel.
+// ---------------------------------------------------------------------------
+
+export async function setNotificationPreference(
+  tenantId: number,
+  type: string,
+  values: { inApp: boolean; email: boolean },
+): Promise<void> {
+  await db
+    .insert(notificationPreferencesTable)
+    .values({
+      tenantId,
+      type,
+      inApp: values.inApp,
+      email: values.email,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [
+        notificationPreferencesTable.tenantId,
+        notificationPreferencesTable.type,
+      ],
+      set: { inApp: values.inApp, email: values.email, updatedAt: new Date() },
+    });
+}
+
+export async function getNotificationPreference(tenantId: number, type: string) {
+  return (
+    await db
+      .select()
+      .from(notificationPreferencesTable)
+      .where(
+        and(
+          eq(notificationPreferencesTable.tenantId, tenantId),
+          eq(notificationPreferencesTable.type, type),
+        ),
+      )
+      .limit(1)
+  )[0];
+}
+
+// ---------------------------------------------------------------------------
+// Global (platform-wide) notification policy, one row per type (unique on
+// `type`). Snapshot/restore around tests so the shared dev row is never left
+// mutated; a missing row means the built-in defaults (enabled, "optional").
+// ---------------------------------------------------------------------------
+
+export async function snapshotNotificationPolicy(
+  type: string,
+): Promise<NotificationPolicy | null> {
+  const row = (
+    await db
+      .select()
+      .from(notificationPoliciesTable)
+      .where(eq(notificationPoliciesTable.type, type))
+      .limit(1)
+  )[0];
+  return row ?? null;
+}
+
+export async function setNotificationPolicy(
+  type: string,
+  values: { enabled: boolean; emailPolicy: EmailPolicy },
+): Promise<void> {
+  await db
+    .insert(notificationPoliciesTable)
+    .values({
+      type,
+      enabled: values.enabled,
+      emailPolicy: values.emailPolicy,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: notificationPoliciesTable.type,
+      set: {
+        enabled: values.enabled,
+        emailPolicy: values.emailPolicy,
+        updatedAt: new Date(),
+      },
+    });
+}
+
+export async function clearNotificationPolicy(type: string): Promise<void> {
+  await db
+    .delete(notificationPoliciesTable)
+    .where(eq(notificationPoliciesTable.type, type));
+}
+
+export async function restoreNotificationPolicy(
+  type: string,
+  snapshot: NotificationPolicy | null,
+): Promise<void> {
+  await db
+    .delete(notificationPoliciesTable)
+    .where(eq(notificationPoliciesTable.type, type));
+  if (snapshot) {
+    await db.insert(notificationPoliciesTable).values({
+      type: snapshot.type,
+      enabled: snapshot.enabled,
+      emailPolicy: snapshot.emailPolicy,
+      updatedAt: snapshot.updatedAt,
     });
   }
 }
