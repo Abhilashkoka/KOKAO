@@ -271,6 +271,58 @@ router.put(
   },
 );
 
+router.delete(
+  "/social-credentials/facebook",
+  async (req: Request, res: Response) => {
+    const existing = await loadAccountRow(req.tenantId, "facebook");
+    if (existing) {
+      await db
+        .delete(connectedAccountsTable)
+        .where(eq(connectedAccountsTable.id, existing.id));
+    }
+    const appConfigured = await isMetaAppConfigured();
+    res.json(serializeSocialStatus("facebook", appConfigured, undefined));
+  },
+);
+
+router.post(
+  "/social-credentials/facebook/retest",
+  async (req: Request, res: Response) => {
+    if (!(await isMetaAppConfigured())) {
+      res.status(400).json({
+        error:
+          "Meta app credentials have not been configured by an administrator yet.",
+      });
+      return;
+    }
+    const existing = await loadAccountRow(req.tenantId, "facebook");
+    if (!existing?.encryptedCredentials) {
+      res.status(400).json({ error: "No stored Facebook credentials to re-test." });
+      return;
+    }
+    let creds: FacebookCredentials;
+    try {
+      creds = decryptJson<FacebookCredentials>(existing.encryptedCredentials);
+    } catch {
+      res.status(400).json({ error: "Stored credentials could not be read." });
+      return;
+    }
+
+    const test = await testFacebookCredentials(creds);
+    const now = new Date();
+    await upsertAccount(req.tenantId, "facebook", {
+      accountName: test.accountName || existing.accountName || "Facebook Page",
+      encryptedCredentials: existing.encryptedCredentials,
+      verifyStatus: test.ok ? "verified" : "failed",
+      verifiedAt: now,
+      verifyError: test.ok ? null : test.error ?? "Verification failed",
+    });
+
+    const row = await loadAccountRow(req.tenantId, "facebook");
+    res.json(serializeSocialStatus("facebook", true, row));
+  },
+);
+
 router.get(
   "/social-credentials/instagram",
   async (req: Request, res: Response) => {
@@ -327,6 +379,72 @@ router.put(
     await upsertAccount(req.tenantId, "instagram", {
       accountName: test.accountName || "Instagram account",
       encryptedCredentials: encryptJson(creds),
+      verifyStatus: test.ok ? "verified" : "failed",
+      verifiedAt: now,
+      verifyError: test.ok ? null : test.error ?? "Verification failed",
+    });
+
+    const row = await loadAccountRow(req.tenantId, "instagram");
+    res.json(serializeSocialStatus("instagram", true, row));
+  },
+);
+
+router.delete(
+  "/social-credentials/instagram",
+  async (req: Request, res: Response) => {
+    const existing = await loadAccountRow(req.tenantId, "instagram");
+    if (existing) {
+      await db
+        .delete(connectedAccountsTable)
+        .where(eq(connectedAccountsTable.id, existing.id));
+    }
+    const appConfigured = await isMetaAppConfigured();
+    res.json(serializeSocialStatus("instagram", appConfigured, undefined));
+  },
+);
+
+router.post(
+  "/social-credentials/instagram/retest",
+  async (req: Request, res: Response) => {
+    if (!(await isMetaAppConfigured())) {
+      res.status(400).json({
+        error:
+          "Meta app credentials have not been configured by an administrator yet.",
+      });
+      return;
+    }
+    const existing = await loadAccountRow(req.tenantId, "instagram");
+    if (!existing?.encryptedCredentials) {
+      res.status(400).json({ error: "No stored Instagram credentials to re-test." });
+      return;
+    }
+    let creds: InstagramCredentials;
+    try {
+      creds = decryptJson<InstagramCredentials>(existing.encryptedCredentials);
+    } catch {
+      res.status(400).json({ error: "Stored credentials could not be read." });
+      return;
+    }
+
+    // Instagram publishing rides on the Facebook Page token, so a verified
+    // Facebook credential must still exist.
+    const fb = await getTenantCredentials<FacebookCredentials>(
+      req.tenantId,
+      "facebook",
+    );
+    if (!fb || !fb.verified) {
+      res.status(400).json({
+        error:
+          "Connect and verify your Facebook Page first — Instagram publishing uses its access token.",
+      });
+      return;
+    }
+
+    const test = await testInstagramCredentials(creds, fb.creds.pageAccessToken);
+    const now = new Date();
+    await upsertAccount(req.tenantId, "instagram", {
+      accountName: test.accountName || existing.accountName || "Instagram account",
+      encryptedCredentials: existing.encryptedCredentials,
       verifyStatus: test.ok ? "verified" : "failed",
       verifiedAt: now,
       verifyError: test.ok ? null : test.error ?? "Verification failed",

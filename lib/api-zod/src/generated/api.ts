@@ -713,6 +713,40 @@ export const SaveFacebookCredentialsResponse = zod.object({
 
 
 /**
+ * @summary Clear the tenant's stored Facebook credentials and verify status
+ */
+export const DisconnectFacebookResponse = zod.object({
+  "platform": zod.string(),
+  "appConfigured": zod.boolean().describe('Whether the admin-level Meta app keys are configured.'),
+  "saved": zod.boolean().describe('Whether the tenant has saved credentials for this platform.'),
+  "verifyStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic verification.'),
+  "verifiedAt": zod.coerce.date().nullish(),
+  "verifyError": zod.string().nullish(),
+  "accountName": zod.string().nullish(),
+  "pageId": zod.string().nullish(),
+  "pageAccessTokenMasked": zod.string().nullish(),
+  "igUserId": zod.string().nullish()
+})
+
+
+/**
+ * @summary Re-verify the tenant's stored Facebook credentials without re-entering them
+ */
+export const RetestFacebookCredentialsResponse = zod.object({
+  "platform": zod.string(),
+  "appConfigured": zod.boolean().describe('Whether the admin-level Meta app keys are configured.'),
+  "saved": zod.boolean().describe('Whether the tenant has saved credentials for this platform.'),
+  "verifyStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic verification.'),
+  "verifiedAt": zod.coerce.date().nullish(),
+  "verifyError": zod.string().nullish(),
+  "accountName": zod.string().nullish(),
+  "pageId": zod.string().nullish(),
+  "pageAccessTokenMasked": zod.string().nullish(),
+  "igUserId": zod.string().nullish()
+})
+
+
+/**
  * @summary Get the tenant's masked Instagram credentials and verify status
  */
 export const GetInstagramCredentialsResponse = zod.object({
@@ -740,6 +774,40 @@ export const SaveInstagramCredentialsBody = zod.object({
 })
 
 export const SaveInstagramCredentialsResponse = zod.object({
+  "platform": zod.string(),
+  "appConfigured": zod.boolean().describe('Whether the admin-level Meta app keys are configured.'),
+  "saved": zod.boolean().describe('Whether the tenant has saved credentials for this platform.'),
+  "verifyStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic verification.'),
+  "verifiedAt": zod.coerce.date().nullish(),
+  "verifyError": zod.string().nullish(),
+  "accountName": zod.string().nullish(),
+  "pageId": zod.string().nullish(),
+  "pageAccessTokenMasked": zod.string().nullish(),
+  "igUserId": zod.string().nullish()
+})
+
+
+/**
+ * @summary Clear the tenant's stored Instagram credentials and verify status
+ */
+export const DisconnectInstagramResponse = zod.object({
+  "platform": zod.string(),
+  "appConfigured": zod.boolean().describe('Whether the admin-level Meta app keys are configured.'),
+  "saved": zod.boolean().describe('Whether the tenant has saved credentials for this platform.'),
+  "verifyStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic verification.'),
+  "verifiedAt": zod.coerce.date().nullish(),
+  "verifyError": zod.string().nullish(),
+  "accountName": zod.string().nullish(),
+  "pageId": zod.string().nullish(),
+  "pageAccessTokenMasked": zod.string().nullish(),
+  "igUserId": zod.string().nullish()
+})
+
+
+/**
+ * @summary Re-verify the tenant's stored Instagram account without re-entering it
+ */
+export const RetestInstagramCredentialsResponse = zod.object({
   "platform": zod.string(),
   "appConfigured": zod.boolean().describe('Whether the admin-level Meta app keys are configured.'),
   "saved": zod.boolean().describe('Whether the tenant has saved credentials for this platform.'),

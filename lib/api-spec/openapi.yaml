@@ -832,6 +832,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: disconnectFacebook
+      tags: [social-credentials]
+      summary: Clear the tenant's stored Facebook credentials and verify status
+      responses:
+        "200":
+          description: Disconnected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialCredentialStatus"
+
+  /social-credentials/facebook/retest:
+    post:
+      operationId: retestFacebookCredentials
+      tags: [social-credentials]
+      summary: Re-verify the tenant's stored Facebook credentials without re-entering them
+      responses:
+        "200":
+          description: Re-verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialCredentialStatus"
+        "400":
+          description: No stored credentials or Meta app not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /social-credentials/instagram:
     get:
@@ -864,6 +894,36 @@ paths:
                 $ref: "#/components/schemas/SocialCredentialStatus"
         "400":
           description: Invalid input, Meta app not configured, or Facebook not verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: disconnectInstagram
+      tags: [social-credentials]
+      summary: Clear the tenant's stored Instagram credentials and verify status
+      responses:
+        "200":
+          description: Disconnected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialCredentialStatus"
+
+  /social-credentials/instagram/retest:
+    post:
+      operationId: retestInstagramCredentials
+      tags: [social-credentials]
+      summary: Re-verify the tenant's stored Instagram account without re-entering it
+      responses:
+        "200":
+          description: Re-verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialCredentialStatus"
+        "400":
+          description: No stored credentials, Meta app not configured, or Facebook not verified
           content:
             application/json:
               schema:

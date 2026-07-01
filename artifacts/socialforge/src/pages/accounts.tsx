@@ -10,6 +10,10 @@ import {
   useSaveFacebookCredentials,
   useGetInstagramCredentials,
   useSaveInstagramCredentials,
+  useDisconnectFacebook,
+  useRetestFacebookCredentials,
+  useDisconnectInstagram,
+  useRetestInstagramCredentials,
   getGetFacebookCredentialsQueryKey,
   getGetInstagramCredentialsQueryKey
 } from "@workspace/api-client-react";
@@ -50,10 +54,50 @@ function FacebookCredentialsCard() {
   const { toast } = useToast();
   const { data, isLoading } = useGetFacebookCredentials();
   const save = useSaveFacebookCredentials();
+  const disconnect = useDisconnectFacebook();
+  const retest = useRetestFacebookCredentials();
 
   const [pageId, setPageId] = useState("");
   const [pageAccessToken, setPageAccessToken] = useState("");
   const [dirty, setDirty] = useState(false);
+
+  const invalidateFacebook = () => {
+    queryClient.invalidateQueries({ queryKey: getGetFacebookCredentialsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetInstagramCredentialsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
+  };
+
+  const handleDisconnect = () => {
+    if (!confirm("Disconnect Facebook? This clears your stored Page token. Your Instagram connection will also stop working until you reconnect Facebook.")) return;
+    disconnect.mutate(undefined, {
+      onSuccess: () => {
+        invalidateFacebook();
+        setPageId("");
+        setPageAccessToken("");
+        setDirty(false);
+        toast({ title: "Facebook disconnected", description: "Your stored Page credentials were cleared." });
+      },
+      onError: (err: any) => {
+        toast({ variant: "destructive", title: "Could not disconnect", description: err?.response?.data?.error || "Please try again." });
+      },
+    });
+  };
+
+  const handleRetest = () => {
+    retest.mutate(undefined, {
+      onSuccess: (res) => {
+        invalidateFacebook();
+        if (res.verifyStatus === "verified") {
+          toast({ title: "Still connected", description: "Your Facebook Page token is valid." });
+        } else {
+          toast({ variant: "destructive", title: "Verification failed", description: res.verifyError || "Your stored token no longer works. Re-enter a fresh Page access token." });
+        }
+      },
+      onError: (err: any) => {
+        toast({ variant: "destructive", title: "Could not re-test", description: err?.response?.data?.error || "Please try again." });
+      },
+    });
+  };
 
   useEffect(() => {
     if (data && !dirty) {
@@ -151,13 +195,33 @@ function FacebookCredentialsCard() {
                     placeholder={data?.saved ? "Enter to replace the saved token" : "EAAG..."}
                   />
                 </div>
-                <Button onClick={handleSave} disabled={save.isPending || !pageId.trim() || !pageAccessToken.trim()}>
-                  {save.isPending ? (
-                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving & testing...</>
-                  ) : (
-                    "Save and verify"
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button onClick={handleSave} disabled={save.isPending || !pageId.trim() || !pageAccessToken.trim()}>
+                    {save.isPending ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving & testing...</>
+                    ) : (
+                      "Save and verify"
+                    )}
+                  </Button>
+                  {data?.saved && (
+                    <>
+                      <Button variant="outline" onClick={handleRetest} disabled={retest.isPending}>
+                        {retest.isPending ? (
+                          <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Re-testing...</>
+                        ) : (
+                          "Re-test now"
+                        )}
+                      </Button>
+                      <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={handleDisconnect} disabled={disconnect.isPending}>
+                        {disconnect.isPending ? (
+                          <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
+                        ) : (
+                          <><Trash2 className="h-4 w-4 mr-2" /> Disconnect</>
+                        )}
+                      </Button>
+                    </>
                   )}
-                </Button>
+                </div>
               </div>
             )}
           </div>
@@ -173,9 +237,47 @@ function InstagramCredentialsCard() {
   const { data, isLoading } = useGetInstagramCredentials();
   const { data: fb } = useGetFacebookCredentials();
   const save = useSaveInstagramCredentials();
+  const disconnect = useDisconnectInstagram();
+  const retest = useRetestInstagramCredentials();
 
   const [igUserId, setIgUserId] = useState("");
   const [dirty, setDirty] = useState(false);
+
+  const invalidateInstagram = () => {
+    queryClient.invalidateQueries({ queryKey: getGetInstagramCredentialsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
+  };
+
+  const handleDisconnect = () => {
+    if (!confirm("Disconnect Instagram? This clears your stored Instagram account.")) return;
+    disconnect.mutate(undefined, {
+      onSuccess: () => {
+        invalidateInstagram();
+        setIgUserId("");
+        setDirty(false);
+        toast({ title: "Instagram disconnected", description: "Your stored Instagram account was cleared." });
+      },
+      onError: (err: any) => {
+        toast({ variant: "destructive", title: "Could not disconnect", description: err?.response?.data?.error || "Please try again." });
+      },
+    });
+  };
+
+  const handleRetest = () => {
+    retest.mutate(undefined, {
+      onSuccess: (res) => {
+        invalidateInstagram();
+        if (res.verifyStatus === "verified") {
+          toast({ title: "Still connected", description: "Your Instagram account is valid." });
+        } else {
+          toast({ variant: "destructive", title: "Verification failed", description: res.verifyError || "Your stored Instagram account no longer verifies. Re-enter your account ID." });
+        }
+      },
+      onError: (err: any) => {
+        toast({ variant: "destructive", title: "Could not re-test", description: err?.response?.data?.error || "Please try again." });
+      },
+    });
+  };
 
   useEffect(() => {
     if (data && !dirty) {
@@ -248,9 +350,25 @@ function InstagramCredentialsCard() {
                 Instagram publishing needs a one-time Meta app setup by a platform administrator before you can connect your account.
               </p>
             ) : !fbVerified ? (
-              <p className="mt-2 text-sm text-muted-foreground">
-                Connect and verify your Facebook Page first. Instagram publishing uses your Facebook Page access token, so the Page must be linked to your Instagram Business account.
-              </p>
+              <div className="mt-2 space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Connect and verify your Facebook Page first. Instagram publishing uses your Facebook Page access token, so the Page must be linked to your Instagram Business account.
+                </p>
+                {data?.saved && (
+                  <>
+                    <p className="text-sm text-destructive">
+                      Your Instagram account is still saved, but it cannot be verified or published while Facebook is disconnected. Reconnect Facebook, or disconnect Instagram below.
+                    </p>
+                    <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={handleDisconnect} disabled={disconnect.isPending}>
+                      {disconnect.isPending ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
+                      ) : (
+                        <><Trash2 className="h-4 w-4 mr-2" /> Disconnect Instagram</>
+                      )}
+                    </Button>
+                  </>
+                )}
+              </div>
             ) : (
               <div className="mt-3 space-y-4">
                 <p className="text-sm text-muted-foreground">
@@ -267,13 +385,33 @@ function InstagramCredentialsCard() {
                     placeholder="17841400000000000"
                   />
                 </div>
-                <Button onClick={handleSave} disabled={save.isPending || !igUserId.trim()}>
-                  {save.isPending ? (
-                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving & verifying...</>
-                  ) : (
-                    "Save and verify"
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button onClick={handleSave} disabled={save.isPending || !igUserId.trim()}>
+                    {save.isPending ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving & verifying...</>
+                    ) : (
+                      "Save and verify"
+                    )}
+                  </Button>
+                  {data?.saved && (
+                    <>
+                      <Button variant="outline" onClick={handleRetest} disabled={retest.isPending}>
+                        {retest.isPending ? (
+                          <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Re-testing...</>
+                        ) : (
+                          "Re-test now"
+                        )}
+                      </Button>
+                      <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={handleDisconnect} disabled={disconnect.isPending}>
+                        {disconnect.isPending ? (
+                          <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
+                        ) : (
+                          <><Trash2 className="h-4 w-4 mr-2" /> Disconnect</>
+                        )}
+                      </Button>
+                    </>
                   )}
-                </Button>
+                </div>
               </div>
             )}
           </div>

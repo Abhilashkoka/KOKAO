@@ -2569,6 +2569,146 @@ export const useSaveFacebookCredentials = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getSaveFacebookCredentialsMutationOptions(options));
     }
 
+export const getDisconnectFacebookUrl = () => {
+
+
+
+
+  return `/api/social-credentials/facebook`
+}
+
+/**
+ * @summary Clear the tenant's stored Facebook credentials and verify status
+ */
+export const disconnectFacebook = async ( options?: RequestInit): Promise<SocialCredentialStatus> => {
+
+  return customFetch<SocialCredentialStatus>(getDisconnectFacebookUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDisconnectFacebookMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectFacebook>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof disconnectFacebook>>, TError,void, TContext> => {
+
+const mutationKey = ['disconnectFacebook'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof disconnectFacebook>>, void> = () => {
+
+
+          return  disconnectFacebook(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DisconnectFacebookMutationResult = NonNullable<Awaited<ReturnType<typeof disconnectFacebook>>>
+
+    export type DisconnectFacebookMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Clear the tenant's stored Facebook credentials and verify status
+ */
+export const useDisconnectFacebook = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectFacebook>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof disconnectFacebook>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDisconnectFacebookMutationOptions(options));
+    }
+
+export const getRetestFacebookCredentialsUrl = () => {
+
+
+
+
+  return `/api/social-credentials/facebook/retest`
+}
+
+/**
+ * @summary Re-verify the tenant's stored Facebook credentials without re-entering them
+ */
+export const retestFacebookCredentials = async ( options?: RequestInit): Promise<SocialCredentialStatus> => {
+
+  return customFetch<SocialCredentialStatus>(getRetestFacebookCredentialsUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRetestFacebookCredentialsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retestFacebookCredentials>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retestFacebookCredentials>>, TError,void, TContext> => {
+
+const mutationKey = ['retestFacebookCredentials'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retestFacebookCredentials>>, void> = () => {
+
+
+          return  retestFacebookCredentials(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetestFacebookCredentialsMutationResult = NonNullable<Awaited<ReturnType<typeof retestFacebookCredentials>>>
+
+    export type RetestFacebookCredentialsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Re-verify the tenant's stored Facebook credentials without re-entering them
+ */
+export const useRetestFacebookCredentials = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retestFacebookCredentials>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof retestFacebookCredentials>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getRetestFacebookCredentialsMutationOptions(options));
+    }
+
 export const getGetInstagramCredentialsUrl = () => {
 
 
@@ -2714,6 +2854,146 @@ export const useSaveInstagramCredentials = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getSaveInstagramCredentialsMutationOptions(options));
+    }
+
+export const getDisconnectInstagramUrl = () => {
+
+
+
+
+  return `/api/social-credentials/instagram`
+}
+
+/**
+ * @summary Clear the tenant's stored Instagram credentials and verify status
+ */
+export const disconnectInstagram = async ( options?: RequestInit): Promise<SocialCredentialStatus> => {
+
+  return customFetch<SocialCredentialStatus>(getDisconnectInstagramUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDisconnectInstagramMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectInstagram>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof disconnectInstagram>>, TError,void, TContext> => {
+
+const mutationKey = ['disconnectInstagram'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof disconnectInstagram>>, void> = () => {
+
+
+          return  disconnectInstagram(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DisconnectInstagramMutationResult = NonNullable<Awaited<ReturnType<typeof disconnectInstagram>>>
+
+    export type DisconnectInstagramMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Clear the tenant's stored Instagram credentials and verify status
+ */
+export const useDisconnectInstagram = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectInstagram>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof disconnectInstagram>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDisconnectInstagramMutationOptions(options));
+    }
+
+export const getRetestInstagramCredentialsUrl = () => {
+
+
+
+
+  return `/api/social-credentials/instagram/retest`
+}
+
+/**
+ * @summary Re-verify the tenant's stored Instagram account without re-entering it
+ */
+export const retestInstagramCredentials = async ( options?: RequestInit): Promise<SocialCredentialStatus> => {
+
+  return customFetch<SocialCredentialStatus>(getRetestInstagramCredentialsUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRetestInstagramCredentialsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retestInstagramCredentials>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retestInstagramCredentials>>, TError,void, TContext> => {
+
+const mutationKey = ['retestInstagramCredentials'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retestInstagramCredentials>>, void> = () => {
+
+
+          return  retestInstagramCredentials(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetestInstagramCredentialsMutationResult = NonNullable<Awaited<ReturnType<typeof retestInstagramCredentials>>>
+
+    export type RetestInstagramCredentialsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Re-verify the tenant's stored Instagram account without re-entering it
+ */
+export const useRetestInstagramCredentials = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retestInstagramCredentials>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof retestInstagramCredentials>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getRetestInstagramCredentialsMutationOptions(options));
     }
 
 export const getPublishContentToFacebookUrl = (id: number,) => {
