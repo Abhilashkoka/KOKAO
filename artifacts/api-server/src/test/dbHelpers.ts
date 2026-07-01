@@ -92,6 +92,21 @@ export async function insertContentItem(
   return row.id;
 }
 
+export async function getContentItem(id: number, tenantId: number) {
+  return (
+    await db
+      .select()
+      .from(contentItemsTable)
+      .where(
+        and(
+          eq(contentItemsTable.id, id),
+          eq(contentItemsTable.tenantId, tenantId),
+        ),
+      )
+      .limit(1)
+  )[0];
+}
+
 // ---------------------------------------------------------------------------
 // App-level Meta credential row (global, unique on provider="meta"). Snapshot
 // and restore it so tests never destroy real dev configuration.
