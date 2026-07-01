@@ -24,7 +24,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, trimToTweetLength } from "@workspace/social-limits";
+import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, trimToTweetLength, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, linkedinOverBy, trimToLinkedinLength } from "@workspace/social-limits";
 
 export function LibraryPage() {
   const { data: content, isLoading } = useListContent({
@@ -408,14 +408,27 @@ export function LibraryPage() {
               This posts the caption{linkedinItem?.imagePath ? " and image" : ""} to your connected LinkedIn feed. Make sure you've connected LinkedIn on the Accounts page.
             </DialogDescription>
           </DialogHeader>
-          {linkedinItem && (
-            <div className="space-y-2 py-2">
-              <p className="font-medium">{linkedinItem.title}</p>
-              {linkedinItem.caption && (
-                <p className="text-sm text-muted-foreground line-clamp-4">{linkedinItem.caption}</p>
-              )}
-            </div>
-          )}
+          {linkedinItem && (() => {
+            const liText = ((linkedinItem.caption?.trim() || linkedinItem.title) ?? "").trim();
+            const overLimit = isOverLinkedinLimit(liText);
+            const preview = trimToLinkedinLength(liText);
+            return (
+              <div className="space-y-2 py-2">
+                <p className="font-medium">{linkedinItem.title}</p>
+                {liText && (
+                  <p className="text-sm text-muted-foreground line-clamp-4 whitespace-pre-wrap break-words">{preview}</p>
+                )}
+                <p className={`text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                  {liText.length} / {LINKEDIN_MAX_LENGTH} characters
+                </p>
+                {overLimit && (
+                  <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                    This caption is {linkedinOverBy(liText)} characters over the {LINKEDIN_MAX_LENGTH}-character LinkedIn limit and will be trimmed before posting.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setLinkedinItem(null)}>Cancel</Button>
             <Button onClick={handlePublishLinkedin} disabled={publishLinkedin.isPending}>

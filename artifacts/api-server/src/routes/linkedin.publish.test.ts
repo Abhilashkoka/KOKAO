@@ -254,6 +254,31 @@ describe("LinkedIn publish", () => {
     expect(body.author).toBe("urn:li:person:member123");
   });
 
+  it("trims a caption over LinkedIn's limit before sending", async () => {
+    const longCaption = "a".repeat(4000);
+    seedConnectedAccount();
+    seedContentItem({ caption: longCaption });
+    fetchHandler = (call) => {
+      if (call.url.endsWith("/rest/posts")) {
+        return makeRes({
+          status: 201,
+          headers: { "x-restli-id": "urn:li:share:555" },
+        });
+      }
+      return makeRes();
+    };
+
+    const res = await drive("POST", "/content/1/publish-linkedin");
+
+    expect(res.status).toBe(200);
+    const post = fetchCalls.find((c) => c.url.endsWith("/rest/posts"));
+    const commentary = (post!.body as Record<string, unknown>)
+      .commentary as string;
+    // The visible text is capped at LinkedIn's 3000-char limit (2999 + ellipsis).
+    expect(commentary.length).toBe(3000);
+    expect(commentary.endsWith("\u2026")).toBe(true);
+  });
+
   it("publishes a post with an image (init -> upload -> attach)", async () => {
     seedConnectedAccount();
     seedContentItem({ imagePath: "/objects/pic.png" });

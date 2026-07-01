@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { notifySocialConnectionFailed } from "../lib/notifications";
+import { trimToLinkedinLength } from "@workspace/social-limits";
 
 const router: IRouter = Router();
 
@@ -481,7 +482,12 @@ router.post(
 
     const token = account.accessToken!;
     const author = `urn:li:person:${account.providerUserId}`;
-    const commentary = escapeCommentary(item.caption?.trim() || item.title);
+    // LinkedIn's Posts API rejects commentary longer than its character limit,
+    // so trim the visible text to length BEFORE escaping (the "Little Text"
+    // backslashes are formatting markers, not counted against the limit).
+    const commentary = escapeCommentary(
+      trimToLinkedinLength((item.caption?.trim() || item.title).trim()),
+    );
 
     const baseHeaders = {
       Authorization: `Bearer ${token}`,
