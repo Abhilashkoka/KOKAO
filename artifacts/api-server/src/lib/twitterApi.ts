@@ -5,8 +5,14 @@ import type { TwitterAppCredentials } from "@workspace/db";
 import { decryptJson } from "./secretCrypto";
 
 export const TWITTER_API_BASE = "https://api.twitter.com";
-export const TWITTER_UPLOAD_URL =
-  "https://upload.twitter.com/1.1/media/upload.json";
+/**
+ * v2 media upload endpoint. The legacy v1.1 endpoint
+ * (`upload.twitter.com/1.1/media/upload.json`) was permanently sunset by X on
+ * 2025-06-09, so it must not be used. Uploads now go through a command-based
+ * INIT -> APPEND -> FINALIZE flow on this single endpoint (see
+ * `uploadTwitterMedia`).
+ */
+export const TWITTER_MEDIA_UPLOAD_URL = "https://api.x.com/2/media/upload";
 
 /** Per-tenant X (Twitter) user credentials (OAuth 1.0a user context). */
 export interface TwitterCredentials {
@@ -90,6 +96,124 @@ export function buildOAuthHeader(opts: {
       .sort()
       .map((k) => `${percentEncode(k)}="${percentEncode(headerParams[k])}"`)
       .join(", ")
+  );
+}
+
+interface MediaUploadResponse {
+  data?: { id?: string };
+  id?: string;
+  media_id_string?: string;
+  errors?: { message?: string }[];
+  title?: string;
+  detail?: string;
+}
+
+function mediaUploadError(json: MediaUploadResponse, status: number): string {
+  return (
+    json.errors?.[0]?.message ||
+    json.detail ||
+    json.title ||
+    `X media upload failed (${status})`
+  );
+}
+
+/**
+ * Upload a single image to X via the v2 command-based flow and return its
+ * media_id. The legacy v1.1 endpoint was sunset 2025-06-09.
+ *
+ * INIT and FINALIZE are `application/x-www-form-urlencoded`, so their params
+ * ARE folded into the OAuth 1.0a signature base string (passed via
+ * `extraParams`). APPEND is `multipart/form-data`, whose fields are NOT part of
+ * the signature. The token secret is only ever used to sign — it never travels
+ * in a URL or request body.
+ */
+export async function uploadTwitterMedia(opts: {
+  buffer: Buffer;
+  contentType: string;
+  app: TwitterAppCredentials;
+  creds: TwitterCredentials;
+}): Promise<string> {
+  const { buffer, contentType, app, creds } = opts;
+  const sign = (extraParams?: Record<string, string>) =>
+    buildOAuthHeader({
+      method: "POST",
+      url: TWITTER_MEDIA_UPLOAD_URL,
+      consumerKey: app.apiKey,
+      consumerSecret: app.apiSecret,
+      token: creds.accessToken,
+      tokenSecret: creds.accessTokenSecret,
+      extraParams,
+    });
+
+  // INIT: open an upload session.
+  const initParams: Record<string, string> = {
+    command: "INIT",
+    total_bytes: String(buffer.byteLength),
+    media_type: contentType,
+    media_category: "tweet_image",
+  };
+  const initRes = await fetch(TWITTER_MEDIA_UPLOAD_URL, {
+    method: "POST",
+    headers: {
+      Authorization: sign(initParams),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams(initParams).toString(),
+  });
+  const initJson = (await initRes.json()) as MediaUploadResponse;
+  const mediaId =
+    initJson.data?.id ?? initJson.id ?? initJson.media_id_string;
+  if (!initRes.ok || !mediaId) {
+    throw new Error(mediaUploadError(initJson, initRes.status));
+  }
+
+  // APPEND: upload the bytes as a single chunk (multipart, unsigned fields).
+  const form = new FormData();
+  form.append("command", "APPEND");
+  form.append("media_id", mediaId);
+  form.append("segment_index", "0");
+  form.append(
+    "media",
+    new Blob([new Uint8Array(buffer)], { type: contentType }),
+    "media",
+  );
+  const appendRes = await fetch(TWITTER_MEDIA_UPLOAD_URL, {
+    method: "POST",
+    headers: { Authorization: sign() },
+    body: form,
+  });
+  if (!appendRes.ok) {
+    let json: MediaUploadResponse = {};
+    try {
+      json = (await appendRes.json()) as MediaUploadResponse;
+    } catch {
+      // APPEND can succeed with an empty body; only parse on the error path.
+    }
+    throw new Error(mediaUploadError(json, appendRes.status));
+  }
+
+  // FINALIZE: close the session; the media is now attachable to a post.
+  const finalizeParams: Record<string, string> = {
+    command: "FINALIZE",
+    media_id: mediaId,
+  };
+  const finalizeRes = await fetch(TWITTER_MEDIA_UPLOAD_URL, {
+    method: "POST",
+    headers: {
+      Authorization: sign(finalizeParams),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams(finalizeParams).toString(),
+  });
+  const finalizeJson = (await finalizeRes.json()) as MediaUploadResponse;
+  if (!finalizeRes.ok) {
+    throw new Error(mediaUploadError(finalizeJson, finalizeRes.status));
+  }
+  return (
+    finalizeJson.data?.id ??
+    finalizeJson.id ??
+    finalizeJson.media_id_string ??
+    mediaId
   );
 }
 

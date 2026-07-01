@@ -3,6 +3,7 @@ import { requireTenant } from "../middlewares/requireTenant";
 import credentialsRouter from "../routes/credentials";
 import metaRouter from "../routes/meta";
 import linkedinRouter from "../routes/linkedin";
+import twitterRouter from "../routes/twitter";
 import adminRouter from "../routes/admin";
 
 function attachLogStub(app: Express): void {
@@ -36,6 +37,7 @@ export function createTestApp(): Express {
     credentialsRouter,
     metaRouter,
     linkedinRouter,
+    twitterRouter,
   );
   return app;
 }

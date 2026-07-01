@@ -4,10 +4,10 @@ import { and, eq } from "drizzle-orm";
 import { ObjectStorageService } from "../lib/objectStorage";
 import {
   TWITTER_API_BASE,
-  TWITTER_UPLOAD_URL,
   buildOAuthHeader,
   getTwitterAppCredentials,
   getTenantTwitterCredentials,
+  uploadTwitterMedia,
   type TwitterCredentials,
 } from "../lib/twitterApi";
 
@@ -101,39 +101,12 @@ router.post(
           item.imagePath,
         );
         const [buffer] = await file.download();
-
-        // Media upload is a v1.1 multipart request. Multipart bodies are not
-        // part of the OAuth signature, so no extra params are signed.
-        const uploadAuth = buildOAuthHeader({
-          method: "POST",
-          url: TWITTER_UPLOAD_URL,
-          consumerKey: app.apiKey,
-          consumerSecret: app.apiSecret,
-          token: creds.accessToken,
-          tokenSecret: creds.accessTokenSecret,
+        mediaId = await uploadTwitterMedia({
+          buffer,
+          contentType: "image/png",
+          app,
+          creds,
         });
-        const form = new FormData();
-        form.append(
-          "media",
-          new Blob([new Uint8Array(buffer)], { type: "image/png" }),
-          "image.png",
-        );
-        const uploadRes = await fetch(TWITTER_UPLOAD_URL, {
-          method: "POST",
-          headers: { Authorization: uploadAuth },
-          body: form,
-        });
-        const uploadJson = (await uploadRes.json()) as {
-          media_id_string?: string;
-          errors?: { message?: string }[];
-        };
-        if (!uploadRes.ok || !uploadJson.media_id_string) {
-          throw new Error(
-            uploadJson.errors?.[0]?.message ||
-              `X media upload failed (${uploadRes.status})`,
-          );
-        }
-        mediaId = uploadJson.media_id_string;
       }
 
       const tweetUrl = `${TWITTER_API_BASE}/2/tweets`;

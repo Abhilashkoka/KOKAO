@@ -58,11 +58,12 @@ export async function insertConnectedAccount(
   platform: string,
   creds: unknown,
   verifyStatus: string,
+  accountName = "Test Account",
 ): Promise<void> {
   await db.insert(connectedAccountsTable).values({
     tenantId,
     platform,
-    accountName: "Test Account",
+    accountName,
     status: verifyStatus === "verified" ? "connected" : "error",
     encryptedCredentials: encryptJson(creds),
     verifyStatus,
@@ -147,14 +148,14 @@ export async function getConnectedAccount(tenantId: number, platform: string) {
 
 export async function insertContentItem(
   tenantId: number,
-  opts: { imagePath?: string | null } = {},
+  opts: { imagePath?: string | null; caption?: string } = {},
 ): Promise<number> {
   const [row] = await db
     .insert(contentItemsTable)
     .values({
       tenantId,
       title: "Test post",
-      caption: "hello world",
+      caption: opts.caption ?? "hello world",
       imagePath: opts.imagePath ?? null,
     })
     .returning();
@@ -222,6 +223,66 @@ export async function restoreMetaRow(
   if (snapshot) {
     await db.insert(appCredentialsTable).values({
       provider: "meta",
+      encryptedCredentials: snapshot.encryptedCredentials,
+      lastTestStatus: snapshot.lastTestStatus,
+      lastTestedAt: snapshot.lastTestedAt,
+      lastTestError: snapshot.lastTestError,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// App-level X (Twitter) credential row (global, unique on provider="twitter").
+// Snapshot/restore so tests never destroy real dev configuration.
+// ---------------------------------------------------------------------------
+
+export async function snapshotTwitterRow(): Promise<AppCredential | null> {
+  const row = (
+    await db
+      .select()
+      .from(appCredentialsTable)
+      .where(eq(appCredentialsTable.provider, "twitter"))
+      .limit(1)
+  )[0];
+  return row ?? null;
+}
+
+export async function setTwitterRow(
+  apiKey: string,
+  apiSecret: string,
+  status = "verified",
+): Promise<void> {
+  await db
+    .delete(appCredentialsTable)
+    .where(eq(appCredentialsTable.provider, "twitter"));
+  await db.insert(appCredentialsTable).values({
+    provider: "twitter",
+    encryptedCredentials: encryptJson({ apiKey, apiSecret }),
+    lastTestStatus: status,
+    lastTestedAt: new Date(),
+    lastTestError: null,
+  });
+}
+
+export async function setVerifiedTwitterRow(): Promise<void> {
+  await setTwitterRow("x-api-key-default", "x-api-secret-default", "verified");
+}
+
+export async function clearTwitterRow(): Promise<void> {
+  await db
+    .delete(appCredentialsTable)
+    .where(eq(appCredentialsTable.provider, "twitter"));
+}
+
+export async function restoreTwitterRow(
+  snapshot: AppCredential | null,
+): Promise<void> {
+  await db
+    .delete(appCredentialsTable)
+    .where(eq(appCredentialsTable.provider, "twitter"));
+  if (snapshot) {
+    await db.insert(appCredentialsTable).values({
+      provider: "twitter",
       encryptedCredentials: snapshot.encryptedCredentials,
       lastTestStatus: snapshot.lastTestStatus,
       lastTestedAt: snapshot.lastTestedAt,
