@@ -34,9 +34,12 @@ vi.mock("@clerk/express", async () => {
   };
 });
 
+import { createHmac, createHash } from "crypto";
 import { pool, type AppCredential } from "@workspace/db";
 import { createTestApp } from "../test/testApp";
 import { resetAuthState, actAs } from "../test/authState";
+import { decryptJson } from "../lib/secretCrypto";
+import type { TwitterOAuth2Credentials } from "../lib/twitterApi";
 import {
   createTenant,
   deleteTenant,
@@ -679,6 +682,387 @@ describe("X (Twitter) publishing (happy path)", () => {
       // A failed publish must not mark the item published.
       const item = await getContentItem(itemId, tenant.tenantId);
       expect(item.status).not.toBe("published");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Connect flow (OAuth 2.0 PKCE). These cover the authorize-URL builder and the
+// callback that finalizes the connection. A regression in the signed-state
+// round-trip, the token exchange, or the /2/users/me lookup would otherwise let
+// "Connect X" silently produce a broken or missing connection with no test
+// catching it. The callback must NEVER write a connection when anything about
+// the state, the OAuth handshake, or the user lookup is wrong.
+// ---------------------------------------------------------------------------
+
+/**
+ * Craft an HMAC-signed `state` exactly as the route's private `signState` does,
+ * so tests can forge valid, expired, wrong-tenant, and tampered states without
+ * exporting internals. Format: base64url(`${tenantId}.${ts}.${verifier}.${sig}`),
+ * where sig = HMAC-SHA256(SESSION_SECRET, `${tenantId}.${ts}.${verifier}`).
+ */
+function craftState(
+  tenantId: number,
+  verifier: string,
+  ts: number = Date.now(),
+): string {
+  const secret = process.env.SESSION_SECRET!;
+  const payload = `${tenantId}.${ts}.${verifier}`;
+  const sig = createHmac("sha256", secret).update(payload).digest("hex");
+  return Buffer.from(`${payload}.${sig}`, "utf8").toString("base64url");
+}
+
+/** Decode and verify a state the same way the route does. */
+function parseState(state: string): {
+  tenantId: number;
+  ts: number;
+  verifier: string;
+  validSignature: boolean;
+} {
+  const secret = process.env.SESSION_SECRET!;
+  const decoded = Buffer.from(state, "base64url").toString("utf8");
+  const lastDot = decoded.lastIndexOf(".");
+  const payload = decoded.slice(0, lastDot);
+  const sig = decoded.slice(lastDot + 1);
+  const expected = createHmac("sha256", secret).update(payload).digest("hex");
+  const firstDot = payload.indexOf(".");
+  const secondDot = payload.indexOf(".", firstDot + 1);
+  return {
+    tenantId: Number(payload.slice(0, firstDot)),
+    ts: Number(payload.slice(firstDot + 1, secondDot)),
+    verifier: payload.slice(secondDot + 1),
+    validSignature: sig === expected,
+  };
+}
+
+const X_CONNECT_ACCESS_TOKEN = "connect_access_token_oauth2";
+const X_CONNECT_REFRESH_TOKEN = "connect_refresh_token_secret";
+const X_CONNECT_USER_ID = "x_user_connect_777";
+const X_CONNECT_USERNAME = "connectedhandle";
+
+/**
+ * Mock the two X endpoints the callback hits: the OAuth 2.0 token exchange and
+ * the authenticated-user lookup. Each can be forced to fail independently to
+ * exercise the callback's failure branches.
+ */
+function mockConnectApi(
+  opts: { tokenFails?: boolean; userFails?: boolean } = {},
+) {
+  const calls: { url: string; auth: string; body: unknown }[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(
+    async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const auth =
+        (init?.headers as Record<string, string> | undefined)?.Authorization ??
+        "";
+      calls.push({ url, auth, body: init?.body });
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+
+      if (url.includes("/2/oauth2/token")) {
+        if (opts.tokenFails) {
+          return json(
+            { error: "invalid_grant", error_description: "bad code" },
+            400,
+          );
+        }
+        return json({
+          access_token: X_CONNECT_ACCESS_TOKEN,
+          refresh_token: X_CONNECT_REFRESH_TOKEN,
+          expires_in: 7200,
+          token_type: "bearer",
+        });
+      }
+      if (url.includes("/2/users/me")) {
+        if (opts.userFails) return json({}, 401);
+        return json({
+          data: { id: X_CONNECT_USER_ID, username: X_CONNECT_USERNAME },
+        });
+      }
+      return json({});
+    },
+  );
+  return calls;
+}
+
+describe("X (Twitter) connect: GET /twitter/auth/url", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns 503 when no app-level X credentials are configured", async () => {
+    await clearTwitterRow();
+    const tenant = await createTenant();
+    try {
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/twitter/auth/url");
+      expect(res.status).toBe(503);
+      expect(res.body.error).toMatch(/not configured/i);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("returns an authorize URL carrying the PKCE challenge and a signed state bound to the tenant", async () => {
+    await setVerifiedTwitterRow();
+    const tenant = await createTenant();
+    try {
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/twitter/auth/url");
+      expect(res.status).toBe(200);
+      expect(typeof res.body.url).toBe("string");
+
+      const url = new URL(res.body.url);
+      expect(url.origin + url.pathname).toBe(
+        "https://twitter.com/i/oauth2/authorize",
+      );
+      expect(url.searchParams.get("response_type")).toBe("code");
+      expect(url.searchParams.get("client_id")).toBe("x-client-id-default");
+      expect(url.searchParams.get("code_challenge_method")).toBe("S256");
+
+      const challenge = url.searchParams.get("code_challenge");
+      const state = url.searchParams.get("state");
+      expect(challenge).toBeTruthy();
+      expect(state).toBeTruthy();
+
+      // The state is HMAC-signed, bound to this tenant, and embeds the PKCE
+      // verifier whose S256 hash equals the challenge in the URL — proving the
+      // authorize-URL builder and the state round-trip agree.
+      const parsed = parseState(state!);
+      expect(parsed.validSignature).toBe(true);
+      expect(parsed.tenantId).toBe(tenant.tenantId);
+      expect(parsed.verifier).toBeTruthy();
+      const derivedChallenge = createHash("sha256")
+        .update(parsed.verifier)
+        .digest("base64url");
+      expect(derivedChallenge).toBe(challenge);
+
+      // The high-entropy verifier must never leak in the URL query.
+      expect(res.body.url).not.toContain(parsed.verifier);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("X (Twitter) connect: GET /twitter/auth/callback", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("persists an encrypted connection and redirects on the happy path", async () => {
+    await setVerifiedTwitterRow();
+    const calls = mockConnectApi();
+    const tenant = await createTenant();
+    try {
+      actAs(tenant.clerkUserId);
+
+      // Use the real signed state produced by the authorize-URL endpoint so the
+      // full signState -> verifyState round-trip is exercised end to end.
+      const urlRes = await request(app).get("/api/twitter/auth/url");
+      const state = new URL(urlRes.body.url).searchParams.get("state")!;
+
+      const res = await request(app)
+        .get("/api/twitter/auth/callback")
+        .query({ code: "AUTH_CODE", state });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe("/accounts?twitter=connected");
+
+      // The token endpoint and the user lookup were both hit.
+      expect(calls.some((c) => c.url.includes("/2/oauth2/token"))).toBe(true);
+      const userCall = calls.find((c) => c.url.includes("/2/users/me"));
+      expect(userCall).toBeTruthy();
+      // The user lookup authorizes with the freshly exchanged access token.
+      expect(userCall!.auth).toBe(`Bearer ${X_CONNECT_ACCESS_TOKEN}`);
+
+      const row = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(row).toBeTruthy();
+      expect(row.status).toBe("connected");
+      expect(row.verifyStatus).toBe("verified");
+      expect(row.verifyError).toBeNull();
+      expect(row.providerUserId).toBe(X_CONNECT_USER_ID);
+      expect(row.accountName).toBe(`@${X_CONNECT_USERNAME}`);
+      expect(row.tokenExpiresAt).toBeTruthy();
+      expect(row.tokenExpiresAt!.getTime()).toBeGreaterThan(Date.now());
+      // Legacy plaintext column stays unused for OAuth 2.0 connections.
+      expect(row.accessToken).toBeNull();
+
+      // Both tokens are stored encrypted at rest and decrypt to what X returned.
+      expect(row.encryptedCredentials).toBeTruthy();
+      const creds = decryptJson<TwitterOAuth2Credentials>(
+        row.encryptedCredentials!,
+      );
+      expect(creds.accessToken).toBe(X_CONNECT_ACCESS_TOKEN);
+      expect(creds.refreshToken).toBe(X_CONNECT_REFRESH_TOKEN);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with not_configured and writes nothing when app creds are missing", async () => {
+    await clearTwitterRow();
+    const tenant = await createTenant();
+    try {
+      actAs(tenant.clerkUserId);
+      const state = craftState(tenant.tenantId, "some_verifier");
+      const res = await request(app)
+        .get("/api/twitter/auth/callback")
+        .query({ code: "AUTH_CODE", state });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?twitter=error&reason=not_configured",
+      );
+      expect(await getConnectedAccount(tenant.tenantId, "twitter")).toBeFalsy();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with the OAuth error and writes nothing when X returns error=", async () => {
+    await setVerifiedTwitterRow();
+    const calls = mockConnectApi();
+    const tenant = await createTenant();
+    try {
+      actAs(tenant.clerkUserId);
+      const state = craftState(tenant.tenantId, "some_verifier");
+      const res = await request(app)
+        .get("/api/twitter/auth/callback")
+        .query({ error: "access_denied", state });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?twitter=error&reason=access_denied",
+      );
+      // No token exchange should even be attempted.
+      expect(calls.length).toBe(0);
+      expect(await getConnectedAccount(tenant.tenantId, "twitter")).toBeFalsy();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects a tampered state and writes nothing", async () => {
+    await setVerifiedTwitterRow();
+    const tenant = await createTenant();
+    try {
+      actAs(tenant.clerkUserId);
+      const valid = craftState(tenant.tenantId, "some_verifier");
+      // Flip the final character (part of the HMAC signature) to break it.
+      const decoded = Buffer.from(valid, "base64url").toString("utf8");
+      const tampered = Buffer.from(
+        decoded.slice(0, -1) + (decoded.endsWith("a") ? "b" : "a"),
+        "utf8",
+      ).toString("base64url");
+
+      const res = await request(app)
+        .get("/api/twitter/auth/callback")
+        .query({ code: "AUTH_CODE", state: tampered });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?twitter=error&reason=invalid_state",
+      );
+      expect(await getConnectedAccount(tenant.tenantId, "twitter")).toBeFalsy();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects an expired state and writes nothing", async () => {
+    await setVerifiedTwitterRow();
+    const tenant = await createTenant();
+    try {
+      actAs(tenant.clerkUserId);
+      // Signed 11 minutes ago; the state TTL is 10 minutes.
+      const expired = craftState(
+        tenant.tenantId,
+        "some_verifier",
+        Date.now() - 11 * 60 * 1000,
+      );
+      const res = await request(app)
+        .get("/api/twitter/auth/callback")
+        .query({ code: "AUTH_CODE", state: expired });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?twitter=error&reason=invalid_state",
+      );
+      expect(await getConnectedAccount(tenant.tenantId, "twitter")).toBeFalsy();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects a state signed for a different tenant and writes nothing", async () => {
+    await setVerifiedTwitterRow();
+    const tenant = await createTenant();
+    try {
+      actAs(tenant.clerkUserId);
+      // Validly signed, but bound to some other tenant id.
+      const otherTenantState = craftState(
+        tenant.tenantId + 999999,
+        "some_verifier",
+      );
+      const res = await request(app)
+        .get("/api/twitter/auth/callback")
+        .query({ code: "AUTH_CODE", state: otherTenantState });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?twitter=error&reason=invalid_state",
+      );
+      expect(await getConnectedAccount(tenant.tenantId, "twitter")).toBeFalsy();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with token_exchange and writes nothing when the token exchange fails", async () => {
+    await setVerifiedTwitterRow();
+    const calls = mockConnectApi({ tokenFails: true });
+    const tenant = await createTenant();
+    try {
+      actAs(tenant.clerkUserId);
+      const state = craftState(tenant.tenantId, "some_verifier");
+      const res = await request(app)
+        .get("/api/twitter/auth/callback")
+        .query({ code: "AUTH_CODE", state });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?twitter=error&reason=token_exchange",
+      );
+      // The user lookup must never run once the exchange failed.
+      expect(calls.some((c) => c.url.includes("/2/users/me"))).toBe(false);
+      expect(await getConnectedAccount(tenant.tenantId, "twitter")).toBeFalsy();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with userinfo and writes nothing when the user lookup fails", async () => {
+    await setVerifiedTwitterRow();
+    mockConnectApi({ userFails: true });
+    const tenant = await createTenant();
+    try {
+      actAs(tenant.clerkUserId);
+      const state = craftState(tenant.tenantId, "some_verifier");
+      const res = await request(app)
+        .get("/api/twitter/auth/callback")
+        .query({ code: "AUTH_CODE", state });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?twitter=error&reason=userinfo",
+      );
+      expect(await getConnectedAccount(tenant.tenantId, "twitter")).toBeFalsy();
     } finally {
       await deleteTenant(tenant.tenantId);
     }
