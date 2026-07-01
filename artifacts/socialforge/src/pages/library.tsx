@@ -315,6 +315,16 @@ export function LibraryPage() {
                 onChange={e => setEditCaption(e.target.value)} 
                 className="min-h-[150px]"
               />
+              {(() => {
+                const tweetText = ((editCaption?.trim() || editTitle) ?? "").trim();
+                const overLimit = tweetText.length > TWEET_MAX_LENGTH;
+                return (
+                  <p className={`text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                    {tweetText.length} / {TWEET_MAX_LENGTH} characters for X
+                    {overLimit && ` \u2014 ${tweetText.length - TWEET_MAX_LENGTH} over; will be trimmed when posting to X (other platforms allow more)`}
+                  </p>
+                );
+              })()}
             </div>
           </div>
           <DialogFooter>
