@@ -3798,6 +3798,76 @@ export const useSaveTwitterCredentials = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getSaveTwitterCredentialsMutationOptions(options));
     }
 
+export const getDisconnectTwitterUrl = () => {
+
+
+
+
+  return `/api/social-credentials/twitter`
+}
+
+/**
+ * @summary Clear the tenant's stored X (Twitter) credentials and verify status
+ */
+export const disconnectTwitter = async ( options?: RequestInit): Promise<SocialCredentialStatus> => {
+
+  return customFetch<SocialCredentialStatus>(getDisconnectTwitterUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDisconnectTwitterMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectTwitter>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof disconnectTwitter>>, TError,void, TContext> => {
+
+const mutationKey = ['disconnectTwitter'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof disconnectTwitter>>, void> = () => {
+
+
+          return  disconnectTwitter(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DisconnectTwitterMutationResult = NonNullable<Awaited<ReturnType<typeof disconnectTwitter>>>
+
+    export type DisconnectTwitterMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Clear the tenant's stored X (Twitter) credentials and verify status
+ */
+export const useDisconnectTwitter = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectTwitter>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof disconnectTwitter>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDisconnectTwitterMutationOptions(options));
+    }
+
 export const getPublishContentToTwitterUrl = (id: number,) => {
 
 

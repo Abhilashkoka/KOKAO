@@ -19,6 +19,7 @@ import {
   useRetestInstagramCredentials,
   useGetTwitterCredentials,
   useSaveTwitterCredentials,
+  useDisconnectTwitter,
   getGetFacebookCredentialsQueryKey,
   getGetInstagramCredentialsQueryKey,
   getGetTwitterCredentialsQueryKey
@@ -432,9 +433,30 @@ function TwitterCredentialsCard() {
   const { toast } = useToast();
   const { data, isLoading } = useGetTwitterCredentials();
   const save = useSaveTwitterCredentials();
+  const disconnect = useDisconnectTwitter();
 
   const [accessToken, setAccessToken] = useState("");
   const [accessTokenSecret, setAccessTokenSecret] = useState("");
+
+  const invalidateTwitter = () => {
+    queryClient.invalidateQueries({ queryKey: getGetTwitterCredentialsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
+  };
+
+  const handleDisconnect = () => {
+    if (!confirm("Disconnect X? This clears your stored X credentials. You'll need to reconnect to publish again.")) return;
+    disconnect.mutate(undefined, {
+      onSuccess: () => {
+        invalidateTwitter();
+        setAccessToken("");
+        setAccessTokenSecret("");
+        toast({ title: "X disconnected", description: "Your stored X credentials were cleared." });
+      },
+      onError: (err: any) => {
+        toast({ variant: "destructive", title: "Could not disconnect", description: err?.response?.data?.error || "Please try again." });
+      },
+    });
+  };
 
   const handleSave = () => {
     if (!accessToken.trim() || !accessTokenSecret.trim()) return;
@@ -530,13 +552,24 @@ function TwitterCredentialsCard() {
                     placeholder={data?.saved ? "Enter to replace the saved secret" : "Access token secret"}
                   />
                 </div>
-                <Button onClick={handleSave} disabled={save.isPending || !accessToken.trim() || !accessTokenSecret.trim()}>
-                  {save.isPending ? (
-                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving & testing...</>
-                  ) : (
-                    "Save and verify"
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button onClick={handleSave} disabled={save.isPending || !accessToken.trim() || !accessTokenSecret.trim()}>
+                    {save.isPending ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving & testing...</>
+                    ) : (
+                      "Save and verify"
+                    )}
+                  </Button>
+                  {data?.saved && (
+                    <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={handleDisconnect} disabled={disconnect.isPending}>
+                      {disconnect.isPending ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
+                      ) : (
+                        <><Trash2 className="h-4 w-4 mr-2" /> Disconnect</>
+                      )}
+                    </Button>
                   )}
-                </Button>
+                </div>
               </div>
             )}
           </div>

@@ -637,4 +637,18 @@ router.put(
   },
 );
 
+router.delete(
+  "/social-credentials/twitter",
+  async (req: Request, res: Response) => {
+    const existing = await loadAccountRow(req.tenantId, "twitter");
+    if (existing) {
+      await db
+        .delete(connectedAccountsTable)
+        .where(eq(connectedAccountsTable.id, existing.id));
+    }
+    const appConfigured = await isTwitterAppConfigured();
+    res.json(serializeSocialStatus("twitter", appConfigured, undefined));
+  },
+);
+
 export default router;

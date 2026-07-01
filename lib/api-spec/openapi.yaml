@@ -1187,6 +1187,17 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: disconnectTwitter
+      tags: [social-credentials]
+      summary: Clear the tenant's stored X (Twitter) credentials and verify status
+      responses:
+        "200":
+          description: Disconnected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialCredentialStatus"
 
   /content/{id}/publish-twitter:
     post:

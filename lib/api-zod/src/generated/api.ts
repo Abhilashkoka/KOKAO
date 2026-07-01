@@ -993,6 +993,24 @@ export const SaveTwitterCredentialsResponse = zod.object({
 
 
 /**
+ * @summary Clear the tenant's stored X (Twitter) credentials and verify status
+ */
+export const DisconnectTwitterResponse = zod.object({
+  "platform": zod.string(),
+  "appConfigured": zod.boolean().describe('Whether the admin-level Meta app keys are configured.'),
+  "saved": zod.boolean().describe('Whether the tenant has saved credentials for this platform.'),
+  "verifyStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic verification.'),
+  "verifiedAt": zod.coerce.date().nullish(),
+  "verifyError": zod.string().nullish(),
+  "accountName": zod.string().nullish(),
+  "pageId": zod.string().nullish(),
+  "pageAccessTokenMasked": zod.string().nullish(),
+  "igUserId": zod.string().nullish(),
+  "accessTokenMasked": zod.string().nullish()
+})
+
+
+/**
  * @summary Publish a content item to the tenant's connected X (Twitter) account
  */
 export const PublishContentToTwitterParams = zod.object({
