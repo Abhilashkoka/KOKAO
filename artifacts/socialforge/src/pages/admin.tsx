@@ -13,12 +13,14 @@ import {
   useAdminGetEmailSettings,
   useAdminUpdateEmailSettings,
   useAdminSendTestEmail,
+  useAdminListAuditLogs,
   getAdminListTenantsQueryKey,
   getAdminGetStatsQueryKey,
   getAdminGetMetaCredentialsQueryKey,
   getAdminGetTwitterCredentialsQueryKey,
   getAdminListNotificationPoliciesQueryKey,
   getAdminGetEmailSettingsQueryKey,
+  getAdminListAuditLogsQueryKey,
   useGetMe,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -754,6 +756,90 @@ function NotificationPoliciesCard() {
   );
 }
 
+const AUDIT_ACTION_LABELS: Record<string, string> = {
+  plan_change: "Plan change",
+  superadmin_grant: "Superadmin granted",
+  superadmin_revoke: "Superadmin revoked",
+};
+
+function formatAuditValue(action: string, value: string | null): string {
+  if (value === null || value === "") return "—";
+  if (action === "plan_change") return PLAN_LABELS[value] ?? value;
+  if (value === "true") return "Yes";
+  if (value === "false") return "No";
+  return value;
+}
+
+function AuditLogCard() {
+  const { data, isLoading } = useAdminListAuditLogs();
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Audit trail</CardTitle>
+        <CardDescription>
+          Append-only record of privileged actions: plan overrides and
+          superadmin grants/revokes. Shows the 100 most recent entries.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (data ?? []).length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No admin actions have been recorded yet.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>When</TableHead>
+                  <TableHead>Action</TableHead>
+                  <TableHead>Actor</TableHead>
+                  <TableHead>Target</TableHead>
+                  <TableHead>From</TableHead>
+                  <TableHead>To</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(data ?? []).map((log) => (
+                  <TableRow key={log.id}>
+                    <TableCell className="text-muted-foreground whitespace-nowrap">
+                      {new Date(log.createdAt).toLocaleString()}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">
+                        {AUDIT_ACTION_LABELS[log.action] ?? log.action}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {log.actorEmail ?? `#${log.actorTenantId}`}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {log.targetEmail ?? `#${log.targetTenantId}`}
+                    </TableCell>
+                    <TableCell>
+                      {formatAuditValue(log.action, log.oldValue ?? null)}
+                    </TableCell>
+                    <TableCell>
+                      {formatAuditValue(log.action, log.newValue ?? null)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function AdminPage() {
   const { data: me } = useGetMe();
   const queryClient = useQueryClient();
@@ -802,6 +888,9 @@ export function AdminPage() {
           queryClient.invalidateQueries({
             queryKey: getAdminGetStatsQueryKey(),
           });
+          queryClient.invalidateQueries({
+            queryKey: getAdminListAuditLogsQueryKey(),
+          });
           toast({ title: "Plan updated", description: "Tenant plan changed successfully." });
         },
         onError: () => {
@@ -822,6 +911,9 @@ export function AdminPage() {
         onSuccess: () => {
           queryClient.invalidateQueries({
             queryKey: getAdminListTenantsQueryKey(),
+          });
+          queryClient.invalidateQueries({
+            queryKey: getAdminListAuditLogsQueryKey(),
           });
           toast({
             title: isSuperadmin ? "Superadmin granted" : "Superadmin revoked",
@@ -899,6 +991,7 @@ export function AdminPage() {
       <TwitterCredentialsCard />
       <EmailDeliveryCard />
       <NotificationPoliciesCard />
+      <AuditLogCard />
 
       <Card>
         <CardHeader>

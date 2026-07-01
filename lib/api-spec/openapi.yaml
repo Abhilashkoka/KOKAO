@@ -265,6 +265,27 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /admin/audit-logs:
+    get:
+      operationId: adminListAuditLogs
+      tags: [admin]
+      summary: List the privileged admin action audit trail (superadmin only)
+      responses:
+        "200":
+          description: Recent admin audit records, most recent first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminAuditLog"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /admin/notification-policies:
     get:
       operationId: adminListNotificationPolicies
@@ -2095,6 +2116,45 @@ components:
       properties:
         isSuperadmin:
           type: boolean
+
+    AdminAuditLog:
+      type: object
+      required:
+        [
+          id,
+          action,
+          actorTenantId,
+          targetTenantId,
+          createdAt,
+        ]
+      properties:
+        id:
+          type: integer
+        action:
+          type: string
+          enum: [plan_change, superadmin_grant, superadmin_revoke]
+          description: The privileged action that was recorded.
+        actorTenantId:
+          type: integer
+          description: Tenant id of the superadmin who performed the action.
+        actorEmail:
+          type: ["string", "null"]
+          description: Cached email of the actor at the time of the action.
+        targetTenantId:
+          type: integer
+          description: Tenant id whose plan or role was changed.
+        targetEmail:
+          type: ["string", "null"]
+          description: Cached email of the target tenant.
+        oldValue:
+          type: ["string", "null"]
+          description: Previous value (plan name or superadmin boolean string).
+        newValue:
+          type: ["string", "null"]
+          description: New value (plan name or superadmin boolean string).
+        createdAt:
+          type: string
+          format: date-time
 
     NotificationChannelPreference:
       type: object

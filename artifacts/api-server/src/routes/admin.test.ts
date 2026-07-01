@@ -29,7 +29,12 @@ vi.mock("@clerk/express", async () => {
 import { pool } from "@workspace/db";
 import { createAdminTestApp } from "../test/testApp";
 import { resetAuthState, actAs } from "../test/authState";
-import { createTenant, deleteTenant, getTenant } from "../test/dbHelpers";
+import {
+  createTenant,
+  deleteTenant,
+  getTenant,
+  getAuditLogsForTarget,
+} from "../test/dbHelpers";
 
 // This is baked into the permanent allowlist in lib/superadmins.ts, so an actor
 // whose LIVE verified email matches it is an "owner". Using the built-in email
@@ -409,6 +414,154 @@ describe("PATCH /admin/tenants/:id — plan override stays admin-only", () => {
         .patch(`/api/admin/tenants/2000000000`)
         .send({ plan: "pro" });
       expect(res.status).toBe(404);
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+});
+
+describe("Audit trail — privileged actions are recorded", () => {
+  it("records a plan_change with actor, target, old and new value", async () => {
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    const target = await createTenant({
+      email: `target-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      const res = await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}`)
+        .send({ plan: "business" });
+      expect(res.status).toBe(200);
+
+      const logs = await getAuditLogsForTarget(target.tenantId);
+      expect(logs).toHaveLength(1);
+      const log = logs[0];
+      expect(log.action).toBe("plan_change");
+      expect(log.actorTenantId).toBe(actor.tenantId);
+      expect(log.actorEmail).toBe(actor.email);
+      expect(log.targetTenantId).toBe(target.tenantId);
+      expect(log.targetEmail).toBe(target.email);
+      expect(log.oldValue).toBe("free");
+      expect(log.newValue).toBe("business");
+    } finally {
+      await deleteTenant(actor.tenantId);
+      await deleteTenant(target.tenantId);
+    }
+  });
+
+  it("does not record a plan_change when the plan is unchanged", async () => {
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    const target = await createTenant({
+      email: `target-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      // Target already on "free"; setting it to "free" again is a no-op change.
+      const res = await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}`)
+        .send({ plan: "free" });
+      expect(res.status).toBe(200);
+
+      const logs = await getAuditLogsForTarget(target.tenantId);
+      expect(logs).toHaveLength(0);
+    } finally {
+      await deleteTenant(actor.tenantId);
+      await deleteTenant(target.tenantId);
+    }
+  });
+
+  it("records a superadmin_grant then a superadmin_revoke (append-only)", async () => {
+    const owner = await createTenant({ email: OWNER_EMAIL });
+    const target = await createTenant({
+      email: `target-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(owner.clerkUserId, OWNER_EMAIL);
+
+      const grant = await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}/superadmin`)
+        .send({ isSuperadmin: true });
+      expect(grant.status).toBe(200);
+
+      const revoke = await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}/superadmin`)
+        .send({ isSuperadmin: false });
+      expect(revoke.status).toBe(200);
+
+      const logs = await getAuditLogsForTarget(target.tenantId);
+      // Both actions are appended; the first row is never mutated in place.
+      expect(logs).toHaveLength(2);
+      const actions = logs.map((l) => l.action).sort();
+      expect(actions).toEqual(["superadmin_grant", "superadmin_revoke"]);
+
+      const grantLog = logs.find((l) => l.action === "superadmin_grant")!;
+      expect(grantLog.actorTenantId).toBe(owner.tenantId);
+      expect(grantLog.targetTenantId).toBe(target.tenantId);
+      expect(grantLog.oldValue).toBe("false");
+      expect(grantLog.newValue).toBe("true");
+
+      const revokeLog = logs.find((l) => l.action === "superadmin_revoke")!;
+      expect(revokeLog.oldValue).toBe("true");
+      expect(revokeLog.newValue).toBe("false");
+    } finally {
+      await deleteTenant(owner.tenantId);
+      await deleteTenant(target.tenantId);
+    }
+  });
+
+  it("exposes the audit trail via GET /admin/audit-logs to a superadmin", async () => {
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    const target = await createTenant({
+      email: `target-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}`)
+        .send({ plan: "pro" });
+
+      const res = await request(app).get("/api/admin/audit-logs");
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+
+      const entry = (res.body as Array<Record<string, unknown>>).find(
+        (r) => r.targetTenantId === target.tenantId,
+      );
+      expect(entry).toBeDefined();
+      expect(entry).toMatchObject({
+        action: "plan_change",
+        actorTenantId: actor.tenantId,
+        oldValue: "free",
+        newValue: "pro",
+      });
+      expect(entry).toHaveProperty("createdAt");
+    } finally {
+      await deleteTenant(actor.tenantId);
+      await deleteTenant(target.tenantId);
+    }
+  });
+
+  it("returns 403 to a non-superadmin and 401 to an unauthenticated caller for GET /admin/audit-logs", async () => {
+    const actor = await createTenant({
+      email: `plain-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      const forbidden = await request(app).get("/api/admin/audit-logs");
+      expect(forbidden.status).toBe(403);
+
+      resetAuthState();
+      const unauth = await request(app).get("/api/admin/audit-logs");
+      expect(unauth.status).toBe(401);
     } finally {
       await deleteTenant(actor.tenantId);
     }

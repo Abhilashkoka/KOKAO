@@ -13,3 +13,4 @@ export * from "./usageEvents";
 export * from "./notifications";
 export * from "./notificationPreferences";
 export * from "./notificationPolicies";
+export * from "./adminAuditLogs";

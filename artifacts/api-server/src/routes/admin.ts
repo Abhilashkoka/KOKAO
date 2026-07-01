@@ -7,9 +7,11 @@ import {
   scheduledPostsTable,
   connectedAccountsTable,
   usageEventsTable,
+  adminAuditLogsTable,
 } from "@workspace/db";
 import { eq, sql, desc, gte } from "drizzle-orm";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
+import { recordAdminAction } from "../lib/adminAudit";
 import {
   AdminUpdateTenantPlanBody,
   AdminUpdateTenantSuperadminBody,
@@ -177,6 +179,15 @@ router.patch("/admin/tenants/:id", async (req: Request, res: Response) => {
     return;
   }
 
+  const previous = (
+    await db.select().from(tenantsTable).where(eq(tenantsTable.id, id))
+  )[0];
+
+  if (!previous) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+
   const updated = (
     await db
       .update(tenantsTable)
@@ -188,6 +199,22 @@ router.patch("/admin/tenants/:id", async (req: Request, res: Response) => {
   if (!updated) {
     res.status(404).json({ error: "Not found" });
     return;
+  }
+
+  if (previous.plan !== updated.plan) {
+    try {
+      await recordAdminAction({
+        action: "plan_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: updated.id,
+        targetEmail: updated.email ?? null,
+        oldValue: previous.plan,
+        newValue: updated.plan,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write plan-change audit log");
+    }
   }
 
   res.json(serializeAdminTenant(updated));
@@ -251,9 +278,57 @@ router.patch(
       return;
     }
 
+    if (target.isSuperadmin !== updated.isSuperadmin) {
+      try {
+        await recordAdminAction({
+          action: updated.isSuperadmin
+            ? "superadmin_grant"
+            : "superadmin_revoke",
+          actorTenantId: req.tenantId,
+          actorEmail: actorEmail ?? req.tenantEmail,
+          targetTenantId: updated.id,
+          targetEmail: updated.email ?? null,
+          oldValue: String(target.isSuperadmin),
+          newValue: String(updated.isSuperadmin),
+        });
+      } catch (error) {
+        req.log.error(
+          { err: error },
+          "Failed to write superadmin-change audit log",
+        );
+      }
+    }
+
     res.json(serializeAdminTenant(updated));
   },
 );
+
+/**
+ * GET /admin/audit-logs
+ * The append-only trail of privileged admin actions (plan overrides and
+ * superadmin grants/revokes), most recent first. Read-only, superadmin-scoped.
+ */
+router.get("/admin/audit-logs", async (_req: Request, res: Response) => {
+  const rows = await db
+    .select()
+    .from(adminAuditLogsTable)
+    .orderBy(desc(adminAuditLogsTable.createdAt))
+    .limit(100);
+
+  res.json(
+    rows.map((r) => ({
+      id: r.id,
+      action: r.action,
+      actorTenantId: r.actorTenantId,
+      actorEmail: r.actorEmail ?? null,
+      targetTenantId: r.targetTenantId,
+      targetEmail: r.targetEmail ?? null,
+      oldValue: r.oldValue ?? null,
+      newValue: r.newValue ?? null,
+      createdAt: r.createdAt.toISOString(),
+    })),
+  );
+});
 
 /**
  * GET /admin/notification-policies

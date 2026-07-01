@@ -133,6 +133,49 @@ export interface UpdateTenantSuperadminBody {
   isSuperadmin: boolean;
 }
 
+/**
+ * The privileged action that was recorded.
+ */
+export type AdminAuditLogAction = typeof AdminAuditLogAction[keyof typeof AdminAuditLogAction];
+
+
+export const AdminAuditLogAction = {
+  plan_change: 'plan_change',
+  superadmin_grant: 'superadmin_grant',
+  superadmin_revoke: 'superadmin_revoke',
+} as const;
+
+export interface AdminAuditLog {
+  id: number;
+  /** The privileged action that was recorded. */
+  action: AdminAuditLogAction;
+  /** Tenant id of the superadmin who performed the action. */
+  actorTenantId: number;
+  /**
+     * Cached email of the actor at the time of the action.
+     * @nullable
+     */
+  actorEmail?: string | null;
+  /** Tenant id whose plan or role was changed. */
+  targetTenantId: number;
+  /**
+     * Cached email of the target tenant.
+     * @nullable
+     */
+  targetEmail?: string | null;
+  /**
+     * Previous value (plan name or superadmin boolean string).
+     * @nullable
+     */
+  oldValue?: string | null;
+  /**
+     * New value (plan name or superadmin boolean string).
+     * @nullable
+     */
+  newValue?: string | null;
+  createdAt: string;
+}
+
 export interface NotificationChannelPreference {
   inApp: boolean;
   email: boolean;

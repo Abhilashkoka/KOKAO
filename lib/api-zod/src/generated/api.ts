@@ -254,6 +254,23 @@ export const AdminGetStatsResponse = zod.object({
 
 
 /**
+ * @summary List the privileged admin action audit trail (superadmin only)
+ */
+export const AdminListAuditLogsResponseItem = zod.object({
+  "id": zod.number(),
+  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke']).describe('The privileged action that was recorded.'),
+  "actorTenantId": zod.number().describe('Tenant id of the superadmin who performed the action.'),
+  "actorEmail": zod.string().nullish().describe('Cached email of the actor at the time of the action.'),
+  "targetTenantId": zod.number().describe('Tenant id whose plan or role was changed.'),
+  "targetEmail": zod.string().nullish().describe('Cached email of the target tenant.'),
+  "oldValue": zod.string().nullish().describe('Previous value (plan name or superadmin boolean string).'),
+  "newValue": zod.string().nullish().describe('New value (plan name or superadmin boolean string).'),
+  "createdAt": zod.coerce.date()
+})
+export const AdminListAuditLogsResponse = zod.array(AdminListAuditLogsResponseItem)
+
+
+/**
  * @summary List global notification policies (superadmin only)
  */
 export const AdminListNotificationPoliciesResponseItem = zod.object({

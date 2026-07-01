@@ -7,11 +7,12 @@ import {
   notificationsTable,
   notificationPreferencesTable,
   notificationPoliciesTable,
+  adminAuditLogsTable,
   type AppCredential,
   type NotificationPolicy,
 } from "@workspace/db";
 import type { EmailPolicy } from "../lib/notificationCatalog";
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { encryptJson } from "../lib/secretCrypto";
 
@@ -61,7 +62,22 @@ export async function deleteTenant(tenantId: number): Promise<void> {
   await db
     .delete(notificationPreferencesTable)
     .where(eq(notificationPreferencesTable.tenantId, tenantId));
+  await db
+    .delete(adminAuditLogsTable)
+    .where(
+      or(
+        eq(adminAuditLogsTable.actorTenantId, tenantId),
+        eq(adminAuditLogsTable.targetTenantId, tenantId),
+      ),
+    );
   await db.delete(tenantsTable).where(eq(tenantsTable.id, tenantId));
+}
+
+export async function getAuditLogsForTarget(targetTenantId: number) {
+  return db
+    .select()
+    .from(adminAuditLogsTable)
+    .where(eq(adminAuditLogsTable.targetTenantId, targetTenantId));
 }
 
 export async function getNotifications(tenantId: number) {
