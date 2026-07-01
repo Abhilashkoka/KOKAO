@@ -8,6 +8,11 @@ import {
   type FacebookCredentials,
   type InstagramCredentials,
 } from "./metaApi";
+import {
+  getTwitterAppCredentials,
+  ensureFreshTwitterToken,
+  testTwitterCredentials,
+} from "./twitterApi";
 import { notifySocialConnectionFailed } from "./notifications";
 
 /**
@@ -166,4 +171,55 @@ export async function reverifyInstagram(
     accountName: test.accountName || row.accountName || "Instagram account",
   });
   return loadAccountRow(tenantId, "instagram");
+}
+
+/**
+ * Automatically re-verify a tenant's stored X (Twitter) OAuth 2.0 connection.
+ * Resolves a usable access token (refreshing when expired), then live-tests it
+ * against the X API so a revoked/expired token flips to "failed" the moment the
+ * Accounts page loads — instead of looking "Verified" until a publish fails.
+ * Respects the staleness gate, treats transient X errors as non-fatal, and
+ * never throws.
+ */
+export async function reverifyTwitter(
+  tenantId: number,
+  opts: ReverifyOptions = {},
+): Promise<AccountRow | undefined> {
+  const row = await loadAccountRow(tenantId, "twitter");
+  if (!row?.encryptedCredentials || row.status === "disconnected") return row;
+  if (!opts.force && !isStale(row.verifiedAt)) return row;
+
+  const app = await getTwitterAppCredentials();
+  if (!app) return row; // Cannot test without app-level client credentials.
+
+  // Resolve a usable token (refreshing if needed). This persists a refreshed
+  // token, or marks reconnect-needed on a failed refresh / expired-no-refresh.
+  const tokenResult = await ensureFreshTwitterToken(tenantId, app);
+  if (!tokenResult.ok) {
+    if (tokenResult.reason === "not_connected") {
+      return loadAccountRow(tenantId, "twitter");
+    }
+    // reconnect_required: the stored/refreshed token is dead. Persist a failed
+    // status (idempotent) and notify on a fresh verified -> failed transition.
+    await writeStatus(row, {
+      verifyStatus: "failed",
+      verifyError: tokenResult.message,
+      accountName: row.accountName || "X account",
+    });
+    return loadAccountRow(tenantId, "twitter");
+  }
+
+  // Token resolved — confirm it actually works with a live identity read.
+  const test = await testTwitterCredentials(tokenResult.accessToken);
+  if (!test.ok && test.transient) {
+    await touchChecked(row);
+    return loadAccountRow(tenantId, "twitter");
+  }
+
+  await writeStatus(row, {
+    verifyStatus: test.ok ? "verified" : "failed",
+    verifyError: test.ok ? null : test.error ?? "Verification failed",
+    accountName: test.ok ? test.accountName : row.accountName || "X account",
+  });
+  return loadAccountRow(tenantId, "twitter");
 }

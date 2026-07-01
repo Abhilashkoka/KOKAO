@@ -11,6 +11,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   facebook: "Facebook Page",
   instagram: "Instagram account",
   linkedin: "LinkedIn account",
+  twitter: "X account",
 };
 
 function platformLabel(platform: string): string {

@@ -17,6 +17,7 @@ import {
   type TwitterOAuth2Credentials,
 } from "../lib/twitterApi";
 import { encryptJson } from "../lib/secretCrypto";
+import { reverifyTwitter } from "../lib/socialReverify";
 
 const router: IRouter = Router();
 
@@ -236,10 +237,21 @@ function serializeStatus(
 }
 
 router.get("/twitter/status", async (req: Request, res: Response) => {
-  const [app, account] = await Promise.all([
-    getTwitterAppCredentials(),
-    getTwitterAccount(req.tenantId),
-  ]);
+  const app = await getTwitterAppCredentials();
+  let account = await getTwitterAccount(req.tenantId);
+  // Proactively re-check a stored token so an expired/revoked one flips to
+  // "failed" the moment the page loads, without waiting for a publish to fail.
+  if (
+    isConfigured(app) &&
+    account?.encryptedCredentials &&
+    account.status !== "disconnected"
+  ) {
+    try {
+      account = (await reverifyTwitter(req.tenantId)) ?? account;
+    } catch (err) {
+      req.log.error({ err }, "X auto re-verify failed");
+    }
+  }
   res.json(serializeStatus(req, isConfigured(app), account));
 });
 

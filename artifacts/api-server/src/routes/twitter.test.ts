@@ -52,6 +52,7 @@ import {
   setVerifiedTwitterRow,
   clearTwitterRow,
   restoreTwitterRow,
+  getNotifications,
 } from "../test/dbHelpers";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { splitIntoTweets, TWEET_MAX_LENGTH } from "../lib/twitterApi";
@@ -1063,6 +1064,177 @@ describe("X (Twitter) connect: GET /twitter/auth/callback", () => {
         "/accounts?twitter=error&reason=userinfo",
       );
       expect(await getConnectedAccount(tenant.tenantId, "twitter")).toBeFalsy();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+// Auto re-verify on Accounts-page load. GET /twitter/status proactively
+// re-checks a stored (stale) token so a revoked/expired one flips to "failed"
+// (surfacing the "Reconnect needed" callout) instead of looking "Verified"
+// until a publish fails — mirroring the Facebook/Instagram cards.
+// ---------------------------------------------------------------------------
+
+const STALE_MS = 20 * 60 * 1000; // Older than REVERIFY_STALE_MS (15 min).
+
+/** Mock the /2/users/me identity read with a fixed status + body. */
+function mockUsersMe(status: number, body: unknown) {
+  return vi
+    .spyOn(globalThis, "fetch")
+    .mockImplementation(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const json = (b: unknown, s: number) =>
+        new Response(JSON.stringify(b), {
+          status: s,
+          headers: { "content-type": "application/json" },
+        });
+      if (url.includes("/2/users/me")) return json(body, status);
+      return json({}, 200);
+    });
+}
+
+describe("X (Twitter) auto re-verify on status load", () => {
+  beforeEach(async () => {
+    await setVerifiedTwitterRow();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("does not live-check a still-fresh connection (staleness gate)", async () => {
+    const spy = mockUsersMe(401, {});
+    const tenant = await createTenant();
+    try {
+      // connectVerifiedX sets verifiedAt = now, so the check is fresh.
+      await connectVerifiedX(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).get("/api/twitter/status");
+      expect(res.status).toBe(200);
+      expect(res.body.connected).toBe(true);
+      // No live identity read happened for a fresh connection.
+      expect(
+        spy.mock.calls.some((c) => String(c[0]).includes("/2/users/me")),
+      ).toBe(false);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("flips a stale connection with a dead token to 'reconnect needed' and notifies", async () => {
+    mockUsersMe(401, { title: "Unauthorized" });
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      await setAccountState(tenant.tenantId, "twitter", {
+        verifiedAt: new Date(Date.now() - STALE_MS),
+      });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).get("/api/twitter/status");
+      expect(res.status).toBe(200);
+      expect(res.body.connected).toBe(false);
+      expect(res.body.expired).toBe(true);
+
+      const row = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(row.verifyStatus).toBe("failed");
+      expect(row.status).toBe("error");
+
+      // A fresh verified -> failed transition records a breakage notification.
+      const notes = await getNotifications(tenant.tenantId);
+      expect(
+        notes.some((n) => n.type === "social_connection_failed"),
+      ).toBe(true);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("keeps a stale-but-valid connection verified and resets the check clock", async () => {
+    mockUsersMe(200, { data: { id: "x_user_123", username: "testhandle" } });
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      const staleAt = new Date(Date.now() - STALE_MS);
+      await setAccountState(tenant.tenantId, "twitter", { verifiedAt: staleAt });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).get("/api/twitter/status");
+      expect(res.status).toBe(200);
+      expect(res.body.connected).toBe(true);
+      expect(res.body.expired).toBe(false);
+
+      const row = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(row.verifyStatus).toBe("verified");
+      // The staleness clock was reset by the successful live check.
+      expect(row.verifiedAt!.getTime()).toBeGreaterThan(staleAt.getTime());
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("does not flip a valid connection to failed on a transient X error", async () => {
+    mockUsersMe(503, { title: "Service Unavailable" });
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      await setAccountState(tenant.tenantId, "twitter", {
+        verifiedAt: new Date(Date.now() - STALE_MS),
+      });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).get("/api/twitter/status");
+      expect(res.status).toBe(200);
+      // A transient X outage must NOT look like a dead token.
+      expect(res.body.connected).toBe(true);
+      expect(res.body.expired).toBe(false);
+
+      const row = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(row.verifyStatus).toBe("verified");
+
+      // No spurious breakage notification for a transient failure.
+      const notes = await getNotifications(tenant.tenantId);
+      expect(
+        notes.some((n) => n.type === "social_connection_failed"),
+      ).toBe(false);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("flips a stale legacy OAuth 1.0a connection to 'reconnect needed'", async () => {
+    const spy = mockUsersMe(200, {
+      data: { id: "x_user_123", username: "testhandle" },
+    });
+    const tenant = await createTenant();
+    try {
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "twitter",
+        {
+          accessToken: X_LEGACY_ACCESS_TOKEN,
+          accessTokenSecret: X_LEGACY_TOKEN_SECRET,
+        },
+        "verified",
+      );
+      await setAccountState(tenant.tenantId, "twitter", {
+        verifiedAt: new Date(Date.now() - STALE_MS),
+      });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).get("/api/twitter/status");
+      expect(res.status).toBe(200);
+      expect(res.body.connected).toBe(false);
+      expect(res.body.expired).toBe(true);
+
+      const row = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(row.verifyStatus).toBe("failed");
+      // A legacy blob is rejected before any live identity read.
+      expect(
+        spy.mock.calls.some((c) => String(c[0]).includes("/2/users/me")),
+      ).toBe(false);
     } finally {
       await deleteTenant(tenant.tenantId);
     }

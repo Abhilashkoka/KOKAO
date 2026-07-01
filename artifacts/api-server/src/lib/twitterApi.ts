@@ -299,6 +299,55 @@ export async function fetchTwitterUser(
   }
 }
 
+/** Outcome of a live re-check of a stored X access token. */
+export type TwitterTestResult =
+  | { ok: true; accountName: string }
+  | { ok: false; transient: boolean; error: string };
+
+/**
+ * Live-test an OAuth 2.0 access token by reading the authenticated user. A 401/
+ * 403 (or a 200 with no user) means the token is dead and the tenant must
+ * reconnect. A 429 / 5xx / network error is transient and must NOT flip a valid
+ * connection to "failed" — the caller only resets its staleness clock instead.
+ */
+export async function testTwitterCredentials(
+  accessToken: string,
+): Promise<TwitterTestResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${TWITTER_API_BASE}/2/users/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+  } catch {
+    return { ok: false, transient: true, error: "Could not reach X to verify the connection." };
+  }
+
+  if (res.status === 429 || res.status >= 500) {
+    return { ok: false, transient: true, error: `X API is unavailable (${res.status}).` };
+  }
+
+  let json: { data?: { id?: string; username?: string } } = {};
+  try {
+    json = (await res.json()) as { data?: { id?: string; username?: string } };
+  } catch {
+    // Fall through to the status-based decision below.
+  }
+
+  if (res.ok && json.data?.id) {
+    return {
+      ok: true,
+      accountName: json.data.username ? `@${json.data.username}` : "X account",
+    };
+  }
+
+  return {
+    ok: false,
+    transient: false,
+    error:
+      "Your X access token is no longer valid. Reconnect X to keep publishing.",
+  };
+}
+
 interface MediaUploadResponse {
   data?: { id?: string };
   id?: string;
