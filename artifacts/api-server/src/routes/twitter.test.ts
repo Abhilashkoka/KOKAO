@@ -274,6 +274,10 @@ describe("X (Twitter) publishing (happy path)", () => {
 
       const item = await getContentItem(itemId, tenant.tenantId);
       expect(item.status).toBe("published");
+      // The returned postId/permalink is persisted so the library keeps a
+      // "View post" link after the success toast disappears.
+      expect(item.postId).toBe("TWEET_1");
+      expect(item.permalink).toBe("https://x.com/testhandle/status/TWEET_1");
     } finally {
       await deleteTenant(tenant.tenantId);
     }

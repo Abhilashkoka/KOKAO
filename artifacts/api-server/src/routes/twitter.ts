@@ -40,10 +40,19 @@ async function loadContentItem(id: number, tenantId: number) {
   )[0];
 }
 
-async function markPublished(id: number, tenantId: number) {
+async function markPublished(
+  id: number,
+  tenantId: number,
+  meta?: { postId?: string | null; permalink?: string | null },
+) {
   await db
     .update(contentItemsTable)
-    .set({ status: "published", updatedAt: new Date() })
+    .set({
+      status: "published",
+      postId: meta?.postId || null,
+      permalink: meta?.permalink || null,
+      updatedAt: new Date(),
+    })
     .where(
       and(
         eq(contentItemsTable.id, id),
@@ -142,7 +151,6 @@ router.post(
         );
       }
 
-      await markPublished(id, req.tenantId);
       const postId = tweetJson.data.id;
       const handle = account.accountName.startsWith("@")
         ? account.accountName.slice(1)
@@ -150,6 +158,7 @@ router.post(
       const permalink = postId
         ? `https://x.com/${encodeURIComponent(handle)}/status/${postId}`
         : null;
+      await markPublished(id, req.tenantId, { postId, permalink });
       res.json({ postId, permalink });
     } catch (error) {
       req.log.error({ err: error }, "X publish failed");
