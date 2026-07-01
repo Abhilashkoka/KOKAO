@@ -1,67 +1,314 @@
 import { useState } from "react";
-import { 
+import {
   useListBrandKits,
   useCreateBrandKit,
+  useUpdateBrandKit,
   useDeleteBrandKit,
-  getListBrandKitsQueryKey
+  useSetDefaultBrandKit,
+  useCreateBrandKitVersion,
+  useDraftBrandKit,
+  getListBrandKitsQueryKey,
+  type BrandKit,
+  type BrandKitPayload,
+  type BrandColor,
 } from "@workspace/api-client-react";
-import { ObjectUploader } from "@workspace/object-storage-web";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Palette, Plus, Trash2, Image as ImageIcon } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Palette,
+  Plus,
+  Trash2,
+  Star,
+  Pencil,
+  Wand2,
+  Loader2,
+  X,
+} from "lucide-react";
+
+function commaList(input: string): string[] {
+  return input
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function lineList(input: string): string[] {
+  return input
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function swatches(payload: BrandKitPayload | null | undefined): string[] {
+  if (!payload) return [];
+  return [...payload.colors.primary, ...payload.colors.secondary, ...payload.colors.neutral]
+    .map((c) => c.hex)
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+/** A small editor for one color group (primary/secondary/neutral). */
+function ColorGroupEditor({
+  label,
+  colors,
+  onChange,
+}: {
+  label: string;
+  colors: BrandColor[];
+  onChange: (next: BrandColor[]) => void;
+}) {
+  const update = (i: number, patch: Partial<BrandColor>) => {
+    onChange(colors.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
+  };
+  const remove = (i: number) => onChange(colors.filter((_, idx) => idx !== i));
+  const add = () => onChange([...colors, { name: "", hex: "#000000", usage: "" }]);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium">{label}</span>
+        <Button type="button" variant="outline" size="sm" onClick={add}>
+          <Plus className="h-3.5 w-3.5 mr-1" /> Add
+        </Button>
+      </div>
+      {colors.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No colors yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {colors.map((c, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Input
+                type="color"
+                value={/^#[0-9a-fA-F]{6}$/.test(c.hex) ? c.hex : "#000000"}
+                onChange={(e) => update(i, { hex: e.target.value })}
+                className="w-11 p-1 h-9 shrink-0"
+              />
+              <Input
+                value={c.hex}
+                onChange={(e) => update(i, { hex: e.target.value })}
+                placeholder="#000000"
+                className="w-28 shrink-0"
+              />
+              <Input
+                value={c.name}
+                onChange={(e) => update(i, { name: e.target.value })}
+                placeholder="Name"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground shrink-0"
+                onClick={() => remove(i)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function BrandKitsPage() {
   const { data: kits, isLoading } = useListBrandKits();
   const createBrandKit = useCreateBrandKit();
+  const updateBrandKit = useUpdateBrandKit();
   const deleteBrandKit = useDeleteBrandKit();
+  const setDefaultBrandKit = useSetDefaultBrandKit();
+  const createVersion = useCreateBrandKitVersion();
+  const draftBrandKit = useDraftBrandKit();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [primaryColor, setPrimaryColor] = useState("#5b21b6");
-  const [secondaryColor, setSecondaryColor] = useState("#ec4899");
-  const [voice, setVoice] = useState("");
-  const [hashtags, setHashtags] = useState("");
-  const [logoPath, setLogoPath] = useState<string | null>(null);
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: getListBrandKitsQueryKey() });
 
-  const handleCreate = () => {
-    if (!name) return;
-    
-    createBrandKit.mutate({
-      data: {
-        name,
-        primaryColor,
-        secondaryColor,
-        voice,
-        hashtags: hashtags.split(",").map(h => h.trim()).filter(Boolean),
-        logoPath
+  // --- Create dialog state ---
+  const [createOpen, setCreateOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [brandType, setBrandType] = useState<"primary" | "sub_brand">("primary");
+  const [isDefault, setIsDefault] = useState(false);
+  const [draftUrl, setDraftUrl] = useState("");
+  const [draftNotes, setDraftNotes] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const resetCreate = () => {
+    setName("");
+    setBrandType("primary");
+    setIsDefault(false);
+    setDraftUrl("");
+    setDraftNotes("");
+  };
+
+  const handleCreate = async () => {
+    if (!name.trim()) return;
+    setCreating(true);
+    try {
+      let payload: BrandKitPayload | null = null;
+      if (draftUrl.trim() || draftNotes.trim()) {
+        try {
+          const draft = await draftBrandKit.mutateAsync({
+            data: {
+              url: draftUrl.trim() || undefined,
+              notes: draftNotes.trim() || undefined,
+              brandName: name.trim(),
+            },
+          });
+          payload = draft.payload;
+        } catch {
+          toast({
+            title: "AI draft unavailable",
+            description: "Creating a blank brand you can fill in.",
+          });
+        }
       }
-    }, {
-      onSuccess: () => {
-        toast({ title: "Brand Kit created!" });
-        queryClient.invalidateQueries({ queryKey: getListBrandKitsQueryKey() });
-        setOpen(false);
-        // Reset form
-        setName(""); setVoice(""); setHashtags(""); setLogoPath(null);
+      await createBrandKit.mutateAsync({
+        data: { name: name.trim(), brandType, isDefault, payload },
+      });
+      toast({ title: "Brand created" });
+      invalidate();
+      setCreateOpen(false);
+      resetCreate();
+    } catch (err) {
+      const status = (err as { status?: number })?.status;
+      toast({
+        title: status === 402 ? "Plan limit reached" : "Could not create brand",
+        description:
+          status === 402 ? "Upgrade your plan to add more brands." : undefined,
+        variant: "destructive",
+      });
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  // --- Edit dialog state ---
+  const [editKit, setEditKit] = useState<BrandKit | null>(null);
+  const [editName, setEditName] = useState("");
+  const [draft, setDraft] = useState<BrandKitPayload | null>(null);
+  // Text-field mirrors for list-based payload fields.
+  const [audience, setAudience] = useState("");
+  const [traits, setTraits] = useState("");
+  const [dos, setDos] = useState("");
+  const [donts, setDonts] = useState("");
+  const [imagery, setImagery] = useState("");
+
+  const openEdit = (kit: BrandKit) => {
+    const p = kit.activeVersion?.payload ?? null;
+    if (!p) {
+      toast({
+        title: "No active version",
+        description: "This brand has no editable version yet.",
+        variant: "destructive",
+      });
+      return;
+    }
+    // Deep clone so edits don't mutate cached query data.
+    const clone = JSON.parse(JSON.stringify(p)) as BrandKitPayload;
+    setEditKit(kit);
+    setEditName(kit.name);
+    setDraft(clone);
+    setAudience(clone.identity.audience.join(", "));
+    setTraits(clone.voice.traits.join(", "));
+    setDos(clone.voice.dos.join("\n"));
+    setDonts(clone.voice.donts.join("\n"));
+    setImagery(clone.visual_style.imagery_style.join(", "));
+  };
+
+  const closeEdit = () => {
+    setEditKit(null);
+    setDraft(null);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editKit || !draft) return;
+    const payload: BrandKitPayload = {
+      ...draft,
+      identity: { ...draft.identity, audience: commaList(audience) },
+      voice: {
+        ...draft.voice,
+        traits: commaList(traits),
+        dos: lineList(dos),
+        donts: lineList(donts),
+      },
+      visual_style: {
+        ...draft.visual_style,
+        imagery_style: commaList(imagery),
+      },
+    };
+    try {
+      if (editName.trim() && editName.trim() !== editKit.name) {
+        await updateBrandKit.mutateAsync({
+          id: editKit.id,
+          data: { name: editName.trim() },
+        });
       }
-    });
+      await createVersion.mutateAsync({
+        id: editKit.id,
+        data: {
+          payload,
+          sourceType: "manual",
+          approvalStatus: "approved",
+          activate: true,
+        },
+      });
+      toast({ title: "Brand updated" });
+      invalidate();
+      closeEdit();
+    } catch {
+      toast({ title: "Could not save brand", variant: "destructive" });
+    }
+  };
+
+  const handleSetDefault = (id: number) => {
+    setDefaultBrandKit.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          toast({ title: "Default brand updated" });
+          invalidate();
+        },
+        onError: () =>
+          toast({ title: "Could not set default", variant: "destructive" }),
+      },
+    );
   };
 
   const handleDelete = (id: number) => {
-    if (!confirm("Delete this brand kit?")) return;
-    deleteBrandKit.mutate({ id }, {
-      onSuccess: () => {
-        toast({ title: "Brand Kit deleted" });
-        queryClient.invalidateQueries({ queryKey: getListBrandKitsQueryKey() });
-      }
-    });
+    if (!confirm("Archive this brand? It will be removed from your list.")) return;
+    deleteBrandKit.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          toast({ title: "Brand archived" });
+          invalidate();
+        },
+        onError: () =>
+          toast({ title: "Could not archive brand", variant: "destructive" }),
+      },
+    );
   };
 
   if (isLoading) {
@@ -69,169 +316,431 @@ export function BrandKitsPage() {
       <div className="space-y-6">
         <Skeleton className="h-10 w-48" />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[1, 2, 3].map(i => <Skeleton key={i} className="h-64 rounded-xl" />)}
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-64 rounded-xl" />
+          ))}
         </div>
       </div>
     );
   }
 
-  const items = kits || [];
+  const items = kits ?? [];
+
+  const patchDraft = (fn: (p: BrandKitPayload) => BrandKitPayload) => {
+    setDraft((prev) => (prev ? fn(prev) : prev));
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight">Brand Kits</h1>
-          <p className="text-muted-foreground text-lg mt-1">Manage colors, logos, and voices for your brands.</p>
+          <p className="text-muted-foreground text-lg mt-1">
+            Manage brand identity, colors, and voice used across AI generation.
+          </p>
         </div>
-        <Button onClick={() => setOpen(true)} className="shadow-md">
-          <Plus className="h-4 w-4 mr-2" /> New Kit
+        <Button onClick={() => setCreateOpen(true)} className="shadow-md">
+          <Plus className="h-4 w-4 mr-2" /> New Brand
         </Button>
       </div>
 
       {items.length === 0 ? (
         <div className="text-center py-24 bg-card rounded-2xl border border-border shadow-sm">
           <Palette className="mx-auto h-16 w-16 text-muted mb-4" />
-          <h3 className="text-xl font-bold">No Brand Kits</h3>
-          <p className="text-muted-foreground mt-2 mb-6">Create your first brand kit to maintain consistency across AI generation.</p>
-          <Button onClick={() => setOpen(true)}><Plus className="h-4 w-4 mr-2" /> Create Kit</Button>
+          <h3 className="text-xl font-bold">No Brands Yet</h3>
+          <p className="text-muted-foreground mt-2 mb-6">
+            Create your first brand to keep AI content consistent and on-brand.
+          </p>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" /> Create Brand
+          </Button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {items.map((kit, i) => (
-            <Card key={kit.id} className="overflow-hidden flex flex-col group hover:shadow-lg transition-all duration-300 border-border animate-in fade-in" style={{ animationDelay: `${i * 50}ms` }}>
-              <div className="h-24 w-full flex" style={{ background: `linear-gradient(135deg, ${kit.primaryColor} 0%, ${kit.secondaryColor} 100%)` }}>
-                {kit.logoPath && (
-                  <div className="m-auto h-16 w-16 bg-white/20 backdrop-blur-md rounded-xl p-2 border border-white/30 shadow-xl">
-                    <img src={`/api/storage${kit.logoPath}`} alt={kit.name} className="w-full h-full object-contain drop-shadow-md" />
-                  </div>
-                )}
-              </div>
-              <CardContent className="flex-1 p-6 relative">
-                <div className="flex justify-between items-start gap-4 mb-4">
-                  <h3 className="font-bold text-xl">{kit.name}</h3>
-                  <Button variant="ghost" size="icon" className="text-destructive/50 hover:text-destructive hover:bg-destructive/10 -mt-2 -mr-2" onClick={() => handleDelete(kit.id)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-                
-                <div className="space-y-4">
-                  <div>
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">Brand Voice</span>
-                    <p className="text-sm font-medium leading-relaxed">{kit.voice || "Not specified"}</p>
-                  </div>
-                  <div>
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">Colors</span>
-                    <div className="flex gap-2">
-                      <div className="h-8 w-8 rounded-full shadow-inner border border-black/10" style={{ backgroundColor: kit.primaryColor }} title="Primary" />
-                      <div className="h-8 w-8 rounded-full shadow-inner border border-black/10" style={{ backgroundColor: kit.secondaryColor }} title="Secondary" />
-                    </div>
-                  </div>
-                  {kit.hashtags && kit.hashtags.length > 0 && (
-                    <div>
-                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">Tags</span>
-                      <div className="flex flex-wrap gap-1">
-                        {kit.hashtags.map(tag => (
-                          <span key={tag} className="text-xs bg-muted px-2 py-1 rounded-md text-foreground font-medium">#{tag}</span>
-                        ))}
-                      </div>
-                    </div>
+          {items.map((kit, i) => {
+            const payload = kit.activeVersion?.payload ?? null;
+            const colors = swatches(payload);
+            const gradient =
+              colors.length >= 2
+                ? `linear-gradient(135deg, ${colors[0]} 0%, ${colors[1]} 100%)`
+                : colors.length === 1
+                  ? colors[0]
+                  : "linear-gradient(135deg, hsl(255 85% 55%) 0%, hsl(330 80% 60%) 100%)";
+            return (
+              <Card
+                key={kit.id}
+                className="overflow-hidden flex flex-col group hover:shadow-lg transition-all duration-300 border-border animate-in fade-in"
+                style={{ animationDelay: `${i * 50}ms` }}
+              >
+                <div className="h-24 w-full relative" style={{ background: gradient }}>
+                  {kit.isDefault && (
+                    <span className="absolute top-2 left-2 inline-flex items-center gap-1 text-xs font-semibold bg-white/90 text-foreground px-2 py-0.5 rounded-full shadow">
+                      <Star className="h-3 w-3 fill-current" /> Default
+                    </span>
                   )}
                 </div>
-              </CardContent>
-            </Card>
-          ))}
+                <CardContent className="flex-1 p-6 space-y-4">
+                  <div className="flex justify-between items-start gap-3">
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-xl truncate">{kit.name}</h3>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {payload?.identity.tagline ||
+                          payload?.identity.brand_name ||
+                          kit.brandType}
+                      </p>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 -mt-1"
+                        onClick={() => openEdit(kit)}
+                        title="Edit"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 -mt-1 text-destructive/60 hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => handleDelete(kit.id)}
+                        title="Archive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {colors.length > 0 && (
+                    <div className="flex gap-1.5">
+                      {colors.map((hex, idx) => (
+                        <div
+                          key={idx}
+                          className="h-7 w-7 rounded-full shadow-inner border border-black/10"
+                          style={{ backgroundColor: hex }}
+                          title={hex}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {payload && payload.voice.traits.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {payload.voice.traits.slice(0, 4).map((t) => (
+                        <span
+                          key={t}
+                          className="text-xs bg-muted px-2 py-1 rounded-md font-medium"
+                        >
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {!kit.isDefault && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => handleSetDefault(kit.id)}
+                      disabled={setDefaultBrandKit.isPending}
+                    >
+                      <Star className="h-3.5 w-3.5 mr-1.5" /> Set as default
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      {/* Create dialog */}
+      <Dialog
+        open={createOpen}
+        onOpenChange={(o) => {
+          setCreateOpen(o);
+          if (!o) resetCreate();
+        }}
+      >
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>Create Brand Kit</DialogTitle>
+            <DialogTitle>Create Brand</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto px-1">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Kit Name</label>
-              <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Acme Corp Summer" />
+              <label className="text-sm font-medium">Brand name</label>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Acme Coffee"
+              />
             </div>
-            
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Primary Color</label>
-                <div className="flex gap-2">
-                  <Input type="color" value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} className="w-12 p-1 h-10" />
-                  <Input value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} className="flex-1" />
-                </div>
+                <label className="text-sm font-medium">Type</label>
+                <Select
+                  value={brandType}
+                  onValueChange={(v) => setBrandType(v as "primary" | "sub_brand")}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="primary">Primary</SelectItem>
+                    <SelectItem value="sub_brand">Sub-brand</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Secondary Color</label>
-                <div className="flex gap-2">
-                  <Input type="color" value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)} className="w-12 p-1 h-10" />
-                  <Input value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)} className="flex-1" />
-                </div>
+                <label className="text-sm font-medium">Default</label>
+                <label className="flex items-center gap-2 h-10 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={isDefault}
+                    onChange={(e) => setIsDefault(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  Use as default brand
+                </label>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Brand Voice</label>
-              <Textarea 
-                value={voice} 
-                onChange={e => setVoice(e.target.value)} 
-                placeholder="e.g. Professional, authoritative, yet approachable..." 
+            <div className="rounded-lg border border-border p-3 space-y-3 bg-muted/20">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Wand2 className="h-4 w-4" /> Draft with AI (optional)
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Add a website or notes and we'll pre-fill colors, voice, and more.
+              </p>
+              <Input
+                value={draftUrl}
+                onChange={(e) => setDraftUrl(e.target.value)}
+                placeholder="https://yourbrand.com"
+              />
+              <Textarea
+                value={draftNotes}
+                onChange={(e) => setDraftNotes(e.target.value)}
+                placeholder="Describe voice, audience, colors..."
                 className="resize-none"
               />
             </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Default Hashtags (comma separated)</label>
-              <Input value={hashtags} onChange={e => setHashtags(e.target.value)} placeholder="tech, innovation, future" />
-            </div>
-
-            <div className="space-y-2 pt-2">
-              <label className="text-sm font-medium block">Logo</label>
-              {logoPath ? (
-                <div className="flex items-center gap-4 p-4 bg-muted rounded-lg border border-border">
-                  <div className="h-12 w-12 bg-white rounded flex items-center justify-center overflow-hidden p-1 shadow-sm">
-                    <img src={`/api/storage${logoPath}`} alt="Logo" className="max-w-full max-h-full object-contain" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">Logo uploaded</p>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={() => setLogoPath(null)}>Remove</Button>
-                </div>
-              ) : (
-                <div className="border-2 border-dashed border-border rounded-lg p-6 flex flex-col items-center justify-center bg-muted/30">
-                  <ImageIcon className="h-8 w-8 text-muted-foreground/50 mb-3" />
-                  <ObjectUploader
-                    onGetUploadParameters={async (file) => {
-                      const res = await fetch("/api/storage/uploads/request-url", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
-                      });
-                      const { uploadURL, objectPath } = await res.json();
-                      // We store the objectPath in localStorage temporarily as a hack to pass it to onComplete since Uppy meta is messy
-                      localStorage.setItem('tempUploadPath', objectPath);
-                      return { method: "PUT", url: uploadURL, headers: { "Content-Type": file.type } };
-                    }}
-                    onComplete={() => {
-                      const path = localStorage.getItem('tempUploadPath');
-                      if (path) {
-                        setLogoPath(path);
-                        localStorage.removeItem('tempUploadPath');
-                        toast({ title: "Logo uploaded successfully" });
-                      }
-                    }}
-                  >
-                    Upload Image
-                  </ObjectUploader>
-                </div>
-              )}
-            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={createBrandKit.isPending || !name}>Create Kit</Button>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreate} disabled={creating || !name.trim()}>
+              {creating ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : draftUrl.trim() || draftNotes.trim() ? (
+                <Wand2 className="mr-2 h-4 w-4" />
+              ) : null}
+              Create Brand
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit dialog */}
+      <Dialog open={!!editKit} onOpenChange={(o) => !o && closeEdit()}>
+        <DialogContent className="sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle>Edit Brand</DialogTitle>
+          </DialogHeader>
+          {draft && (
+            <Tabs defaultValue="identity" className="w-full">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="identity">Identity</TabsTrigger>
+                <TabsTrigger value="voice">Voice</TabsTrigger>
+                <TabsTrigger value="colors">Colors</TabsTrigger>
+              </TabsList>
+
+              <div className="max-h-[55vh] overflow-y-auto px-1 py-4">
+                <TabsContent value="identity" className="space-y-4 mt-0">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Brand name</label>
+                    <Input
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Display name</label>
+                    <Input
+                      value={draft.identity.brand_name}
+                      onChange={(e) =>
+                        patchDraft((p) => ({
+                          ...p,
+                          identity: { ...p.identity, brand_name: e.target.value },
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Tagline</label>
+                    <Input
+                      value={draft.identity.tagline}
+                      onChange={(e) =>
+                        patchDraft((p) => ({
+                          ...p,
+                          identity: { ...p.identity, tagline: e.target.value },
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Industry</label>
+                    <Input
+                      value={draft.identity.industry}
+                      onChange={(e) =>
+                        patchDraft((p) => ({
+                          ...p,
+                          identity: { ...p.identity, industry: e.target.value },
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Description</label>
+                    <Textarea
+                      value={draft.identity.description}
+                      onChange={(e) =>
+                        patchDraft((p) => ({
+                          ...p,
+                          identity: { ...p.identity, description: e.target.value },
+                        }))
+                      }
+                      className="resize-none"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Audience <span className="text-muted-foreground">(comma separated)</span>
+                    </label>
+                    <Input
+                      value={audience}
+                      onChange={(e) => setAudience(e.target.value)}
+                      placeholder="e.g. young professionals, coffee lovers"
+                    />
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="voice" className="space-y-4 mt-0">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Traits <span className="text-muted-foreground">(comma separated)</span>
+                    </label>
+                    <Input
+                      value={traits}
+                      onChange={(e) => setTraits(e.target.value)}
+                      placeholder="e.g. friendly, bold, witty"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Caption style</label>
+                    <Input
+                      value={draft.voice.caption_style}
+                      onChange={(e) =>
+                        patchDraft((p) => ({
+                          ...p,
+                          voice: { ...p.voice, caption_style: e.target.value },
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">CTA style</label>
+                    <Input
+                      value={draft.voice.cta_style}
+                      onChange={(e) =>
+                        patchDraft((p) => ({
+                          ...p,
+                          voice: { ...p.voice, cta_style: e.target.value },
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Do's <span className="text-muted-foreground">(one per line)</span>
+                    </label>
+                    <Textarea
+                      value={dos}
+                      onChange={(e) => setDos(e.target.value)}
+                      className="resize-none"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Don'ts <span className="text-muted-foreground">(one per line)</span>
+                    </label>
+                    <Textarea
+                      value={donts}
+                      onChange={(e) => setDonts(e.target.value)}
+                      className="resize-none"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Imagery style <span className="text-muted-foreground">(comma separated)</span>
+                    </label>
+                    <Input
+                      value={imagery}
+                      onChange={(e) => setImagery(e.target.value)}
+                      placeholder="e.g. warm tones, lifestyle, minimal"
+                    />
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="colors" className="space-y-5 mt-0">
+                  <ColorGroupEditor
+                    label="Primary"
+                    colors={draft.colors.primary}
+                    onChange={(next) =>
+                      patchDraft((p) => ({
+                        ...p,
+                        colors: { ...p.colors, primary: next },
+                      }))
+                    }
+                  />
+                  <ColorGroupEditor
+                    label="Secondary"
+                    colors={draft.colors.secondary}
+                    onChange={(next) =>
+                      patchDraft((p) => ({
+                        ...p,
+                        colors: { ...p.colors, secondary: next },
+                      }))
+                    }
+                  />
+                  <ColorGroupEditor
+                    label="Neutral"
+                    colors={draft.colors.neutral}
+                    onChange={(next) =>
+                      patchDraft((p) => ({
+                        ...p,
+                        colors: { ...p.colors, neutral: next },
+                      }))
+                    }
+                  />
+                </TabsContent>
+              </div>
+            </Tabs>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={closeEdit}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveEdit}
+              disabled={createVersion.isPending || updateBrandKit.isPending}
+            >
+              {createVersion.isPending || updateBrandKit.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Save Changes
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

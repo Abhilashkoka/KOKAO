@@ -16,6 +16,7 @@ export interface ContentInput {
   /** @nullable */
   imagePrompt?: string | null;
   platform?: string;
+  contentType?: string;
   status?: ContentInputStatus;
   /** @nullable */
   brandKitId?: number | null;

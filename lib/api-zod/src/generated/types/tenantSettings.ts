@@ -13,4 +13,6 @@ export interface TenantSettings {
   plan?: TenantSettingsPlan;
   /** @minLength 1 */
   aiModel?: string;
+  /** @nullable */
+  industry?: string | null;
 }

@@ -5,17 +5,19 @@
  * SocialForge API
  * OpenAPI spec version: 0.1.0
  */
+import type { BrandKitVersion } from './brandKitVersion';
 
 export interface BrandKit {
   id: number;
   name: string;
-  primaryColor: string;
-  secondaryColor: string;
-  accentColor: string;
-  voice: string;
-  hashtags: string[];
+  slug: string;
+  brandType: string;
+  status: string;
+  isDefault: boolean;
+  isArchived: boolean;
   /** @nullable */
-  logoPath?: string | null;
+  activeVersionId?: number | null;
+  activeVersion?: BrandKitVersion | null;
   createdAt: Date;
   updatedAt: Date;
 }

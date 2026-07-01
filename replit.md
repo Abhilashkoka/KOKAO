@@ -28,7 +28,8 @@ SocialForge is a multi-tenant SaaS web app for AI-powered social media content: 
 
 - API contract (source of truth): `lib/api-spec/openapi.yaml` — change here, then run codegen
 - Generated API hooks/schemas: `lib/api-client-react/src/generated/` (import via `@workspace/api-client-react`)
-- DB schema (source of truth): `lib/db/src/schema/` (tenants, brandKits, contentItems, scheduledPosts, connectedAccounts, usageEvents)
+- DB schema (source of truth): `lib/db/src/schema/` (tenants, brandKits, brandKitVersions, brandAssets, brandPreferences, contentItems, scheduledPosts, connectedAccounts, usageEvents)
+- Brand kit module: payload type `lib/db/src/schema/brandKitPayload.ts` (`BrandKitPayload`, versioned-JSON source of truth). Server helpers `artifacts/api-server/src/lib/brandKit/{defaults,service,selection,draft}.ts` — `loadActivePayload`/selection load only the current tenant's non-archived kits. Routes `routes/{brandKits,brandPreferences,onboarding}.ts` are SESSION-scoped (NO tenantId in URL — deliberate IDOR avoidance; scope every query by `req.tenantId`). Frontend `pages/brand-kits.tsx` + `components/onboarding-wizard.tsx` (gated on `me.brandOnboardingComplete === false`).
 - API routes: `artifacts/api-server/src/routes/` — auth gating lives in `routes/index.ts`
 - Tenant provisioning: `artifacts/api-server/src/middlewares/requireTenant.ts`
 - Plan limits / quota helpers: `artifacts/api-server/src/lib/plans.ts`, `lib/usage.ts`
@@ -55,7 +56,7 @@ SocialForge is a multi-tenant SaaS web app for AI-powered social media content: 
 
 - AI content studio: generate captions and images from a prompt, optionally tied to a brand kit. Also: topic ideation (niche -> 5 ideas), article-URL -> brief (fetch + summarize to {title, summary}), and multi-platform campaign generation (one brief -> per-platform caption + hashtags + image prompt).
 - Content library: save, edit, delete content items (draft/scheduled/published).
-- Brand kits: colors, voice, hashtags, logo upload.
+- Brand kits: multiple brands per tenant with a versioned-JSON payload (identity, logos, colors, typography, voice, visual style, layout tokens, channel rules, brand controls) as the source of truth. One default brand; editing creates a new activated version; best-effort AI draft from URL/notes; skippable first-login onboarding wizard.
 - Scheduling: schedule posts to a calendar (records only for now).
 - Connected accounts: Instagram/Facebook/LinkedIn/YouTube records. Facebook Page + Instagram Business use a real encrypted credential framework (admin sets Meta App ID/Secret once; each tenant enters own Page token/ID + IG account ID, auto-tested on save); LinkedIn uses real OAuth. Publish to these from the Content Library once verified.
 - Settings: workspace name, AI model, plan; view available plans.

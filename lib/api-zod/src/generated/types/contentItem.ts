@@ -15,6 +15,7 @@ export interface ContentItem {
   /** @nullable */
   imagePrompt?: string | null;
   platform: string;
+  contentType: string;
   status: string;
   /** @nullable */
   postId?: string | null;

@@ -16,6 +16,7 @@ export interface ContentUpdate {
   /** @nullable */
   imagePrompt?: string | null;
   platform?: string;
+  contentType?: string;
   status?: ContentUpdateStatus;
   /** @nullable */
   brandKitId?: number | null;

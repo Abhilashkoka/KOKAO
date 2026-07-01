@@ -34,6 +34,7 @@ router.get("/me", async (req: Request, res: Response) => {
     // UI hint only: role-management authorization is enforced server-side
     // against the live verified email in the admin route.
     isOwner: isSuperadminEmail(tenant.email),
+    brandOnboardingComplete: tenant.brandOnboardingComplete,
   });
 });
 

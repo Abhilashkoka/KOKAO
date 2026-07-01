@@ -26,6 +26,7 @@ export const GetMeResponse = zod.object({
   "name": zod.string(),
   "plan": zod.string(),
   "aiModel": zod.string(),
+  "industry": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 }),
   "usage": zod.object({
@@ -40,7 +41,8 @@ export const GetMeResponse = zod.object({
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
   "isSuperadmin": zod.boolean().describe('Whether the current user has cross-tenant superadmin access.'),
-  "isOwner": zod.boolean().describe('Whether the current user is an allowlisted (root) owner. Only owners may grant or revoke the superadmin role for other tenants.')
+  "isOwner": zod.boolean().describe('Whether the current user is an allowlisted (root) owner. Only owners may grant or revoke the superadmin role for other tenants.'),
+  "brandOnboardingComplete": zod.boolean().describe('Whether the tenant has finished (or skipped) brand onboarding.')
 })
 
 
@@ -54,7 +56,8 @@ export const GetMeResponse = zod.object({
 export const UpdateSettingsBody = zod.object({
   "name": zod.string().min(1).optional(),
   "plan": zod.enum(['free', 'pro', 'business']).optional(),
-  "aiModel": zod.string().min(1).optional()
+  "aiModel": zod.string().min(1).optional(),
+  "industry": zod.string().nullish()
 })
 
 export const UpdateSettingsResponse = zod.object({
@@ -62,6 +65,7 @@ export const UpdateSettingsResponse = zod.object({
   "name": zod.string(),
   "plan": zod.string(),
   "aiModel": zod.string(),
+  "industry": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 
@@ -286,15 +290,135 @@ export const AdminUpdateNotificationPoliciesResponse = zod.array(AdminUpdateNoti
 /**
  * @summary List brand kits
  */
+export const ListBrandKitsQueryParams = zod.object({
+  "includeArchived": zod.coerce.boolean().optional()
+})
+
 export const ListBrandKitsResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "primaryColor": zod.string(),
-  "secondaryColor": zod.string(),
-  "accentColor": zod.string(),
-  "voice": zod.string(),
-  "hashtags": zod.array(zod.string()),
-  "logoPath": zod.string().nullish(),
+  "slug": zod.string(),
+  "brandType": zod.string(),
+  "status": zod.string(),
+  "isDefault": zod.boolean(),
+  "isArchived": zod.boolean(),
+  "activeVersionId": zod.number().nullish(),
+  "activeVersion": zod.union([zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+}),zod.null()]).optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -309,25 +433,766 @@ export const ListBrandKitsResponse = zod.array(ListBrandKitsResponseItem)
 
 export const CreateBrandKitBody = zod.object({
   "name": zod.string().min(1),
-  "primaryColor": zod.string().optional(),
-  "secondaryColor": zod.string().optional(),
-  "accentColor": zod.string().optional(),
-  "voice": zod.string().optional(),
-  "hashtags": zod.array(zod.string()).optional(),
-  "logoPath": zod.string().nullish()
+  "slug": zod.string().optional(),
+  "brandType": zod.enum(['primary', 'sub_brand']).optional(),
+  "isDefault": zod.boolean().optional(),
+  "payload": zod.union([zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),zod.null()]).optional()
 })
 
 export const CreateBrandKitResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "primaryColor": zod.string(),
-  "secondaryColor": zod.string(),
-  "accentColor": zod.string(),
-  "voice": zod.string(),
-  "hashtags": zod.array(zod.string()),
-  "logoPath": zod.string().nullish(),
+  "slug": zod.string(),
+  "brandType": zod.string(),
+  "status": zod.string(),
+  "isDefault": zod.boolean(),
+  "isArchived": zod.boolean(),
+  "activeVersionId": zod.number().nullish(),
+  "activeVersion": zod.union([zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+}),zod.null()]).optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
+}).and(zod.object({
+  "versions": zod.array(zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+})),
+  "assets": zod.array(zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "assetType": zod.string(),
+  "fileUrl": zod.string(),
+  "mimeType": zod.string().nullish(),
+  "label": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+}))
+}))
+
+
+/**
+ * @summary Resolve which brand kit applies to a request
+ */
+export const ResolveBrandSelectionBody = zod.object({
+  "brandKitId": zod.number().nullish(),
+  "brandSlug": zod.string().nullish(),
+  "useCase": zod.string().nullish(),
+  "channel": zod.string().nullish(),
+  "contentType": zod.string().nullish()
+})
+
+export const ResolveBrandSelectionResponse = zod.object({
+  "status": zod.enum(['resolved', 'ambiguous', 'none']),
+  "reason": zod.string(),
+  "brandKit": zod.union([zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "slug": zod.string(),
+  "brandType": zod.string(),
+  "status": zod.string(),
+  "isDefault": zod.boolean(),
+  "isArchived": zod.boolean(),
+  "activeVersionId": zod.number().nullish(),
+  "activeVersion": zod.union([zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+}),zod.null()]).optional(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}),zod.null()]).optional(),
+  "candidates": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "slug": zod.string(),
+  "brandType": zod.string(),
+  "status": zod.string(),
+  "isDefault": zod.boolean(),
+  "isArchived": zod.boolean(),
+  "activeVersionId": zod.number().nullish(),
+  "activeVersion": zod.union([zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+}),zod.null()]).optional(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})).optional()
+})
+
+
+/**
+ * @summary Best-effort AI draft of a brand kit payload from a URL/notes
+ */
+export const DraftBrandKitBody = zod.object({
+  "url": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "brandName": zod.string().nullish(),
+  "industry": zod.string().nullish()
+})
+
+export const DraftBrandKitResponse = zod.object({
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "sourceNotes": zod.string()
 })
 
 
@@ -341,15 +1206,257 @@ export const GetBrandKitParams = zod.object({
 export const GetBrandKitResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "primaryColor": zod.string(),
-  "secondaryColor": zod.string(),
-  "accentColor": zod.string(),
-  "voice": zod.string(),
-  "hashtags": zod.array(zod.string()),
-  "logoPath": zod.string().nullish(),
+  "slug": zod.string(),
+  "brandType": zod.string(),
+  "status": zod.string(),
+  "isDefault": zod.boolean(),
+  "isArchived": zod.boolean(),
+  "activeVersionId": zod.number().nullish(),
+  "activeVersion": zod.union([zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+}),zod.null()]).optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
+}).and(zod.object({
+  "versions": zod.array(zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
 })
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+})),
+  "assets": zod.array(zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "assetType": zod.string(),
+  "fileUrl": zod.string(),
+  "mimeType": zod.string().nullish(),
+  "label": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+}))
+}))
 
 
 /**
@@ -364,26 +1471,264 @@ export const UpdateBrandKitParams = zod.object({
 
 export const UpdateBrandKitBody = zod.object({
   "name": zod.string().min(1).optional(),
-  "primaryColor": zod.string().optional(),
-  "secondaryColor": zod.string().optional(),
-  "accentColor": zod.string().optional(),
-  "voice": zod.string().optional(),
-  "hashtags": zod.array(zod.string()).optional(),
-  "logoPath": zod.string().nullish()
+  "brandType": zod.enum(['primary', 'sub_brand']).optional(),
+  "isArchived": zod.boolean().optional()
 })
 
 export const UpdateBrandKitResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "primaryColor": zod.string(),
-  "secondaryColor": zod.string(),
-  "accentColor": zod.string(),
-  "voice": zod.string(),
-  "hashtags": zod.array(zod.string()),
-  "logoPath": zod.string().nullish(),
+  "slug": zod.string(),
+  "brandType": zod.string(),
+  "status": zod.string(),
+  "isDefault": zod.boolean(),
+  "isArchived": zod.boolean(),
+  "activeVersionId": zod.number().nullish(),
+  "activeVersion": zod.union([zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+}),zod.null()]).optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
+}).and(zod.object({
+  "versions": zod.array(zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
 })
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+})),
+  "assets": zod.array(zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "assetType": zod.string(),
+  "fileUrl": zod.string(),
+  "mimeType": zod.string().nullish(),
+  "label": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+}))
+}))
 
 
 /**
@@ -397,6 +1742,1165 @@ export const DeleteBrandKitResponse = zod.void()
 
 
 /**
+ * @summary List versions of a brand kit
+ */
+export const ListBrandKitVersionsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ListBrandKitVersionsResponseItem = zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+})
+export const ListBrandKitVersionsResponse = zod.array(ListBrandKitVersionsResponseItem)
+
+
+/**
+ * @summary Create a new (immutable) version of a brand kit
+ */
+export const CreateBrandKitVersionParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const CreateBrandKitVersionBody = zod.object({
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "sourceType": zod.enum(['manual', 'ai_extraction', 'import']).optional(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']).optional(),
+  "activate": zod.boolean().optional().describe('If true and approved, set as the active version.')
+})
+
+export const CreateBrandKitVersionResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "slug": zod.string(),
+  "brandType": zod.string(),
+  "status": zod.string(),
+  "isDefault": zod.boolean(),
+  "isArchived": zod.boolean(),
+  "activeVersionId": zod.number().nullish(),
+  "activeVersion": zod.union([zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+}),zod.null()]).optional(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}).and(zod.object({
+  "versions": zod.array(zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+})),
+  "assets": zod.array(zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "assetType": zod.string(),
+  "fileUrl": zod.string(),
+  "mimeType": zod.string().nullish(),
+  "label": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+}))
+}))
+
+
+/**
+ * @summary Set a specific version as the active version
+ */
+export const ActivateBrandKitVersionParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ActivateBrandKitVersionBody = zod.object({
+  "versionId": zod.number()
+})
+
+export const ActivateBrandKitVersionResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "slug": zod.string(),
+  "brandType": zod.string(),
+  "status": zod.string(),
+  "isDefault": zod.boolean(),
+  "isArchived": zod.boolean(),
+  "activeVersionId": zod.number().nullish(),
+  "activeVersion": zod.union([zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+}),zod.null()]).optional(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}).and(zod.object({
+  "versions": zod.array(zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+})),
+  "assets": zod.array(zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "assetType": zod.string(),
+  "fileUrl": zod.string(),
+  "mimeType": zod.string().nullish(),
+  "label": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+}))
+}))
+
+
+/**
+ * @summary Make a brand kit the tenant default
+ */
+export const SetDefaultBrandKitParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const SetDefaultBrandKitResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "slug": zod.string(),
+  "brandType": zod.string(),
+  "status": zod.string(),
+  "isDefault": zod.boolean(),
+  "isArchived": zod.boolean(),
+  "activeVersionId": zod.number().nullish(),
+  "activeVersion": zod.union([zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+}),zod.null()]).optional(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}).and(zod.object({
+  "versions": zod.array(zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+})
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+})),
+  "assets": zod.array(zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "assetType": zod.string(),
+  "fileUrl": zod.string(),
+  "mimeType": zod.string().nullish(),
+  "label": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+}))
+}))
+
+
+/**
+ * @summary List assets for a brand kit
+ */
+export const ListBrandAssetsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ListBrandAssetsResponseItem = zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "assetType": zod.string(),
+  "fileUrl": zod.string(),
+  "mimeType": zod.string().nullish(),
+  "label": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+export const ListBrandAssetsResponse = zod.array(ListBrandAssetsResponseItem)
+
+
+/**
+ * @summary Attach an uploaded asset to a brand kit
+ */
+export const CreateBrandAssetParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+
+export const CreateBrandAssetBody = zod.object({
+  "assetType": zod.string(),
+  "fileUrl": zod.string().min(1),
+  "mimeType": zod.string().nullish(),
+  "label": zod.string().nullish()
+})
+
+export const CreateBrandAssetResponse = zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "assetType": zod.string(),
+  "fileUrl": zod.string(),
+  "mimeType": zod.string().nullish(),
+  "label": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Delete a brand asset
+ */
+export const DeleteBrandAssetParams = zod.object({
+  "id": zod.coerce.number(),
+  "assetId": zod.coerce.number()
+})
+
+export const DeleteBrandAssetResponse = zod.void()
+
+
+/**
+ * @summary List tenant brand preferences
+ */
+export const ListBrandPreferencesResponseItem = zod.object({
+  "id": zod.number(),
+  "useCase": zod.string().nullish(),
+  "channel": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "brandKitId": zod.number(),
+  "priority": zod.number()
+})
+export const ListBrandPreferencesResponse = zod.array(ListBrandPreferencesResponseItem)
+
+
+/**
+ * @summary Create or update a brand preference
+ */
+export const UpsertBrandPreferenceBody = zod.object({
+  "useCase": zod.string().nullish(),
+  "channel": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "brandKitId": zod.number(),
+  "priority": zod.number().optional()
+})
+
+export const UpsertBrandPreferenceResponse = zod.object({
+  "id": zod.number(),
+  "useCase": zod.string().nullish(),
+  "channel": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "brandKitId": zod.number(),
+  "priority": zod.number()
+})
+
+
+/**
+ * @summary Delete a brand preference
+ */
+export const DeleteBrandPreferenceParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const DeleteBrandPreferenceResponse = zod.void()
+
+
+/**
+ * @summary Get brand onboarding status
+ */
+export const GetOnboardingStatusResponse = zod.object({
+  "complete": zod.boolean(),
+  "brandCount": zod.number()
+})
+
+
+/**
+ * @summary Mark brand onboarding complete (or skipped)
+ */
+export const CompleteOnboardingBody = zod.object({
+  "skipped": zod.boolean().optional(),
+  "industry": zod.string().nullish()
+})
+
+export const CompleteOnboardingResponse = zod.object({
+  "complete": zod.boolean(),
+  "brandCount": zod.number()
+})
+
+
+/**
  * @summary List content items
  */
 export const ListContentResponseItem = zod.object({
@@ -406,6 +2910,7 @@ export const ListContentResponseItem = zod.object({
   "imagePath": zod.string().nullish(),
   "imagePrompt": zod.string().nullish(),
   "platform": zod.string(),
+  "contentType": zod.string(),
   "status": zod.string(),
   "postId": zod.string().nullish(),
   "permalink": zod.string().nullish(),
@@ -428,6 +2933,7 @@ export const CreateContentBody = zod.object({
   "imagePath": zod.string().nullish(),
   "imagePrompt": zod.string().nullish(),
   "platform": zod.string().optional(),
+  "contentType": zod.string().optional(),
   "status": zod.enum(['draft', 'scheduled', 'published']).optional(),
   "brandKitId": zod.number().nullish()
 })
@@ -439,6 +2945,7 @@ export const CreateContentResponse = zod.object({
   "imagePath": zod.string().nullish(),
   "imagePrompt": zod.string().nullish(),
   "platform": zod.string(),
+  "contentType": zod.string(),
   "status": zod.string(),
   "postId": zod.string().nullish(),
   "permalink": zod.string().nullish(),
@@ -462,6 +2969,7 @@ export const GetContentResponse = zod.object({
   "imagePath": zod.string().nullish(),
   "imagePrompt": zod.string().nullish(),
   "platform": zod.string(),
+  "contentType": zod.string(),
   "status": zod.string(),
   "postId": zod.string().nullish(),
   "permalink": zod.string().nullish(),
@@ -487,6 +2995,7 @@ export const UpdateContentBody = zod.object({
   "imagePath": zod.string().nullish(),
   "imagePrompt": zod.string().nullish(),
   "platform": zod.string().optional(),
+  "contentType": zod.string().optional(),
   "status": zod.enum(['draft', 'scheduled', 'published']).optional(),
   "brandKitId": zod.number().nullish()
 })
@@ -498,6 +3007,7 @@ export const UpdateContentResponse = zod.object({
   "imagePath": zod.string().nullish(),
   "imagePrompt": zod.string().nullish(),
   "platform": zod.string(),
+  "contentType": zod.string(),
   "status": zod.string(),
   "postId": zod.string().nullish(),
   "permalink": zod.string().nullish(),

@@ -18,6 +18,8 @@ export interface Tenant {
   name: string;
   plan: string;
   aiModel: string;
+  /** @nullable */
+  industry?: string | null;
   createdAt: string;
 }
 
@@ -36,6 +38,8 @@ export interface TenantSettings {
   plan?: TenantSettingsPlan;
   /** @minLength 1 */
   aiModel?: string;
+  /** @nullable */
+  industry?: string | null;
 }
 
 export interface Usage {
@@ -63,6 +67,8 @@ export interface MeProfile {
   isSuperadmin: boolean;
   /** Whether the current user is an allowlisted (root) owner. Only owners may grant or revoke the superadmin role for other tenants. */
   isOwner: boolean;
+  /** Whether the tenant has finished (or skipped) brand onboarding. */
+  brandOnboardingComplete: boolean;
 }
 
 export interface Plan {
@@ -208,42 +214,341 @@ export interface UpdateNotificationPoliciesBody {
   policies: UpdateNotificationPolicyItem[];
 }
 
+export interface BrandColor {
+  name: string;
+  hex: string;
+  usage: string;
+}
+
+export interface BrandLogoRef {
+  url: string;
+  type: string;
+}
+
+export interface BrandChannelRule {
+  formats: string[];
+  notes: string[];
+}
+
+export type BrandKitPayloadIdentity = {
+  brand_name: string;
+  brand_slug: string;
+  tagline: string;
+  description: string;
+  industry: string;
+  audience: string[];
+};
+
+export type BrandKitPayloadLogos = {
+  primary: BrandLogoRef | null;
+  secondary: BrandLogoRef | null;
+  icon_mark: BrandLogoRef | null;
+  favicon: BrandLogoRef | null;
+  usage_rules: string[];
+};
+
+export type BrandKitPayloadColors = {
+  primary: BrandColor[];
+  secondary: BrandColor[];
+  neutral: BrandColor[];
+  semantic: BrandColor[];
+};
+
+export type BrandKitPayloadTypographyScale = {
+  h1: string;
+  h2: string;
+  h3: string;
+  h4: string;
+  body: string;
+  small: string;
+  caption: string;
+};
+
+export type BrandKitPayloadTypographyWeights = {
+  regular: number;
+  medium: number;
+  semibold: number;
+  bold: number;
+};
+
+export type BrandKitPayloadTypography = {
+  heading_font: string;
+  body_font: string;
+  fallback_fonts: string[];
+  scale: BrandKitPayloadTypographyScale;
+  weights: BrandKitPayloadTypographyWeights;
+};
+
+export type BrandKitPayloadVoice = {
+  traits: string[];
+  dos: string[];
+  donts: string[];
+  caption_style: string;
+  cta_style: string;
+};
+
+export type BrandKitPayloadVisualStyle = {
+  imagery_style: string[];
+  icon_style: string;
+  illustration_style: string;
+  motion_style: string;
+};
+
+export type BrandKitPayloadLayoutTokensRadius = {
+  sm: string;
+  md: string;
+  lg: string;
+};
+
+export type BrandKitPayloadLayoutTokensShadow = {
+  sm: string;
+  md: string;
+  lg: string;
+};
+
+export type BrandKitPayloadLayoutTokens = {
+  base_unit: string;
+  radius: BrandKitPayloadLayoutTokensRadius;
+  shadow: BrandKitPayloadLayoutTokensShadow;
+};
+
+export type BrandKitPayloadChannelRules = {[key: string]: BrandChannelRule};
+
+export type BrandKitPayloadBrandControlsApprovalStatus = typeof BrandKitPayloadBrandControlsApprovalStatus[keyof typeof BrandKitPayloadBrandControlsApprovalStatus];
+
+
+export const BrandKitPayloadBrandControlsApprovalStatus = {
+  draft: 'draft',
+  approved: 'approved',
+  archived: 'archived',
+} as const;
+
+export type BrandKitPayloadBrandControls = {
+  approved: boolean;
+  approval_status: BrandKitPayloadBrandControlsApprovalStatus;
+  allowed_use_cases: string[];
+  restricted_terms: string[];
+};
+
+/**
+ * Source-of-truth brand definition stored immutably per version.
+ */
+export interface BrandKitPayload {
+  identity: BrandKitPayloadIdentity;
+  logos: BrandKitPayloadLogos;
+  colors: BrandKitPayloadColors;
+  typography: BrandKitPayloadTypography;
+  voice: BrandKitPayloadVoice;
+  visual_style: BrandKitPayloadVisualStyle;
+  layout_tokens: BrandKitPayloadLayoutTokens;
+  channel_rules: BrandKitPayloadChannelRules;
+  brand_controls: BrandKitPayloadBrandControls;
+}
+
+export type BrandKitVersionApprovalStatus = typeof BrandKitVersionApprovalStatus[keyof typeof BrandKitVersionApprovalStatus];
+
+
+export const BrandKitVersionApprovalStatus = {
+  draft: 'draft',
+  approved: 'approved',
+  archived: 'archived',
+} as const;
+
+export interface BrandKitVersion {
+  id: number;
+  brandKitId: number;
+  versionNumber: number;
+  sourceType: string;
+  /** @nullable */
+  sourceNotes?: string | null;
+  approvalStatus: BrandKitVersionApprovalStatus;
+  payload: BrandKitPayload;
+  createdAt: string;
+}
+
+export interface BrandAsset {
+  id: number;
+  brandKitId: number;
+  assetType: string;
+  fileUrl: string;
+  /** @nullable */
+  mimeType?: string | null;
+  /** @nullable */
+  label?: string | null;
+  createdAt: string;
+}
+
 export interface BrandKit {
   id: number;
   name: string;
-  primaryColor: string;
-  secondaryColor: string;
-  accentColor: string;
-  voice: string;
-  hashtags: string[];
+  slug: string;
+  brandType: string;
+  status: string;
+  isDefault: boolean;
+  isArchived: boolean;
   /** @nullable */
-  logoPath?: string | null;
+  activeVersionId?: number | null;
+  activeVersion?: BrandKitVersion | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface BrandKitInput {
+export type BrandKitDetail = BrandKit & {
+  versions: BrandKitVersion[];
+  assets: BrandAsset[];
+};
+
+export type BrandKitCreateBrandType = typeof BrandKitCreateBrandType[keyof typeof BrandKitCreateBrandType];
+
+
+export const BrandKitCreateBrandType = {
+  primary: 'primary',
+  sub_brand: 'sub_brand',
+} as const;
+
+export interface BrandKitCreate {
   /** @minLength 1 */
   name: string;
-  primaryColor?: string;
-  secondaryColor?: string;
-  accentColor?: string;
-  voice?: string;
-  hashtags?: string[];
-  /** @nullable */
-  logoPath?: string | null;
+  slug?: string;
+  brandType?: BrandKitCreateBrandType;
+  isDefault?: boolean;
+  payload?: BrandKitPayload | null;
 }
 
-export interface BrandKitUpdate {
+export type BrandKitPatchBrandType = typeof BrandKitPatchBrandType[keyof typeof BrandKitPatchBrandType];
+
+
+export const BrandKitPatchBrandType = {
+  primary: 'primary',
+  sub_brand: 'sub_brand',
+} as const;
+
+export interface BrandKitPatch {
   /** @minLength 1 */
   name?: string;
-  primaryColor?: string;
-  secondaryColor?: string;
-  accentColor?: string;
-  voice?: string;
-  hashtags?: string[];
+  brandType?: BrandKitPatchBrandType;
+  isArchived?: boolean;
+}
+
+export type BrandKitVersionCreateSourceType = typeof BrandKitVersionCreateSourceType[keyof typeof BrandKitVersionCreateSourceType];
+
+
+export const BrandKitVersionCreateSourceType = {
+  manual: 'manual',
+  ai_extraction: 'ai_extraction',
+  import: 'import',
+} as const;
+
+export type BrandKitVersionCreateApprovalStatus = typeof BrandKitVersionCreateApprovalStatus[keyof typeof BrandKitVersionCreateApprovalStatus];
+
+
+export const BrandKitVersionCreateApprovalStatus = {
+  draft: 'draft',
+  approved: 'approved',
+  archived: 'archived',
+} as const;
+
+export interface BrandKitVersionCreate {
+  payload: BrandKitPayload;
+  sourceType?: BrandKitVersionCreateSourceType;
   /** @nullable */
-  logoPath?: string | null;
+  sourceNotes?: string | null;
+  approvalStatus?: BrandKitVersionCreateApprovalStatus;
+  /** If true and approved, set as the active version. */
+  activate?: boolean;
+}
+
+export interface ActivateVersionInput {
+  versionId: number;
+}
+
+export interface BrandAssetInput {
+  assetType: string;
+  /** @minLength 1 */
+  fileUrl: string;
+  /** @nullable */
+  mimeType?: string | null;
+  /** @nullable */
+  label?: string | null;
+}
+
+export interface BrandPreference {
+  id: number;
+  /** @nullable */
+  useCase?: string | null;
+  /** @nullable */
+  channel?: string | null;
+  /** @nullable */
+  contentType?: string | null;
+  brandKitId: number;
+  priority: number;
+}
+
+export interface BrandPreferenceInput {
+  /** @nullable */
+  useCase?: string | null;
+  /** @nullable */
+  channel?: string | null;
+  /** @nullable */
+  contentType?: string | null;
+  brandKitId: number;
+  priority?: number;
+}
+
+export interface ResolveSelectionInput {
+  /** @nullable */
+  brandKitId?: number | null;
+  /** @nullable */
+  brandSlug?: string | null;
+  /** @nullable */
+  useCase?: string | null;
+  /** @nullable */
+  channel?: string | null;
+  /** @nullable */
+  contentType?: string | null;
+}
+
+export type ResolveSelectionResultStatus = typeof ResolveSelectionResultStatus[keyof typeof ResolveSelectionResultStatus];
+
+
+export const ResolveSelectionResultStatus = {
+  resolved: 'resolved',
+  ambiguous: 'ambiguous',
+  none: 'none',
+} as const;
+
+export interface ResolveSelectionResult {
+  status: ResolveSelectionResultStatus;
+  reason: string;
+  brandKit?: BrandKit | null;
+  candidates?: BrandKit[];
+}
+
+export interface BrandDraftRequest {
+  /** @nullable */
+  url?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  /** @nullable */
+  brandName?: string | null;
+  /** @nullable */
+  industry?: string | null;
+}
+
+export interface BrandDraftResult {
+  payload: BrandKitPayload;
+  sourceNotes: string;
+}
+
+export interface OnboardingStatus {
+  complete: boolean;
+  brandCount: number;
+}
+
+export interface CompleteOnboardingInput {
+  skipped?: boolean;
+  /** @nullable */
+  industry?: string | null;
 }
 
 export interface MetaAppCredentialInput {
@@ -403,6 +708,7 @@ export interface ContentItem {
   /** @nullable */
   imagePrompt?: string | null;
   platform: string;
+  contentType: string;
   status: string;
   /** @nullable */
   postId?: string | null;
@@ -432,6 +738,7 @@ export interface ContentInput {
   /** @nullable */
   imagePrompt?: string | null;
   platform?: string;
+  contentType?: string;
   status?: ContentInputStatus;
   /** @nullable */
   brandKitId?: number | null;
@@ -455,6 +762,7 @@ export interface ContentUpdate {
   /** @nullable */
   imagePrompt?: string | null;
   platform?: string;
+  contentType?: string;
   status?: ContentUpdateStatus;
   /** @nullable */
   brandKitId?: number | null;
@@ -638,4 +946,8 @@ export interface UploadUrlResponse {
   objectPath: string;
   metadata?: UploadUrlRequest;
 }
+
+export type ListBrandKitsParams = {
+includeArchived?: boolean;
+};
 

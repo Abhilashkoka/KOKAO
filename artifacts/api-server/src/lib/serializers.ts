@@ -1,6 +1,5 @@
 import type {
   Tenant,
-  BrandKit,
   ContentItem,
   ScheduledPost,
   ConnectedAccount,
@@ -12,22 +11,8 @@ export function serializeTenant(t: Tenant) {
     name: t.name,
     plan: t.plan,
     aiModel: t.aiModel,
+    industry: t.industry ?? null,
     createdAt: t.createdAt.toISOString(),
-  };
-}
-
-export function serializeBrandKit(b: BrandKit) {
-  return {
-    id: b.id,
-    name: b.name,
-    primaryColor: b.primaryColor,
-    secondaryColor: b.secondaryColor,
-    accentColor: b.accentColor,
-    voice: b.voice,
-    hashtags: b.hashtags,
-    logoPath: b.logoPath ?? null,
-    createdAt: b.createdAt.toISOString(),
-    updatedAt: b.updatedAt.toISOString(),
   };
 }
 
@@ -39,6 +24,7 @@ export function serializeContent(c: ContentItem) {
     imagePath: c.imagePath ?? null,
     imagePrompt: c.imagePrompt ?? null,
     platform: c.platform,
+    contentType: c.contentType,
     status: c.status,
     postId: c.postId ?? null,
     permalink: c.permalink ?? null,

@@ -17,4 +17,6 @@ export interface MeProfile {
   isSuperadmin: boolean;
   /** Whether the current user is an allowlisted (root) owner. Only owners may grant or revoke the superadmin role for other tenants. */
   isOwner: boolean;
+  /** Whether the tenant has finished (or skipped) brand onboarding. */
+  brandOnboardingComplete: boolean;
 }

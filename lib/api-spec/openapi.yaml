@@ -322,6 +322,11 @@ paths:
       operationId: listBrandKits
       tags: [brand-kits]
       summary: List brand kits
+      parameters:
+        - name: includeArchived
+          in: query
+          required: false
+          schema: { type: boolean }
       responses:
         "200":
           description: List of brand kits
@@ -346,14 +351,62 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/BrandKitInput"
+              $ref: "#/components/schemas/BrandKitCreate"
       responses:
         "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BrandKit"
+                $ref: "#/components/schemas/BrandKitDetail"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Plan limit reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/resolve-selection:
+    post:
+      operationId: resolveBrandSelection
+      tags: [brand-kits]
+      summary: Resolve which brand kit applies to a request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveSelectionInput"
+      responses:
+        "200":
+          description: Resolution result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolveSelectionResult"
+  /brand-kits/draft:
+    post:
+      operationId: draftBrandKit
+      tags: [brand-kits]
+      summary: Best-effort AI draft of a brand kit payload from a URL/notes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandDraftRequest"
+      responses:
+        "200":
+          description: Draft payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandDraftResult"
         "400":
           description: Invalid input
           content:
@@ -377,7 +430,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BrandKit"
+                $ref: "#/components/schemas/BrandKitDetail"
         "404":
           description: Not found
           content:
@@ -399,14 +452,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/BrandKitUpdate"
+              $ref: "#/components/schemas/BrandKitPatch"
       responses:
         "200":
           description: Updated
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BrandKit"
+                $ref: "#/components/schemas/BrandKitDetail"
         "404":
           description: Not found
           content:
@@ -432,6 +485,291 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}/versions:
+    get:
+      operationId: listBrandKitVersions
+      tags: [brand-kits]
+      summary: List versions of a brand kit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Versions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BrandKitVersion"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: createBrandKitVersion
+      tags: [brand-kits]
+      summary: Create a new (immutable) version of a brand kit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandKitVersionCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandKitDetail"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}/activate-version:
+    post:
+      operationId: activateBrandKitVersion
+      tags: [brand-kits]
+      summary: Set a specific version as the active version
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivateVersionInput"
+      responses:
+        "200":
+          description: Activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandKitDetail"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}/set-default:
+    post:
+      operationId: setDefaultBrandKit
+      tags: [brand-kits]
+      summary: Make a brand kit the tenant default
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandKitDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}/assets:
+    get:
+      operationId: listBrandAssets
+      tags: [brand-kits]
+      summary: List assets for a brand kit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Assets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BrandAsset"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: createBrandAsset
+      tags: [brand-kits]
+      summary: Attach an uploaded asset to a brand kit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandAssetInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandAsset"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}/assets/{assetId}:
+    delete:
+      operationId: deleteBrandAsset
+      tags: [brand-kits]
+      summary: Delete a brand asset
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: assetId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-preferences:
+    get:
+      operationId: listBrandPreferences
+      tags: [brand-kits]
+      summary: List tenant brand preferences
+      responses:
+        "200":
+          description: Preferences
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BrandPreference"
+    post:
+      operationId: upsertBrandPreference
+      tags: [brand-kits]
+      summary: Create or update a brand preference
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandPreferenceInput"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandPreference"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-preferences/{id}:
+    delete:
+      operationId: deleteBrandPreference
+      tags: [brand-kits]
+      summary: Delete a brand preference
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /onboarding:
+    get:
+      operationId: getOnboardingStatus
+      tags: [brand-kits]
+      summary: Get brand onboarding status
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStatus"
+  /onboarding/complete:
+    post:
+      operationId: completeOnboarding
+      tags: [brand-kits]
+      summary: Mark brand onboarding complete (or skipped)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteOnboardingInput"
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStatus"
 
   /content:
     get:
@@ -1508,6 +1846,8 @@ components:
           type: string
         aiModel:
           type: string
+        industry:
+          type: ["string", "null"]
         createdAt:
           type: string
           format: date-time
@@ -1523,6 +1863,8 @@ components:
         aiModel:
           type: string
           minLength: 1
+        industry:
+          type: ["string", "null"]
     Usage:
       type: object
       required: [captions, images, periodStart]
@@ -1552,7 +1894,8 @@ components:
           description: Max scheduled posts. -1 means unlimited.
     MeProfile:
       type: object
-      required: [tenant, usage, limits, isSuperadmin, isOwner]
+      required:
+        [tenant, usage, limits, isSuperadmin, isOwner, brandOnboardingComplete]
       properties:
         tenant:
           $ref: "#/components/schemas/Tenant"
@@ -1568,6 +1911,9 @@ components:
           description: >-
             Whether the current user is an allowlisted (root) owner. Only owners
             may grant or revoke the superadmin role for other tenants.
+        brandOnboardingComplete:
+          type: boolean
+          description: Whether the tenant has finished (or skipped) brand onboarding.
     Plan:
       type: object
       required: [id, name, priceLabel, limits, features]
@@ -1764,84 +2110,394 @@ components:
           items:
             $ref: "#/components/schemas/UpdateNotificationPolicyItem"
 
+    BrandColor:
+      type: object
+      required: [name, hex, usage]
+      properties:
+        name: { type: string }
+        hex: { type: string }
+        usage: { type: string }
+    BrandLogoRef:
+      type: object
+      required: [url, type]
+      properties:
+        url: { type: string }
+        type: { type: string }
+    BrandChannelRule:
+      type: object
+      required: [formats, notes]
+      properties:
+        formats:
+          type: array
+          items: { type: string }
+        notes:
+          type: array
+          items: { type: string }
+    BrandKitPayload:
+      type: object
+      description: Source-of-truth brand definition stored immutably per version.
+      required:
+        - identity
+        - logos
+        - colors
+        - typography
+        - voice
+        - visual_style
+        - layout_tokens
+        - channel_rules
+        - brand_controls
+      properties:
+        identity:
+          type: object
+          required:
+            [brand_name, brand_slug, tagline, description, industry, audience]
+          properties:
+            brand_name: { type: string }
+            brand_slug: { type: string }
+            tagline: { type: string }
+            description: { type: string }
+            industry: { type: string }
+            audience:
+              type: array
+              items: { type: string }
+        logos:
+          type: object
+          required: [primary, secondary, icon_mark, favicon, usage_rules]
+          properties:
+            primary:
+              oneOf:
+                - $ref: "#/components/schemas/BrandLogoRef"
+                - type: "null"
+            secondary:
+              oneOf:
+                - $ref: "#/components/schemas/BrandLogoRef"
+                - type: "null"
+            icon_mark:
+              oneOf:
+                - $ref: "#/components/schemas/BrandLogoRef"
+                - type: "null"
+            favicon:
+              oneOf:
+                - $ref: "#/components/schemas/BrandLogoRef"
+                - type: "null"
+            usage_rules:
+              type: array
+              items: { type: string }
+        colors:
+          type: object
+          required: [primary, secondary, neutral, semantic]
+          properties:
+            primary:
+              type: array
+              items: { $ref: "#/components/schemas/BrandColor" }
+            secondary:
+              type: array
+              items: { $ref: "#/components/schemas/BrandColor" }
+            neutral:
+              type: array
+              items: { $ref: "#/components/schemas/BrandColor" }
+            semantic:
+              type: array
+              items: { $ref: "#/components/schemas/BrandColor" }
+        typography:
+          type: object
+          required: [heading_font, body_font, fallback_fonts, scale, weights]
+          properties:
+            heading_font: { type: string }
+            body_font: { type: string }
+            fallback_fonts:
+              type: array
+              items: { type: string }
+            scale:
+              type: object
+              required: [h1, h2, h3, h4, body, small, caption]
+              properties:
+                h1: { type: string }
+                h2: { type: string }
+                h3: { type: string }
+                h4: { type: string }
+                body: { type: string }
+                small: { type: string }
+                caption: { type: string }
+            weights:
+              type: object
+              required: [regular, medium, semibold, bold]
+              properties:
+                regular: { type: integer }
+                medium: { type: integer }
+                semibold: { type: integer }
+                bold: { type: integer }
+        voice:
+          type: object
+          required: [traits, dos, donts, caption_style, cta_style]
+          properties:
+            traits:
+              type: array
+              items: { type: string }
+            dos:
+              type: array
+              items: { type: string }
+            donts:
+              type: array
+              items: { type: string }
+            caption_style: { type: string }
+            cta_style: { type: string }
+        visual_style:
+          type: object
+          required: [imagery_style, icon_style, illustration_style, motion_style]
+          properties:
+            imagery_style:
+              type: array
+              items: { type: string }
+            icon_style: { type: string }
+            illustration_style: { type: string }
+            motion_style: { type: string }
+        layout_tokens:
+          type: object
+          required: [base_unit, radius, shadow]
+          properties:
+            base_unit: { type: string }
+            radius:
+              type: object
+              required: [sm, md, lg]
+              properties:
+                sm: { type: string }
+                md: { type: string }
+                lg: { type: string }
+            shadow:
+              type: object
+              required: [sm, md, lg]
+              properties:
+                sm: { type: string }
+                md: { type: string }
+                lg: { type: string }
+        channel_rules:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/BrandChannelRule"
+        brand_controls:
+          type: object
+          required:
+            [approved, approval_status, allowed_use_cases, restricted_terms]
+          properties:
+            approved: { type: boolean }
+            approval_status:
+              type: string
+              enum: [draft, approved, archived]
+            allowed_use_cases:
+              type: array
+              items: { type: string }
+            restricted_terms:
+              type: array
+              items: { type: string }
+    BrandKitVersion:
+      type: object
+      required:
+        [
+          id,
+          brandKitId,
+          versionNumber,
+          sourceType,
+          approvalStatus,
+          payload,
+          createdAt,
+        ]
+      properties:
+        id: { type: integer }
+        brandKitId: { type: integer }
+        versionNumber: { type: integer }
+        sourceType: { type: string }
+        sourceNotes: { type: ["string", "null"] }
+        approvalStatus:
+          type: string
+          enum: [draft, approved, archived]
+        payload:
+          $ref: "#/components/schemas/BrandKitPayload"
+        createdAt:
+          type: string
+          format: date-time
+    BrandAsset:
+      type: object
+      required: [id, brandKitId, assetType, fileUrl, createdAt]
+      properties:
+        id: { type: integer }
+        brandKitId: { type: integer }
+        assetType: { type: string }
+        fileUrl: { type: string }
+        mimeType: { type: ["string", "null"] }
+        label: { type: ["string", "null"] }
+        createdAt:
+          type: string
+          format: date-time
     BrandKit:
       type: object
       required:
-        - id
-        - name
-        - primaryColor
-        - secondaryColor
-        - accentColor
-        - voice
-        - hashtags
-        - createdAt
-        - updatedAt
+        [
+          id,
+          name,
+          slug,
+          brandType,
+          status,
+          isDefault,
+          isArchived,
+          createdAt,
+          updatedAt,
+        ]
       properties:
-        id:
-          type: integer
-        name:
-          type: string
-        primaryColor:
-          type: string
-        secondaryColor:
-          type: string
-        accentColor:
-          type: string
-        voice:
-          type: string
-        hashtags:
-          type: array
-          items:
-            type: string
-        logoPath:
-          type: ["string", "null"]
+        id: { type: integer }
+        name: { type: string }
+        slug: { type: string }
+        brandType: { type: string }
+        status: { type: string }
+        isDefault: { type: boolean }
+        isArchived: { type: boolean }
+        activeVersionId: { type: ["integer", "null"] }
+        activeVersion:
+          oneOf:
+            - $ref: "#/components/schemas/BrandKitVersion"
+            - type: "null"
         createdAt:
           type: string
           format: date-time
         updatedAt:
           type: string
           format: date-time
-    BrandKitInput:
+    BrandKitDetail:
+      allOf:
+        - $ref: "#/components/schemas/BrandKit"
+        - type: object
+          required: [versions, assets]
+          properties:
+            versions:
+              type: array
+              items: { $ref: "#/components/schemas/BrandKitVersion" }
+            assets:
+              type: array
+              items: { $ref: "#/components/schemas/BrandAsset" }
+    BrandKitCreate:
       type: object
       required: [name]
       properties:
         name:
           type: string
           minLength: 1
-        primaryColor:
+        slug: { type: string }
+        brandType:
           type: string
-        secondaryColor:
-          type: string
-        accentColor:
-          type: string
-        voice:
-          type: string
-        hashtags:
-          type: array
-          items:
-            type: string
-        logoPath:
-          type: ["string", "null"]
-    BrandKitUpdate:
+          enum: [primary, sub_brand]
+        isDefault: { type: boolean }
+        payload:
+          oneOf:
+            - $ref: "#/components/schemas/BrandKitPayload"
+            - type: "null"
+    BrandKitPatch:
       type: object
       properties:
         name:
           type: string
           minLength: 1
-        primaryColor:
+        brandType:
           type: string
-        secondaryColor:
+          enum: [primary, sub_brand]
+        isArchived: { type: boolean }
+    BrandKitVersionCreate:
+      type: object
+      required: [payload]
+      properties:
+        payload:
+          $ref: "#/components/schemas/BrandKitPayload"
+        sourceType:
           type: string
-        accentColor:
+          enum: [manual, ai_extraction, import]
+        sourceNotes: { type: ["string", "null"] }
+        approvalStatus:
           type: string
-        voice:
+          enum: [draft, approved, archived]
+        activate:
+          type: boolean
+          description: If true and approved, set as the active version.
+    ActivateVersionInput:
+      type: object
+      required: [versionId]
+      properties:
+        versionId: { type: integer }
+    BrandAssetInput:
+      type: object
+      required: [assetType, fileUrl]
+      properties:
+        assetType: { type: string }
+        fileUrl:
           type: string
-        hashtags:
+          minLength: 1
+        mimeType: { type: ["string", "null"] }
+        label: { type: ["string", "null"] }
+    BrandPreference:
+      type: object
+      required: [id, brandKitId, priority]
+      properties:
+        id: { type: integer }
+        useCase: { type: ["string", "null"] }
+        channel: { type: ["string", "null"] }
+        contentType: { type: ["string", "null"] }
+        brandKitId: { type: integer }
+        priority: { type: integer }
+    BrandPreferenceInput:
+      type: object
+      required: [brandKitId]
+      properties:
+        useCase: { type: ["string", "null"] }
+        channel: { type: ["string", "null"] }
+        contentType: { type: ["string", "null"] }
+        brandKitId: { type: integer }
+        priority: { type: integer }
+    ResolveSelectionInput:
+      type: object
+      properties:
+        brandKitId: { type: ["integer", "null"] }
+        brandSlug: { type: ["string", "null"] }
+        useCase: { type: ["string", "null"] }
+        channel: { type: ["string", "null"] }
+        contentType: { type: ["string", "null"] }
+    ResolveSelectionResult:
+      type: object
+      required: [status, reason]
+      properties:
+        status:
+          type: string
+          enum: [resolved, ambiguous, none]
+        reason: { type: string }
+        brandKit:
+          oneOf:
+            - $ref: "#/components/schemas/BrandKit"
+            - type: "null"
+        candidates:
           type: array
-          items:
-            type: string
-        logoPath:
-          type: ["string", "null"]
+          items: { $ref: "#/components/schemas/BrandKit" }
+    BrandDraftRequest:
+      type: object
+      properties:
+        url: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+        brandName: { type: ["string", "null"] }
+        industry: { type: ["string", "null"] }
+    BrandDraftResult:
+      type: object
+      required: [payload, sourceNotes]
+      properties:
+        payload:
+          $ref: "#/components/schemas/BrandKitPayload"
+        sourceNotes: { type: string }
+    OnboardingStatus:
+      type: object
+      required: [complete, brandCount]
+      properties:
+        complete: { type: boolean }
+        brandCount: { type: integer }
+    CompleteOnboardingInput:
+      type: object
+      properties:
+        skipped: { type: boolean }
+        industry: { type: ["string", "null"] }
 
     MetaAppCredentialInput:
       type: object
@@ -2041,6 +2697,7 @@ components:
         - title
         - caption
         - platform
+        - contentType
         - status
         - createdAt
         - updatedAt
@@ -2056,6 +2713,8 @@ components:
         imagePrompt:
           type: ["string", "null"]
         platform:
+          type: string
+        contentType:
           type: string
         status:
           type: string
@@ -2086,6 +2745,8 @@ components:
           type: ["string", "null"]
         platform:
           type: string
+        contentType:
+          type: string
         status:
           type: string
           enum: [draft, scheduled, published]
@@ -2104,6 +2765,8 @@ components:
         imagePrompt:
           type: ["string", "null"]
         platform:
+          type: string
+        contentType:
           type: string
         status:
           type: string

@@ -11,5 +11,7 @@ export interface Tenant {
   name: string;
   plan: string;
   aiModel: string;
+  /** @nullable */
+  industry?: string | null;
   createdAt: Date;
 }

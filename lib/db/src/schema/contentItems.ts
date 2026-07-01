@@ -11,6 +11,9 @@ export const contentItemsTable = pgTable("content_items", {
   imagePath: text("image_path"),
   imagePrompt: text("image_prompt"),
   platform: text("platform").notNull().default("instagram"),
+  // Brand use-case for selection/preferences: social_post | reel | short |
+  // ad_creative | landing_page | email
+  contentType: text("content_type").notNull().default("social_post"),
   status: text("status").notNull().default("draft"),
   postId: text("post_id"),
   permalink: text("permalink"),

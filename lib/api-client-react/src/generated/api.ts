@@ -21,15 +21,26 @@ import type {
 
 import type {
   AccountInput,
+  ActivateVersionInput,
   AdminStats,
   AdminTenant,
+  BrandAsset,
+  BrandAssetInput,
+  BrandDraftRequest,
+  BrandDraftResult,
   BrandKit,
-  BrandKitInput,
-  BrandKitUpdate,
+  BrandKitCreate,
+  BrandKitDetail,
+  BrandKitPatch,
+  BrandKitVersion,
+  BrandKitVersionCreate,
+  BrandPreference,
+  BrandPreferenceInput,
   CampaignRequest,
   CampaignResult,
   CaptionRequest,
   CaptionResult,
+  CompleteOnboardingInput,
   ConnectedAccount,
   ContentInput,
   ContentItem,
@@ -42,6 +53,7 @@ import type {
   InstagramCredentialInput,
   LinkedInAuthUrlResult,
   LinkedInStatus,
+  ListBrandKitsParams,
   MeProfile,
   MetaAppCredentialInput,
   MetaAppCredentialStatus,
@@ -49,11 +61,14 @@ import type {
   NotificationPolicy,
   NotificationSettings,
   NotificationSettingsInput,
+  OnboardingStatus,
   Plan,
   PublishFacebookResult,
   PublishInstagramResult,
   PublishLinkedInResult,
   PublishTwitterResult,
+  ResolveSelectionInput,
+  ResolveSelectionResult,
   ScheduleInput,
   ScheduleUpdate,
   ScheduledPost,
@@ -993,20 +1008,27 @@ export const useAdminUpdateNotificationPolicies = <TError = ErrorType<ErrorEnvel
       return useMutation(getAdminUpdateNotificationPoliciesMutationOptions(options));
     }
 
-export const getListBrandKitsUrl = () => {
+export const getListBrandKitsUrl = (params?: ListBrandKitsParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/brand-kits`
+  return stringifiedParams.length > 0 ? `/api/brand-kits?${stringifiedParams}` : `/api/brand-kits`
 }
 
 /**
  * @summary List brand kits
  */
-export const listBrandKits = async ( options?: RequestInit): Promise<BrandKit[]> => {
+export const listBrandKits = async (params?: ListBrandKitsParams, options?: RequestInit): Promise<BrandKit[]> => {
 
-  return customFetch<BrandKit[]>(getListBrandKitsUrl(),
+  return customFetch<BrandKit[]>(getListBrandKitsUrl(params),
   {
     ...options,
     method: 'GET'
@@ -1019,23 +1041,23 @@ export const listBrandKits = async ( options?: RequestInit): Promise<BrandKit[]>
 
 
 
-export const getListBrandKitsQueryKey = () => {
+export const getListBrandKitsQueryKey = (params?: ListBrandKitsParams,) => {
     return [
-    `/api/brand-kits`
+    `/api/brand-kits`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getListBrandKitsQueryOptions = <TData = Awaited<ReturnType<typeof listBrandKits>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBrandKits>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getListBrandKitsQueryOptions = <TData = Awaited<ReturnType<typeof listBrandKits>>, TError = ErrorType<ErrorEnvelope>>(params?: ListBrandKitsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBrandKits>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListBrandKitsQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getListBrandKitsQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBrandKits>>> = ({ signal }) => listBrandKits({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBrandKits>>> = ({ signal }) => listBrandKits(params, { signal, ...requestOptions });
 
 
 
@@ -1053,11 +1075,11 @@ export type ListBrandKitsQueryError = ErrorType<ErrorEnvelope>
  */
 
 export function useListBrandKits<TData = Awaited<ReturnType<typeof listBrandKits>>, TError = ErrorType<ErrorEnvelope>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBrandKits>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ params?: ListBrandKitsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBrandKits>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getListBrandKitsQueryOptions(options)
+  const queryOptions = getListBrandKitsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -1081,14 +1103,14 @@ export const getCreateBrandKitUrl = () => {
 /**
  * @summary Create a brand kit
  */
-export const createBrandKit = async (brandKitInput: BrandKitInput, options?: RequestInit): Promise<BrandKit> => {
+export const createBrandKit = async (brandKitCreate: BrandKitCreate, options?: RequestInit): Promise<BrandKitDetail> => {
 
-  return customFetch<BrandKit>(getCreateBrandKitUrl(),
+  return customFetch<BrandKitDetail>(getCreateBrandKitUrl(),
   {
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(brandKitInput)
+    body: JSON.stringify(brandKitCreate)
   }
 );}
 
@@ -1096,8 +1118,8 @@ export const createBrandKit = async (brandKitInput: BrandKitInput, options?: Req
 
 
 export const getCreateBrandKitMutationOptions = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBrandKit>>, TError,{data: BodyType<BrandKitInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof createBrandKit>>, TError,{data: BodyType<BrandKitInput>}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBrandKit>>, TError,{data: BodyType<BrandKitCreate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createBrandKit>>, TError,{data: BodyType<BrandKitCreate>}, TContext> => {
 
 const mutationKey = ['createBrandKit'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -1109,7 +1131,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBrandKit>>, {data: BodyType<BrandKitInput>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBrandKit>>, {data: BodyType<BrandKitCreate>}> = (props) => {
           const {data} = props ?? {};
 
           return  createBrandKit(data,requestOptions)
@@ -1123,21 +1145,161 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type CreateBrandKitMutationResult = NonNullable<Awaited<ReturnType<typeof createBrandKit>>>
-    export type CreateBrandKitMutationBody = BodyType<BrandKitInput>
+    export type CreateBrandKitMutationBody = BodyType<BrandKitCreate>
     export type CreateBrandKitMutationError = ErrorType<ErrorEnvelope>
 
     /**
  * @summary Create a brand kit
  */
 export const useCreateBrandKit = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBrandKit>>, TError,{data: BodyType<BrandKitInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBrandKit>>, TError,{data: BodyType<BrandKitCreate>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof createBrandKit>>,
         TError,
-        {data: BodyType<BrandKitInput>},
+        {data: BodyType<BrandKitCreate>},
         TContext
       > => {
       return useMutation(getCreateBrandKitMutationOptions(options));
+    }
+
+export const getResolveBrandSelectionUrl = () => {
+
+
+
+
+  return `/api/brand-kits/resolve-selection`
+}
+
+/**
+ * @summary Resolve which brand kit applies to a request
+ */
+export const resolveBrandSelection = async (resolveSelectionInput: ResolveSelectionInput, options?: RequestInit): Promise<ResolveSelectionResult> => {
+
+  return customFetch<ResolveSelectionResult>(getResolveBrandSelectionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(resolveSelectionInput)
+  }
+);}
+
+
+
+
+export const getResolveBrandSelectionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolveBrandSelection>>, TError,{data: BodyType<ResolveSelectionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resolveBrandSelection>>, TError,{data: BodyType<ResolveSelectionInput>}, TContext> => {
+
+const mutationKey = ['resolveBrandSelection'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resolveBrandSelection>>, {data: BodyType<ResolveSelectionInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  resolveBrandSelection(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResolveBrandSelectionMutationResult = NonNullable<Awaited<ReturnType<typeof resolveBrandSelection>>>
+    export type ResolveBrandSelectionMutationBody = BodyType<ResolveSelectionInput>
+    export type ResolveBrandSelectionMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Resolve which brand kit applies to a request
+ */
+export const useResolveBrandSelection = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolveBrandSelection>>, TError,{data: BodyType<ResolveSelectionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof resolveBrandSelection>>,
+        TError,
+        {data: BodyType<ResolveSelectionInput>},
+        TContext
+      > => {
+      return useMutation(getResolveBrandSelectionMutationOptions(options));
+    }
+
+export const getDraftBrandKitUrl = () => {
+
+
+
+
+  return `/api/brand-kits/draft`
+}
+
+/**
+ * @summary Best-effort AI draft of a brand kit payload from a URL/notes
+ */
+export const draftBrandKit = async (brandDraftRequest: BrandDraftRequest, options?: RequestInit): Promise<BrandDraftResult> => {
+
+  return customFetch<BrandDraftResult>(getDraftBrandKitUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(brandDraftRequest)
+  }
+);}
+
+
+
+
+export const getDraftBrandKitMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof draftBrandKit>>, TError,{data: BodyType<BrandDraftRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof draftBrandKit>>, TError,{data: BodyType<BrandDraftRequest>}, TContext> => {
+
+const mutationKey = ['draftBrandKit'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof draftBrandKit>>, {data: BodyType<BrandDraftRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  draftBrandKit(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DraftBrandKitMutationResult = NonNullable<Awaited<ReturnType<typeof draftBrandKit>>>
+    export type DraftBrandKitMutationBody = BodyType<BrandDraftRequest>
+    export type DraftBrandKitMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Best-effort AI draft of a brand kit payload from a URL/notes
+ */
+export const useDraftBrandKit = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof draftBrandKit>>, TError,{data: BodyType<BrandDraftRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof draftBrandKit>>,
+        TError,
+        {data: BodyType<BrandDraftRequest>},
+        TContext
+      > => {
+      return useMutation(getDraftBrandKitMutationOptions(options));
     }
 
 export const getGetBrandKitUrl = (id: number,) => {
@@ -1151,9 +1313,9 @@ export const getGetBrandKitUrl = (id: number,) => {
 /**
  * @summary Get a brand kit
  */
-export const getBrandKit = async (id: number, options?: RequestInit): Promise<BrandKit> => {
+export const getBrandKit = async (id: number, options?: RequestInit): Promise<BrandKitDetail> => {
 
-  return customFetch<BrandKit>(getGetBrandKitUrl(id),
+  return customFetch<BrandKitDetail>(getGetBrandKitUrl(id),
   {
     ...options,
     method: 'GET'
@@ -1229,14 +1391,14 @@ export const getUpdateBrandKitUrl = (id: number,) => {
  * @summary Update a brand kit
  */
 export const updateBrandKit = async (id: number,
-    brandKitUpdate: BrandKitUpdate, options?: RequestInit): Promise<BrandKit> => {
+    brandKitPatch: BrandKitPatch, options?: RequestInit): Promise<BrandKitDetail> => {
 
-  return customFetch<BrandKit>(getUpdateBrandKitUrl(id),
+  return customFetch<BrandKitDetail>(getUpdateBrandKitUrl(id),
   {
     ...options,
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(brandKitUpdate)
+    body: JSON.stringify(brandKitPatch)
   }
 );}
 
@@ -1244,8 +1406,8 @@ export const updateBrandKit = async (id: number,
 
 
 export const getUpdateBrandKitMutationOptions = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBrandKit>>, TError,{id: number;data: BodyType<BrandKitUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof updateBrandKit>>, TError,{id: number;data: BodyType<BrandKitUpdate>}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBrandKit>>, TError,{id: number;data: BodyType<BrandKitPatch>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateBrandKit>>, TError,{id: number;data: BodyType<BrandKitPatch>}, TContext> => {
 
 const mutationKey = ['updateBrandKit'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -1257,7 +1419,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateBrandKit>>, {id: number;data: BodyType<BrandKitUpdate>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateBrandKit>>, {id: number;data: BodyType<BrandKitPatch>}> = (props) => {
           const {id,data} = props ?? {};
 
           return  updateBrandKit(id,data,requestOptions)
@@ -1271,18 +1433,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type UpdateBrandKitMutationResult = NonNullable<Awaited<ReturnType<typeof updateBrandKit>>>
-    export type UpdateBrandKitMutationBody = BodyType<BrandKitUpdate>
+    export type UpdateBrandKitMutationBody = BodyType<BrandKitPatch>
     export type UpdateBrandKitMutationError = ErrorType<ErrorEnvelope>
 
     /**
  * @summary Update a brand kit
  */
 export const useUpdateBrandKit = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBrandKit>>, TError,{id: number;data: BodyType<BrandKitUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBrandKit>>, TError,{id: number;data: BodyType<BrandKitPatch>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof updateBrandKit>>,
         TError,
-        {id: number;data: BodyType<BrandKitUpdate>},
+        {id: number;data: BodyType<BrandKitPatch>},
         TContext
       > => {
       return useMutation(getUpdateBrandKitMutationOptions(options));
@@ -1356,6 +1518,879 @@ export const useDeleteBrandKit = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getDeleteBrandKitMutationOptions(options));
+    }
+
+export const getListBrandKitVersionsUrl = (id: number,) => {
+
+
+
+
+  return `/api/brand-kits/${id}/versions`
+}
+
+/**
+ * @summary List versions of a brand kit
+ */
+export const listBrandKitVersions = async (id: number, options?: RequestInit): Promise<BrandKitVersion[]> => {
+
+  return customFetch<BrandKitVersion[]>(getListBrandKitVersionsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListBrandKitVersionsQueryKey = (id: number,) => {
+    return [
+    `/api/brand-kits/${id}/versions`
+    ] as const;
+    }
+
+
+export const getListBrandKitVersionsQueryOptions = <TData = Awaited<ReturnType<typeof listBrandKitVersions>>, TError = ErrorType<ErrorEnvelope>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBrandKitVersions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListBrandKitVersionsQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBrandKitVersions>>> = ({ signal }) => listBrandKitVersions(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listBrandKitVersions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListBrandKitVersionsQueryResult = NonNullable<Awaited<ReturnType<typeof listBrandKitVersions>>>
+export type ListBrandKitVersionsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List versions of a brand kit
+ */
+
+export function useListBrandKitVersions<TData = Awaited<ReturnType<typeof listBrandKitVersions>>, TError = ErrorType<ErrorEnvelope>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBrandKitVersions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListBrandKitVersionsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateBrandKitVersionUrl = (id: number,) => {
+
+
+
+
+  return `/api/brand-kits/${id}/versions`
+}
+
+/**
+ * @summary Create a new (immutable) version of a brand kit
+ */
+export const createBrandKitVersion = async (id: number,
+    brandKitVersionCreate: BrandKitVersionCreate, options?: RequestInit): Promise<BrandKitDetail> => {
+
+  return customFetch<BrandKitDetail>(getCreateBrandKitVersionUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(brandKitVersionCreate)
+  }
+);}
+
+
+
+
+export const getCreateBrandKitVersionMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBrandKitVersion>>, TError,{id: number;data: BodyType<BrandKitVersionCreate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createBrandKitVersion>>, TError,{id: number;data: BodyType<BrandKitVersionCreate>}, TContext> => {
+
+const mutationKey = ['createBrandKitVersion'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBrandKitVersion>>, {id: number;data: BodyType<BrandKitVersionCreate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createBrandKitVersion(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateBrandKitVersionMutationResult = NonNullable<Awaited<ReturnType<typeof createBrandKitVersion>>>
+    export type CreateBrandKitVersionMutationBody = BodyType<BrandKitVersionCreate>
+    export type CreateBrandKitVersionMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create a new (immutable) version of a brand kit
+ */
+export const useCreateBrandKitVersion = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBrandKitVersion>>, TError,{id: number;data: BodyType<BrandKitVersionCreate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createBrandKitVersion>>,
+        TError,
+        {id: number;data: BodyType<BrandKitVersionCreate>},
+        TContext
+      > => {
+      return useMutation(getCreateBrandKitVersionMutationOptions(options));
+    }
+
+export const getActivateBrandKitVersionUrl = (id: number,) => {
+
+
+
+
+  return `/api/brand-kits/${id}/activate-version`
+}
+
+/**
+ * @summary Set a specific version as the active version
+ */
+export const activateBrandKitVersion = async (id: number,
+    activateVersionInput: ActivateVersionInput, options?: RequestInit): Promise<BrandKitDetail> => {
+
+  return customFetch<BrandKitDetail>(getActivateBrandKitVersionUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(activateVersionInput)
+  }
+);}
+
+
+
+
+export const getActivateBrandKitVersionMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activateBrandKitVersion>>, TError,{id: number;data: BodyType<ActivateVersionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof activateBrandKitVersion>>, TError,{id: number;data: BodyType<ActivateVersionInput>}, TContext> => {
+
+const mutationKey = ['activateBrandKitVersion'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof activateBrandKitVersion>>, {id: number;data: BodyType<ActivateVersionInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  activateBrandKitVersion(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ActivateBrandKitVersionMutationResult = NonNullable<Awaited<ReturnType<typeof activateBrandKitVersion>>>
+    export type ActivateBrandKitVersionMutationBody = BodyType<ActivateVersionInput>
+    export type ActivateBrandKitVersionMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Set a specific version as the active version
+ */
+export const useActivateBrandKitVersion = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activateBrandKitVersion>>, TError,{id: number;data: BodyType<ActivateVersionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof activateBrandKitVersion>>,
+        TError,
+        {id: number;data: BodyType<ActivateVersionInput>},
+        TContext
+      > => {
+      return useMutation(getActivateBrandKitVersionMutationOptions(options));
+    }
+
+export const getSetDefaultBrandKitUrl = (id: number,) => {
+
+
+
+
+  return `/api/brand-kits/${id}/set-default`
+}
+
+/**
+ * @summary Make a brand kit the tenant default
+ */
+export const setDefaultBrandKit = async (id: number, options?: RequestInit): Promise<BrandKitDetail> => {
+
+  return customFetch<BrandKitDetail>(getSetDefaultBrandKitUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getSetDefaultBrandKitMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setDefaultBrandKit>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setDefaultBrandKit>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['setDefaultBrandKit'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setDefaultBrandKit>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  setDefaultBrandKit(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetDefaultBrandKitMutationResult = NonNullable<Awaited<ReturnType<typeof setDefaultBrandKit>>>
+
+    export type SetDefaultBrandKitMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Make a brand kit the tenant default
+ */
+export const useSetDefaultBrandKit = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setDefaultBrandKit>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setDefaultBrandKit>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getSetDefaultBrandKitMutationOptions(options));
+    }
+
+export const getListBrandAssetsUrl = (id: number,) => {
+
+
+
+
+  return `/api/brand-kits/${id}/assets`
+}
+
+/**
+ * @summary List assets for a brand kit
+ */
+export const listBrandAssets = async (id: number, options?: RequestInit): Promise<BrandAsset[]> => {
+
+  return customFetch<BrandAsset[]>(getListBrandAssetsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListBrandAssetsQueryKey = (id: number,) => {
+    return [
+    `/api/brand-kits/${id}/assets`
+    ] as const;
+    }
+
+
+export const getListBrandAssetsQueryOptions = <TData = Awaited<ReturnType<typeof listBrandAssets>>, TError = ErrorType<ErrorEnvelope>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBrandAssets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListBrandAssetsQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBrandAssets>>> = ({ signal }) => listBrandAssets(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listBrandAssets>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListBrandAssetsQueryResult = NonNullable<Awaited<ReturnType<typeof listBrandAssets>>>
+export type ListBrandAssetsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List assets for a brand kit
+ */
+
+export function useListBrandAssets<TData = Awaited<ReturnType<typeof listBrandAssets>>, TError = ErrorType<ErrorEnvelope>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBrandAssets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListBrandAssetsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateBrandAssetUrl = (id: number,) => {
+
+
+
+
+  return `/api/brand-kits/${id}/assets`
+}
+
+/**
+ * @summary Attach an uploaded asset to a brand kit
+ */
+export const createBrandAsset = async (id: number,
+    brandAssetInput: BrandAssetInput, options?: RequestInit): Promise<BrandAsset> => {
+
+  return customFetch<BrandAsset>(getCreateBrandAssetUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(brandAssetInput)
+  }
+);}
+
+
+
+
+export const getCreateBrandAssetMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBrandAsset>>, TError,{id: number;data: BodyType<BrandAssetInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createBrandAsset>>, TError,{id: number;data: BodyType<BrandAssetInput>}, TContext> => {
+
+const mutationKey = ['createBrandAsset'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBrandAsset>>, {id: number;data: BodyType<BrandAssetInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createBrandAsset(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateBrandAssetMutationResult = NonNullable<Awaited<ReturnType<typeof createBrandAsset>>>
+    export type CreateBrandAssetMutationBody = BodyType<BrandAssetInput>
+    export type CreateBrandAssetMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Attach an uploaded asset to a brand kit
+ */
+export const useCreateBrandAsset = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBrandAsset>>, TError,{id: number;data: BodyType<BrandAssetInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createBrandAsset>>,
+        TError,
+        {id: number;data: BodyType<BrandAssetInput>},
+        TContext
+      > => {
+      return useMutation(getCreateBrandAssetMutationOptions(options));
+    }
+
+export const getDeleteBrandAssetUrl = (id: number,
+    assetId: number,) => {
+
+
+
+
+  return `/api/brand-kits/${id}/assets/${assetId}`
+}
+
+/**
+ * @summary Delete a brand asset
+ */
+export const deleteBrandAsset = async (id: number,
+    assetId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteBrandAssetUrl(id,assetId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteBrandAssetMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBrandAsset>>, TError,{id: number;assetId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteBrandAsset>>, TError,{id: number;assetId: number}, TContext> => {
+
+const mutationKey = ['deleteBrandAsset'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteBrandAsset>>, {id: number;assetId: number}> = (props) => {
+          const {id,assetId} = props ?? {};
+
+          return  deleteBrandAsset(id,assetId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteBrandAssetMutationResult = NonNullable<Awaited<ReturnType<typeof deleteBrandAsset>>>
+
+    export type DeleteBrandAssetMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Delete a brand asset
+ */
+export const useDeleteBrandAsset = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBrandAsset>>, TError,{id: number;assetId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteBrandAsset>>,
+        TError,
+        {id: number;assetId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteBrandAssetMutationOptions(options));
+    }
+
+export const getListBrandPreferencesUrl = () => {
+
+
+
+
+  return `/api/brand-preferences`
+}
+
+/**
+ * @summary List tenant brand preferences
+ */
+export const listBrandPreferences = async ( options?: RequestInit): Promise<BrandPreference[]> => {
+
+  return customFetch<BrandPreference[]>(getListBrandPreferencesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListBrandPreferencesQueryKey = () => {
+    return [
+    `/api/brand-preferences`
+    ] as const;
+    }
+
+
+export const getListBrandPreferencesQueryOptions = <TData = Awaited<ReturnType<typeof listBrandPreferences>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBrandPreferences>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListBrandPreferencesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBrandPreferences>>> = ({ signal }) => listBrandPreferences({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listBrandPreferences>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListBrandPreferencesQueryResult = NonNullable<Awaited<ReturnType<typeof listBrandPreferences>>>
+export type ListBrandPreferencesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List tenant brand preferences
+ */
+
+export function useListBrandPreferences<TData = Awaited<ReturnType<typeof listBrandPreferences>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBrandPreferences>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListBrandPreferencesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpsertBrandPreferenceUrl = () => {
+
+
+
+
+  return `/api/brand-preferences`
+}
+
+/**
+ * @summary Create or update a brand preference
+ */
+export const upsertBrandPreference = async (brandPreferenceInput: BrandPreferenceInput, options?: RequestInit): Promise<BrandPreference> => {
+
+  return customFetch<BrandPreference>(getUpsertBrandPreferenceUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(brandPreferenceInput)
+  }
+);}
+
+
+
+
+export const getUpsertBrandPreferenceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof upsertBrandPreference>>, TError,{data: BodyType<BrandPreferenceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof upsertBrandPreference>>, TError,{data: BodyType<BrandPreferenceInput>}, TContext> => {
+
+const mutationKey = ['upsertBrandPreference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof upsertBrandPreference>>, {data: BodyType<BrandPreferenceInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  upsertBrandPreference(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpsertBrandPreferenceMutationResult = NonNullable<Awaited<ReturnType<typeof upsertBrandPreference>>>
+    export type UpsertBrandPreferenceMutationBody = BodyType<BrandPreferenceInput>
+    export type UpsertBrandPreferenceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create or update a brand preference
+ */
+export const useUpsertBrandPreference = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof upsertBrandPreference>>, TError,{data: BodyType<BrandPreferenceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof upsertBrandPreference>>,
+        TError,
+        {data: BodyType<BrandPreferenceInput>},
+        TContext
+      > => {
+      return useMutation(getUpsertBrandPreferenceMutationOptions(options));
+    }
+
+export const getDeleteBrandPreferenceUrl = (id: number,) => {
+
+
+
+
+  return `/api/brand-preferences/${id}`
+}
+
+/**
+ * @summary Delete a brand preference
+ */
+export const deleteBrandPreference = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteBrandPreferenceUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteBrandPreferenceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBrandPreference>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteBrandPreference>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteBrandPreference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteBrandPreference>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteBrandPreference(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteBrandPreferenceMutationResult = NonNullable<Awaited<ReturnType<typeof deleteBrandPreference>>>
+
+    export type DeleteBrandPreferenceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Delete a brand preference
+ */
+export const useDeleteBrandPreference = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBrandPreference>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteBrandPreference>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteBrandPreferenceMutationOptions(options));
+    }
+
+export const getGetOnboardingStatusUrl = () => {
+
+
+
+
+  return `/api/onboarding`
+}
+
+/**
+ * @summary Get brand onboarding status
+ */
+export const getOnboardingStatus = async ( options?: RequestInit): Promise<OnboardingStatus> => {
+
+  return customFetch<OnboardingStatus>(getGetOnboardingStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOnboardingStatusQueryKey = () => {
+    return [
+    `/api/onboarding`
+    ] as const;
+    }
+
+
+export const getGetOnboardingStatusQueryOptions = <TData = Awaited<ReturnType<typeof getOnboardingStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOnboardingStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOnboardingStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOnboardingStatus>>> = ({ signal }) => getOnboardingStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOnboardingStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOnboardingStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getOnboardingStatus>>>
+export type GetOnboardingStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get brand onboarding status
+ */
+
+export function useGetOnboardingStatus<TData = Awaited<ReturnType<typeof getOnboardingStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOnboardingStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOnboardingStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCompleteOnboardingUrl = () => {
+
+
+
+
+  return `/api/onboarding/complete`
+}
+
+/**
+ * @summary Mark brand onboarding complete (or skipped)
+ */
+export const completeOnboarding = async (completeOnboardingInput: CompleteOnboardingInput, options?: RequestInit): Promise<OnboardingStatus> => {
+
+  return customFetch<OnboardingStatus>(getCompleteOnboardingUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(completeOnboardingInput)
+  }
+);}
+
+
+
+
+export const getCompleteOnboardingMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeOnboarding>>, TError,{data: BodyType<CompleteOnboardingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof completeOnboarding>>, TError,{data: BodyType<CompleteOnboardingInput>}, TContext> => {
+
+const mutationKey = ['completeOnboarding'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof completeOnboarding>>, {data: BodyType<CompleteOnboardingInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  completeOnboarding(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CompleteOnboardingMutationResult = NonNullable<Awaited<ReturnType<typeof completeOnboarding>>>
+    export type CompleteOnboardingMutationBody = BodyType<CompleteOnboardingInput>
+    export type CompleteOnboardingMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Mark brand onboarding complete (or skipped)
+ */
+export const useCompleteOnboarding = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeOnboarding>>, TError,{data: BodyType<CompleteOnboardingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof completeOnboarding>>,
+        TError,
+        {data: BodyType<CompleteOnboardingInput>},
+        TContext
+      > => {
+      return useMutation(getCompleteOnboardingMutationOptions(options));
     }
 
 export const getListContentUrl = () => {

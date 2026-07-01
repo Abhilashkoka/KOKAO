@@ -9,6 +9,10 @@ export const tenantsTable = pgTable("tenants", {
   name: text("name").notNull(),
   plan: text("plan").notNull().default("free"),
   aiModel: text("ai_model").notNull().default("gpt-5.4"),
+  industry: text("industry"),
+  brandOnboardingComplete: boolean("brand_onboarding_complete")
+    .notNull()
+    .default(false),
   isSuperadmin: boolean("is_superadmin").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
