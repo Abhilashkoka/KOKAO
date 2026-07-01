@@ -1,0 +1,204 @@
+import { describe, it, expect, afterAll, beforeEach, vi } from "vitest";
+import request from "supertest";
+import { randomUUID } from "crypto";
+
+vi.mock("@clerk/express", async () => {
+  const { authState } = await import("../test/authState");
+  return {
+    getAuth: () =>
+      authState.userId
+        ? {
+            userId: authState.userId,
+            sessionClaims: { userId: authState.userId },
+          }
+        : {},
+    clerkClient: {
+      users: {
+        getUser: async (id: string) => {
+          const u = authState.users[id];
+          if (!u) throw new Error("user not found");
+          return u;
+        },
+      },
+    },
+    clerkMiddleware: () => (_req: unknown, _res: unknown, next: () => void) =>
+      next(),
+  };
+});
+
+import { pool } from "@workspace/db";
+import { createAdminTestApp } from "../test/testApp";
+import { resetAuthState, actAs } from "../test/authState";
+import { createTenant, deleteTenant, getTenant } from "../test/dbHelpers";
+
+// This is baked into the permanent allowlist in lib/superadmins.ts, so an actor
+// whose LIVE verified email matches it is an "owner". Using the built-in email
+// keeps the test independent of env-var load-order timing.
+const OWNER_EMAIL = "abhilash.koka1@gmail.com";
+
+const app = createAdminTestApp();
+
+afterAll(async () => {
+  await pool.end();
+});
+
+beforeEach(() => {
+  resetAuthState();
+});
+
+describe("PATCH /admin/tenants/:id/superadmin — role management is owner-only", () => {
+  it("rejects a merely-granted (non-owner) superadmin with 403 and leaves the DB flag unchanged", async () => {
+    // Actor is a granted-in-app superadmin (DB flag set) but NOT allowlisted.
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    const target = await createTenant({
+      email: `target-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+
+      const res = await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}/superadmin`)
+        .send({ isSuperadmin: true });
+
+      // Passes the requireSuperadmin gate (granted flag) but the handler
+      // re-checks the live verified email and rejects a non-owner actor.
+      expect(res.status).toBe(403);
+
+      // The target must not have been promoted.
+      const after = await getTenant(target.tenantId);
+      expect(after.isSuperadmin).toBe(false);
+    } finally {
+      await deleteTenant(actor.tenantId);
+      await deleteTenant(target.tenantId);
+    }
+  });
+
+  it("lets an allowlisted owner GRANT the superadmin role (200, DB flag set)", async () => {
+    const owner = await createTenant({ email: OWNER_EMAIL });
+    const target = await createTenant({
+      email: `target-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(owner.clerkUserId, OWNER_EMAIL);
+
+      const res = await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}/superadmin`)
+        .send({ isSuperadmin: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.isSuperadmin).toBe(true);
+
+      const after = await getTenant(target.tenantId);
+      expect(after.isSuperadmin).toBe(true);
+    } finally {
+      await deleteTenant(owner.tenantId);
+      await deleteTenant(target.tenantId);
+    }
+  });
+
+  it("lets an allowlisted owner REVOKE the role, and the revoke takes effect immediately (DB flag read fresh)", async () => {
+    const owner = await createTenant({ email: OWNER_EMAIL });
+    // Target starts as a granted-in-app superadmin with a non-allowlisted email.
+    const target = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    try {
+      // Before revoke: the granted target can reach an admin endpoint because
+      // requireSuperadmin trusts the fresh DB flag loaded by requireTenant.
+      actAs(target.clerkUserId, target.email);
+      const beforeAccess = await request(app).get("/api/admin/tenants");
+      expect(beforeAccess.status).toBe(200);
+
+      // Owner revokes the target's role.
+      actAs(owner.clerkUserId, OWNER_EMAIL);
+      const revoke = await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}/superadmin`)
+        .send({ isSuperadmin: false });
+      expect(revoke.status).toBe(200);
+      expect(revoke.body.isSuperadmin).toBe(false);
+
+      const after = await getTenant(target.tenantId);
+      expect(after.isSuperadmin).toBe(false);
+
+      // Immediately after: the same target is now locked out (the DB flag is
+      // re-read fresh every request, so there is no stale-grant window).
+      actAs(target.clerkUserId, target.email);
+      const afterAccess = await request(app).get("/api/admin/tenants");
+      expect(afterAccess.status).toBe(403);
+    } finally {
+      await deleteTenant(owner.tenantId);
+      await deleteTenant(target.tenantId);
+    }
+  });
+
+  it("rejects a write whose TARGET is an allowlisted owner (400, permanent), leaving the flag untouched", async () => {
+    const owner = await createTenant({ email: OWNER_EMAIL });
+    // A second allowlisted tenant is the target; owners are permanent and must
+    // not be demoted via this endpoint (email is not unique in the schema).
+    const targetOwner = await createTenant({
+      isSuperadmin: false,
+      email: OWNER_EMAIL,
+    });
+    try {
+      actAs(owner.clerkUserId, OWNER_EMAIL);
+
+      const res = await request(app)
+        .patch(`/api/admin/tenants/${targetOwner.tenantId}/superadmin`)
+        .send({ isSuperadmin: true });
+
+      expect(res.status).toBe(400);
+
+      // The DB flag was not toggled by the rejected write.
+      const after = await getTenant(targetOwner.tenantId);
+      expect(after.isSuperadmin).toBe(false);
+    } finally {
+      await deleteTenant(owner.tenantId);
+      await deleteTenant(targetOwner.tenantId);
+    }
+  });
+
+  it("returns 401 to an unauthenticated caller", async () => {
+    const target = await createTenant({
+      email: `target-${randomUUID()}@example.com`,
+    });
+    try {
+      resetAuthState(); // no current user
+
+      const res = await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}/superadmin`)
+        .send({ isSuperadmin: true });
+
+      expect(res.status).toBe(401);
+    } finally {
+      await deleteTenant(target.tenantId);
+    }
+  });
+
+  it("returns 403 to an authenticated non-superadmin (fails closed on the whole /admin surface)", async () => {
+    const actor = await createTenant({
+      email: `plain-${randomUUID()}@example.com`,
+    });
+    const target = await createTenant({
+      email: `target-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+
+      const res = await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}/superadmin`)
+        .send({ isSuperadmin: true });
+
+      expect(res.status).toBe(403);
+
+      const after = await getTenant(target.tenantId);
+      expect(after.isSuperadmin).toBe(false);
+    } finally {
+      await deleteTenant(actor.tenantId);
+      await deleteTenant(target.tenantId);
+    }
+  });
+});

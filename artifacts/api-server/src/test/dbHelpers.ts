@@ -33,6 +33,16 @@ export async function createTenant(
   return { tenantId: row.id, clerkUserId, email };
 }
 
+export async function getTenant(tenantId: number) {
+  return (
+    await db
+      .select()
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, tenantId))
+      .limit(1)
+  )[0];
+}
+
 export async function deleteTenant(tenantId: number): Promise<void> {
   await db
     .delete(connectedAccountsTable)
