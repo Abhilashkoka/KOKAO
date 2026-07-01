@@ -29,7 +29,9 @@ Rules that matter:
 
 ## Proactive breakage notifications
 
-When a stored social token transitions verified -> failed, a one-time in-app notification is recorded (`notifications` table + `lib/notifications.ts` `notifySocialConnectionFailed`), shown as a dismissible banner in the web app layout and served by `routes/notifications.ts`. There is NO email infra in this repo (no SMTP/SendGrid/Resend); the task's "done" criteria accept an in-app banner, so that is the mechanism.
+When a stored social token transitions verified -> failed, a one-time in-app notification is recorded (`notifications` table + `lib/notifications.ts` `notifySocialConnectionFailed`), shown as a dismissible banner in the web app layout and served by `routes/notifications.ts`. On a FRESH breakage the same choke point also emails the tenant's verified address (best effort) so inactive users learn before a post fails.
+
+Email uses the Replit-managed SendGrid connector at runtime via `lib/email.ts` `sendEmail` (fetches api_key/from_email from the connectors proxy using REPL_IDENTITY/WEB_REPL_RENEWAL; NO hardcoded creds). It is a safe no-op returning false when SendGrid isn't connected — never throws, never blocks the reverify path. Recipient comes from `lib/clerkUser.ts` `fetchVerifiedEmail` (tenant.clerkUserId -> live verified Clerk email); reconnect link is absolute via `REPLIT_DOMAINS` + `/accounts`. Email dedup is inherited: it fires only after a new notification row is actually inserted (past the unread-dedupe guard), so a re-checked-but-still-broken token does not re-email.
 
 Dedup ("once per breakage") is TWO-layered and relies on the transition, not a flag: (1) the call sites fire only when the PRIOR `verifyStatus === "verified"` and the new is `failed` (so a token that is already failed never re-notifies on repeated re-checks), and (2) the helper skips insert if an UNREAD notification of the same type+platform already exists. A reconnect (back to verified) then a later break is a NEW breakage → new notification. The Meta call site is inside `writeStatus` in `socialReverify.ts`; LinkedIn's is the 401/403 branch of `reverifyLinkedin`.
 

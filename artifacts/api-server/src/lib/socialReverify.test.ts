@@ -26,6 +26,15 @@ vi.mock("./metaApi", async (importOriginal) => {
   };
 });
 
+// A verified->failed transition now emails the tenant via Clerk + SendGrid.
+// Keep this DB-focused test hermetic: no live Clerk lookups, no real sends.
+vi.mock("./clerkUser", () => ({
+  fetchVerifiedEmail: vi.fn(async () => null),
+}));
+vi.mock("./email", () => ({
+  sendEmail: vi.fn(async () => true),
+}));
+
 import { pool } from "@workspace/db";
 import {
   testFacebookCredentials,
