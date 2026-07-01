@@ -882,7 +882,8 @@ export const DisconnectLinkedinResponse = zod.object({
   "connected": zod.boolean(),
   "accountName": zod.string().nullish(),
   "configured": zod.boolean().describe('Whether the platform-level LinkedIn app credentials are set by the admin.'),
-  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the LinkedIn app.')
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the LinkedIn app.'),
+  "expired": zod.boolean().optional().describe('True when an account was previously connected but its token has since expired or been revoked, so the user should reconnect.')
 })
 
 
@@ -893,7 +894,8 @@ export const RetestLinkedinResponse = zod.object({
   "connected": zod.boolean(),
   "accountName": zod.string().nullish(),
   "configured": zod.boolean().describe('Whether the platform-level LinkedIn app credentials are set by the admin.'),
-  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the LinkedIn app.')
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the LinkedIn app.'),
+  "expired": zod.boolean().optional().describe('True when an account was previously connected but its token has since expired or been revoked, so the user should reconnect.')
 })
 
 
