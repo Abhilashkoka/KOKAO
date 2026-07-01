@@ -1410,7 +1410,12 @@ paths:
     post:
       operationId: publishContentToInstagram
       tags: [instagram]
-      summary: Publish a content item to the tenant's connected Instagram account
+      summary: Queue publishing a content item to the tenant's Instagram account
+      description: >-
+        Validates the connection and image, flips the content item to
+        "publishing", then processes the actual upload/publish in the
+        background. Returns immediately; poll the content item's status for the
+        final "published" or "failed" result.
       parameters:
         - name: id
           in: path
@@ -1418,8 +1423,8 @@ paths:
           schema:
             type: integer
       responses:
-        "200":
-          description: Published
+        "202":
+          description: Publishing accepted and queued in the background
           content:
             application/json:
               schema:
@@ -2585,12 +2590,14 @@ components:
           type: ["string", "null"]
     PublishInstagramResult:
       type: object
-      required: [postId]
+      required: [status]
       properties:
-        postId:
+        status:
           type: string
-        permalink:
-          type: ["string", "null"]
+          description: >-
+            Always "publishing". Instagram publishing is processed in the
+            background; poll the content item's status to observe the final
+            "published" or "failed" result.
     LinkedInAuthUrlResult:
       type: object
       required: [url]

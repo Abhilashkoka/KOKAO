@@ -68,6 +68,7 @@ import {
 } from "../test/dbHelpers";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { IG_CONTAINER_POLL } from "./meta";
+import { waitForPendingJobs } from "../lib/backgroundJobs";
 
 const app = createTestApp();
 const mockFb = vi.mocked(testFacebookCredentials);
@@ -422,9 +423,13 @@ describe("Instagram publishing (happy path)", () => {
         `/api/content/${itemId}/publish-instagram`,
       );
 
-      expect(res.status).toBe(200);
-      expect(res.body.postId).toBe("IG_PUBLISHED_1");
-      expect(res.body.permalink).toBe("https://www.instagram.com/p/abc123/");
+      // The request returns immediately with the item queued for background
+      // publishing; the real create/poll/publish work happens after.
+      expect(res.status).toBe(202);
+      expect(res.body.status).toBe("publishing");
+
+      // Let the background job run to completion, then assert the outcome.
+      await waitForPendingJobs();
       expect(signSpy).toHaveBeenCalledWith("/objects/uploads/test.png", 900);
 
       // Full flow: create the container, poll its status, then publish it.
@@ -440,10 +445,13 @@ describe("Instagram publishing (happy path)", () => {
 
       const item = await getContentItem(itemId, tenant.tenantId);
       expect(item.status).toBe("published");
+      expect(item.postId).toBe("IG_PUBLISHED_1");
+      expect(item.permalink).toBe("https://www.instagram.com/p/abc123/");
     } finally {
       await deleteTenant(tenant.tenantId);
     }
   });
+
 });
 
 describe("Instagram container readiness", () => {
@@ -534,8 +542,10 @@ describe("Instagram container readiness", () => {
         `/api/content/${itemId}/publish-instagram`,
       );
 
-      expect(res.status).toBe(200);
-      expect(res.body.postId).toBe("IG_PUBLISHED_1");
+      expect(res.status).toBe(202);
+      expect(res.body.status).toBe("publishing");
+      await waitForPendingJobs();
+
       // Polled three times (two IN_PROGRESS + one FINISHED) before publishing.
       expect(
         calls.filter((u) => u.includes("fields=status_code")).length,
@@ -544,12 +554,13 @@ describe("Instagram container readiness", () => {
 
       const item = await getContentItem(itemId, tenant.tenantId);
       expect(item.status).toBe("published");
+      expect(item.postId).toBe("IG_PUBLISHED_1");
     } finally {
       await deleteTenant(tenant.tenantId);
     }
   });
 
-  it("returns 502 and never publishes when the container stays IN_PROGRESS past the cap", async () => {
+  it("marks the item failed and never publishes when the container stays IN_PROGRESS past the cap", async () => {
     const calls: string[] = [];
     mockGraphWithStatus(calls, ["IN_PROGRESS"]);
     vi.spyOn(
@@ -563,23 +574,25 @@ describe("Instagram container readiness", () => {
         `/api/content/${itemId}/publish-instagram`,
       );
 
-      expect(res.status).toBe(502);
-      expect(res.body.error).toMatch(/still processing|did not finish/i);
+      expect(res.status).toBe(202);
+      await waitForPendingJobs();
+
       // Polled up to the cap and never attempted to publish.
       expect(
         calls.filter((u) => u.includes("fields=status_code")).length,
       ).toBe(IG_CONTAINER_POLL.maxAttempts);
       expect(calls.some((u) => u.includes("/media_publish"))).toBe(false);
 
-      // Content item stays unpublished so the user knows it didn't post.
+      // The background job flips the item to "failed" so the UI can surface it
+      // instead of leaving it stuck on "publishing".
       const item = await getContentItem(itemId, tenant.tenantId);
-      expect(item.status).not.toBe("published");
+      expect(item.status).toBe("failed");
     } finally {
       await deleteTenant(tenant.tenantId);
     }
   });
 
-  it("returns 502 and never publishes when the container ends in ERROR", async () => {
+  it("marks the item failed and never publishes when the container ends in ERROR", async () => {
     const calls: string[] = [];
     mockGraphWithStatus(calls, ["IN_PROGRESS", "ERROR"]);
     vi.spyOn(
@@ -593,12 +606,13 @@ describe("Instagram container readiness", () => {
         `/api/content/${itemId}/publish-instagram`,
       );
 
-      expect(res.status).toBe(502);
-      expect(res.body.error).toMatch(/could not process/i);
+      expect(res.status).toBe(202);
+      await waitForPendingJobs();
+
       expect(calls.some((u) => u.includes("/media_publish"))).toBe(false);
 
       const item = await getContentItem(itemId, tenant.tenantId);
-      expect(item.status).not.toBe("published");
+      expect(item.status).toBe("failed");
     } finally {
       await deleteTenant(tenant.tenantId);
     }

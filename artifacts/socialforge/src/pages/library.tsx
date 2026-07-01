@@ -27,7 +27,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, trimToTweetLength } from "@workspace/social-limits";
 
 export function LibraryPage() {
-  const { data: content, isLoading } = useListContent();
+  const { data: content, isLoading } = useListContent({
+    query: {
+      queryKey: getListContentQueryKey(),
+      // While any item is publishing in the background (e.g. Instagram polls
+      // the media container asynchronously), poll so the card flips to
+      // published/failed without a manual refresh.
+      refetchInterval: (query) =>
+        (query.state.data ?? []).some((item) => item.status === "publishing")
+          ? 4000
+          : false,
+    },
+  });
   const deleteContent = useDeleteContent();
   const updateContent = useUpdateContent();
   const queryClient = useQueryClient();
@@ -101,11 +112,11 @@ export function LibraryPage() {
     publishInstagram.mutate(
       { id: instagramItem.id },
       {
-        onSuccess: (res) => {
+        onSuccess: () => {
           toast({
-            title: "Published to Instagram",
-            description: "Your post is live on Instagram.",
-            action: viewPostAction(res?.permalink),
+            title: "Publishing to Instagram",
+            description:
+              "Instagram is processing your image. This card will update to Published when it's live.",
           });
           queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
           setInstagramItem(null);
@@ -262,7 +273,7 @@ export function LibraryPage() {
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => openEdit(item)}><Edit className="h-4 w-4 mr-2" /> Edit</DropdownMenuItem>
                       <DropdownMenuItem disabled={!fbReady} onClick={() => setPublishItem(item)}><Facebook className="h-4 w-4 mr-2" /> Publish to Facebook</DropdownMenuItem>
-                      <DropdownMenuItem disabled={!igReady} onClick={() => setInstagramItem(item)}><Instagram className="h-4 w-4 mr-2" /> Publish to Instagram</DropdownMenuItem>
+                      <DropdownMenuItem disabled={!igReady || item.status === 'publishing'} onClick={() => setInstagramItem(item)}><Instagram className="h-4 w-4 mr-2" /> Publish to Instagram</DropdownMenuItem>
                       <DropdownMenuItem disabled={!liReady} onClick={() => setLinkedinItem(item)}><Linkedin className="h-4 w-4 mr-2" /> Publish to LinkedIn</DropdownMenuItem>
                       <DropdownMenuItem disabled={!twReady} onClick={() => setTwitterItem(item)}><Twitter className="h-4 w-4 mr-2" /> Publish to X</DropdownMenuItem>
                       <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(item.id)}><Trash2 className="h-4 w-4 mr-2" /> Delete</DropdownMenuItem>
@@ -288,7 +299,7 @@ export function LibraryPage() {
                       View post <ExternalLink className="h-3 w-3" />
                     </a>
                   )}
-                  <span className={`px-2 py-1 rounded-md font-medium uppercase ${item.status === 'published' ? 'text-green-600 bg-green-600/10' : item.status === 'scheduled' ? 'text-blue-600 bg-blue-600/10' : 'text-orange-600 bg-orange-600/10'}`}>
+                  <span className={`px-2 py-1 rounded-md font-medium uppercase ${item.status === 'published' ? 'text-green-600 bg-green-600/10' : item.status === 'scheduled' ? 'text-blue-600 bg-blue-600/10' : item.status === 'publishing' ? 'text-amber-600 bg-amber-600/10 animate-pulse' : item.status === 'failed' ? 'text-destructive bg-destructive/10' : 'text-orange-600 bg-orange-600/10'}`}>
                     {item.status}
                   </span>
                 </div>

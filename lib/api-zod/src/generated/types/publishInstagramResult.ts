@@ -7,7 +7,6 @@
  */
 
 export interface PublishInstagramResult {
-  postId: string;
-  /** @nullable */
-  permalink?: string | null;
+  /** Always "publishing". Instagram publishing is processed in the background; poll the content item's status to observe the final "published" or "failed" result. */
+  status: string;
 }

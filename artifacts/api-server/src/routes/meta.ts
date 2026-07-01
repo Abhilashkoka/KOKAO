@@ -9,6 +9,8 @@ import {
   type InstagramCredentials,
 } from "../lib/metaApi";
 import { reverifyFacebook, reverifyInstagram } from "../lib/socialReverify";
+import { enqueueBackgroundJob } from "../lib/backgroundJobs";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -126,6 +128,126 @@ async function markPublished(
         eq(contentItemsTable.tenantId, tenantId),
       ),
     );
+}
+
+async function setContentStatus(
+  id: number,
+  tenantId: number,
+  status: string,
+) {
+  await db
+    .update(contentItemsTable)
+    .set({ status, updatedAt: new Date() })
+    .where(
+      and(
+        eq(contentItemsTable.id, id),
+        eq(contentItemsTable.tenantId, tenantId),
+      ),
+    );
+}
+
+/**
+ * Run the full Instagram create -> poll -> publish flow. This is the slow part
+ * (Instagram fetches the image asynchronously, so the container can stay
+ * IN_PROGRESS for tens of seconds), so it runs in a background job after the
+ * HTTP response has already been sent. It owns persisting the outcome: the
+ * content item is flipped to "published" on success or "failed" on any error.
+ */
+async function runInstagramPublish(params: {
+  id: number;
+  tenantId: number;
+  igUserId: string;
+  pageToken: string;
+  imagePath: string;
+  caption: string;
+}): Promise<void> {
+  const { id, tenantId, igUserId, pageToken, imagePath, caption } = params;
+  try {
+    // Instagram fetches the image itself, so it needs a public URL. Mint a
+    // short-lived signed GET URL for the private object.
+    const imageUrl = await objectStorageService.getSignedDownloadURL(
+      imagePath,
+      900,
+    );
+
+    // Step 1: create the media container.
+    const createForm = new URLSearchParams({
+      image_url: imageUrl,
+      caption,
+      access_token: pageToken,
+    });
+    const createRes = await fetch(
+      `${GRAPH_BASE}/${encodeURIComponent(igUserId)}/media`,
+      { method: "POST", body: createForm },
+    );
+    const createJson = (await createRes.json()) as {
+      id?: string;
+      error?: { message?: string };
+    };
+    if (!createRes.ok || createJson.error || !createJson.id) {
+      throw new Error(
+        createJson.error?.message ||
+          `Instagram API error (${createRes.status})`,
+      );
+    }
+
+    // Step 2: wait for Instagram to finish fetching/processing the image.
+    // Publishing an IN_PROGRESS container fails, so poll until it's ready.
+    await waitForContainerReady(createJson.id, pageToken);
+
+    // Step 3: publish the container.
+    const publishForm = new URLSearchParams({
+      creation_id: createJson.id,
+      access_token: pageToken,
+    });
+    const publishRes = await fetch(
+      `${GRAPH_BASE}/${encodeURIComponent(igUserId)}/media_publish`,
+      { method: "POST", body: publishForm },
+    );
+    const publishJson = (await publishRes.json()) as {
+      id?: string;
+      error?: { message?: string };
+    };
+    if (!publishRes.ok || publishJson.error || !publishJson.id) {
+      throw new Error(
+        publishJson.error?.message ||
+          `Instagram API error (${publishRes.status})`,
+      );
+    }
+
+    const postId = publishJson.id;
+
+    // Best-effort: resolve the post's public permalink. Token goes in the
+    // Authorization header so it never lands in a URL/access log.
+    let permalink: string | null = null;
+    try {
+      const linkRes = await fetch(
+        `${GRAPH_BASE}/${encodeURIComponent(postId)}?fields=permalink`,
+        { headers: { Authorization: `Bearer ${pageToken}` } },
+      );
+      const linkJson = (await linkRes.json()) as { permalink?: string };
+      permalink = linkJson.permalink ?? null;
+    } catch {
+      permalink = null;
+    }
+
+    await markPublished(id, tenantId, { postId, permalink });
+  } catch (error) {
+    logger.error(
+      { err: error, contentItemId: id, tenantId },
+      "Instagram background publish failed",
+    );
+    // Flip the item to "failed" so the UI can surface it instead of leaving it
+    // stuck on "publishing" forever.
+    try {
+      await setContentStatus(id, tenantId, "failed");
+    } catch (updateErr) {
+      logger.error(
+        { err: updateErr, contentItemId: id, tenantId },
+        "Failed to mark Instagram content item as failed",
+      );
+    }
+  }
 }
 
 /**
@@ -289,87 +411,28 @@ router.post(
     const pageToken = fb.creds.pageAccessToken;
     const igUserId = ig.creds.igUserId;
     const caption = item.caption?.trim() || item.title;
+    const imagePath = item.imagePath;
 
-    try {
-      // Instagram fetches the image itself, so it needs a public URL. Mint a
-      // short-lived signed GET URL for the private object.
-      const imageUrl = await objectStorageService.getSignedDownloadURL(
-        item.imagePath,
-        900,
-      );
+    // Instagram fetches the image asynchronously, so the container can stay
+    // IN_PROGRESS for tens of seconds — long enough to risk proxy/client
+    // timeouts on a blocking request. Flip the item to "publishing", return
+    // immediately, and run the create -> poll -> publish flow in the
+    // background. The job persists the final "published"/"failed" status.
+    await setContentStatus(id, req.tenantId, "publishing");
 
-      // Step 1: create the media container.
-      const createForm = new URLSearchParams({
-        image_url: imageUrl,
+    const tenantId = req.tenantId;
+    enqueueBackgroundJob(() =>
+      runInstagramPublish({
+        id,
+        tenantId,
+        igUserId,
+        pageToken,
+        imagePath,
         caption,
-        access_token: pageToken,
-      });
-      const createRes = await fetch(
-        `${GRAPH_BASE}/${encodeURIComponent(igUserId)}/media`,
-        { method: "POST", body: createForm },
-      );
-      const createJson = (await createRes.json()) as {
-        id?: string;
-        error?: { message?: string };
-      };
-      if (!createRes.ok || createJson.error || !createJson.id) {
-        throw new Error(
-          createJson.error?.message ||
-            `Instagram API error (${createRes.status})`,
-        );
-      }
+      }),
+    );
 
-      // Step 2: wait for Instagram to finish fetching/processing the image.
-      // Publishing an IN_PROGRESS container fails, so poll until it's ready.
-      await waitForContainerReady(createJson.id, pageToken);
-
-      // Step 3: publish the container.
-      const publishForm = new URLSearchParams({
-        creation_id: createJson.id,
-        access_token: pageToken,
-      });
-      const publishRes = await fetch(
-        `${GRAPH_BASE}/${encodeURIComponent(igUserId)}/media_publish`,
-        { method: "POST", body: publishForm },
-      );
-      const publishJson = (await publishRes.json()) as {
-        id?: string;
-        error?: { message?: string };
-      };
-      if (!publishRes.ok || publishJson.error || !publishJson.id) {
-        throw new Error(
-          publishJson.error?.message ||
-            `Instagram API error (${publishRes.status})`,
-        );
-      }
-
-      const postId = publishJson.id;
-
-      // Best-effort: resolve the post's public permalink. Token goes in the
-      // Authorization header so it never lands in a URL/access log.
-      let permalink: string | null = null;
-      try {
-        const linkRes = await fetch(
-          `${GRAPH_BASE}/${encodeURIComponent(postId)}?fields=permalink`,
-          { headers: { Authorization: `Bearer ${pageToken}` } },
-        );
-        const linkJson = (await linkRes.json()) as { permalink?: string };
-        permalink = linkJson.permalink ?? null;
-      } catch {
-        permalink = null;
-      }
-
-      await markPublished(id, req.tenantId, { postId, permalink });
-      res.json({ postId, permalink });
-    } catch (error) {
-      req.log.error({ err: error }, "Instagram publish failed");
-      res.status(502).json({
-        error:
-          error instanceof Error
-            ? `Instagram rejected the post: ${error.message}`
-            : "Failed to publish to Instagram.",
-      });
-    }
+    res.status(202).json({ status: "publishing" });
   },
 );
 

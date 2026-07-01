@@ -3449,15 +3449,15 @@ export const PublishContentToFacebookResponse = zod.object({
 
 
 /**
- * @summary Publish a content item to the tenant's connected Instagram account
+ * Validates the connection and image, flips the content item to "publishing", then processes the actual upload/publish in the background. Returns immediately; poll the content item's status for the final "published" or "failed" result.
+ * @summary Queue publishing a content item to the tenant's Instagram account
  */
 export const PublishContentToInstagramParams = zod.object({
   "id": zod.coerce.number()
 })
 
 export const PublishContentToInstagramResponse = zod.object({
-  "postId": zod.string(),
-  "permalink": zod.string().nullish()
+  "status": zod.string().describe('Always \"publishing\". Instagram publishing is processed in the background; poll the content item\'s status to observe the final \"published\" or \"failed\" result.')
 })
 
 

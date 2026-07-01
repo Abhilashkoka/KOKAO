@@ -4413,7 +4413,8 @@ export const getPublishContentToInstagramUrl = (id: number,) => {
 }
 
 /**
- * @summary Publish a content item to the tenant's connected Instagram account
+ * Validates the connection and image, flips the content item to "publishing", then processes the actual upload/publish in the background. Returns immediately; poll the content item's status for the final "published" or "failed" result.
+ * @summary Queue publishing a content item to the tenant's Instagram account
  */
 export const publishContentToInstagram = async (id: number, options?: RequestInit): Promise<PublishInstagramResult> => {
 
@@ -4461,7 +4462,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type PublishContentToInstagramMutationError = ErrorType<ErrorEnvelope>
 
     /**
- * @summary Publish a content item to the tenant's connected Instagram account
+ * @summary Queue publishing a content item to the tenant's Instagram account
  */
 export const usePublishContentToInstagram = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishContentToInstagram>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
