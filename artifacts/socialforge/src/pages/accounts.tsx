@@ -14,8 +14,11 @@ import {
   useRetestFacebookCredentials,
   useDisconnectInstagram,
   useRetestInstagramCredentials,
+  useGetTwitterCredentials,
+  useSaveTwitterCredentials,
   getGetFacebookCredentialsQueryKey,
-  getGetInstagramCredentialsQueryKey
+  getGetInstagramCredentialsQueryKey,
+  getGetTwitterCredentialsQueryKey
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -24,7 +27,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Share2, Plus, Trash2, CheckCircle2, Instagram, Facebook, Linkedin, Youtube, Loader2, Copy, ExternalLink, AlertCircle } from "lucide-react";
+import { Share2, Plus, Trash2, CheckCircle2, Instagram, Facebook, Linkedin, Youtube, Loader2, Copy, ExternalLink, AlertCircle, Twitter } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 function StatusPill({ status }: { status?: string | null }) {
@@ -421,6 +424,125 @@ function InstagramCredentialsCard() {
   );
 }
 
+function TwitterCredentialsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useGetTwitterCredentials();
+  const save = useSaveTwitterCredentials();
+
+  const [accessToken, setAccessToken] = useState("");
+  const [accessTokenSecret, setAccessTokenSecret] = useState("");
+
+  const handleSave = () => {
+    if (!accessToken.trim() || !accessTokenSecret.trim()) return;
+    save.mutate(
+      {
+        data: {
+          accessToken: accessToken.trim(),
+          accessTokenSecret: accessTokenSecret.trim(),
+        },
+      },
+      {
+        onSuccess: (res) => {
+          queryClient.invalidateQueries({ queryKey: getGetTwitterCredentialsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
+          setAccessToken("");
+          setAccessTokenSecret("");
+          if (res.verifyStatus === "verified") {
+            toast({ title: "X account verified", description: "You can now publish to X from the Content Library." });
+          } else {
+            toast({
+              variant: "destructive",
+              title: "Saved, but verification failed",
+              description: res.verifyError || "X rejected these credentials. Check the access token and secret.",
+            });
+          }
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description: err?.response?.data?.error || "Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card className="overflow-hidden border-border">
+      <CardContent className="p-6">
+        <div className="flex items-start gap-4">
+          <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-sky-500/10 text-sky-500 shrink-0">
+            <Twitter className="h-6 w-6" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-bold text-lg">X (Twitter) Publishing</h3>
+              {isLoading ? null : data?.saved ? (
+                <StatusPill status={data.verifyStatus} />
+              ) : !data?.appConfigured ? (
+                <span className="text-xs font-medium text-amber-600 flex items-center gap-1 bg-amber-600/10 px-2 py-0.5 rounded-full">
+                  <AlertCircle className="h-3 w-3" /> Needs admin setup
+                </span>
+              ) : (
+                <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                  Not connected
+                </span>
+              )}
+            </div>
+
+            {isLoading ? (
+              <div className="mt-3 space-y-3">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : !data?.appConfigured ? (
+              <p className="mt-2 text-sm text-muted-foreground">
+                X publishing needs a one-time X app setup by a platform administrator before you can connect your account.
+              </p>
+            ) : (
+              <div className="mt-3 space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Paste your X account's Access Token and Access Token Secret. We test them immediately and only store them encrypted. Generate these in the X developer portal under your app's Keys and tokens tab (Access Token and Secret with Read and Write permissions).
+                </p>
+                {data?.verifyStatus === "failed" && data?.verifyError && (
+                  <p className="text-sm text-destructive">{data.verifyError}</p>
+                )}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Access Token</label>
+                  <Input
+                    type="password"
+                    value={accessToken}
+                    onChange={(e) => setAccessToken(e.target.value)}
+                    placeholder={data?.saved ? "Enter to replace the saved token" : "1234567890-abc..."}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Access Token Secret</label>
+                  <Input
+                    type="password"
+                    value={accessTokenSecret}
+                    onChange={(e) => setAccessTokenSecret(e.target.value)}
+                    placeholder={data?.saved ? "Enter to replace the saved secret" : "Access token secret"}
+                  />
+                </div>
+                <Button onClick={handleSave} disabled={save.isPending || !accessToken.trim() || !accessTokenSecret.trim()}>
+                  {save.isPending ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving & testing...</>
+                  ) : (
+                    "Save and verify"
+                  )}
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 const ICONS: Record<string, any> = {
   instagram: { icon: Instagram, color: "text-pink-600", bg: "bg-pink-600/10" },
   facebook: { icon: Facebook, color: "text-blue-600", bg: "bg-blue-600/10" },
@@ -663,6 +785,7 @@ export function AccountsPage() {
 
       <FacebookCredentialsCard />
       <InstagramCredentialsCard />
+      <TwitterCredentialsCard />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {items.length === 0 && (

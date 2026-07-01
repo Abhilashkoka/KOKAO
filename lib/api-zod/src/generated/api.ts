@@ -682,7 +682,8 @@ export const GetFacebookCredentialsResponse = zod.object({
   "accountName": zod.string().nullish(),
   "pageId": zod.string().nullish(),
   "pageAccessTokenMasked": zod.string().nullish(),
-  "igUserId": zod.string().nullish()
+  "igUserId": zod.string().nullish(),
+  "accessTokenMasked": zod.string().nullish()
 })
 
 
@@ -708,7 +709,8 @@ export const SaveFacebookCredentialsResponse = zod.object({
   "accountName": zod.string().nullish(),
   "pageId": zod.string().nullish(),
   "pageAccessTokenMasked": zod.string().nullish(),
-  "igUserId": zod.string().nullish()
+  "igUserId": zod.string().nullish(),
+  "accessTokenMasked": zod.string().nullish()
 })
 
 
@@ -725,7 +727,8 @@ export const DisconnectFacebookResponse = zod.object({
   "accountName": zod.string().nullish(),
   "pageId": zod.string().nullish(),
   "pageAccessTokenMasked": zod.string().nullish(),
-  "igUserId": zod.string().nullish()
+  "igUserId": zod.string().nullish(),
+  "accessTokenMasked": zod.string().nullish()
 })
 
 
@@ -742,7 +745,8 @@ export const RetestFacebookCredentialsResponse = zod.object({
   "accountName": zod.string().nullish(),
   "pageId": zod.string().nullish(),
   "pageAccessTokenMasked": zod.string().nullish(),
-  "igUserId": zod.string().nullish()
+  "igUserId": zod.string().nullish(),
+  "accessTokenMasked": zod.string().nullish()
 })
 
 
@@ -759,7 +763,8 @@ export const GetInstagramCredentialsResponse = zod.object({
   "accountName": zod.string().nullish(),
   "pageId": zod.string().nullish(),
   "pageAccessTokenMasked": zod.string().nullish(),
-  "igUserId": zod.string().nullish()
+  "igUserId": zod.string().nullish(),
+  "accessTokenMasked": zod.string().nullish()
 })
 
 
@@ -783,7 +788,8 @@ export const SaveInstagramCredentialsResponse = zod.object({
   "accountName": zod.string().nullish(),
   "pageId": zod.string().nullish(),
   "pageAccessTokenMasked": zod.string().nullish(),
-  "igUserId": zod.string().nullish()
+  "igUserId": zod.string().nullish(),
+  "accessTokenMasked": zod.string().nullish()
 })
 
 
@@ -800,7 +806,8 @@ export const DisconnectInstagramResponse = zod.object({
   "accountName": zod.string().nullish(),
   "pageId": zod.string().nullish(),
   "pageAccessTokenMasked": zod.string().nullish(),
-  "igUserId": zod.string().nullish()
+  "igUserId": zod.string().nullish(),
+  "accessTokenMasked": zod.string().nullish()
 })
 
 
@@ -817,7 +824,8 @@ export const RetestInstagramCredentialsResponse = zod.object({
   "accountName": zod.string().nullish(),
   "pageId": zod.string().nullish(),
   "pageAccessTokenMasked": zod.string().nullish(),
-  "igUserId": zod.string().nullish()
+  "igUserId": zod.string().nullish(),
+  "accessTokenMasked": zod.string().nullish()
 })
 
 
@@ -874,6 +882,99 @@ export const PublishContentToLinkedinParams = zod.object({
 })
 
 export const PublishContentToLinkedinResponse = zod.object({
+  "postId": zod.string(),
+  "permalink": zod.string().nullish()
+})
+
+
+/**
+ * @summary Get masked app-level X (Twitter) credentials and test status (superadmin only)
+ */
+export const AdminGetTwitterCredentialsResponse = zod.object({
+  "configured": zod.boolean().describe('Whether X app keys have been saved.'),
+  "apiKeyMasked": zod.string().nullish(),
+  "apiSecretMasked": zod.string().nullish(),
+  "testStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic test.'),
+  "testedAt": zod.coerce.date().nullish(),
+  "testError": zod.string().nullish()
+})
+
+
+/**
+ * @summary Save and auto-test app-level X (Twitter) credentials (superadmin only)
+ */
+
+
+
+
+export const AdminSaveTwitterCredentialsBody = zod.object({
+  "apiKey": zod.string().min(1),
+  "apiSecret": zod.string().min(1)
+})
+
+export const AdminSaveTwitterCredentialsResponse = zod.object({
+  "configured": zod.boolean().describe('Whether X app keys have been saved.'),
+  "apiKeyMasked": zod.string().nullish(),
+  "apiSecretMasked": zod.string().nullish(),
+  "testStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic test.'),
+  "testedAt": zod.coerce.date().nullish(),
+  "testError": zod.string().nullish()
+})
+
+
+/**
+ * @summary Get the tenant's masked X (Twitter) credentials and verify status
+ */
+export const GetTwitterCredentialsResponse = zod.object({
+  "platform": zod.string(),
+  "appConfigured": zod.boolean().describe('Whether the admin-level Meta app keys are configured.'),
+  "saved": zod.boolean().describe('Whether the tenant has saved credentials for this platform.'),
+  "verifyStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic verification.'),
+  "verifiedAt": zod.coerce.date().nullish(),
+  "verifyError": zod.string().nullish(),
+  "accountName": zod.string().nullish(),
+  "pageId": zod.string().nullish(),
+  "pageAccessTokenMasked": zod.string().nullish(),
+  "igUserId": zod.string().nullish(),
+  "accessTokenMasked": zod.string().nullish()
+})
+
+
+/**
+ * @summary Save and auto-verify the tenant's X (Twitter) access token
+ */
+
+
+
+
+export const SaveTwitterCredentialsBody = zod.object({
+  "accessToken": zod.string().min(1),
+  "accessTokenSecret": zod.string().min(1)
+})
+
+export const SaveTwitterCredentialsResponse = zod.object({
+  "platform": zod.string(),
+  "appConfigured": zod.boolean().describe('Whether the admin-level Meta app keys are configured.'),
+  "saved": zod.boolean().describe('Whether the tenant has saved credentials for this platform.'),
+  "verifyStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic verification.'),
+  "verifiedAt": zod.coerce.date().nullish(),
+  "verifyError": zod.string().nullish(),
+  "accountName": zod.string().nullish(),
+  "pageId": zod.string().nullish(),
+  "pageAccessTokenMasked": zod.string().nullish(),
+  "igUserId": zod.string().nullish(),
+  "accessTokenMasked": zod.string().nullish()
+})
+
+
+/**
+ * @summary Publish a content item to the tenant's connected X (Twitter) account
+ */
+export const PublishContentToTwitterParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const PublishContentToTwitterResponse = zod.object({
   "postId": zod.string(),
   "permalink": zod.string().nullish()
 })

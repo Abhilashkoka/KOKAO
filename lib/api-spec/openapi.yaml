@@ -1072,6 +1072,127 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /admin/platform-credentials/twitter:
+    get:
+      operationId: adminGetTwitterCredentials
+      tags: [platform-credentials]
+      summary: Get masked app-level X (Twitter) credentials and test status (superadmin only)
+      responses:
+        "200":
+          description: X app credential status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TwitterAppCredentialStatus"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminSaveTwitterCredentials
+      tags: [platform-credentials]
+      summary: Save and auto-test app-level X (Twitter) credentials (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TwitterAppCredentialInput"
+      responses:
+        "200":
+          description: Saved and tested
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TwitterAppCredentialStatus"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /social-credentials/twitter:
+    get:
+      operationId: getTwitterCredentials
+      tags: [social-credentials]
+      summary: Get the tenant's masked X (Twitter) credentials and verify status
+      responses:
+        "200":
+          description: X credential status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialCredentialStatus"
+    put:
+      operationId: saveTwitterCredentials
+      tags: [social-credentials]
+      summary: Save and auto-verify the tenant's X (Twitter) access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TwitterCredentialInput"
+      responses:
+        "200":
+          description: Saved and verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialCredentialStatus"
+        "400":
+          description: Invalid input or X app not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /content/{id}/publish-twitter:
+    post:
+      operationId: publishContentToTwitter
+      tags: [twitter]
+      summary: Publish a content item to the tenant's connected X (Twitter) account
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishTwitterResult"
+        "400":
+          description: X not connected or not verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: X API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /storage/uploads/request-url:
     post:
       tags: [Storage]
@@ -1513,6 +1634,8 @@ components:
           type: ["string", "null"]
         igUserId:
           type: ["string", "null"]
+        accessTokenMasked:
+          type: ["string", "null"]
     PublishFacebookResult:
       type: object
       required: [postId]
@@ -1550,6 +1673,53 @@ components:
           type: string
           description: The exact OAuth redirect URL to register in the LinkedIn app.
     PublishLinkedInResult:
+      type: object
+      required: [postId]
+      properties:
+        postId:
+          type: string
+        permalink:
+          type: ["string", "null"]
+    TwitterAppCredentialInput:
+      type: object
+      required: [apiKey, apiSecret]
+      properties:
+        apiKey:
+          type: string
+          minLength: 1
+        apiSecret:
+          type: string
+          minLength: 1
+    TwitterAppCredentialStatus:
+      type: object
+      required: [configured]
+      properties:
+        configured:
+          type: boolean
+          description: Whether X app keys have been saved.
+        apiKeyMasked:
+          type: ["string", "null"]
+        apiSecretMasked:
+          type: ["string", "null"]
+        testStatus:
+          type: ["string", "null"]
+          description: '"verified" or "failed" from the last automatic test.'
+        testedAt:
+          type: ["string", "null"]
+          format: date-time
+        testError:
+          type: ["string", "null"]
+    TwitterCredentialInput:
+      type: object
+      required: [accessToken, accessTokenSecret]
+      properties:
+        accessToken:
+          type: string
+          minLength: 1
+        accessTokenSecret:
+          type: string
+          minLength: 1
+    PublishTwitterResult:
       type: object
       required: [postId]
       properties:

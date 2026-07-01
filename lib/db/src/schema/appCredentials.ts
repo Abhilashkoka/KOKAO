@@ -30,3 +30,9 @@ export const metaAppCredentialsSchema = z.object({
   appSecret: z.string(),
 });
 export type MetaAppCredentials = z.infer<typeof metaAppCredentialsSchema>;
+
+export const twitterAppCredentialsSchema = z.object({
+  apiKey: z.string(),
+  apiSecret: z.string(),
+});
+export type TwitterAppCredentials = z.infer<typeof twitterAppCredentialsSchema>;

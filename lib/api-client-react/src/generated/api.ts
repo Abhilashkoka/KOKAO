@@ -49,6 +49,7 @@ import type {
   PublishFacebookResult,
   PublishInstagramResult,
   PublishLinkedInResult,
+  PublishTwitterResult,
   ScheduleInput,
   ScheduleUpdate,
   ScheduledPost,
@@ -59,6 +60,9 @@ import type {
   TenantSettings,
   TopicIdeasRequest,
   TopicIdeasResult,
+  TwitterAppCredentialInput,
+  TwitterAppCredentialStatus,
+  TwitterCredentialInput,
   UpdateTenantPlanBody,
   UpdateTenantSuperadminBody,
   UploadUrlRequest,
@@ -3358,6 +3362,370 @@ export const usePublishContentToLinkedin = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getPublishContentToLinkedinMutationOptions(options));
+    }
+
+export const getAdminGetTwitterCredentialsUrl = () => {
+
+
+
+
+  return `/api/admin/platform-credentials/twitter`
+}
+
+/**
+ * @summary Get masked app-level X (Twitter) credentials and test status (superadmin only)
+ */
+export const adminGetTwitterCredentials = async ( options?: RequestInit): Promise<TwitterAppCredentialStatus> => {
+
+  return customFetch<TwitterAppCredentialStatus>(getAdminGetTwitterCredentialsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetTwitterCredentialsQueryKey = () => {
+    return [
+    `/api/admin/platform-credentials/twitter`
+    ] as const;
+    }
+
+
+export const getAdminGetTwitterCredentialsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetTwitterCredentials>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetTwitterCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetTwitterCredentialsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetTwitterCredentials>>> = ({ signal }) => adminGetTwitterCredentials({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetTwitterCredentials>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetTwitterCredentialsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetTwitterCredentials>>>
+export type AdminGetTwitterCredentialsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get masked app-level X (Twitter) credentials and test status (superadmin only)
+ */
+
+export function useAdminGetTwitterCredentials<TData = Awaited<ReturnType<typeof adminGetTwitterCredentials>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetTwitterCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetTwitterCredentialsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminSaveTwitterCredentialsUrl = () => {
+
+
+
+
+  return `/api/admin/platform-credentials/twitter`
+}
+
+/**
+ * @summary Save and auto-test app-level X (Twitter) credentials (superadmin only)
+ */
+export const adminSaveTwitterCredentials = async (twitterAppCredentialInput: TwitterAppCredentialInput, options?: RequestInit): Promise<TwitterAppCredentialStatus> => {
+
+  return customFetch<TwitterAppCredentialStatus>(getAdminSaveTwitterCredentialsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(twitterAppCredentialInput)
+  }
+);}
+
+
+
+
+export const getAdminSaveTwitterCredentialsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveTwitterCredentials>>, TError,{data: BodyType<TwitterAppCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSaveTwitterCredentials>>, TError,{data: BodyType<TwitterAppCredentialInput>}, TContext> => {
+
+const mutationKey = ['adminSaveTwitterCredentials'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSaveTwitterCredentials>>, {data: BodyType<TwitterAppCredentialInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminSaveTwitterCredentials(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSaveTwitterCredentialsMutationResult = NonNullable<Awaited<ReturnType<typeof adminSaveTwitterCredentials>>>
+    export type AdminSaveTwitterCredentialsMutationBody = BodyType<TwitterAppCredentialInput>
+    export type AdminSaveTwitterCredentialsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save and auto-test app-level X (Twitter) credentials (superadmin only)
+ */
+export const useAdminSaveTwitterCredentials = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveTwitterCredentials>>, TError,{data: BodyType<TwitterAppCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSaveTwitterCredentials>>,
+        TError,
+        {data: BodyType<TwitterAppCredentialInput>},
+        TContext
+      > => {
+      return useMutation(getAdminSaveTwitterCredentialsMutationOptions(options));
+    }
+
+export const getGetTwitterCredentialsUrl = () => {
+
+
+
+
+  return `/api/social-credentials/twitter`
+}
+
+/**
+ * @summary Get the tenant's masked X (Twitter) credentials and verify status
+ */
+export const getTwitterCredentials = async ( options?: RequestInit): Promise<SocialCredentialStatus> => {
+
+  return customFetch<SocialCredentialStatus>(getGetTwitterCredentialsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTwitterCredentialsQueryKey = () => {
+    return [
+    `/api/social-credentials/twitter`
+    ] as const;
+    }
+
+
+export const getGetTwitterCredentialsQueryOptions = <TData = Awaited<ReturnType<typeof getTwitterCredentials>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTwitterCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTwitterCredentialsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTwitterCredentials>>> = ({ signal }) => getTwitterCredentials({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTwitterCredentials>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTwitterCredentialsQueryResult = NonNullable<Awaited<ReturnType<typeof getTwitterCredentials>>>
+export type GetTwitterCredentialsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the tenant's masked X (Twitter) credentials and verify status
+ */
+
+export function useGetTwitterCredentials<TData = Awaited<ReturnType<typeof getTwitterCredentials>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTwitterCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTwitterCredentialsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSaveTwitterCredentialsUrl = () => {
+
+
+
+
+  return `/api/social-credentials/twitter`
+}
+
+/**
+ * @summary Save and auto-verify the tenant's X (Twitter) access token
+ */
+export const saveTwitterCredentials = async (twitterCredentialInput: TwitterCredentialInput, options?: RequestInit): Promise<SocialCredentialStatus> => {
+
+  return customFetch<SocialCredentialStatus>(getSaveTwitterCredentialsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(twitterCredentialInput)
+  }
+);}
+
+
+
+
+export const getSaveTwitterCredentialsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveTwitterCredentials>>, TError,{data: BodyType<TwitterCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveTwitterCredentials>>, TError,{data: BodyType<TwitterCredentialInput>}, TContext> => {
+
+const mutationKey = ['saveTwitterCredentials'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveTwitterCredentials>>, {data: BodyType<TwitterCredentialInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  saveTwitterCredentials(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveTwitterCredentialsMutationResult = NonNullable<Awaited<ReturnType<typeof saveTwitterCredentials>>>
+    export type SaveTwitterCredentialsMutationBody = BodyType<TwitterCredentialInput>
+    export type SaveTwitterCredentialsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save and auto-verify the tenant's X (Twitter) access token
+ */
+export const useSaveTwitterCredentials = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveTwitterCredentials>>, TError,{data: BodyType<TwitterCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof saveTwitterCredentials>>,
+        TError,
+        {data: BodyType<TwitterCredentialInput>},
+        TContext
+      > => {
+      return useMutation(getSaveTwitterCredentialsMutationOptions(options));
+    }
+
+export const getPublishContentToTwitterUrl = (id: number,) => {
+
+
+
+
+  return `/api/content/${id}/publish-twitter`
+}
+
+/**
+ * @summary Publish a content item to the tenant's connected X (Twitter) account
+ */
+export const publishContentToTwitter = async (id: number, options?: RequestInit): Promise<PublishTwitterResult> => {
+
+  return customFetch<PublishTwitterResult>(getPublishContentToTwitterUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getPublishContentToTwitterMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishContentToTwitter>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof publishContentToTwitter>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['publishContentToTwitter'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof publishContentToTwitter>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  publishContentToTwitter(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PublishContentToTwitterMutationResult = NonNullable<Awaited<ReturnType<typeof publishContentToTwitter>>>
+
+    export type PublishContentToTwitterMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Publish a content item to the tenant's connected X (Twitter) account
+ */
+export const usePublishContentToTwitter = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishContentToTwitter>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof publishContentToTwitter>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getPublishContentToTwitterMutationOptions(options));
     }
 
 export const getRequestUploadUrlUrl = () => {

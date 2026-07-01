@@ -225,6 +225,8 @@ export interface SocialCredentialStatus {
   pageAccessTokenMasked?: string | null;
   /** @nullable */
   igUserId?: string | null;
+  /** @nullable */
+  accessTokenMasked?: string | null;
 }
 
 export interface PublishFacebookResult {
@@ -254,6 +256,44 @@ export interface LinkedInStatus {
 }
 
 export interface PublishLinkedInResult {
+  postId: string;
+  /** @nullable */
+  permalink?: string | null;
+}
+
+export interface TwitterAppCredentialInput {
+  /** @minLength 1 */
+  apiKey: string;
+  /** @minLength 1 */
+  apiSecret: string;
+}
+
+export interface TwitterAppCredentialStatus {
+  /** Whether X app keys have been saved. */
+  configured: boolean;
+  /** @nullable */
+  apiKeyMasked?: string | null;
+  /** @nullable */
+  apiSecretMasked?: string | null;
+  /**
+     * "verified" or "failed" from the last automatic test.
+     * @nullable
+     */
+  testStatus?: string | null;
+  /** @nullable */
+  testedAt?: string | null;
+  /** @nullable */
+  testError?: string | null;
+}
+
+export interface TwitterCredentialInput {
+  /** @minLength 1 */
+  accessToken: string;
+  /** @minLength 1 */
+  accessTokenSecret: string;
+}
+
+export interface PublishTwitterResult {
   postId: string;
   /** @nullable */
   permalink?: string | null;

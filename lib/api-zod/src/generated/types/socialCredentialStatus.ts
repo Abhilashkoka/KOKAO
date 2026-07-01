@@ -29,4 +29,6 @@ export interface SocialCredentialStatus {
   pageAccessTokenMasked?: string | null;
   /** @nullable */
   igUserId?: string | null;
+  /** @nullable */
+  accessTokenMasked?: string | null;
 }

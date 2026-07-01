@@ -6,8 +6,10 @@ import {
   usePublishContentToFacebook,
   usePublishContentToInstagram,
   usePublishContentToLinkedin,
+  usePublishContentToTwitter,
   useGetFacebookCredentials,
   useGetInstagramCredentials,
+  useGetTwitterCredentials,
   getListContentQueryKey
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -15,7 +17,7 @@ import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin } from "lucide-react";
+import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, Twitter } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -41,10 +43,15 @@ export function LibraryPage() {
   const [linkedinItem, setLinkedinItem] = useState<any | null>(null);
   const publishLinkedin = usePublishContentToLinkedin();
 
+  const [twitterItem, setTwitterItem] = useState<any | null>(null);
+  const publishTwitter = usePublishContentToTwitter();
+
   const { data: fbCreds } = useGetFacebookCredentials();
   const { data: igCreds } = useGetInstagramCredentials();
+  const { data: twCreds } = useGetTwitterCredentials();
   const fbReady = fbCreds?.verifyStatus === "verified";
   const igReady = igCreds?.verifyStatus === "verified";
+  const twReady = twCreds?.verifyStatus === "verified";
 
   const handlePublish = () => {
     if (!publishItem) return;
@@ -114,6 +121,32 @@ export function LibraryPage() {
             description:
               err?.response?.data?.error ||
               "Could not publish to LinkedIn. Connect your LinkedIn account on the Accounts page and try again.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handlePublishTwitter = () => {
+    if (!twitterItem) return;
+    publishTwitter.mutate(
+      { id: twitterItem.id },
+      {
+        onSuccess: (res) => {
+          toast({
+            title: "Published to X",
+            description: res?.permalink ? "Your post is live on X." : undefined,
+          });
+          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+          setTwitterItem(null);
+        },
+        onError: (err: any) => {
+          toast({
+            title: "Publish failed",
+            description:
+              err?.response?.data?.error ||
+              "Could not publish to X. Connect and verify your X account on the Accounts page first.",
             variant: "destructive",
           });
         },
@@ -209,6 +242,7 @@ export function LibraryPage() {
                       <DropdownMenuItem disabled={!fbReady} onClick={() => setPublishItem(item)}><Facebook className="h-4 w-4 mr-2" /> Publish to Facebook</DropdownMenuItem>
                       <DropdownMenuItem disabled={!igReady} onClick={() => setInstagramItem(item)}><Instagram className="h-4 w-4 mr-2" /> Publish to Instagram</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => setLinkedinItem(item)}><Linkedin className="h-4 w-4 mr-2" /> Publish to LinkedIn</DropdownMenuItem>
+                      <DropdownMenuItem disabled={!twReady} onClick={() => setTwitterItem(item)}><Twitter className="h-4 w-4 mr-2" /> Publish to X</DropdownMenuItem>
                       <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(item.id)}><Trash2 className="h-4 w-4 mr-2" /> Delete</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -331,6 +365,31 @@ export function LibraryPage() {
             <Button variant="outline" onClick={() => setLinkedinItem(null)}>Cancel</Button>
             <Button onClick={handlePublishLinkedin} disabled={publishLinkedin.isPending}>
               {publishLinkedin.isPending ? "Publishing..." : "Publish"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!twitterItem} onOpenChange={(open) => !open && setTwitterItem(null)}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle>Publish to X</DialogTitle>
+            <DialogDescription>
+              This posts the caption{twitterItem?.imagePath ? " and image" : ""} to your connected X account{twCreds?.accountName ? ` (${twCreds.accountName})` : ""}. Captions longer than 280 characters are truncated.
+            </DialogDescription>
+          </DialogHeader>
+          {twitterItem && (
+            <div className="space-y-2 py-2">
+              <p className="font-medium">{twitterItem.title}</p>
+              {twitterItem.caption && (
+                <p className="text-sm text-muted-foreground line-clamp-4">{twitterItem.caption}</p>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTwitterItem(null)}>Cancel</Button>
+            <Button onClick={handlePublishTwitter} disabled={publishTwitter.isPending}>
+              {publishTwitter.isPending ? "Publishing..." : "Publish"}
             </Button>
           </DialogFooter>
         </DialogContent>

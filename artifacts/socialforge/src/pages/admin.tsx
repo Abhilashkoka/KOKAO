@@ -6,9 +6,12 @@ import {
   useAdminUpdateTenantSuperadmin,
   useAdminGetMetaCredentials,
   useAdminSaveMetaCredentials,
+  useAdminGetTwitterCredentials,
+  useAdminSaveTwitterCredentials,
   getAdminListTenantsQueryKey,
   getAdminGetStatsQueryKey,
   getAdminGetMetaCredentialsQueryKey,
+  getAdminGetTwitterCredentialsQueryKey,
   useGetMe,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -209,6 +212,151 @@ function MetaCredentialsCard() {
   );
 }
 
+function TwitterCredentialsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useAdminGetTwitterCredentials();
+  const saveTwitter = useAdminSaveTwitterCredentials();
+
+  const [apiKey, setApiKey] = useState("");
+  const [apiSecret, setApiSecret] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (data && !dirty) {
+      setApiKey(data.apiKeyMasked ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const handleSave = () => {
+    if (!apiKey.trim() || !apiSecret.trim()) return;
+    saveTwitter.mutate(
+      { data: { apiKey: apiKey.trim(), apiSecret: apiSecret.trim() } },
+      {
+        onSuccess: (res) => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetTwitterCredentialsQueryKey(),
+          });
+          setApiSecret("");
+          setDirty(false);
+          if (res.testStatus === "verified") {
+            toast({
+              title: "X credentials verified",
+              description: "The app keys were saved and tested successfully.",
+            });
+          } else {
+            toast({
+              variant: "destructive",
+              title: "Saved, but verification failed",
+              description:
+                res.testError ||
+                "The app keys were saved but X rejected them. Double-check the API Key and Secret.",
+            });
+          }
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description: err?.response?.data?.error || "Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  const status = data?.testStatus;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>X (Twitter) app credentials</CardTitle>
+        <CardDescription>
+          One-time platform setup. Enter your X app's API Key and API Secret
+          (consumer keys). Every workspace then connects their own X account with
+          an access token on the Accounts page. Secrets are encrypted at rest and
+          never shown again.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-xl">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (
+          <>
+            {data?.configured && (
+              <div className="flex items-center gap-2 text-sm">
+                {status === "verified" ? (
+                  <span className="text-green-600 flex items-center gap-1">
+                    <CheckCircle2 className="h-4 w-4" /> Verified with X
+                  </span>
+                ) : status === "failed" ? (
+                  <span className="text-destructive flex items-center gap-1">
+                    <AlertCircle className="h-4 w-4" /> Verification failed
+                    {data.testError ? `: ${data.testError}` : ""}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">Saved</span>
+                )}
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">API Key</label>
+              <Input
+                value={apiKey}
+                onChange={(e) => {
+                  setApiKey(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="Consumer API key"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">API Secret</label>
+              <Input
+                type="password"
+                value={apiSecret}
+                onChange={(e) => {
+                  setApiSecret(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder={
+                  data?.configured
+                    ? "Enter to replace the saved secret"
+                    : "Consumer API secret"
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Create an app in the X developer portal at
+                developer.x.com and copy the API Key and Secret from the app's
+                Keys and tokens tab.
+              </p>
+            </div>
+            <Button
+              onClick={handleSave}
+              disabled={
+                saveTwitter.isPending || !apiKey.trim() || !apiSecret.trim()
+              }
+            >
+              {saveTwitter.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving &
+                  testing...
+                </>
+              ) : (
+                "Save and test"
+              )}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function AdminPage() {
   const { data: me } = useGetMe();
   const queryClient = useQueryClient();
@@ -351,6 +499,7 @@ export function AdminPage() {
       )}
 
       <MetaCredentialsCard />
+      <TwitterCredentialsCard />
 
       <Card>
         <CardHeader>

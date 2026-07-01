@@ -5,8 +5,10 @@ import {
   AdminSaveMetaCredentialsBody,
   SaveFacebookCredentialsBody,
   SaveInstagramCredentialsBody,
+  AdminSaveTwitterCredentialsBody,
+  SaveTwitterCredentialsBody,
 } from "@workspace/api-zod";
-import type { MetaAppCredentials } from "@workspace/db";
+import type { MetaAppCredentials, TwitterAppCredentials } from "@workspace/db";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import {
   encryptJson,
@@ -23,6 +25,13 @@ import {
   type FacebookCredentials,
   type InstagramCredentials,
 } from "../lib/metaApi";
+import {
+  testTwitterAppCredentials,
+  testTwitterCredentials,
+  getTwitterAppCredentials,
+  isTwitterAppConfigured,
+  type TwitterCredentials,
+} from "../lib/twitterApi";
 
 const router: IRouter = Router();
 
@@ -128,6 +137,106 @@ router.put(
 );
 
 // ---------------------------------------------------------------------------
+// Admin: app-level X (Twitter) credentials (superadmin only)
+// ---------------------------------------------------------------------------
+
+async function loadTwitterRow() {
+  return (
+    await db
+      .select()
+      .from(appCredentialsTable)
+      .where(eq(appCredentialsTable.provider, "twitter"))
+      .limit(1)
+  )[0];
+}
+
+function serializeTwitterStatus(
+  row: Awaited<ReturnType<typeof loadTwitterRow>> | undefined,
+) {
+  if (!row) {
+    return {
+      configured: false,
+      apiKeyMasked: null,
+      apiSecretMasked: null,
+      testStatus: null,
+      testedAt: null,
+      testError: null,
+    };
+  }
+  let creds: TwitterAppCredentials | null = null;
+  try {
+    creds = decryptJson<TwitterAppCredentials>(row.encryptedCredentials);
+  } catch {
+    creds = null;
+  }
+  return {
+    configured: true,
+    apiKeyMasked: maskSecret(creds?.apiKey, 4),
+    apiSecretMasked: maskSecret(creds?.apiSecret, 4),
+    testStatus: row.lastTestStatus ?? null,
+    testedAt: row.lastTestedAt ? row.lastTestedAt.toISOString() : null,
+    testError: row.lastTestError ?? null,
+  };
+}
+
+router.get(
+  "/admin/platform-credentials/twitter",
+  requireSuperadmin,
+  async (_req: Request, res: Response) => {
+    const row = await loadTwitterRow();
+    res.json(serializeTwitterStatus(row));
+  },
+);
+
+router.put(
+  "/admin/platform-credentials/twitter",
+  requireSuperadmin,
+  async (req: Request, res: Response) => {
+    if (!isEncryptionConfigured()) {
+      res
+        .status(400)
+        .json({ error: "Server is missing SESSION_SECRET; cannot store secrets." });
+      return;
+    }
+    const parsed = AdminSaveTwitterCredentialsBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+
+    const { apiKey, apiSecret } = parsed.data;
+    const test = await testTwitterAppCredentials(apiKey, apiSecret);
+    const now = new Date();
+    const encrypted = encryptJson({ apiKey, apiSecret });
+
+    const existing = await loadTwitterRow();
+    if (existing) {
+      await db
+        .update(appCredentialsTable)
+        .set({
+          encryptedCredentials: encrypted,
+          lastTestStatus: test.ok ? "verified" : "failed",
+          lastTestedAt: now,
+          lastTestError: test.ok ? null : test.error ?? "Verification failed",
+          updatedAt: now,
+        })
+        .where(eq(appCredentialsTable.id, existing.id));
+    } else {
+      await db.insert(appCredentialsTable).values({
+        provider: "twitter",
+        encryptedCredentials: encrypted,
+        lastTestStatus: test.ok ? "verified" : "failed",
+        lastTestedAt: now,
+        lastTestError: test.ok ? null : test.error ?? "Verification failed",
+      });
+    }
+
+    const row = await loadTwitterRow();
+    res.json(serializeTwitterStatus(row));
+  },
+);
+
+// ---------------------------------------------------------------------------
 // Tenant: per-platform social credentials
 // ---------------------------------------------------------------------------
 
@@ -200,6 +309,7 @@ function serializeSocialStatus(
     pageId: null as string | null,
     pageAccessTokenMasked: null as string | null,
     igUserId: null as string | null,
+    accessTokenMasked: null as string | null,
   };
   if (row?.encryptedCredentials) {
     try {
@@ -210,6 +320,9 @@ function serializeSocialStatus(
       } else if (platform === "instagram") {
         const creds = decryptJson<InstagramCredentials>(row.encryptedCredentials);
         base.igUserId = creds.igUserId;
+      } else if (platform === "twitter") {
+        const creds = decryptJson<TwitterCredentials>(row.encryptedCredentials);
+        base.accessTokenMasked = maskSecret(creds.accessToken, 4);
       }
     } catch {
       // Ignore decrypt failures; masked fields stay null.
@@ -452,6 +565,60 @@ router.post(
 
     const row = await loadAccountRow(req.tenantId, "instagram");
     res.json(serializeSocialStatus("instagram", true, row));
+  },
+);
+
+router.get(
+  "/social-credentials/twitter",
+  async (req: Request, res: Response) => {
+    const [appConfigured, row] = await Promise.all([
+      isTwitterAppConfigured(),
+      loadAccountRow(req.tenantId, "twitter"),
+    ]);
+    res.json(serializeSocialStatus("twitter", appConfigured, row));
+  },
+);
+
+router.put(
+  "/social-credentials/twitter",
+  async (req: Request, res: Response) => {
+    if (!isEncryptionConfigured()) {
+      res
+        .status(400)
+        .json({ error: "Server is missing SESSION_SECRET; cannot store secrets." });
+      return;
+    }
+    const parsed = SaveTwitterCredentialsBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const app = await getTwitterAppCredentials();
+    if (!app || !(await isTwitterAppConfigured())) {
+      res.status(400).json({
+        error:
+          "X app credentials have not been configured by an administrator yet.",
+      });
+      return;
+    }
+
+    const creds: TwitterCredentials = {
+      accessToken: parsed.data.accessToken.trim(),
+      accessTokenSecret: parsed.data.accessTokenSecret.trim(),
+    };
+    const test = await testTwitterCredentials(creds, app);
+    const now = new Date();
+
+    await upsertAccount(req.tenantId, "twitter", {
+      accountName: test.accountName || "X account",
+      encryptedCredentials: encryptJson(creds),
+      verifyStatus: test.ok ? "verified" : "failed",
+      verifiedAt: now,
+      verifyError: test.ok ? null : test.error ?? "Verification failed",
+    });
+
+    const row = await loadAccountRow(req.tenantId, "twitter");
+    res.json(serializeSocialStatus("twitter", true, row));
   },
 );
 
