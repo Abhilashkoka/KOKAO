@@ -51,6 +51,7 @@ import {
   restoreTwitterRow,
 } from "../test/dbHelpers";
 import { ObjectStorageService } from "../lib/objectStorage";
+import { TWEET_MAX_LENGTH, trimToTweetLength } from "@workspace/social-limits";
 
 const app = createTestApp();
 
@@ -477,7 +478,7 @@ describe("X (Twitter) publishing (happy path)", () => {
     }
   });
 
-  it("truncates captions longer than 280 characters before posting", async () => {
+  it("posts exactly the shared trimToTweetLength result for an over-limit caption", async () => {
     const calls: MockCall[] = [];
     mockXApi(calls);
 
@@ -499,8 +500,43 @@ describe("X (Twitter) publishing (happy path)", () => {
       const tweetBody = JSON.parse(tweetCall!.body as string) as {
         text: string;
       };
-      expect([...tweetBody.text].length).toBeLessThanOrEqual(280);
+      // The publish route must post exactly what the shared helper produces —
+      // this is the contract that keeps the UI character warning and the
+      // server-side trim from ever silently disagreeing.
+      expect(tweetBody.text).toBe(trimToTweetLength(longCaption));
+      expect(tweetBody.text.length).toBe(TWEET_MAX_LENGTH);
+      expect([...tweetBody.text].length).toBeLessThanOrEqual(TWEET_MAX_LENGTH);
       expect(tweetBody.text.endsWith("\u2026")).toBe(true);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("posts an at-limit caption unchanged (no trim, no ellipsis)", async () => {
+    const calls: MockCall[] = [];
+    mockXApi(calls);
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      const atLimitCaption = "a".repeat(TWEET_MAX_LENGTH);
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: atLimitCaption,
+      });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-twitter`,
+      );
+      expect(res.status).toBe(200);
+
+      const tweetCall = calls.find((c) => c.url.includes("/2/tweets"));
+      const tweetBody = JSON.parse(tweetCall!.body as string) as {
+        text: string;
+      };
+      expect(tweetBody.text).toBe(trimToTweetLength(atLimitCaption));
+      expect(tweetBody.text).toBe(atLimitCaption);
+      expect(tweetBody.text.endsWith("\u2026")).toBe(false);
     } finally {
       await deleteTenant(tenant.tenantId);
     }
