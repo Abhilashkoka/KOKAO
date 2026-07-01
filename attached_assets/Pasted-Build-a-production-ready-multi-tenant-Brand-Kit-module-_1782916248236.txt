@@ -1,0 +1,62 @@
+Build a production-ready multi-tenant Brand Kit module for my SaaS application.
+
+Core objective:
+- Each tenant gets a Brand Kit onboarding flow on first login.
+- A tenant can have one or many brands.
+- Each brand has a reusable brand kit stored as structured JSON.
+- Any content generation flow must be able to select the correct brand kit by explicit brand selection, channel preference, or tenant default.
+- The module must be designed so other backend services can reliably consume the brand kit JSON.
+
+Build requirements:
+1. Multi-tenant aware: every table, API, service, and query must be scoped by tenant_id.
+2. Separate entities for tenant, brand_kit, brand_kit_version, brand_asset, tenant_brand_preference.
+3. Support versioning: every edit creates a new brand_kit_version record, while brand_kit points to active_version_id.
+4. Support default brand logic and multiple brands per tenant.
+5. On first login, trigger onboarding wizard that asks:
+   - Do you have one brand or multiple brands?
+   - Brand name
+   - Website URL
+   - Logo upload
+   - Primary/secondary colors
+   - Fonts
+   - Tagline
+   - Industry
+   - Audience
+   - Primary channels
+6. If tenant uploads files or gives a website URL, generate a draft brand kit from those inputs.
+7. Save brand kit in a strict JSON structure with sections for identity, logos, colors, typography, voice, visual_style, layout_tokens, channel_rules, and brand_controls.
+8. Add CRUD APIs for:
+   - create brand
+   - list tenant brands
+   - get brand
+   - create new version
+   - activate version
+   - archive brand
+   - set default brand
+   - set channel/content-type preference
+9. Add brand selection service logic:
+   - explicit brand_kit_id wins
+   - otherwise match by brand slug/name
+   - otherwise use tenant_brand_preference by channel + content_type
+   - otherwise use tenant default brand
+   - if ambiguous, require manual selection
+10. Add backend validation for hex colors, required fields, approval status, and tenant ownership.
+11. Add audit fields and timestamps everywhere.
+12. Make the module cleanly extensible for future AI extraction, Figma sync, and asset generation.
+
+Deliverables:
+- database schema
+- ORM models
+- API routes/controllers
+- service layer
+- validation layer
+- onboarding flow logic
+- sample seeded brand kit JSON
+- comments explaining where content generation services should read the selected brand kit
+
+Important architecture rules:
+- Do not hardcode a single brand per tenant.
+- Do not store brand kit values in scattered columns if they belong in versioned JSON.
+- Keep tenant isolation strict.
+- Design for future scale to many tenants and many brands per tenant.
+- Make the code modular so this can plug into an existing multi-tenant app.
