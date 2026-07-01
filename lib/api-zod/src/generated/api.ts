@@ -875,6 +875,28 @@ export const GetLinkedinStatusResponse = zod.object({
 
 
 /**
+ * @summary Disconnect LinkedIn, clearing the stored OAuth token and account
+ */
+export const DisconnectLinkedinResponse = zod.object({
+  "connected": zod.boolean(),
+  "accountName": zod.string().nullish(),
+  "configured": zod.boolean().describe('Whether the platform-level LinkedIn app credentials are set by the admin.'),
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the LinkedIn app.')
+})
+
+
+/**
+ * @summary Re-check the stored LinkedIn token; clears it if no longer valid
+ */
+export const RetestLinkedinResponse = zod.object({
+  "connected": zod.boolean(),
+  "accountName": zod.string().nullish(),
+  "configured": zod.boolean().describe('Whether the platform-level LinkedIn app credentials are set by the admin.'),
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the LinkedIn app.')
+})
+
+
+/**
  * @summary Publish a content item to the connected LinkedIn member feed
  */
 export const PublishContentToLinkedinParams = zod.object({

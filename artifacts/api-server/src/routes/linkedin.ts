@@ -242,18 +242,87 @@ router.get("/linkedin/auth/callback", async (req: Request, res: Response) => {
   }
 });
 
-router.get("/linkedin/status", async (req: Request, res: Response) => {
-  const account = await getLinkedinAccount(req.tenantId);
+function serializeStatus(
+  req: Request,
+  account: Awaited<ReturnType<typeof getLinkedinAccount>> | undefined,
+) {
   const connected =
     !!account?.accessToken &&
     (account.tokenExpiresAt === null ||
       account.tokenExpiresAt.getTime() > Date.now());
-  res.json({
+  return {
     connected,
     accountName: connected ? account!.accountName : null,
     configured: isConfigured(),
     redirectUri: redirectUri(req),
-  });
+  };
+}
+
+router.get("/linkedin/status", async (req: Request, res: Response) => {
+  const account = await getLinkedinAccount(req.tenantId);
+  res.json(serializeStatus(req, account));
+});
+
+router.delete("/linkedin", async (req: Request, res: Response) => {
+  const existing = await getLinkedinAccount(req.tenantId);
+  if (existing) {
+    await db
+      .update(connectedAccountsTable)
+      .set({
+        status: "disconnected",
+        accessToken: null,
+        tokenExpiresAt: null,
+        providerUserId: null,
+      })
+      .where(eq(connectedAccountsTable.id, existing.id));
+  }
+  res.json(serializeStatus(req, undefined));
+});
+
+router.post("/linkedin/retest", async (req: Request, res: Response) => {
+  const existing = await getLinkedinAccount(req.tenantId);
+  if (!existing?.accessToken) {
+    res.status(400).json({ error: "No stored LinkedIn connection to re-test." });
+    return;
+  }
+
+  let stillValid = false;
+  let accountName = existing.accountName;
+  let providerUserId = existing.providerUserId;
+  try {
+    const userRes = await fetch(USERINFO_URL, {
+      headers: { Authorization: `Bearer ${existing.accessToken}` },
+    });
+    const userJson = (await userRes.json()) as { sub?: string; name?: string };
+    if (userRes.ok && userJson.sub) {
+      stillValid = true;
+      accountName = userJson.name || accountName;
+      providerUserId = userJson.sub;
+    }
+  } catch (error) {
+    req.log.error({ err: error }, "LinkedIn re-test failed");
+  }
+
+  if (stillValid) {
+    await db
+      .update(connectedAccountsTable)
+      .set({ status: "connected", accountName, providerUserId })
+      .where(eq(connectedAccountsTable.id, existing.id));
+  } else {
+    // The stored token no longer works; clear it so the UI reflects the break.
+    await db
+      .update(connectedAccountsTable)
+      .set({
+        status: "disconnected",
+        accessToken: null,
+        tokenExpiresAt: null,
+        providerUserId: null,
+      })
+      .where(eq(connectedAccountsTable.id, existing.id));
+  }
+
+  const refreshed = await getLinkedinAccount(req.tenantId);
+  res.json(serializeStatus(req, refreshed));
 });
 
 router.post(

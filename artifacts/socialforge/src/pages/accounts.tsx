@@ -6,6 +6,9 @@ import {
   getListAccountsQueryKey,
   getLinkedinAuthUrl,
   useGetLinkedinStatus,
+  useDisconnectLinkedin,
+  useRetestLinkedin,
+  getGetLinkedinStatusQueryKey,
   useGetFacebookCredentials,
   useSaveFacebookCredentials,
   useGetInstagramCredentials,
@@ -574,6 +577,8 @@ export function AccountsPage() {
   const { data: linkedinStatus } = useGetLinkedinStatus();
   const createAccount = useCreateAccount();
   const deleteAccount = useDeleteAccount();
+  const disconnectLinkedin = useDisconnectLinkedin();
+  const retestLinkedin = useRetestLinkedin();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -581,6 +586,60 @@ export function AccountsPage() {
   const [platform, setPlatform] = useState<string>("instagram");
   const [accountName, setAccountName] = useState("");
   const [linkedinConnecting, setLinkedinConnecting] = useState(false);
+
+  const refreshLinkedin = () => {
+    queryClient.invalidateQueries({ queryKey: getGetLinkedinStatusQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
+  };
+
+  const handleDisconnectLinkedin = () => {
+    if (
+      !confirm(
+        "Disconnect LinkedIn? This clears your stored LinkedIn token and account. You'll need to reconnect to publish again.",
+      )
+    )
+      return;
+    disconnectLinkedin.mutate(undefined, {
+      onSuccess: () => {
+        toast({ title: "LinkedIn disconnected" });
+        refreshLinkedin();
+      },
+      onError: (err: any) => {
+        toast({
+          variant: "destructive",
+          title: "Couldn't disconnect LinkedIn",
+          description: err?.response?.data?.error || "Please try again.",
+        });
+      },
+    });
+  };
+
+  const handleRetestLinkedin = () => {
+    retestLinkedin.mutate(undefined, {
+      onSuccess: (data) => {
+        if (data.connected) {
+          toast({
+            title: "LinkedIn still connected",
+            description: "Your stored token is still valid.",
+          });
+        } else {
+          toast({
+            variant: "destructive",
+            title: "LinkedIn token no longer valid",
+            description: "We cleared the broken connection. Please reconnect.",
+          });
+        }
+        refreshLinkedin();
+      },
+      onError: (err: any) => {
+        toast({
+          variant: "destructive",
+          title: "Couldn't re-test LinkedIn",
+          description: err?.response?.data?.error || "Please try again.",
+        });
+      },
+    });
+  };
 
   const copyRedirect = () => {
     if (!linkedinStatus?.redirectUri) return;
@@ -712,13 +771,29 @@ export function AccountsPage() {
                   <p className="text-sm text-muted-foreground">
                     Posting as <span className="font-medium text-foreground">{linkedinStatus.accountName}</span>. You can publish content items to your LinkedIn feed from the Content Library.
                   </p>
-                  <Button variant="outline" size="sm" onClick={handleConnectLinkedin} disabled={linkedinConnecting}>
-                    {linkedinConnecting ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Reconnecting...</>
-                    ) : (
-                      "Reconnect"
-                    )}
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={handleRetestLinkedin} disabled={retestLinkedin.isPending}>
+                      {retestLinkedin.isPending ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Re-testing...</>
+                      ) : (
+                        "Re-test now"
+                      )}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={handleConnectLinkedin} disabled={linkedinConnecting}>
+                      {linkedinConnecting ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Reconnecting...</>
+                      ) : (
+                        "Reconnect"
+                      )}
+                    </Button>
+                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={handleDisconnectLinkedin} disabled={disconnectLinkedin.isPending}>
+                      {disconnectLinkedin.isPending ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
+                      ) : (
+                        <><Trash2 className="h-4 w-4 mr-2" /> Disconnect</>
+                      )}
+                    </Button>
+                  </div>
                 </div>
               ) : linkedinStatus?.configured ? (
                 <div className="mt-2 space-y-3">

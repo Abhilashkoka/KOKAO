@@ -3294,6 +3294,146 @@ export function useGetLinkedinStatus<TData = Awaited<ReturnType<typeof getLinked
 
 
 
+export const getDisconnectLinkedinUrl = () => {
+
+
+
+
+  return `/api/linkedin`
+}
+
+/**
+ * @summary Disconnect LinkedIn, clearing the stored OAuth token and account
+ */
+export const disconnectLinkedin = async ( options?: RequestInit): Promise<LinkedInStatus> => {
+
+  return customFetch<LinkedInStatus>(getDisconnectLinkedinUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDisconnectLinkedinMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectLinkedin>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof disconnectLinkedin>>, TError,void, TContext> => {
+
+const mutationKey = ['disconnectLinkedin'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof disconnectLinkedin>>, void> = () => {
+
+
+          return  disconnectLinkedin(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DisconnectLinkedinMutationResult = NonNullable<Awaited<ReturnType<typeof disconnectLinkedin>>>
+
+    export type DisconnectLinkedinMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Disconnect LinkedIn, clearing the stored OAuth token and account
+ */
+export const useDisconnectLinkedin = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectLinkedin>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof disconnectLinkedin>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDisconnectLinkedinMutationOptions(options));
+    }
+
+export const getRetestLinkedinUrl = () => {
+
+
+
+
+  return `/api/linkedin/retest`
+}
+
+/**
+ * @summary Re-check the stored LinkedIn token; clears it if no longer valid
+ */
+export const retestLinkedin = async ( options?: RequestInit): Promise<LinkedInStatus> => {
+
+  return customFetch<LinkedInStatus>(getRetestLinkedinUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRetestLinkedinMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retestLinkedin>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retestLinkedin>>, TError,void, TContext> => {
+
+const mutationKey = ['retestLinkedin'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retestLinkedin>>, void> = () => {
+
+
+          return  retestLinkedin(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetestLinkedinMutationResult = NonNullable<Awaited<ReturnType<typeof retestLinkedin>>>
+
+    export type RetestLinkedinMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Re-check the stored LinkedIn token; clears it if no longer valid
+ */
+export const useRetestLinkedin = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retestLinkedin>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof retestLinkedin>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getRetestLinkedinMutationOptions(options));
+    }
+
 export const getPublishContentToLinkedinUrl = (id: number,) => {
 
 

@@ -1035,6 +1035,38 @@ paths:
               schema:
                 $ref: "#/components/schemas/LinkedInStatus"
 
+  /linkedin:
+    delete:
+      operationId: disconnectLinkedin
+      tags: [linkedin]
+      summary: Disconnect LinkedIn, clearing the stored OAuth token and account
+      responses:
+        "200":
+          description: LinkedIn connection status after disconnecting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedInStatus"
+
+  /linkedin/retest:
+    post:
+      operationId: retestLinkedin
+      tags: [linkedin]
+      summary: Re-check the stored LinkedIn token; clears it if no longer valid
+      responses:
+        "200":
+          description: LinkedIn connection status after re-checking
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedInStatus"
+        "400":
+          description: No stored LinkedIn connection to re-test
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /content/{id}/publish-linkedin:
     post:
       operationId: publishContentToLinkedin
