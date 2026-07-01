@@ -1,4 +1,11 @@
-import { pgTable, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  serial,
+  integer,
+  boolean,
+  timestamp,
+} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -13,6 +20,11 @@ export const notificationsTable = pgTable("notifications", {
   message: text("message").notNull(),
   // Relative in-app link the notification points to (e.g. "/accounts").
   linkUrl: text("link_url"),
+  // Whether this notification should surface as an in-app popup/banner. When a
+  // tenant has turned off the in-app channel for this type, the row is still
+  // recorded (for dedupe/audit and any email side channel) but hidden from the
+  // banner by the notifications list query.
+  inApp: boolean("in_app").notNull().default(true),
   // When the user dismissed/acknowledged this notification. Null = unread.
   readAt: timestamp("read_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })

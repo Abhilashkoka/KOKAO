@@ -127,6 +127,87 @@ export interface UpdateTenantSuperadminBody {
   isSuperadmin: boolean;
 }
 
+export interface NotificationChannelPreference {
+  inApp: boolean;
+  email: boolean;
+}
+
+/**
+ * How the email channel is offered: "optional" lets the tenant choose, "forced" always emails, "off" never emails.
+ */
+export type NotificationTypeSettingEmailPolicy = typeof NotificationTypeSettingEmailPolicy[keyof typeof NotificationTypeSettingEmailPolicy];
+
+
+export const NotificationTypeSettingEmailPolicy = {
+  optional: 'optional',
+  forced: 'forced',
+  off: 'off',
+} as const;
+
+export interface NotificationTypeSetting {
+  type: string;
+  label: string;
+  description: string;
+  /** Whether this notification type is enabled platform-wide. */
+  enabled: boolean;
+  /** How the email channel is offered: "optional" lets the tenant choose, "forced" always emails, "off" never emails. */
+  emailPolicy: NotificationTypeSettingEmailPolicy;
+  preference: NotificationChannelPreference;
+  effective: NotificationChannelPreference;
+}
+
+export interface NotificationSettings {
+  /** Whether email delivery is currently connected and will send. */
+  emailConfigured: boolean;
+  types: NotificationTypeSetting[];
+}
+
+export interface UpdateNotificationPreferenceItem {
+  type: string;
+  inApp: boolean;
+  email: boolean;
+}
+
+export interface NotificationSettingsInput {
+  preferences: UpdateNotificationPreferenceItem[];
+}
+
+export type NotificationPolicyEmailPolicy = typeof NotificationPolicyEmailPolicy[keyof typeof NotificationPolicyEmailPolicy];
+
+
+export const NotificationPolicyEmailPolicy = {
+  optional: 'optional',
+  forced: 'forced',
+  off: 'off',
+} as const;
+
+export interface NotificationPolicy {
+  type: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  emailPolicy: NotificationPolicyEmailPolicy;
+}
+
+export type UpdateNotificationPolicyItemEmailPolicy = typeof UpdateNotificationPolicyItemEmailPolicy[keyof typeof UpdateNotificationPolicyItemEmailPolicy];
+
+
+export const UpdateNotificationPolicyItemEmailPolicy = {
+  optional: 'optional',
+  forced: 'forced',
+  off: 'off',
+} as const;
+
+export interface UpdateNotificationPolicyItem {
+  type: string;
+  enabled: boolean;
+  emailPolicy: UpdateNotificationPolicyItemEmailPolicy;
+}
+
+export interface UpdateNotificationPoliciesBody {
+  policies: UpdateNotificationPolicyItem[];
+}
+
 export interface BrandKit {
   id: number;
   name: string;

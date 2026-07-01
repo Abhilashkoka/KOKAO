@@ -14,6 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle2, Settings as SettingsIcon, Package, Sparkles } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { NotificationSettings } from "@/components/notification-settings";
 
 export function SettingsPage() {
   const { data: me, isLoading: meLoading } = useGetMe();
@@ -70,6 +72,13 @@ export function SettingsPage() {
         <p className="text-muted-foreground text-lg mt-1">Manage your workspace preferences and billing.</p>
       </div>
 
+      <Tabs defaultValue="general" className="space-y-8">
+        <TabsList>
+          <TabsTrigger value="general">General</TabsTrigger>
+          <TabsTrigger value="notifications">Notifications</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="general">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-5 space-y-6">
           <Card className="border-border shadow-sm">
@@ -169,6 +178,14 @@ export function SettingsPage() {
           </Card>
         </div>
       </div>
+        </TabsContent>
+
+        <TabsContent value="notifications">
+          <div className="max-w-2xl">
+            <NotificationSettings />
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

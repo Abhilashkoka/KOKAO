@@ -33,6 +33,7 @@ router.get("/notifications", async (req: Request, res: Response) => {
     .where(
       and(
         eq(notificationsTable.tenantId, req.tenantId),
+        eq(notificationsTable.inApp, true),
         isNull(notificationsTable.readAt),
       ),
     )

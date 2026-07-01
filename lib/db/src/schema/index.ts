@@ -6,3 +6,5 @@ export * from "./connectedAccounts";
 export * from "./appCredentials";
 export * from "./usageEvents";
 export * from "./notifications";
+export * from "./notificationPreferences";
+export * from "./notificationPolicies";

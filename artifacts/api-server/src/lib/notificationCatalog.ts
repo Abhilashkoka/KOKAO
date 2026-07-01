@@ -1,0 +1,33 @@
+/**
+ * Source-of-truth catalog of notification types the app can raise. The
+ * notification settings tab (tenant) and the admin policy screen render off
+ * this list, and the dispatch code keys preferences/policies by `type`.
+ *
+ * Add a new entry here when introducing a new backend-raised notification so it
+ * automatically appears in both control surfaces.
+ */
+
+export type EmailPolicy = "optional" | "forced" | "off";
+
+export const EMAIL_POLICIES: EmailPolicy[] = ["optional", "forced", "off"];
+
+export interface NotificationTypeDef {
+  type: string;
+  label: string;
+  description: string;
+}
+
+export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
+  {
+    type: "social_connection_failed",
+    label: "Connection problems",
+    description:
+      "A connected social account's access expired or was revoked and needs reconnecting before you can keep publishing.",
+  },
+];
+
+export const NOTIFICATION_TYPE_SET = new Set(
+  NOTIFICATION_TYPES.map((t) => t.type),
+);
+
+export const DEFAULT_EMAIL_POLICY: EmailPolicy = "optional";

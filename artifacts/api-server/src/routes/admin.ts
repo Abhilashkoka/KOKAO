@@ -13,10 +13,17 @@ import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import {
   AdminUpdateTenantPlanBody,
   AdminUpdateTenantSuperadminBody,
+  AdminUpdateNotificationPoliciesBody,
 } from "@workspace/api-zod";
+import { notificationPoliciesTable } from "@workspace/db";
 import { isSuperadminEmail } from "../lib/superadmins";
 import { fetchVerifiedEmail } from "../lib/clerkUser";
 import { currentPeriodStart } from "../lib/usage";
+import {
+  NOTIFICATION_TYPES,
+  NOTIFICATION_TYPE_SET,
+} from "../lib/notificationCatalog";
+import { defaultPolicy, getPolicyMap } from "../lib/notificationSettings";
 import type { Tenant } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -245,6 +252,89 @@ router.patch(
     }
 
     res.json(serializeAdminTenant(updated));
+  },
+);
+
+/**
+ * GET /admin/notification-policies
+ * The global per-type notification policy (enabled + email policy), merged with
+ * the catalog so every known type appears even before it has a stored row.
+ */
+router.get(
+  "/admin/notification-policies",
+  async (_req: Request, res: Response) => {
+    const map = await getPolicyMap();
+    res.json(
+      NOTIFICATION_TYPES.map((def) => {
+        const policy = map.get(def.type) ?? defaultPolicy();
+        return {
+          type: def.type,
+          label: def.label,
+          description: def.description,
+          enabled: policy.enabled,
+          emailPolicy: policy.emailPolicy,
+        };
+      }),
+    );
+  },
+);
+
+/**
+ * PUT /admin/notification-policies
+ * Superadmin update of the global notification policy per type. Unknown types
+ * are ignored so a stale client cannot create junk rows.
+ */
+router.put(
+  "/admin/notification-policies",
+  async (req: Request, res: Response) => {
+    const parsed = AdminUpdateNotificationPoliciesBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+
+    const unknown = parsed.data.policies
+      .map((p) => p.type)
+      .filter((t) => !NOTIFICATION_TYPE_SET.has(t));
+    if (unknown.length > 0) {
+      res
+        .status(400)
+        .json({ error: `Unknown notification type(s): ${unknown.join(", ")}` });
+      return;
+    }
+
+    for (const policy of parsed.data.policies) {
+      await db
+        .insert(notificationPoliciesTable)
+        .values({
+          type: policy.type,
+          enabled: policy.enabled,
+          emailPolicy: policy.emailPolicy,
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: notificationPoliciesTable.type,
+          set: {
+            enabled: policy.enabled,
+            emailPolicy: policy.emailPolicy,
+            updatedAt: new Date(),
+          },
+        });
+    }
+
+    const map = await getPolicyMap();
+    res.json(
+      NOTIFICATION_TYPES.map((def) => {
+        const policy = map.get(def.type) ?? defaultPolicy();
+        return {
+          type: def.type,
+          label: def.label,
+          description: def.description,
+          enabled: policy.enabled,
+          emailPolicy: policy.emailPolicy,
+        };
+      }),
+    );
   },
 );
 

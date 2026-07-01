@@ -26,6 +26,8 @@ tags:
     description: Connected social accounts.
   - name: admin
     description: Cross-tenant superadmin operations.
+  - name: notifications
+    description: In-app and email notification preferences and policies.
 paths:
   /healthz:
     get:
@@ -97,6 +99,54 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Plan"
+
+  /notification-settings:
+    get:
+      operationId: getNotificationSettings
+      tags: [notifications]
+      summary: Get the current tenant's notification preferences and effective channels
+      responses:
+        "200":
+          description: Notification settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationSettings"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: updateNotificationSettings
+      tags: [notifications]
+      summary: Update the current tenant's notification preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationSettingsInput"
+      responses:
+        "200":
+          description: Updated notification settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationSettings"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /admin/tenants:
     get:
@@ -208,6 +258,58 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminStats"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/notification-policies:
+    get:
+      operationId: adminListNotificationPolicies
+      tags: [admin]
+      summary: List global notification policies (superadmin only)
+      responses:
+        "200":
+          description: Notification policies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NotificationPolicy"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminUpdateNotificationPolicies
+      tags: [admin]
+      summary: Update global notification policies (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateNotificationPoliciesBody"
+      responses:
+        "200":
+          description: Updated notification policies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NotificationPolicy"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "403":
           description: Forbidden
           content:
@@ -1565,6 +1667,102 @@ components:
       properties:
         isSuperadmin:
           type: boolean
+
+    NotificationChannelPreference:
+      type: object
+      required: [inApp, email]
+      properties:
+        inApp:
+          type: boolean
+        email:
+          type: boolean
+    NotificationTypeSetting:
+      type: object
+      required:
+        [type, label, description, enabled, emailPolicy, preference, effective]
+      properties:
+        type:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+          description: Whether this notification type is enabled platform-wide.
+        emailPolicy:
+          type: string
+          enum: [optional, forced, off]
+          description: >-
+            How the email channel is offered: "optional" lets the tenant choose,
+            "forced" always emails, "off" never emails.
+        preference:
+          $ref: "#/components/schemas/NotificationChannelPreference"
+        effective:
+          $ref: "#/components/schemas/NotificationChannelPreference"
+    NotificationSettings:
+      type: object
+      required: [emailConfigured, types]
+      properties:
+        emailConfigured:
+          type: boolean
+          description: Whether email delivery is currently connected and will send.
+        types:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationTypeSetting"
+    UpdateNotificationPreferenceItem:
+      type: object
+      required: [type, inApp, email]
+      properties:
+        type:
+          type: string
+        inApp:
+          type: boolean
+        email:
+          type: boolean
+    NotificationSettingsInput:
+      type: object
+      required: [preferences]
+      properties:
+        preferences:
+          type: array
+          items:
+            $ref: "#/components/schemas/UpdateNotificationPreferenceItem"
+    NotificationPolicy:
+      type: object
+      required: [type, label, description, enabled, emailPolicy]
+      properties:
+        type:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        emailPolicy:
+          type: string
+          enum: [optional, forced, off]
+    UpdateNotificationPolicyItem:
+      type: object
+      required: [type, enabled, emailPolicy]
+      properties:
+        type:
+          type: string
+        enabled:
+          type: boolean
+        emailPolicy:
+          type: string
+          enum: [optional, forced, off]
+    UpdateNotificationPoliciesBody:
+      type: object
+      required: [policies]
+      properties:
+        policies:
+          type: array
+          items:
+            $ref: "#/components/schemas/UpdateNotificationPolicyItem"
 
     BrandKit:
       type: object

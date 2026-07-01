@@ -52,6 +52,15 @@ async function getSendGridConfig(): Promise<SendGridConfig | null> {
   }
 }
 
+/**
+ * Whether transactional email is currently deliverable (SendGrid connected with
+ * valid settings). Never throws. The notification settings UI uses this to show
+ * whether the email channel will actually send yet.
+ */
+export async function isEmailConfigured(): Promise<boolean> {
+  return (await getSendGridConfig()) !== null;
+}
+
 export interface EmailMessage {
   to: string;
   subject: string;

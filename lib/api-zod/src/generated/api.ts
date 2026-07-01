@@ -85,6 +85,60 @@ export const ListPlansResponse = zod.array(ListPlansResponseItem)
 
 
 /**
+ * @summary Get the current tenant's notification preferences and effective channels
+ */
+export const GetNotificationSettingsResponse = zod.object({
+  "emailConfigured": zod.boolean().describe('Whether email delivery is currently connected and will send.'),
+  "types": zod.array(zod.object({
+  "type": zod.string(),
+  "label": zod.string(),
+  "description": zod.string(),
+  "enabled": zod.boolean().describe('Whether this notification type is enabled platform-wide.'),
+  "emailPolicy": zod.enum(['optional', 'forced', 'off']).describe('How the email channel is offered: \"optional\" lets the tenant choose, \"forced\" always emails, \"off\" never emails.'),
+  "preference": zod.object({
+  "inApp": zod.boolean(),
+  "email": zod.boolean()
+}),
+  "effective": zod.object({
+  "inApp": zod.boolean(),
+  "email": zod.boolean()
+})
+}))
+})
+
+
+/**
+ * @summary Update the current tenant's notification preferences
+ */
+export const UpdateNotificationSettingsBody = zod.object({
+  "preferences": zod.array(zod.object({
+  "type": zod.string(),
+  "inApp": zod.boolean(),
+  "email": zod.boolean()
+}))
+})
+
+export const UpdateNotificationSettingsResponse = zod.object({
+  "emailConfigured": zod.boolean().describe('Whether email delivery is currently connected and will send.'),
+  "types": zod.array(zod.object({
+  "type": zod.string(),
+  "label": zod.string(),
+  "description": zod.string(),
+  "enabled": zod.boolean().describe('Whether this notification type is enabled platform-wide.'),
+  "emailPolicy": zod.enum(['optional', 'forced', 'off']).describe('How the email channel is offered: \"optional\" lets the tenant choose, \"forced\" always emails, \"off\" never emails.'),
+  "preference": zod.object({
+  "inApp": zod.boolean(),
+  "email": zod.boolean()
+}),
+  "effective": zod.object({
+  "inApp": zod.boolean(),
+  "email": zod.boolean()
+})
+}))
+})
+
+
+/**
  * @summary List all tenants with usage and resource counts (superadmin only)
  */
 export const AdminListTenantsResponseItem = zod.object({
@@ -193,6 +247,40 @@ export const AdminGetStatsResponse = zod.object({
   "totalScheduledPosts": zod.number(),
   "totalConnectedAccounts": zod.number()
 })
+
+
+/**
+ * @summary List global notification policies (superadmin only)
+ */
+export const AdminListNotificationPoliciesResponseItem = zod.object({
+  "type": zod.string(),
+  "label": zod.string(),
+  "description": zod.string(),
+  "enabled": zod.boolean(),
+  "emailPolicy": zod.enum(['optional', 'forced', 'off'])
+})
+export const AdminListNotificationPoliciesResponse = zod.array(AdminListNotificationPoliciesResponseItem)
+
+
+/**
+ * @summary Update global notification policies (superadmin only)
+ */
+export const AdminUpdateNotificationPoliciesBody = zod.object({
+  "policies": zod.array(zod.object({
+  "type": zod.string(),
+  "enabled": zod.boolean(),
+  "emailPolicy": zod.enum(['optional', 'forced', 'off'])
+}))
+})
+
+export const AdminUpdateNotificationPoliciesResponseItem = zod.object({
+  "type": zod.string(),
+  "label": zod.string(),
+  "description": zod.string(),
+  "enabled": zod.boolean(),
+  "emailPolicy": zod.enum(['optional', 'forced', 'off'])
+})
+export const AdminUpdateNotificationPoliciesResponse = zod.array(AdminUpdateNotificationPoliciesResponseItem)
 
 
 /**

@@ -3,6 +3,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { logger } from "./logger";
 import { fetchVerifiedEmail } from "./clerkUser";
 import { sendEmail } from "./email";
+import { getEffectiveSetting } from "./notificationSettings";
 
 export const SOCIAL_CONNECTION_FAILED = "social_connection_failed";
 
@@ -111,11 +112,18 @@ export async function notifySocialConnectionFailed(
       .limit(1);
     if (existing.length > 0) return;
 
+    // Resolve the tenant's effective channels (global policy folded with the
+    // tenant's own preference). A fully disabled type produces nothing at all.
+    const effective = await getEffectiveSetting(tenantId, SOCIAL_CONNECTION_FAILED);
+    if (!effective.enabled) return;
+
     const label = platformLabel(platform);
     const resolvedMessage =
       message ??
       `Your ${label} connection is no longer valid. Reconnect it to keep publishing.`;
 
+    // Always record the row (dedupe + audit); `inApp` controls banner
+    // visibility so an email-only tenant still gets deduped correctly.
     await db.insert(notificationsTable).values({
       tenantId,
       type: SOCIAL_CONNECTION_FAILED,
@@ -123,10 +131,14 @@ export async function notifySocialConnectionFailed(
       title: `${label} disconnected`,
       message: resolvedMessage,
       linkUrl: "/accounts",
+      inApp: effective.inApp,
     });
 
-    // Fresh breakage only (past the dedupe guard) -> also email the tenant.
-    await emailSocialConnectionFailed(tenantId, platform, label, resolvedMessage);
+    // Fresh breakage only (past the dedupe guard) -> email when the tenant's
+    // effective settings opt into the email channel.
+    if (effective.email) {
+      await emailSocialConnectionFailed(tenantId, platform, label, resolvedMessage);
+    }
   } catch (err) {
     logger.error(
       { err, tenantId, platform },

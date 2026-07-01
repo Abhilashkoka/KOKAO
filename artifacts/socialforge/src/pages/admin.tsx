@@ -8,10 +8,13 @@ import {
   useAdminSaveMetaCredentials,
   useAdminGetTwitterCredentials,
   useAdminSaveTwitterCredentials,
+  useAdminListNotificationPolicies,
+  useAdminUpdateNotificationPolicies,
   getAdminListTenantsQueryKey,
   getAdminGetStatsQueryKey,
   getAdminGetMetaCredentialsQueryKey,
   getAdminGetTwitterCredentialsQueryKey,
+  getAdminListNotificationPoliciesQueryKey,
   useGetMe,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -357,6 +360,146 @@ function TwitterCredentialsCard() {
   );
 }
 
+const EMAIL_POLICY_LABELS: Record<string, string> = {
+  optional: "User choice",
+  forced: "Always on",
+  off: "Never",
+};
+
+function NotificationPoliciesCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useAdminListNotificationPolicies();
+  const update = useAdminUpdateNotificationPolicies();
+
+  const [state, setState] = useState<
+    Record<string, { enabled: boolean; emailPolicy: string }>
+  >({});
+
+  useEffect(() => {
+    if (data) {
+      const next: Record<string, { enabled: boolean; emailPolicy: string }> = {};
+      for (const p of data) {
+        next[p.type] = { enabled: p.enabled, emailPolicy: p.emailPolicy };
+      }
+      setState(next);
+    }
+  }, [data]);
+
+  const handleSave = () => {
+    if (!data) return;
+    const policies = data.map((p) => ({
+      type: p.type,
+      enabled: state[p.type]?.enabled ?? p.enabled,
+      emailPolicy: (state[p.type]?.emailPolicy ??
+        p.emailPolicy) as "optional" | "forced" | "off",
+    }));
+    update.mutate(
+      { data: { policies } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminListNotificationPoliciesQueryKey(),
+          });
+          toast({ title: "Notification policies saved" });
+        },
+        onError: () => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description: "Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Notification policies</CardTitle>
+        <CardDescription>
+          Platform-wide defaults for each notification type. Turn a type off to
+          silence it for everyone, or set whether email is the user's choice,
+          always sent, or never sent. Users adjust their own in-app and email
+          preferences within these limits.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-2xl">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+          </div>
+        ) : (
+          <>
+            {(data ?? []).map((p) => {
+              const cur = state[p.type] ?? {
+                enabled: p.enabled,
+                emailPolicy: p.emailPolicy,
+              };
+              return (
+                <div
+                  key={p.type}
+                  className="rounded-xl border border-border p-4 space-y-4"
+                >
+                  <div>
+                    <p className="font-semibold text-sm">{p.label}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {p.description}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Enabled</span>
+                    <Switch
+                      checked={cur.enabled}
+                      onCheckedChange={(checked) =>
+                        setState((prev) => ({
+                          ...prev,
+                          [p.type]: { ...cur, enabled: checked },
+                        }))
+                      }
+                      aria-label={`Toggle ${p.label}`}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Email delivery</span>
+                    <Select
+                      value={cur.emailPolicy}
+                      disabled={!cur.enabled}
+                      onValueChange={(value) =>
+                        setState((prev) => ({
+                          ...prev,
+                          [p.type]: { ...cur, emailPolicy: value },
+                        }))
+                      }
+                    >
+                      <SelectTrigger className="w-40">
+                        <SelectValue>
+                          {EMAIL_POLICY_LABELS[cur.emailPolicy] ??
+                            cur.emailPolicy}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="optional">User choice</SelectItem>
+                        <SelectItem value="forced">Always on</SelectItem>
+                        <SelectItem value="off">Never</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              );
+            })}
+            <Button onClick={handleSave} disabled={update.isPending}>
+              Save policies
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function AdminPage() {
   const { data: me } = useGetMe();
   const queryClient = useQueryClient();
@@ -500,6 +643,7 @@ export function AdminPage() {
 
       <MetaCredentialsCard />
       <TwitterCredentialsCard />
+      <NotificationPoliciesCard />
 
       <Card>
         <CardHeader>

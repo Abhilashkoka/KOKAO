@@ -4,3 +4,4 @@
 - [API server test harness](api-server-testing.md) — vitest + supertest hitting real dev DB; mock @clerk/express + metaApi network fns; snapshot/restore global meta row; close pg pool in afterAll.
 - [X (Twitter) publishing](twitter-publishing.md) — reuses Meta cred framework; OAuth 1.0a signing gotcha (JSON/multipart bodies excluded from signature base string).
 - [API route integration tests](api-route-integration-tests.md) — api-server uses vitest; drive routers over node:http with mocked fetch/db/storage to confirm publish flows end-to-end.
+- [OpenAPI zod body name collision](openapi-zod-body-name-collision.md) — never name a request-body schema `<PascalOperationId>Body`; it dup-exports in the api-zod barrel and breaks codegen (TS2308).
