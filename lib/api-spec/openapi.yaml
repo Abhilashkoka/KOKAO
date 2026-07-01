@@ -1800,6 +1800,10 @@ components:
           type: string
         status:
           type: string
+        postId:
+          type: ["string", "null"]
+        permalink:
+          type: ["string", "null"]
         brandKitId:
           type: ["integer", "null"]
         createdAt:

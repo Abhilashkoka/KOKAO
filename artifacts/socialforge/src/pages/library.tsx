@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
-import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, Twitter } from "lucide-react";
+import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, Twitter, ExternalLink } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -272,11 +272,23 @@ export function LibraryPage() {
                 )}
               </CardContent>
               
-              <CardFooter className="p-4 pt-0 bg-card flex justify-between items-center text-xs text-muted-foreground">
+              <CardFooter className="p-4 pt-0 bg-card flex justify-between items-center gap-2 text-xs text-muted-foreground">
                 <span className="capitalize font-medium px-2 py-1 bg-muted rounded-md">{item.platform}</span>
-                <span className={`px-2 py-1 rounded-md font-medium uppercase ${item.status === 'published' ? 'text-green-600 bg-green-600/10' : item.status === 'scheduled' ? 'text-blue-600 bg-blue-600/10' : 'text-orange-600 bg-orange-600/10'}`}>
-                  {item.status}
-                </span>
+                <div className="flex items-center gap-2">
+                  {item.status === 'published' && item.permalink && (
+                    <a
+                      href={item.permalink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                    >
+                      View post <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
+                  <span className={`px-2 py-1 rounded-md font-medium uppercase ${item.status === 'published' ? 'text-green-600 bg-green-600/10' : item.status === 'scheduled' ? 'text-blue-600 bg-blue-600/10' : 'text-orange-600 bg-orange-600/10'}`}>
+                    {item.status}
+                  </span>
+                </div>
               </CardFooter>
             </Card>
           ))}

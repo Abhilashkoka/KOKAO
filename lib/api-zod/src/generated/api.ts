@@ -319,6 +319,8 @@ export const ListContentResponseItem = zod.object({
   "imagePrompt": zod.string().nullish(),
   "platform": zod.string(),
   "status": zod.string(),
+  "postId": zod.string().nullish(),
+  "permalink": zod.string().nullish(),
   "brandKitId": zod.number().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -350,6 +352,8 @@ export const CreateContentResponse = zod.object({
   "imagePrompt": zod.string().nullish(),
   "platform": zod.string(),
   "status": zod.string(),
+  "postId": zod.string().nullish(),
+  "permalink": zod.string().nullish(),
   "brandKitId": zod.number().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -371,6 +375,8 @@ export const GetContentResponse = zod.object({
   "imagePrompt": zod.string().nullish(),
   "platform": zod.string(),
   "status": zod.string(),
+  "postId": zod.string().nullish(),
+  "permalink": zod.string().nullish(),
   "brandKitId": zod.number().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -405,6 +411,8 @@ export const UpdateContentResponse = zod.object({
   "imagePrompt": zod.string().nullish(),
   "platform": zod.string(),
   "status": zod.string(),
+  "postId": zod.string().nullish(),
+  "permalink": zod.string().nullish(),
   "brandKitId": zod.number().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()

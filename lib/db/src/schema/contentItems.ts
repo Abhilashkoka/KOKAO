@@ -12,6 +12,8 @@ export const contentItemsTable = pgTable("content_items", {
   imagePrompt: text("image_prompt"),
   platform: text("platform").notNull().default("instagram"),
   status: text("status").notNull().default("draft"),
+  postId: text("post_id"),
+  permalink: text("permalink"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

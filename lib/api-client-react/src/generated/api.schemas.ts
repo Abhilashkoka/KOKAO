@@ -312,6 +312,10 @@ export interface ContentItem {
   platform: string;
   status: string;
   /** @nullable */
+  postId?: string | null;
+  /** @nullable */
+  permalink?: string | null;
+  /** @nullable */
   brandKitId?: number | null;
   createdAt: string;
   updatedAt: string;

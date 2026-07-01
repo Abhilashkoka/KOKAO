@@ -38,10 +38,19 @@ async function loadContentItem(id: number, tenantId: number) {
   )[0];
 }
 
-async function markPublished(id: number, tenantId: number) {
+async function markPublished(
+  id: number,
+  tenantId: number,
+  meta?: { postId?: string | null; permalink?: string | null },
+) {
   await db
     .update(contentItemsTable)
-    .set({ status: "published", updatedAt: new Date() })
+    .set({
+      status: "published",
+      postId: meta?.postId || null,
+      permalink: meta?.permalink || null,
+      updatedAt: new Date(),
+    })
     .where(
       and(
         eq(contentItemsTable.id, id),
@@ -142,8 +151,8 @@ router.post(
         postId = fbJson.id || "";
       }
 
-      await markPublished(id, req.tenantId);
       const permalink = postId ? `https://www.facebook.com/${postId}` : null;
+      await markPublished(id, req.tenantId, { postId, permalink });
       res.json({ postId, permalink });
     } catch (error) {
       req.log.error({ err: error }, "Facebook publish failed");
@@ -261,7 +270,6 @@ router.post(
         );
       }
 
-      await markPublished(id, req.tenantId);
       const postId = publishJson.id;
 
       // Best-effort: resolve the post's public permalink. Token goes in the
@@ -278,6 +286,7 @@ router.post(
         permalink = null;
       }
 
+      await markPublished(id, req.tenantId, { postId, permalink });
       res.json({ postId, permalink });
     } catch (error) {
       req.log.error({ err: error }, "Instagram publish failed");

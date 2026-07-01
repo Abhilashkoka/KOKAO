@@ -40,6 +40,8 @@ export function serializeContent(c: ContentItem) {
     imagePrompt: c.imagePrompt ?? null,
     platform: c.platform,
     status: c.status,
+    postId: c.postId ?? null,
+    permalink: c.permalink ?? null,
     brandKitId: c.brandKitId ?? null,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
