@@ -154,6 +154,24 @@ export class ObjectStorageService {
     return objectFile;
   }
 
+  /**
+   * Produce a short-lived, publicly reachable signed GET URL for a private
+   * object. Used when an external service (e.g. the Instagram Graph API) must
+   * fetch the image directly and cannot present our session cookie.
+   */
+  async getSignedDownloadURL(
+    objectPath: string,
+    ttlSec = 900,
+  ): Promise<string> {
+    const file = await this.getObjectEntityFile(objectPath);
+    return signObjectURL({
+      bucketName: file.bucket.name,
+      objectName: file.name,
+      method: "GET",
+      ttlSec,
+    });
+  }
+
   normalizeObjectEntityPath(rawPath: string): string {
     if (!rawPath.startsWith("https://storage.googleapis.com/")) {
       return rawPath;

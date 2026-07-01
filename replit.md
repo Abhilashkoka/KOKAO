@@ -33,6 +33,7 @@ SocialForge is a multi-tenant SaaS web app for AI-powered social media content: 
 - Tenant provisioning: `artifacts/api-server/src/middlewares/requireTenant.ts`
 - Plan limits / quota helpers: `artifacts/api-server/src/lib/plans.ts`, `lib/usage.ts`
 - Superadmin: allowlist `artifacts/api-server/src/lib/superadmins.ts`, grantable DB flag `tenants.isSuperadmin`, gate `middlewares/requireSuperadmin.ts`, routes `routes/admin.ts` (owner-only `PATCH /admin/tenants/:id/superadmin`), live verified-email helper `lib/clerkUser.ts`, page `artifacts/socialforge/src/pages/admin.tsx`
+- Social credentials: encryption helper `artifacts/api-server/src/lib/secretCrypto.ts` (AES-256-GCM from SESSION_SECRET), Meta API helper `lib/metaApi.ts`, credential CRUD `routes/credentials.ts` (admin `/admin/platform-credentials/meta`; tenant `/social-credentials/{facebook,instagram}`), publishing `routes/meta.ts` (`/content/:id/publish-facebook`, `/content/:id/publish-instagram`), app-level creds schema `lib/db/src/schema/appCredentials.ts`, tenant creds on `connectedAccounts` (`encryptedCredentials`/`verifyStatus`). Meta secrets go in headers/POST body, never URLs.
 - Frontend: `artifacts/socialforge/src/`
 
 ## Architecture decisions
@@ -54,7 +55,7 @@ SocialForge is a multi-tenant SaaS web app for AI-powered social media content: 
 - Content library: save, edit, delete content items (draft/scheduled/published).
 - Brand kits: colors, voice, hashtags, logo upload.
 - Scheduling: schedule posts to a calendar (records only for now).
-- Connected accounts: Instagram/Facebook/LinkedIn/YouTube records (no live OAuth yet).
+- Connected accounts: Instagram/Facebook/LinkedIn/YouTube records. Facebook Page + Instagram Business use a real encrypted credential framework (admin sets Meta App ID/Secret once; each tenant enters own Page token/ID + IG account ID, auto-tested on save); LinkedIn uses real OAuth. Publish to these from the Content Library once verified.
 - Settings: workspace name, AI model, plan; view available plans.
 - Admin dashboard (superadmin only, `/admin`): platform stats, all-tenants table with counts/usage, per-tenant plan changes, and (owners only) grant/revoke of the superadmin role per tenant.
 

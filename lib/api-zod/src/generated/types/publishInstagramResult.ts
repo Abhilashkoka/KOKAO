@@ -6,7 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface FacebookPage {
-  id: string;
-  name: string;
+export interface PublishInstagramResult {
+  postId: string;
+  /** @nullable */
+  permalink?: string | null;
 }

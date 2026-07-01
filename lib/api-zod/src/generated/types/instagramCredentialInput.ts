@@ -5,8 +5,8 @@
  * SocialForge API
  * OpenAPI spec version: 0.1.0
  */
-import type { FacebookPage } from './facebookPage';
 
-export interface FacebookPagesResult {
-  pages: FacebookPage[];
+export interface InstagramCredentialInput {
+  /** @minLength 1 */
+  igUserId: string;
 }

@@ -1,2 +1,3 @@
 - [LinkedIn publishing](linkedin-publishing.md) — no Replit connector exists; needs manual OAuth app + "Share on LinkedIn" product; Posts API quirks.
-- [Social publishing in SocialForge](social-publishing.md) — "Connect Account" is record-only; real publishing is per-platform (Facebook done, LinkedIn done) via dedicated routes.
+- [Social publishing in SocialForge](social-publishing.md) — "Connect Account" is record-only; real publishing is per-platform (Facebook+Instagram via meta.ts, LinkedIn) via dedicated routes.
+- [Meta credential framework](meta-credential-framework.md) — encrypted app-level + per-tenant FB/IG creds, auto-tested & masked; Meta secrets go in headers/body never URLs.

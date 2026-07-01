@@ -635,31 +635,145 @@ export const DeleteAccountResponse = zod.void()
 
 
 /**
- * @summary List Facebook Pages the connected account manages
+ * @summary Get masked app-level Meta credentials and test status (superadmin only)
  */
-export const ListFacebookPagesResponse = zod.object({
-  "pages": zod.array(zod.object({
-  "id": zod.string(),
-  "name": zod.string()
-}))
+export const AdminGetMetaCredentialsResponse = zod.object({
+  "configured": zod.boolean().describe('Whether Meta app keys have been saved.'),
+  "appIdMasked": zod.string().nullish(),
+  "appSecretMasked": zod.string().nullish(),
+  "testStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic test.'),
+  "testedAt": zod.coerce.date().nullish(),
+  "testError": zod.string().nullish()
 })
 
 
 /**
- * @summary Publish a content item to a Facebook Page
+ * @summary Save and auto-test app-level Meta credentials (superadmin only)
+ */
+
+
+
+
+export const AdminSaveMetaCredentialsBody = zod.object({
+  "appId": zod.string().min(1),
+  "appSecret": zod.string().min(1)
+})
+
+export const AdminSaveMetaCredentialsResponse = zod.object({
+  "configured": zod.boolean().describe('Whether Meta app keys have been saved.'),
+  "appIdMasked": zod.string().nullish(),
+  "appSecretMasked": zod.string().nullish(),
+  "testStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic test.'),
+  "testedAt": zod.coerce.date().nullish(),
+  "testError": zod.string().nullish()
+})
+
+
+/**
+ * @summary Get the tenant's masked Facebook credentials and verify status
+ */
+export const GetFacebookCredentialsResponse = zod.object({
+  "platform": zod.string(),
+  "appConfigured": zod.boolean().describe('Whether the admin-level Meta app keys are configured.'),
+  "saved": zod.boolean().describe('Whether the tenant has saved credentials for this platform.'),
+  "verifyStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic verification.'),
+  "verifiedAt": zod.coerce.date().nullish(),
+  "verifyError": zod.string().nullish(),
+  "accountName": zod.string().nullish(),
+  "pageId": zod.string().nullish(),
+  "pageAccessTokenMasked": zod.string().nullish(),
+  "igUserId": zod.string().nullish()
+})
+
+
+/**
+ * @summary Save and auto-verify the tenant's Facebook Page credentials
+ */
+
+
+
+
+export const SaveFacebookCredentialsBody = zod.object({
+  "pageId": zod.string().min(1),
+  "pageAccessToken": zod.string().min(1)
+})
+
+export const SaveFacebookCredentialsResponse = zod.object({
+  "platform": zod.string(),
+  "appConfigured": zod.boolean().describe('Whether the admin-level Meta app keys are configured.'),
+  "saved": zod.boolean().describe('Whether the tenant has saved credentials for this platform.'),
+  "verifyStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic verification.'),
+  "verifiedAt": zod.coerce.date().nullish(),
+  "verifyError": zod.string().nullish(),
+  "accountName": zod.string().nullish(),
+  "pageId": zod.string().nullish(),
+  "pageAccessTokenMasked": zod.string().nullish(),
+  "igUserId": zod.string().nullish()
+})
+
+
+/**
+ * @summary Get the tenant's masked Instagram credentials and verify status
+ */
+export const GetInstagramCredentialsResponse = zod.object({
+  "platform": zod.string(),
+  "appConfigured": zod.boolean().describe('Whether the admin-level Meta app keys are configured.'),
+  "saved": zod.boolean().describe('Whether the tenant has saved credentials for this platform.'),
+  "verifyStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic verification.'),
+  "verifiedAt": zod.coerce.date().nullish(),
+  "verifyError": zod.string().nullish(),
+  "accountName": zod.string().nullish(),
+  "pageId": zod.string().nullish(),
+  "pageAccessTokenMasked": zod.string().nullish(),
+  "igUserId": zod.string().nullish()
+})
+
+
+/**
+ * @summary Save and auto-verify the tenant's Instagram Business account
+ */
+
+
+
+export const SaveInstagramCredentialsBody = zod.object({
+  "igUserId": zod.string().min(1)
+})
+
+export const SaveInstagramCredentialsResponse = zod.object({
+  "platform": zod.string(),
+  "appConfigured": zod.boolean().describe('Whether the admin-level Meta app keys are configured.'),
+  "saved": zod.boolean().describe('Whether the tenant has saved credentials for this platform.'),
+  "verifyStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic verification.'),
+  "verifiedAt": zod.coerce.date().nullish(),
+  "verifyError": zod.string().nullish(),
+  "accountName": zod.string().nullish(),
+  "pageId": zod.string().nullish(),
+  "pageAccessTokenMasked": zod.string().nullish(),
+  "igUserId": zod.string().nullish()
+})
+
+
+/**
+ * @summary Publish a content item to the tenant's connected Facebook Page
  */
 export const PublishContentToFacebookParams = zod.object({
   "id": zod.coerce.number()
 })
 
-
-
-
-export const PublishContentToFacebookBody = zod.object({
-  "pageId": zod.string().min(1)
+export const PublishContentToFacebookResponse = zod.object({
+  "postId": zod.string(),
+  "permalink": zod.string().nullish()
 })
 
-export const PublishContentToFacebookResponse = zod.object({
+
+/**
+ * @summary Publish a content item to the tenant's connected Instagram account
+ */
+export const PublishContentToInstagramParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const PublishContentToInstagramResponse = zod.object({
   "postId": zod.string(),
   "permalink": zod.string().nullish()
 })

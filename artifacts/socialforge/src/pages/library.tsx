@@ -3,23 +3,23 @@ import {
   useListContent, 
   useDeleteContent,
   useUpdateContent,
-  useListFacebookPages,
   usePublishContentToFacebook,
+  usePublishContentToInstagram,
   usePublishContentToLinkedin,
-  getListContentQueryKey,
-  getListFacebookPagesQueryKey
+  useGetFacebookCredentials,
+  useGetInstagramCredentials,
+  getListContentQueryKey
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Edit, MoreVertical, Trash2, LayoutGrid, Send, Linkedin } from "lucide-react";
+import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export function LibraryPage() {
   const { data: content, isLoading } = useListContent();
@@ -33,31 +33,29 @@ export function LibraryPage() {
   const [editCaption, setEditCaption] = useState("");
 
   const [publishItem, setPublishItem] = useState<any | null>(null);
-  const [selectedPageId, setSelectedPageId] = useState("");
   const publishContent = usePublishContentToFacebook();
+
+  const [instagramItem, setInstagramItem] = useState<any | null>(null);
+  const publishInstagram = usePublishContentToInstagram();
 
   const [linkedinItem, setLinkedinItem] = useState<any | null>(null);
   const publishLinkedin = usePublishContentToLinkedin();
-  const {
-    data: fbPages,
-    isLoading: pagesLoading,
-    isError: pagesError,
-  } = useListFacebookPages({
-    query: { enabled: !!publishItem, queryKey: getListFacebookPagesQueryKey() },
-  });
 
-  const openPublish = (item: any) => {
-    setSelectedPageId("");
-    setPublishItem(item);
-  };
+  const { data: fbCreds } = useGetFacebookCredentials();
+  const { data: igCreds } = useGetInstagramCredentials();
+  const fbReady = fbCreds?.verifyStatus === "verified";
+  const igReady = igCreds?.verifyStatus === "verified";
 
   const handlePublish = () => {
-    if (!publishItem || !selectedPageId) return;
+    if (!publishItem) return;
     publishContent.mutate(
-      { id: publishItem.id, data: { pageId: selectedPageId } },
+      { id: publishItem.id },
       {
-        onSuccess: () => {
-          toast({ title: "Published to Facebook" });
+        onSuccess: (res) => {
+          toast({
+            title: "Published to Facebook",
+            description: res?.permalink ? "Your post is live on Facebook." : undefined,
+          });
           queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
           setPublishItem(null);
         },
@@ -66,7 +64,30 @@ export function LibraryPage() {
             title: "Publish failed",
             description:
               err?.response?.data?.error ||
-              "Could not publish to Facebook. Please try again.",
+              "Could not publish to Facebook. Connect and verify your Facebook Page on the Accounts page first.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handlePublishInstagram = () => {
+    if (!instagramItem) return;
+    publishInstagram.mutate(
+      { id: instagramItem.id },
+      {
+        onSuccess: () => {
+          toast({ title: "Published to Instagram", description: "Your post is live on Instagram." });
+          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+          setInstagramItem(null);
+        },
+        onError: (err: any) => {
+          toast({
+            title: "Publish failed",
+            description:
+              err?.response?.data?.error ||
+              "Could not publish to Instagram. Connect and verify your Instagram account on the Accounts page first.",
             variant: "destructive",
           });
         },
@@ -185,7 +206,8 @@ export function LibraryPage() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => openEdit(item)}><Edit className="h-4 w-4 mr-2" /> Edit</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => openPublish(item)}><Send className="h-4 w-4 mr-2" /> Publish to Facebook</DropdownMenuItem>
+                      <DropdownMenuItem disabled={!fbReady} onClick={() => setPublishItem(item)}><Facebook className="h-4 w-4 mr-2" /> Publish to Facebook</DropdownMenuItem>
+                      <DropdownMenuItem disabled={!igReady} onClick={() => setInstagramItem(item)}><Instagram className="h-4 w-4 mr-2" /> Publish to Instagram</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => setLinkedinItem(item)}><Linkedin className="h-4 w-4 mr-2" /> Publish to LinkedIn</DropdownMenuItem>
                       <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(item.id)}><Trash2 className="h-4 w-4 mr-2" /> Delete</DropdownMenuItem>
                     </DropdownMenuContent>
@@ -239,43 +261,51 @@ export function LibraryPage() {
           <DialogHeader>
             <DialogTitle>Publish to Facebook</DialogTitle>
             <DialogDescription>
-              Choose which Facebook Page to post this content to. The caption and image will be published to the selected Page.
+              This posts the caption{publishItem?.imagePath ? " and image" : ""} to your connected Facebook Page{fbCreds?.accountName ? ` (${fbCreds.accountName})` : ""}.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Facebook Page</label>
-              {pagesLoading ? (
-                <Skeleton className="h-10 w-full" />
-              ) : pagesError ? (
-                <p className="text-sm text-destructive">
-                  Could not load your Facebook Pages. Check that the connected access token is valid.
-                </p>
-              ) : (fbPages?.pages?.length ?? 0) === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No Facebook Pages found for the connected account.
-                </p>
-              ) : (
-                <Select value={selectedPageId} onValueChange={setSelectedPageId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a Page" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {fbPages?.pages?.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+          {publishItem && (
+            <div className="space-y-2 py-2">
+              <p className="font-medium">{publishItem.title}</p>
+              {publishItem.caption && (
+                <p className="text-sm text-muted-foreground line-clamp-4">{publishItem.caption}</p>
               )}
             </div>
-          </div>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setPublishItem(null)}>Cancel</Button>
-            <Button
-              onClick={handlePublish}
-              disabled={!selectedPageId || publishContent.isPending}
-            >
+            <Button onClick={handlePublish} disabled={publishContent.isPending}>
               {publishContent.isPending ? "Publishing..." : "Publish"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!instagramItem} onOpenChange={(open) => !open && setInstagramItem(null)}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle>Publish to Instagram</DialogTitle>
+            <DialogDescription>
+              {instagramItem && !instagramItem.imagePath
+                ? "Instagram posts require an image. Add an image to this content before publishing."
+                : `This posts the image and caption to your connected Instagram account${igCreds?.accountName ? ` (${igCreds.accountName})` : ""}.`}
+            </DialogDescription>
+          </DialogHeader>
+          {instagramItem && (
+            <div className="space-y-2 py-2">
+              <p className="font-medium">{instagramItem.title}</p>
+              {instagramItem.caption && (
+                <p className="text-sm text-muted-foreground line-clamp-4">{instagramItem.caption}</p>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInstagramItem(null)}>Cancel</Button>
+            <Button
+              onClick={handlePublishInstagram}
+              disabled={publishInstagram.isPending || !instagramItem?.imagePath}
+            >
+              {publishInstagram.isPending ? "Publishing..." : "Publish"}
             </Button>
           </DialogFooter>
         </DialogContent>

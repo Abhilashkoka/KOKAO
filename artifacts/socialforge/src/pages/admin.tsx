@@ -1,13 +1,19 @@
+import { useState, useEffect } from "react";
 import {
   useAdminListTenants,
   useAdminGetStats,
   useAdminUpdateTenantPlan,
   useAdminUpdateTenantSuperadmin,
+  useAdminGetMetaCredentials,
+  useAdminSaveMetaCredentials,
   getAdminListTenantsQueryKey,
   getAdminGetStatsQueryKey,
+  getAdminGetMetaCredentialsQueryKey,
   useGetMe,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -34,7 +40,16 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Layers, Calendar, Share2, ShieldAlert } from "lucide-react";
+import {
+  Users,
+  Layers,
+  Calendar,
+  Share2,
+  ShieldAlert,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+} from "lucide-react";
 
 const PLAN_LABELS: Record<string, string> = {
   free: "Free",
@@ -48,6 +63,149 @@ function isForbidden(error: unknown): boolean {
     error !== null &&
     "status" in error &&
     (error as { status?: number }).status === 403
+  );
+}
+
+function MetaCredentialsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useAdminGetMetaCredentials();
+  const saveMeta = useAdminSaveMetaCredentials();
+
+  const [appId, setAppId] = useState("");
+  const [appSecret, setAppSecret] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  // Prefill the App ID field with the masked value once loaded so admins can
+  // see something is configured. Secret stays blank (write-only).
+  useEffect(() => {
+    if (data && !dirty) {
+      setAppId(data.appIdMasked ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const handleSave = () => {
+    if (!appId.trim() || !appSecret.trim()) return;
+    saveMeta.mutate(
+      { data: { appId: appId.trim(), appSecret: appSecret.trim() } },
+      {
+        onSuccess: (res) => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetMetaCredentialsQueryKey(),
+          });
+          setAppSecret("");
+          setDirty(false);
+          if (res.testStatus === "verified") {
+            toast({
+              title: "Meta credentials verified",
+              description: "The app keys were saved and tested successfully.",
+            });
+          } else {
+            toast({
+              variant: "destructive",
+              title: "Saved, but verification failed",
+              description:
+                res.testError ||
+                "The app keys were saved but Meta rejected them. Double-check the App ID and Secret.",
+            });
+          }
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description:
+              err?.response?.data?.error || "Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  const status = data?.testStatus;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Meta (Facebook & Instagram) app credentials</CardTitle>
+        <CardDescription>
+          One-time platform setup. Enter your Meta app's App ID and App Secret.
+          Every workspace then connects their own Facebook Page and Instagram
+          account on the Accounts page. Secrets are encrypted at rest and never
+          shown again.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-xl">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (
+          <>
+            {data?.configured && (
+              <div className="flex items-center gap-2 text-sm">
+                {status === "verified" ? (
+                  <span className="text-green-600 flex items-center gap-1">
+                    <CheckCircle2 className="h-4 w-4" /> Verified with Meta
+                  </span>
+                ) : status === "failed" ? (
+                  <span className="text-destructive flex items-center gap-1">
+                    <AlertCircle className="h-4 w-4" /> Verification failed
+                    {data.testError ? `: ${data.testError}` : ""}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">Saved</span>
+                )}
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">App ID</label>
+              <Input
+                value={appId}
+                onChange={(e) => {
+                  setAppId(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="1234567890123456"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">App Secret</label>
+              <Input
+                type="password"
+                value={appSecret}
+                onChange={(e) => {
+                  setAppSecret(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder={
+                  data?.configured ? "Enter to replace the saved secret" : "App Secret"
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Find both in the Meta app dashboard under Settings &gt; Basic at{" "}
+                developers.facebook.com/apps.
+              </p>
+            </div>
+            <Button
+              onClick={handleSave}
+              disabled={saveMeta.isPending || !appId.trim() || !appSecret.trim()}
+            >
+              {saveMeta.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving &
+                  testing...
+                </>
+              ) : (
+                "Save and test"
+              )}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -191,6 +349,8 @@ export function AdminPage() {
           </Badge>
         </div>
       )}
+
+      <MetaCredentialsCard />
 
       <Card>
         <CardHeader>

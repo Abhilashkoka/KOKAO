@@ -6,7 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface PublishFacebookRequest {
+export interface FacebookCredentialInput {
   /** @minLength 1 */
   pageId: string;
+  /** @minLength 1 */
+  pageAccessToken: string;
 }

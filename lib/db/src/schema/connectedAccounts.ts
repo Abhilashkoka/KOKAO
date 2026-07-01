@@ -11,6 +11,13 @@ export const connectedAccountsTable = pgTable("connected_accounts", {
   accessToken: text("access_token"),
   tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
   providerUserId: text("provider_user_id"),
+  // Manually-entered per-tenant credentials (Facebook Page token/ID, Instagram
+  // Business account ID, etc.), stored as an AES-256-GCM encrypted JSON blob.
+  encryptedCredentials: text("encrypted_credentials"),
+  // Result of the most recent automatic validity test against the live platform.
+  verifyStatus: text("verify_status"),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  verifyError: text("verify_error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

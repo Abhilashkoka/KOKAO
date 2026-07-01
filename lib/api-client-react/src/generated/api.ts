@@ -35,20 +35,24 @@ import type {
   ContentItem,
   ContentUpdate,
   ErrorEnvelope,
-  FacebookPagesResult,
+  FacebookCredentialInput,
   HealthStatus,
   ImageRequest,
   ImageResult,
+  InstagramCredentialInput,
   LinkedInAuthUrlResult,
   LinkedInStatus,
   MeProfile,
+  MetaAppCredentialInput,
+  MetaAppCredentialStatus,
   Plan,
-  PublishFacebookRequest,
   PublishFacebookResult,
+  PublishInstagramResult,
   PublishLinkedInResult,
   ScheduleInput,
   ScheduleUpdate,
   ScheduledPost,
+  SocialCredentialStatus,
   SummarizeUrlRequest,
   SummarizeUrlResult,
   Tenant,
@@ -2271,20 +2275,20 @@ export const useDeleteAccount = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getDeleteAccountMutationOptions(options));
     }
 
-export const getListFacebookPagesUrl = () => {
+export const getAdminGetMetaCredentialsUrl = () => {
 
 
 
 
-  return `/api/facebook/pages`
+  return `/api/admin/platform-credentials/meta`
 }
 
 /**
- * @summary List Facebook Pages the connected account manages
+ * @summary Get masked app-level Meta credentials and test status (superadmin only)
  */
-export const listFacebookPages = async ( options?: RequestInit): Promise<FacebookPagesResult> => {
+export const adminGetMetaCredentials = async ( options?: RequestInit): Promise<MetaAppCredentialStatus> => {
 
-  return customFetch<FacebookPagesResult>(getListFacebookPagesUrl(),
+  return customFetch<MetaAppCredentialStatus>(getAdminGetMetaCredentialsUrl(),
   {
     ...options,
     method: 'GET'
@@ -2297,45 +2301,45 @@ export const listFacebookPages = async ( options?: RequestInit): Promise<Faceboo
 
 
 
-export const getListFacebookPagesQueryKey = () => {
+export const getAdminGetMetaCredentialsQueryKey = () => {
     return [
-    `/api/facebook/pages`
+    `/api/admin/platform-credentials/meta`
     ] as const;
     }
 
 
-export const getListFacebookPagesQueryOptions = <TData = Awaited<ReturnType<typeof listFacebookPages>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listFacebookPages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getAdminGetMetaCredentialsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetMetaCredentials>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetMetaCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListFacebookPagesQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetMetaCredentialsQueryKey();
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listFacebookPages>>> = ({ signal }) => listFacebookPages({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetMetaCredentials>>> = ({ signal }) => adminGetMetaCredentials({ signal, ...requestOptions });
 
 
 
 
 
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listFacebookPages>>, TError, TData> & { queryKey: QueryKey }
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetMetaCredentials>>, TError, TData> & { queryKey: QueryKey }
 }
 
-export type ListFacebookPagesQueryResult = NonNullable<Awaited<ReturnType<typeof listFacebookPages>>>
-export type ListFacebookPagesQueryError = ErrorType<ErrorEnvelope>
+export type AdminGetMetaCredentialsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetMetaCredentials>>>
+export type AdminGetMetaCredentialsQueryError = ErrorType<ErrorEnvelope>
 
 
 /**
- * @summary List Facebook Pages the connected account manages
+ * @summary Get masked app-level Meta credentials and test status (superadmin only)
  */
 
-export function useListFacebookPages<TData = Awaited<ReturnType<typeof listFacebookPages>>, TError = ErrorType<ErrorEnvelope>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listFacebookPages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export function useAdminGetMetaCredentials<TData = Awaited<ReturnType<typeof adminGetMetaCredentials>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetMetaCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getListFacebookPagesQueryOptions(options)
+  const queryOptions = getAdminGetMetaCredentialsQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -2348,6 +2352,370 @@ export function useListFacebookPages<TData = Awaited<ReturnType<typeof listFaceb
 
 
 
+export const getAdminSaveMetaCredentialsUrl = () => {
+
+
+
+
+  return `/api/admin/platform-credentials/meta`
+}
+
+/**
+ * @summary Save and auto-test app-level Meta credentials (superadmin only)
+ */
+export const adminSaveMetaCredentials = async (metaAppCredentialInput: MetaAppCredentialInput, options?: RequestInit): Promise<MetaAppCredentialStatus> => {
+
+  return customFetch<MetaAppCredentialStatus>(getAdminSaveMetaCredentialsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(metaAppCredentialInput)
+  }
+);}
+
+
+
+
+export const getAdminSaveMetaCredentialsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveMetaCredentials>>, TError,{data: BodyType<MetaAppCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSaveMetaCredentials>>, TError,{data: BodyType<MetaAppCredentialInput>}, TContext> => {
+
+const mutationKey = ['adminSaveMetaCredentials'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSaveMetaCredentials>>, {data: BodyType<MetaAppCredentialInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminSaveMetaCredentials(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSaveMetaCredentialsMutationResult = NonNullable<Awaited<ReturnType<typeof adminSaveMetaCredentials>>>
+    export type AdminSaveMetaCredentialsMutationBody = BodyType<MetaAppCredentialInput>
+    export type AdminSaveMetaCredentialsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save and auto-test app-level Meta credentials (superadmin only)
+ */
+export const useAdminSaveMetaCredentials = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveMetaCredentials>>, TError,{data: BodyType<MetaAppCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSaveMetaCredentials>>,
+        TError,
+        {data: BodyType<MetaAppCredentialInput>},
+        TContext
+      > => {
+      return useMutation(getAdminSaveMetaCredentialsMutationOptions(options));
+    }
+
+export const getGetFacebookCredentialsUrl = () => {
+
+
+
+
+  return `/api/social-credentials/facebook`
+}
+
+/**
+ * @summary Get the tenant's masked Facebook credentials and verify status
+ */
+export const getFacebookCredentials = async ( options?: RequestInit): Promise<SocialCredentialStatus> => {
+
+  return customFetch<SocialCredentialStatus>(getGetFacebookCredentialsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetFacebookCredentialsQueryKey = () => {
+    return [
+    `/api/social-credentials/facebook`
+    ] as const;
+    }
+
+
+export const getGetFacebookCredentialsQueryOptions = <TData = Awaited<ReturnType<typeof getFacebookCredentials>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFacebookCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetFacebookCredentialsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getFacebookCredentials>>> = ({ signal }) => getFacebookCredentials({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getFacebookCredentials>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetFacebookCredentialsQueryResult = NonNullable<Awaited<ReturnType<typeof getFacebookCredentials>>>
+export type GetFacebookCredentialsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the tenant's masked Facebook credentials and verify status
+ */
+
+export function useGetFacebookCredentials<TData = Awaited<ReturnType<typeof getFacebookCredentials>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFacebookCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetFacebookCredentialsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSaveFacebookCredentialsUrl = () => {
+
+
+
+
+  return `/api/social-credentials/facebook`
+}
+
+/**
+ * @summary Save and auto-verify the tenant's Facebook Page credentials
+ */
+export const saveFacebookCredentials = async (facebookCredentialInput: FacebookCredentialInput, options?: RequestInit): Promise<SocialCredentialStatus> => {
+
+  return customFetch<SocialCredentialStatus>(getSaveFacebookCredentialsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(facebookCredentialInput)
+  }
+);}
+
+
+
+
+export const getSaveFacebookCredentialsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveFacebookCredentials>>, TError,{data: BodyType<FacebookCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveFacebookCredentials>>, TError,{data: BodyType<FacebookCredentialInput>}, TContext> => {
+
+const mutationKey = ['saveFacebookCredentials'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveFacebookCredentials>>, {data: BodyType<FacebookCredentialInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  saveFacebookCredentials(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveFacebookCredentialsMutationResult = NonNullable<Awaited<ReturnType<typeof saveFacebookCredentials>>>
+    export type SaveFacebookCredentialsMutationBody = BodyType<FacebookCredentialInput>
+    export type SaveFacebookCredentialsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save and auto-verify the tenant's Facebook Page credentials
+ */
+export const useSaveFacebookCredentials = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveFacebookCredentials>>, TError,{data: BodyType<FacebookCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof saveFacebookCredentials>>,
+        TError,
+        {data: BodyType<FacebookCredentialInput>},
+        TContext
+      > => {
+      return useMutation(getSaveFacebookCredentialsMutationOptions(options));
+    }
+
+export const getGetInstagramCredentialsUrl = () => {
+
+
+
+
+  return `/api/social-credentials/instagram`
+}
+
+/**
+ * @summary Get the tenant's masked Instagram credentials and verify status
+ */
+export const getInstagramCredentials = async ( options?: RequestInit): Promise<SocialCredentialStatus> => {
+
+  return customFetch<SocialCredentialStatus>(getGetInstagramCredentialsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetInstagramCredentialsQueryKey = () => {
+    return [
+    `/api/social-credentials/instagram`
+    ] as const;
+    }
+
+
+export const getGetInstagramCredentialsQueryOptions = <TData = Awaited<ReturnType<typeof getInstagramCredentials>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getInstagramCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetInstagramCredentialsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getInstagramCredentials>>> = ({ signal }) => getInstagramCredentials({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getInstagramCredentials>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetInstagramCredentialsQueryResult = NonNullable<Awaited<ReturnType<typeof getInstagramCredentials>>>
+export type GetInstagramCredentialsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the tenant's masked Instagram credentials and verify status
+ */
+
+export function useGetInstagramCredentials<TData = Awaited<ReturnType<typeof getInstagramCredentials>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getInstagramCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetInstagramCredentialsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSaveInstagramCredentialsUrl = () => {
+
+
+
+
+  return `/api/social-credentials/instagram`
+}
+
+/**
+ * @summary Save and auto-verify the tenant's Instagram Business account
+ */
+export const saveInstagramCredentials = async (instagramCredentialInput: InstagramCredentialInput, options?: RequestInit): Promise<SocialCredentialStatus> => {
+
+  return customFetch<SocialCredentialStatus>(getSaveInstagramCredentialsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(instagramCredentialInput)
+  }
+);}
+
+
+
+
+export const getSaveInstagramCredentialsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveInstagramCredentials>>, TError,{data: BodyType<InstagramCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveInstagramCredentials>>, TError,{data: BodyType<InstagramCredentialInput>}, TContext> => {
+
+const mutationKey = ['saveInstagramCredentials'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveInstagramCredentials>>, {data: BodyType<InstagramCredentialInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  saveInstagramCredentials(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveInstagramCredentialsMutationResult = NonNullable<Awaited<ReturnType<typeof saveInstagramCredentials>>>
+    export type SaveInstagramCredentialsMutationBody = BodyType<InstagramCredentialInput>
+    export type SaveInstagramCredentialsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save and auto-verify the tenant's Instagram Business account
+ */
+export const useSaveInstagramCredentials = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveInstagramCredentials>>, TError,{data: BodyType<InstagramCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof saveInstagramCredentials>>,
+        TError,
+        {data: BodyType<InstagramCredentialInput>},
+        TContext
+      > => {
+      return useMutation(getSaveInstagramCredentialsMutationOptions(options));
+    }
+
 export const getPublishContentToFacebookUrl = (id: number,) => {
 
 
@@ -2357,17 +2725,16 @@ export const getPublishContentToFacebookUrl = (id: number,) => {
 }
 
 /**
- * @summary Publish a content item to a Facebook Page
+ * @summary Publish a content item to the tenant's connected Facebook Page
  */
-export const publishContentToFacebook = async (id: number,
-    publishFacebookRequest: PublishFacebookRequest, options?: RequestInit): Promise<PublishFacebookResult> => {
+export const publishContentToFacebook = async (id: number, options?: RequestInit): Promise<PublishFacebookResult> => {
 
   return customFetch<PublishFacebookResult>(getPublishContentToFacebookUrl(id),
   {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(publishFacebookRequest)
+    method: 'POST'
+
+
   }
 );}
 
@@ -2375,8 +2742,8 @@ export const publishContentToFacebook = async (id: number,
 
 
 export const getPublishContentToFacebookMutationOptions = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishContentToFacebook>>, TError,{id: number;data: BodyType<PublishFacebookRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof publishContentToFacebook>>, TError,{id: number;data: BodyType<PublishFacebookRequest>}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishContentToFacebook>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof publishContentToFacebook>>, TError,{id: number}, TContext> => {
 
 const mutationKey = ['publishContentToFacebook'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -2388,10 +2755,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof publishContentToFacebook>>, {id: number;data: BodyType<PublishFacebookRequest>}> = (props) => {
-          const {id,data} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof publishContentToFacebook>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
 
-          return  publishContentToFacebook(id,data,requestOptions)
+          return  publishContentToFacebook(id,requestOptions)
         }
 
 
@@ -2402,21 +2769,91 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type PublishContentToFacebookMutationResult = NonNullable<Awaited<ReturnType<typeof publishContentToFacebook>>>
-    export type PublishContentToFacebookMutationBody = BodyType<PublishFacebookRequest>
+
     export type PublishContentToFacebookMutationError = ErrorType<ErrorEnvelope>
 
     /**
- * @summary Publish a content item to a Facebook Page
+ * @summary Publish a content item to the tenant's connected Facebook Page
  */
 export const usePublishContentToFacebook = <TError = ErrorType<ErrorEnvelope>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishContentToFacebook>>, TError,{id: number;data: BodyType<PublishFacebookRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishContentToFacebook>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof publishContentToFacebook>>,
         TError,
-        {id: number;data: BodyType<PublishFacebookRequest>},
+        {id: number},
         TContext
       > => {
       return useMutation(getPublishContentToFacebookMutationOptions(options));
+    }
+
+export const getPublishContentToInstagramUrl = (id: number,) => {
+
+
+
+
+  return `/api/content/${id}/publish-instagram`
+}
+
+/**
+ * @summary Publish a content item to the tenant's connected Instagram account
+ */
+export const publishContentToInstagram = async (id: number, options?: RequestInit): Promise<PublishInstagramResult> => {
+
+  return customFetch<PublishInstagramResult>(getPublishContentToInstagramUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getPublishContentToInstagramMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishContentToInstagram>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof publishContentToInstagram>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['publishContentToInstagram'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof publishContentToInstagram>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  publishContentToInstagram(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PublishContentToInstagramMutationResult = NonNullable<Awaited<ReturnType<typeof publishContentToInstagram>>>
+
+    export type PublishContentToInstagramMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Publish a content item to the tenant's connected Instagram account
+ */
+export const usePublishContentToInstagram = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishContentToInstagram>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof publishContentToInstagram>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getPublishContentToInstagramMutationOptions(options));
     }
 
 export const getGetLinkedinAuthUrlUrl = () => {

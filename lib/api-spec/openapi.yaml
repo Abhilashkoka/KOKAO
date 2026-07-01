@@ -749,20 +749,121 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
-  /facebook/pages:
+  /admin/platform-credentials/meta:
     get:
-      operationId: listFacebookPages
-      tags: [facebook]
-      summary: List Facebook Pages the connected account manages
+      operationId: adminGetMetaCredentials
+      tags: [platform-credentials]
+      summary: Get masked app-level Meta credentials and test status (superadmin only)
       responses:
         "200":
-          description: Facebook Pages
+          description: Meta app credential status
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/FacebookPagesResult"
-        "502":
-          description: Facebook API error
+                $ref: "#/components/schemas/MetaAppCredentialStatus"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminSaveMetaCredentials
+      tags: [platform-credentials]
+      summary: Save and auto-test app-level Meta credentials (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MetaAppCredentialInput"
+      responses:
+        "200":
+          description: Saved and tested
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetaAppCredentialStatus"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /social-credentials/facebook:
+    get:
+      operationId: getFacebookCredentials
+      tags: [social-credentials]
+      summary: Get the tenant's masked Facebook credentials and verify status
+      responses:
+        "200":
+          description: Facebook credential status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialCredentialStatus"
+    put:
+      operationId: saveFacebookCredentials
+      tags: [social-credentials]
+      summary: Save and auto-verify the tenant's Facebook Page credentials
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FacebookCredentialInput"
+      responses:
+        "200":
+          description: Saved and verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialCredentialStatus"
+        "400":
+          description: Invalid input or Meta app not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /social-credentials/instagram:
+    get:
+      operationId: getInstagramCredentials
+      tags: [social-credentials]
+      summary: Get the tenant's masked Instagram credentials and verify status
+      responses:
+        "200":
+          description: Instagram credential status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialCredentialStatus"
+    put:
+      operationId: saveInstagramCredentials
+      tags: [social-credentials]
+      summary: Save and auto-verify the tenant's Instagram Business account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstagramCredentialInput"
+      responses:
+        "200":
+          description: Saved and verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialCredentialStatus"
+        "400":
+          description: Invalid input, Meta app not configured, or Facebook not verified
           content:
             application/json:
               schema:
@@ -772,19 +873,13 @@ paths:
     post:
       operationId: publishContentToFacebook
       tags: [facebook]
-      summary: Publish a content item to a Facebook Page
+      summary: Publish a content item to the tenant's connected Facebook Page
       parameters:
         - name: id
           in: path
           required: true
           schema:
             type: integer
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PublishFacebookRequest"
       responses:
         "200":
           description: Published
@@ -793,7 +888,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/PublishFacebookResult"
         "400":
-          description: Invalid input
+          description: Facebook not connected or not verified
           content:
             application/json:
               schema:
@@ -806,6 +901,43 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "502":
           description: Facebook API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /content/{id}/publish-instagram:
+    post:
+      operationId: publishContentToInstagram
+      tags: [instagram]
+      summary: Publish a content item to the tenant's connected Instagram account
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishInstagramResult"
+        "400":
+          description: Instagram not connected, not verified, or missing image
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Instagram API error
           content:
             application/json:
               schema:
@@ -1247,30 +1379,89 @@ components:
         logoPath:
           type: ["string", "null"]
 
-    FacebookPage:
+    MetaAppCredentialInput:
       type: object
-      required: [id, name]
+      required: [appId, appSecret]
       properties:
-        id:
+        appId:
           type: string
-        name:
+          minLength: 1
+        appSecret:
           type: string
-    FacebookPagesResult:
+          minLength: 1
+    MetaAppCredentialStatus:
       type: object
-      required: [pages]
+      required: [configured]
       properties:
-        pages:
-          type: array
-          items:
-            $ref: "#/components/schemas/FacebookPage"
-    PublishFacebookRequest:
+        configured:
+          type: boolean
+          description: Whether Meta app keys have been saved.
+        appIdMasked:
+          type: ["string", "null"]
+        appSecretMasked:
+          type: ["string", "null"]
+        testStatus:
+          type: ["string", "null"]
+          description: '"verified" or "failed" from the last automatic test.'
+        testedAt:
+          type: ["string", "null"]
+          format: date-time
+        testError:
+          type: ["string", "null"]
+    FacebookCredentialInput:
       type: object
-      required: [pageId]
+      required: [pageId, pageAccessToken]
       properties:
         pageId:
           type: string
           minLength: 1
+        pageAccessToken:
+          type: string
+          minLength: 1
+    InstagramCredentialInput:
+      type: object
+      required: [igUserId]
+      properties:
+        igUserId:
+          type: string
+          minLength: 1
+    SocialCredentialStatus:
+      type: object
+      required: [platform, appConfigured, saved]
+      properties:
+        platform:
+          type: string
+        appConfigured:
+          type: boolean
+          description: Whether the admin-level Meta app keys are configured.
+        saved:
+          type: boolean
+          description: Whether the tenant has saved credentials for this platform.
+        verifyStatus:
+          type: ["string", "null"]
+          description: '"verified" or "failed" from the last automatic verification.'
+        verifiedAt:
+          type: ["string", "null"]
+          format: date-time
+        verifyError:
+          type: ["string", "null"]
+        accountName:
+          type: ["string", "null"]
+        pageId:
+          type: ["string", "null"]
+        pageAccessTokenMasked:
+          type: ["string", "null"]
+        igUserId:
+          type: ["string", "null"]
     PublishFacebookResult:
+      type: object
+      required: [postId]
+      properties:
+        postId:
+          type: string
+        permalink:
+          type: ["string", "null"]
+    PublishInstagramResult:
       type: object
       required: [postId]
       properties:

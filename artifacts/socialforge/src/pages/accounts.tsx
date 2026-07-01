@@ -5,7 +5,13 @@ import {
   useDeleteAccount,
   getListAccountsQueryKey,
   getLinkedinAuthUrl,
-  useGetLinkedinStatus
+  useGetLinkedinStatus,
+  useGetFacebookCredentials,
+  useSaveFacebookCredentials,
+  useGetInstagramCredentials,
+  useSaveInstagramCredentials,
+  getGetFacebookCredentialsQueryKey,
+  getGetInstagramCredentialsQueryKey
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -16,6 +22,266 @@ import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Share2, Plus, Trash2, CheckCircle2, Instagram, Facebook, Linkedin, Youtube, Loader2, Copy, ExternalLink, AlertCircle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+function StatusPill({ status }: { status?: string | null }) {
+  if (status === "verified") {
+    return (
+      <span className="text-xs font-medium text-green-600 flex items-center gap-1 bg-green-600/10 px-2 py-0.5 rounded-full">
+        <CheckCircle2 className="h-3 w-3" /> Verified
+      </span>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <span className="text-xs font-medium text-destructive flex items-center gap-1 bg-destructive/10 px-2 py-0.5 rounded-full">
+        <AlertCircle className="h-3 w-3" /> Verification failed
+      </span>
+    );
+  }
+  return (
+    <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+      Not connected
+    </span>
+  );
+}
+
+function FacebookCredentialsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useGetFacebookCredentials();
+  const save = useSaveFacebookCredentials();
+
+  const [pageId, setPageId] = useState("");
+  const [pageAccessToken, setPageAccessToken] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (data && !dirty) {
+      setPageId(data.pageId ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const handleSave = () => {
+    if (!pageId.trim() || !pageAccessToken.trim()) return;
+    save.mutate(
+      { data: { pageId: pageId.trim(), pageAccessToken: pageAccessToken.trim() } },
+      {
+        onSuccess: (res) => {
+          queryClient.invalidateQueries({ queryKey: getGetFacebookCredentialsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetInstagramCredentialsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
+          setPageAccessToken("");
+          setDirty(false);
+          if (res.verifyStatus === "verified") {
+            toast({ title: "Facebook Page verified", description: "You can now publish to this Page from the Content Library." });
+          } else {
+            toast({
+              variant: "destructive",
+              title: "Saved, but verification failed",
+              description: res.verifyError || "Meta rejected these credentials. Check the Page ID and access token.",
+            });
+          }
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description: err?.response?.data?.error || "Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card className="overflow-hidden border-border">
+      <CardContent className="p-6">
+        <div className="flex items-start gap-4">
+          <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-blue-600/10 text-blue-600 shrink-0">
+            <Facebook className="h-6 w-6" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-bold text-lg">Facebook Page Publishing</h3>
+              {isLoading ? null : data?.saved ? (
+                <StatusPill status={data.verifyStatus} />
+              ) : !data?.appConfigured ? (
+                <span className="text-xs font-medium text-amber-600 flex items-center gap-1 bg-amber-600/10 px-2 py-0.5 rounded-full">
+                  <AlertCircle className="h-3 w-3" /> Needs admin setup
+                </span>
+              ) : (
+                <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                  Not connected
+                </span>
+              )}
+            </div>
+
+            {isLoading ? (
+              <div className="mt-3 space-y-3">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : !data?.appConfigured ? (
+              <p className="mt-2 text-sm text-muted-foreground">
+                Facebook publishing needs a one-time Meta app setup by a platform administrator before you can connect your Page.
+              </p>
+            ) : (
+              <div className="mt-3 space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Paste your Facebook Page ID and a Page access token. We test them immediately and only store them encrypted. Get a Page access token from the Graph API Explorer or your Meta app with the pages_manage_posts and pages_read_engagement permissions.
+                </p>
+                {data?.verifyStatus === "failed" && data?.verifyError && (
+                  <p className="text-sm text-destructive">{data.verifyError}</p>
+                )}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Page ID</label>
+                  <Input
+                    value={pageId}
+                    onChange={(e) => { setPageId(e.target.value); setDirty(true); }}
+                    placeholder="1234567890"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Page access token</label>
+                  <Input
+                    type="password"
+                    value={pageAccessToken}
+                    onChange={(e) => { setPageAccessToken(e.target.value); setDirty(true); }}
+                    placeholder={data?.saved ? "Enter to replace the saved token" : "EAAG..."}
+                  />
+                </div>
+                <Button onClick={handleSave} disabled={save.isPending || !pageId.trim() || !pageAccessToken.trim()}>
+                  {save.isPending ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving & testing...</>
+                  ) : (
+                    "Save and verify"
+                  )}
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function InstagramCredentialsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useGetInstagramCredentials();
+  const { data: fb } = useGetFacebookCredentials();
+  const save = useSaveInstagramCredentials();
+
+  const [igUserId, setIgUserId] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (data && !dirty) {
+      setIgUserId(data.igUserId ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const fbVerified = fb?.verifyStatus === "verified";
+
+  const handleSave = () => {
+    if (!igUserId.trim()) return;
+    save.mutate(
+      { data: { igUserId: igUserId.trim() } },
+      {
+        onSuccess: (res) => {
+          queryClient.invalidateQueries({ queryKey: getGetInstagramCredentialsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
+          setDirty(false);
+          if (res.verifyStatus === "verified") {
+            toast({ title: "Instagram account verified", description: "You can now publish to Instagram from the Content Library." });
+          } else {
+            toast({
+              variant: "destructive",
+              title: "Saved, but verification failed",
+              description: res.verifyError || "Meta rejected this Instagram account ID.",
+            });
+          }
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description: err?.response?.data?.error || "Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card className="overflow-hidden border-border">
+      <CardContent className="p-6">
+        <div className="flex items-start gap-4">
+          <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-pink-600/10 text-pink-600 shrink-0">
+            <Instagram className="h-6 w-6" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-bold text-lg">Instagram Publishing</h3>
+              {isLoading ? null : data?.saved ? (
+                <StatusPill status={data.verifyStatus} />
+              ) : !data?.appConfigured ? (
+                <span className="text-xs font-medium text-amber-600 flex items-center gap-1 bg-amber-600/10 px-2 py-0.5 rounded-full">
+                  <AlertCircle className="h-3 w-3" /> Needs admin setup
+                </span>
+              ) : (
+                <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                  Not connected
+                </span>
+              )}
+            </div>
+
+            {isLoading ? (
+              <div className="mt-3 space-y-3">
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : !data?.appConfigured ? (
+              <p className="mt-2 text-sm text-muted-foreground">
+                Instagram publishing needs a one-time Meta app setup by a platform administrator before you can connect your account.
+              </p>
+            ) : !fbVerified ? (
+              <p className="mt-2 text-sm text-muted-foreground">
+                Connect and verify your Facebook Page first. Instagram publishing uses your Facebook Page access token, so the Page must be linked to your Instagram Business account.
+              </p>
+            ) : (
+              <div className="mt-3 space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Enter your Instagram Business account ID (the numeric IG user ID linked to your Facebook Page). We verify it immediately using your Facebook Page token.
+                </p>
+                {data?.verifyStatus === "failed" && data?.verifyError && (
+                  <p className="text-sm text-destructive">{data.verifyError}</p>
+                )}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Instagram Business account ID</label>
+                  <Input
+                    value={igUserId}
+                    onChange={(e) => { setIgUserId(e.target.value); setDirty(true); }}
+                    placeholder="17841400000000000"
+                  />
+                </div>
+                <Button onClick={handleSave} disabled={save.isPending || !igUserId.trim()}>
+                  {save.isPending ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving & verifying...</>
+                  ) : (
+                    "Save and verify"
+                  )}
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 const ICONS: Record<string, any> = {
   instagram: { icon: Instagram, color: "text-pink-600", bg: "bg-pink-600/10" },
@@ -256,6 +522,9 @@ export function AccountsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <FacebookCredentialsCard />
+      <InstagramCredentialsCard />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {items.length === 0 && (

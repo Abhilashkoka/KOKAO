@@ -165,21 +165,75 @@ export interface BrandKitUpdate {
   logoPath?: string | null;
 }
 
-export interface FacebookPage {
-  id: string;
-  name: string;
+export interface MetaAppCredentialInput {
+  /** @minLength 1 */
+  appId: string;
+  /** @minLength 1 */
+  appSecret: string;
 }
 
-export interface FacebookPagesResult {
-  pages: FacebookPage[];
+export interface MetaAppCredentialStatus {
+  /** Whether Meta app keys have been saved. */
+  configured: boolean;
+  /** @nullable */
+  appIdMasked?: string | null;
+  /** @nullable */
+  appSecretMasked?: string | null;
+  /**
+     * "verified" or "failed" from the last automatic test.
+     * @nullable
+     */
+  testStatus?: string | null;
+  /** @nullable */
+  testedAt?: string | null;
+  /** @nullable */
+  testError?: string | null;
 }
 
-export interface PublishFacebookRequest {
+export interface FacebookCredentialInput {
   /** @minLength 1 */
   pageId: string;
+  /** @minLength 1 */
+  pageAccessToken: string;
+}
+
+export interface InstagramCredentialInput {
+  /** @minLength 1 */
+  igUserId: string;
+}
+
+export interface SocialCredentialStatus {
+  platform: string;
+  /** Whether the admin-level Meta app keys are configured. */
+  appConfigured: boolean;
+  /** Whether the tenant has saved credentials for this platform. */
+  saved: boolean;
+  /**
+     * "verified" or "failed" from the last automatic verification.
+     * @nullable
+     */
+  verifyStatus?: string | null;
+  /** @nullable */
+  verifiedAt?: string | null;
+  /** @nullable */
+  verifyError?: string | null;
+  /** @nullable */
+  accountName?: string | null;
+  /** @nullable */
+  pageId?: string | null;
+  /** @nullable */
+  pageAccessTokenMasked?: string | null;
+  /** @nullable */
+  igUserId?: string | null;
 }
 
 export interface PublishFacebookResult {
+  postId: string;
+  /** @nullable */
+  permalink?: string | null;
+}
+
+export interface PublishInstagramResult {
   postId: string;
   /** @nullable */
   permalink?: string | null;
