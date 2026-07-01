@@ -10,3 +10,4 @@
 - [Email delivery & pause](email-delivery-and-pause.md) — two independent fail-closed gates (notification policy default email:false + app-level pause switch default paused); test seeding rules.
 - [IG publish retry](ig-publish-retry.md) — bounded auto-retry of transient IG publish failures (5xx/429/still-processing retry; 4xx/bad-image fail fast); IG_PUBLISH_RETRY config.
 - [Admin audit trail](admin-audit-trail.md) — append-only admin_audit_logs records plan/superadmin changes; recordAdminAction is best-effort (never fail the primary action).
+- [SocialForge frontend tests](socialforge-frontend-tests.md) — vitest+RTL+jsdom harness for the web artifact; standalone vitest.config, mock @workspace/api-client-react, scope by .flex-1.
