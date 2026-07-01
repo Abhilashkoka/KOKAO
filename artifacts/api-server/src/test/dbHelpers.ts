@@ -79,6 +79,9 @@ export async function insertLinkedinAccount(
     tokenExpiresAt?: Date | null;
     status?: string;
     accountName?: string;
+    verifyStatus?: string | null;
+    verifyError?: string | null;
+    verifiedAt?: Date | null;
   } = {},
 ): Promise<void> {
   await db.insert(connectedAccountsTable).values({
@@ -86,11 +89,45 @@ export async function insertLinkedinAccount(
     platform: "linkedin",
     accountName: opts.accountName ?? "LinkedIn User",
     status: opts.status ?? "connected",
-    accessToken: opts.accessToken === undefined ? "li_tok_secret" : opts.accessToken,
+    accessToken:
+      opts.accessToken === undefined ? "li_tok_secret" : opts.accessToken,
     providerUserId:
       opts.providerUserId === undefined ? "li_person_123" : opts.providerUserId,
     tokenExpiresAt: opts.tokenExpiresAt ?? null,
+    verifyStatus: opts.verifyStatus ?? "verified",
+    verifyError: opts.verifyError ?? null,
+    verifiedAt: opts.verifiedAt ?? new Date(),
   });
+}
+
+/**
+ * Adjust the stored check-state fields on an existing connected account row.
+ * Used by re-verification tests to simulate a stale check clock, a prior
+ * failed/verified state, or a stored OAuth token/expiry.
+ */
+export async function setAccountState(
+  tenantId: number,
+  platform: string,
+  values: Partial<{
+    verifiedAt: Date | null;
+    verifyStatus: string | null;
+    verifyError: string | null;
+    status: string;
+    accessToken: string | null;
+    tokenExpiresAt: Date | null;
+    providerUserId: string | null;
+    accountName: string;
+  }>,
+): Promise<void> {
+  await db
+    .update(connectedAccountsTable)
+    .set(values)
+    .where(
+      and(
+        eq(connectedAccountsTable.tenantId, tenantId),
+        eq(connectedAccountsTable.platform, platform),
+      ),
+    );
 }
 
 export async function getConnectedAccount(tenantId: number, platform: string) {

@@ -17,6 +17,16 @@ description: Durable decisions for writing tests in artifacts/api-server.
   `appSecret` and `pageAccessToken` are secrets that must be masked and never returned/stored in
   plaintext. Don't assert IDs are masked — assert the tokens never leak (including the FB page token
   that IG rides on, which must not appear in IG responses).
+- **Publish-route tests must mock the `metaApi` network test fns, not just `globalThis.fetch`.**
+  The FB/IG publish routes force a live re-verification before publishing, so a fetch-only mock lets
+  the forced reverify hit the real Graph API OR flip a stored credential's verifyStatus, breaking the
+  gate under test. Mock `testFacebookCredentials`/`testInstagramCredentials` (default ok:true) and
+  override per-test with `mockResolvedValue({ok:false})` when the case needs the token rejected.
+- **Re-verification branch tests** (`socialReverify`/LinkedIn): to exercise the staleness gate, seed an
+  old `verifiedAt` (helper `setAccountState`); transient failures (`transient:true` for meta, a thrown
+  fetch for LinkedIn) must PRESERVE prior status and only advance `verifiedAt`; a definitive rejection
+  flips to failed/error. Drive LinkedIn OAuth state via `GET /linkedin/auth/url` then feed it back to
+  the callback with a spied `fetch` (token then userinfo) rather than re-signing state by hand.
 - If DB inserts fail with "column ... does not exist", the dev schema is stale → `pnpm --filter
   @workspace/db run push`. If types claim `@workspace/db` lacks an export/column, rebuild lib
   declarations (`pnpm run typecheck:libs`) before the leaf typecheck.

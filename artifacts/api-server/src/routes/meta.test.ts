@@ -34,7 +34,29 @@ vi.mock("@clerk/express", async () => {
   };
 });
 
+// The publish routes now force a live re-verification against Meta right before
+// publishing. Keep DB-backed helpers real; stub only the network test functions
+// so this suite is deterministic and never hits the real Graph API.
+vi.mock("../lib/metaApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/metaApi")>();
+  return {
+    ...actual,
+    testFacebookCredentials: vi.fn(async () => ({
+      ok: true,
+      accountName: "Test Page",
+    })),
+    testInstagramCredentials: vi.fn(async () => ({
+      ok: true,
+      accountName: "@testig",
+    })),
+  };
+});
+
 import { pool } from "@workspace/db";
+import {
+  testFacebookCredentials,
+  testInstagramCredentials,
+} from "../lib/metaApi";
 import { createTestApp } from "../test/testApp";
 import { resetAuthState, actAs } from "../test/authState";
 import {
@@ -47,9 +69,17 @@ import {
 import { ObjectStorageService } from "../lib/objectStorage";
 
 const app = createTestApp();
+const mockFb = vi.mocked(testFacebookCredentials);
+const mockIg = vi.mocked(testInstagramCredentials);
 
 beforeEach(() => {
   resetAuthState();
+  // Default the forced pre-publish re-verification to "still valid" so it does
+  // not flip a stored credential; individual tests override as needed.
+  mockFb.mockReset();
+  mockIg.mockReset();
+  mockFb.mockResolvedValue({ ok: true, accountName: "Test Page" });
+  mockIg.mockResolvedValue({ ok: true, accountName: "@testig" });
 });
 
 afterAll(async () => {
@@ -67,7 +97,7 @@ describe("Facebook publishing gate", () => {
         `/api/content/${itemId}/publish-facebook`,
       );
       expect(res.status).toBe(400);
-      expect(res.body.error).toMatch(/not connected or not verified/i);
+      expect(res.body.error).toMatch(/not connected or its access token/i);
     } finally {
       await deleteTenant(tenant.tenantId);
     }
@@ -84,12 +114,15 @@ describe("Facebook publishing gate", () => {
       );
       const itemId = await insertContentItem(tenant.tenantId);
       actAs(tenant.clerkUserId);
+      // The forced pre-publish re-verify also rejects the token, so it stays
+      // failed and the gate blocks the publish.
+      mockFb.mockResolvedValue({ ok: false, error: "token invalid" });
 
       const res = await request(app).post(
         `/api/content/${itemId}/publish-facebook`,
       );
       expect(res.status).toBe(400);
-      expect(res.body.error).toMatch(/not connected or not verified/i);
+      expect(res.body.error).toMatch(/not connected or its access token/i);
     } finally {
       await deleteTenant(tenant.tenantId);
     }

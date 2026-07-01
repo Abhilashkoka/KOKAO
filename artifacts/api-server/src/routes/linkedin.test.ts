@@ -42,6 +42,7 @@ import {
   deleteTenant,
   insertLinkedinAccount,
   insertContentItem,
+  getConnectedAccount,
 } from "../test/dbHelpers";
 
 const app = createTestApp();
@@ -65,8 +66,35 @@ afterAll(async () => {
   await pool.end();
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 function bodyContainsToken(body: unknown, token: string): boolean {
   return JSON.stringify(body).includes(token);
+}
+
+/** More than LINKEDIN_REVERIFY_STALE_MS (15 min) in the past. */
+function staleDate(): Date {
+  return new Date(Date.now() - 20 * 60 * 1000);
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+/** Drive /linkedin/auth/url to get a validly-signed state for this tenant. */
+async function getSignedState(clerkUserId: string): Promise<string> {
+  actAs(clerkUserId);
+  const res = await request(app).get("/api/linkedin/auth/url");
+  expect(res.status).toBe(200);
+  const url = new URL(res.body.url);
+  const state = url.searchParams.get("state");
+  expect(state).toBeTruthy();
+  return state!;
 }
 
 describe("LinkedIn token leakage", () => {
@@ -289,5 +317,158 @@ describe("LinkedIn publish authorization gate", () => {
         await deleteTenant(tenant.tenantId);
       }
     });
+  });
+});
+
+describe("LinkedIn OAuth reconnect", () => {
+  it("(d) clears a prior failed state on a successful reconnect", async () => {
+    const tenant = await createTenant();
+    try {
+      // Simulate a connection that was proactively flipped to failed after its
+      // token was revoked.
+      await insertLinkedinAccount(tenant.tenantId, {
+        status: "error",
+        verifyStatus: "failed",
+        verifyError:
+          "Your LinkedIn access token is no longer valid. Reconnect LinkedIn to keep publishing.",
+        accessToken: "dead-token",
+      });
+
+      const state = await getSignedState(tenant.clerkUserId);
+
+      // Token exchange succeeds, then userinfo resolves the member.
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          jsonResponse({ access_token: "fresh-token", expires_in: 3600 }),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({ sub: "sub_456", name: "Jane Doe" }),
+        );
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .get("/api/linkedin/auth/callback")
+        .query({ code: "auth-code", state });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe("/accounts?linkedin=connected");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      const row = await getConnectedAccount(tenant.tenantId, "linkedin");
+      expect(row?.verifyStatus).toBe("verified");
+      expect(row?.verifyError).toBeNull();
+      expect(row?.status).toBe("connected");
+      expect(row?.accessToken).toBe("fresh-token");
+      expect(row?.providerUserId).toBe("sub_456");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("LinkedIn proactive re-verification (via /linkedin/status)", () => {
+  it("(a) flips a stale token to failed when LinkedIn rejects it (401)", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertLinkedinAccount(tenant.tenantId, {
+        verifyStatus: "verified",
+        verifiedAt: staleDate(),
+      });
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(jsonResponse({ error: "invalid" }, 401));
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/linkedin/status");
+
+      expect(res.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(res.body.connected).toBe(false);
+      expect(res.body.expired).toBe(true);
+
+      const row = await getConnectedAccount(tenant.tenantId, "linkedin");
+      expect(row?.verifyStatus).toBe("failed");
+      expect(row?.status).toBe("error");
+      expect(row?.verifyError).toMatch(/no longer valid/i);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("(b) does not re-check a fresh token (rate limiting)", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertLinkedinAccount(tenant.tenantId, {
+        verifyStatus: "verified",
+        verifiedAt: new Date(),
+      });
+      const fetchMock = vi.spyOn(globalThis, "fetch");
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/linkedin/status");
+
+      expect(res.status).toBe(200);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(res.body.connected).toBe(true);
+
+      const row = await getConnectedAccount(tenant.tenantId, "linkedin");
+      expect(row?.verifyStatus).toBe("verified");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("(c) keeps the prior status on a transient/network error", async () => {
+    const tenant = await createTenant();
+    try {
+      const stale = staleDate();
+      await insertLinkedinAccount(tenant.tenantId, {
+        verifyStatus: "verified",
+        verifiedAt: stale,
+      });
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockRejectedValueOnce(new Error("network down"));
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/linkedin/status");
+
+      expect(res.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(res.body.connected).toBe(true);
+
+      const row = await getConnectedAccount(tenant.tenantId, "linkedin");
+      // Prior status preserved; only the check clock advanced.
+      expect(row?.verifyStatus).toBe("verified");
+      expect(row?.status).toBe("connected");
+      expect(row?.verifyError).toBeNull();
+      expect(row?.verifiedAt?.getTime()).toBeGreaterThan(stale.getTime());
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("treats an expired-by-timestamp token as expired without a live call", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertLinkedinAccount(tenant.tenantId, {
+        verifyStatus: "verified",
+        verifiedAt: staleDate(),
+        tokenExpiresAt: new Date(Date.now() - 60 * 1000),
+      });
+      const fetchMock = vi.spyOn(globalThis, "fetch");
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/linkedin/status");
+
+      expect(res.status).toBe(200);
+      // Expiry timestamp alone tells us it's dead — no live call spent.
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(res.body.connected).toBe(false);
+      expect(res.body.expired).toBe(true);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
   });
 });
