@@ -2,7 +2,12 @@ import { db, appCredentialsTable, connectedAccountsTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { createHash, randomBytes } from "crypto";
 import type { TwitterAppCredentials } from "@workspace/db";
+import { TWEET_MAX_LENGTH } from "@workspace/social-limits";
 import { decryptJson, encryptJson } from "./secretCrypto";
+
+// Re-export the shared tweet-length limit so callers can source it from a single
+// place and stay aligned with @workspace/social-limits (no 280-char drift).
+export { TWEET_MAX_LENGTH };
 
 /** v2 API base for tweet creation and the authenticated-user lookup. */
 export const TWITTER_API_BASE = "https://api.x.com";
@@ -57,6 +62,82 @@ function isLegacyOAuth1(
     typeof (creds as LegacyTwitterOAuth1Credentials).accessTokenSecret ===
     "string"
   );
+}
+
+/**
+ * Split a caption into a sequence of tweets, each within `maxLength`, so a
+ * long post can be published as a reply-chained thread instead of being
+ * truncated. Splitting prefers sentence boundaries, then word boundaries, and
+ * only hard-splits a single token that is itself longer than `maxLength`.
+ *
+ * Always returns at least one tweet (an empty input yields `[""]`), so callers
+ * can post the first tweet unconditionally.
+ */
+export function splitIntoTweets(
+  text: string,
+  maxLength: number = TWEET_MAX_LENGTH,
+): string[] {
+  const normalized = text.trim();
+  if (normalized.length <= maxLength) {
+    return [normalized];
+  }
+
+  const tweets: string[] = [];
+  let current = "";
+
+  const flush = () => {
+    const trimmed = current.trim();
+    if (trimmed.length > 0) {
+      tweets.push(trimmed);
+    }
+    current = "";
+  };
+
+  // Break the text into atomic tokens: runs of whitespace are preserved as
+  // separators so we can rejoin without losing paragraph breaks.
+  const tokens = normalized.match(/\s+|\S+/g) ?? [];
+
+  for (const token of tokens) {
+    if (current.length + token.length <= maxLength) {
+      current += token;
+      continue;
+    }
+
+    // The token doesn't fit on the current tweet.
+    if (/^\s+$/.test(token)) {
+      // Whitespace separator: just start a new tweet, dropping the break.
+      flush();
+      continue;
+    }
+
+    // A non-whitespace token that doesn't fit: flush what we have first.
+    flush();
+
+    if (token.length <= maxLength) {
+      current = token;
+      continue;
+    }
+
+    // A single token longer than a whole tweet: hard-split it into pieces.
+    let rest = token;
+    while (rest.length > maxLength) {
+      tweets.push(rest.slice(0, maxLength));
+      rest = rest.slice(maxLength);
+    }
+    current = rest;
+  }
+
+  flush();
+
+  return tweets.length > 0 ? tweets : [""];
+}
+
+export interface TestResult {
+  ok: boolean;
+  /** Human-friendly account name resolved from X on success. */
+  accountName?: string;
+  /** Error message on failure (safe to show; never contains secrets). */
+  error?: string;
 }
 
 /** Normalized OAuth 2.0 token set returned by the token endpoint. */

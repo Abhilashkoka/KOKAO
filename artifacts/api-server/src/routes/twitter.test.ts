@@ -51,7 +51,7 @@ import {
   restoreTwitterRow,
 } from "../test/dbHelpers";
 import { ObjectStorageService } from "../lib/objectStorage";
-import { TWEET_MAX_LENGTH, trimToTweetLength } from "@workspace/social-limits";
+import { splitIntoTweets, TWEET_MAX_LENGTH } from "../lib/twitterApi";
 
 const app = createTestApp();
 
@@ -65,6 +65,46 @@ const X_REFRESH_TOKEN = "x_refresh_token_secret_never_leaked";
 // can no longer publish and must prompt the tenant to reconnect via OAuth 2.0.
 const X_LEGACY_ACCESS_TOKEN = "x_legacy_access_token";
 const X_LEGACY_TOKEN_SECRET = "x_legacy_token_secret";
+
+// ---------------------------------------------------------------------------
+// Thread splitter unit tests
+// ---------------------------------------------------------------------------
+
+describe("splitIntoTweets", () => {
+  it("returns a single tweet when within the limit", () => {
+    expect(splitIntoTweets("short caption")).toEqual(["short caption"]);
+    const exact = "a".repeat(TWEET_MAX_LENGTH);
+    expect(splitIntoTweets(exact)).toEqual([exact]);
+  });
+
+  it("splits on word boundaries and keeps every tweet within the limit", () => {
+    const caption = Array.from({ length: 120 }, (_, i) => `word${i}`).join(" ");
+    const tweets = splitIntoTweets(caption);
+    expect(tweets.length).toBeGreaterThan(1);
+    for (const t of tweets) {
+      expect(t.length).toBeLessThanOrEqual(TWEET_MAX_LENGTH);
+    }
+    // No content lost: every word survives the split.
+    const rejoined = tweets.join(" ");
+    for (let i = 0; i < 120; i++) {
+      expect(rejoined).toContain(`word${i}`);
+    }
+  });
+
+  it("hard-splits a single token longer than a whole tweet", () => {
+    const caption = "b".repeat(700);
+    const tweets = splitIntoTweets(caption);
+    for (const t of tweets) {
+      expect(t.length).toBeLessThanOrEqual(TWEET_MAX_LENGTH);
+    }
+    expect(tweets.join("")).toBe(caption);
+  });
+
+  it("returns a single empty tweet for empty input", () => {
+    expect(splitIntoTweets("")).toEqual([""]);
+    expect(splitIntoTweets("   ")).toEqual([""]);
+  });
+});
 
 let twitterSnapshot: AppCredential | null = null;
 
@@ -240,6 +280,7 @@ interface MockCall {
  * endpoint returns a refreshed token when a refresh round-trip occurs.
  */
 function mockXApi(calls: MockCall[]) {
+  let tweetSeq = 0;
   return vi
     .spyOn(globalThis, "fetch")
     .mockImplementation(
@@ -268,7 +309,9 @@ function mockXApi(calls: MockCall[]) {
           return json({ data: { id: "MEDIA_1" } });
         }
         if (url.includes("/2/tweets")) {
-          return json({ data: { id: "TWEET_1" } });
+          tweetSeq += 1;
+          // First tweet id stays "TWEET_1" for backwards-compatible assertions.
+          return json({ data: { id: `TWEET_${tweetSeq}` } });
         }
         return json({});
       },
@@ -478,14 +521,17 @@ describe("X (Twitter) publishing (happy path)", () => {
     }
   });
 
-  it("posts exactly the shared trimToTweetLength result for an over-limit caption", async () => {
+  it("posts captions longer than 280 characters as a reply-chained thread without truncation", async () => {
     const calls: MockCall[] = [];
     mockXApi(calls);
 
     const tenant = await createTenant();
     try {
       await connectVerifiedX(tenant.tenantId);
-      const longCaption = "a".repeat(500);
+      // Many short words so it splits cleanly on word boundaries with no loss.
+      const longCaption = Array.from({ length: 120 }, (_, i) => `word${i}`).join(
+        " ",
+      );
       const itemId = await insertContentItem(tenant.tenantId, {
         caption: longCaption,
       });
@@ -495,18 +541,87 @@ describe("X (Twitter) publishing (happy path)", () => {
         `/api/content/${itemId}/publish-twitter`,
       );
       expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("TWEET_1");
+      expect(res.body.permalink).toBe("https://x.com/testhandle/status/TWEET_1");
+      expect(res.body.tweetCount).toBeGreaterThan(1);
 
-      const tweetCall = calls.find((c) => c.url.includes("/2/tweets"));
-      const tweetBody = JSON.parse(tweetCall!.body as string) as {
-        text: string;
+      const tweetCalls = calls.filter((c) => c.url.includes("/2/tweets"));
+      expect(tweetCalls.length).toBe(res.body.tweetCount);
+
+      const texts = tweetCalls.map(
+        (c) => (JSON.parse(c.body as string) as { text: string }).text,
+      );
+      // Every tweet is within the limit, and none was truncated with an ellipsis.
+      for (const t of texts) {
+        expect([...t].length).toBeLessThanOrEqual(280);
+        expect(t.endsWith("\u2026")).toBe(false);
+      }
+
+      // The full caption survives: rejoining the tweets reproduces every word.
+      const rejoined = texts.join(" ");
+      for (let i = 0; i < 120; i++) {
+        expect(rejoined).toContain(`word${i}`);
+      }
+
+      // Tweets 2..N are chained as replies to the previous tweet.
+      const replies = tweetCalls.map(
+        (c) =>
+          (
+            JSON.parse(c.body as string) as {
+              reply?: { in_reply_to_tweet_id?: string };
+            }
+          ).reply?.in_reply_to_tweet_id,
+      );
+      expect(replies[0]).toBeUndefined();
+      for (let i = 1; i < replies.length; i++) {
+        expect(replies[i]).toBe(`TWEET_${i}`);
+      }
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("attaches the image to the first tweet only when threading", async () => {
+    const calls: MockCall[] = [];
+    mockXApi(calls);
+    vi.spyOn(ObjectStorageService.prototype, "getObjectEntityFile").mockResolvedValue(
+      {
+        download: async () => [Buffer.from("fake-image-bytes")],
+      } as never,
+    );
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      const longCaption = Array.from({ length: 120 }, (_, i) => `word${i}`).join(
+        " ",
+      );
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: longCaption,
+        imagePath: "/objects/uploads/test.png",
+      });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-twitter`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.tweetCount).toBeGreaterThan(1);
+
+      const tweetCalls = calls.filter((c) => c.url.includes("/2/tweets"));
+      const withMedia = tweetCalls.filter(
+        (c) =>
+          (JSON.parse(c.body as string) as { media?: unknown }).media !==
+          undefined,
+      );
+      // Exactly one tweet (the first) carries the image.
+      expect(withMedia.length).toBe(1);
+      const firstBody = JSON.parse(tweetCalls[0].body as string) as {
+        media?: { media_ids?: string[] };
+        reply?: unknown;
       };
-      // The publish route must post exactly what the shared helper produces —
-      // this is the contract that keeps the UI character warning and the
-      // server-side trim from ever silently disagreeing.
-      expect(tweetBody.text).toBe(trimToTweetLength(longCaption));
-      expect(tweetBody.text.length).toBe(TWEET_MAX_LENGTH);
-      expect([...tweetBody.text].length).toBeLessThanOrEqual(TWEET_MAX_LENGTH);
-      expect(tweetBody.text.endsWith("\u2026")).toBe(true);
+      expect(firstBody.media?.media_ids).toEqual(["MEDIA_1"]);
+      expect(firstBody.reply).toBeUndefined();
     } finally {
       await deleteTenant(tenant.tenantId);
     }
@@ -534,7 +649,6 @@ describe("X (Twitter) publishing (happy path)", () => {
       const tweetBody = JSON.parse(tweetCall!.body as string) as {
         text: string;
       };
-      expect(tweetBody.text).toBe(trimToTweetLength(atLimitCaption));
       expect(tweetBody.text).toBe(atLimitCaption);
       expect(tweetBody.text.endsWith("\u2026")).toBe(false);
     } finally {

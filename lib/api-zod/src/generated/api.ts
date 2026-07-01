@@ -3687,7 +3687,8 @@ export const PublishContentToTwitterParams = zod.object({
 
 export const PublishContentToTwitterResponse = zod.object({
   "postId": zod.string(),
-  "permalink": zod.string().nullish()
+  "permalink": zod.string().nullish(),
+  "tweetCount": zod.number().optional().describe('Number of tweets posted. Greater than 1 when a long caption was split into a reply-chained thread.\n')
 })
 
 

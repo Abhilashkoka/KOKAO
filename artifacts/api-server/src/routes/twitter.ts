@@ -13,9 +13,9 @@ import {
   getTwitterAccount,
   ensureFreshTwitterToken,
   uploadTwitterMedia,
+  splitIntoTweets,
   type TwitterOAuth2Credentials,
 } from "../lib/twitterApi";
-import { trimToTweetLength } from "@workspace/social-limits";
 import { encryptJson } from "../lib/secretCrypto";
 
 const router: IRouter = Router();
@@ -282,6 +282,52 @@ async function loadContentItem(id: number, tenantId: number) {
   )[0];
 }
 
+/**
+ * Post a single tweet (optionally with media and/or chained as a reply) and
+ * return its id. Authorizes with the tenant's OAuth 2.0 bearer token — no
+ * OAuth 1.0a signing. Throws with a safe, human-friendly message on failure.
+ */
+async function postTweet(opts: {
+  text: string;
+  mediaId: string | null;
+  replyToId: string | null;
+  accessToken: string;
+}): Promise<string> {
+  const { text, mediaId, replyToId, accessToken } = opts;
+  const tweetUrl = `${TWITTER_API_BASE}/2/tweets`;
+  const tweetBody: Record<string, unknown> = { text };
+  if (mediaId) {
+    tweetBody.media = { media_ids: [mediaId] };
+  }
+  if (replyToId) {
+    tweetBody.reply = { in_reply_to_tweet_id: replyToId };
+  }
+  const tweetRes = await fetch(tweetUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(tweetBody),
+  });
+  const tweetJson = (await tweetRes.json()) as {
+    data?: { id?: string };
+    errors?: { message?: string; detail?: string }[];
+    title?: string;
+    detail?: string;
+  };
+  if (!tweetRes.ok || !tweetJson.data?.id) {
+    throw new Error(
+      tweetJson.errors?.[0]?.detail ||
+        tweetJson.errors?.[0]?.message ||
+        tweetJson.detail ||
+        tweetJson.title ||
+        `X API error (${tweetRes.status})`,
+    );
+  }
+  return tweetJson.data.id;
+}
+
 async function markPublished(
   id: number,
   tenantId: number,
@@ -335,7 +381,10 @@ router.post(
     }
     const { accessToken, accountName } = tokenResult;
 
-    const text = trimToTweetLength((item.caption?.trim() || item.title).trim());
+    const text = (item.caption?.trim() || item.title).trim();
+    // Long captions are posted as a reply-chained thread instead of being
+    // truncated, so the full message survives.
+    const tweets = splitIntoTweets(text);
 
     try {
       let mediaId: string | null = null;
@@ -352,44 +401,32 @@ router.post(
         });
       }
 
-      const tweetUrl = `${TWITTER_API_BASE}/2/tweets`;
-      const tweetBody: Record<string, unknown> = { text };
-      if (mediaId) {
-        tweetBody.media = { media_ids: [mediaId] };
-      }
-      const tweetRes = await fetch(tweetUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(tweetBody),
-      });
-      const tweetJson = (await tweetRes.json()) as {
-        data?: { id?: string };
-        errors?: { message?: string; detail?: string }[];
-        title?: string;
-        detail?: string;
-      };
-      if (!tweetRes.ok || !tweetJson.data?.id) {
-        throw new Error(
-          tweetJson.errors?.[0]?.detail ||
-            tweetJson.errors?.[0]?.message ||
-            tweetJson.detail ||
-            tweetJson.title ||
-            `X API error (${tweetRes.status})`,
-        );
+      let firstPostId: string | null = null;
+      let replyToId: string | null = null;
+
+      for (let i = 0; i < tweets.length; i++) {
+        // The attached image goes on the first tweet only.
+        const attachMedia = i === 0 ? mediaId : null;
+        const postId = await postTweet({
+          text: tweets[i],
+          mediaId: attachMedia,
+          replyToId,
+          accessToken,
+        });
+        if (i === 0) {
+          firstPostId = postId;
+        }
+        replyToId = postId;
       }
 
-      const postId = tweetJson.data.id;
       const handle = accountName.startsWith("@")
         ? accountName.slice(1)
         : accountName;
-      const permalink = postId
-        ? `https://x.com/${encodeURIComponent(handle)}/status/${postId}`
+      const permalink = firstPostId
+        ? `https://x.com/${encodeURIComponent(handle)}/status/${firstPostId}`
         : null;
-      await markPublished(id, req.tenantId, { postId, permalink });
-      res.json({ postId, permalink });
+      await markPublished(id, req.tenantId, { postId: firstPostId, permalink });
+      res.json({ postId: firstPostId, permalink, tweetCount: tweets.length });
     } catch (error) {
       req.log.error({ err: error }, "X publish failed");
       res.status(502).json({

@@ -24,7 +24,46 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, trimToTweetLength, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, linkedinOverBy, trimToLinkedinLength } from "@workspace/social-limits";
+import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, linkedinOverBy, trimToLinkedinLength } from "@workspace/social-limits";
+
+// Mirror of the server-side thread splitter (see api-server twitterApi.ts) so
+// the dialog can preview how many tweets a long caption will become.
+function splitIntoTweets(text: string, maxLength: number = TWEET_MAX_LENGTH): string[] {
+  const normalized = text.trim();
+  if (normalized.length <= maxLength) return [normalized];
+
+  const tweets: string[] = [];
+  let current = "";
+  const flush = () => {
+    const trimmed = current.trim();
+    if (trimmed.length > 0) tweets.push(trimmed);
+    current = "";
+  };
+  const tokens = normalized.match(/\s+|\S+/g) ?? [];
+  for (const token of tokens) {
+    if (current.length + token.length <= maxLength) {
+      current += token;
+      continue;
+    }
+    if (/^\s+$/.test(token)) {
+      flush();
+      continue;
+    }
+    flush();
+    if (token.length <= maxLength) {
+      current = token;
+      continue;
+    }
+    let rest = token;
+    while (rest.length > maxLength) {
+      tweets.push(rest.slice(0, maxLength));
+      rest = rest.slice(maxLength);
+    }
+    current = rest;
+  }
+  flush();
+  return tweets.length > 0 ? tweets : [""];
+}
 
 export function LibraryPage() {
   const { data: content, isLoading } = useListContent({
@@ -330,9 +369,9 @@ export function LibraryPage() {
                 const tweetText = ((editCaption?.trim() || editTitle) ?? "").trim();
                 const overLimit = isOverTweetLimit(tweetText);
                 return (
-                  <p className={`text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                  <p className={`text-xs ${overLimit ? "font-medium" : ""} text-muted-foreground`}>
                     {tweetText.length} / {TWEET_MAX_LENGTH} characters for X
-                    {overLimit && ` \u2014 ${tweetOverBy(tweetText)} over; will be trimmed when posting to X (other platforms allow more)`}
+                    {overLimit && ` \u2014 ${tweetOverBy(tweetText)} over; will post as a thread on X (other platforms allow more)`}
                   </p>
                 );
               })()}
@@ -449,17 +488,18 @@ export function LibraryPage() {
           {twitterItem && (() => {
             const tweetText = ((twitterItem.caption?.trim() || twitterItem.title) ?? "").trim();
             const overLimit = isOverTweetLimit(tweetText);
-            const preview = trimToTweetLength(tweetText);
+            const threadTweets = splitIntoTweets(tweetText);
             return (
               <div className="space-y-2 py-2">
                 <p className="font-medium">{twitterItem.title}</p>
-                <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words">{preview}</p>
-                <p className={`text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
-                  {tweetText.length} / {TWEET_MAX_LENGTH} characters
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words">{tweetText}</p>
+                <p className={`text-xs ${overLimit ? "font-medium" : ""} text-muted-foreground`}>
+                  {tweetText.length} characters
+                  {overLimit ? ` \u00b7 ${threadTweets.length} tweets` : ` / ${TWEET_MAX_LENGTH}`}
                 </p>
                 {overLimit && (
-                  <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-                    This caption is {tweetOverBy(tweetText)} characters over the {TWEET_MAX_LENGTH}-character limit and will be trimmed to the text shown above before posting.
+                  <div className="rounded-md border p-3 text-sm text-muted-foreground">
+                    This caption is over the {TWEET_MAX_LENGTH}-character limit, so it will be posted as a thread of {threadTweets.length} tweets chained as replies. Your full message is preserved{twitterItem.imagePath ? ", and the image goes on the first tweet" : ""}.
                   </div>
                 )}
               </div>

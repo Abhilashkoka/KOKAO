@@ -798,6 +798,8 @@ export interface PublishTwitterResult {
   postId: string;
   /** @nullable */
   permalink?: string | null;
+  /** Number of tweets posted. Greater than 1 when a long caption was split into a reply-chained thread. */
+  tweetCount?: number;
 }
 
 export interface ContentItem {
