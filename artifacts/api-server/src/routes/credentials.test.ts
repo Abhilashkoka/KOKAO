@@ -60,6 +60,7 @@ import {
   deleteTenant,
   insertConnectedAccount,
   getConnectedAccount,
+  setAccountState,
   snapshotMetaRow,
   setMetaRow,
   setVerifiedMetaRow,
@@ -480,6 +481,127 @@ describe("tenant social credential endpoints", () => {
       expect(row).toBeUndefined();
     } finally {
       await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// X (Twitter) disconnect
+//
+// The X disconnect endpoint is DELETE /twitter (operationId `disconnectTwitter`
+// in openapi.yaml — the API source of truth). Its OpenAPI summary is
+// "Disconnect X (Twitter), clearing the stored OAuth token and account" and it
+// returns the TwitterStatus contract ({ connected, accountName, configured,
+// redirectUri, expired }). Unlike the Meta DELETE routes, which hard-delete the
+// connected_accounts row, X performs an intentional SOFT disconnect: it keeps
+// the row but scrubs every credential field and marks it disconnected. These
+// tests guard that a "Disconnect" reliably wipes the stored X tokens (never
+// leaving stale encrypted credentials behind) and reports the connection as
+// gone — and that it stays a safe no-op when nothing is connected.
+// ---------------------------------------------------------------------------
+
+describe("X (Twitter) disconnect endpoint", () => {
+  it("scrubs stored X credentials and reports not connected", async () => {
+    const tenant = await createTenant();
+    try {
+      // Seed a fully connected OAuth 2.0 X account with token/expiry/user id so
+      // we can prove every credential field is scrubbed by the disconnect.
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "twitter",
+        { accessToken: "x_access_token", refreshToken: "x_refresh_secret" },
+        "verified",
+        "@testhandle",
+      );
+      await setAccountState(tenant.tenantId, "twitter", {
+        accessToken: "x_access_token",
+        providerUserId: "x_user_123",
+        tokenExpiresAt: new Date(Date.now() + 3600 * 1000),
+      });
+
+      // Sanity check: the tenant really is connected before we disconnect.
+      const before = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(before.encryptedCredentials).toBeTruthy();
+      expect(before.verifyStatus).toBe("verified");
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).delete("/api/twitter");
+
+      // Response reports the connection as gone (the "Not connected" state).
+      expect(res.status).toBe(200);
+      expect(res.body.connected).toBe(false);
+      expect(res.body.accountName).toBeNull();
+      expect(res.body.expired).toBe(false);
+
+      // Every stored credential field is scrubbed so nothing usable is left.
+      const after = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(after.status).toBe("disconnected");
+      expect(after.encryptedCredentials).toBeNull();
+      expect(after.accessToken).toBeNull();
+      expect(after.verifyStatus).toBeNull();
+      expect(after.verifyError).toBeNull();
+      expect(after.tokenExpiresAt).toBeNull();
+      expect(after.providerUserId).toBeNull();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("is a safe no-op when no X account is connected", async () => {
+    const tenant = await createTenant();
+    try {
+      // No X row exists for this tenant.
+      expect(
+        await getConnectedAccount(tenant.tenantId, "twitter"),
+      ).toBeUndefined();
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).delete("/api/twitter");
+
+      expect(res.status).toBe(200);
+      expect(res.body.connected).toBe(false);
+      expect(res.body.accountName).toBeNull();
+      expect(res.body.expired).toBe(false);
+
+      // Still no row was created by the no-op disconnect.
+      expect(
+        await getConnectedAccount(tenant.tenantId, "twitter"),
+      ).toBeUndefined();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("disconnects only the caller's own X account (tenant isolation)", async () => {
+    const owner = await createTenant();
+    const other = await createTenant();
+    try {
+      await insertConnectedAccount(
+        owner.tenantId,
+        "twitter",
+        { accessToken: "owner_tok", refreshToken: "owner_refresh" },
+        "verified",
+      );
+      await insertConnectedAccount(
+        other.tenantId,
+        "twitter",
+        { accessToken: "other_tok", refreshToken: "other_refresh" },
+        "verified",
+      );
+
+      actAs(owner.clerkUserId);
+      const res = await request(app).delete("/api/twitter");
+      expect(res.status).toBe(200);
+      expect(res.body.connected).toBe(false);
+
+      // The other tenant's connection is untouched.
+      const otherRow = await getConnectedAccount(other.tenantId, "twitter");
+      expect(otherRow.status).not.toBe("disconnected");
+      expect(otherRow.encryptedCredentials).toBeTruthy();
+      expect(otherRow.verifyStatus).toBe("verified");
+    } finally {
+      await deleteTenant(owner.tenantId);
+      await deleteTenant(other.tenantId);
     }
   });
 });
