@@ -17,6 +17,7 @@ import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, Twitter } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -53,6 +54,17 @@ export function LibraryPage() {
   const igReady = igCreds?.verifyStatus === "verified";
   const twReady = twCreds?.verifyStatus === "verified";
 
+  const viewPostAction = (permalink: string | null | undefined) =>
+    permalink
+      ? (
+          <ToastAction altText="View post" asChild>
+            <a href={permalink} target="_blank" rel="noopener noreferrer">
+              View post
+            </a>
+          </ToastAction>
+        )
+      : undefined;
+
   const handlePublish = () => {
     if (!publishItem) return;
     publishContent.mutate(
@@ -62,6 +74,7 @@ export function LibraryPage() {
           toast({
             title: "Published to Facebook",
             description: res?.permalink ? "Your post is live on Facebook." : undefined,
+            action: viewPostAction(res?.permalink),
           });
           queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
           setPublishItem(null);
@@ -84,8 +97,12 @@ export function LibraryPage() {
     publishInstagram.mutate(
       { id: instagramItem.id },
       {
-        onSuccess: () => {
-          toast({ title: "Published to Instagram", description: "Your post is live on Instagram." });
+        onSuccess: (res) => {
+          toast({
+            title: "Published to Instagram",
+            description: "Your post is live on Instagram.",
+            action: viewPostAction(res?.permalink),
+          });
           queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
           setInstagramItem(null);
         },
