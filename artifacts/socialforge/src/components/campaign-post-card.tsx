@@ -18,6 +18,8 @@ const PLATFORM_LABELS: Record<string, string> = {
   facebook: "Facebook",
 };
 
+const TWEET_MAX_LENGTH = 280;
+
 interface CampaignPostCardProps {
   post: CampaignPost;
   brandKitId?: number;
@@ -124,6 +126,16 @@ export function CampaignPostCard({ post, brandKitId, brief }: CampaignPostCardPr
           />
         )}
         <p className="whitespace-pre-wrap text-sm">{post.caption}</p>
+        {post.platform === "twitter" && (() => {
+          const tweetText = (post.caption ?? "").trim();
+          const overLimit = tweetText.length > TWEET_MAX_LENGTH;
+          return (
+            <p className={`text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+              {tweetText.length} / {TWEET_MAX_LENGTH} characters for X
+              {overLimit && ` \u2014 ${tweetText.length - TWEET_MAX_LENGTH} over; will be trimmed when posting to X (other platforms allow more)`}
+            </p>
+          );
+        })()}
         {post.hashtags.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {post.hashtags.map((tag) => (
