@@ -27,6 +27,8 @@ import { Wand2, Image as ImageIcon, Save, Loader2, Lightbulb, Link2, Layers } fr
 import { navigate } from "wouter/use-browser-location";
 import { CampaignPostCard } from "@/components/campaign-post-card";
 
+const TWEET_MAX_LENGTH = 280;
+
 const schema = z.object({
   prompt: z.string().min(3, "Prompt must be at least 3 characters"),
   platform: z.string().optional(),
@@ -580,6 +582,16 @@ export function StudioPage() {
                           Caption
                         </h4>
                         <p className="whitespace-pre-wrap text-lg">{captionResult.caption}</p>
+                        {(() => {
+                          const tweetText = (captionResult.caption ?? "").trim();
+                          const overLimit = tweetText.length > TWEET_MAX_LENGTH;
+                          return (
+                            <p className={`mt-3 text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                              {tweetText.length} / {TWEET_MAX_LENGTH} characters for X
+                              {overLimit && ` \u2014 ${tweetText.length - TWEET_MAX_LENGTH} over; will be trimmed when posting to X (other platforms allow more)`}
+                            </p>
+                          );
+                        })()}
                         {captionResult.hashtags.length > 0 && (
                           <div className="mt-6 flex flex-wrap gap-2">
                             {captionResult.hashtags.map((tag) => (
