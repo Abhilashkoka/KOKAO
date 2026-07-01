@@ -1,0 +1,135 @@
+# Multi-Tenant Brand Kit System Spec for Replit
+
+This document defines what Replit should build so your SaaS can create, store, version, and apply brand kits for each tenant. The goal is to make brand kits a backend system module, not just a UI settings page.
+
+## What the module must do
+
+- Create a brand onboarding flow on first tenant login.
+- Support one tenant having multiple brands.
+- Store each brand as a reusable, versioned brand kit.
+- Let content generation flows select the correct brand by explicit choice, channel rule, content type, or default fallback.
+- Keep all brand logic tenant-scoped.
+
+## Core entities
+
+- **Tenant**: the workspace/customer.
+- **Brand Kit**: one brand profile under a tenant.
+- **Brand Kit Version**: immutable snapshot of the brand JSON.
+- **Brand Asset**: uploaded logos, PDFs, screenshots, decks, references.
+- **Tenant Brand Preference**: channel/content-type to preferred brand mapping.
+- **Content Project**: post, reel, short, campaign, landing page, etc. linked to a brand.
+
+## First-login onboarding flow
+
+1. Detect first login or workspace creation.
+2. Start brand onboarding wizard.
+3. Ask if the tenant has one brand or multiple brands.
+4. Collect minimum details: brand name, website, logos, colors, fonts, tagline, audience, channels.
+5. If URLs/files are provided, create a draft brand kit using AI extraction.
+6. Save brand kit version 1.
+7. Let the tenant add more brands immediately if needed.
+8. Let the tenant mark one brand as default.
+9. Activate only after review.
+
+## Source of truth
+
+The source of truth should be `brand_kit_versions.json_payload`, not scattered table columns. Core metadata can stay on `brand_kits`, but brand design rules should live in versioned JSON.
+
+## Brand selection logic
+
+1. If a request includes `brand_kit_id`, use it.
+2. Else if a brand slug/name match is exact, use it.
+3. Else if a preference exists for channel + content_type, use that.
+4. Else use the tenant default brand.
+5. If more than one brand matches, force user selection.
+
+## JSON structure Replit must support
+
+See the attached JSON file for the full machine-readable structure. The required top-level sections are:
+
+- `identity`
+- `logos`
+- `colors`
+- `typography`
+- `voice`
+- `visual_style`
+- `layout_tokens`
+- `channel_rules`
+- `brand_controls`
+
+## Replit implementation prompt
+
+Paste this into Replit:
+
+```text
+Build a production-ready multi-tenant Brand Kit module for my SaaS application.
+
+Core objective:
+- Each tenant gets a Brand Kit onboarding flow on first login.
+- A tenant can have one or many brands.
+- Each brand has a reusable brand kit stored as structured JSON.
+- Any content generation flow must be able to select the correct brand kit by explicit brand selection, channel preference, or tenant default.
+- The module must be designed so other backend services can reliably consume the brand kit JSON.
+
+Build requirements:
+1. Multi-tenant aware: every table, API, service, and query must be scoped by tenant_id.
+2. Separate entities for tenant, brand_kit, brand_kit_version, brand_asset, tenant_brand_preference.
+3. Support versioning: every edit creates a new brand_kit_version record, while brand_kit points to active_version_id.
+4. Support default brand logic and multiple brands per tenant.
+5. On first login, trigger onboarding wizard that asks:
+   - Do you have one brand or multiple brands?
+   - Brand name
+   - Website URL
+   - Logo upload
+   - Primary/secondary colors
+   - Fonts
+   - Tagline
+   - Industry
+   - Audience
+   - Primary channels
+6. If tenant uploads files or gives a website URL, generate a draft brand kit from those inputs.
+7. Save brand kit in a strict JSON structure with sections for identity, logos, colors, typography, voice, visual_style, layout_tokens, channel_rules, and brand_controls.
+8. Add CRUD APIs for:
+   - create brand
+   - list tenant brands
+   - get brand
+   - create new version
+   - activate version
+   - archive brand
+   - set default brand
+   - set channel/content-type preference
+9. Add brand selection service logic:
+   - explicit brand_kit_id wins
+   - otherwise match by brand slug/name
+   - otherwise use tenant_brand_preference by channel + content_type
+   - otherwise use tenant default brand
+   - if ambiguous, require manual selection
+10. Add backend validation for hex colors, required fields, approval status, and tenant ownership.
+11. Add audit fields and timestamps everywhere.
+12. Make the module cleanly extensible for future AI extraction, Figma sync, and asset generation.
+
+Deliverables:
+- database schema
+- ORM models
+- API routes/controllers
+- service layer
+- validation layer
+- onboarding flow logic
+- sample seeded brand kit JSON
+- comments explaining where content generation services should read the selected brand kit
+
+Important architecture rules:
+- Do not hardcode a single brand per tenant.
+- Do not store brand kit values in scattered columns if they belong in versioned JSON.
+- Keep tenant isolation strict.
+- Design for future scale to many tenants and many brands per tenant.
+- Make the code modular so this can plug into an existing multi-tenant app.
+```
+
+## Build rules
+
+- Multi-tenant isolation must be strict.
+- Multiple brands per tenant must be supported from day one.
+- Every significant edit should create a new brand version.
+- One default brand per tenant is allowed, but not required for every use case.
+- The module should be easy to plug into your existing content, campaign, and AI generation flows.
