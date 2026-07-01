@@ -1,0 +1,316 @@
+{
+  "document": {
+    "title": "Multi-Tenant Brand Kit System Spec for Replit",
+    "version": "1.0",
+    "purpose": "Define a backend-ready brand kit architecture and prompt contract so Replit can generate, store, version, and apply tenant-specific brand kits in a multi-tenant SaaS application."
+  },
+  "goals": [
+    "Auto-create a default brand kit when a tenant signs in for the first time.",
+    "Allow one tenant to manage multiple brands under the same workspace.",
+    "Let content generation flows choose the correct brand kit per asset, campaign, channel, or sub-brand.",
+    "Store brand kits in a structured JSON format that backend services and generation pipelines can read reliably.",
+    "Support manual editing, AI extraction, versioning, activation/deactivation, and brand-level permissions."
+  ],
+  "entities": {
+    "tenant": {
+      "description": "Top-level customer account/workspace.",
+      "fields": [
+        "id",
+        "name",
+        "slug",
+        "industry",
+        "country",
+        "default_locale",
+        "status",
+        "created_at"
+      ]
+    },
+    "brand_kit": {
+      "description": "A reusable brand profile under a tenant.",
+      "fields": [
+        "id",
+        "tenant_id",
+        "name",
+        "slug",
+        "brand_type",
+        "status",
+        "is_default",
+        "is_archived",
+        "created_by",
+        "created_at",
+        "updated_at",
+        "active_version_id"
+      ]
+    },
+    "brand_kit_version": {
+      "description": "Immutable versioned snapshot of a brand kit.",
+      "fields": [
+        "id",
+        "brand_kit_id",
+        "version_number",
+        "source_type",
+        "source_notes",
+        "approval_status",
+        "json_payload",
+        "created_by",
+        "created_at"
+      ]
+    },
+    "brand_asset": {
+      "description": "Uploaded raw brand inputs and derived outputs.",
+      "fields": [
+        "id",
+        "tenant_id",
+        "brand_kit_id",
+        "asset_type",
+        "file_url",
+        "mime_type",
+        "label",
+        "metadata_json",
+        "created_at"
+      ]
+    },
+    "content_project": {
+      "description": "Campaign, content batch, post, reel, short, landing page, or document linked to a brand.",
+      "fields": [
+        "id",
+        "tenant_id",
+        "brand_kit_id",
+        "channel",
+        "content_type",
+        "title",
+        "status",
+        "created_at"
+      ]
+    },
+    "tenant_brand_preference": {
+      "description": "Maps use cases to preferred brands.",
+      "fields": [
+        "id",
+        "tenant_id",
+        "use_case",
+        "channel",
+        "content_type",
+        "brand_kit_id",
+        "priority"
+      ]
+    }
+  },
+  "first_login_workflow": [
+    "Detect tenant first login or workspace creation.",
+    "Launch brand kit onboarding wizard.",
+    "Ask whether tenant has one brand or multiple brands.",
+    "Collect minimal inputs: brand name, website, logo, colors, fonts, tagline, industry, target audience, preferred channels.",
+    "If files/URLs are provided, run AI extraction to draft the first brand kit.",
+    "Create one default brand kit record and version 1.",
+    "If tenant says they have multiple brands, allow repeated brand creation in the same onboarding flow.",
+    "Mark one brand as default and map optional use-case preferences.",
+    "Expose editable brand review screen before activation."
+  ],
+  "required_json_schema": {
+    "identity": {
+      "brand_name": "string",
+      "brand_slug": "string",
+      "tagline": "string",
+      "description": "string",
+      "industry": "string",
+      "audience": [
+        "string"
+      ]
+    },
+    "logos": {
+      "primary": {
+        "url": "string",
+        "type": "string"
+      },
+      "secondary": {
+        "url": "string",
+        "type": "string"
+      },
+      "icon_mark": {
+        "url": "string",
+        "type": "string"
+      },
+      "favicon": {
+        "url": "string",
+        "type": "string"
+      },
+      "usage_rules": [
+        "string"
+      ]
+    },
+    "colors": {
+      "primary": [
+        {
+          "name": "string",
+          "hex": "string",
+          "usage": "string"
+        }
+      ],
+      "secondary": [
+        {
+          "name": "string",
+          "hex": "string",
+          "usage": "string"
+        }
+      ],
+      "neutral": [
+        {
+          "name": "string",
+          "hex": "string",
+          "usage": "string"
+        }
+      ],
+      "semantic": [
+        {
+          "name": "string",
+          "hex": "string",
+          "usage": "string"
+        }
+      ]
+    },
+    "typography": {
+      "heading_font": "string",
+      "body_font": "string",
+      "fallback_fonts": [
+        "string"
+      ],
+      "scale": {
+        "h1": "string",
+        "h2": "string",
+        "h3": "string",
+        "h4": "string",
+        "body": "string",
+        "small": "string",
+        "caption": "string"
+      },
+      "weights": {
+        "regular": 400,
+        "medium": 500,
+        "semibold": 600,
+        "bold": 700
+      }
+    },
+    "voice": {
+      "traits": [
+        "string"
+      ],
+      "dos": [
+        "string"
+      ],
+      "donts": [
+        "string"
+      ],
+      "caption_style": "string",
+      "cta_style": "string"
+    },
+    "visual_style": {
+      "imagery_style": [
+        "string"
+      ],
+      "icon_style": "string",
+      "illustration_style": "string",
+      "motion_style": "string"
+    },
+    "layout_tokens": {
+      "base_unit": "string",
+      "radius": {
+        "sm": "string",
+        "md": "string",
+        "lg": "string"
+      },
+      "shadow": {
+        "sm": "string",
+        "md": "string",
+        "lg": "string"
+      }
+    },
+    "channel_rules": {
+      "instagram": {
+        "formats": [
+          "string"
+        ],
+        "notes": [
+          "string"
+        ]
+      },
+      "facebook": {
+        "formats": [
+          "string"
+        ],
+        "notes": [
+          "string"
+        ]
+      },
+      "youtube": {
+        "formats": [
+          "string"
+        ],
+        "notes": [
+          "string"
+        ]
+      },
+      "x": {
+        "formats": [
+          "string"
+        ],
+        "notes": [
+          "string"
+        ]
+      }
+    },
+    "brand_controls": {
+      "approved": true,
+      "approval_status": "draft|approved|archived",
+      "allowed_use_cases": [
+        "social_post",
+        "reel",
+        "short",
+        "ad_creative",
+        "landing_page",
+        "email"
+      ],
+      "restricted_terms": [
+        "string"
+      ]
+    }
+  },
+  "brand_selection_logic": {
+    "rules": [
+      "If content request explicitly includes brand_kit_id, use it.",
+      "Else if request includes brand slug/name and exactly one brand matches, use it.",
+      "Else if a tenant_brand_preference exists for channel + content_type, use highest-priority match.",
+      "Else fall back to tenant default brand kit.",
+      "If confidence is low or multiple brands match, force user selection before generation."
+    ]
+  },
+  "replit_prompt_contract": {
+    "instruction": "Paste the implementation prompt below into Replit and ask it to build the backend brand kit module exactly to spec.",
+    "prompt": "Build a production-ready multi-tenant Brand Kit module for my SaaS application.\n\nCore objective:\n- Each tenant gets a Brand Kit onboarding flow on first login.\n- A tenant can have one or many brands.\n- Each brand has a reusable brand kit stored as structured JSON.\n- Any content generation flow must be able to select the correct brand kit by explicit brand selection, channel preference, or tenant default.\n- The module must be designed so other backend services can reliably consume the brand kit JSON.\n\nBuild requirements:\n1. Multi-tenant aware: every table, API, service, and query must be scoped by tenant_id.\n2. Separate entities for tenant, brand_kit, brand_kit_version, brand_asset, tenant_brand_preference.\n3. Support versioning: every edit creates a new brand_kit_version record, while brand_kit points to active_version_id.\n4. Support default brand logic and multiple brands per tenant.\n5. On first login, trigger onboarding wizard that asks:\n   - Do you have one brand or multiple brands?\n   - Brand name\n   - Website URL\n   - Logo upload\n   - Primary/secondary colors\n   - Fonts\n   - Tagline\n   - Industry\n   - Audience\n   - Primary channels\n6. If tenant uploads files or gives a website URL, generate a draft brand kit from those inputs.\n7. Save brand kit in a strict JSON structure with sections for identity, logos, colors, typography, voice, visual_style, layout_tokens, channel_rules, and brand_controls.\n8. Add CRUD APIs for:\n   - create brand\n   - list tenant brands\n   - get brand\n   - create new version\n   - activate version\n   - archive brand\n   - set default brand\n   - set channel/content-type preference\n9. Add brand selection service logic:\n   - explicit brand_kit_id wins\n   - otherwise match by brand slug/name\n   - otherwise use tenant_brand_preference by channel + content_type\n   - otherwise use tenant default brand\n   - if ambiguous, require manual selection\n10. Add backend validation for hex colors, required fields, approval status, and tenant ownership.\n11. Add audit fields and timestamps everywhere.\n12. Make the module cleanly extensible for future AI extraction, Figma sync, and asset generation.\n\nDeliverables:\n- database schema\n- ORM models\n- API routes/controllers\n- service layer\n- validation layer\n- onboarding flow logic\n- sample seeded brand kit JSON\n- comments explaining where content generation services should read the selected brand kit\n\nImportant architecture rules:\n- Do not hardcode a single brand per tenant.\n- Do not store brand kit values in scattered columns if they belong in versioned JSON.\n- Keep tenant isolation strict.\n- Design for future scale to many tenants and many brands per tenant.\n- Make the code modular so this can plug into an existing multi-tenant app."
+  },
+  "implementation_notes": [
+    "For your app, treat brand kit as a backend system object, not only a UI settings page.",
+    "Use brand_kit_version.json_payload as the source of truth for generation pipelines.",
+    "Keep brand assets separate from parsed brand JSON so extraction can be rerun later.",
+    "Use one default brand per tenant, but allow brand-level preferences by channel or content type.",
+    "Add approval_status so teams can draft a brand before making it active."
+  ],
+  "minimum_tables": [
+    "tenants",
+    "brand_kits",
+    "brand_kit_versions",
+    "brand_assets",
+    "tenant_brand_preferences",
+    "content_projects"
+  ],
+  "api_endpoints": [
+    "POST /api/tenants/:tenantId/brand-kits",
+    "GET /api/tenants/:tenantId/brand-kits",
+    "GET /api/tenants/:tenantId/brand-kits/:brandKitId",
+    "POST /api/tenants/:tenantId/brand-kits/:brandKitId/versions",
+    "POST /api/tenants/:tenantId/brand-kits/:brandKitId/activate-version",
+    "POST /api/tenants/:tenantId/brand-kits/:brandKitId/set-default",
+    "POST /api/tenants/:tenantId/brand-preferences",
+    "POST /api/tenants/:tenantId/brand-kits/resolve-selection"
+  ]
+}
