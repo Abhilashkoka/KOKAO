@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Image as ImageIcon, Save, Loader2, Check } from "lucide-react";
+import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy } from "@workspace/social-limits";
 
 const PLATFORM_LABELS: Record<string, string> = {
   instagram: "Instagram",
@@ -17,8 +18,6 @@ const PLATFORM_LABELS: Record<string, string> = {
   linkedin: "LinkedIn",
   facebook: "Facebook",
 };
-
-const TWEET_MAX_LENGTH = 280;
 
 interface CampaignPostCardProps {
   post: CampaignPost;
@@ -128,11 +127,11 @@ export function CampaignPostCard({ post, brandKitId, brief }: CampaignPostCardPr
         <p className="whitespace-pre-wrap text-sm">{post.caption}</p>
         {post.platform === "twitter" && (() => {
           const tweetText = (post.caption ?? "").trim();
-          const overLimit = tweetText.length > TWEET_MAX_LENGTH;
+          const overLimit = isOverTweetLimit(tweetText);
           return (
             <p className={`text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
               {tweetText.length} / {TWEET_MAX_LENGTH} characters for X
-              {overLimit && ` \u2014 ${tweetText.length - TWEET_MAX_LENGTH} over; will be trimmed when posting to X (other platforms allow more)`}
+              {overLimit && ` \u2014 ${tweetOverBy(tweetText)} over; will be trimmed when posting to X (other platforms allow more)`}
             </p>
           );
         })()}

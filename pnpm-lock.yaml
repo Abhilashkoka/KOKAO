@@ -184,6 +184,9 @@ importers:
       '@workspace/integrations-openai-ai-server':
         specifier: workspace:*
         version: link:../../lib/integrations-openai-ai-server
+      '@workspace/social-limits':
+        specifier: workspace:*
+        version: link:../../lib/social-limits
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
@@ -566,6 +569,9 @@ importers:
       '@workspace/object-storage-web':
         specifier: workspace:*
         version: link:../../lib/object-storage-web
+      '@workspace/social-limits':
+        specifier: workspace:*
+        version: link:../../lib/social-limits
       class-variance-authority:
         specifier: 'catalog:'
         version: 0.7.1
@@ -716,6 +722,8 @@ importers:
       '@types/react':
         specifier: 'catalog:'
         version: 19.2.17
+
+  lib/social-limits: {}
 
   scripts:
     devDependencies:

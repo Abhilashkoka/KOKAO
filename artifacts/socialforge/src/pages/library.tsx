@@ -24,8 +24,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-
-const TWEET_MAX_LENGTH = 280;
+import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, trimToTweetLength } from "@workspace/social-limits";
 
 export function LibraryPage() {
   const { data: content, isLoading } = useListContent();
@@ -317,11 +316,11 @@ export function LibraryPage() {
               />
               {(() => {
                 const tweetText = ((editCaption?.trim() || editTitle) ?? "").trim();
-                const overLimit = tweetText.length > TWEET_MAX_LENGTH;
+                const overLimit = isOverTweetLimit(tweetText);
                 return (
                   <p className={`text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
                     {tweetText.length} / {TWEET_MAX_LENGTH} characters for X
-                    {overLimit && ` \u2014 ${tweetText.length - TWEET_MAX_LENGTH} over; will be trimmed when posting to X (other platforms allow more)`}
+                    {overLimit && ` \u2014 ${tweetOverBy(tweetText)} over; will be trimmed when posting to X (other platforms allow more)`}
                   </p>
                 );
               })()}
@@ -424,10 +423,8 @@ export function LibraryPage() {
           </DialogHeader>
           {twitterItem && (() => {
             const tweetText = ((twitterItem.caption?.trim() || twitterItem.title) ?? "").trim();
-            const overLimit = tweetText.length > TWEET_MAX_LENGTH;
-            const preview = overLimit
-              ? tweetText.slice(0, TWEET_MAX_LENGTH - 1).trimEnd() + "\u2026"
-              : tweetText;
+            const overLimit = isOverTweetLimit(tweetText);
+            const preview = trimToTweetLength(tweetText);
             return (
               <div className="space-y-2 py-2">
                 <p className="font-medium">{twitterItem.title}</p>
@@ -437,7 +434,7 @@ export function LibraryPage() {
                 </p>
                 {overLimit && (
                   <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-                    This caption is {tweetText.length - TWEET_MAX_LENGTH} characters over the {TWEET_MAX_LENGTH}-character limit and will be trimmed to the text shown above before posting.
+                    This caption is {tweetOverBy(tweetText)} characters over the {TWEET_MAX_LENGTH}-character limit and will be trimmed to the text shown above before posting.
                   </div>
                 )}
               </div>

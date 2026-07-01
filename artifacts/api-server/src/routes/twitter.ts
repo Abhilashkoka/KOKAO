@@ -10,12 +10,11 @@ import {
   uploadTwitterMedia,
   type TwitterCredentials,
 } from "../lib/twitterApi";
+import { trimToTweetLength } from "@workspace/social-limits";
 
 const router: IRouter = Router();
 
 const objectStorageService = new ObjectStorageService();
-
-const TWEET_MAX_LENGTH = 280;
 
 router.param("id", (req, res, next, value) => {
   const id = Number(value);
@@ -88,10 +87,7 @@ router.post(
     }
 
     const creds: TwitterCredentials = account.creds;
-    let text = (item.caption?.trim() || item.title).trim();
-    if (text.length > TWEET_MAX_LENGTH) {
-      text = text.slice(0, TWEET_MAX_LENGTH - 1).trimEnd() + "\u2026";
-    }
+    const text = trimToTweetLength((item.caption?.trim() || item.title).trim());
 
     try {
       let mediaId: string | null = null;
