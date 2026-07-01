@@ -2,7 +2,7 @@
 - [Social publishing in SocialForge](social-publishing.md) — "Connect Account" is record-only; real publishing is per-platform (Facebook+Instagram via meta.ts, LinkedIn) via dedicated routes.
 - [Meta credential framework](meta-credential-framework.md) — encrypted app-level + per-tenant FB/IG creds, auto-tested & masked; Meta secrets go in headers/body never URLs.
 - [API server test harness](api-server-testing.md) — vitest + supertest hitting real dev DB; mock @clerk/express + metaApi network fns; snapshot/restore global meta row; close pg pool in afterAll.
-- [X (Twitter) publishing](twitter-publishing.md) — reuses Meta cred framework; OAuth 1.0a signing gotcha (JSON/multipart bodies excluded from signature base string).
+- [X (Twitter) publishing](twitter-publishing.md) — OAuth 2.0 PKCE connect + bearer-token publish; legacy OAuth 1.0a tokens prompt reconnect; no retest endpoint.
 - [API route integration tests](api-route-integration-tests.md) — api-server uses vitest; drive routers over node:http with mocked fetch/db/storage to confirm publish flows end-to-end.
 - [OpenAPI zod body name collision](openapi-zod-body-name-collision.md) — never name a request-body schema `<PascalOperationId>Body`; it dup-exports in the api-zod barrel and breaks codegen (TS2308).
 - [Brand Kit module](brand-kit-module.md) — session-scoped endpoints (no tenantId in URL, IDOR avoidance); versioned-JSON payload (edit = new version, deep-clone + spread to preserve sections); keep OpenAPI + routes in lockstep.

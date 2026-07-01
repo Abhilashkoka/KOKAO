@@ -31,8 +31,14 @@ export const metaAppCredentialsSchema = z.object({
 });
 export type MetaAppCredentials = z.infer<typeof metaAppCredentialsSchema>;
 
+/**
+ * OAuth 2.0 client credentials for X (Twitter). These are the "OAuth 2.0 Client
+ * ID and Client Secret" from the X developer portal (a confidential client),
+ * NOT the legacy OAuth 1.0a consumer API Key/Secret. They drive the PKCE
+ * authorization-code flow tenants use to connect their account.
+ */
 export const twitterAppCredentialsSchema = z.object({
-  apiKey: z.string(),
-  apiSecret: z.string(),
+  clientId: z.string(),
+  clientSecret: z.string(),
 });
 export type TwitterAppCredentials = z.infer<typeof twitterAppCredentialsSchema>;

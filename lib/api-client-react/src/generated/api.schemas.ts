@@ -662,34 +662,38 @@ export interface Notification {
 
 export interface TwitterAppCredentialInput {
   /** @minLength 1 */
-  apiKey: string;
+  clientId: string;
   /** @minLength 1 */
-  apiSecret: string;
+  clientSecret: string;
 }
 
 export interface TwitterAppCredentialStatus {
-  /** Whether X app keys have been saved. */
+  /** Whether X OAuth 2.0 client credentials have been saved. */
   configured: boolean;
   /** @nullable */
-  apiKeyMasked?: string | null;
+  clientIdMasked?: string | null;
   /** @nullable */
-  apiSecretMasked?: string | null;
-  /**
-     * "verified" or "failed" from the last automatic test.
-     * @nullable
-     */
-  testStatus?: string | null;
+  clientSecretMasked?: string | null;
+  /** The exact OAuth 2.0 callback URL to register in the X app. */
+  redirectUri: string;
   /** @nullable */
-  testedAt?: string | null;
-  /** @nullable */
-  testError?: string | null;
+  savedAt?: string | null;
 }
 
-export interface TwitterCredentialInput {
-  /** @minLength 1 */
-  accessToken: string;
-  /** @minLength 1 */
-  accessTokenSecret: string;
+export interface TwitterAuthUrlResult {
+  url: string;
+}
+
+export interface TwitterStatus {
+  connected: boolean;
+  /** @nullable */
+  accountName?: string | null;
+  /** Whether the platform-level X OAuth 2.0 client credentials are set by the admin. */
+  configured: boolean;
+  /** The exact OAuth 2.0 callback URL to register in the X app. */
+  redirectUri: string;
+  /** True when an account was previously connected but its token can no longer be used (expired/revoked, or a legacy OAuth 1.0a connection), so the user should reconnect. */
+  expired?: boolean;
 }
 
 export interface PublishTwitterResult {

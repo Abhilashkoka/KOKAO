@@ -43,6 +43,8 @@ import {
   insertConnectedAccount,
   insertContentItem,
   getContentItem,
+  getConnectedAccount,
+  setAccountState,
   snapshotTwitterRow,
   setVerifiedTwitterRow,
   clearTwitterRow,
@@ -52,11 +54,16 @@ import { ObjectStorageService } from "../lib/objectStorage";
 
 const app = createTestApp();
 
-// Per-tenant OAuth 1.0a user credentials. The token secret must never leave the
-// server (it only signs requests); the access token rides in the OAuth header as
-// the public `oauth_token` param but must never appear in a URL.
-const X_ACCESS_TOKEN = "x_access_token_public";
-const X_ACCESS_TOKEN_SECRET = "x_access_token_secret_never_sent";
+// Per-tenant OAuth 2.0 user tokens. The refresh token is the long-lived secret
+// that must never leave the server in a URL or reach the X API endpoints; the
+// short-lived access token rides in the Authorization header as a bearer token.
+const X_ACCESS_TOKEN = "x_access_token_oauth2";
+const X_REFRESH_TOKEN = "x_refresh_token_secret_never_leaked";
+
+// A legacy OAuth 1.0a credential blob left over from before this migration. It
+// can no longer publish and must prompt the tenant to reconnect via OAuth 2.0.
+const X_LEGACY_ACCESS_TOKEN = "x_legacy_access_token";
+const X_LEGACY_TOKEN_SECRET = "x_legacy_token_secret";
 
 let twitterSnapshot: AppCredential | null = null;
 
@@ -75,6 +82,10 @@ beforeEach(() => {
     process.env.SESSION_SECRET || "test-session-secret";
 });
 
+/**
+ * Connect a tenant's X account with a valid OAuth 2.0 token set and no expiry
+ * (so publishing uses the stored access token without a refresh round-trip).
+ */
 async function connectVerifiedX(
   tenantId: number,
   accountName = "@testhandle",
@@ -84,11 +95,15 @@ async function connectVerifiedX(
     "twitter",
     {
       accessToken: X_ACCESS_TOKEN,
-      accessTokenSecret: X_ACCESS_TOKEN_SECRET,
+      refreshToken: X_REFRESH_TOKEN,
     },
     "verified",
     accountName,
   );
+  await setAccountState(tenantId, "twitter", {
+    providerUserId: "x_user_123",
+    tokenExpiresAt: null,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -140,9 +155,36 @@ describe("X (Twitter) publishing gate", () => {
         "twitter",
         {
           accessToken: X_ACCESS_TOKEN,
-          accessTokenSecret: X_ACCESS_TOKEN_SECRET,
+          refreshToken: X_REFRESH_TOKEN,
         },
         "failed",
+      );
+      const itemId = await insertContentItem(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-twitter`,
+      );
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/not connected or not verified/i);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("blocks publish for a legacy OAuth 1.0a connection and prompts reconnect (400)", async () => {
+    await setVerifiedTwitterRow();
+    const tenant = await createTenant();
+    try {
+      // A pre-migration OAuth 1.0a blob (has accessTokenSecret) marked verified.
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "twitter",
+        {
+          accessToken: X_LEGACY_ACCESS_TOKEN,
+          accessTokenSecret: X_LEGACY_TOKEN_SECRET,
+        },
+        "verified",
       );
       const itemId = await insertContentItem(tenant.tenantId);
       actAs(tenant.clerkUserId);
@@ -180,7 +222,8 @@ describe("X (Twitter) publishing gate", () => {
 // ---------------------------------------------------------------------------
 // Happy-path publishing with the X API and object storage mocked. Proves a post
 // actually reaches the /2/tweets endpoint (and, for images, the v2 media-upload
-// flow), marks the item published, and never leaks the token secret.
+// flow) authorized with an OAuth 2.0 bearer token, marks the item published,
+// and never leaks the refresh token.
 // ---------------------------------------------------------------------------
 
 interface MockCall {
@@ -192,7 +235,8 @@ interface MockCall {
 /**
  * Route mocked X API requests to canned responses. The v2 media-upload flow
  * (INIT/APPEND/FINALIZE) all POST to the same `/2/media/upload` URL, so the
- * command is read from the request body to pick a response.
+ * command is read from the request body to pick a response. The OAuth 2.0 token
+ * endpoint returns a refreshed token when a refresh round-trip occurs.
  */
 function mockXApi(calls: MockCall[]) {
   return vi
@@ -211,6 +255,14 @@ function mockXApi(calls: MockCall[]) {
             headers: { "content-type": "application/json" },
           });
 
+        if (url.includes("/2/oauth2/token")) {
+          return json({
+            access_token: "REFRESHED_ACCESS_TOKEN",
+            refresh_token: "REFRESHED_REFRESH_TOKEN",
+            expires_in: 7200,
+            token_type: "bearer",
+          });
+        }
         if (url.includes("/2/media/upload")) {
           return json({ data: { id: "MEDIA_1" } });
         }
@@ -231,7 +283,7 @@ describe("X (Twitter) publishing (happy path)", () => {
     vi.restoreAllMocks();
   });
 
-  it("publishes a text-only post, marks published, and never leaks the token secret", async () => {
+  it("publishes a text-only post with a bearer token, marks published, and never leaks the refresh token", async () => {
     const calls: MockCall[] = [];
     mockXApi(calls);
     const downloadSpy = vi.spyOn(
@@ -258,18 +310,22 @@ describe("X (Twitter) publishing (happy path)", () => {
       expect(downloadSpy).not.toHaveBeenCalled();
 
       // Reached the tweet-create endpoint (and only that one).
-      expect(calls.some((c) => c.url.includes("/2/tweets"))).toBe(true);
+      const tweetCall = calls.find((c) => c.url.includes("/2/tweets"));
+      expect(tweetCall).toBeTruthy();
       expect(calls.some((c) => c.url.includes("/2/media/upload"))).toBe(false);
+      // No refresh happened for a token with no expiry.
+      expect(calls.some((c) => c.url.includes("/2/oauth2/token"))).toBe(false);
 
-      // The token secret is never sent anywhere; the access token is in the
-      // OAuth header but never in a URL.
+      // Tweet-create authorizes with the stored OAuth 2.0 bearer token.
+      expect(tweetCall!.auth).toBe(`Bearer ${X_ACCESS_TOKEN}`);
+
+      // The refresh token is never sent anywhere; the access token rides only in
+      // the Authorization header, never in a URL or body.
       for (const c of calls) {
         expect(c.url).not.toContain(X_ACCESS_TOKEN);
-        expect(c.url).not.toContain(X_ACCESS_TOKEN_SECRET);
-        expect(c.auth).not.toContain(X_ACCESS_TOKEN_SECRET);
-        expect(JSON.stringify(c.body ?? "")).not.toContain(
-          X_ACCESS_TOKEN_SECRET,
-        );
+        expect(c.url).not.toContain(X_REFRESH_TOKEN);
+        expect(c.auth).not.toContain(X_REFRESH_TOKEN);
+        expect(JSON.stringify(c.body ?? "")).not.toContain(X_REFRESH_TOKEN);
       }
 
       const item = await getContentItem(itemId, tenant.tenantId);
@@ -283,7 +339,7 @@ describe("X (Twitter) publishing (happy path)", () => {
     }
   });
 
-  it("publishes an image post: uploads media via the v2 flow then attaches it to the tweet", async () => {
+  it("publishes an image post: uploads media via the v2 flow with a bearer token then attaches it to the tweet", async () => {
     const calls: MockCall[] = [];
     mockXApi(calls);
     const downloadSpy = vi
@@ -309,33 +365,113 @@ describe("X (Twitter) publishing (happy path)", () => {
       expect(downloadSpy).toHaveBeenCalledWith("/objects/uploads/test.png");
 
       // v2 media-upload runs its INIT/APPEND/FINALIZE command sequence.
-      const uploadBodies = calls
-        .filter((c) => c.url.includes("/2/media/upload"))
-        .map((c) =>
-          typeof c.body === "string" ? c.body : "[multipart]",
-        );
+      const uploadCalls = calls.filter((c) =>
+        c.url.includes("/2/media/upload"),
+      );
+      const uploadBodies = uploadCalls.map((c) =>
+        typeof c.body === "string" ? c.body : "[multipart]",
+      );
       expect(uploadBodies.some((b) => b.includes("command=INIT"))).toBe(true);
       expect(uploadBodies.some((b) => b === "[multipart]")).toBe(true); // APPEND
       expect(uploadBodies.some((b) => b.includes("command=FINALIZE"))).toBe(
         true,
       );
 
+      // Every media-upload request authorizes with the OAuth 2.0 bearer token.
+      for (const c of uploadCalls) {
+        expect(c.auth).toBe(`Bearer ${X_ACCESS_TOKEN}`);
+      }
+
       // The tweet attaches the uploaded media id.
       const tweetCall = calls.find((c) => c.url.includes("/2/tweets"));
       expect(tweetCall).toBeTruthy();
+      expect(tweetCall!.auth).toBe(`Bearer ${X_ACCESS_TOKEN}`);
       const tweetBody = JSON.parse(tweetCall!.body as string) as {
         media?: { media_ids?: string[] };
       };
       expect(tweetBody.media?.media_ids).toEqual(["MEDIA_1"]);
 
-      // No secret leakage across the whole flow.
+      // No refresh-token leakage across the whole flow.
       for (const c of calls) {
-        expect(c.url).not.toContain(X_ACCESS_TOKEN_SECRET);
-        expect(c.auth).not.toContain(X_ACCESS_TOKEN_SECRET);
+        expect(c.url).not.toContain(X_REFRESH_TOKEN);
+        expect(c.auth).not.toContain(X_REFRESH_TOKEN);
       }
 
       const item = await getContentItem(itemId, tenant.tenantId);
       expect(item.status).toBe("published");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("refreshes an expired access token before publishing and persists the new token", async () => {
+    const calls: MockCall[] = [];
+    mockXApi(calls);
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      // Force the stored token to look expired so a refresh is required.
+      await setAccountState(tenant.tenantId, "twitter", {
+        tokenExpiresAt: new Date(Date.now() - 60 * 1000),
+      });
+      const itemId = await insertContentItem(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-twitter`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("TWEET_1");
+
+      // A refresh round-trip occurred, and the tweet used the refreshed token.
+      expect(calls.some((c) => c.url.includes("/2/oauth2/token"))).toBe(true);
+      const tweetCall = calls.find((c) => c.url.includes("/2/tweets"));
+      expect(tweetCall!.auth).toBe("Bearer REFRESHED_ACCESS_TOKEN");
+
+      // The new expiry was persisted (moved into the future).
+      const row = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(row.tokenExpiresAt).toBeTruthy();
+      expect(row.tokenExpiresAt!.getTime()).toBeGreaterThan(Date.now());
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("prompts reconnect when an expired token has no refresh token (400)", async () => {
+    const calls: MockCall[] = [];
+    mockXApi(calls);
+
+    const tenant = await createTenant();
+    try {
+      // Connected with an access token but no refresh token, already expired.
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "twitter",
+        { accessToken: X_ACCESS_TOKEN, refreshToken: null },
+        "verified",
+      );
+      await setAccountState(tenant.tenantId, "twitter", {
+        tokenExpiresAt: new Date(Date.now() - 60 * 1000),
+      });
+      const itemId = await insertContentItem(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-twitter`,
+      );
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/not connected or not verified/i);
+      // No tweet was posted.
+      expect(calls.some((c) => c.url.includes("/2/tweets"))).toBe(false);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).not.toBe("published");
     } finally {
       await deleteTenant(tenant.tenantId);
     }

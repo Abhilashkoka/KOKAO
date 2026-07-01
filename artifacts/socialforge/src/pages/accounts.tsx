@@ -17,12 +17,12 @@ import {
   useRetestFacebookCredentials,
   useDisconnectInstagram,
   useRetestInstagramCredentials,
-  useGetTwitterCredentials,
-  useSaveTwitterCredentials,
+  getTwitterAuthUrl,
+  useGetTwitterStatus,
   useDisconnectTwitter,
   getGetFacebookCredentialsQueryKey,
   getGetInstagramCredentialsQueryKey,
-  getGetTwitterCredentialsQueryKey
+  getGetTwitterStatusQueryKey
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -445,67 +445,65 @@ function InstagramCredentialsCard() {
 function TwitterCredentialsCard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { data, isLoading } = useGetTwitterCredentials();
-  const save = useSaveTwitterCredentials();
+  const { data, isLoading } = useGetTwitterStatus();
   const disconnect = useDisconnectTwitter();
+  const [connecting, setConnecting] = useState(false);
 
-  const [accessToken, setAccessToken] = useState("");
-  const [accessTokenSecret, setAccessTokenSecret] = useState("");
-
-  const invalidateTwitter = () => {
-    queryClient.invalidateQueries({ queryKey: getGetTwitterCredentialsQueryKey() });
+  const refreshTwitter = () => {
+    queryClient.invalidateQueries({ queryKey: getGetTwitterStatusQueryKey() });
     queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
   };
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("twitter");
+    if (!status) return;
+    if (status === "connected") {
+      toast({ title: "X connected", description: "You can now publish posts to X." });
+      refreshTwitter();
+    } else if (status === "error") {
+      toast({
+        variant: "destructive",
+        title: "X connection failed",
+        description:
+          "We couldn't finish connecting your X account. Please try again.",
+      });
+    }
+    params.delete("twitter");
+    params.delete("reason");
+    const qs = params.toString();
+    window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : ""));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleConnect = async () => {
+    setConnecting(true);
+    try {
+      const { url } = await getTwitterAuthUrl();
+      window.location.href = url;
+    } catch (err: any) {
+      setConnecting(false);
+      toast({
+        variant: "destructive",
+        title: "Couldn't start X connection",
+        description:
+          err?.response?.data?.error ||
+          "X isn't configured yet. Please try again later.",
+      });
+    }
+  };
+
   const handleDisconnect = () => {
-    if (!confirm("Disconnect X? This clears your stored X credentials. You'll need to reconnect to publish again.")) return;
+    if (!confirm("Disconnect X? This clears your stored X connection. You'll need to reconnect to publish again.")) return;
     disconnect.mutate(undefined, {
       onSuccess: () => {
-        invalidateTwitter();
-        setAccessToken("");
-        setAccessTokenSecret("");
-        toast({ title: "X disconnected", description: "Your stored X credentials were cleared." });
+        refreshTwitter();
+        toast({ title: "X disconnected", description: "Your stored X connection was cleared." });
       },
       onError: (err: any) => {
         toast({ variant: "destructive", title: "Could not disconnect", description: err?.response?.data?.error || "Please try again." });
       },
     });
-  };
-
-  const handleSave = () => {
-    if (!accessToken.trim() || !accessTokenSecret.trim()) return;
-    save.mutate(
-      {
-        data: {
-          accessToken: accessToken.trim(),
-          accessTokenSecret: accessTokenSecret.trim(),
-        },
-      },
-      {
-        onSuccess: (res) => {
-          queryClient.invalidateQueries({ queryKey: getGetTwitterCredentialsQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
-          setAccessToken("");
-          setAccessTokenSecret("");
-          if (res.verifyStatus === "verified") {
-            toast({ title: "X account verified", description: "You can now publish to X from the Content Library." });
-          } else {
-            toast({
-              variant: "destructive",
-              title: "Saved, but verification failed",
-              description: res.verifyError || "X rejected these credentials. Check the access token and secret.",
-            });
-          }
-        },
-        onError: (err: any) => {
-          toast({
-            variant: "destructive",
-            title: "Could not save",
-            description: err?.response?.data?.error || "Please try again.",
-          });
-        },
-      },
-    );
   };
 
   return (
@@ -518,15 +516,21 @@ function TwitterCredentialsCard() {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-bold text-lg">X (Twitter) Publishing</h3>
-              {isLoading ? null : data?.saved ? (
-                <StatusPill status={data.verifyStatus} />
-              ) : !data?.appConfigured ? (
-                <span className="text-xs font-medium text-amber-600 flex items-center gap-1 bg-amber-600/10 px-2 py-0.5 rounded-full">
-                  <AlertCircle className="h-3 w-3" /> Needs admin setup
+              {isLoading ? null : data?.connected ? (
+                <span className="text-xs font-medium text-green-600 flex items-center gap-1 bg-green-600/10 px-2 py-0.5 rounded-full">
+                  <CheckCircle2 className="h-3 w-3" /> Connected
                 </span>
-              ) : (
+              ) : data?.expired ? (
+                <span className="text-xs font-medium text-destructive flex items-center gap-1 bg-destructive/10 px-2 py-0.5 rounded-full">
+                  <AlertCircle className="h-3 w-3" /> Reconnect needed
+                </span>
+              ) : data?.configured ? (
                 <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
                   Not connected
+                </span>
+              ) : (
+                <span className="text-xs font-medium text-amber-600 flex items-center gap-1 bg-amber-600/10 px-2 py-0.5 rounded-full">
+                  <AlertCircle className="h-3 w-3" /> Needs admin setup
                 </span>
               )}
             </div>
@@ -534,56 +538,51 @@ function TwitterCredentialsCard() {
             {isLoading ? (
               <div className="mt-3 space-y-3">
                 <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
               </div>
-            ) : !data?.appConfigured ? (
+            ) : !data?.configured ? (
               <p className="mt-2 text-sm text-muted-foreground">
                 X publishing needs a one-time X app setup by a platform administrator before you can connect your account.
               </p>
-            ) : (
-              <div className="mt-3 space-y-4">
+            ) : data?.connected ? (
+              <div className="mt-2 space-y-3">
                 <p className="text-sm text-muted-foreground">
-                  Paste your X account's Access Token and Access Token Secret. We test them immediately and only store them encrypted. Generate these in the X developer portal under your app's Keys and tokens tab (Access Token and Secret with Read and Write permissions).
+                  Posting as <span className="font-medium text-foreground">{data.accountName}</span>. You can publish content items to X from the Content Library.
                 </p>
-                {data?.verifyStatus === "failed" && data?.verifyError && (
-                  <p className="text-sm text-destructive">{data.verifyError}</p>
-                )}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Access Token</label>
-                  <Input
-                    type="password"
-                    value={accessToken}
-                    onChange={(e) => setAccessToken(e.target.value)}
-                    placeholder={data?.saved ? "Enter to replace the saved token" : "1234567890-abc..."}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Access Token Secret</label>
-                  <Input
-                    type="password"
-                    value={accessTokenSecret}
-                    onChange={(e) => setAccessTokenSecret(e.target.value)}
-                    placeholder={data?.saved ? "Enter to replace the saved secret" : "Access token secret"}
-                  />
-                </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button onClick={handleSave} disabled={save.isPending || !accessToken.trim() || !accessTokenSecret.trim()}>
-                    {save.isPending ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving & testing...</>
+                  <Button variant="outline" size="sm" onClick={handleConnect} disabled={connecting}>
+                    {connecting ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Reconnecting...</>
                     ) : (
-                      "Save and verify"
+                      "Reconnect"
                     )}
                   </Button>
-                  {data?.saved && (
-                    <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={handleDisconnect} disabled={disconnect.isPending}>
-                      {disconnect.isPending ? (
-                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
-                      ) : (
-                        <><Trash2 className="h-4 w-4 mr-2" /> Disconnect</>
-                      )}
-                    </Button>
-                  )}
+                  <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={handleDisconnect} disabled={disconnect.isPending}>
+                    {disconnect.isPending ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
+                    ) : (
+                      <><Trash2 className="h-4 w-4 mr-2" /> Disconnect</>
+                    )}
+                  </Button>
                 </div>
+              </div>
+            ) : (
+              <div className="mt-2 space-y-3">
+                {data?.expired ? (
+                  <p className="text-sm text-destructive">
+                    Your X connection is no longer valid, so publishing is paused. Reconnect your account to resume posting.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Connect your X account to publish posts directly. You will be redirected to X to authorize access.
+                  </p>
+                )}
+                <Button onClick={handleConnect} disabled={connecting}>
+                  {connecting ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Connecting...</>
+                  ) : (
+                    "Connect X"
+                  )}
+                </Button>
               </div>
             )}
           </div>

@@ -7,19 +7,14 @@
  */
 
 export interface TwitterAppCredentialStatus {
-  /** Whether X app keys have been saved. */
+  /** Whether X OAuth 2.0 client credentials have been saved. */
   configured: boolean;
   /** @nullable */
-  apiKeyMasked?: string | null;
+  clientIdMasked?: string | null;
   /** @nullable */
-  apiSecretMasked?: string | null;
-  /**
-     * "verified" or "failed" from the last automatic test.
-     * @nullable
-     */
-  testStatus?: string | null;
+  clientSecretMasked?: string | null;
+  /** The exact OAuth 2.0 callback URL to register in the X app. */
+  redirectUri: string;
   /** @nullable */
-  testedAt?: Date | null;
-  /** @nullable */
-  testError?: string | null;
+  savedAt?: Date | null;
 }

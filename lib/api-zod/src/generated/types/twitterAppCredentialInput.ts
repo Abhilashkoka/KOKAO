@@ -8,7 +8,7 @@
 
 export interface TwitterAppCredentialInput {
   /** @minLength 1 */
-  apiKey: string;
+  clientId: string;
   /** @minLength 1 */
-  apiSecret: string;
+  clientSecret: string;
 }

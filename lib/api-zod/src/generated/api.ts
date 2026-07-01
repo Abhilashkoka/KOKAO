@@ -3547,12 +3547,11 @@ export const MarkNotificationReadResponse = zod.void()
  * @summary Get masked app-level X (Twitter) credentials and test status (superadmin only)
  */
 export const AdminGetTwitterCredentialsResponse = zod.object({
-  "configured": zod.boolean().describe('Whether X app keys have been saved.'),
-  "apiKeyMasked": zod.string().nullish(),
-  "apiSecretMasked": zod.string().nullish(),
-  "testStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic test.'),
-  "testedAt": zod.coerce.date().nullish(),
-  "testError": zod.string().nullish()
+  "configured": zod.boolean().describe('Whether X OAuth 2.0 client credentials have been saved.'),
+  "clientIdMasked": zod.string().nullish(),
+  "clientSecretMasked": zod.string().nullish(),
+  "redirectUri": zod.string().describe('The exact OAuth 2.0 callback URL to register in the X app.'),
+  "savedAt": zod.coerce.date().nullish()
 })
 
 
@@ -3564,80 +3563,48 @@ export const AdminGetTwitterCredentialsResponse = zod.object({
 
 
 export const AdminSaveTwitterCredentialsBody = zod.object({
-  "apiKey": zod.string().min(1),
-  "apiSecret": zod.string().min(1)
+  "clientId": zod.string().min(1),
+  "clientSecret": zod.string().min(1)
 })
 
 export const AdminSaveTwitterCredentialsResponse = zod.object({
-  "configured": zod.boolean().describe('Whether X app keys have been saved.'),
-  "apiKeyMasked": zod.string().nullish(),
-  "apiSecretMasked": zod.string().nullish(),
-  "testStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic test.'),
-  "testedAt": zod.coerce.date().nullish(),
-  "testError": zod.string().nullish()
+  "configured": zod.boolean().describe('Whether X OAuth 2.0 client credentials have been saved.'),
+  "clientIdMasked": zod.string().nullish(),
+  "clientSecretMasked": zod.string().nullish(),
+  "redirectUri": zod.string().describe('The exact OAuth 2.0 callback URL to register in the X app.'),
+  "savedAt": zod.coerce.date().nullish()
 })
 
 
 /**
- * @summary Get the tenant's masked X (Twitter) credentials and verify status
+ * @summary Get the X (Twitter) OAuth 2.0 PKCE authorization URL to begin connecting
  */
-export const GetTwitterCredentialsResponse = zod.object({
-  "platform": zod.string(),
-  "appConfigured": zod.boolean().describe('Whether the admin-level Meta app keys are configured.'),
-  "saved": zod.boolean().describe('Whether the tenant has saved credentials for this platform.'),
-  "verifyStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic verification.'),
-  "verifiedAt": zod.coerce.date().nullish(),
-  "verifyError": zod.string().nullish(),
-  "accountName": zod.string().nullish(),
-  "pageId": zod.string().nullish(),
-  "pageAccessTokenMasked": zod.string().nullish(),
-  "igUserId": zod.string().nullish(),
-  "accessTokenMasked": zod.string().nullish()
+export const GetTwitterAuthUrlResponse = zod.object({
+  "url": zod.string()
 })
 
 
 /**
- * @summary Save and auto-verify the tenant's X (Twitter) access token
+ * @summary Whether an X (Twitter) account is connected and able to publish
  */
-
-
-
-
-export const SaveTwitterCredentialsBody = zod.object({
-  "accessToken": zod.string().min(1),
-  "accessTokenSecret": zod.string().min(1)
-})
-
-export const SaveTwitterCredentialsResponse = zod.object({
-  "platform": zod.string(),
-  "appConfigured": zod.boolean().describe('Whether the admin-level Meta app keys are configured.'),
-  "saved": zod.boolean().describe('Whether the tenant has saved credentials for this platform.'),
-  "verifyStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic verification.'),
-  "verifiedAt": zod.coerce.date().nullish(),
-  "verifyError": zod.string().nullish(),
+export const GetTwitterStatusResponse = zod.object({
+  "connected": zod.boolean(),
   "accountName": zod.string().nullish(),
-  "pageId": zod.string().nullish(),
-  "pageAccessTokenMasked": zod.string().nullish(),
-  "igUserId": zod.string().nullish(),
-  "accessTokenMasked": zod.string().nullish()
+  "configured": zod.boolean().describe('Whether the platform-level X OAuth 2.0 client credentials are set by the admin.'),
+  "redirectUri": zod.string().describe('The exact OAuth 2.0 callback URL to register in the X app.'),
+  "expired": zod.boolean().optional().describe('True when an account was previously connected but its token can no longer be used (expired\/revoked, or a legacy OAuth 1.0a connection), so the user should reconnect.')
 })
 
 
 /**
- * @summary Clear the tenant's stored X (Twitter) credentials and verify status
+ * @summary Disconnect X (Twitter), clearing the stored OAuth token and account
  */
 export const DisconnectTwitterResponse = zod.object({
-  "platform": zod.string(),
-  "appConfigured": zod.boolean().describe('Whether the admin-level Meta app keys are configured.'),
-  "saved": zod.boolean().describe('Whether the tenant has saved credentials for this platform.'),
-  "verifyStatus": zod.string().nullish().describe('\"verified\" or \"failed\" from the last automatic verification.'),
-  "verifiedAt": zod.coerce.date().nullish(),
-  "verifyError": zod.string().nullish(),
+  "connected": zod.boolean(),
   "accountName": zod.string().nullish(),
-  "pageId": zod.string().nullish(),
-  "pageAccessTokenMasked": zod.string().nullish(),
-  "igUserId": zod.string().nullish(),
-  "accessTokenMasked": zod.string().nullish()
+  "configured": zod.boolean().describe('Whether the platform-level X OAuth 2.0 client credentials are set by the admin.'),
+  "redirectUri": zod.string().describe('The exact OAuth 2.0 callback URL to register in the X app.'),
+  "expired": zod.boolean().optional().describe('True when an account was previously connected but its token can no longer be used (expired\/revoked, or a legacy OAuth 1.0a connection), so the user should reconnect.')
 })
 
 

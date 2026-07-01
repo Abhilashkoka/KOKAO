@@ -9,7 +9,7 @@ import {
   usePublishContentToTwitter,
   useGetFacebookCredentials,
   useGetInstagramCredentials,
-  useGetTwitterCredentials,
+  useGetTwitterStatus,
   useGetLinkedinStatus,
   getListContentQueryKey
 } from "@workspace/api-client-react";
@@ -62,11 +62,11 @@ export function LibraryPage() {
 
   const { data: fbCreds } = useGetFacebookCredentials();
   const { data: igCreds } = useGetInstagramCredentials();
-  const { data: twCreds } = useGetTwitterCredentials();
+  const { data: twStatus } = useGetTwitterStatus();
   const { data: linkedinStatus } = useGetLinkedinStatus();
   const fbReady = fbCreds?.verifyStatus === "verified";
   const igReady = igCreds?.verifyStatus === "verified";
-  const twReady = twCreds?.verifyStatus === "verified";
+  const twReady = !!twStatus?.connected;
   const liReady = !!linkedinStatus?.connected;
 
   const viewPostAction = (permalink: string | null | undefined) =>
@@ -430,7 +430,7 @@ export function LibraryPage() {
           <DialogHeader>
             <DialogTitle>Publish to X</DialogTitle>
             <DialogDescription>
-              This posts the caption{twitterItem?.imagePath ? " and image" : ""} to your connected X account{twCreds?.accountName ? ` (${twCreds.accountName})` : ""}.
+              This posts the caption{twitterItem?.imagePath ? " and image" : ""} to your connected X account{twStatus?.accountName ? ` (${twStatus.accountName})` : ""}.
             </DialogDescription>
           </DialogHeader>
           {twitterItem && (() => {

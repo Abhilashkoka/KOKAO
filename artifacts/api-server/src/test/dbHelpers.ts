@@ -259,24 +259,20 @@ export async function snapshotTwitterRow(): Promise<AppCredential | null> {
 }
 
 export async function setTwitterRow(
-  apiKey: string,
-  apiSecret: string,
-  status = "verified",
+  clientId: string,
+  clientSecret: string,
 ): Promise<void> {
   await db
     .delete(appCredentialsTable)
     .where(eq(appCredentialsTable.provider, "twitter"));
   await db.insert(appCredentialsTable).values({
     provider: "twitter",
-    encryptedCredentials: encryptJson({ apiKey, apiSecret }),
-    lastTestStatus: status,
-    lastTestedAt: new Date(),
-    lastTestError: null,
+    encryptedCredentials: encryptJson({ clientId, clientSecret }),
   });
 }
 
 export async function setVerifiedTwitterRow(): Promise<void> {
-  await setTwitterRow("x-api-key-default", "x-api-secret-default", "verified");
+  await setTwitterRow("x-client-id-default", "x-client-secret-default");
 }
 
 export async function clearTwitterRow(): Promise<void> {

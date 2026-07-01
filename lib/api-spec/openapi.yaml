@@ -1639,52 +1639,50 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
-  /social-credentials/twitter:
+  /twitter/auth/url:
     get:
-      operationId: getTwitterCredentials
-      tags: [social-credentials]
-      summary: Get the tenant's masked X (Twitter) credentials and verify status
+      operationId: getTwitterAuthUrl
+      tags: [twitter]
+      summary: Get the X (Twitter) OAuth 2.0 PKCE authorization URL to begin connecting
       responses:
         "200":
-          description: X credential status
+          description: Authorization URL
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SocialCredentialStatus"
-    put:
-      operationId: saveTwitterCredentials
-      tags: [social-credentials]
-      summary: Save and auto-verify the tenant's X (Twitter) access token
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/TwitterCredentialInput"
-      responses:
-        "200":
-          description: Saved and verified
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SocialCredentialStatus"
-        "400":
-          description: Invalid input or X app not configured
+                $ref: "#/components/schemas/TwitterAuthUrlResult"
+        "503":
+          description: X is not configured
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-    delete:
-      operationId: disconnectTwitter
-      tags: [social-credentials]
-      summary: Clear the tenant's stored X (Twitter) credentials and verify status
+
+  /twitter/status:
+    get:
+      operationId: getTwitterStatus
+      tags: [twitter]
+      summary: Whether an X (Twitter) account is connected and able to publish
       responses:
         "200":
-          description: Disconnected
+          description: X connection status
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SocialCredentialStatus"
+                $ref: "#/components/schemas/TwitterStatus"
+
+  /twitter:
+    delete:
+      operationId: disconnectTwitter
+      tags: [twitter]
+      summary: Disconnect X (Twitter), clearing the stored OAuth token and account
+      responses:
+        "200":
+          description: X connection status after disconnecting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TwitterStatus"
 
   /content/{id}/publish-twitter:
     post:
@@ -2652,43 +2650,57 @@ components:
           format: date-time
     TwitterAppCredentialInput:
       type: object
-      required: [apiKey, apiSecret]
+      required: [clientId, clientSecret]
       properties:
-        apiKey:
+        clientId:
           type: string
           minLength: 1
-        apiSecret:
+        clientSecret:
           type: string
           minLength: 1
     TwitterAppCredentialStatus:
       type: object
-      required: [configured]
+      required: [configured, redirectUri]
       properties:
         configured:
           type: boolean
-          description: Whether X app keys have been saved.
-        apiKeyMasked:
+          description: Whether X OAuth 2.0 client credentials have been saved.
+        clientIdMasked:
           type: ["string", "null"]
-        apiSecretMasked:
+        clientSecretMasked:
           type: ["string", "null"]
-        testStatus:
-          type: ["string", "null"]
-          description: '"verified" or "failed" from the last automatic test.'
-        testedAt:
+        redirectUri:
+          type: string
+          description: The exact OAuth 2.0 callback URL to register in the X app.
+        savedAt:
           type: ["string", "null"]
           format: date-time
-        testError:
-          type: ["string", "null"]
-    TwitterCredentialInput:
+    TwitterAuthUrlResult:
       type: object
-      required: [accessToken, accessTokenSecret]
+      required: [url]
       properties:
-        accessToken:
+        url:
           type: string
-          minLength: 1
-        accessTokenSecret:
+    TwitterStatus:
+      type: object
+      required: [connected, configured, redirectUri]
+      properties:
+        connected:
+          type: boolean
+        accountName:
+          type: ["string", "null"]
+        configured:
+          type: boolean
+          description: Whether the platform-level X OAuth 2.0 client credentials are set by the admin.
+        redirectUri:
           type: string
-          minLength: 1
+          description: The exact OAuth 2.0 callback URL to register in the X app.
+        expired:
+          type: boolean
+          description: >-
+            True when an account was previously connected but its token can no
+            longer be used (expired/revoked, or a legacy OAuth 1.0a connection),
+            so the user should reconnect.
     PublishTwitterResult:
       type: object
       required: [postId]

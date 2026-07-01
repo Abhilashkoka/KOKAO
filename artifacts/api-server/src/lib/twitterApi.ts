@@ -1,102 +1,221 @@
 import { db, appCredentialsTable, connectedAccountsTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
-import { createHmac, randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import type { TwitterAppCredentials } from "@workspace/db";
-import { decryptJson } from "./secretCrypto";
+import { decryptJson, encryptJson } from "./secretCrypto";
 
-export const TWITTER_API_BASE = "https://api.twitter.com";
+/** v2 API base for tweet creation and the authenticated-user lookup. */
+export const TWITTER_API_BASE = "https://api.x.com";
+/** OAuth 2.0 authorization endpoint (PKCE authorization-code flow). */
+export const TWITTER_AUTH_URL = "https://twitter.com/i/oauth2/authorize";
+/** OAuth 2.0 token endpoint (code exchange + refresh). */
+export const TWITTER_TOKEN_URL = "https://api.x.com/2/oauth2/token";
 /**
  * v2 media upload endpoint. The legacy v1.1 endpoint
  * (`upload.twitter.com/1.1/media/upload.json`) was permanently sunset by X on
- * 2025-06-09, so it must not be used. Uploads now go through a command-based
- * INIT -> APPEND -> FINALIZE flow on this single endpoint (see
- * `uploadTwitterMedia`).
+ * 2025-06-09. Uploads use a command-based INIT -> APPEND -> FINALIZE flow on
+ * this single endpoint (see `uploadTwitterMedia`), authorized with an OAuth 2.0
+ * bearer token that carries the `media.write` scope.
  */
 export const TWITTER_MEDIA_UPLOAD_URL = "https://api.x.com/2/media/upload";
+/**
+ * Scopes requested when a tenant connects their account. `media.write` is
+ * required for the v2 media-upload flow, `offline.access` yields a refresh
+ * token so publishing keeps working after the short-lived access token expires.
+ */
+export const TWITTER_OAUTH_SCOPES =
+  "tweet.read tweet.write users.read media.write offline.access";
 
-/** Per-tenant X (Twitter) user credentials (OAuth 1.0a user context). */
-export interface TwitterCredentials {
+/**
+ * Per-tenant X user tokens obtained via OAuth 2.0. Stored encrypted at rest.
+ * The refresh token is the long-lived secret; the access token is short-lived
+ * and refreshed on demand. Neither ever appears in a URL.
+ */
+export interface TwitterOAuth2Credentials {
+  accessToken: string;
+  refreshToken: string | null;
+}
+
+/**
+ * Shape of a legacy OAuth 1.0a credential blob left over from before this
+ * migration. Detected by the presence of `accessTokenSecret`; such connections
+ * can no longer publish and must be reconnected via the OAuth 2.0 flow.
+ */
+interface LegacyTwitterOAuth1Credentials {
   accessToken: string;
   accessTokenSecret: string;
 }
 
-export interface TestResult {
-  ok: boolean;
-  /** Human-friendly account name resolved from X on success. */
-  accountName?: string;
-  /** Error message on failure (safe to show; never contains secrets). */
-  error?: string;
+type StoredTwitterCredentials =
+  | TwitterOAuth2Credentials
+  | LegacyTwitterOAuth1Credentials;
+
+function isLegacyOAuth1(
+  creds: StoredTwitterCredentials,
+): creds is LegacyTwitterOAuth1Credentials {
+  return (
+    typeof (creds as LegacyTwitterOAuth1Credentials).accessTokenSecret ===
+    "string"
+  );
 }
 
-/** RFC 3986 percent-encoding as required by OAuth 1.0a. */
-function percentEncode(value: string): string {
-  return encodeURIComponent(value).replace(
-    /[!*'()]/g,
-    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
+/** Normalized OAuth 2.0 token set returned by the token endpoint. */
+export interface TwitterTokens {
+  accessToken: string;
+  refreshToken: string | null;
+  expiresAt: Date | null;
+}
+
+// ---------------------------------------------------------------------------
+// PKCE helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate a PKCE verifier + S256 challenge pair. The verifier is a
+ * high-entropy random string; the challenge is BASE64URL(SHA256(verifier)).
+ */
+export function generatePkce(): { verifier: string; challenge: string } {
+  const verifier = randomBytes(32).toString("base64url");
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  return { verifier, challenge };
+}
+
+/** Build the OAuth 2.0 authorization URL the browser is redirected to. */
+export function buildTwitterAuthUrl(opts: {
+  clientId: string;
+  redirectUri: string;
+  state: string;
+  challenge: string;
+}): string {
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: opts.clientId,
+    redirect_uri: opts.redirectUri,
+    scope: TWITTER_OAUTH_SCOPES,
+    state: opts.state,
+    code_challenge: opts.challenge,
+    code_challenge_method: "S256",
+  });
+  return `${TWITTER_AUTH_URL}?${params.toString()}`;
+}
+
+// ---------------------------------------------------------------------------
+// Token endpoint (confidential client: HTTP Basic client authentication)
+// ---------------------------------------------------------------------------
+
+interface TwitterTokenResponse {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  token_type?: string;
+  scope?: string;
+  error?: string;
+  error_description?: string;
+}
+
+function basicAuth(app: TwitterAppCredentials): string {
+  return Buffer.from(`${app.clientId}:${app.clientSecret}`).toString("base64");
+}
+
+function normalizeTokens(
+  json: TwitterTokenResponse,
+  fallbackRefresh: string | null,
+): TwitterTokens {
+  return {
+    accessToken: json.access_token!,
+    // A refresh may or may not return a new refresh token; keep the old one if
+    // X does not rotate it.
+    refreshToken: json.refresh_token ?? fallbackRefresh,
+    expiresAt: json.expires_in
+      ? new Date(Date.now() + json.expires_in * 1000)
+      : null,
+  };
 }
 
 /**
- * Build an OAuth 1.0a "Authorization" header (HMAC-SHA1) for a request.
- *
- * `extraParams` should only contain request parameters that participate in the
- * signature — i.e. query-string params or application/x-www-form-urlencoded
- * body params. JSON and multipart bodies are NOT signed, so callers pass an
- * empty object for those.
- *
- * Secrets never appear in a URL: this produces a header, not a query string.
+ * Exchange an authorization code for tokens. The confidential client
+ * authenticates with HTTP Basic (client id/secret) — the secret rides in the
+ * Authorization header, never a URL or the redirect. Throws on failure.
  */
-export function buildOAuthHeader(opts: {
-  method: string;
-  url: string;
-  consumerKey: string;
-  consumerSecret: string;
-  token: string;
-  tokenSecret: string;
-  extraParams?: Record<string, string>;
-}): string {
-  const oauthParams: Record<string, string> = {
-    oauth_consumer_key: opts.consumerKey,
-    oauth_nonce: randomBytes(16).toString("hex"),
-    oauth_signature_method: "HMAC-SHA1",
-    oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
-    oauth_token: opts.token,
-    oauth_version: "1.0",
-  };
+export async function exchangeCodeForTokens(opts: {
+  app: TwitterAppCredentials;
+  code: string;
+  redirectUri: string;
+  verifier: string;
+}): Promise<TwitterTokens> {
+  const res = await fetch(TWITTER_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${basicAuth(opts.app)}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code: opts.code,
+      redirect_uri: opts.redirectUri,
+      code_verifier: opts.verifier,
+      client_id: opts.app.clientId,
+    }).toString(),
+  });
+  const json = (await res.json()) as TwitterTokenResponse;
+  if (!res.ok || !json.access_token) {
+    throw new Error(
+      json.error_description || json.error || `X token exchange failed (${res.status})`,
+    );
+  }
+  return normalizeTokens(json, null);
+}
 
-  const allParams: Record<string, string> = {
-    ...oauthParams,
-    ...(opts.extraParams ?? {}),
-  };
-  const paramString = Object.keys(allParams)
-    .sort()
-    .map((k) => `${percentEncode(k)}=${percentEncode(allParams[k])}`)
-    .join("&");
+/** Refresh an access token using a refresh token. Throws on failure. */
+export async function refreshTwitterTokens(opts: {
+  app: TwitterAppCredentials;
+  refreshToken: string;
+}): Promise<TwitterTokens> {
+  const res = await fetch(TWITTER_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${basicAuth(opts.app)}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: opts.refreshToken,
+      client_id: opts.app.clientId,
+    }).toString(),
+  });
+  const json = (await res.json()) as TwitterTokenResponse;
+  if (!res.ok || !json.access_token) {
+    throw new Error(
+      json.error_description ||
+        json.error ||
+        `X token refresh failed (${res.status})`,
+    );
+  }
+  return normalizeTokens(json, opts.refreshToken);
+}
 
-  const baseString = [
-    opts.method.toUpperCase(),
-    percentEncode(opts.url),
-    percentEncode(paramString),
-  ].join("&");
-
-  const signingKey = `${percentEncode(opts.consumerSecret)}&${percentEncode(
-    opts.tokenSecret,
-  )}`;
-  const signature = createHmac("sha1", signingKey)
-    .update(baseString)
-    .digest("base64");
-
-  const headerParams: Record<string, string> = {
-    ...oauthParams,
-    oauth_signature: signature,
-  };
-  return (
-    "OAuth " +
-    Object.keys(headerParams)
-      .sort()
-      .map((k) => `${percentEncode(k)}="${percentEncode(headerParams[k])}"`)
-      .join(", ")
-  );
+/**
+ * Read the authenticated X user with an OAuth 2.0 bearer token. Returns the
+ * user's id and a display handle, or null on any failure.
+ */
+export async function fetchTwitterUser(
+  accessToken: string,
+): Promise<{ id: string; accountName: string } | null> {
+  try {
+    const res = await fetch(`${TWITTER_API_BASE}/2/users/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const json = (await res.json()) as {
+      data?: { id?: string; name?: string; username?: string };
+    };
+    if (!res.ok || !json.data?.id) return null;
+    return {
+      id: json.data.id,
+      accountName: json.data.username ? `@${json.data.username}` : "X account",
+    };
+  } catch {
+    return null;
+  }
 }
 
 interface MediaUploadResponse {
@@ -119,31 +238,16 @@ function mediaUploadError(json: MediaUploadResponse, status: number): string {
 
 /**
  * Upload a single image to X via the v2 command-based flow and return its
- * media_id. The legacy v1.1 endpoint was sunset 2025-06-09.
- *
- * INIT and FINALIZE are `application/x-www-form-urlencoded`, so their params
- * ARE folded into the OAuth 1.0a signature base string (passed via
- * `extraParams`). APPEND is `multipart/form-data`, whose fields are NOT part of
- * the signature. The token secret is only ever used to sign — it never travels
- * in a URL or request body.
+ * media_id. Authorized with an OAuth 2.0 bearer token (media.write scope) — no
+ * request signing. The legacy v1.1 endpoint was sunset 2025-06-09.
  */
 export async function uploadTwitterMedia(opts: {
   buffer: Buffer;
   contentType: string;
-  app: TwitterAppCredentials;
-  creds: TwitterCredentials;
+  accessToken: string;
 }): Promise<string> {
-  const { buffer, contentType, app, creds } = opts;
-  const sign = (extraParams?: Record<string, string>) =>
-    buildOAuthHeader({
-      method: "POST",
-      url: TWITTER_MEDIA_UPLOAD_URL,
-      consumerKey: app.apiKey,
-      consumerSecret: app.apiSecret,
-      token: creds.accessToken,
-      tokenSecret: creds.accessTokenSecret,
-      extraParams,
-    });
+  const { buffer, contentType, accessToken } = opts;
+  const authHeader = `Bearer ${accessToken}`;
 
   // INIT: open an upload session.
   const initParams: Record<string, string> = {
@@ -155,19 +259,18 @@ export async function uploadTwitterMedia(opts: {
   const initRes = await fetch(TWITTER_MEDIA_UPLOAD_URL, {
     method: "POST",
     headers: {
-      Authorization: sign(initParams),
+      Authorization: authHeader,
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: new URLSearchParams(initParams).toString(),
   });
   const initJson = (await initRes.json()) as MediaUploadResponse;
-  const mediaId =
-    initJson.data?.id ?? initJson.id ?? initJson.media_id_string;
+  const mediaId = initJson.data?.id ?? initJson.id ?? initJson.media_id_string;
   if (!initRes.ok || !mediaId) {
     throw new Error(mediaUploadError(initJson, initRes.status));
   }
 
-  // APPEND: upload the bytes as a single chunk (multipart, unsigned fields).
+  // APPEND: upload the bytes as a single chunk (multipart).
   const form = new FormData();
   form.append("command", "APPEND");
   form.append("media_id", mediaId);
@@ -179,7 +282,7 @@ export async function uploadTwitterMedia(opts: {
   );
   const appendRes = await fetch(TWITTER_MEDIA_UPLOAD_URL, {
     method: "POST",
-    headers: { Authorization: sign() },
+    headers: { Authorization: authHeader },
     body: form,
   });
   if (!appendRes.ok) {
@@ -200,7 +303,7 @@ export async function uploadTwitterMedia(opts: {
   const finalizeRes = await fetch(TWITTER_MEDIA_UPLOAD_URL, {
     method: "POST",
     headers: {
-      Authorization: sign(finalizeParams),
+      Authorization: authHeader,
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: new URLSearchParams(finalizeParams).toString(),
@@ -217,7 +320,7 @@ export async function uploadTwitterMedia(opts: {
   );
 }
 
-/** Load the app-level X credentials, or null if not configured. */
+/** Load the app-level X OAuth 2.0 client credentials, or null if not set. */
 export async function getTwitterAppCredentials(): Promise<TwitterAppCredentials | null> {
   const row = (
     await db
@@ -234,119 +337,22 @@ export async function getTwitterAppCredentials(): Promise<TwitterAppCredentials 
   }
 }
 
-/** Whether admin-configured X app keys exist and passed their last test. */
+/**
+ * Whether admin-configured X OAuth 2.0 client credentials exist. Confidential
+ * client credentials cannot be validated without a full user authorization, so
+ * there is no live pre-test — presence of the row is the configured signal.
+ */
 export async function isTwitterAppConfigured(): Promise<boolean> {
-  const row = (
-    await db
-      .select()
-      .from(appCredentialsTable)
-      .where(eq(appCredentialsTable.provider, "twitter"))
-      .limit(1)
-  )[0];
-  return !!row && row.lastTestStatus === "verified";
+  return (await getTwitterAppCredentials()) !== null;
 }
 
-/**
- * Validate the X API Key + API Secret by requesting an app-only bearer token
- * via the OAuth2 client_credentials grant. A valid pair returns a token. The
- * credentials go in the Authorization header (Basic), never a URL.
- */
-export async function testTwitterAppCredentials(
-  apiKey: string,
-  apiSecret: string,
-): Promise<TestResult> {
-  try {
-    const basic = Buffer.from(
-      `${percentEncode(apiKey)}:${percentEncode(apiSecret)}`,
-    ).toString("base64");
-    const res = await fetch(`${TWITTER_API_BASE}/oauth2/token`, {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${basic}`,
-        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-      },
-      body: "grant_type=client_credentials",
-    });
-    const json = (await res.json()) as {
-      access_token?: string;
-      errors?: { message?: string }[];
-      error?: string;
-    };
-    if (!res.ok || !json.access_token) {
-      return {
-        ok: false,
-        error:
-          json.errors?.[0]?.message ||
-          json.error ||
-          `X API error (${res.status})`,
-      };
-    }
-    return { ok: true };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "Could not reach X.",
-    };
-  }
-}
+// ---------------------------------------------------------------------------
+// Per-tenant connected account
+// ---------------------------------------------------------------------------
 
-/**
- * Validate a tenant's X access token + secret by reading the authenticated
- * user. Requires the app-level consumer key/secret to sign the request.
- */
-export async function testTwitterCredentials(
-  creds: TwitterCredentials,
-  app: TwitterAppCredentials,
-): Promise<TestResult> {
-  try {
-    const url = `${TWITTER_API_BASE}/2/users/me`;
-    const auth = buildOAuthHeader({
-      method: "GET",
-      url,
-      consumerKey: app.apiKey,
-      consumerSecret: app.apiSecret,
-      token: creds.accessToken,
-      tokenSecret: creds.accessTokenSecret,
-    });
-    const res = await fetch(url, { headers: { Authorization: auth } });
-    const json = (await res.json()) as {
-      data?: { id?: string; name?: string; username?: string };
-      errors?: { message?: string; detail?: string }[];
-      title?: string;
-      detail?: string;
-    };
-    if (!res.ok || !json.data?.id) {
-      return {
-        ok: false,
-        error:
-          json.errors?.[0]?.detail ||
-          json.errors?.[0]?.message ||
-          json.detail ||
-          json.title ||
-          `X API error (${res.status})`,
-      };
-    }
-    return {
-      ok: true,
-      accountName: json.data.username ? `@${json.data.username}` : "X account",
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "Could not reach X.",
-    };
-  }
-}
-
-/** Load and decrypt a tenant's stored X credentials. */
-export async function getTenantTwitterCredentials(
-  tenantId: number,
-): Promise<{
-  creds: TwitterCredentials;
-  accountName: string;
-  verified: boolean;
-} | null> {
-  const row = (
+/** Load a tenant's stored X connected-account row, or undefined. */
+export async function getTwitterAccount(tenantId: number) {
+  return (
     await db
       .select()
       .from(connectedAccountsTable)
@@ -358,14 +364,114 @@ export async function getTenantTwitterCredentials(
       )
       .limit(1)
   )[0];
-  if (!row || !row.encryptedCredentials) return null;
-  try {
-    return {
-      creds: decryptJson<TwitterCredentials>(row.encryptedCredentials),
-      accountName: row.accountName,
-      verified: row.verifyStatus === "verified",
+}
+
+/** Refresh a couple of minutes early so a token never expires mid-request. */
+const TWITTER_TOKEN_REFRESH_BUFFER_MS = 60 * 1000;
+
+export type TwitterTokenResult =
+  | { ok: true; accessToken: string; accountName: string }
+  | {
+      ok: false;
+      reason: "not_connected" | "reconnect_required";
+      message: string;
     };
-  } catch {
-    return null;
+
+const RECONNECT_MESSAGE =
+  "X is not connected or not verified. Reconnect your X account on the Accounts page and try again.";
+
+/**
+ * Resolve a usable OAuth 2.0 access token for a tenant, refreshing it when it
+ * has expired. Legacy OAuth 1.0a connections (which can no longer publish) and
+ * failed refreshes surface as `reconnect_required` so the caller can prompt the
+ * user to reconnect. Persists any refreshed token. Never throws.
+ */
+export async function ensureFreshTwitterToken(
+  tenantId: number,
+  app: TwitterAppCredentials,
+): Promise<TwitterTokenResult> {
+  const row = await getTwitterAccount(tenantId);
+  if (!row || !row.encryptedCredentials || row.status === "disconnected") {
+    return {
+      ok: false,
+      reason: "not_connected",
+      message:
+        "X is not connected or not verified. Connect your X account on the Accounts page first.",
+    };
   }
+
+  let stored: StoredTwitterCredentials;
+  try {
+    stored = decryptJson<StoredTwitterCredentials>(row.encryptedCredentials);
+  } catch {
+    return { ok: false, reason: "reconnect_required", message: RECONNECT_MESSAGE };
+  }
+
+  // Legacy OAuth 1.0a token: publishing moved to OAuth 2.0, so prompt reconnect.
+  if (isLegacyOAuth1(stored)) {
+    return { ok: false, reason: "reconnect_required", message: RECONNECT_MESSAGE };
+  }
+
+  if (row.verifyStatus === "failed") {
+    return { ok: false, reason: "reconnect_required", message: RECONNECT_MESSAGE };
+  }
+
+  let accessToken = stored.accessToken;
+  const expired =
+    row.tokenExpiresAt !== null &&
+    row.tokenExpiresAt.getTime() - TWITTER_TOKEN_REFRESH_BUFFER_MS <= Date.now();
+
+  if (expired) {
+    if (!stored.refreshToken) {
+      await markTwitterReconnectNeeded(row.id);
+      return {
+        ok: false,
+        reason: "reconnect_required",
+        message: RECONNECT_MESSAGE,
+      };
+    }
+    try {
+      const tokens = await refreshTwitterTokens({
+        app,
+        refreshToken: stored.refreshToken,
+      });
+      accessToken = tokens.accessToken;
+      await db
+        .update(connectedAccountsTable)
+        .set({
+          encryptedCredentials: encryptJson({
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+          } satisfies TwitterOAuth2Credentials),
+          tokenExpiresAt: tokens.expiresAt,
+          status: "connected",
+          verifyStatus: "verified",
+          verifyError: null,
+          verifiedAt: new Date(),
+        })
+        .where(eq(connectedAccountsTable.id, row.id));
+    } catch {
+      await markTwitterReconnectNeeded(row.id);
+      return {
+        ok: false,
+        reason: "reconnect_required",
+        message: RECONNECT_MESSAGE,
+      };
+    }
+  }
+
+  return { ok: true, accessToken, accountName: row.accountName };
+}
+
+async function markTwitterReconnectNeeded(rowId: number): Promise<void> {
+  await db
+    .update(connectedAccountsTable)
+    .set({
+      status: "error",
+      verifyStatus: "failed",
+      verifyError:
+        "Your X access token is no longer valid. Reconnect X to keep publishing.",
+      verifiedAt: new Date(),
+    })
+    .where(eq(connectedAccountsTable.id, rowId));
 }

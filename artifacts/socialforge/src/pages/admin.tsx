@@ -221,42 +221,39 @@ function TwitterCredentialsCard() {
   const { data, isLoading } = useAdminGetTwitterCredentials();
   const saveTwitter = useAdminSaveTwitterCredentials();
 
-  const [apiKey, setApiKey] = useState("");
-  const [apiSecret, setApiSecret] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     if (data && !dirty) {
-      setApiKey(data.apiKeyMasked ?? "");
+      setClientId(data.clientIdMasked ?? "");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
+  const copyRedirect = () => {
+    if (!data?.redirectUri) return;
+    navigator.clipboard.writeText(data.redirectUri);
+    toast({ title: "Callback URL copied" });
+  };
+
   const handleSave = () => {
-    if (!apiKey.trim() || !apiSecret.trim()) return;
+    if (!clientId.trim() || !clientSecret.trim()) return;
     saveTwitter.mutate(
-      { data: { apiKey: apiKey.trim(), apiSecret: apiSecret.trim() } },
+      { data: { clientId: clientId.trim(), clientSecret: clientSecret.trim() } },
       {
-        onSuccess: (res) => {
+        onSuccess: () => {
           queryClient.invalidateQueries({
             queryKey: getAdminGetTwitterCredentialsQueryKey(),
           });
-          setApiSecret("");
+          setClientSecret("");
           setDirty(false);
-          if (res.testStatus === "verified") {
-            toast({
-              title: "X credentials verified",
-              description: "The app keys were saved and tested successfully.",
-            });
-          } else {
-            toast({
-              variant: "destructive",
-              title: "Saved, but verification failed",
-              description:
-                res.testError ||
-                "The app keys were saved but X rejected them. Double-check the API Key and Secret.",
-            });
-          }
+          toast({
+            title: "X credentials saved",
+            description:
+              "Workspaces can now connect their X account on the Accounts page.",
+          });
         },
         onError: (err: any) => {
           toast({
@@ -269,17 +266,15 @@ function TwitterCredentialsCard() {
     );
   };
 
-  const status = data?.testStatus;
-
   return (
     <Card>
       <CardHeader>
         <CardTitle>X (Twitter) app credentials</CardTitle>
         <CardDescription>
-          One-time platform setup. Enter your X app's API Key and API Secret
-          (consumer keys). Every workspace then connects their own X account with
-          an access token on the Accounts page. Secrets are encrypted at rest and
-          never shown again.
+          One-time platform setup. Enter your X app's OAuth 2.0 Client ID and
+          Client Secret (a confidential client). Every workspace then connects
+          their own X account through the OAuth 2.0 flow on the Accounts page.
+          Secrets are encrypted at rest and never shown again.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 max-w-xl">
@@ -292,65 +287,73 @@ function TwitterCredentialsCard() {
           <>
             {data?.configured && (
               <div className="flex items-center gap-2 text-sm">
-                {status === "verified" ? (
-                  <span className="text-green-600 flex items-center gap-1">
-                    <CheckCircle2 className="h-4 w-4" /> Verified with X
-                  </span>
-                ) : status === "failed" ? (
-                  <span className="text-destructive flex items-center gap-1">
-                    <AlertCircle className="h-4 w-4" /> Verification failed
-                    {data.testError ? `: ${data.testError}` : ""}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">Saved</span>
-                )}
+                <span className="text-green-600 flex items-center gap-1">
+                  <CheckCircle2 className="h-4 w-4" /> Saved
+                </span>
+              </div>
+            )}
+            {data?.redirectUri && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Callback URL (register this in your X app)
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input readOnly value={data.redirectUri} />
+                  <Button type="button" variant="outline" onClick={copyRedirect}>
+                    Copy
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Add this exact URL to your X app's OAuth 2.0 "Callback URI /
+                  Redirect URL" list, and set the app type to a confidential
+                  client with Read and Write permissions.
+                </p>
               </div>
             )}
             <div className="space-y-2">
-              <label className="text-sm font-medium">API Key</label>
+              <label className="text-sm font-medium">Client ID</label>
               <Input
-                value={apiKey}
+                value={clientId}
                 onChange={(e) => {
-                  setApiKey(e.target.value);
+                  setClientId(e.target.value);
                   setDirty(true);
                 }}
-                placeholder="Consumer API key"
+                placeholder="OAuth 2.0 Client ID"
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">API Secret</label>
+              <label className="text-sm font-medium">Client Secret</label>
               <Input
                 type="password"
-                value={apiSecret}
+                value={clientSecret}
                 onChange={(e) => {
-                  setApiSecret(e.target.value);
+                  setClientSecret(e.target.value);
                   setDirty(true);
                 }}
                 placeholder={
                   data?.configured
                     ? "Enter to replace the saved secret"
-                    : "Consumer API secret"
+                    : "OAuth 2.0 Client Secret"
                 }
               />
               <p className="text-xs text-muted-foreground">
-                Create an app in the X developer portal at
-                developer.x.com and copy the API Key and Secret from the app's
-                Keys and tokens tab.
+                Create an app in the X developer portal at developer.x.com,
+                enable OAuth 2.0, and copy the Client ID and Client Secret from
+                the app's Keys and tokens tab.
               </p>
             </div>
             <Button
               onClick={handleSave}
               disabled={
-                saveTwitter.isPending || !apiKey.trim() || !apiSecret.trim()
+                saveTwitter.isPending || !clientId.trim() || !clientSecret.trim()
               }
             >
               {saveTwitter.isPending ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving &
-                  testing...
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
                 </>
               ) : (
-                "Save and test"
+                "Save"
               )}
             </Button>
           </>
