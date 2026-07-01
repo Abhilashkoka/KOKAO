@@ -30,7 +30,7 @@ export function defaultPolicy(): PolicyState {
 }
 
 export function defaultPreference(): PreferenceState {
-  return { inApp: true, email: false };
+  return { inApp: true, email: true };
 }
 
 /**
