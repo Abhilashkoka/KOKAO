@@ -20,6 +20,7 @@ import {
   getTwitterAuthUrl,
   useGetTwitterStatus,
   useDisconnectTwitter,
+  useRetestTwitterCredentials,
   getGetFacebookCredentialsQueryKey,
   getGetInstagramCredentialsQueryKey,
   getGetTwitterStatusQueryKey
@@ -447,6 +448,7 @@ function TwitterCredentialsCard() {
   const { toast } = useToast();
   const { data, isLoading } = useGetTwitterStatus();
   const disconnect = useDisconnectTwitter();
+  const retest = useRetestTwitterCredentials();
   const [connecting, setConnecting] = useState(false);
 
   const refreshTwitter = () => {
@@ -506,6 +508,22 @@ function TwitterCredentialsCard() {
     });
   };
 
+  const handleRetest = () => {
+    retest.mutate(undefined, {
+      onSuccess: (res) => {
+        refreshTwitter();
+        if (res.connected) {
+          toast({ title: "Still connected", description: `Your X connection is valid${res.accountName ? ` (${res.accountName})` : ""}.` });
+        } else {
+          toast({ variant: "destructive", title: "Reconnect needed", description: "Your X connection no longer works. Reconnect your account to resume posting." });
+        }
+      },
+      onError: (err: any) => {
+        toast({ variant: "destructive", title: "Could not re-test", description: err?.response?.data?.error || "Please try again." });
+      },
+    });
+  };
+
   return (
     <Card className="overflow-hidden border-border">
       <CardContent className="p-6">
@@ -554,6 +572,13 @@ function TwitterCredentialsCard() {
                       <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Reconnecting...</>
                     ) : (
                       "Reconnect"
+                    )}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleRetest} disabled={retest.isPending}>
+                    {retest.isPending ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Re-testing...</>
+                    ) : (
+                      "Re-test now"
                     )}
                   </Button>
                   <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={handleDisconnect} disabled={disconnect.isPending}>

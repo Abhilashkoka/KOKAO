@@ -255,6 +255,36 @@ router.get("/twitter/status", async (req: Request, res: Response) => {
   res.json(serializeStatus(req, isConfigured(app), account));
 });
 
+/**
+ * POST /twitter/retest
+ * Force a live re-verification of the tenant's stored X connection without
+ * reconnecting or re-entering anything. Refreshes the access token if needed and
+ * confirms it still works, persisting the fresh status. Returns the same shape
+ * as GET /twitter/status.
+ */
+router.post("/twitter/retest", async (req: Request, res: Response) => {
+  const app = await getTwitterAppCredentials();
+  if (!isConfigured(app)) {
+    res.status(400).json({
+      error:
+        "X app credentials have not been configured by an administrator yet.",
+    });
+    return;
+  }
+  const existing = await getTwitterAccount(req.tenantId);
+  if (!existing?.encryptedCredentials || existing.status === "disconnected") {
+    res.status(400).json({ error: "No connected X account to re-test." });
+    return;
+  }
+  try {
+    await reverifyTwitter(req.tenantId, { force: true });
+  } catch (err) {
+    req.log.error({ err }, "X manual re-verify failed");
+  }
+  const account = await getTwitterAccount(req.tenantId);
+  res.json(serializeStatus(req, isConfigured(app), account));
+});
+
 router.delete("/twitter", async (req: Request, res: Response) => {
   const existing = await getTwitterAccount(req.tenantId);
   if (existing) {

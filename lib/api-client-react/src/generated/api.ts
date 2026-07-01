@@ -5657,6 +5657,76 @@ export const useDisconnectTwitter = <TError = ErrorType<unknown>,
       return useMutation(getDisconnectTwitterMutationOptions(options));
     }
 
+export const getRetestTwitterCredentialsUrl = () => {
+
+
+
+
+  return `/api/twitter/retest`
+}
+
+/**
+ * @summary Re-verify the tenant's stored X (Twitter) connection without reconnecting
+ */
+export const retestTwitterCredentials = async ( options?: RequestInit): Promise<TwitterStatus> => {
+
+  return customFetch<TwitterStatus>(getRetestTwitterCredentialsUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRetestTwitterCredentialsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retestTwitterCredentials>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retestTwitterCredentials>>, TError,void, TContext> => {
+
+const mutationKey = ['retestTwitterCredentials'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retestTwitterCredentials>>, void> = () => {
+
+
+          return  retestTwitterCredentials(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetestTwitterCredentialsMutationResult = NonNullable<Awaited<ReturnType<typeof retestTwitterCredentials>>>
+
+    export type RetestTwitterCredentialsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Re-verify the tenant's stored X (Twitter) connection without reconnecting
+ */
+export const useRetestTwitterCredentials = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retestTwitterCredentials>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof retestTwitterCredentials>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getRetestTwitterCredentialsMutationOptions(options));
+    }
+
 export const getPublishContentToTwitterUrl = (id: number,) => {
 
 

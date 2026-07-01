@@ -3682,6 +3682,18 @@ export const DisconnectTwitterResponse = zod.object({
 
 
 /**
+ * @summary Re-verify the tenant's stored X (Twitter) connection without reconnecting
+ */
+export const RetestTwitterCredentialsResponse = zod.object({
+  "connected": zod.boolean(),
+  "accountName": zod.string().nullish(),
+  "configured": zod.boolean().describe('Whether the platform-level X OAuth 2.0 client credentials are set by the admin.'),
+  "redirectUri": zod.string().describe('The exact OAuth 2.0 callback URL to register in the X app.'),
+  "expired": zod.boolean().optional().describe('True when an account was previously connected but its token can no longer be used (expired\/revoked, or a legacy OAuth 1.0a connection), so the user should reconnect.')
+})
+
+
+/**
  * @summary Publish a content item to the tenant's connected X (Twitter) account
  */
 export const PublishContentToTwitterParams = zod.object({

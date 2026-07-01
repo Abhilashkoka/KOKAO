@@ -1784,6 +1784,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/TwitterStatus"
 
+  /twitter/retest:
+    post:
+      operationId: retestTwitterCredentials
+      tags: [twitter]
+      summary: Re-verify the tenant's stored X (Twitter) connection without reconnecting
+      responses:
+        "200":
+          description: Re-verified X connection status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TwitterStatus"
+        "400":
+          description: No connected X account or X app not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /content/{id}/publish-twitter:
     post:
       operationId: publishContentToTwitter

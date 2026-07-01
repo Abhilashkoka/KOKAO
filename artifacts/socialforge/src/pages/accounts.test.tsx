@@ -60,6 +60,7 @@ vi.mock("@workspace/api-client-react", () => {
     useDisconnectInstagram: mutation,
     useRetestInstagramCredentials: mutation,
     useDisconnectTwitter: mutation,
+    useRetestTwitterCredentials: mutation,
     getListAccountsQueryKey: () => ["accounts"],
     getGetLinkedinStatusQueryKey: () => ["linkedin-status"],
     getGetFacebookCredentialsQueryKey: () => ["facebook-credentials"],

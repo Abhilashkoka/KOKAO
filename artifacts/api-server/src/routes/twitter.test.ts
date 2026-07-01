@@ -1240,3 +1240,198 @@ describe("X (Twitter) auto re-verify on status load", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Manual re-test + automatic re-verify (connection parity with Facebook/IG)
+// ---------------------------------------------------------------------------
+
+// Older than REVERIFY_STALE_MS (15m) so the stale gate allows a live re-check.
+const STALE_VERIFIED_AT = new Date(Date.now() - 60 * 60 * 1000);
+
+/**
+ * Mock the two endpoints a live re-verify may hit: the OAuth 2.0 token refresh
+ * and the authenticated-user lookup. Either can be forced to fail to exercise
+ * the expired/transient branches.
+ */
+function mockReverifyApi(
+  opts: { userFails?: boolean; refreshFails?: boolean } = {},
+) {
+  const calls: MockCall[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(
+    async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const auth =
+        (init?.headers as Record<string, string> | undefined)?.Authorization ??
+        "";
+      calls.push({ url, auth, body: init?.body });
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+      if (url.includes("/2/oauth2/token")) {
+        if (opts.refreshFails) return json({ error: "invalid_grant" }, 400);
+        return json({
+          access_token: "REFRESHED_ACCESS_TOKEN",
+          refresh_token: "REFRESHED_REFRESH_TOKEN",
+          expires_in: 7200,
+          token_type: "bearer",
+        });
+      }
+      if (url.includes("/2/users/me")) {
+        if (opts.userFails) return json({}, 401);
+        return json({
+          data: { id: X_CONNECT_USER_ID, username: X_CONNECT_USERNAME },
+        });
+      }
+      return json({});
+    },
+  );
+  return calls;
+}
+
+describe("X (Twitter) re-test: POST /twitter/retest", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns 400 when the X app is not configured", async () => {
+    await clearTwitterRow();
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/twitter/retest");
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/not been configured/i);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("returns 400 when there is no connected X account", async () => {
+    await setVerifiedTwitterRow();
+    const tenant = await createTenant();
+    try {
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/twitter/retest");
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/no connected x account/i);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("re-verifies a still-valid connection without re-entering credentials", async () => {
+    await setVerifiedTwitterRow();
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      // Even a fresh verification runs a live check because force bypasses the gate.
+      await setAccountState(tenant.tenantId, "twitter", { verifiedAt: new Date() });
+      const calls = mockReverifyApi();
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/twitter/retest");
+      expect(res.status).toBe(200);
+      expect(res.body.connected).toBe(true);
+      expect(res.body.accountName).toBe(`@${X_CONNECT_USERNAME}`);
+      // A non-expired token needs only a users/me read, no refresh round-trip.
+      expect(calls.some((c) => c.url.includes("/2/users/me"))).toBe(true);
+      expect(calls.some((c) => c.url.includes("/2/oauth2/token"))).toBe(false);
+      const row = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(row?.verifyStatus).toBe("verified");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("surfaces an expired connection when the stored token can no longer refresh", async () => {
+    await setVerifiedTwitterRow();
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      // An expired access token forces a refresh, which we make fail.
+      await setAccountState(tenant.tenantId, "twitter", {
+        tokenExpiresAt: new Date(Date.now() - 60 * 1000),
+      });
+      const calls = mockReverifyApi({ refreshFails: true });
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/twitter/retest");
+      expect(res.status).toBe(200);
+      expect(res.body.connected).toBe(false);
+      expect(res.body.expired).toBe(true);
+      expect(calls.some((c) => c.url.includes("/2/oauth2/token"))).toBe(true);
+      expect(calls.some((c) => c.url.includes("/2/users/me"))).toBe(false);
+      const row = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(row?.verifyStatus).toBe("failed");
+      // The stored blob is retained so the UI shows "reconnect", not "never connected".
+      expect(row?.encryptedCredentials).toBeTruthy();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("X (Twitter) status auto re-verify: GET /twitter/status", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("auto re-verifies a stale connection on page load", async () => {
+    await setVerifiedTwitterRow();
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      await setAccountState(tenant.tenantId, "twitter", {
+        verifiedAt: STALE_VERIFIED_AT,
+      });
+      const calls = mockReverifyApi();
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/twitter/status");
+      expect(res.status).toBe(200);
+      expect(res.body.connected).toBe(true);
+      expect(calls.some((c) => c.url.includes("/2/users/me"))).toBe(true);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("skips the live re-check when the last verification is still fresh", async () => {
+    await setVerifiedTwitterRow();
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      await setAccountState(tenant.tenantId, "twitter", { verifiedAt: new Date() });
+      const calls = mockReverifyApi();
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/twitter/status");
+      expect(res.status).toBe(200);
+      expect(res.body.connected).toBe(true);
+      // Fresh: the stale gate short-circuits before any live API call.
+      expect(calls.length).toBe(0);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("surfaces an expired connection when a stale token can no longer refresh", async () => {
+    await setVerifiedTwitterRow();
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      await setAccountState(tenant.tenantId, "twitter", {
+        verifiedAt: STALE_VERIFIED_AT,
+        tokenExpiresAt: new Date(Date.now() - 60 * 1000),
+      });
+      const calls = mockReverifyApi({ refreshFails: true });
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/twitter/status");
+      expect(res.status).toBe(200);
+      expect(res.body.connected).toBe(false);
+      expect(res.body.expired).toBe(true);
+      expect(calls.some((c) => c.url.includes("/2/oauth2/token"))).toBe(true);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
