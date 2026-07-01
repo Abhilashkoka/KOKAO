@@ -28,8 +28,50 @@ export const IG_CONTAINER_POLL = {
   backoffFactor: 1.5,
 };
 
+/**
+ * Bounded retry configuration for the whole Instagram create -> poll -> publish
+ * flow. Many failures are transient (a brief Graph API 5xx, a rate-limit blip,
+ * or Instagram still processing the image past the poll cap), so the flow is
+ * retried a small, capped number of times with exponential backoff before the
+ * content item is finally marked "failed". Exported (and mutable) so tests can
+ * shrink the delays and attempt cap without waiting real seconds.
+ *
+ * `maxAttempts` is the TOTAL number of attempts, including the first one.
+ */
+export const IG_PUBLISH_RETRY = {
+  maxAttempts: 3,
+  initialDelayMs: 2000,
+  maxDelayMs: 30000,
+  backoffFactor: 2,
+};
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Error thrown by the Instagram publish flow that carries whether the failure
+ * is worth retrying. Transient failures (5xx, 429, network blips, still
+ * processing) are retryable; definitive ones (bad image, revoked/invalid token,
+ * other 4xx) are not, so they fail fast without wasting the retry budget.
+ */
+class InstagramPublishError extends Error {
+  readonly retryable: boolean;
+  constructor(message: string, retryable: boolean) {
+    super(message);
+    this.name = "InstagramPublishError";
+    this.retryable = retryable;
+  }
+}
+
+/**
+ * A Graph API response is worth retrying only for transient server-side
+ * conditions: HTTP 429 (rate limited) and any 5xx. Client errors (4xx) mean the
+ * request itself is bad (revoked token, invalid image, etc.) and will keep
+ * failing, so they are treated as non-retryable.
+ */
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status >= 500;
 }
 
 /**
@@ -55,17 +97,21 @@ async function waitForContainerReady(
       error?: { message?: string };
     };
     if (!statusRes.ok || statusJson.error) {
-      throw new Error(
+      throw new InstagramPublishError(
         statusJson.error?.message ||
           `Instagram API error while checking media status (${statusRes.status})`,
+        isRetryableStatus(statusRes.status),
       );
     }
 
     const status = statusJson.status_code;
     if (status === "FINISHED") return;
     if (status === "ERROR" || status === "EXPIRED") {
-      throw new Error(
+      // A definitive processing failure (e.g. a bad/unsupported image). Retrying
+      // the same image will keep failing, so fail fast.
+      throw new InstagramPublishError(
         `Instagram could not process the image (status: ${status}). Try publishing again.`,
+        false,
       );
     }
 
@@ -80,8 +126,11 @@ async function waitForContainerReady(
     }
   }
 
-  throw new Error(
+  // Still IN_PROGRESS past the poll cap. This is usually transient (Instagram
+  // just needs more time), so it is retryable.
+  throw new InstagramPublishError(
     "Instagram is still processing the image and did not finish in time. Please try publishing again in a moment.",
+    true,
   );
 }
 
@@ -146,106 +195,155 @@ async function setContentStatus(
     );
 }
 
-/**
- * Run the full Instagram create -> poll -> publish flow. This is the slow part
- * (Instagram fetches the image asynchronously, so the container can stay
- * IN_PROGRESS for tens of seconds), so it runs in a background job after the
- * HTTP response has already been sent. It owns persisting the outcome: the
- * content item is flipped to "published" on success or "failed" on any error.
- */
-async function runInstagramPublish(params: {
+type InstagramPublishParams = {
   id: number;
   tenantId: number;
   igUserId: string;
   pageToken: string;
   imagePath: string;
   caption: string;
-}): Promise<void> {
-  const { id, tenantId, igUserId, pageToken, imagePath, caption } = params;
+};
+
+/**
+ * One attempt at the Instagram create -> poll -> publish flow. Returns the
+ * published post id and (best-effort) permalink on success, or throws. Failures
+ * from the Graph API are thrown as `InstagramPublishError` carrying whether the
+ * failure is transient (worth retrying) or definitive (fail fast).
+ */
+async function attemptInstagramPublish(
+  params: InstagramPublishParams,
+): Promise<{ postId: string; permalink: string | null }> {
+  const { igUserId, pageToken, imagePath, caption } = params;
+
+  // Instagram fetches the image itself, so it needs a public URL. Mint a
+  // short-lived signed GET URL for the private object.
+  const imageUrl = await objectStorageService.getSignedDownloadURL(
+    imagePath,
+    900,
+  );
+
+  // Step 1: create the media container.
+  const createForm = new URLSearchParams({
+    image_url: imageUrl,
+    caption,
+    access_token: pageToken,
+  });
+  const createRes = await fetch(
+    `${GRAPH_BASE}/${encodeURIComponent(igUserId)}/media`,
+    { method: "POST", body: createForm },
+  );
+  const createJson = (await createRes.json()) as {
+    id?: string;
+    error?: { message?: string };
+  };
+  if (!createRes.ok || createJson.error || !createJson.id) {
+    throw new InstagramPublishError(
+      createJson.error?.message || `Instagram API error (${createRes.status})`,
+      isRetryableStatus(createRes.status),
+    );
+  }
+
+  // Step 2: wait for Instagram to finish fetching/processing the image.
+  // Publishing an IN_PROGRESS container fails, so poll until it's ready.
+  await waitForContainerReady(createJson.id, pageToken);
+
+  // Step 3: publish the container.
+  const publishForm = new URLSearchParams({
+    creation_id: createJson.id,
+    access_token: pageToken,
+  });
+  const publishRes = await fetch(
+    `${GRAPH_BASE}/${encodeURIComponent(igUserId)}/media_publish`,
+    { method: "POST", body: publishForm },
+  );
+  const publishJson = (await publishRes.json()) as {
+    id?: string;
+    error?: { message?: string };
+  };
+  if (!publishRes.ok || publishJson.error || !publishJson.id) {
+    throw new InstagramPublishError(
+      publishJson.error?.message || `Instagram API error (${publishRes.status})`,
+      isRetryableStatus(publishRes.status),
+    );
+  }
+
+  const postId = publishJson.id;
+
+  // Best-effort: resolve the post's public permalink. Token goes in the
+  // Authorization header so it never lands in a URL/access log.
+  let permalink: string | null = null;
   try {
-    // Instagram fetches the image itself, so it needs a public URL. Mint a
-    // short-lived signed GET URL for the private object.
-    const imageUrl = await objectStorageService.getSignedDownloadURL(
-      imagePath,
-      900,
+    const linkRes = await fetch(
+      `${GRAPH_BASE}/${encodeURIComponent(postId)}?fields=permalink`,
+      { headers: { Authorization: `Bearer ${pageToken}` } },
     );
+    const linkJson = (await linkRes.json()) as { permalink?: string };
+    permalink = linkJson.permalink ?? null;
+  } catch {
+    permalink = null;
+  }
 
-    // Step 1: create the media container.
-    const createForm = new URLSearchParams({
-      image_url: imageUrl,
-      caption,
-      access_token: pageToken,
-    });
-    const createRes = await fetch(
-      `${GRAPH_BASE}/${encodeURIComponent(igUserId)}/media`,
-      { method: "POST", body: createForm },
-    );
-    const createJson = (await createRes.json()) as {
-      id?: string;
-      error?: { message?: string };
-    };
-    if (!createRes.ok || createJson.error || !createJson.id) {
-      throw new Error(
-        createJson.error?.message ||
-          `Instagram API error (${createRes.status})`,
-      );
-    }
+  return { postId, permalink };
+}
 
-    // Step 2: wait for Instagram to finish fetching/processing the image.
-    // Publishing an IN_PROGRESS container fails, so poll until it's ready.
-    await waitForContainerReady(createJson.id, pageToken);
+/**
+ * Run the full Instagram create -> poll -> publish flow in a background job
+ * (after the HTTP response has already been sent, since the container can stay
+ * IN_PROGRESS for tens of seconds). It owns persisting the outcome: the content
+ * item is flipped to "published" on success, or "failed" once retries are
+ * exhausted. Transient failures are retried a small, capped number of times
+ * with exponential backoff; definitive failures (bad image, revoked token) fail
+ * fast without wasting the retry budget.
+ */
+async function runInstagramPublish(
+  params: InstagramPublishParams,
+): Promise<void> {
+  const { id, tenantId } = params;
+  let delay = IG_PUBLISH_RETRY.initialDelayMs;
 
-    // Step 3: publish the container.
-    const publishForm = new URLSearchParams({
-      creation_id: createJson.id,
-      access_token: pageToken,
-    });
-    const publishRes = await fetch(
-      `${GRAPH_BASE}/${encodeURIComponent(igUserId)}/media_publish`,
-      { method: "POST", body: publishForm },
-    );
-    const publishJson = (await publishRes.json()) as {
-      id?: string;
-      error?: { message?: string };
-    };
-    if (!publishRes.ok || publishJson.error || !publishJson.id) {
-      throw new Error(
-        publishJson.error?.message ||
-          `Instagram API error (${publishRes.status})`,
-      );
-    }
-
-    const postId = publishJson.id;
-
-    // Best-effort: resolve the post's public permalink. Token goes in the
-    // Authorization header so it never lands in a URL/access log.
-    let permalink: string | null = null;
+  for (let attempt = 1; attempt <= IG_PUBLISH_RETRY.maxAttempts; attempt++) {
     try {
-      const linkRes = await fetch(
-        `${GRAPH_BASE}/${encodeURIComponent(postId)}?fields=permalink`,
-        { headers: { Authorization: `Bearer ${pageToken}` } },
-      );
-      const linkJson = (await linkRes.json()) as { permalink?: string };
-      permalink = linkJson.permalink ?? null;
-    } catch {
-      permalink = null;
-    }
+      const { postId, permalink } = await attemptInstagramPublish(params);
+      await markPublished(id, tenantId, { postId, permalink });
+      return;
+    } catch (error) {
+      // Unknown (non-classified) errors — e.g. a network blip or a storage
+      // hiccup — are treated as transient so they get the bounded retry rather
+      // than failing on the first flake.
+      const retryable =
+        error instanceof InstagramPublishError ? error.retryable : true;
+      const attemptsLeft = attempt < IG_PUBLISH_RETRY.maxAttempts;
 
-    await markPublished(id, tenantId, { postId, permalink });
-  } catch (error) {
-    logger.error(
-      { err: error, contentItemId: id, tenantId },
-      "Instagram background publish failed",
-    );
-    // Flip the item to "failed" so the UI can surface it instead of leaving it
-    // stuck on "publishing" forever.
-    try {
-      await setContentStatus(id, tenantId, "failed");
-    } catch (updateErr) {
+      if (retryable && attemptsLeft) {
+        logger.warn(
+          { err: error, contentItemId: id, tenantId, attempt },
+          "Instagram publish attempt failed; retrying after backoff",
+        );
+        await sleep(delay);
+        delay = Math.min(
+          Math.round(delay * IG_PUBLISH_RETRY.backoffFactor),
+          IG_PUBLISH_RETRY.maxDelayMs,
+        );
+        continue;
+      }
+
       logger.error(
-        { err: updateErr, contentItemId: id, tenantId },
-        "Failed to mark Instagram content item as failed",
+        { err: error, contentItemId: id, tenantId, attempt, retryable },
+        retryable
+          ? "Instagram background publish failed after exhausting retries"
+          : "Instagram background publish failed (non-retryable)",
       );
+      // Flip the item to "failed" so the UI can surface it instead of leaving it
+      // stuck on "publishing" forever.
+      try {
+        await setContentStatus(id, tenantId, "failed");
+      } catch (updateErr) {
+        logger.error(
+          { err: updateErr, contentItemId: id, tenantId },
+          "Failed to mark Instagram content item as failed",
+        );
+      }
+      return;
     }
   }
 }

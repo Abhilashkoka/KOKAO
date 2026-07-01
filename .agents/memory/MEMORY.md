@@ -8,3 +8,4 @@
 - [Brand Kit module](brand-kit-module.md) — session-scoped endpoints (no tenantId in URL, IDOR avoidance); versioned-JSON payload (edit = new version, deep-clone + spread to preserve sections; no flat columns / no hashtags field); keep OpenAPI + routes in lockstep.
 - [Dead-connection e2e seeding](dead-connection-e2e-seeding.md) — how to stably seed dead FB/IG/LinkedIn so the Accounts page shows reconnect prompts (respect reverify staleness + LinkedIn timestamp-expiry).
 - [Email delivery & pause](email-delivery-and-pause.md) — two independent fail-closed gates (notification policy default email:false + app-level pause switch default paused); test seeding rules.
+- [IG publish retry](ig-publish-retry.md) — bounded auto-retry of transient IG publish failures (5xx/429/still-processing retry; 4xx/bad-image fail fast); IG_PUBLISH_RETRY config.

@@ -67,7 +67,7 @@ import {
   getContentItem,
 } from "../test/dbHelpers";
 import { ObjectStorageService } from "../lib/objectStorage";
-import { IG_CONTAINER_POLL } from "./meta";
+import { IG_CONTAINER_POLL, IG_PUBLISH_RETRY } from "./meta";
 import { waitForPendingJobs } from "../lib/backgroundJobs";
 
 const app = createTestApp();
@@ -456,6 +456,7 @@ describe("Instagram publishing (happy path)", () => {
 
 describe("Instagram container readiness", () => {
   const originalPoll = { ...IG_CONTAINER_POLL };
+  const originalRetry = { ...IG_PUBLISH_RETRY };
 
   beforeEach(() => {
     // Shrink the poll cap/delays so the timeout path runs instantly.
@@ -463,10 +464,17 @@ describe("Instagram container readiness", () => {
     IG_CONTAINER_POLL.initialDelayMs = 1;
     IG_CONTAINER_POLL.maxDelayMs = 1;
     IG_CONTAINER_POLL.backoffFactor = 1;
+    // These tests exercise the container-poll semantics only, so disable the
+    // outer publish retry (a single attempt) to keep the poll counts exact.
+    IG_PUBLISH_RETRY.maxAttempts = 1;
+    IG_PUBLISH_RETRY.initialDelayMs = 1;
+    IG_PUBLISH_RETRY.maxDelayMs = 1;
+    IG_PUBLISH_RETRY.backoffFactor = 1;
   });
 
   afterEach(() => {
     Object.assign(IG_CONTAINER_POLL, originalPoll);
+    Object.assign(IG_PUBLISH_RETRY, originalRetry);
     vi.restoreAllMocks();
   });
 
@@ -609,6 +617,186 @@ describe("Instagram container readiness", () => {
       expect(res.status).toBe(202);
       await waitForPendingJobs();
 
+      expect(calls.some((u) => u.includes("/media_publish"))).toBe(false);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("failed");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bounded automatic retry of transient Instagram publish failures.
+// ---------------------------------------------------------------------------
+describe("Instagram publish retry", () => {
+  const originalRetry = { ...IG_PUBLISH_RETRY };
+  const originalPoll = { ...IG_CONTAINER_POLL };
+
+  beforeEach(() => {
+    // Shrink retry backoff + the container poll so retries run instantly.
+    IG_PUBLISH_RETRY.maxAttempts = 3;
+    IG_PUBLISH_RETRY.initialDelayMs = 1;
+    IG_PUBLISH_RETRY.maxDelayMs = 1;
+    IG_PUBLISH_RETRY.backoffFactor = 1;
+    IG_CONTAINER_POLL.maxAttempts = 1;
+    IG_CONTAINER_POLL.initialDelayMs = 1;
+    IG_CONTAINER_POLL.maxDelayMs = 1;
+    IG_CONTAINER_POLL.backoffFactor = 1;
+  });
+
+  afterEach(() => {
+    Object.assign(IG_PUBLISH_RETRY, originalRetry);
+    Object.assign(IG_CONTAINER_POLL, originalPoll);
+    vi.restoreAllMocks();
+  });
+
+  async function setupVerifiedTenant() {
+    const tenant = await createTenant();
+    await insertConnectedAccount(
+      tenant.tenantId,
+      "instagram",
+      { igUserId: "IG_OK" },
+      "verified",
+    );
+    await insertConnectedAccount(
+      tenant.tenantId,
+      "facebook",
+      { pageId: "PAGE_OK", pageAccessToken: FB_PAGE_TOKEN },
+      "verified",
+    );
+    const itemId = await insertContentItem(tenant.tenantId, {
+      imagePath: "/objects/uploads/test.png",
+    });
+    actAs(tenant.clerkUserId);
+    return { tenant, itemId };
+  }
+
+  /**
+   * Graph mock where the container-create call returns the given HTTP `status`
+   * for its first `failTimes` calls, then succeeds. Everything else follows the
+   * happy path (FINISHED status, media_publish returns an id).
+   */
+  function mockGraphCreateFailing(
+    calls: string[],
+    failTimes: number,
+    status: number,
+  ) {
+    let createCalls = 0;
+    return vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        calls.push(url);
+        const json = (body: unknown, s = 200) =>
+          new Response(JSON.stringify(body), {
+            status: s,
+            headers: { "content-type": "application/json" },
+          });
+
+        if (url.includes("/media_publish")) return json({ id: "IG_PUBLISHED_1" });
+        if (url.includes("fields=status_code"))
+          return json({ status_code: "FINISHED" });
+        if (url.includes("fields=permalink"))
+          return json({ permalink: "https://www.instagram.com/p/abc123/" });
+        if (url.includes("fields=id,name"))
+          return json({ id: lastPathSegment(url), name: "Test Page" });
+        if (url.includes("fields=id,username"))
+          return json({ id: lastPathSegment(url), username: "testacct" });
+        // Container creation: fail transiently the first `failTimes` calls.
+        if (url.includes("/media")) {
+          createCalls += 1;
+          if (createCalls <= failTimes)
+            return json({ error: { message: "temporary glitch" } }, status);
+          return json({ id: "IG_CONTAINER_1" });
+        }
+        return json({});
+      });
+  }
+
+  it("retries a transient 5xx failure and eventually publishes", async () => {
+    const calls: string[] = [];
+    // Fail the first create with a 503, then succeed on the retry.
+    mockGraphCreateFailing(calls, 1, 503);
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getSignedDownloadURL",
+    ).mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
+
+    const { tenant, itemId } = await setupVerifiedTenant();
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-instagram`,
+      );
+      expect(res.status).toBe(202);
+      await waitForPendingJobs();
+
+      // Two container-create attempts: the failed one + the successful retry.
+      expect(
+        calls.filter((u) => u.endsWith("/IG_OK/media")).length,
+      ).toBe(2);
+      expect(calls.some((u) => u.includes("/media_publish"))).toBe(true);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("IG_PUBLISHED_1");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("gives up and marks failed after exhausting retries on persistent 5xx", async () => {
+    const calls: string[] = [];
+    // Always fail create with a 500 (more than maxAttempts).
+    mockGraphCreateFailing(calls, 99, 500);
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getSignedDownloadURL",
+    ).mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
+
+    const { tenant, itemId } = await setupVerifiedTenant();
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-instagram`,
+      );
+      expect(res.status).toBe(202);
+      await waitForPendingJobs();
+
+      // Tried exactly maxAttempts times, then gave up.
+      expect(
+        calls.filter((u) => u.endsWith("/IG_OK/media")).length,
+      ).toBe(IG_PUBLISH_RETRY.maxAttempts);
+      expect(calls.some((u) => u.includes("/media_publish"))).toBe(false);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("failed");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("fails fast on a non-retryable 4xx without wasting retries", async () => {
+    const calls: string[] = [];
+    // A 400 (e.g. revoked token / bad request) must not be retried.
+    mockGraphCreateFailing(calls, 99, 400);
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getSignedDownloadURL",
+    ).mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
+
+    const { tenant, itemId } = await setupVerifiedTenant();
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-instagram`,
+      );
+      expect(res.status).toBe(202);
+      await waitForPendingJobs();
+
+      // Only a single create attempt — the 4xx is definitive.
+      expect(
+        calls.filter((u) => u.endsWith("/IG_OK/media")).length,
+      ).toBe(1);
       expect(calls.some((u) => u.includes("/media_publish"))).toBe(false);
 
       const item = await getContentItem(itemId, tenant.tenantId);
