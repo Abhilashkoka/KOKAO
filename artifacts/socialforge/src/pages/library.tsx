@@ -24,6 +24,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
+const TWEET_MAX_LENGTH = 280;
+
 export function LibraryPage() {
   const { data: content, isLoading } = useListContent();
   const deleteContent = useDeleteContent();
@@ -392,17 +394,30 @@ export function LibraryPage() {
           <DialogHeader>
             <DialogTitle>Publish to X</DialogTitle>
             <DialogDescription>
-              This posts the caption{twitterItem?.imagePath ? " and image" : ""} to your connected X account{twCreds?.accountName ? ` (${twCreds.accountName})` : ""}. Captions longer than 280 characters are truncated.
+              This posts the caption{twitterItem?.imagePath ? " and image" : ""} to your connected X account{twCreds?.accountName ? ` (${twCreds.accountName})` : ""}.
             </DialogDescription>
           </DialogHeader>
-          {twitterItem && (
-            <div className="space-y-2 py-2">
-              <p className="font-medium">{twitterItem.title}</p>
-              {twitterItem.caption && (
-                <p className="text-sm text-muted-foreground line-clamp-4">{twitterItem.caption}</p>
-              )}
-            </div>
-          )}
+          {twitterItem && (() => {
+            const tweetText = ((twitterItem.caption?.trim() || twitterItem.title) ?? "").trim();
+            const overLimit = tweetText.length > TWEET_MAX_LENGTH;
+            const preview = overLimit
+              ? tweetText.slice(0, TWEET_MAX_LENGTH - 1).trimEnd() + "\u2026"
+              : tweetText;
+            return (
+              <div className="space-y-2 py-2">
+                <p className="font-medium">{twitterItem.title}</p>
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words">{preview}</p>
+                <p className={`text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                  {tweetText.length} / {TWEET_MAX_LENGTH} characters
+                </p>
+                {overLimit && (
+                  <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                    This caption is {tweetText.length - TWEET_MAX_LENGTH} characters over the {TWEET_MAX_LENGTH}-character limit and will be trimmed to the text shown above before posting.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setTwitterItem(null)}>Cancel</Button>
             <Button onClick={handlePublishTwitter} disabled={publishTwitter.isPending}>
