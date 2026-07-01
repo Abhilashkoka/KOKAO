@@ -43,6 +43,7 @@ import {
   insertLinkedinAccount,
   insertContentItem,
   getConnectedAccount,
+  getNotifications,
 } from "../test/dbHelpers";
 
 const app = createTestApp();
@@ -444,6 +445,77 @@ describe("LinkedIn proactive re-verification (via /linkedin/status)", () => {
       expect(row?.status).toBe("connected");
       expect(row?.verifyError).toBeNull();
       expect(row?.verifiedAt?.getTime()).toBeGreaterThan(stale.getTime());
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("notifies once when LinkedIn rejects the token (401)", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertLinkedinAccount(tenant.tenantId, {
+        verifyStatus: "verified",
+        verifiedAt: staleDate(),
+      });
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        jsonResponse({ error: "invalid" }, 401),
+      );
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/linkedin/status");
+      expect(res.status).toBe(200);
+
+      const notes = await getNotifications(tenant.tenantId);
+      expect(notes).toHaveLength(1);
+      expect(notes[0].type).toBe("social_connection_failed");
+      expect(notes[0].platform).toBe("linkedin");
+      expect(notes[0].linkUrl).toBe("/accounts");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("notifies once when LinkedIn rejects the token (403)", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertLinkedinAccount(tenant.tenantId, {
+        verifyStatus: "verified",
+        verifiedAt: staleDate(),
+      });
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        jsonResponse({ error: "forbidden" }, 403),
+      );
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/linkedin/status");
+      expect(res.status).toBe(200);
+
+      const notes = await getNotifications(tenant.tenantId);
+      expect(notes).toHaveLength(1);
+      expect(notes[0].platform).toBe("linkedin");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("does not notify on a transient/network error", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertLinkedinAccount(tenant.tenantId, {
+        verifyStatus: "verified",
+        verifiedAt: staleDate(),
+      });
+      vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(
+        new Error("network down"),
+      );
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/linkedin/status");
+      expect(res.status).toBe(200);
+      expect(res.body.connected).toBe(true);
+
+      const notes = await getNotifications(tenant.tenantId);
+      expect(notes).toHaveLength(0);
     } finally {
       await deleteTenant(tenant.tenantId);
     }

@@ -46,6 +46,7 @@ import {
   deleteTenant,
   insertConnectedAccount,
   getConnectedAccount,
+  getNotifications,
   setAccountState,
 } from "../test/dbHelpers";
 
@@ -268,6 +269,91 @@ describe("reverifyInstagram", () => {
 
       expect(mockIg).not.toHaveBeenCalled();
       expect(row?.verifyStatus).toBe("verified");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("notifies once when a verified connection flips to failed, and dedupes on re-check", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "facebook",
+        { pageId: "PAGE_FB4", pageAccessToken: "page_tok4" },
+        "verified",
+      );
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "instagram",
+        { igUserId: "IG_4" },
+        "verified",
+      );
+      await setAccountState(tenant.tenantId, "instagram", {
+        verifiedAt: staleDate(),
+      });
+      // Meta definitively rejects the Instagram account.
+      mockIg.mockResolvedValueOnce({
+        ok: false,
+        error: "Instagram account is no longer accessible.",
+      });
+
+      await reverifyInstagram(tenant.tenantId);
+
+      let notes = await getNotifications(tenant.tenantId);
+      expect(notes).toHaveLength(1);
+      expect(notes[0].type).toBe("social_connection_failed");
+      expect(notes[0].platform).toBe("instagram");
+      expect(notes[0].linkUrl).toBe("/accounts");
+
+      // A second stale re-check still reports the token as dead. The prior
+      // status is already "failed" so no duplicate notification is recorded.
+      await setAccountState(tenant.tenantId, "instagram", {
+        verifiedAt: staleDate(),
+      });
+      mockIg.mockResolvedValueOnce({
+        ok: false,
+        error: "Instagram account is no longer accessible.",
+      });
+
+      await reverifyInstagram(tenant.tenantId);
+
+      notes = await getNotifications(tenant.tenantId);
+      expect(notes).toHaveLength(1);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("does not notify on a transient/network error", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "facebook",
+        { pageId: "PAGE_FB5", pageAccessToken: "page_tok5" },
+        "verified",
+      );
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "instagram",
+        { igUserId: "IG_5" },
+        "verified",
+      );
+      await setAccountState(tenant.tenantId, "instagram", {
+        verifiedAt: staleDate(),
+      });
+      // Could not reach Meta — a momentary blip must not alert the tenant.
+      mockIg.mockResolvedValueOnce({
+        ok: false,
+        error: "Could not reach Meta.",
+        transient: true,
+      });
+
+      await reverifyInstagram(tenant.tenantId);
+
+      const notes = await getNotifications(tenant.tenantId);
+      expect(notes).toHaveLength(0);
     } finally {
       await deleteTenant(tenant.tenantId);
     }
