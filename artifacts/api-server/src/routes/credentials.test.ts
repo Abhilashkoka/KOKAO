@@ -1,0 +1,485 @@
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  vi,
+} from "vitest";
+import request from "supertest";
+import { randomUUID } from "crypto";
+
+vi.mock("@clerk/express", async () => {
+  const { authState } = await import("../test/authState");
+  return {
+    getAuth: () =>
+      authState.userId
+        ? {
+            userId: authState.userId,
+            sessionClaims: { userId: authState.userId },
+          }
+        : {},
+    clerkClient: {
+      users: {
+        getUser: async (id: string) => {
+          const u = authState.users[id];
+          if (!u) throw new Error("user not found");
+          return u;
+        },
+      },
+    },
+    clerkMiddleware: () => (_req: unknown, _res: unknown, next: () => void) =>
+      next(),
+  };
+});
+
+// Keep the DB-backed helpers real; only stub the functions that make live
+// network calls to Meta so tests never hit the real Graph API.
+vi.mock("../lib/metaApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/metaApi")>();
+  return {
+    ...actual,
+    testMetaAppCredentials: vi.fn(async () => ({ ok: true })),
+    testFacebookCredentials: vi.fn(async () => ({
+      ok: true,
+      accountName: "Test Page",
+    })),
+    testInstagramCredentials: vi.fn(async () => ({
+      ok: true,
+      accountName: "@testig",
+    })),
+  };
+});
+
+import { pool, type AppCredential } from "@workspace/db";
+import { createTestApp } from "../test/testApp";
+import { resetAuthState, actAs } from "../test/authState";
+import {
+  createTenant,
+  deleteTenant,
+  insertConnectedAccount,
+  getConnectedAccount,
+  snapshotMetaRow,
+  setMetaRow,
+  setVerifiedMetaRow,
+  restoreMetaRow,
+} from "../test/dbHelpers";
+
+const app = createTestApp();
+let metaSnapshot: AppCredential | null = null;
+
+beforeAll(async () => {
+  metaSnapshot = await snapshotMetaRow();
+});
+
+afterAll(async () => {
+  await restoreMetaRow(metaSnapshot);
+  await pool.end();
+});
+
+beforeEach(() => {
+  resetAuthState();
+  process.env.SESSION_SECRET = process.env.SESSION_SECRET || "test-session-secret";
+});
+
+// ---------------------------------------------------------------------------
+// Admin (superadmin-only) Meta app credential endpoints
+// ---------------------------------------------------------------------------
+
+describe("admin Meta credential endpoints", () => {
+  it("rejects unauthenticated requests (401)", async () => {
+    resetAuthState(); // no current user
+    const getRes = await request(app).get(
+      "/api/admin/platform-credentials/meta",
+    );
+    expect(getRes.status).toBe(401);
+
+    const putRes = await request(app)
+      .put("/api/admin/platform-credentials/meta")
+      .send({ appId: "x", appSecret: "y" });
+    expect(putRes.status).toBe(401);
+  });
+
+  it("rejects authenticated non-superadmins (403)", async () => {
+    const tenant = await createTenant({
+      email: `user-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(tenant.clerkUserId, tenant.email);
+
+      const getRes = await request(app).get(
+        "/api/admin/platform-credentials/meta",
+      );
+      expect(getRes.status).toBe(403);
+
+      const putRes = await request(app)
+        .put("/api/admin/platform-credentials/meta")
+        .send({ appId: "should-not-save", appSecret: "should-not-save" });
+      expect(putRes.status).toBe(403);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("returns masked values with no plaintext secrets to a superadmin", async () => {
+    const tenant = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(tenant.clerkUserId);
+      await setMetaRow("1234567890", "topsecretvalue987", "verified");
+
+      const res = await request(app).get(
+        "/api/admin/platform-credentials/meta",
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.configured).toBe(true);
+      // No raw secret fields present.
+      expect(res.body).not.toHaveProperty("appId");
+      expect(res.body).not.toHaveProperty("appSecret");
+      // Masked, not the raw value.
+      expect(res.body.appIdMasked).not.toBe("1234567890");
+      expect(res.body.appSecretMasked).not.toBe("topsecretvalue987");
+      // The raw secret must not appear anywhere in the serialized response.
+      const raw = JSON.stringify(res.body);
+      expect(raw).not.toContain("topsecretvalue987");
+      expect(raw).not.toContain("topsecretvalue");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("saves credentials (encrypted, masked response) for a superadmin", async () => {
+    const tenant = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .put("/api/admin/platform-credentials/meta")
+        .send({ appId: "app-999", appSecret: "brand-new-secret-xyz" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.testStatus).toBe("verified");
+      expect(res.body).not.toHaveProperty("appSecret");
+      expect(JSON.stringify(res.body)).not.toContain("brand-new-secret-xyz");
+
+      // The value is stored encrypted, never as plaintext.
+      const stored = await snapshotMetaRow();
+      expect(stored?.encryptedCredentials).toBeTruthy();
+      expect(stored?.encryptedCredentials).not.toContain("brand-new-secret-xyz");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("fails closed when SESSION_SECRET is unavailable (400, no write)", async () => {
+    const tenant = await createTenant({ isSuperadmin: true });
+    const before = await snapshotMetaRow();
+    const saved = process.env.SESSION_SECRET;
+    try {
+      actAs(tenant.clerkUserId);
+      delete process.env.SESSION_SECRET;
+
+      const res = await request(app)
+        .put("/api/admin/platform-credentials/meta")
+        .send({ appId: "app-1", appSecret: "should-not-persist" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/SESSION_SECRET/);
+
+      // Nothing was written.
+      const after = await snapshotMetaRow();
+      expect(after?.encryptedCredentials).toBe(before?.encryptedCredentials);
+    } finally {
+      process.env.SESSION_SECRET = saved;
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tenant per-platform social credential endpoints
+// ---------------------------------------------------------------------------
+
+describe("tenant social credential endpoints", () => {
+  beforeEach(async () => {
+    // Tenant save/verify requires app-level Meta keys to be configured.
+    await setVerifiedMetaRow();
+  });
+
+  it("masks the stored Facebook Page access token on read", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "facebook",
+        { pageId: "PAGE_ABC", pageAccessToken: "TOKEN_SECRET_XYZ" },
+        "verified",
+      );
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).get("/api/social-credentials/facebook");
+      expect(res.status).toBe(200);
+      // Page ID is a public identifier and is intentionally returned.
+      expect(res.body.pageId).toBe("PAGE_ABC");
+      // The token is a secret: it is masked and never returned raw.
+      expect(res.body).not.toHaveProperty("pageAccessToken");
+      expect(res.body.pageAccessTokenMasked).toBeTruthy();
+      expect(res.body.pageAccessTokenMasked).not.toBe("TOKEN_SECRET_XYZ");
+      expect(JSON.stringify(res.body)).not.toContain("TOKEN_SECRET_XYZ");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("returns the Instagram status with no leaked secrets on read", async () => {
+    const tenant = await createTenant();
+    try {
+      // IG publishing rides on the Facebook Page token; store both so we can
+      // prove the FB token never leaks into the IG response.
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "facebook",
+        { pageId: "PAGE_FB", pageAccessToken: "PAGE_TOKEN_LEAK_TEST" },
+        "verified",
+      );
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "instagram",
+        { igUserId: "IG_PUBLIC_123" },
+        "verified",
+      );
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).get("/api/social-credentials/instagram");
+      expect(res.status).toBe(200);
+      // Contract: igUserId is a PUBLIC account identifier and is intentionally
+      // returned (the UI displays it) — it is not a secret.
+      expect(res.body.igUserId).toBe("IG_PUBLIC_123");
+      // No secret-bearing fields are ever present in the IG response.
+      expect(res.body).not.toHaveProperty("pageAccessToken");
+      expect(res.body).not.toHaveProperty("accessToken");
+      expect(res.body).not.toHaveProperty("appSecret");
+      // The Facebook Page token IG rides on must never leak into this response.
+      expect(JSON.stringify(res.body)).not.toContain("PAGE_TOKEN_LEAK_TEST");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("saves Instagram credentials and returns a no-secret response", async () => {
+    const tenant = await createTenant();
+    try {
+      // A verified Facebook Page must exist before Instagram can be saved.
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "facebook",
+        { pageId: "PAGE_FB", pageAccessToken: "PAGE_TOKEN_SAVE_TEST" },
+        "verified",
+      );
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app)
+        .put("/api/social-credentials/instagram")
+        .send({ igUserId: "IG_SAVE_456" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.verifyStatus).toBe("verified");
+      // igUserId echoed back as the public identifier.
+      expect(res.body.igUserId).toBe("IG_SAVE_456");
+      // No secret-bearing fields, and no FB token leakage.
+      expect(res.body).not.toHaveProperty("pageAccessToken");
+      expect(res.body).not.toHaveProperty("accessToken");
+      expect(res.body).not.toHaveProperty("appSecret");
+      expect(JSON.stringify(res.body)).not.toContain("PAGE_TOKEN_SAVE_TEST");
+
+      // The stored blob is encrypted, not plaintext.
+      const row = await getConnectedAccount(tenant.tenantId, "instagram");
+      expect(row?.encryptedCredentials).toBeTruthy();
+      expect(row?.encryptedCredentials).not.toContain("IG_SAVE_456");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("reads only the caller's own Instagram row (tenant isolation)", async () => {
+    const tenantA = await createTenant();
+    const tenantB = await createTenant();
+    try {
+      await insertConnectedAccount(
+        tenantA.tenantId,
+        "instagram",
+        { igUserId: "IG_A" },
+        "verified",
+      );
+      await insertConnectedAccount(
+        tenantB.tenantId,
+        "instagram",
+        { igUserId: "IG_B" },
+        "verified",
+      );
+
+      actAs(tenantA.clerkUserId);
+      const resA = await request(app).get("/api/social-credentials/instagram");
+      expect(resA.body.igUserId).toBe("IG_A");
+
+      actAs(tenantB.clerkUserId);
+      const resB = await request(app).get("/api/social-credentials/instagram");
+      expect(resB.body.igUserId).toBe("IG_B");
+    } finally {
+      await deleteTenant(tenantA.tenantId);
+      await deleteTenant(tenantB.tenantId);
+    }
+  });
+
+  it("writes only the caller's own Instagram row (tenant isolation)", async () => {
+    const tenantA = await createTenant();
+    const tenantB = await createTenant();
+    try {
+      // Both tenants need a verified Facebook Page first.
+      await insertConnectedAccount(
+        tenantA.tenantId,
+        "facebook",
+        { pageId: "PAGE_A", pageAccessToken: "tok_a" },
+        "verified",
+      );
+      await insertConnectedAccount(
+        tenantB.tenantId,
+        "facebook",
+        { pageId: "PAGE_B", pageAccessToken: "tok_b" },
+        "verified",
+      );
+
+      actAs(tenantA.clerkUserId);
+      const saveA = await request(app)
+        .put("/api/social-credentials/instagram")
+        .send({ igUserId: "IG_WRITE_A" });
+      expect(saveA.status).toBe(200);
+
+      // B has no Instagram row yet.
+      const bRow = await getConnectedAccount(tenantB.tenantId, "instagram");
+      expect(bRow).toBeUndefined();
+
+      actAs(tenantB.clerkUserId);
+      const saveB = await request(app)
+        .put("/api/social-credentials/instagram")
+        .send({ igUserId: "IG_WRITE_B" });
+      expect(saveB.status).toBe(200);
+
+      actAs(tenantA.clerkUserId);
+      const resA = await request(app).get("/api/social-credentials/instagram");
+      expect(resA.body.igUserId).toBe("IG_WRITE_A");
+
+      actAs(tenantB.clerkUserId);
+      const resB = await request(app).get("/api/social-credentials/instagram");
+      expect(resB.body.igUserId).toBe("IG_WRITE_B");
+    } finally {
+      await deleteTenant(tenantA.tenantId);
+      await deleteTenant(tenantB.tenantId);
+    }
+  });
+
+  it("reads only the caller's own credential row (tenant isolation)", async () => {
+    const tenantA = await createTenant();
+    const tenantB = await createTenant();
+    try {
+      await insertConnectedAccount(
+        tenantA.tenantId,
+        "facebook",
+        { pageId: "PAGE_A", pageAccessToken: "tok_a" },
+        "verified",
+      );
+      await insertConnectedAccount(
+        tenantB.tenantId,
+        "facebook",
+        { pageId: "PAGE_B", pageAccessToken: "tok_b" },
+        "verified",
+      );
+
+      actAs(tenantA.clerkUserId);
+      const resA = await request(app).get("/api/social-credentials/facebook");
+      expect(resA.body.pageId).toBe("PAGE_A");
+
+      actAs(tenantB.clerkUserId);
+      const resB = await request(app).get("/api/social-credentials/facebook");
+      expect(resB.body.pageId).toBe("PAGE_B");
+    } finally {
+      await deleteTenant(tenantA.tenantId);
+      await deleteTenant(tenantB.tenantId);
+    }
+  });
+
+  it("writes only the caller's own credential row (tenant isolation)", async () => {
+    const tenantA = await createTenant();
+    const tenantB = await createTenant();
+    try {
+      // A saves — B must remain untouched.
+      actAs(tenantA.clerkUserId);
+      const saveA = await request(app)
+        .put("/api/social-credentials/facebook")
+        .send({ pageId: "WRITE_A", pageAccessToken: "tok_write_a" });
+      expect(saveA.status).toBe(200);
+
+      const bRow = await getConnectedAccount(tenantB.tenantId, "facebook");
+      expect(bRow).toBeUndefined();
+
+      // B saves its own — A's row must not change.
+      actAs(tenantB.clerkUserId);
+      const saveB = await request(app)
+        .put("/api/social-credentials/facebook")
+        .send({ pageId: "WRITE_B", pageAccessToken: "tok_write_b" });
+      expect(saveB.status).toBe(200);
+
+      actAs(tenantA.clerkUserId);
+      const resA = await request(app).get("/api/social-credentials/facebook");
+      expect(resA.body.pageId).toBe("WRITE_A");
+
+      actAs(tenantB.clerkUserId);
+      const resB = await request(app).get("/api/social-credentials/facebook");
+      expect(resB.body.pageId).toBe("WRITE_B");
+    } finally {
+      await deleteTenant(tenantA.tenantId);
+      await deleteTenant(tenantB.tenantId);
+    }
+  });
+
+  it("Facebook save fails closed when SESSION_SECRET is unavailable (400, no write)", async () => {
+    const tenant = await createTenant();
+    const saved = process.env.SESSION_SECRET;
+    try {
+      actAs(tenant.clerkUserId);
+      delete process.env.SESSION_SECRET;
+
+      const res = await request(app)
+        .put("/api/social-credentials/facebook")
+        .send({ pageId: "PAGE_X", pageAccessToken: "should-not-persist" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/SESSION_SECRET/);
+
+      // No row was created.
+      process.env.SESSION_SECRET = saved;
+      const row = await getConnectedAccount(tenant.tenantId, "facebook");
+      expect(row).toBeUndefined();
+    } finally {
+      process.env.SESSION_SECRET = saved;
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("blocks Instagram save until a verified Facebook Page exists (400)", async () => {
+    const tenant = await createTenant();
+    try {
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .put("/api/social-credentials/instagram")
+        .send({ igUserId: "IG_123" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/Facebook/i);
+
+      const row = await getConnectedAccount(tenant.tenantId, "instagram");
+      expect(row).toBeUndefined();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
