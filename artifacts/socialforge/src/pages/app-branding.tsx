@@ -17,6 +17,21 @@ import { useToast } from "@/hooks/use-toast";
 
 type ImageField = "logoUrl" | "iconUrl";
 
+const COLOR_THEMES: {
+  name: string;
+  primaryColor: string;
+  backgroundColor: string;
+}[] = [
+  { name: "Violet", primaryColor: "#7c3aed", backgroundColor: "#eeeef0" },
+  { name: "Ocean", primaryColor: "#0ea5e9", backgroundColor: "#eef4f8" },
+  { name: "Forest", primaryColor: "#059669", backgroundColor: "#eef3f0" },
+  { name: "Sunset", primaryColor: "#ea580c", backgroundColor: "#f7f1ec" },
+  { name: "Rose", primaryColor: "#e11d48", backgroundColor: "#f7edef" },
+  { name: "Slate", primaryColor: "#475569", backgroundColor: "#eef0f2" },
+  { name: "Midnight", primaryColor: "#6366f1", backgroundColor: "#1e1e24" },
+  { name: "Gold", primaryColor: "#ca8a04", backgroundColor: "#f5f2e9" },
+];
+
 function UploadSlot({
   label,
   description,
@@ -244,6 +259,54 @@ export function AppBrandingPage() {
           <p className="text-xs text-muted-foreground">
             Used for the browser tab title and logo alt text.
           </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Color themes</Label>
+          <p className="text-xs text-muted-foreground">
+            Pick a preset to set both colors at once, or fine-tune below.
+          </p>
+          <div className="flex flex-wrap gap-2 pt-1">
+            {COLOR_THEMES.map((theme) => {
+              const active =
+                (form.primaryColor ?? "").toLowerCase() ===
+                  theme.primaryColor.toLowerCase() &&
+                (form.backgroundColor ?? "").toLowerCase() ===
+                  theme.backgroundColor.toLowerCase();
+              return (
+                <button
+                  key={theme.name}
+                  type="button"
+                  onClick={() =>
+                    setForm((f) => ({
+                      ...f,
+                      primaryColor: theme.primaryColor,
+                      backgroundColor: theme.backgroundColor,
+                    }))
+                  }
+                  aria-pressed={active}
+                  title={theme.name}
+                  className={`flex items-center gap-2 rounded-full border py-1.5 pl-1.5 pr-3 text-sm transition-colors ${
+                    active
+                      ? "border-primary ring-2 ring-primary/30"
+                      : "border-border hover:bg-muted/60"
+                  }`}
+                >
+                  <span className="flex -space-x-1.5">
+                    <span
+                      className="h-5 w-5 rounded-full border border-white/70 shadow-sm"
+                      style={{ backgroundColor: theme.primaryColor }}
+                    />
+                    <span
+                      className="h-5 w-5 rounded-full border border-white/70 shadow-sm"
+                      style={{ backgroundColor: theme.backgroundColor }}
+                    />
+                  </span>
+                  {theme.name}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
