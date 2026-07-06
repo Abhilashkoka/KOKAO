@@ -2,57 +2,103 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypt
 
 /**
  * Symmetric encryption for secrets stored at rest (social credentials, app
- * keys). Uses AES-256-GCM with a key derived from SESSION_SECRET.
+ * keys). Uses AES-256-GCM (authenticated encryption — tampering is detected on
+ * decrypt).
  *
- * The stored format is `iv:authTag:ciphertext`, all base64. GCM gives us
- * authenticated encryption so tampering is detected on decrypt.
+ * Key sources, in priority order:
+ *   1. CREDENTIALS_ENCRYPTION_KEY — a dedicated at-rest key.
+ *   2. SESSION_SECRET — fallback for backward compatibility.
  *
- * Fails closed: if SESSION_SECRET is absent, encryption/decryption throw rather
- * than silently storing plaintext.
+ * New payloads are encrypted with the highest-priority key available. Decryption
+ * tries EVERY available key in order (dual-read), so enabling
+ * CREDENTIALS_ENCRYPTION_KEY does NOT brick credentials that were previously
+ * encrypted under SESSION_SECRET — they keep decrypting via the fallback until
+ * they are next written (which re-encrypts them under the dedicated key).
+ * Decoupling the credential key from the session/OAuth-state secret means
+ * rotating SESSION_SECRET no longer risks stored credentials.
+ *
+ * Wire format is version-prefixed: `v1:iv:authTag:ciphertext` (all base64 after
+ * the prefix). Legacy payloads have no prefix (`iv:authTag:ciphertext`) and are
+ * still decryptable.
+ *
+ * Fails closed: if no key material is available, encryption/decryption throw
+ * rather than silently storing plaintext.
  */
-function getKey(): Buffer {
-  const secret = process.env.SESSION_SECRET;
-  if (!secret) {
-    throw new Error("SESSION_SECRET is required to encrypt or decrypt secrets");
-  }
-  // Derive a fixed 32-byte key regardless of the secret's length.
+const VERSION_PREFIX = "v1:";
+
+const MISSING_KEY_MESSAGE =
+  "CREDENTIALS_ENCRYPTION_KEY or SESSION_SECRET is required to encrypt or decrypt secrets";
+
+/** Ordered list of candidate secrets: dedicated key first, then session secret. */
+function candidateSecrets(): string[] {
+  const secrets: string[] = [];
+  const dedicated = process.env.CREDENTIALS_ENCRYPTION_KEY;
+  const session = process.env.SESSION_SECRET;
+  if (dedicated) secrets.push(dedicated);
+  if (session && session !== dedicated) secrets.push(session);
+  return secrets;
+}
+
+/** Derive a fixed 32-byte AES key from a secret of any length. */
+function deriveKey(secret: string): Buffer {
   return createHash("sha256").update(secret, "utf8").digest();
 }
 
 export function isEncryptionConfigured(): boolean {
-  return !!process.env.SESSION_SECRET;
+  return candidateSecrets().length > 0;
 }
 
 export function encryptSecret(plaintext: string): string {
+  const secrets = candidateSecrets();
+  if (secrets.length === 0) {
+    throw new Error(MISSING_KEY_MESSAGE);
+  }
   const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", getKey(), iv);
+  const cipher = createCipheriv("aes-256-gcm", deriveKey(secrets[0]), iv);
   const encrypted = Buffer.concat([
     cipher.update(plaintext, "utf8"),
     cipher.final(),
   ]);
   const authTag = cipher.getAuthTag();
-  return `${iv.toString("base64")}:${authTag.toString("base64")}:${encrypted.toString(
+  return `${VERSION_PREFIX}${iv.toString("base64")}:${authTag.toString("base64")}:${encrypted.toString(
     "base64",
   )}`;
 }
 
 export function decryptSecret(payload: string): string {
-  const parts = payload.split(":");
+  const body = payload.startsWith(VERSION_PREFIX)
+    ? payload.slice(VERSION_PREFIX.length)
+    : payload;
+  const parts = body.split(":");
   if (parts.length !== 3) {
     throw new Error("Malformed encrypted payload");
   }
   const [ivB64, tagB64, dataB64] = parts;
-  const decipher = createDecipheriv(
-    "aes-256-gcm",
-    getKey(),
-    Buffer.from(ivB64, "base64"),
-  );
-  decipher.setAuthTag(Buffer.from(tagB64, "base64"));
-  const decrypted = Buffer.concat([
-    decipher.update(Buffer.from(dataB64, "base64")),
-    decipher.final(),
-  ]);
-  return decrypted.toString("utf8");
+  const secrets = candidateSecrets();
+  if (secrets.length === 0) {
+    throw new Error(MISSING_KEY_MESSAGE);
+  }
+  const iv = Buffer.from(ivB64, "base64");
+  const tag = Buffer.from(tagB64, "base64");
+  const data = Buffer.from(dataB64, "base64");
+  let lastError: unknown;
+  for (const secret of secrets) {
+    try {
+      const decipher = createDecipheriv("aes-256-gcm", deriveKey(secret), iv);
+      decipher.setAuthTag(tag);
+      const decrypted = Buffer.concat([
+        decipher.update(data),
+        decipher.final(),
+      ]);
+      return decrypted.toString("utf8");
+    } catch (err) {
+      // Wrong key (or tampered payload) — try the next candidate.
+      lastError = err;
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Failed to decrypt payload");
 }
 
 /** Encrypt a JSON-serializable credential object. */

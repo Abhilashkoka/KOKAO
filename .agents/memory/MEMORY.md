@@ -1,5 +1,7 @@
 - [LinkedIn publishing](linkedin-publishing.md) — no Replit connector exists; needs manual OAuth app + "Share on LinkedIn" product; Posts API quirks.
 - [Social publishing in SocialForge](social-publishing.md) — "Connect Account" is record-only; real publishing is per-platform (Facebook+Instagram via meta.ts, LinkedIn) via dedicated routes.
+- [Credential encryption keys](credential-encryption-keys.md) — encrypt with dedicated key, DECRYPT dual-read (dedicated then SESSION_SECRET) so enabling the key never bricks stored creds.
+- [Superadmin allowlist](superadmin-allowlist.md) — built ONLY from SUPERADMIN_EMAILS env at module load; no hardcoded emails; tests inject it via vitest setupFiles before import.
 - [Meta credential framework](meta-credential-framework.md) — encrypted app-level + per-tenant FB/IG creds, auto-tested & masked; Meta secrets go in headers/body never URLs.
 - [API server test harness](api-server-testing.md) — vitest + supertest hitting real dev DB; mock @clerk/express + metaApi network fns; snapshot/restore global meta row; close pg pool in afterAll.
 - [X (Twitter) publishing](twitter-publishing.md) — OAuth 2.0 PKCE connect + bearer-token publish; legacy OAuth 1.0a tokens prompt reconnect; no retest endpoint.

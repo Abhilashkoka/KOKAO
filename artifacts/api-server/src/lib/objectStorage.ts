@@ -64,8 +64,17 @@ export class ObjectStorageService {
   }
 
   async searchPublicObject(filePath: string): Promise<File | null> {
+    // Guard against path traversal: the caller-supplied path must resolve
+    // WITHIN a configured public prefix and never climb out with "." / "..".
+    const normalized = filePath.replace(/^\/+/, "");
+    if (
+      normalized.includes("\0") ||
+      normalized.split("/").some((seg) => seg === "." || seg === "..")
+    ) {
+      return null;
+    }
     for (const searchPath of this.getPublicObjectSearchPaths()) {
-      const fullPath = `${searchPath}/${filePath}`;
+      const fullPath = `${searchPath}/${normalized}`;
 
       const { bucketName, objectName } = parseObjectPath(fullPath);
       const bucket = objectStorageClient.bucket(bucketName);

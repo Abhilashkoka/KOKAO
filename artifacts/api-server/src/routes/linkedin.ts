@@ -1,8 +1,8 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, connectedAccountsTable, contentItemsTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
-import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { ObjectStorageService } from "../lib/objectStorage";
+import { signOAuthState, verifyOAuthState, randomNonce } from "../lib/oauthState";
 import { notifySocialConnectionFailed } from "../lib/notifications";
 import { splitForLinkedin } from "@workspace/social-limits";
 
@@ -16,7 +16,6 @@ const AUTH_BASE = "https://www.linkedin.com/oauth/v2/authorization";
 const TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken";
 const USERINFO_URL = "https://api.linkedin.com/v2/userinfo";
 const REST_BASE = "https://api.linkedin.com/rest";
-const STATE_TTL_MS = 10 * 60 * 1000;
 
 function getCredentials(): { clientId: string; clientSecret: string } | null {
   const clientId = process.env.LINKEDIN_CLIENT_ID;
@@ -39,40 +38,8 @@ function isConfigured(): boolean {
   return !!getCredentials() && !!process.env.SESSION_SECRET;
 }
 
-function signState(tenantId: number): string {
-  const secret = process.env.SESSION_SECRET;
-  if (!secret) throw new Error("SESSION_SECRET is required for OAuth state");
-  const payload = `${tenantId}.${Date.now()}.${randomBytes(8).toString("hex")}`;
-  const sig = createHmac("sha256", secret).update(payload).digest("hex");
-  return Buffer.from(`${payload}.${sig}`, "utf8").toString("base64url");
-}
-
 function verifyState(state: string, tenantId: number): boolean {
-  const secret = process.env.SESSION_SECRET;
-  if (!secret) return false;
-  try {
-    const decoded = Buffer.from(state, "base64url").toString("utf8");
-    const lastDot = decoded.lastIndexOf(".");
-    if (lastDot < 0) return false;
-    const payload = decoded.slice(0, lastDot);
-    const sig = decoded.slice(lastDot + 1);
-    const expected = createHmac("sha256", secret)
-      .update(payload)
-      .digest("hex");
-    const sigBuf = Buffer.from(sig, "hex");
-    const expBuf = Buffer.from(expected, "hex");
-    if (sigBuf.length !== expBuf.length || !timingSafeEqual(sigBuf, expBuf)) {
-      return false;
-    }
-    const [tid, ts] = payload.split(".");
-    if (Number(tid) !== tenantId) return false;
-    if (!Number.isFinite(Number(ts)) || Date.now() - Number(ts) > STATE_TTL_MS) {
-      return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
+  return verifyOAuthState(state, tenantId) !== null;
 }
 
 /**
@@ -257,7 +224,7 @@ router.get("/linkedin/auth/url", (req: Request, res: Response) => {
     response_type: "code",
     client_id: creds.clientId,
     redirect_uri: redirectUri(req),
-    state: signState(req.tenantId),
+    state: signOAuthState(req.tenantId, randomNonce()),
     scope: OAUTH_SCOPE,
   });
   res.json({ url: `${AUTH_BASE}?${params.toString()}` });

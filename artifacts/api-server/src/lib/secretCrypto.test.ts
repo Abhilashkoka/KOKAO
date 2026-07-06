@@ -61,16 +61,49 @@ describe("secretCrypto", () => {
 
   it("detects tampering via the GCM auth tag", () => {
     const encrypted = encryptSecret("value");
-    const [iv, tag, data] = encrypted.split(":");
+    const body = encrypted.replace(/^v1:/, "");
+    const [iv, tag, data] = body.split(":");
     // Flip a byte in the ciphertext.
     const bytes = Buffer.from(data, "base64");
     bytes[0] = bytes[0] ^ 0xff;
-    const tampered = `${iv}:${tag}:${bytes.toString("base64")}`;
+    const tampered = `v1:${iv}:${tag}:${bytes.toString("base64")}`;
     expect(() => decryptSecret(tampered)).toThrow();
   });
 
   it("rejects malformed payloads", () => {
     expect(() => decryptSecret("not-a-valid-payload")).toThrow(/Malformed/);
+  });
+
+  describe("dedicated key migration (dual-read)", () => {
+    let originalDedicated: string | undefined;
+
+    beforeEach(() => {
+      originalDedicated = process.env.CREDENTIALS_ENCRYPTION_KEY;
+      delete process.env.CREDENTIALS_ENCRYPTION_KEY;
+    });
+
+    afterEach(() => {
+      if (originalDedicated === undefined) {
+        delete process.env.CREDENTIALS_ENCRYPTION_KEY;
+      } else {
+        process.env.CREDENTIALS_ENCRYPTION_KEY = originalDedicated;
+      }
+    });
+
+    it("still decrypts a session-secret payload after CREDENTIALS_ENCRYPTION_KEY is enabled", () => {
+      // Encrypted while only SESSION_SECRET existed (legacy at-rest payload).
+      const legacy = encryptSecret("legacy-value");
+      // Operator later enables a dedicated key.
+      process.env.CREDENTIALS_ENCRYPTION_KEY = "dedicated-key-value";
+      // Fallback keeps the old payload readable...
+      expect(decryptSecret(legacy)).toBe("legacy-value");
+      // ...and new payloads use the dedicated key (still readable, and not
+      // decryptable by the session secret alone).
+      const fresh = encryptSecret("fresh-value");
+      expect(decryptSecret(fresh)).toBe("fresh-value");
+      delete process.env.CREDENTIALS_ENCRYPTION_KEY;
+      expect(() => decryptSecret(fresh)).toThrow();
+    });
   });
 
   describe("maskSecret", () => {
