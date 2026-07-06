@@ -175,7 +175,7 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
   try {
     const buffer = await generateImageBuffer(prompt, size);
 
-    const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+    const uploadURL = await objectStorageService.getObjectEntityUploadURL(req.tenantId);
     const putRes = await fetch(uploadURL, {
       method: "PUT",
       headers: { "Content-Type": "image/png" },

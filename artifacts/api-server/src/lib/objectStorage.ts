@@ -1,13 +1,6 @@
 import { Storage, File } from "@google-cloud/storage";
 import { Readable } from "stream";
 import { randomUUID } from "crypto";
-import {
-  ObjectAclPolicy,
-  ObjectPermission,
-  canAccessObject,
-  getObjectAclPolicy,
-  setObjectAclPolicy,
-} from "./objectAcl";
 
 const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
 
@@ -87,10 +80,11 @@ export class ObjectStorageService {
     return null;
   }
 
-  async downloadObject(file: File, cacheTtlSec: number = 3600): Promise<Response> {
+  async downloadObject(
+    file: File,
+    { isPublic = false, cacheTtlSec = 3600 }: { isPublic?: boolean; cacheTtlSec?: number } = {},
+  ): Promise<Response> {
     const [metadata] = await file.getMetadata();
-    const aclPolicy = await getObjectAclPolicy(file);
-    const isPublic = aclPolicy?.visibility === "public";
 
     const nodeStream = file.createReadStream();
     const webStream = Readable.toWeb(nodeStream) as ReadableStream;
@@ -106,7 +100,7 @@ export class ObjectStorageService {
     return new Response(webStream, { headers });
   }
 
-  async getObjectEntityUploadURL(): Promise<string> {
+  async getObjectEntityUploadURL(tenantId: number): Promise<string> {
     const privateObjectDir = this.getPrivateObjectDir();
     if (!privateObjectDir) {
       throw new Error(
@@ -116,7 +110,10 @@ export class ObjectStorageService {
     }
 
     const objectId = randomUUID();
-    const fullPath = `${privateObjectDir}/uploads/${objectId}`;
+    // Namespace every object under its owning tenant so a stored/guessed path is
+    // self-authenticating: reads assert the requested path starts with the
+    // caller's own `/objects/<tenantId>/` prefix (see getObjectEntityFile).
+    const fullPath = `${privateObjectDir}/${tenantId}/uploads/${objectId}`;
 
     const { bucketName, objectName } = parseObjectPath(fullPath);
 
@@ -128,8 +125,20 @@ export class ObjectStorageService {
     });
   }
 
-  async getObjectEntityFile(objectPath: string): Promise<File> {
+  /**
+   * Resolve a `/objects/...` path to its backing file, enforcing that it belongs
+   * to `tenantId`. Because `imagePath` is stored free-form and is thus
+   * attacker-influenceable, every read/publish path funnels through here so a
+   * leaked or crafted path cannot cross tenant boundaries. A mismatch is
+   * reported as "not found" so the endpoint never confirms another tenant's
+   * object exists.
+   */
+  async getObjectEntityFile(objectPath: string, tenantId: number): Promise<File> {
     if (!objectPath.startsWith("/objects/")) {
+      throw new ObjectNotFoundError();
+    }
+
+    if (!objectPath.startsWith(`/objects/${tenantId}/`)) {
       throw new ObjectNotFoundError();
     }
 
@@ -161,9 +170,10 @@ export class ObjectStorageService {
    */
   async getSignedDownloadURL(
     objectPath: string,
+    tenantId: number,
     ttlSec = 900,
   ): Promise<string> {
-    const file = await this.getObjectEntityFile(objectPath);
+    const file = await this.getObjectEntityFile(objectPath, tenantId);
     return signObjectURL({
       bucketName: file.bucket.name,
       objectName: file.name,
@@ -191,36 +201,6 @@ export class ObjectStorageService {
 
     const entityId = rawObjectPath.slice(objectEntityDir.length);
     return `/objects/${entityId}`;
-  }
-
-  async trySetObjectEntityAclPolicy(
-    rawPath: string,
-    aclPolicy: ObjectAclPolicy
-  ): Promise<string> {
-    const normalizedPath = this.normalizeObjectEntityPath(rawPath);
-    if (!normalizedPath.startsWith("/")) {
-      return normalizedPath;
-    }
-
-    const objectFile = await this.getObjectEntityFile(normalizedPath);
-    await setObjectAclPolicy(objectFile, aclPolicy);
-    return normalizedPath;
-  }
-
-  async canAccessObjectEntity({
-    userId,
-    objectFile,
-    requestedPermission,
-  }: {
-    userId?: string;
-    objectFile: File;
-    requestedPermission?: ObjectPermission;
-  }): Promise<boolean> {
-    return canAccessObject({
-      userId,
-      objectFile,
-      requestedPermission: requestedPermission ?? ObjectPermission.READ,
-    });
   }
 }
 

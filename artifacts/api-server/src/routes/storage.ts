@@ -8,8 +8,12 @@ import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage"
 
 const objectStorageService = new ObjectStorageService();
 
-async function streamObject(res: Response, file: Awaited<ReturnType<ObjectStorageService["getObjectEntityFile"]>>) {
-  const response = await objectStorageService.downloadObject(file);
+async function streamObject(
+  res: Response,
+  file: Awaited<ReturnType<ObjectStorageService["getObjectEntityFile"]>>,
+  isPublic = false,
+) {
+  const response = await objectStorageService.downloadObject(file, { isPublic });
   res.status(response.status);
   response.headers.forEach((value, key) => res.setHeader(key, value));
   if (response.body) {
@@ -37,7 +41,7 @@ publicStorageRouter.get(
         res.status(404).json({ error: "File not found" });
         return;
       }
-      await streamObject(res, file);
+      await streamObject(res, file, true);
     } catch (error) {
       req.log.error({ err: error }, "Error serving public object");
       res.status(500).json({ error: "Failed to serve public object" });
@@ -68,7 +72,7 @@ protectedStorageRouter.post(
 
     try {
       const { name, size, contentType } = parsed.data;
-      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL(req.tenantId);
       const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
 
       res.json(
@@ -96,7 +100,10 @@ protectedStorageRouter.get(
       const raw = req.params.path;
       const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
       const objectPath = `/objects/${wildcardPath}`;
-      const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
+      const objectFile = await objectStorageService.getObjectEntityFile(
+        objectPath,
+        req.tenantId,
+      );
       await streamObject(res, objectFile);
     } catch (error) {
       if (error instanceof ObjectNotFoundError) {

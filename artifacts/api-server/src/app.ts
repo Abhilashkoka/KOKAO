@@ -1,5 +1,6 @@
 import express, { type Express } from "express";
 import cors from "cors";
+import helmet from "helmet";
 import pinoHttp from "pino-http";
 import { clerkMiddleware } from "@clerk/express";
 import { publishableKeyFromHost } from "@clerk/shared/keys";
@@ -8,10 +9,29 @@ import {
   clerkProxyMiddleware,
   getClerkProxyHost,
 } from "./middlewares/clerkProxyMiddleware";
+import { globalLimiter } from "./middlewares/rateLimit";
 import router from "./routes";
 import { logger } from "./lib/logger";
 
+/**
+ * Origins allowed to make credentialed (cookie-authed) cross-origin requests.
+ * Built from REPLIT_DOMAINS (comma-separated hostnames, no scheme). Requests
+ * with no Origin header (same-origin navigations, curl, server-to-server) are
+ * always allowed; any other origin is rejected rather than blindly reflected.
+ */
+const allowedOrigins = new Set(
+  (process.env.REPLIT_DOMAINS ?? "")
+    .split(",")
+    .map((d) => d.trim())
+    .filter(Boolean)
+    .map((d) => `https://${d}`),
+);
+
 const app: Express = express();
+
+// The app runs behind the Replit/Cloud Run edge (one trusted proxy hop). Trust
+// it so `req.ip` reflects the real client for rate limiting and logging.
+app.set("trust proxy", 1);
 
 app.use(
   pinoHttp({
@@ -35,7 +55,23 @@ app.use(
 
 app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
 
-app.use(cors({ credentials: true, origin: true }));
+app.use(helmet());
+
+app.use(
+  cors({
+    credentials: true,
+    origin(origin, callback) {
+      // No Origin header => same-origin / non-browser client => allow.
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
+  }),
+);
+
+app.use(globalLimiter);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

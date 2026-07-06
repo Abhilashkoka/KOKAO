@@ -1,8 +1,13 @@
 import type { Server } from "node:http";
+import { assertRequiredEnv } from "./lib/assertEnv";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { recoverStuckPublishingItems } from "./lib/recoverStuckPublishes";
 import { waitForPendingJobs } from "./lib/backgroundJobs";
+
+// Fail loudly before binding if a deployed context is missing required env,
+// rather than booting into a silently-degraded state.
+assertRequiredEnv();
 
 const rawPort = process.env["PORT"];
 

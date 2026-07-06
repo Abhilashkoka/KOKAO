@@ -410,7 +410,10 @@ describe("X (Twitter) publishing (happy path)", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.postId).toBe("TWEET_1");
-      expect(downloadSpy).toHaveBeenCalledWith("/objects/uploads/test.png");
+      expect(downloadSpy).toHaveBeenCalledWith(
+        "/objects/uploads/test.png",
+        expect.any(Number),
+      );
 
       // v2 media-upload runs its INIT/APPEND/FINALIZE command sequence.
       const uploadCalls = calls.filter((c) =>

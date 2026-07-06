@@ -541,6 +541,7 @@ router.post(
       if (item.imagePath) {
         const file = await objectStorageService.getObjectEntityFile(
           item.imagePath,
+          req.tenantId,
         );
         const [buffer] = await file.download();
 

@@ -19,6 +19,7 @@ import notificationSettingsRouter from "./notificationSettings";
 import emailSettingsRouter from "./emailSettings";
 import adminRouter from "./admin";
 import { requireTenant } from "../middlewares/requireTenant";
+import { aiLimiter, sensitiveLimiter } from "../middlewares/rateLimit";
 
 const router: IRouter = Router();
 
@@ -29,6 +30,15 @@ router.use(plansRouter);
 
 // Everything below requires an authenticated tenant
 router.use(requireTenant);
+
+// Tight rate-limit buckets on the expensive / third-party-calling routes
+// (AI generation, credential verification, and OAuth). Mounted before their
+// routers so they run first for matching paths.
+router.use("/ai", aiLimiter);
+router.use("/social-credentials", sensitiveLimiter);
+router.use("/twitter", sensitiveLimiter);
+router.use("/linkedin", sensitiveLimiter);
+
 router.use(protectedStorageRouter);
 router.use(meRouter);
 router.use(brandKitsRouter);

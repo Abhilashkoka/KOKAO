@@ -281,12 +281,13 @@ type InstagramPublishParams = {
 async function attemptInstagramPublish(
   params: InstagramPublishParams,
 ): Promise<{ postId: string; permalink: string | null }> {
-  const { igUserId, pageToken, imagePath, caption } = params;
+  const { tenantId, igUserId, pageToken, imagePath, caption } = params;
 
   // Instagram fetches the image itself, so it needs a public URL. Mint a
   // short-lived signed GET URL for the private object.
   const imageUrl = await objectStorageService.getSignedDownloadURL(
     imagePath,
+    tenantId,
     900,
   );
 
@@ -460,6 +461,7 @@ router.post(
       if (item.imagePath) {
         const file = await objectStorageService.getObjectEntityFile(
           item.imagePath,
+          req.tenantId,
         );
         const [buffer] = await file.download();
 

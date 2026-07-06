@@ -339,7 +339,10 @@ describe("Facebook publishing (happy path)", () => {
       expect(res.status).toBe(200);
       expect(res.body.postId).toBe("POST_1");
       expect(res.body.permalink).toBe("https://www.facebook.com/POST_1");
-      expect(downloadSpy).toHaveBeenCalledWith("/objects/uploads/test.png");
+      expect(downloadSpy).toHaveBeenCalledWith(
+        "/objects/uploads/test.png",
+        expect.any(Number),
+      );
 
       // Hit the photo-upload endpoint, and the token never appears in a URL.
       expect(calls.some((u) => u.includes("/PAGE_OK/photos"))).toBe(true);
@@ -600,7 +603,11 @@ describe("Instagram publishing (happy path)", () => {
 
       // Let the background job run to completion, then assert the outcome.
       await waitForPendingJobs();
-      expect(signSpy).toHaveBeenCalledWith("/objects/uploads/test.png", 900);
+      expect(signSpy).toHaveBeenCalledWith(
+        "/objects/uploads/test.png",
+        expect.any(Number),
+        900,
+      );
 
       // Full flow: create the container, poll its status, then publish it.
       expect(calls.some((u) => u.includes("/IG_OK/media"))).toBe(true);
