@@ -71,6 +71,59 @@ export interface MeProfile {
   brandOnboardingComplete: boolean;
 }
 
+export interface AppBrand {
+  /**
+     * Overrides the app name in the title and alt text.
+     * @nullable
+     */
+  appName: string | null;
+  /**
+     * Public served path of the logo shown in nav and landing.
+     * @nullable
+     */
+  logoUrl: string | null;
+  /**
+     * Public served path of the favicon / app icon.
+     * @nullable
+     */
+  iconUrl: string | null;
+  /**
+     * Hex primary/accent color applied to the theme.
+     * @nullable
+     */
+  primaryColor: string | null;
+  /**
+     * Hex app background color applied to the theme.
+     * @nullable
+     */
+  backgroundColor: string | null;
+}
+
+export interface AppBrandInput {
+  /** @nullable */
+  appName?: string | null;
+  /** @nullable */
+  logoUrl?: string | null;
+  /** @nullable */
+  iconUrl?: string | null;
+  /** @nullable */
+  primaryColor?: string | null;
+  /** @nullable */
+  backgroundColor?: string | null;
+}
+
+export interface AppBrandUploadUrlBody {
+  /** MIME type of the asset to upload (e.g. image/png). */
+  contentType: string;
+}
+
+export interface AppBrandUploadUrlResponse {
+  /** Presigned URL to PUT the file bytes to. */
+  uploadURL: string;
+  /** Browser-facing path where the uploaded asset will be served. */
+  servedPath: string;
+}
+
 export interface Plan {
   id: string;
   name: string;

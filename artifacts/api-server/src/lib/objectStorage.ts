@@ -135,6 +135,31 @@ export class ObjectStorageService {
   }
 
   /**
+   * Mint a presigned PUT URL for a PUBLIC brand asset (logo/favicon). Public
+   * because these are shown pre-authentication (landing/auth/favicon). The
+   * object lands under the first configured public search path as
+   * `brand/<uuid>`, so it is served by the public route
+   * `/storage/public-objects/brand/<uuid>`. Returns the upload URL plus the
+   * browser-facing served path (through the `/api` proxy).
+   */
+  async getPublicBrandUploadURL(): Promise<{ uploadURL: string; servedPath: string }> {
+    const searchPaths = this.getPublicObjectSearchPaths();
+    const objectId = randomUUID();
+    const key = `brand/${objectId}`;
+    const fullPath = `${searchPaths[0]}/${key}`;
+
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    const uploadURL = await signObjectURL({
+      bucketName,
+      objectName,
+      method: "PUT",
+      ttlSec: 900,
+    });
+
+    return { uploadURL, servedPath: `/api/storage/public-objects/${key}` };
+  }
+
+  /**
    * Resolve a `/objects/...` path to its backing file, enforcing that it belongs
    * to `tenantId`. Because `imagePath` is stored free-form and is thus
    * attacker-influenceable, every read/publish path funnels through here so a

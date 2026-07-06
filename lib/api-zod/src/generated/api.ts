@@ -89,6 +89,51 @@ export const ListPlansResponse = zod.array(ListPlansResponseItem)
 
 
 /**
+ * @summary Get the platform branding (public; used pre-auth for landing/auth/favicon)
+ */
+export const GetAppBrandResponse = zod.object({
+  "appName": zod.string().nullable().describe('Overrides the app name in the title and alt text.'),
+  "logoUrl": zod.string().nullable().describe('Public served path of the logo shown in nav and landing.'),
+  "iconUrl": zod.string().nullable().describe('Public served path of the favicon \/ app icon.'),
+  "primaryColor": zod.string().nullable().describe('Hex primary\/accent color applied to the theme.'),
+  "backgroundColor": zod.string().nullable().describe('Hex app background color applied to the theme.')
+})
+
+
+/**
+ * @summary Update the platform branding (superadmin only)
+ */
+export const UpdateAppBrandBody = zod.object({
+  "appName": zod.string().nullish(),
+  "logoUrl": zod.string().nullish(),
+  "iconUrl": zod.string().nullish(),
+  "primaryColor": zod.string().nullish(),
+  "backgroundColor": zod.string().nullish()
+})
+
+export const UpdateAppBrandResponse = zod.object({
+  "appName": zod.string().nullable().describe('Overrides the app name in the title and alt text.'),
+  "logoUrl": zod.string().nullable().describe('Public served path of the logo shown in nav and landing.'),
+  "iconUrl": zod.string().nullable().describe('Public served path of the favicon \/ app icon.'),
+  "primaryColor": zod.string().nullable().describe('Hex primary\/accent color applied to the theme.'),
+  "backgroundColor": zod.string().nullable().describe('Hex app background color applied to the theme.')
+})
+
+
+/**
+ * @summary Mint a presigned URL to upload a public brand asset (superadmin only)
+ */
+export const CreateAppBrandUploadUrlBody = zod.object({
+  "contentType": zod.string().describe('MIME type of the asset to upload (e.g. image\/png).')
+})
+
+export const CreateAppBrandUploadUrlResponse = zod.object({
+  "uploadURL": zod.string().describe('Presigned URL to PUT the file bytes to.'),
+  "servedPath": zod.string().describe('Browser-facing path where the uploaded asset will be served.')
+})
+
+
+/**
  * @summary Get the current tenant's notification preferences and effective channels
  */
 export const GetNotificationSettingsResponse = zod.object({

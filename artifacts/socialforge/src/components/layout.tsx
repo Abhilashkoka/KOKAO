@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { NotificationsBanner } from "@/components/notifications-banner";
 import { OnboardingWizard } from "@/components/onboarding-wizard";
-import kokaoLockup from "@assets/kokao-lockup_1783325983377.svg";
+import { useBrand } from "@/lib/brand";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -32,7 +32,7 @@ const NAV_ITEMS = [
 ];
 
 const ADMIN_NAV_ITEMS = [
-  { href: "/app-brand-kit", label: "App Brand Kit", icon: SwatchBook },
+  { href: "/app-brand", label: "Branding", icon: SwatchBook },
   { href: "/admin", label: "Admin", icon: Shield },
 ];
 
@@ -40,6 +40,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { isLoaded } = useAuth();
   const { data: me } = useGetMe();
+  const { logoUrl, appName } = useBrand();
   const navItems = me?.isSuperadmin
     ? [...NAV_ITEMS, ...ADMIN_NAV_ITEMS]
     : NAV_ITEMS;
@@ -68,7 +69,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen w-full bg-background flex flex-col md:flex-row">
       {/* Mobile Header */}
       <div className="md:hidden flex items-center justify-between p-4 border-b border-border bg-card sticky top-0 z-50">
-        <img src={kokaoLockup} alt="KOKAO" className="h-7 w-auto" />
+        <img src={logoUrl} alt={appName} className="h-7 w-auto" />
         <div className="flex items-center gap-3">
           <UserButton />
           <Sheet>
@@ -78,7 +79,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               </Button>
             </SheetTrigger>
             <SheetContent side="left" className="w-64 p-6 flex flex-col gap-8">
-              <img src={kokaoLockup} alt="KOKAO" className="h-7 w-auto" />
+              <img src={logoUrl} alt={appName} className="h-7 w-auto" />
               <NavLinks />
             </SheetContent>
           </Sheet>
@@ -88,7 +89,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Desktop Sidebar */}
       <div className="hidden md:flex w-64 flex-col border-r border-border bg-card p-6 h-screen sticky top-0">
         <div className="flex items-center mb-10 px-2">
-          <img src={kokaoLockup} alt="KOKAO" className="h-9 w-auto" />
+          <img src={logoUrl} alt={appName} className="h-9 w-auto" />
         </div>
         
         <div className="flex-1">

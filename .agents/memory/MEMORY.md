@@ -14,3 +14,4 @@
 - [Admin audit trail](admin-audit-trail.md) — append-only admin_audit_logs records plan/superadmin changes; recordAdminAction is best-effort (never fail the primary action).
 - [SocialForge frontend tests](socialforge-frontend-tests.md) — vitest+RTL+jsdom harness for the web artifact; standalone vitest.config, mock @workspace/api-client-react, scope by .flex-1.
 - [KOKAO branding](kokao-branding.md) — app is user-facing branded "KOKAO" but code package stays @workspace/socialforge; don't rename packages. Assets via @assets + public/.
+- [App branding editor](app-branding.md) — superadmin /app-brand editor; brand assets are PUBLIC (pre-auth), GET public + writes superadmin; hex→HSL theming, null=default.

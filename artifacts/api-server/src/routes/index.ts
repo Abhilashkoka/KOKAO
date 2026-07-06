@@ -18,6 +18,7 @@ import notificationsRouter from "./notifications";
 import notificationSettingsRouter from "./notificationSettings";
 import emailSettingsRouter from "./emailSettings";
 import adminRouter from "./admin";
+import { publicAppBrandRouter, protectedAppBrandRouter } from "./appBrand";
 import { requireTenant } from "../middlewares/requireTenant";
 import { aiLimiter, sensitiveLimiter } from "../middlewares/rateLimit";
 
@@ -27,6 +28,7 @@ const router: IRouter = Router();
 router.use(healthRouter);
 router.use(publicStorageRouter);
 router.use(plansRouter);
+router.use(publicAppBrandRouter);
 
 // Everything below requires an authenticated tenant
 router.use(requireTenant);
@@ -56,5 +58,6 @@ router.use(notificationsRouter);
 router.use(notificationSettingsRouter);
 router.use(emailSettingsRouter);
 router.use(adminRouter);
+router.use(protectedAppBrandRouter);
 
 export default router;

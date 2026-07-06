@@ -100,6 +100,78 @@ paths:
                 items:
                   $ref: "#/components/schemas/Plan"
 
+  /app-brand:
+    get:
+      operationId: getAppBrand
+      tags: [appBrand]
+      summary: Get the platform branding (public; used pre-auth for landing/auth/favicon)
+      responses:
+        "200":
+          description: Current platform branding
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppBrand"
+    put:
+      operationId: updateAppBrand
+      tags: [appBrand]
+      summary: Update the platform branding (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppBrandInput"
+      responses:
+        "200":
+          description: Updated platform branding
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppBrand"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /app-brand/upload-url:
+    post:
+      operationId: createAppBrandUploadUrl
+      tags: [appBrand]
+      summary: Mint a presigned URL to upload a public brand asset (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppBrandUploadUrlBody"
+      responses:
+        "200":
+          description: Presigned upload URL and the resulting served path
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppBrandUploadUrlResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /notification-settings:
     get:
       operationId: getNotificationSettings
@@ -2036,6 +2108,56 @@ components:
         brandOnboardingComplete:
           type: boolean
           description: Whether the tenant has finished (or skipped) brand onboarding.
+    AppBrand:
+      type: object
+      required:
+        [appName, logoUrl, iconUrl, primaryColor, backgroundColor]
+      properties:
+        appName:
+          type: ["string", "null"]
+          description: Overrides the app name in the title and alt text.
+        logoUrl:
+          type: ["string", "null"]
+          description: Public served path of the logo shown in nav and landing.
+        iconUrl:
+          type: ["string", "null"]
+          description: Public served path of the favicon / app icon.
+        primaryColor:
+          type: ["string", "null"]
+          description: Hex primary/accent color applied to the theme.
+        backgroundColor:
+          type: ["string", "null"]
+          description: Hex app background color applied to the theme.
+    AppBrandInput:
+      type: object
+      properties:
+        appName:
+          type: ["string", "null"]
+        logoUrl:
+          type: ["string", "null"]
+        iconUrl:
+          type: ["string", "null"]
+        primaryColor:
+          type: ["string", "null"]
+        backgroundColor:
+          type: ["string", "null"]
+    AppBrandUploadUrlBody:
+      type: object
+      required: [contentType]
+      properties:
+        contentType:
+          type: string
+          description: MIME type of the asset to upload (e.g. image/png).
+    AppBrandUploadUrlResponse:
+      type: object
+      required: [uploadURL, servedPath]
+      properties:
+        uploadURL:
+          type: string
+          description: Presigned URL to PUT the file bytes to.
+        servedPath:
+          type: string
+          description: Browser-facing path where the uploaded asset will be served.
     Plan:
       type: object
       required: [id, name, priceLabel, limits, features]

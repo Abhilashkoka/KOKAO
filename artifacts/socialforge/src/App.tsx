@@ -9,7 +9,8 @@ import { BrandKitsPage } from "@/pages/brand-kits";
 import { AccountsPage } from "@/pages/accounts";
 import { SettingsPage } from "@/pages/settings";
 import { AdminPage } from "@/pages/admin";
-import { AppBrandKitPage } from "@/pages/app-brand-kit";
+import { AppBrandingPage } from "@/pages/app-branding";
+import { BrandProvider } from "@/lib/brand";
 
 import { Switch, Route, useLocation, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
@@ -118,6 +119,7 @@ function ClerkProviderWithRoutes() {
     >
       <QueryClientProvider client={queryClient}>
         <ClerkQueryClientCacheInvalidator />
+        <BrandProvider>
         <TooltipProvider>
           <Switch>
             <Route path="/" component={HomeRoute} />
@@ -131,12 +133,13 @@ function ClerkProviderWithRoutes() {
             <Route path="/accounts" component={() => <ProtectedRoute component={AccountsPage} />} />
             <Route path="/settings" component={() => <ProtectedRoute component={SettingsPage} />} />
             <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} />} />
-            <Route path="/app-brand-kit" component={() => <ProtectedRoute component={AppBrandKitPage} />} />
+            <Route path="/app-brand" component={() => <ProtectedRoute component={AppBrandingPage} />} />
             
             <Route component={NotFound} />
           </Switch>
           <Toaster />
         </TooltipProvider>
+        </BrandProvider>
       </QueryClientProvider>
     </ClerkProvider>
   );

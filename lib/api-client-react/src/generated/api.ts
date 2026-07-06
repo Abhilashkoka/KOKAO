@@ -25,6 +25,10 @@ import type {
   AdminAuditLog,
   AdminStats,
   AdminTenant,
+  AppBrand,
+  AppBrandInput,
+  AppBrandUploadUrlBody,
+  AppBrandUploadUrlResponse,
   BrandAsset,
   BrandAssetInput,
   BrandDraftRequest,
@@ -423,6 +427,223 @@ export function useListPlans<TData = Awaited<ReturnType<typeof listPlans>>, TErr
 
 
 
+
+export const getGetAppBrandUrl = () => {
+
+
+
+
+  return `/api/app-brand`
+}
+
+/**
+ * @summary Get the platform branding (public; used pre-auth for landing/auth/favicon)
+ */
+export const getAppBrand = async ( options?: RequestInit): Promise<AppBrand> => {
+
+  return customFetch<AppBrand>(getGetAppBrandUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAppBrandQueryKey = () => {
+    return [
+    `/api/app-brand`
+    ] as const;
+    }
+
+
+export const getGetAppBrandQueryOptions = <TData = Awaited<ReturnType<typeof getAppBrand>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAppBrand>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAppBrandQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAppBrand>>> = ({ signal }) => getAppBrand({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAppBrand>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAppBrandQueryResult = NonNullable<Awaited<ReturnType<typeof getAppBrand>>>
+export type GetAppBrandQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the platform branding (public; used pre-auth for landing/auth/favicon)
+ */
+
+export function useGetAppBrand<TData = Awaited<ReturnType<typeof getAppBrand>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAppBrand>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAppBrandQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateAppBrandUrl = () => {
+
+
+
+
+  return `/api/app-brand`
+}
+
+/**
+ * @summary Update the platform branding (superadmin only)
+ */
+export const updateAppBrand = async (appBrandInput: AppBrandInput, options?: RequestInit): Promise<AppBrand> => {
+
+  return customFetch<AppBrand>(getUpdateAppBrandUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(appBrandInput)
+  }
+);}
+
+
+
+
+export const getUpdateAppBrandMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAppBrand>>, TError,{data: BodyType<AppBrandInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAppBrand>>, TError,{data: BodyType<AppBrandInput>}, TContext> => {
+
+const mutationKey = ['updateAppBrand'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAppBrand>>, {data: BodyType<AppBrandInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateAppBrand(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateAppBrandMutationResult = NonNullable<Awaited<ReturnType<typeof updateAppBrand>>>
+    export type UpdateAppBrandMutationBody = BodyType<AppBrandInput>
+    export type UpdateAppBrandMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update the platform branding (superadmin only)
+ */
+export const useUpdateAppBrand = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAppBrand>>, TError,{data: BodyType<AppBrandInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateAppBrand>>,
+        TError,
+        {data: BodyType<AppBrandInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateAppBrandMutationOptions(options));
+    }
+
+export const getCreateAppBrandUploadUrlUrl = () => {
+
+
+
+
+  return `/api/app-brand/upload-url`
+}
+
+/**
+ * @summary Mint a presigned URL to upload a public brand asset (superadmin only)
+ */
+export const createAppBrandUploadUrl = async (appBrandUploadUrlBody: AppBrandUploadUrlBody, options?: RequestInit): Promise<AppBrandUploadUrlResponse> => {
+
+  return customFetch<AppBrandUploadUrlResponse>(getCreateAppBrandUploadUrlUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(appBrandUploadUrlBody)
+  }
+);}
+
+
+
+
+export const getCreateAppBrandUploadUrlMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAppBrandUploadUrl>>, TError,{data: BodyType<AppBrandUploadUrlBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAppBrandUploadUrl>>, TError,{data: BodyType<AppBrandUploadUrlBody>}, TContext> => {
+
+const mutationKey = ['createAppBrandUploadUrl'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAppBrandUploadUrl>>, {data: BodyType<AppBrandUploadUrlBody>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createAppBrandUploadUrl(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateAppBrandUploadUrlMutationResult = NonNullable<Awaited<ReturnType<typeof createAppBrandUploadUrl>>>
+    export type CreateAppBrandUploadUrlMutationBody = BodyType<AppBrandUploadUrlBody>
+    export type CreateAppBrandUploadUrlMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Mint a presigned URL to upload a public brand asset (superadmin only)
+ */
+export const useCreateAppBrandUploadUrl = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAppBrandUploadUrl>>, TError,{data: BodyType<AppBrandUploadUrlBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createAppBrandUploadUrl>>,
+        TError,
+        {data: BodyType<AppBrandUploadUrlBody>},
+        TContext
+      > => {
+      return useMutation(getCreateAppBrandUploadUrlMutationOptions(options));
+    }
 
 export const getGetNotificationSettingsUrl = () => {
 

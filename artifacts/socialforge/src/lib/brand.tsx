@@ -1,0 +1,123 @@
+import { createContext, useContext, useEffect } from "react";
+import { useGetAppBrand } from "@workspace/api-client-react";
+import type { AppBrand } from "@workspace/api-client-react";
+import kokaoLockup from "@assets/kokao-lockup_1783325983377.svg";
+
+const DEFAULT_APP_NAME = "KOKAO";
+
+type BrandContextValue = {
+  appName: string;
+  logoUrl: string;
+  iconUrl: string | null;
+};
+
+const BrandContext = createContext<BrandContextValue>({
+  appName: DEFAULT_APP_NAME,
+  logoUrl: kokaoLockup,
+  iconUrl: null,
+});
+
+export function useBrand(): BrandContextValue {
+  return useContext(BrandContext);
+}
+
+/**
+ * Convert a `#rrggbb` / `#rgb` hex string to the `"H S% L%"` triplet the theme
+ * tokens expect (used as `hsl(var(--token))`). Returns null on invalid input.
+ */
+function hexToHslTriplet(hex: string | null): string | null {
+  if (!hex) return null;
+  let value = hex.trim().replace(/^#/, "");
+  if (value.length === 3) {
+    value = value
+      .split("")
+      .map((c) => c + c)
+      .join("");
+  }
+  if (!/^[0-9a-fA-F]{6}$/.test(value)) return null;
+
+  const r = parseInt(value.slice(0, 2), 16) / 255;
+  const g = parseInt(value.slice(2, 4), 16) / 255;
+  const b = parseInt(value.slice(4, 6), 16) / 255;
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  let h = 0;
+  let s = 0;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r:
+        h = (g - b) / d + (g < b ? 6 : 0);
+        break;
+      case g:
+        h = (b - r) / d + 2;
+        break;
+      default:
+        h = (r - g) / d + 4;
+    }
+    h /= 6;
+  }
+
+  return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
+}
+
+function applyThemeColor(name: string, hex: string | null) {
+  const root = document.documentElement;
+  const triplet = hexToHslTriplet(hex);
+  if (triplet) {
+    root.style.setProperty(name, triplet);
+  } else {
+    root.style.removeProperty(name);
+  }
+}
+
+const DEFAULT_FAVICON = "/favicon.svg";
+
+function setFavicon(href: string | null) {
+  let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = "icon";
+    document.head.appendChild(link);
+  }
+  // Fall back to the bundled default so clearing a custom icon reverts live.
+  link.href = href || DEFAULT_FAVICON;
+}
+
+/**
+ * Fetches the platform branding and applies it globally: document title,
+ * favicon, and theme colors. Also exposes the resolved logo/app name to the
+ * tree via context, so nav/landing render the uploaded logo (falling back to
+ * the bundled KOKAO lockup when nothing has been configured).
+ */
+export function BrandProvider({ children }: { children: React.ReactNode }) {
+  const { data } = useGetAppBrand();
+  const brand = data as AppBrand | undefined;
+
+  const appName = brand?.appName || DEFAULT_APP_NAME;
+  const logoUrl = brand?.logoUrl || kokaoLockup;
+  const iconUrl = brand?.iconUrl ?? null;
+
+  useEffect(() => {
+    document.title = appName;
+  }, [appName]);
+
+  useEffect(() => {
+    setFavicon(iconUrl);
+  }, [iconUrl]);
+
+  useEffect(() => {
+    applyThemeColor("--primary", brand?.primaryColor ?? null);
+    applyThemeColor("--ring", brand?.primaryColor ?? null);
+    applyThemeColor("--background", brand?.backgroundColor ?? null);
+  }, [brand?.primaryColor, brand?.backgroundColor]);
+
+  return (
+    <BrandContext.Provider value={{ appName, logoUrl, iconUrl }}>
+      {children}
+    </BrandContext.Provider>
+  );
+}
