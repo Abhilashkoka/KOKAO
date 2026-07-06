@@ -9,6 +9,7 @@ import {
   Share2, 
   Settings,
   Shield,
+  SwatchBook,
   Menu,
   LogOut
 } from "lucide-react";
@@ -29,14 +30,17 @@ const NAV_ITEMS = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-const ADMIN_NAV_ITEM = { href: "/admin", label: "Admin", icon: Shield };
+const ADMIN_NAV_ITEMS = [
+  { href: "/app-brand-kit", label: "App Brand Kit", icon: SwatchBook },
+  { href: "/admin", label: "Admin", icon: Shield },
+];
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { isLoaded } = useAuth();
   const { data: me } = useGetMe();
   const navItems = me?.isSuperadmin
-    ? [...NAV_ITEMS, ADMIN_NAV_ITEM]
+    ? [...NAV_ITEMS, ...ADMIN_NAV_ITEMS]
     : NAV_ITEMS;
   
   if (!isLoaded) {
