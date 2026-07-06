@@ -209,7 +209,7 @@ export function AppBrandingPage() {
         </h2>
         <UploadSlot
           label="Logo"
-          description="Shown in the sidebar, mobile header, and landing page. SVG or PNG recommended."
+          description="Shown in the sidebar, mobile header, and landing page. SVG or transparent PNG, recommended 512x128 px (4:1, at least 200 px wide)."
           value={form.logoUrl ?? null}
           uploading={uploadingField === "logoUrl"}
           onPick={(file) => handleUpload("logoUrl", file)}
@@ -217,7 +217,7 @@ export function AppBrandingPage() {
         />
         <UploadSlot
           label="Icon / Favicon"
-          description="Shown in the browser tab. A square PNG works best."
+          description="Shown in the browser tab. Square PNG or SVG, recommended 512x512 px (at least 64x64)."
           value={form.iconUrl ?? null}
           uploading={uploadingField === "iconUrl"}
           onPick={(file) => handleUpload("iconUrl", file)}
