@@ -1,5 +1,15 @@
 import { useGetMe } from "@workspace/api-client-react";
 import { ShieldAlert, Check, X, Sparkles } from "lucide-react";
+import kokaoMark from "@assets/kokao-mark_1783325983378.svg";
+import kokaoMarkPng from "@assets/kokao-mark_1783325983378.png";
+import kokaoAppIcon from "@assets/kokao-app-icon_1783325983375.svg";
+import kokaoAppIconPng from "@assets/kokao-app-icon_1783325983366.png";
+import kokaoLockup from "@assets/kokao-lockup_1783325983377.svg";
+import kokaoLockupReversed from "@assets/kokao-lockup-reversed_1783325983376.svg";
+import kokaoWordmark from "@assets/kokao-wordmark_1783325983367.svg";
+import kokaoWordmarkReversed from "@assets/kokao-wordmark-reversed_1783325983377.svg";
+import kokaoFavicon180 from "@assets/kokao-favicon-180_1783325983375.png";
+import kokaoFavicon32 from "@assets/kokao-favicon-32_1783325983376.png";
 
 /**
  * KOKAO — application-level brand kit (superadmin only).
@@ -319,38 +329,23 @@ export function AppBrandKitPage() {
           </div>
         </div>
 
-        <h3 style={{ ...h3Style, marginTop: 34 }}>Set B · gc6</h3>
+        <h3 style={{ ...h3Style, marginTop: 34 }}>Set B · gc6 — production assets</h3>
         <div style={{ display: "flex", gap: 22, flexWrap: "wrap" }}>
           <div>
             <div style={{ ...cardBase, width: 210, height: 130, background: K.tileInk }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                <Mark size={42} ring={K.accentB} dot={K.accentB} />
-                <Wordmark fontSize={26} color={K.inkOnDark} accent={K.accentB} letterSpacing={-1} />
-              </div>
+              <img src={kokaoLockupReversed} alt="KOKAO lockup, Set B" style={{ height: 40, width: "auto" }} />
             </div>
             <div style={capStyle}>Lockup</div>
           </div>
           <div>
             <div style={{ ...cardBase, width: 210, height: 130 }}>
-              <div
-                style={{
-                  width: 78,
-                  height: 78,
-                  borderRadius: 21,
-                  background: K.accentB,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Mark size={46} ring={K.tileInk} dot={K.tileInk} />
-              </div>
+              <img src={kokaoAppIcon} alt="KOKAO app icon, Set B" style={{ width: 78, height: 78 }} />
             </div>
             <div style={capStyle}>App icon</div>
           </div>
           <div>
             <div style={{ ...cardBase, width: 210, height: 130, background: K.tileInk }}>
-              <Mark size={60} ring={K.accentB} dot={K.accentB} />
+              <img src={kokaoMark} alt="KOKAO mark, Set B" style={{ width: 60, height: 60 }} />
             </div>
             <div style={capStyle}>Mark</div>
           </div>
@@ -615,6 +610,72 @@ export function AppBrandKitPage() {
         </div>
         <Foot pageLabel="05 · Usage" />
       </Page>
+
+      {/* ===== ASSETS ===== */}
+      <Page>
+        <div style={kick(K.kickGreyPaper)}>Downloads</div>
+        <h2 style={h2Style}>Brand assets</h2>
+        <p
+          style={{
+            maxWidth: 640,
+            color: K.paraGrey,
+            fontSize: 15,
+            lineHeight: 1.55,
+            marginBottom: 32,
+          }}
+        >
+          The production-ready KOKAO logo files, exactly as used across the app.
+          Use the reversed variants on dark surfaces and the ink variants on
+          light. On green, always pair with ink.
+        </p>
+        <div style={{ display: "flex", gap: 22, flexWrap: "wrap" }}>
+          <AssetTile src={kokaoLockup} caption="Lockup · ink" height={40} />
+          <AssetTile src={kokaoLockupReversed} caption="Lockup · reversed" dark height={40} />
+          <AssetTile src={kokaoWordmark} caption="Wordmark · ink" height={38} />
+          <AssetTile src={kokaoWordmarkReversed} caption="Wordmark · reversed" dark height={38} />
+          <AssetTile src={kokaoMark} caption="Mark · SVG" dark box={64} />
+          <AssetTile src={kokaoMarkPng} caption="Mark · PNG" dark box={64} />
+          <AssetTile src={kokaoAppIcon} caption="App icon · SVG" box={88} />
+          <AssetTile src={kokaoAppIconPng} caption="App icon · PNG 1024" box={88} />
+          <AssetTile src={kokaoFavicon180} caption="Favicon · 180" box={60} />
+          <AssetTile src={kokaoFavicon32} caption="Favicon · 32" box={32} />
+        </div>
+        <Foot pageLabel="06 · Assets" />
+      </Page>
+    </div>
+  );
+}
+
+function AssetTile({
+  src,
+  caption,
+  dark,
+  height,
+  box,
+}: {
+  src: string;
+  caption: string;
+  dark?: boolean;
+  height?: number;
+  box?: number;
+}) {
+  return (
+    <div>
+      <div
+        style={{
+          ...cardBase,
+          width: 210,
+          height: 140,
+          background: dark ? K.tileInk : K.white,
+        }}
+      >
+        <img
+          src={src}
+          alt={caption}
+          style={box ? { width: box, height: box } : { height: height ?? 40, width: "auto" }}
+        />
+      </div>
+      <div style={capStyle}>{caption}</div>
     </div>
   );
 }

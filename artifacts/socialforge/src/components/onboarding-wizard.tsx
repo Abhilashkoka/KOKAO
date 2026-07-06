@@ -121,7 +121,7 @@ export function OnboardingWizard() {
             </div>
             <div className="space-y-2">
               <h2 className="text-2xl font-extrabold tracking-tight">
-                Welcome to SocialForge
+                Welcome to KOKAO
               </h2>
               <p className="text-muted-foreground">
                 Set up a brand kit so every caption and image stays on-brand.

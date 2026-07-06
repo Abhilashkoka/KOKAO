@@ -1,14 +1,14 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Sparkles, Image as ImageIcon, Calendar as CalendarIcon } from "lucide-react";
+import kokaoLockup from "@assets/kokao-lockup_1783325983377.svg";
 
 export function LandingPage() {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <header className="py-6 px-4 md:px-8 max-w-7xl mx-auto w-full flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 bg-primary rounded-xl flex items-center justify-center text-primary-foreground font-bold text-xl shadow-lg shadow-primary/30">S</div>
-          <span className="font-bold text-2xl tracking-tight">SocialForge</span>
+          <img src={kokaoLockup} alt="KOKAO" className="h-9 w-auto" />
         </div>
         <div className="flex items-center gap-4">
           <Link href="/sign-in">
@@ -44,7 +44,7 @@ export function LandingPage() {
 
         <section className="px-4 max-w-6xl mx-auto pb-32">
           <div className="relative rounded-2xl overflow-hidden border border-border shadow-2xl shadow-black/5 aspect-video bg-muted">
-            <img src="/hero-image.png" alt="SocialForge Studio" className="w-full h-full object-cover" />
+            <img src="/hero-image.png" alt="KOKAO Studio" className="w-full h-full object-cover" />
             <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent pointer-events-none" />
           </div>
         </section>
@@ -83,11 +83,10 @@ export function LandingPage() {
       </main>
       
       <footer className="py-12 border-t border-border text-center text-muted-foreground">
-        <div className="flex items-center justify-center gap-2 mb-4">
-          <div className="h-6 w-6 bg-primary rounded flex items-center justify-center text-primary-foreground font-bold text-xs">S</div>
-          <span className="font-bold tracking-tight text-foreground">SocialForge</span>
+        <div className="flex items-center justify-center mb-4">
+          <img src={kokaoLockup} alt="KOKAO" className="h-7 w-auto" />
         </div>
-        <p>&copy; {new Date().getFullYear()} SocialForge Inc. All rights reserved.</p>
+        <p>&copy; {new Date().getFullYear()} KOKAO Inc. All rights reserved.</p>
       </footer>
     </div>
   );
