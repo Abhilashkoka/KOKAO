@@ -11,7 +11,7 @@ const buttonVariants = cva(
       variant: {
         // Glass style: translucent tinted pill with blur; hover brightens the
         // glass (stays glass, no solid fill).
-        default: "glass-btn text-primary",
+        default: "glass-btn text-primary-foreground",
         destructive:
           "border border-destructive/25 bg-destructive/10 text-destructive backdrop-blur-md shadow-[inset_0_1px_0_0_rgba(255,255,255,0.6),0_4px_16px_-4px_rgba(0,0,0,0.15)] hover:bg-destructive/20 hover:border-destructive/40",
         outline: "glass-btn-neutral",

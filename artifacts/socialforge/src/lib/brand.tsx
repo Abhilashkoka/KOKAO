@@ -64,6 +64,26 @@ function hexToHslTriplet(hex: string | null): string | null {
   return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
 }
 
+/**
+ * WCAG relative luminance of a `#rrggbb` hex color, or null on invalid input.
+ */
+function hexLuminance(hex: string | null): number | null {
+  if (!hex) return null;
+  let value = hex.trim().replace(/^#/, "");
+  if (value.length === 3) {
+    value = value
+      .split("")
+      .map((c) => c + c)
+      .join("");
+  }
+  if (!/^[0-9a-fA-F]{6}$/.test(value)) return null;
+  const channel = (i: number) => {
+    const c = parseInt(value.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
+}
+
 function applyThemeColor(name: string, hex: string | null) {
   const root = document.documentElement;
   const triplet = hexToHslTriplet(hex);
@@ -113,6 +133,20 @@ export function BrandProvider({ children }: { children: React.ReactNode }) {
     applyThemeColor("--primary", brand?.primaryColor ?? null);
     applyThemeColor("--ring", brand?.primaryColor ?? null);
     applyThemeColor("--background", brand?.backgroundColor ?? null);
+
+    // Keep text on solid primary-filled surfaces (e.g. glass buttons)
+    // readable for any brand color: pick near-black or white foreground
+    // based on the primary color's luminance (contrast-ratio midpoint).
+    const root = document.documentElement;
+    const luminance = hexLuminance(brand?.primaryColor ?? null);
+    if (luminance === null) {
+      root.style.removeProperty("--primary-foreground");
+    } else {
+      root.style.setProperty(
+        "--primary-foreground",
+        luminance > 0.179 ? "240 6% 10%" : "0 0% 100%",
+      );
+    }
   }, [brand?.primaryColor, brand?.backgroundColor]);
 
   return (
