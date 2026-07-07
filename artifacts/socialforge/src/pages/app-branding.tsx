@@ -22,7 +22,7 @@ const COLOR_THEMES: {
   primaryColor: string;
   backgroundColor: string;
 }[] = [
-  { name: "Violet", primaryColor: "#7c3aed", backgroundColor: "#eeeef0" },
+  { name: "Violet", primaryColor: "#7c3aed", backgroundColor: "#ffffff" },
   { name: "Ocean", primaryColor: "#0ea5e9", backgroundColor: "#eef4f8" },
   { name: "Forest", primaryColor: "#059669", backgroundColor: "#eef3f0" },
   { name: "Sunset", primaryColor: "#ea580c", backgroundColor: "#f7f1ec" },
@@ -339,7 +339,7 @@ export function AppBrandingPage() {
                 id="backgroundColor"
                 type="color"
                 className="h-10 w-14 rounded-md border border-border bg-background cursor-pointer"
-                value={form.backgroundColor || "#eeeef0"}
+                value={form.backgroundColor || "#ffffff"}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, backgroundColor: e.target.value }))
                 }
