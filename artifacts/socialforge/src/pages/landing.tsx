@@ -22,7 +22,12 @@ export function LandingPage() {
       </header>
 
       <main className="flex-1">
-        <section className="py-20 md:py-32 px-4 text-center max-w-5xl mx-auto flex flex-col items-center">
+        <section className="relative py-20 md:py-32 px-4 text-center max-w-5xl mx-auto flex flex-col items-center">
+          <div className="pointer-events-none absolute inset-0 -z-10 overflow-visible" aria-hidden="true">
+            <div className="absolute left-1/2 top-1/3 -translate-x-[80%] h-72 w-72 rounded-full bg-primary/25 blur-3xl" />
+            <div className="absolute left-1/2 top-1/2 translate-x-[10%] h-80 w-80 rounded-full bg-purple-400/25 blur-3xl" />
+            <div className="absolute left-1/2 bottom-0 -translate-x-1/2 h-56 w-[28rem] rounded-full bg-fuchsia-300/20 blur-3xl" />
+          </div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary font-medium text-sm mb-6 border border-primary/20">
             <Sparkles className="h-4 w-4" />
             <span>The AI creative studio for modern brands</span>
