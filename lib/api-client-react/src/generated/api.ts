@@ -74,6 +74,8 @@ import type {
   PublishInstagramResult,
   PublishLinkedInResult,
   PublishTwitterResult,
+  ResearchRequest,
+  ResearchResult,
   ResolveSelectionInput,
   ResolveSelectionResult,
   ScheduleInput,
@@ -3410,6 +3412,76 @@ export const useGenerateCampaign = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getGenerateCampaignMutationOptions(options));
+    }
+
+export const getResearchTopicUrl = () => {
+
+
+
+
+  return `/api/ai/research`
+}
+
+/**
+ * @summary Search the live web for a topic and return a sourced research brief
+ */
+export const researchTopic = async (researchRequest: ResearchRequest, options?: RequestInit): Promise<ResearchResult> => {
+
+  return customFetch<ResearchResult>(getResearchTopicUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(researchRequest)
+  }
+);}
+
+
+
+
+export const getResearchTopicMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof researchTopic>>, TError,{data: BodyType<ResearchRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof researchTopic>>, TError,{data: BodyType<ResearchRequest>}, TContext> => {
+
+const mutationKey = ['researchTopic'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof researchTopic>>, {data: BodyType<ResearchRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  researchTopic(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResearchTopicMutationResult = NonNullable<Awaited<ReturnType<typeof researchTopic>>>
+    export type ResearchTopicMutationBody = BodyType<ResearchRequest>
+    export type ResearchTopicMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Search the live web for a topic and return a sourced research brief
+ */
+export const useResearchTopic = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof researchTopic>>, TError,{data: BodyType<ResearchRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof researchTopic>>,
+        TError,
+        {data: BodyType<ResearchRequest>},
+        TContext
+      > => {
+      return useMutation(getResearchTopicMutationOptions(options));
     }
 
 export const getListSchedulesUrl = () => {

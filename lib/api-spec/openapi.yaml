@@ -1124,6 +1124,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/research:
+    post:
+      operationId: researchTopic
+      tags: [ai]
+      summary: Search the live web for a topic and return a sourced research brief
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResearchRequest"
+      responses:
+        "200":
+          description: Sourced research brief
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResearchResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Research produced no usable results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /schedules:
     get:
@@ -3230,6 +3260,44 @@ components:
           type: string
         summary:
           type: string
+    ResearchRequest:
+      type: object
+      required: [topic]
+      properties:
+        topic:
+          type: string
+          minLength: 1
+          description: The topic or question to research on the live web.
+        brandKitId:
+          type: ["integer", "null"]
+    ResearchSource:
+      type: object
+      required: [title, url]
+      properties:
+        title:
+          type: string
+        url:
+          type: string
+    ResearchResult:
+      type: object
+      required: [summary, keyFindings, sources, suggestedAngles]
+      properties:
+        summary:
+          type: string
+          description: Concise research brief grounded in live web results.
+        keyFindings:
+          type: array
+          items:
+            type: string
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/ResearchSource"
+        suggestedAngles:
+          type: array
+          description: Post angle suggestions derived from the findings.
+          items:
+            type: string
     CampaignRequest:
       type: object
       required: [prompt, platforms]

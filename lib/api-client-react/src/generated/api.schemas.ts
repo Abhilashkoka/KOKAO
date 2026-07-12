@@ -999,6 +999,30 @@ export interface SummarizeUrlResult {
   summary: string;
 }
 
+export interface ResearchRequest {
+  /**
+     * The topic or question to research on the live web.
+     * @minLength 1
+     */
+  topic: string;
+  /** @nullable */
+  brandKitId?: number | null;
+}
+
+export interface ResearchSource {
+  title: string;
+  url: string;
+}
+
+export interface ResearchResult {
+  /** Concise research brief grounded in live web results. */
+  summary: string;
+  keyFindings: string[];
+  sources: ResearchSource[];
+  /** Post angle suggestions derived from the findings. */
+  suggestedAngles: string[];
+}
+
 export interface CampaignRequest {
   /**
      * Topic, idea, or summary to base the campaign on.

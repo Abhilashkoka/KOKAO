@@ -3183,6 +3183,28 @@ export const GenerateCampaignResponse = zod.object({
 
 
 /**
+ * @summary Search the live web for a topic and return a sourced research brief
+ */
+
+
+
+export const ResearchTopicBody = zod.object({
+  "topic": zod.string().min(1).describe('The topic or question to research on the live web.'),
+  "brandKitId": zod.number().nullish()
+})
+
+export const ResearchTopicResponse = zod.object({
+  "summary": zod.string().describe('Concise research brief grounded in live web results.'),
+  "keyFindings": zod.array(zod.string()),
+  "sources": zod.array(zod.object({
+  "title": zod.string(),
+  "url": zod.string()
+})),
+  "suggestedAngles": zod.array(zod.string()).describe('Post angle suggestions derived from the findings.')
+})
+
+
+/**
  * @summary List scheduled posts
  */
 export const ListSchedulesResponseItem = zod.object({

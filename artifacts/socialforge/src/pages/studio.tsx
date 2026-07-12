@@ -8,10 +8,12 @@ import {
   useGenerateCampaign,
   useSuggestTopics,
   useSummarizeUrl,
+  useResearchTopic,
   useCreateContent,
   useListBrandKits,
   getListContentQueryKey,
   type CampaignPost,
+  type ResearchResult,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -23,7 +25,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useToast } from "@/hooks/use-toast";
-import { Wand2, Image as ImageIcon, Save, Loader2, Lightbulb, Link2, Layers } from "lucide-react";
+import { Wand2, Image as ImageIcon, Save, Loader2, Lightbulb, Link2, Layers, Globe, ExternalLink } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { CampaignPostCard } from "@/components/campaign-post-card";
 import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy } from "@workspace/social-limits";
@@ -53,6 +55,8 @@ export function StudioPage() {
   const [niche, setNiche] = useState("");
   const [topicIdeas, setTopicIdeas] = useState<string[]>([]);
   const [articleUrl, setArticleUrl] = useState("");
+  const [researchQuery, setResearchQuery] = useState("");
+  const [researchResult, setResearchResult] = useState<ResearchResult | null>(null);
   const [campaignPlatforms, setCampaignPlatforms] = useState<string[]>([
     "instagram",
     "facebook",
@@ -67,6 +71,7 @@ export function StudioPage() {
   const generateCampaign = useGenerateCampaign();
   const suggestTopics = useSuggestTopics();
   const summarizeUrl = useSummarizeUrl();
+  const researchTopic = useResearchTopic();
   const createContent = useCreateContent();
 
   const form = useForm<z.infer<typeof schema>>({
@@ -126,6 +131,34 @@ export function StudioPage() {
         onError: handleError,
       },
     );
+  };
+
+  const onResearch = () => {
+    if (researchQuery.trim().length < 3) {
+      toast({ title: "Enter a topic", description: "Tell us what to research first.", variant: "destructive" });
+      return;
+    }
+    const brandKitId = form.getValues().brandKitId;
+    setResearchResult(null);
+    researchTopic.mutate(
+      { data: { topic: researchQuery.trim(), brandKitId: brandKitId || undefined } },
+      {
+        onSuccess: (res) => {
+          setResearchResult(res);
+          toast({ title: "Research complete", description: `${res.sources.length} sources found.` });
+        },
+        onError: handleError,
+      },
+    );
+  };
+
+  const useResearchAsBrief = () => {
+    if (!researchResult) return;
+    const findings = researchResult.keyFindings.length
+      ? ` Key facts: ${researchResult.keyFindings.join(" | ")}`
+      : "";
+    form.setValue("prompt", `${researchResult.summary}${findings}`.slice(0, 4000));
+    toast({ title: "Research added to brief" });
   };
 
   const onGenerateCaption = (data: z.infer<typeof schema>) => {
@@ -218,6 +251,7 @@ export function StudioPage() {
     generateCaption.isPending ||
     generateImage.isPending ||
     generateCampaign.isPending ||
+    researchTopic.isPending ||
     createContent.isPending;
 
   const selectedBrandKitId = form.watch("brandKitId") || undefined;
@@ -242,9 +276,12 @@ export function StudioPage() {
             </CardHeader>
             <CardContent>
               <Tabs defaultValue="ideas">
-                <TabsList className="grid w-full grid-cols-2">
+                <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="ideas">
-                    <Lightbulb className="mr-2 h-4 w-4" /> Topic ideas
+                    <Lightbulb className="mr-2 h-4 w-4" /> Ideas
+                  </TabsTrigger>
+                  <TabsTrigger value="research">
+                    <Globe className="mr-2 h-4 w-4" /> Research
                   </TabsTrigger>
                   <TabsTrigger value="url">
                     <Link2 className="mr-2 h-4 w-4" /> From URL
@@ -287,6 +324,95 @@ export function StudioPage() {
                           {idea}
                         </button>
                       ))}
+                    </div>
+                  )}
+                </TabsContent>
+                <TabsContent value="research" className="space-y-3 pt-4">
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="e.g. Latest Instagram algorithm changes"
+                      value={researchQuery}
+                      onChange={(e) => setResearchQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          onResearch();
+                        }
+                      }}
+                      data-testid="input-research-topic"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={onResearch}
+                      disabled={researchTopic.isPending}
+                      data-testid="button-research"
+                    >
+                      {researchTopic.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Globe className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Searches the live web and builds a sourced brief with current facts.
+                  </p>
+                  {researchTopic.isPending && (
+                    <p className="text-xs text-muted-foreground">
+                      Searching the web, this can take up to a minute...
+                    </p>
+                  )}
+                  {researchResult && (
+                    <div className="space-y-3" data-testid="research-result">
+                      <div className="rounded-md border border-border p-3 space-y-2">
+                        <p className="text-sm whitespace-pre-wrap">{researchResult.summary}</p>
+                        {researchResult.keyFindings.length > 0 && (
+                          <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-1">
+                            {researchResult.keyFindings.map((f, i) => (
+                              <li key={i}>{f}</li>
+                            ))}
+                          </ul>
+                        )}
+                        <Button type="button" size="sm" className="w-full" onClick={useResearchAsBrief} data-testid="button-use-research">
+                          Use as brief
+                        </Button>
+                      </div>
+                      {researchResult.sources.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium">Sources</p>
+                          {researchResult.sources.map((s, i) => (
+                            <a
+                              key={i}
+                              href={s.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors truncate"
+                            >
+                              <ExternalLink className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{s.title}</span>
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                      {researchResult.suggestedAngles.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs text-muted-foreground">Or start from a suggested angle:</p>
+                          {researchResult.suggestedAngles.map((angle, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => {
+                                form.setValue("prompt", angle);
+                                toast({ title: "Angle added to brief" });
+                              }}
+                              className="w-full text-left text-sm rounded-md border border-border px-3 py-2 hover:bg-accent hover:border-primary/40 transition-colors"
+                            >
+                              {angle}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </TabsContent>

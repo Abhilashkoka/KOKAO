@@ -8,6 +8,7 @@ import {
   SuggestTopicsBody,
   SummarizeUrlBody,
   GenerateCampaignBody,
+  ResearchTopicBody,
 } from "@workspace/api-zod";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { getPlanLimits } from "../lib/plans";
@@ -363,6 +364,112 @@ router.post("/ai/summarize-url", async (req: Request, res: Response) => {
   } catch (error) {
     req.log.error({ err: error }, "URL summarization failed");
     res.status(500).json({ error: "Failed to summarize URL" });
+  }
+});
+
+router.post("/ai/research", async (req: Request, res: Response) => {
+  const parsed = ResearchTopicBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+
+  const tenant = await loadTenant(req.tenantId);
+  if (!tenant) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
+
+  const guidance: string[] = [
+    "You are a social media research analyst. Use web search to find CURRENT, factual information about the given topic.",
+    "Search the web, then write a concise research brief grounded ONLY in what you found. Do not invent facts.",
+    "Prefer recent, reputable sources. Include concrete data points, dates, and named developments when available.",
+  ];
+  if (brand) {
+    if (brand.identity.audience.length > 0) {
+      guidance.push(
+        `Frame findings for this target audience: ${brand.identity.audience.slice(0, 3).join(", ")}.`,
+      );
+    }
+    guidance.push(`Bias suggested post angles toward this brand voice: ${voiceHint(brand)}.`);
+  }
+  guidance.push(
+    "Respond ONLY with strict JSON of the form " +
+      '{"summary": string, "keyFindings": string[], "suggestedAngles": string[]}. ' +
+      "summary: 2-3 short paragraphs. keyFindings: 3-6 specific, factual bullet points. " +
+      "suggestedAngles: 3-5 social post angles derived from the findings. " +
+      "Do not include markdown, citations markers, or a sources list in the JSON; sources are collected separately.",
+  );
+
+  try {
+    const response = await openai.responses.create({
+      model: "gpt-5.4",
+      tools: [{ type: "web_search" }],
+      instructions: guidance.join(" "),
+      input: `Research topic: ${parsed.data.topic}`,
+      max_output_tokens: 4096,
+    });
+
+    // Collect sources from the model's URL citations, deduped by URL.
+    const sources: { title: string; url: string }[] = [];
+    const seen = new Set<string>();
+    for (const item of response.output ?? []) {
+      if (item.type !== "message") continue;
+      for (const part of item.content ?? []) {
+        if (part.type !== "output_text") continue;
+        for (const annotation of part.annotations ?? []) {
+          if (annotation.type !== "url_citation") continue;
+          const url = annotation.url ?? "";
+          if (!url || seen.has(url)) continue;
+          // Only pass through http(s) links; drop any odd schemes.
+          try {
+            const parsedUrl = new URL(url);
+            if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") continue;
+          } catch {
+            continue;
+          }
+          seen.add(url);
+          sources.push({ title: annotation.title || url, url });
+        }
+      }
+    }
+
+    const raw = response.output_text ?? "";
+    let summary = "";
+    let keyFindings: string[] = [];
+    let suggestedAngles: string[] = [];
+    try {
+      // The model may wrap JSON in prose; extract the outermost object.
+      const start = raw.indexOf("{");
+      const end = raw.lastIndexOf("}");
+      const jsonText = start >= 0 && end > start ? raw.slice(start, end + 1) : raw;
+      const obj = JSON.parse(jsonText) as {
+        summary?: unknown;
+        keyFindings?: unknown;
+        suggestedAngles?: unknown;
+      };
+      summary = typeof obj.summary === "string" ? obj.summary : "";
+      keyFindings = Array.isArray(obj.keyFindings)
+        ? obj.keyFindings.map((f) => String(f).trim()).filter(Boolean).slice(0, 6)
+        : [];
+      suggestedAngles = Array.isArray(obj.suggestedAngles)
+        ? obj.suggestedAngles.map((a) => String(a).trim()).filter(Boolean).slice(0, 5)
+        : [];
+    } catch {
+      summary = raw.trim();
+    }
+
+    if (!summary) {
+      res.status(422).json({ error: "Research produced no usable results. Try a more specific topic." });
+      return;
+    }
+
+    res.json({ summary, keyFindings, sources: sources.slice(0, 8), suggestedAngles });
+  } catch (error) {
+    req.log.error({ err: error }, "Web research failed");
+    res.status(500).json({ error: "Failed to research that topic" });
   }
 });
 
