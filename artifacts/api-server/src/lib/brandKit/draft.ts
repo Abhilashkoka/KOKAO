@@ -68,11 +68,21 @@ function mergeDraft(base: BrandKitPayload, ai: Record<string, unknown>): BrandKi
         ? asStringArray(identity.audience)
         : base.identity.audience,
     },
+    // Fall back to the base group when the AI omits it, so deterministically
+    // extracted website colors survive a weak AI response.
     colors: {
-      primary: asColorArray(colors.primary),
-      secondary: asColorArray(colors.secondary),
-      neutral: asColorArray(colors.neutral),
-      semantic: asColorArray(colors.semantic),
+      primary: asColorArray(colors.primary).length
+        ? asColorArray(colors.primary)
+        : base.colors.primary,
+      secondary: asColorArray(colors.secondary).length
+        ? asColorArray(colors.secondary)
+        : base.colors.secondary,
+      neutral: asColorArray(colors.neutral).length
+        ? asColorArray(colors.neutral)
+        : base.colors.neutral,
+      semantic: asColorArray(colors.semantic).length
+        ? asColorArray(colors.semantic)
+        : base.colors.semantic,
     },
     typography: {
       ...base.typography,
@@ -103,6 +113,17 @@ function mergeDraft(base: BrandKitPayload, ai: Record<string, unknown>): BrandKi
   };
 }
 
+/** Decode the handful of HTML entities that commonly appear in attribute values. */
+export function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;|&#x0*27;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#0*38;|&#x0*26;/gi, "&");
+}
+
 /**
  * Best-effort logo discovery from a fetched page: prefers apple-touch-icon
  * (usually a clean logo mark), then any rel="icon" link. og:image is skipped
@@ -115,7 +136,7 @@ export function extractLogos(
 ): { iconMark: string | null; favicon: string | null } {
   const resolve = (href: string): string | null => {
     try {
-      const u = new URL(href.trim(), pageUrl);
+      const u = new URL(decodeHtmlEntities(href.trim()), pageUrl);
       if (u.protocol !== "http:" && u.protocol !== "https:") return null;
       return u.toString();
     } catch {
@@ -142,6 +163,98 @@ export function extractLogos(
     favicon: anyIcon ?? appleIcon,
   };
 }
+
+/** Expand #abc to #aabbcc and lowercase. Returns null for non-hex input. */
+export function normalizeHex(input: string): string | null {
+  const v = input.trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(v)) return v;
+  if (/^#[0-9a-f]{3}$/.test(v)) {
+    return `#${v[1]}${v[1]}${v[2]}${v[2]}${v[3]}${v[3]}`;
+  }
+  return null;
+}
+
+/**
+ * Classify a hex color as a "brand" color (saturated, mid-lightness) or a
+ * "neutral" (grays, near-white, near-black) using HSL saturation/lightness.
+ */
+export function classifyHex(hex: string): "brand" | "neutral" {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  if (s >= 0.2 && l >= 0.12 && l <= 0.92) return "brand";
+  return "neutral";
+}
+
+/**
+ * Pull hex color candidates out of raw HTML/CSS text, ranked by frequency.
+ * `boosted` colors (e.g. theme-color meta) are placed first. Returns
+ * normalized 6-digit lowercase hexes, deduplicated.
+ */
+export function extractColorCandidates(
+  texts: string[],
+  boosted: string[] = [],
+): string[] {
+  const counts = new Map<string, number>();
+  for (const text of texts) {
+    const matches = text.match(/#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/g) ?? [];
+    for (const m of matches) {
+      const hex = normalizeHex(m);
+      if (!hex) continue;
+      counts.set(hex, (counts.get(hex) ?? 0) + 1);
+    }
+  }
+  const ranked = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([hex]) => hex);
+  const front = boosted
+    .map((b) => normalizeHex(b))
+    .filter((h): h is string => h !== null);
+  return [...new Set([...front, ...ranked])];
+}
+
+/** Find the theme-color meta value, if present. */
+export function extractThemeColor(html: string): string | null {
+  const metas = html.match(/<meta\b[^>]*>/gi) ?? [];
+  for (const tag of metas) {
+    if (!/name\s*=\s*["']theme-color["']/i.test(tag)) continue;
+    const content = /content\s*=\s*["']([^"']+)["']/i.exec(tag);
+    if (content) return normalizeHex(content[1]!);
+  }
+  return null;
+}
+
+/** Collect up to `limit` same-page stylesheet URLs (http/https only). */
+export function extractStylesheetUrls(
+  html: string,
+  pageUrl: URL,
+  limit = 2,
+): string[] {
+  const out: string[] = [];
+  const linkTags = html.match(/<link\b[^>]*>/gi) ?? [];
+  for (const tag of linkTags) {
+    if (out.length >= limit) break;
+    const relMatch = /rel\s*=\s*["']([^"']+)["']/i.exec(tag);
+    const hrefMatch = /href\s*=\s*["']([^"']+)["']/i.exec(tag);
+    if (!relMatch || !hrefMatch) continue;
+    if (!relMatch[1]!.toLowerCase().split(/\s+/).includes("stylesheet")) continue;
+    try {
+      const u = new URL(decodeHtmlEntities(hrefMatch[1]!.trim()), pageUrl);
+      if (u.protocol !== "http:" && u.protocol !== "https:") continue;
+      out.push(u.toString());
+    } catch {
+      // ignore malformed hrefs
+    }
+  }
+  return out;
+}
+
+const MAX_CSS_BYTES = 256 * 1024;
 
 /**
  * Best-effort AI brand draft. Optionally reads a public web page (SSRF-guarded)
@@ -194,6 +307,61 @@ export async function draftBrandKit(
           if (logos.favicon) {
             base.logos.favicon = { url: logos.favicon, type: "external" };
           }
+
+          // Pull the real palette from the page's HTML and (up to two)
+          // stylesheets, so colors come from the actual site, not AI guesses.
+          const cssTexts: string[] = [];
+          for (const cssUrl of extractStylesheetUrls(html, parsedUrl)) {
+            try {
+              const cssRes = await safeFetch(cssUrl, controller.signal);
+              if (cssRes.ok) {
+                cssTexts.push(await readCappedText(cssRes, MAX_CSS_BYTES));
+              }
+            } catch {
+              // stylesheet fetch is best-effort
+            }
+          }
+          const themeColor = extractThemeColor(html);
+          const candidates = extractColorCandidates(
+            [html, ...cssTexts],
+            themeColor ? [themeColor] : [],
+          );
+          const brandColors = candidates
+            .filter((c) => classifyHex(c) === "brand")
+            .slice(0, 6);
+          const neutrals = candidates
+            .filter((c) => classifyHex(c) === "neutral")
+            .slice(0, 4);
+          if (brandColors.length > 0 || neutrals.length > 0) {
+            const toColor = (hex: string): BrandColor => ({
+              name: hex,
+              hex,
+              usage: "Observed on website",
+            });
+            base.colors = {
+              primary: brandColors.slice(0, 2).map(toColor),
+              secondary: brandColors.slice(2, 5).map(toColor),
+              neutral: neutrals.slice(0, 3).map(toColor),
+              semantic: [],
+            };
+            contextParts.push(
+              `Colors observed in the website's HTML/CSS (most used first). ` +
+                `Brand colors: ${brandColors.join(", ") || "none"}. ` +
+                `Neutrals: ${neutrals.join(", ") || "none"}. ` +
+                `Build the palette from these ACTUAL hex values — assign each a short ` +
+                `descriptive name and a usage note, and group them into ` +
+                `primary/secondary/neutral. Do not invent hex codes that are not listed ` +
+                `unless the user notes explicitly specify others.`,
+            );
+            sourceNotes.push(
+              `Detected ${brandColors.length + neutrals.length} colors from the website.`,
+            );
+          }
+
+          if (logos.iconMark || logos.favicon) {
+            sourceNotes.push("Captured the site logo.");
+          }
+
           const text = htmlToText(html).slice(0, 10000);
           if (text.length > 80) {
             contextParts.push(`Website content:\n${text}`);

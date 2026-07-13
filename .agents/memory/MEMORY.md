@@ -17,3 +17,4 @@
 - [App branding editor](app-branding.md) — superadmin /app-brand editor; brand assets are PUBLIC (pre-auth), GET public + writes superadmin; hex→HSL theming, null=default.
 - [In-app web research](web-research.md) — Replit OpenAI proxy supports Responses API web_search with url_citation annotations; no Tavily/external search key needed.
 - [Native dialogs blocked in preview iframe](preview-iframe-dialogs.md) — window.confirm/alert silently no-op in the sandboxed preview; always use in-app dialogs.
+- [E2E false failures](e2e-test-flakiness.md) — if an e2e run fails on missing toasts/dialogs but the DB has the data, check for mid-test workflow restarts and re-run before changing code.
