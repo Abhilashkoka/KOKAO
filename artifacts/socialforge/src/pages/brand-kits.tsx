@@ -477,18 +477,23 @@ export function BrandKitsPage() {
             const logoUrl = brandLogoUrl(payload);
             const accent = colors[0] ?? "hsl(255 85% 55%)";
             const gradient =
-              colors.length >= 2
-                ? `linear-gradient(135deg, ${colors[0]} 0%, ${colors[1]} 100%)`
-                : colors.length === 1
-                  ? colors[0]
-                  : "linear-gradient(135deg, hsl(255 85% 55%) 0%, hsl(330 80% 60%) 100%)";
+              colors.length >= 3
+                ? `linear-gradient(135deg, ${colors[0]} 0%, ${colors[1]} 50%, ${colors[2]} 100%)`
+                : colors.length === 2
+                  ? `linear-gradient(135deg, ${colors[0]} 0%, ${colors[1]} 100%)`
+                  : colors.length === 1
+                    ? `linear-gradient(135deg, ${colors[0]} 0%, ${colors[0]} 100%)`
+                    : null;
             return (
               <Card
                 key={kit.id}
                 className="overflow-hidden flex flex-col group hover:shadow-lg transition-all duration-300 border-border animate-in fade-in"
                 style={{ animationDelay: `${i * 50}ms` }}
               >
-                <div className="h-20 w-full relative" style={{ background: gradient }}>
+                <div
+                  className={`h-20 w-full relative ${gradient ? "" : "bg-card border-b border-border"}`}
+                  style={gradient ? { background: gradient } : undefined}
+                >
                   {kit.isDefault && (
                     <span className="absolute top-2 right-2 inline-flex items-center gap-1 text-xs font-semibold bg-white/90 text-foreground px-2 py-0.5 rounded-full shadow">
                       <Star className="h-3 w-3 fill-current" /> Default
