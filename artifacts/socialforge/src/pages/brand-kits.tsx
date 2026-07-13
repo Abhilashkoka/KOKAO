@@ -278,6 +278,73 @@ export function BrandKitsPage() {
   const [dos, setDos] = useState("");
   const [donts, setDonts] = useState("");
   const [imagery, setImagery] = useState("");
+  // Pull-from-website inside the edit dialog.
+  const [pullUrl, setPullUrl] = useState("");
+  const [pulling, setPulling] = useState(false);
+
+  const handlePullFromWebsite = async () => {
+    if (!pullUrl.trim() || !draft) return;
+    setPulling(true);
+    try {
+      const pulled = await draftBrandKit.mutateAsync({
+        data: { url: pullUrl.trim(), brandName: editName.trim() || undefined },
+      });
+      const p = pulled.payload;
+      const pulledColors =
+        p.colors.primary.length +
+        p.colors.secondary.length +
+        p.colors.neutral.length;
+      const pulledLogo = brandLogoUrl(p);
+      setDraft((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          identity: {
+            ...prev.identity,
+            tagline: prev.identity.tagline || p.identity.tagline,
+            description: prev.identity.description || p.identity.description,
+            industry: prev.identity.industry || p.identity.industry,
+          },
+          colors: pulledColors > 0 ? p.colors : prev.colors,
+          logos: pulledLogo
+            ? {
+                ...prev.logos,
+                primary: p.logos.primary ?? prev.logos?.primary ?? null,
+                icon_mark: p.logos.icon_mark ?? prev.logos?.icon_mark ?? null,
+                favicon: p.logos.favicon ?? prev.logos?.favicon ?? null,
+              }
+            : prev.logos,
+        };
+      });
+      if (!audience.trim() && p.identity.audience.length > 0) {
+        setAudience(p.identity.audience.join(", "));
+      }
+      if (!traits.trim() && p.voice.traits.length > 0) {
+        setTraits(p.voice.traits.join(", "));
+      }
+      if (pulledColors > 0 || pulledLogo) {
+        toast({
+          title: "Pulled from website",
+          description: `Found ${pulledLogo ? "the logo and " : ""}${pulledColors} color${pulledColors === 1 ? "" : "s"}. Review the Colors tab, then save.`,
+        });
+      } else {
+        toast({
+          title: "Nothing usable found",
+          description:
+            "The website could not be read or had no detectable logo or colors.",
+          variant: "destructive",
+        });
+      }
+    } catch {
+      toast({
+        title: "Could not pull from website",
+        description: "Check the URL and try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setPulling(false);
+    }
+  };
 
   const openEdit = (kit: BrandKit) => {
     const p = kit.activeVersion?.payload ?? null;
@@ -336,6 +403,7 @@ export function BrandKitsPage() {
     } as BrandKitPayload;
     setEditKit(kit);
     setEditName(kit.name);
+    setPullUrl("");
     setDraft(clone);
     setAudience((clone.identity.audience ?? []).join(", "));
     setTraits((clone.voice.traits ?? []).join(", "));
@@ -749,6 +817,35 @@ export function BrandKitsPage() {
 
               <div className="max-h-[55vh] overflow-y-auto px-1 py-4">
                 <TabsContent value="identity" className="space-y-4 mt-0">
+                  <div className="rounded-lg border border-border p-3 space-y-2 bg-muted/20">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Wand2 className="h-4 w-4" /> Pull from website
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Fetch the logo and real brand colors directly from a site.
+                      Existing colors will be replaced; review before saving.
+                    </p>
+                    <div className="flex gap-2">
+                      <Input
+                        value={pullUrl}
+                        onChange={(e) => setPullUrl(e.target.value)}
+                        placeholder="https://yourbrand.com"
+                        data-testid="input-pull-url"
+                      />
+                      <Button
+                        variant="secondary"
+                        onClick={handlePullFromWebsite}
+                        disabled={pulling || !pullUrl.trim()}
+                        data-testid="button-pull-website"
+                      >
+                        {pulling ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          "Pull"
+                        )}
+                      </Button>
+                    </div>
+                  </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Brand name</label>
                     <Input
