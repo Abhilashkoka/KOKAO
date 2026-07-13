@@ -260,6 +260,10 @@ export async function createKit(opts: CreateKitOptions) {
   // Keep the payload identity slug in sync with the pointer slug.
   payload.identity.brand_slug = slug;
   payload.identity.brand_name = opts.name;
+  // Creation is an explicit tenant action, so the initial version is
+  // approved and activated immediately — this keeps the "only approved
+  // versions can be activated" invariant consistent.
+  payload.brand_controls.approval_status = "approved";
   const approvalStatus = payload.brand_controls.approval_status;
 
   const kitId = await db.transaction(async (tx) => {
@@ -303,12 +307,13 @@ export async function createKit(opts: CreateKitOptions) {
         .returning()
     )[0]!;
 
-    if (approvalStatus === "approved") {
-      await tx
-        .update(brandKitsTable)
-        .set({ activeVersionId: version.id, status: "active" })
-        .where(eq(brandKitsTable.id, kit.id));
-    }
+    // Always activate the initial version: the kit is unusable (and
+    // uneditable) without an active version, and creation is already an
+    // explicit tenant action — approval status is tracked on the version.
+    await tx
+      .update(brandKitsTable)
+      .set({ activeVersionId: version.id, status: "active" })
+      .where(eq(brandKitsTable.id, kit.id));
 
     if (makeDefault) {
       await tx

@@ -184,13 +184,26 @@ export function BrandKitsPage() {
           });
         }
       }
-      await createBrandKit.mutateAsync({
+      const created = await createBrandKit.mutateAsync({
         data: { name: name.trim(), brandType, isDefault, payload },
       });
-      toast({ title: "Brand created" });
       invalidate();
       setCreateOpen(false);
       resetCreate();
+      if (payload) {
+        const colorCount =
+          payload.colors.primary.length +
+          payload.colors.secondary.length +
+          payload.colors.neutral.length;
+        toast({
+          title: "Brand created from AI draft",
+          description: `Captured ${colorCount} color${colorCount === 1 ? "" : "s"}, ${payload.voice.traits.length} voice trait${payload.voice.traits.length === 1 ? "" : "s"}, ${payload.identity.audience.length} audience group${payload.identity.audience.length === 1 ? "" : "s"}. Review and adjust below.`,
+        });
+        // Open the editor so the user can see exactly what the AI extracted.
+        openEdit(created);
+      } else {
+        toast({ title: "Brand created" });
+      }
     } catch (err) {
       const status = (err as { status?: number })?.status;
       toast({
@@ -225,16 +238,51 @@ export function BrandKitsPage() {
       });
       return;
     }
-    // Deep clone so edits don't mutate cached query data.
-    const clone = JSON.parse(JSON.stringify(p)) as BrandKitPayload;
+    // Deep clone so edits don't mutate cached query data, then fill any
+    // missing sections defensively so the editor never crashes on a
+    // partial payload.
+    const raw = JSON.parse(JSON.stringify(p)) as Partial<BrandKitPayload>;
+    const clone: BrandKitPayload = {
+      ...raw,
+      identity: {
+        brand_name: kit.name,
+        brand_slug: "",
+        tagline: "",
+        description: "",
+        industry: "",
+        audience: [],
+        ...(raw.identity ?? {}),
+      },
+      voice: {
+        traits: [],
+        dos: [],
+        donts: [],
+        caption_style: "",
+        cta_style: "",
+        ...(raw.voice ?? {}),
+      },
+      colors: {
+        primary: [],
+        secondary: [],
+        neutral: [],
+        ...(raw.colors ?? {}),
+      },
+      visual_style: {
+        imagery_style: [],
+        icon_style: "",
+        illustration_style: "",
+        motion_style: "",
+        ...(raw.visual_style ?? {}),
+      },
+    } as BrandKitPayload;
     setEditKit(kit);
     setEditName(kit.name);
     setDraft(clone);
-    setAudience(clone.identity.audience.join(", "));
-    setTraits(clone.voice.traits.join(", "));
-    setDos(clone.voice.dos.join("\n"));
-    setDonts(clone.voice.donts.join("\n"));
-    setImagery(clone.visual_style.imagery_style.join(", "));
+    setAudience((clone.identity.audience ?? []).join(", "));
+    setTraits((clone.voice.traits ?? []).join(", "));
+    setDos((clone.voice.dos ?? []).join("\n"));
+    setDonts((clone.voice.donts ?? []).join("\n"));
+    setImagery((clone.visual_style.imagery_style ?? []).join(", "));
   };
 
   const closeEdit = () => {
@@ -296,17 +344,24 @@ export function BrandKitsPage() {
     );
   };
 
-  const handleDelete = (id: number) => {
-    if (!confirm("Archive this brand? It will be removed from your list.")) return;
+  // window.confirm is blocked inside the sandboxed preview iframe, so we use
+  // a proper dialog for archive confirmation.
+  const [archiveTarget, setArchiveTarget] = useState<BrandKit | null>(null);
+
+  const confirmArchive = () => {
+    if (!archiveTarget) return;
     deleteBrandKit.mutate(
-      { id },
+      { id: archiveTarget.id },
       {
         onSuccess: () => {
           toast({ title: "Brand archived" });
           invalidate();
+          setArchiveTarget(null);
         },
-        onError: () =>
-          toast({ title: "Could not archive brand", variant: "destructive" }),
+        onError: () => {
+          toast({ title: "Could not archive brand", variant: "destructive" });
+          setArchiveTarget(null);
+        },
       },
     );
   };
@@ -396,6 +451,7 @@ export function BrandKitsPage() {
                         className="h-8 w-8 -mt-1"
                         onClick={() => openEdit(kit)}
                         title="Edit"
+                        data-testid={`button-edit-kit-${kit.id}`}
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -403,8 +459,9 @@ export function BrandKitsPage() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 -mt-1 text-destructive/60 hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => handleDelete(kit.id)}
+                        onClick={() => setArchiveTarget(kit)}
                         title="Archive"
+                        data-testid={`button-archive-kit-${kit.id}`}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -454,6 +511,38 @@ export function BrandKitsPage() {
           })}
         </div>
       )}
+
+      {/* Archive confirmation dialog */}
+      <Dialog
+        open={!!archiveTarget}
+        onOpenChange={(o) => !o && setArchiveTarget(null)}
+      >
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Archive brand</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Archive "{archiveTarget?.name}"? It will be removed from your list
+            and can no longer be used for new content.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setArchiveTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmArchive}
+              disabled={deleteBrandKit.isPending}
+              data-testid="button-confirm-archive"
+            >
+              {deleteBrandKit.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Archive
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Create dialog */}
       <Dialog
