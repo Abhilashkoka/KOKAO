@@ -13,7 +13,7 @@ import {
   Menu,
   LogOut
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useGetMe } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -38,9 +38,30 @@ const ADMIN_NAV_ITEMS = [
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const { isLoaded } = useAuth();
-  const { data: me } = useGetMe();
+  const { isLoaded, isSignedIn, signOut } = useAuth();
+  const { data: me, error: meError } = useGetMe();
   const { logoUrl, appName } = useBrand();
+
+  // Session guard: the browser can believe it is signed in while the server
+  // rejects its (stale/expired) session token. Without this, the app renders
+  // the signed-in shell with no data and superadmin nav quietly disappears.
+  // /api/me 401 after React Query's retries means the session is genuinely
+  // dead, so force a clean sign-out to land the user back on the sign-in page.
+  // The ref latches so signOut fires once per 401 incident (retry/refetch
+  // cycles re-run this effect before Clerk state flips); it resets when the
+  // session recovers or the user is signed out.
+  const signOutPendingRef = useRef(false);
+  useEffect(() => {
+    if (isLoaded && isSignedIn && meError?.status === 401) {
+      if (!signOutPendingRef.current) {
+        signOutPendingRef.current = true;
+        void signOut();
+      }
+      return;
+    }
+    signOutPendingRef.current = false;
+  }, [isLoaded, isSignedIn, meError, signOut]);
+
   const navItems = me?.isSuperadmin
     ? [...NAV_ITEMS, ...ADMIN_NAV_ITEMS]
     : NAV_ITEMS;

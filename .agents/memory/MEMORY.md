@@ -18,3 +18,4 @@
 - [In-app web research](web-research.md) — Replit OpenAI proxy supports Responses API web_search with url_citation annotations; no Tavily/external search key needed.
 - [Native dialogs blocked in preview iframe](preview-iframe-dialogs.md) — window.confirm/alert silently no-op in the sandboxed preview; always use in-app dialogs.
 - [E2E false failures](e2e-test-flakiness.md) — if an e2e run fails on missing toasts/dialogs but the DB has the data, check for mid-test workflow restarts and re-run before changing code.
+- [Stale Clerk session symptom](stale-clerk-session-401.md) — "feature disappeared" reports can be a dead session (all API 401s); check /me logs first; AppLayout now auto-signs-out.
