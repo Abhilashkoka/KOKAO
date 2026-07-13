@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   useListBrandKits,
   useCreateBrandKit,
@@ -88,6 +88,11 @@ function BrandLogo({
   accent: string;
 }) {
   const [failed, setFailed] = useState(false);
+  // A previously broken logo URL latches `failed`; clear it whenever the URL
+  // changes so a newly pulled (working) logo gets a fresh load attempt.
+  useEffect(() => {
+    setFailed(false);
+  }, [url]);
   const showImage = url && !failed;
   return (
     <div className="h-16 w-16 rounded-xl bg-white border border-border shadow-md flex items-center justify-center overflow-hidden shrink-0">

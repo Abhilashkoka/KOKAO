@@ -257,6 +257,25 @@ export function extractStylesheetUrls(
 const MAX_CSS_BYTES = 256 * 1024;
 
 /**
+ * Verify a candidate logo URL actually serves an image (SSRF-guarded fetch,
+ * content-type check). Prevents non-image URLs (e.g. a site's homepage) from
+ * being stored as a logo, which would render as a broken image in the UI.
+ */
+export async function isImageUrl(
+  url: string,
+  signal: AbortSignal,
+): Promise<boolean> {
+  try {
+    const res = await safeFetch(url, signal);
+    const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
+    void res.body?.cancel().catch(() => {});
+    return res.ok && contentType.startsWith("image/");
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Best-effort AI brand draft. Optionally reads a public web page (SSRF-guarded)
  * for context, asks the model to infer brand attributes, and returns a complete
  * (default-backed) payload. Never throws on a weak AI response — it degrades to
@@ -300,11 +319,24 @@ export async function draftBrandKit(
         ) {
           const html = await readCappedText(res, MAX_FETCH_BYTES);
           const logos = extractLogos(html, parsedUrl);
-          if (logos.iconMark) {
+          // Only keep candidates that verifiably serve an image; a bad
+          // candidate (e.g. a page URL) would show as a broken logo forever.
+          const candidateUrls = [
+            ...new Set([logos.iconMark, logos.favicon].filter(
+              (u): u is string => u !== null,
+            )),
+          ];
+          const verified = new Set<string>();
+          for (const candidate of candidateUrls) {
+            if (await isImageUrl(candidate, controller.signal)) {
+              verified.add(candidate);
+            }
+          }
+          if (logos.iconMark && verified.has(logos.iconMark)) {
             base.logos.icon_mark = { url: logos.iconMark, type: "external" };
             base.logos.primary = { url: logos.iconMark, type: "external" };
           }
-          if (logos.favicon) {
+          if (logos.favicon && verified.has(logos.favicon)) {
             base.logos.favicon = { url: logos.favicon, type: "external" };
           }
 
@@ -358,7 +390,7 @@ export async function draftBrandKit(
             );
           }
 
-          if (logos.iconMark || logos.favicon) {
+          if (verified.size > 0) {
             sourceNotes.push("Captured the site logo.");
           }
 
