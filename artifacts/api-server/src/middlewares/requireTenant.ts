@@ -26,17 +26,63 @@ export async function requireTenant(
     const clerkUserId = claims?.userId ?? auth?.userId ?? null;
 
     if (!clerkUserId) {
-      // TEMP DEBUG: capture why Clerk rejected this request.
+      const authReason = String(res.getHeader("x-clerk-auth-reason") ?? "");
+      const cookieNames = (req.headers.cookie ?? "")
+        .split(";")
+        .map((c) => c.split("=")[0]?.trim())
+        .filter((n): n is string => Boolean(n));
+      const clerkCookieNames = cookieNames.filter(
+        (n) =>
+          n.startsWith("__session") ||
+          n.startsWith("__client_uat") ||
+          n.startsWith("__clerk_db_jwt"),
+      );
+      const hasDuplicateClerkCookies =
+        new Set(clerkCookieNames).size < clerkCookieNames.length;
+
+      // Self-heal for cookie shadowing: when the browser holds DUPLICATE Clerk
+      // cookies (same name set on overlapping domain/path scopes), the stale
+      // copy can shadow the fresh one, so every request — including ones made
+      // right after a fresh sign-in — arrives with an expired token and the
+      // user appears permanently signed out. Expire every Clerk cookie on the
+      // scopes we can address; clerk-js re-establishes clean cookies on the
+      // next sign-in. Only triggers on the duplicate+expired combination, so
+      // routine short-lived token refresh gaps never log anyone out.
+      if (authReason.includes("token-expired") && hasDuplicateClerkCookies) {
+        const rawHost = String(
+          req.headers["x-forwarded-host"] ?? req.headers.host ?? "",
+        )
+          .split(",")[0]!
+          .trim()
+          .split(":")[0]!;
+        // Only echo a well-formed hostname into the Domain attribute.
+        const host = /^[a-zA-Z0-9.-]+$/.test(rawHost) ? rawHost : "";
+        const expire =
+          "=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0";
+        for (const name of new Set(clerkCookieNames)) {
+          res.append("Set-Cookie", `${name}${expire}`);
+          res.append("Set-Cookie", `${name}${expire}; Secure; SameSite=None`);
+          if (host) {
+            res.append("Set-Cookie", `${name}${expire}; Domain=${host}`);
+            res.append(
+              "Set-Cookie",
+              `${name}${expire}; Domain=${host}; Secure; SameSite=None`,
+            );
+          }
+        }
+        req.log.warn(
+          { clerkCookieNames },
+          "cleared duplicate stale clerk cookies",
+        );
+      }
+
       req.log.warn(
         {
           authStatus: res.getHeader("x-clerk-auth-status"),
-          authReason: res.getHeader("x-clerk-auth-reason"),
+          authReason,
           authMessage: res.getHeader("x-clerk-auth-message"),
           hasCookieHeader: Boolean(req.headers.cookie),
-          cookieNames: (req.headers.cookie ?? "")
-            .split(";")
-            .map((c) => c.split("=")[0]?.trim())
-            .filter(Boolean),
+          cookieNames,
           hasAuthorizationHeader: Boolean(req.headers.authorization),
         },
         "clerk auth rejected",

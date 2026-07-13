@@ -111,7 +111,7 @@ function UploadSlot({
   );
 }
 
-export function AppBrandingPage() {
+export function AppBrandingSettings() {
   const { data: me } = useGetMe();
   const { data: brand } = useGetAppBrand();
   const queryClient = useQueryClient();
@@ -208,15 +208,12 @@ export function AppBrandingPage() {
   const saving = updateBrand.isPending && uploadingField === null;
 
   return (
-    <div className="max-w-3xl mx-auto space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Branding</h1>
-        <p className="text-muted-foreground mt-1">
-          Upload your logo and icon and set your app name and colors. Changes
-          apply live everywhere — navigation, landing page, browser tab, and
-          theme.
-        </p>
-      </div>
+    <div className="max-w-3xl space-y-8">
+      <p className="text-muted-foreground">
+        Upload your logo and icon and set your app name and colors. Changes
+        apply live everywhere — navigation, landing page, browser tab, and
+        theme.
+      </p>
 
       <Card className="p-6 space-y-8">
         <h2 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">

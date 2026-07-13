@@ -9,10 +9,9 @@ import { BrandKitsPage } from "@/pages/brand-kits";
 import { AccountsPage } from "@/pages/accounts";
 import { SettingsPage } from "@/pages/settings";
 import { AdminPage } from "@/pages/admin";
-import { AppBrandingPage } from "@/pages/app-branding";
 import { BrandProvider } from "@/lib/brand";
 
-import { Switch, Route, useLocation, Router as WouterRouter } from "wouter";
+import { Switch, Route, Redirect, useLocation, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -133,7 +132,8 @@ function ClerkProviderWithRoutes() {
             <Route path="/accounts" component={() => <ProtectedRoute component={AccountsPage} />} />
             <Route path="/settings" component={() => <ProtectedRoute component={SettingsPage} />} />
             <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} />} />
-            <Route path="/app-brand" component={() => <ProtectedRoute component={AppBrandingPage} />} />
+            {/* Branding moved into Settings; keep old links working. */}
+            <Route path="/app-brand" component={() => <Redirect to="/settings" />} />
             
             <Route component={NotFound} />
           </Switch>

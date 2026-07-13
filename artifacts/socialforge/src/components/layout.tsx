@@ -9,7 +9,6 @@ import {
   Share2, 
   Settings,
   Shield,
-  SwatchBook,
   Menu,
   LogOut
 } from "lucide-react";
@@ -32,7 +31,6 @@ const NAV_ITEMS = [
 ];
 
 const ADMIN_NAV_ITEMS = [
-  { href: "/app-brand", label: "Branding", icon: SwatchBook },
   { href: "/admin", label: "Admin", icon: Shield },
 ];
 
@@ -49,15 +47,19 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   // dead, so force a clean sign-out to land the user back on the sign-in page.
   // The ref latches so signOut fires once per 401 incident (retry/refetch
   // cycles re-run this effect before Clerk state flips); it resets when the
-  // session recovers or the user is signed out.
-  // TEMPORARILY DISABLED: fresh sign-ins are also being rejected server-side,
-  // so this guard causes a sign-in/sign-out loop until the root cause is fixed.
+  // session recovers or the user is signed out. The server also self-heals
+  // duplicate stale Clerk cookies on expired-token 401s (requireTenant), so
+  // the next sign-in after this guard fires starts from a clean cookie state.
   const signOutPendingRef = useRef(false);
   useEffect(() => {
+    if (isLoaded && isSignedIn && meError?.status === 401) {
+      if (!signOutPendingRef.current) {
+        signOutPendingRef.current = true;
+        void signOut();
+      }
+      return;
+    }
     signOutPendingRef.current = false;
-    void isSignedIn;
-    void meError;
-    void signOut;
   }, [isLoaded, isSignedIn, meError, signOut]);
 
   const navItems = me?.isSuperadmin
