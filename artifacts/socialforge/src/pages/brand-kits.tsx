@@ -546,6 +546,7 @@ export function BrandKitsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {items.map((kit, i) => {
             const payload = kit.activeVersion?.payload ?? null;
+            const displayName = payload?.identity.brand_name?.trim() || kit.name;
             const colors = swatches(payload);
             const logoUrl = brandLogoUrl(payload);
             const accent = colors[0] ?? "hsl(255 85% 55%)";
@@ -570,7 +571,7 @@ export function BrandKitsPage() {
                     </span>
                   )}
                   <div className="flex items-end justify-between gap-3">
-                    <BrandLogo url={logoUrl} name={kit.name} accent={accent} />
+                    <BrandLogo url={logoUrl} name={displayName} accent={accent} />
                     <div className={`flex gap-1 pb-1 ${kit.isDefault ? "mr-20" : ""}`}>
                       <Button
                         variant="ghost"
@@ -596,7 +597,7 @@ export function BrandKitsPage() {
                   </div>
 
                   <div className="min-w-0">
-                    <h3 className="font-bold text-xl truncate">{kit.name}</h3>
+                    <h3 className="font-bold text-xl truncate">{displayName}</h3>
                     <p className="text-xs text-muted-foreground truncate">
                       {payload?.identity.tagline ||
                         payload?.identity.industry ||
