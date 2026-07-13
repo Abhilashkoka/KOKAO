@@ -563,20 +563,15 @@ export function BrandKitsPage() {
                 className="overflow-hidden flex flex-col group hover:shadow-lg transition-all duration-300 border-border animate-in fade-in"
                 style={{ animationDelay: `${i * 50}ms` }}
               >
-                <div
-                  className={`h-20 w-full relative ${gradient ? "" : "bg-card border-b border-border"}`}
-                  style={gradient ? { background: gradient } : undefined}
-                >
+                <CardContent className="flex-1 p-5 flex flex-col gap-4 relative">
                   {kit.isDefault && (
-                    <span className="absolute top-2 right-2 inline-flex items-center gap-1 text-xs font-semibold bg-white/90 text-foreground px-2 py-0.5 rounded-full shadow">
+                    <span className="absolute top-3 right-3 inline-flex items-center gap-1 text-xs font-semibold bg-muted text-foreground px-2 py-0.5 rounded-full border border-border">
                       <Star className="h-3 w-3 fill-current" /> Default
                     </span>
                   )}
-                </div>
-                <CardContent className="flex-1 p-5 pt-0 flex flex-col gap-4">
-                  <div className="-mt-8 flex items-end justify-between gap-3">
+                  <div className="flex items-end justify-between gap-3">
                     <BrandLogo url={logoUrl} name={kit.name} accent={accent} />
-                    <div className="flex gap-1 pb-1">
+                    <div className={`flex gap-1 pb-1 ${kit.isDefault ? "mr-20" : ""}`}>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -681,6 +676,10 @@ export function BrandKitsPage() {
                     )}
                   </div>
                 </CardContent>
+                <div
+                  className={`h-20 w-full ${gradient ? "" : "bg-card border-t border-border"}`}
+                  style={gradient ? { background: gradient } : undefined}
+                />
               </Card>
             );
           })}
