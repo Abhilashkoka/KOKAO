@@ -26,6 +26,21 @@ export async function requireTenant(
     const clerkUserId = claims?.userId ?? auth?.userId ?? null;
 
     if (!clerkUserId) {
+      // TEMP DEBUG: capture why Clerk rejected this request.
+      req.log.warn(
+        {
+          authStatus: res.getHeader("x-clerk-auth-status"),
+          authReason: res.getHeader("x-clerk-auth-reason"),
+          authMessage: res.getHeader("x-clerk-auth-message"),
+          hasCookieHeader: Boolean(req.headers.cookie),
+          cookieNames: (req.headers.cookie ?? "")
+            .split(";")
+            .map((c) => c.split("=")[0]?.trim())
+            .filter(Boolean),
+          hasAuthorizationHeader: Boolean(req.headers.authorization),
+        },
+        "clerk auth rejected",
+      );
       res.status(401).json({ error: "Unauthorized" });
       return;
     }

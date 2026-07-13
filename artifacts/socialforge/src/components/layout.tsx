@@ -50,16 +50,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   // The ref latches so signOut fires once per 401 incident (retry/refetch
   // cycles re-run this effect before Clerk state flips); it resets when the
   // session recovers or the user is signed out.
+  // TEMPORARILY DISABLED: fresh sign-ins are also being rejected server-side,
+  // so this guard causes a sign-in/sign-out loop until the root cause is fixed.
   const signOutPendingRef = useRef(false);
   useEffect(() => {
-    if (isLoaded && isSignedIn && meError?.status === 401) {
-      if (!signOutPendingRef.current) {
-        signOutPendingRef.current = true;
-        void signOut();
-      }
-      return;
-    }
     signOutPendingRef.current = false;
+    void isSignedIn;
+    void meError;
+    void signOut;
   }, [isLoaded, isSignedIn, meError, signOut]);
 
   const navItems = me?.isSuperadmin
