@@ -67,6 +67,56 @@ function swatches(payload: BrandKitPayload | null | undefined): string[] {
     .slice(0, 6);
 }
 
+function brandLogoUrl(payload: BrandKitPayload | null | undefined): string | null {
+  if (!payload?.logos) return null;
+  return (
+    payload.logos.primary?.url ||
+    payload.logos.icon_mark?.url ||
+    payload.logos.favicon?.url ||
+    null
+  );
+}
+
+/** Logo tile with a letter-mark fallback when there is no (or a broken) logo. */
+function BrandLogo({
+  url,
+  name,
+  accent,
+}: {
+  url: string | null;
+  name: string;
+  accent: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  const showImage = url && !failed;
+  return (
+    <div className="h-16 w-16 rounded-xl bg-white border border-border shadow-md flex items-center justify-center overflow-hidden shrink-0">
+      {showImage ? (
+        <img
+          src={url}
+          alt={`${name} logo`}
+          className="h-full w-full object-contain p-1.5"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <span
+          className="text-2xl font-extrabold"
+          style={{ color: accent }}
+          aria-hidden="true"
+        >
+          {(name.trim()[0] ?? "?").toUpperCase()}
+        </span>
+      )}
+    </div>
+  );
+}
+
+const COLOR_GROUPS = [
+  { key: "primary", label: "Primary" },
+  { key: "secondary", label: "Secondary" },
+  { key: "neutral", label: "Neutral" },
+] as const;
+
 /** A small editor for one color group (primary/secondary/neutral). */
 function ColorGroupEditor({
   label,
@@ -195,9 +245,10 @@ export function BrandKitsPage() {
           payload.colors.primary.length +
           payload.colors.secondary.length +
           payload.colors.neutral.length;
+        const capturedLogo = brandLogoUrl(payload) ? "the logo, " : "";
         toast({
           title: "Brand created from AI draft",
-          description: `Captured ${colorCount} color${colorCount === 1 ? "" : "s"}, ${payload.voice.traits.length} voice trait${payload.voice.traits.length === 1 ? "" : "s"}, ${payload.identity.audience.length} audience group${payload.identity.audience.length === 1 ? "" : "s"}. Review and adjust below.`,
+          description: `Captured ${capturedLogo}${colorCount} color${colorCount === 1 ? "" : "s"}, ${payload.voice.traits.length} voice trait${payload.voice.traits.length === 1 ? "" : "s"}, ${payload.identity.audience.length} audience group${payload.identity.audience.length === 1 ? "" : "s"}. Review and adjust below.`,
         });
         // Open the editor so the user can see exactly what the AI extracted.
         openEdit(created);
@@ -266,6 +317,14 @@ export function BrandKitsPage() {
         secondary: [],
         neutral: [],
         ...(raw.colors ?? {}),
+      },
+      logos: {
+        primary: null,
+        secondary: null,
+        icon_mark: null,
+        favicon: null,
+        usage_rules: [],
+        ...(raw.logos ?? {}),
       },
       visual_style: {
         imagery_style: [],
@@ -415,6 +474,8 @@ export function BrandKitsPage() {
           {items.map((kit, i) => {
             const payload = kit.activeVersion?.payload ?? null;
             const colors = swatches(payload);
+            const logoUrl = brandLogoUrl(payload);
+            const accent = colors[0] ?? "hsl(255 85% 55%)";
             const gradient =
               colors.length >= 2
                 ? `linear-gradient(135deg, ${colors[0]} 0%, ${colors[1]} 100%)`
@@ -427,28 +488,21 @@ export function BrandKitsPage() {
                 className="overflow-hidden flex flex-col group hover:shadow-lg transition-all duration-300 border-border animate-in fade-in"
                 style={{ animationDelay: `${i * 50}ms` }}
               >
-                <div className="h-24 w-full relative" style={{ background: gradient }}>
+                <div className="h-20 w-full relative" style={{ background: gradient }}>
                   {kit.isDefault && (
-                    <span className="absolute top-2 left-2 inline-flex items-center gap-1 text-xs font-semibold bg-white/90 text-foreground px-2 py-0.5 rounded-full shadow">
+                    <span className="absolute top-2 right-2 inline-flex items-center gap-1 text-xs font-semibold bg-white/90 text-foreground px-2 py-0.5 rounded-full shadow">
                       <Star className="h-3 w-3 fill-current" /> Default
                     </span>
                   )}
                 </div>
-                <CardContent className="flex-1 p-6 space-y-4">
-                  <div className="flex justify-between items-start gap-3">
-                    <div className="min-w-0">
-                      <h3 className="font-bold text-xl truncate">{kit.name}</h3>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {payload?.identity.tagline ||
-                          payload?.identity.brand_name ||
-                          kit.brandType}
-                      </p>
-                    </div>
-                    <div className="flex gap-1 shrink-0">
+                <CardContent className="flex-1 p-5 pt-0 flex flex-col gap-4">
+                  <div className="-mt-8 flex items-end justify-between gap-3">
+                    <BrandLogo url={logoUrl} name={kit.name} accent={accent} />
+                    <div className="flex gap-1 pb-1">
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 -mt-1"
+                        className="h-8 w-8"
                         onClick={() => openEdit(kit)}
                         title="Edit"
                         data-testid={`button-edit-kit-${kit.id}`}
@@ -458,7 +512,7 @@ export function BrandKitsPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 -mt-1 text-destructive/60 hover:text-destructive hover:bg-destructive/10"
+                        className="h-8 w-8 text-destructive/60 hover:text-destructive hover:bg-destructive/10"
                         onClick={() => setArchiveTarget(kit)}
                         title="Archive"
                         data-testid={`button-archive-kit-${kit.id}`}
@@ -468,43 +522,86 @@ export function BrandKitsPage() {
                     </div>
                   </div>
 
-                  {colors.length > 0 && (
-                    <div className="flex gap-1.5">
-                      {colors.map((hex, idx) => (
-                        <div
-                          key={idx}
-                          className="h-7 w-7 rounded-full shadow-inner border border-black/10"
-                          style={{ backgroundColor: hex }}
-                          title={hex}
-                        />
-                      ))}
-                    </div>
-                  )}
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-xl truncate">{kit.name}</h3>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {payload?.identity.tagline ||
+                        payload?.identity.industry ||
+                        (kit.brandType === "sub_brand" ? "Sub-brand" : "Primary brand")}
+                    </p>
+                  </div>
+
+                  {payload &&
+                    COLOR_GROUPS.some((g) => payload.colors[g.key].length > 0) && (
+                      <div className="space-y-2.5">
+                        {COLOR_GROUPS.map((g) => {
+                          const group = payload.colors[g.key].filter((c) => c.hex);
+                          if (group.length === 0) return null;
+                          const shown = group.slice(0, 4);
+                          return (
+                            <div key={g.key}>
+                              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">
+                                {g.label}
+                              </p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {shown.map((c, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="flex items-center gap-1.5 rounded-md border border-border bg-muted/30 pl-1 pr-2 py-1"
+                                    title={c.name || c.hex}
+                                  >
+                                    <span
+                                      className="h-4 w-4 rounded border border-black/10 shrink-0"
+                                      style={{ backgroundColor: c.hex }}
+                                    />
+                                    <span className="text-[10px] font-mono text-muted-foreground">
+                                      {c.hex.toUpperCase()}
+                                    </span>
+                                  </div>
+                                ))}
+                                {group.length > shown.length && (
+                                  <span className="text-[10px] text-muted-foreground self-center">
+                                    +{group.length - shown.length} more
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
 
                   {payload && payload.voice.traits.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {payload.voice.traits.slice(0, 4).map((t) => (
-                        <span
-                          key={t}
-                          className="text-xs bg-muted px-2 py-1 rounded-md font-medium"
-                        >
-                          {t}
-                        </span>
-                      ))}
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">
+                        Voice
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {payload.voice.traits.slice(0, 4).map((t) => (
+                          <span
+                            key={t}
+                            className="text-xs bg-muted px-2 py-1 rounded-md font-medium"
+                          >
+                            {t}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   )}
 
-                  {!kit.isDefault && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full"
-                      onClick={() => handleSetDefault(kit.id)}
-                      disabled={setDefaultBrandKit.isPending}
-                    >
-                      <Star className="h-3.5 w-3.5 mr-1.5" /> Set as default
-                    </Button>
-                  )}
+                  <div className="mt-auto pt-1">
+                    {!kit.isDefault && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => handleSetDefault(kit.id)}
+                        disabled={setDefaultBrandKit.isPending}
+                      >
+                        <Star className="h-3.5 w-3.5 mr-1.5" /> Set as default
+                      </Button>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             );
@@ -677,6 +774,39 @@ export function BrandKitsPage() {
                         }))
                       }
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Logo URL</label>
+                    <div className="flex items-center gap-2">
+                      {brandLogoUrl(draft) && (
+                        <img
+                          src={brandLogoUrl(draft)!}
+                          alt="Logo preview"
+                          className="h-9 w-9 rounded-md border border-border object-contain bg-white p-0.5 shrink-0"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                          }}
+                        />
+                      )}
+                      <Input
+                        value={draft.logos?.primary?.url ?? ""}
+                        onChange={(e) => {
+                          const url = e.target.value.trim();
+                          patchDraft((p) => ({
+                            ...p,
+                            logos: {
+                              ...p.logos,
+                              primary: url ? { url, type: "external" } : null,
+                            },
+                          }));
+                        }}
+                        placeholder="https://yourbrand.com/logo.png"
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Shown on the brand card. Captured automatically when
+                      drafting from a website.
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Industry</label>

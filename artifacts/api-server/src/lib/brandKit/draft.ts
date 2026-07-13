@@ -104,6 +104,46 @@ function mergeDraft(base: BrandKitPayload, ai: Record<string, unknown>): BrandKi
 }
 
 /**
+ * Best-effort logo discovery from a fetched page: prefers apple-touch-icon
+ * (usually a clean logo mark), then any rel="icon" link. og:image is skipped
+ * on purpose — it is typically a wide social banner, not a logo. Relative
+ * hrefs are resolved against the page URL; non-http(s) results are dropped.
+ */
+export function extractLogos(
+  html: string,
+  pageUrl: URL,
+): { iconMark: string | null; favicon: string | null } {
+  const resolve = (href: string): string | null => {
+    try {
+      const u = new URL(href.trim(), pageUrl);
+      if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+      return u.toString();
+    } catch {
+      return null;
+    }
+  };
+
+  const linkTags = html.match(/<link\b[^>]*>/gi) ?? [];
+  let appleIcon: string | null = null;
+  let anyIcon: string | null = null;
+  for (const tag of linkTags) {
+    const relMatch = /rel\s*=\s*["']([^"']+)["']/i.exec(tag);
+    const hrefMatch = /href\s*=\s*["']([^"']+)["']/i.exec(tag);
+    if (!relMatch || !hrefMatch) continue;
+    const rel = relMatch[1]!.toLowerCase();
+    const href = resolve(hrefMatch[1]!);
+    if (!href) continue;
+    if (rel.includes("apple-touch-icon") && !appleIcon) appleIcon = href;
+    else if (rel.split(/\s+/).includes("icon") && !anyIcon) anyIcon = href;
+  }
+
+  return {
+    iconMark: appleIcon ?? anyIcon,
+    favicon: anyIcon ?? appleIcon,
+  };
+}
+
+/**
  * Best-effort AI brand draft. Optionally reads a public web page (SSRF-guarded)
  * for context, asks the model to infer brand attributes, and returns a complete
  * (default-backed) payload. Never throws on a weak AI response — it degrades to
@@ -146,6 +186,14 @@ export async function draftBrandKit(
           (!contentType || ALLOWED_CONTENT_TYPES.some((t) => contentType.includes(t)))
         ) {
           const html = await readCappedText(res, MAX_FETCH_BYTES);
+          const logos = extractLogos(html, parsedUrl);
+          if (logos.iconMark) {
+            base.logos.icon_mark = { url: logos.iconMark, type: "external" };
+            base.logos.primary = { url: logos.iconMark, type: "external" };
+          }
+          if (logos.favicon) {
+            base.logos.favicon = { url: logos.favicon, type: "external" };
+          }
           const text = htmlToText(html).slice(0, 10000);
           if (text.length > 80) {
             contextParts.push(`Website content:\n${text}`);
