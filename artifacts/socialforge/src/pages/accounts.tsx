@@ -478,11 +478,43 @@ function TwitterCredentialsCard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The OAuth tab finishing flips the status to connected while we're waiting.
+  useEffect(() => {
+    if (connecting && data?.connected) {
+      setConnecting(false);
+      toast({ title: "X connected", description: "You can now publish posts to X." });
+      refreshTwitter();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connecting, data?.connected]);
+
+  useEffect(() => {
+    if (!connecting) return;
+    // The OAuth flow completes in a separate tab (X refuses to load inside the
+    // embedded preview frame), so poll the connection status until it flips.
+    const interval = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: getGetTwitterStatusQueryKey() });
+    }, 3000);
+    const timeout = setTimeout(() => setConnecting(false), 5 * 60 * 1000);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connecting]);
+
   const handleConnect = async () => {
     setConnecting(true);
     try {
       const { url } = await getTwitterAuthUrl();
-      window.location.href = url;
+      // Open in a NEW top-level tab: X (like most OAuth providers) sends
+      // X-Frame-Options/CSP headers that block loading inside the embedded
+      // preview iframe ("refused to connect").
+      const popup = window.open(url, "_blank", "noopener");
+      if (!popup) {
+        // Popup blocked — fall back to top-level navigation.
+        window.location.href = url;
+      }
     } catch (err: any) {
       setConnecting(false);
       toast({
@@ -740,11 +772,47 @@ export function AccountsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // LinkedIn OAuth completes in a separate tab, so a status flip to connected
+  // means the flow finished.
+  useEffect(() => {
+    if (linkedinConnecting && linkedinStatus?.connected) {
+      setLinkedinConnecting(false);
+      toast({
+        title: "LinkedIn connected",
+        description: "You can now publish posts to LinkedIn.",
+      });
+      refreshLinkedin();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedinConnecting, linkedinStatus?.connected]);
+
+  useEffect(() => {
+    if (!linkedinConnecting) return;
+    // The OAuth flow completes in a separate tab (LinkedIn refuses to load
+    // inside the embedded preview frame), so poll the status until it flips.
+    const interval = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: getGetLinkedinStatusQueryKey() });
+    }, 3000);
+    const timeout = setTimeout(() => setLinkedinConnecting(false), 5 * 60 * 1000);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedinConnecting]);
+
   const handleConnectLinkedin = async () => {
     setLinkedinConnecting(true);
     try {
       const { url } = await getLinkedinAuthUrl();
-      window.location.href = url;
+      // Open in a NEW top-level tab: LinkedIn sends X-Frame-Options/CSP headers
+      // that block loading inside the embedded preview iframe, which shows as
+      // "linkedin.com refused to connect".
+      const popup = window.open(url, "_blank", "noopener");
+      if (!popup) {
+        // Popup blocked — fall back to top-level navigation.
+        window.location.href = url;
+      }
     } catch (err: any) {
       setLinkedinConnecting(false);
       toast({
