@@ -17,4 +17,6 @@ export const AdminAuditLogAction = {
   superadmin_grant: 'superadmin_grant',
   superadmin_revoke: 'superadmin_revoke',
   plan_edit: 'plan_edit',
+  plan_create: 'plan_create',
+  plan_delete: 'plan_delete',
 } as const;

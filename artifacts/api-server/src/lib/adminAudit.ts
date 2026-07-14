@@ -4,7 +4,9 @@ export type AdminAuditAction =
   | "plan_change"
   | "superadmin_grant"
   | "superadmin_revoke"
-  | "plan_edit";
+  | "plan_edit"
+  | "plan_create"
+  | "plan_delete";
 
 export interface RecordAdminActionInput {
   action: AdminAuditAction;

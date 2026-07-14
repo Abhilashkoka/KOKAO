@@ -23,6 +23,8 @@ import {
   getAdminListAuditLogsQueryKey,
   useListPlans,
   useAdminUpdatePlan,
+  useAdminCreatePlan,
+  useAdminDeletePlan,
   getListPlansQueryKey,
   useGetMe,
 } from "@workspace/api-client-react";
@@ -65,6 +67,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  Plus,
+  Trash2,
 } from "lucide-react";
 
 const PLAN_LABELS: Record<string, string> = {
@@ -765,6 +769,8 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   superadmin_grant: "Superadmin granted",
   superadmin_revoke: "Superadmin revoked",
   plan_edit: "Plan limits edited",
+  plan_create: "Plan created",
+  plan_delete: "Plan deleted",
 };
 
 interface PlanDraft {
@@ -797,14 +803,130 @@ const LIMIT_FIELDS: { key: keyof Pick<PlanDraft, "captions" | "images" | "brandK
   { key: "scheduledPosts", label: "Scheduled posts" },
 ];
 
+const EMPTY_NEW_PLAN: PlanDraft = {
+  name: "",
+  priceLabel: "",
+  captions: "",
+  images: "",
+  brandKits: "",
+  scheduledPosts: "",
+  features: "",
+};
+
 function PlansCard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data: plans, isLoading } = useListPlans();
   const updatePlan = useAdminUpdatePlan();
+  const createPlan = useAdminCreatePlan();
+  const deletePlan = useAdminDeletePlan();
 
   const [drafts, setDrafts] = useState<Record<string, PlanDraft>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [newPlan, setNewPlan] = useState<PlanDraft>(EMPTY_NEW_PLAN);
+
+  const invalidatePlanQueries = () => {
+    queryClient.invalidateQueries({ queryKey: getListPlansQueryKey() });
+    queryClient.invalidateQueries({
+      queryKey: getAdminListAuditLogsQueryKey(),
+    });
+    queryClient.invalidateQueries({ queryKey: getAdminGetStatsQueryKey() });
+  };
+
+  const parseDraft = (draft: PlanDraft) => {
+    const limits = {
+      captions: parseLimit(draft.captions),
+      images: parseLimit(draft.images),
+      brandKits: parseLimit(draft.brandKits),
+      scheduledPosts: parseLimit(draft.scheduledPosts),
+    };
+    if (
+      !draft.name.trim() ||
+      !draft.priceLabel.trim() ||
+      Object.values(limits).some((v) => v === null)
+    ) {
+      toast({
+        variant: "destructive",
+        title: "Check the fields",
+        description:
+          'Limits must be whole numbers, or "unlimited". Name and price are required.',
+      });
+      return null;
+    }
+    return {
+      name: draft.name.trim(),
+      priceLabel: draft.priceLabel.trim(),
+      limits: {
+        captions: limits.captions!,
+        images: limits.images!,
+        brandKits: limits.brandKits!,
+        scheduledPosts: limits.scheduledPosts!,
+      },
+      features: draft.features
+        .split("\n")
+        .map((f) => f.trim())
+        .filter(Boolean)
+        .slice(0, 12),
+    };
+  };
+
+  const handleCreate = () => {
+    const data = parseDraft(newPlan);
+    if (!data) return;
+    createPlan.mutate(
+      { data },
+      {
+        onSuccess: () => {
+          invalidatePlanQueries();
+          setNewPlan(EMPTY_NEW_PLAN);
+          setShowNewForm(false);
+          toast({
+            title: "Plan created",
+            description: "The new plan is now available to assign.",
+          });
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not create plan",
+            description: err?.response?.data?.error || "Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  const handleDelete = (planId: string, planName: string) => {
+    if (
+      !window.confirm(
+        `Delete the "${planName}" plan? This cannot be undone. Plans still assigned to workspaces cannot be deleted.`,
+      )
+    ) {
+      return;
+    }
+    deletePlan.mutate(
+      { planId },
+      {
+        onSuccess: () => {
+          invalidatePlanQueries();
+          setDrafts((prev) => {
+            const next = { ...prev };
+            delete next[planId];
+            return next;
+          });
+          toast({ title: "Plan deleted" });
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not delete plan",
+            description: err?.response?.data?.error || "Please try again.",
+          });
+        },
+      },
+    );
+  };
 
   useEffect(() => {
     if (!plans) return;
@@ -838,52 +960,15 @@ function PlansCard() {
     const draft = drafts[planId];
     if (!draft) return;
 
-    const limits = {
-      captions: parseLimit(draft.captions),
-      images: parseLimit(draft.images),
-      brandKits: parseLimit(draft.brandKits),
-      scheduledPosts: parseLimit(draft.scheduledPosts),
-    };
-    if (
-      !draft.name.trim() ||
-      !draft.priceLabel.trim() ||
-      Object.values(limits).some((v) => v === null)
-    ) {
-      toast({
-        variant: "destructive",
-        title: "Check the fields",
-        description:
-          'Limits must be whole numbers, or "unlimited". Name and price are required.',
-      });
-      return;
-    }
+    const data = parseDraft(draft);
+    if (!data) return;
 
     setSavingId(planId);
     updatePlan.mutate(
-      {
-        planId,
-        data: {
-          name: draft.name.trim(),
-          priceLabel: draft.priceLabel.trim(),
-          limits: {
-            captions: limits.captions!,
-            images: limits.images!,
-            brandKits: limits.brandKits!,
-            scheduledPosts: limits.scheduledPosts!,
-          },
-          features: draft.features
-            .split("\n")
-            .map((f) => f.trim())
-            .filter(Boolean)
-            .slice(0, 12),
-        },
-      },
+      { planId, data },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListPlansQueryKey() });
-          queryClient.invalidateQueries({
-            queryKey: getAdminListAuditLogsQueryKey(),
-          });
+          invalidatePlanQueries();
           toast({
             title: "Plan saved",
             description:
@@ -929,9 +1014,23 @@ function PlansCard() {
                   key={p.id}
                   className="rounded-xl border border-border p-4 space-y-4"
                 >
-                  <Badge variant="secondary" className="uppercase">
-                    {p.id}
-                  </Badge>
+                  <div className="flex items-center justify-between">
+                    <Badge variant="secondary" className="uppercase">
+                      {p.id}
+                    </Badge>
+                    {p.id !== "free" && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleDelete(p.id, p.name)}
+                        disabled={deletePlan.isPending}
+                        aria-label={`Delete ${p.name} plan`}
+                        title="Delete this plan"
+                      >
+                        <Trash2 className="h-4 w-4 text-muted-foreground" />
+                      </Button>
+                    )}
+                  </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Plan name</label>
                     <Input
@@ -990,6 +1089,104 @@ function PlansCard() {
                 </div>
               );
             })}
+
+            <div className="rounded-xl border border-dashed border-border p-4 space-y-4">
+              {!showNewForm ? (
+                <button
+                  type="button"
+                  onClick={() => setShowNewForm(true)}
+                  className="flex h-full min-h-40 w-full flex-col items-center justify-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Plus className="h-6 w-6" />
+                  <span className="text-sm font-medium">Add plan</span>
+                </button>
+              ) : (
+                <>
+                  <Badge variant="outline">New plan</Badge>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Plan name</label>
+                    <Input
+                      value={newPlan.name}
+                      onChange={(e) =>
+                        setNewPlan((prev) => ({ ...prev, name: e.target.value }))
+                      }
+                      placeholder="e.g. Agency"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Price label (display only)
+                    </label>
+                    <Input
+                      value={newPlan.priceLabel}
+                      onChange={(e) =>
+                        setNewPlan((prev) => ({
+                          ...prev,
+                          priceLabel: e.target.value,
+                        }))
+                      }
+                      placeholder="$199 / mo"
+                    />
+                  </div>
+                  {LIMIT_FIELDS.map((f) => (
+                    <div key={f.key} className="space-y-2">
+                      <label className="text-sm font-medium">{f.label}</label>
+                      <Input
+                        value={newPlan[f.key]}
+                        onChange={(e) =>
+                          setNewPlan((prev) => ({
+                            ...prev,
+                            [f.key]: e.target.value,
+                          }))
+                        }
+                        placeholder='e.g. 100 or "unlimited"'
+                      />
+                    </div>
+                  ))}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Features (one per line)
+                    </label>
+                    <Textarea
+                      rows={5}
+                      value={newPlan.features}
+                      onChange={(e) =>
+                        setNewPlan((prev) => ({
+                          ...prev,
+                          features: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleCreate}
+                      disabled={createPlan.isPending}
+                      className="flex-1"
+                    >
+                      {createPlan.isPending ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />{" "}
+                          Creating...
+                        </>
+                      ) : (
+                        "Create plan"
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setShowNewForm(false);
+                        setNewPlan(EMPTY_NEW_PLAN);
+                      }}
+                      disabled={createPlan.isPending}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         )}
       </CardContent>
@@ -1093,8 +1290,12 @@ export function AdminPage() {
     isLoading: statsLoading,
     error: statsError,
   } = useAdminGetStats();
+  const { data: planCatalog } = useListPlans();
   const updatePlan = useAdminUpdateTenantPlan();
   const updateSuperadmin = useAdminUpdateTenantSuperadmin();
+
+  const planNameById: Record<string, string> = {};
+  for (const p of planCatalog ?? []) planNameById[p.id] = p.name;
 
   // Deny on the cached hint OR when the server authoritatively returns 403 —
   // the latter covers live revocation even while `me` is still stale-cached.
@@ -1117,7 +1318,7 @@ export function AdminPage() {
 
   const handlePlanChange = (tenantId: number, plan: string) => {
     updatePlan.mutate(
-      { id: tenantId, data: { plan: plan as "free" | "pro" | "business" } },
+      { id: tenantId, data: { plan } },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({
@@ -1217,11 +1418,11 @@ export function AdminPage() {
 
       {stats && !statsLoading && (
         <div className="flex flex-wrap gap-3">
-          <Badge variant="secondary">Free: {stats.tenantsByPlan.free}</Badge>
-          <Badge variant="secondary">Pro: {stats.tenantsByPlan.pro}</Badge>
-          <Badge variant="secondary">
-            Business: {stats.tenantsByPlan.business}
-          </Badge>
+          {Object.entries(stats.tenantsByPlan ?? {}).map(([planId, count]) => (
+            <Badge key={planId} variant="secondary">
+              {planNameById[planId] ?? PLAN_LABELS[planId] ?? planId}: {count}
+            </Badge>
+          ))}
         </div>
       )}
 
@@ -1301,13 +1502,17 @@ export function AdminPage() {
                         >
                           <SelectTrigger className="w-32">
                             <SelectValue>
-                              {PLAN_LABELS[t.plan] ?? t.plan}
+                              {planNameById[t.plan] ??
+                                PLAN_LABELS[t.plan] ??
+                                t.plan}
                             </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="free">Free</SelectItem>
-                            <SelectItem value="pro">Pro</SelectItem>
-                            <SelectItem value="business">Business</SelectItem>
+                            {(planCatalog ?? []).map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.name}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </TableCell>

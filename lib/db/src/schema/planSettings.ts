@@ -1,9 +1,23 @@
-import { pgTable, text, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  integer,
+  timestamp,
+  jsonb,
+  boolean,
+} from "drizzle-orm/pg-core";
 
 /**
- * Superadmin-editable overrides for subscription plans, keyed by plan id
- * ("free" | "pro" | "business"). A missing row means the built-in defaults
- * from the API server's plan catalog apply. Limits use -1 for "unlimited".
+ * Superadmin-editable subscription plans, keyed by plan id.
+ *
+ * Rows serve three purposes:
+ * - Override a built-in default plan (free/pro/business): row with the same id.
+ * - Define a custom plan: row with an id not among the defaults.
+ * - Delete a built-in default plan: row with archived=true (custom plans are
+ *   deleted by removing the row outright).
+ *
+ * A missing row means the built-in defaults from the API server's plan
+ * catalog apply. Limits use -1 for "unlimited".
  */
 export const planSettingsTable = pgTable("plan_settings", {
   id: text("id").primaryKey(),
@@ -14,6 +28,8 @@ export const planSettingsTable = pgTable("plan_settings", {
   brandKits: integer("brand_kits").notNull(),
   scheduledPosts: integer("scheduled_posts").notNull(),
   features: jsonb("features").$type<string[]>().notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  archived: boolean("archived").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()

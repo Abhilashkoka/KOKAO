@@ -276,7 +276,82 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/plans:
+    post:
+      operationId: adminCreatePlan
+      tags: [admin]
+      summary: Create a new subscription plan (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanCreateInput"
+      responses:
+        "200":
+          description: The full updated plan catalog
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Plan"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: A plan with this id already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/plans/{planId}:
+    delete:
+      operationId: adminDeletePlan
+      tags: [admin]
+      summary: Delete a subscription plan (superadmin only)
+      parameters:
+        - name: planId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The full updated plan catalog
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Plan"
+        "400":
+          description: Plan cannot be deleted (fallback plan or still in use)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Unknown plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
     put:
       operationId: adminUpdatePlan
       tags: [admin]
@@ -2127,7 +2202,6 @@ components:
           minLength: 1
         plan:
           type: string
-          enum: [free, pro, business]
         aiModel:
           type: string
           minLength: 1
@@ -2249,6 +2323,35 @@ components:
           items:
             type: string
 
+    PlanCreateInput:
+      type: object
+      required: [name, priceLabel, limits, features]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 40
+          pattern: "^[a-z0-9][a-z0-9-]*$"
+          description: >-
+            Optional url-safe id (lowercase letters, digits, dashes). Derived
+            from the name when omitted.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 60
+        priceLabel:
+          type: string
+          minLength: 1
+          maxLength: 40
+        limits:
+          $ref: "#/components/schemas/PlanLimits"
+        features:
+          type: array
+          maxItems: 12
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
     PlanUpdateInput:
       type: object
       required: [name, priceLabel, limits, features]
@@ -2325,14 +2428,8 @@ components:
           type: integer
         tenantsByPlan:
           type: object
-          required: [free, pro, business]
-          properties:
-            free:
-              type: integer
-            pro:
-              type: integer
-            business:
-              type: integer
+          additionalProperties:
+            type: integer
         totalContent:
           type: integer
         totalScheduledPosts:
@@ -2345,7 +2442,8 @@ components:
       properties:
         plan:
           type: string
-          enum: [free, pro, business]
+          minLength: 1
+          maxLength: 40
     UpdateTenantSuperadminBody:
       type: object
       required: [isSuperadmin]
@@ -2368,7 +2466,15 @@ components:
           type: integer
         action:
           type: string
-          enum: [plan_change, superadmin_grant, superadmin_revoke, plan_edit]
+          enum:
+            [
+              plan_change,
+              superadmin_grant,
+              superadmin_revoke,
+              plan_edit,
+              plan_create,
+              plan_delete,
+            ]
           description: The privileged action that was recorded.
         actorTenantId:
           type: integer

@@ -57,7 +57,11 @@ export const DEFAULT_PLANS: Plan[] = [
   },
 ];
 
-export const PLAN_IDS = DEFAULT_PLANS.map((p) => p.id);
+/** Ids of the built-in default plans (deletable via an archived marker row). */
+export const DEFAULT_PLAN_IDS = DEFAULT_PLANS.map((p) => p.id);
+
+/** The fallback plan for new signups; cannot be deleted. */
+export const FALLBACK_PLAN_ID = "free";
 
 const CACHE_TTL_MS = 30_000;
 
@@ -68,34 +72,42 @@ export function invalidatePlanCache(): void {
 }
 
 /**
- * Returns the plan catalog: built-in defaults merged with any superadmin
- * overrides stored in plan_settings. Cached briefly to keep quota checks
- * cheap. Falls back to defaults if the DB read fails.
+ * Returns the plan catalog: built-in defaults merged with superadmin rows in
+ * plan_settings. A row with a default id overrides that default (or, when
+ * archived, removes it); rows with new ids are custom plans. Cached briefly to
+ * keep quota checks cheap. Falls back to defaults if the DB read fails.
  */
 export async function listPlans(): Promise<Plan[]> {
   const now = Date.now();
   if (cache && cache.expiresAt > now) return cache.plans;
 
-  let overrides: Map<string, Plan>;
+  let plans: Plan[];
   try {
     const rows = await db.select().from(planSettingsTable);
-    overrides = new Map(
-      rows.map((r) => [
-        r.id,
-        {
-          id: r.id,
-          name: r.name,
-          priceLabel: r.priceLabel,
-          limits: {
-            captions: r.captions,
-            images: r.images,
-            brandKits: r.brandKits,
-            scheduledPosts: r.scheduledPosts,
-          },
-          features: r.features,
-        },
-      ]),
-    );
+    const byId = new Map(rows.map((r) => [r.id, r]));
+
+    const entries: { plan: Plan; sortOrder: number }[] = [];
+    DEFAULT_PLANS.forEach((p, index) => {
+      const row = byId.get(p.id);
+      byId.delete(p.id);
+      if (row?.archived) return;
+      entries.push(
+        row
+          ? { plan: rowToPlan(row), sortOrder: row.sortOrder || index }
+          : { plan: p, sortOrder: index },
+      );
+    });
+    for (const row of byId.values()) {
+      if (row.archived) continue;
+      entries.push({ plan: rowToPlan(row), sortOrder: row.sortOrder });
+    }
+
+    entries.sort((a, b) => a.sortOrder - b.sortOrder);
+    plans = entries.map((e) => e.plan);
+
+    // Never serve an empty catalog: the fallback plan is undeletable, but be
+    // defensive against manual DB edits.
+    if (plans.length === 0) plans = DEFAULT_PLANS;
   } catch (error) {
     // Serve the built-in defaults rather than failing every quota check and
     // the public /plans endpoint if the overrides table is unreadable. Do NOT
@@ -104,14 +116,32 @@ export async function listPlans(): Promise<Plan[]> {
     return DEFAULT_PLANS;
   }
 
-  const plans = DEFAULT_PLANS.map((p) => overrides.get(p.id) ?? p);
   cache = { plans, expiresAt: now + CACHE_TTL_MS };
   return plans;
 }
 
+function rowToPlan(r: typeof planSettingsTable.$inferSelect): Plan {
+  return {
+    id: r.id,
+    name: r.name,
+    priceLabel: r.priceLabel,
+    limits: {
+      captions: r.captions,
+      images: r.images,
+      brandKits: r.brandKits,
+      scheduledPosts: r.scheduledPosts,
+    },
+    features: r.features,
+  };
+}
+
 export async function getPlan(planId: string): Promise<Plan> {
   const plans = await listPlans();
-  return plans.find((p) => p.id === planId) ?? plans[0]!;
+  return (
+    plans.find((p) => p.id === planId) ??
+    plans.find((p) => p.id === FALLBACK_PLAN_ID) ??
+    plans[0]!
+  );
 }
 
 export async function getPlanLimits(planId: string): Promise<PlanLimits> {

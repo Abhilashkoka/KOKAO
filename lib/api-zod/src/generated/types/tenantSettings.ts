@@ -5,12 +5,11 @@
  * SocialForge API
  * OpenAPI spec version: 0.1.0
  */
-import type { TenantSettingsPlan } from './tenantSettingsPlan';
 
 export interface TenantSettings {
   /** @minLength 1 */
   name?: string;
-  plan?: TenantSettingsPlan;
+  plan?: string;
   /** @minLength 1 */
   aiModel?: string;
   /** @nullable */

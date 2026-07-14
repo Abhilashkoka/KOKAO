@@ -5,8 +5,11 @@
  * SocialForge API
  * OpenAPI spec version: 0.1.0
  */
-import type { UpdateTenantPlanBodyPlan } from './updateTenantPlanBodyPlan';
 
 export interface UpdateTenantPlanBody {
-  plan: UpdateTenantPlanBodyPlan;
+  /**
+     * @minLength 1
+     * @maxLength 40
+     */
+  plan: string;
 }

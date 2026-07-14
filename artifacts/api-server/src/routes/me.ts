@@ -3,7 +3,7 @@ import { db, tenantsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { UpdateSettingsBody } from "@workspace/api-zod";
 import { serializeTenant } from "../lib/serializers";
-import { getPlanLimits } from "../lib/plans";
+import { getPlanLimits, listPlans } from "../lib/plans";
 import { getUsage } from "../lib/usage";
 import { isSuperadminEmail } from "../lib/superadmins";
 
@@ -43,6 +43,16 @@ router.patch("/me/settings", async (req: Request, res: Response) => {
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input" });
     return;
+  }
+
+  // The plan catalog is dynamic (superadmins can add/delete plans), so the
+  // requested plan must be validated against the live catalog, not an enum.
+  if (parsed.data.plan !== undefined) {
+    const plans = await listPlans();
+    if (!plans.some((p) => p.id === parsed.data.plan)) {
+      res.status(400).json({ error: "Unknown plan" });
+      return;
+    }
   }
 
   const updated = (

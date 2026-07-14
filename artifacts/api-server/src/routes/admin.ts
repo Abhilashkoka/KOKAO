@@ -17,9 +17,15 @@ import {
   AdminUpdateTenantSuperadminBody,
   AdminUpdateNotificationPoliciesBody,
   AdminUpdatePlanBody,
+  AdminCreatePlanBody,
 } from "@workspace/api-zod";
 import { notificationPoliciesTable, planSettingsTable } from "@workspace/db";
-import { PLAN_IDS, listPlans, invalidatePlanCache } from "../lib/plans";
+import {
+  DEFAULT_PLAN_IDS,
+  FALLBACK_PLAN_ID,
+  listPlans,
+  invalidatePlanCache,
+} from "../lib/plans";
 import { isSuperadminEmail } from "../lib/superadmins";
 import { fetchVerifiedEmail } from "../lib/clerkUser";
 import { currentPeriodStart } from "../lib/usage";
@@ -149,7 +155,10 @@ router.get("/admin/stats", async (_req: Request, res: Response) => {
       .from(connectedAccountsTable),
   ]);
 
-  const byPlan = { free: 0, pro: 0, business: 0 } as Record<string, number>;
+  // Include every catalog plan (even those with zero tenants) plus any plan
+  // ids still referenced by tenants but no longer in the catalog.
+  const byPlan: Record<string, number> = {};
+  for (const p of await listPlans()) byPlan[p.id] = 0;
   let totalTenants = 0;
   for (const row of tenantRows) {
     byPlan[row.plan] = (byPlan[row.plan] ?? 0) + row.count;
@@ -158,11 +167,7 @@ router.get("/admin/stats", async (_req: Request, res: Response) => {
 
   res.json({
     totalTenants,
-    tenantsByPlan: {
-      free: byPlan.free ?? 0,
-      pro: byPlan.pro ?? 0,
-      business: byPlan.business ?? 0,
-    },
+    tenantsByPlan: byPlan,
     totalContent: contentRow[0]?.count ?? 0,
     totalScheduledPosts: scheduleRow[0]?.count ?? 0,
     totalConnectedAccounts: accountRow[0]?.count ?? 0,
@@ -178,6 +183,13 @@ router.patch("/admin/tenants/:id", async (req: Request, res: Response) => {
   const parsed = AdminUpdateTenantPlanBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+
+  // Plans are dynamic; validate against the live catalog rather than an enum.
+  const catalog = await listPlans();
+  if (!catalog.some((p) => p.id === parsed.data.plan)) {
+    res.status(400).json({ error: "Unknown plan" });
     return;
   }
 
@@ -305,15 +317,34 @@ router.patch(
   },
 );
 
+const invalidLimit = (n: number) =>
+  !Number.isInteger(n) || (n < 0 && n !== -1);
+
+function invalidLimits(limits: {
+  captions: number;
+  images: number;
+  brandKits: number;
+  scheduledPosts: number;
+}): boolean {
+  return (
+    invalidLimit(limits.captions) ||
+    invalidLimit(limits.images) ||
+    invalidLimit(limits.brandKits) ||
+    invalidLimit(limits.scheduledPosts)
+  );
+}
+
 /**
  * PUT /admin/plans/:planId
  * Superadmin edit of a subscription plan's name, price label, limits, and
- * feature list. Overrides are stored in plan_settings; the plan ids themselves
- * are fixed (free/pro/business). Returns the full updated catalog.
+ * feature list. Works for both built-in and custom plans; the row in
+ * plan_settings overrides or defines the plan. Returns the full catalog.
  */
 router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
   const planId = String(req.params.planId);
-  if (!PLAN_IDS.includes(planId)) {
+  const catalog = await listPlans();
+  const previous = catalog.find((p) => p.id === planId);
+  if (!previous) {
     res.status(404).json({ error: "Unknown plan" });
     return;
   }
@@ -325,20 +356,12 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
   }
 
   const { name, priceLabel, limits, features } = parsed.data;
-  const invalid = (n: number) => !Number.isInteger(n) || (n < 0 && n !== -1);
-  if (
-    invalid(limits.captions) ||
-    invalid(limits.images) ||
-    invalid(limits.brandKits) ||
-    invalid(limits.scheduledPosts)
-  ) {
+  if (invalidLimits(limits)) {
     res
       .status(400)
       .json({ error: "Limits must be whole numbers (use -1 for unlimited)" });
     return;
   }
-
-  const previous = (await listPlans()).find((p) => p.id === planId);
 
   const values = {
     id: planId,
@@ -349,6 +372,8 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
     brandKits: limits.brandKits,
     scheduledPosts: limits.scheduledPosts,
     features: features.map((f) => f.trim()).filter(Boolean),
+    sortOrder: catalog.findIndex((p) => p.id === planId),
+    archived: false,
     updatedAt: new Date(),
   };
 
@@ -366,11 +391,173 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
       actorEmail: req.tenantEmail,
       targetTenantId: null,
       targetEmail: null,
-      oldValue: previous ? JSON.stringify(previous.limits) : null,
+      oldValue: JSON.stringify(previous.limits),
       newValue: JSON.stringify(limits),
     });
   } catch (error) {
     req.log.error({ err: error }, "Failed to write plan-edit audit log");
+  }
+
+  res.json(await listPlans());
+});
+
+/**
+ * POST /admin/plans
+ * Superadmin creation of a new custom subscription plan. The id is either
+ * provided (url-safe) or derived from the name; it must not collide with an
+ * existing catalog plan or a built-in default id (even a deleted one keeps
+ * its id reserved to avoid resurrecting defaults unexpectedly).
+ */
+router.post("/admin/plans", async (req: Request, res: Response) => {
+  const parsed = AdminCreatePlanBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+
+  const { name, priceLabel, limits, features } = parsed.data;
+  if (invalidLimits(limits)) {
+    res
+      .status(400)
+      .json({ error: "Limits must be whole numbers (use -1 for unlimited)" });
+    return;
+  }
+
+  const id =
+    parsed.data.id ??
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40);
+  if (!id) {
+    res.status(400).json({ error: "Plan name must contain letters or digits" });
+    return;
+  }
+
+  const catalog = await listPlans();
+  const existingRow = (
+    await db
+      .select({ id: planSettingsTable.id })
+      .from(planSettingsTable)
+      .where(eq(planSettingsTable.id, id))
+  )[0];
+  if (
+    catalog.some((p) => p.id === id) ||
+    DEFAULT_PLAN_IDS.includes(id) ||
+    existingRow
+  ) {
+    res.status(409).json({ error: "A plan with this id already exists" });
+    return;
+  }
+
+  await db.insert(planSettingsTable).values({
+    id,
+    name: name.trim(),
+    priceLabel: priceLabel.trim(),
+    captions: limits.captions,
+    images: limits.images,
+    brandKits: limits.brandKits,
+    scheduledPosts: limits.scheduledPosts,
+    features: features.map((f) => f.trim()).filter(Boolean),
+    sortOrder: catalog.length,
+    archived: false,
+  });
+
+  invalidatePlanCache();
+
+  try {
+    await recordAdminAction({
+      action: "plan_create",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: null,
+      newValue: JSON.stringify({ id, name: name.trim(), limits }),
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write plan-create audit log");
+  }
+
+  res.json(await listPlans());
+});
+
+/**
+ * DELETE /admin/plans/:planId
+ * Superadmin deletion of a subscription plan. Guarded: the fallback plan
+ * (new signups land there) cannot be deleted, and a plan still assigned to
+ * any workspace cannot be deleted until those workspaces are moved. Built-in
+ * defaults are removed via an archived marker row; custom plans are deleted
+ * outright.
+ */
+router.delete("/admin/plans/:planId", async (req: Request, res: Response) => {
+  const planId = String(req.params.planId);
+
+  if (planId === FALLBACK_PLAN_ID) {
+    res.status(400).json({
+      error: "The Free plan is the default for new signups and cannot be deleted",
+    });
+    return;
+  }
+
+  const catalog = await listPlans();
+  const existing = catalog.find((p) => p.id === planId);
+  if (!existing) {
+    res.status(404).json({ error: "Unknown plan" });
+    return;
+  }
+
+  const inUse = (
+    await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.plan, planId))
+  )[0];
+  if ((inUse?.count ?? 0) > 0) {
+    res.status(400).json({
+      error: `Cannot delete: ${inUse!.count} workspace(s) are on this plan. Move them to another plan first.`,
+    });
+    return;
+  }
+
+  if (DEFAULT_PLAN_IDS.includes(planId)) {
+    // Built-in default: mark as archived so it stays deleted.
+    const values = {
+      id: planId,
+      name: existing.name,
+      priceLabel: existing.priceLabel,
+      captions: existing.limits.captions,
+      images: existing.limits.images,
+      brandKits: existing.limits.brandKits,
+      scheduledPosts: existing.limits.scheduledPosts,
+      features: existing.features,
+      archived: true,
+      updatedAt: new Date(),
+    };
+    await db
+      .insert(planSettingsTable)
+      .values(values)
+      .onConflictDoUpdate({ target: planSettingsTable.id, set: values });
+  } else {
+    await db.delete(planSettingsTable).where(eq(planSettingsTable.id, planId));
+  }
+
+  invalidatePlanCache();
+
+  try {
+    await recordAdminAction({
+      action: "plan_delete",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: JSON.stringify({ id: planId, name: existing.name }),
+      newValue: null,
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write plan-delete audit log");
   }
 
   res.json(await listPlans());

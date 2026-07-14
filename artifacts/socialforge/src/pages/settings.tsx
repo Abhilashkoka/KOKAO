@@ -48,7 +48,7 @@ export function SettingsPage() {
 
   const handleUpgrade = (planId: string) => {
     updateSettings.mutate({
-      data: { plan: planId as any }
+      data: { plan: planId }
     }, {
       onSuccess: () => {
         toast({ title: "Plan updated successfully!" });

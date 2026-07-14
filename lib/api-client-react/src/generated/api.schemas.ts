@@ -23,19 +23,10 @@ export interface Tenant {
   createdAt: string;
 }
 
-export type TenantSettingsPlan = typeof TenantSettingsPlan[keyof typeof TenantSettingsPlan];
-
-
-export const TenantSettingsPlan = {
-  free: 'free',
-  pro: 'pro',
-  business: 'business',
-} as const;
-
 export interface TenantSettings {
   /** @minLength 1 */
   name?: string;
-  plan?: TenantSettingsPlan;
+  plan?: string;
   /** @minLength 1 */
   aiModel?: string;
   /** @nullable */
@@ -132,6 +123,33 @@ export interface Plan {
   features: string[];
 }
 
+export interface PlanCreateInput {
+  /**
+     * Optional url-safe id (lowercase letters, digits, dashes). Derived from the name when omitted.
+     * @minLength 1
+     * @maxLength 40
+     * @pattern ^[a-z0-9][a-z0-9-]*$
+     */
+  id?: string;
+  /**
+     * @minLength 1
+     * @maxLength 60
+     */
+  name: string;
+  /**
+     * @minLength 1
+     * @maxLength 40
+     */
+  priceLabel: string;
+  limits: PlanLimits;
+  /**
+     * @maxItems 12
+     * @items.minLength 1
+     * @items.maxLength 120
+     */
+  features: string[];
+}
+
 export interface PlanUpdateInput {
   /**
      * @minLength 1
@@ -175,11 +193,7 @@ export interface AdminTenant {
   usage?: Usage;
 }
 
-export type AdminStatsTenantsByPlan = {
-  free: number;
-  pro: number;
-  business: number;
-};
+export type AdminStatsTenantsByPlan = {[key: string]: number};
 
 export interface AdminStats {
   totalTenants: number;
@@ -189,17 +203,12 @@ export interface AdminStats {
   totalConnectedAccounts: number;
 }
 
-export type UpdateTenantPlanBodyPlan = typeof UpdateTenantPlanBodyPlan[keyof typeof UpdateTenantPlanBodyPlan];
-
-
-export const UpdateTenantPlanBodyPlan = {
-  free: 'free',
-  pro: 'pro',
-  business: 'business',
-} as const;
-
 export interface UpdateTenantPlanBody {
-  plan: UpdateTenantPlanBodyPlan;
+  /**
+     * @minLength 1
+     * @maxLength 40
+     */
+  plan: string;
 }
 
 export interface UpdateTenantSuperadminBody {
@@ -217,6 +226,8 @@ export const AdminAuditLogAction = {
   superadmin_grant: 'superadmin_grant',
   superadmin_revoke: 'superadmin_revoke',
   plan_edit: 'plan_edit',
+  plan_create: 'plan_create',
+  plan_delete: 'plan_delete',
 } as const;
 
 export interface AdminAuditLog {

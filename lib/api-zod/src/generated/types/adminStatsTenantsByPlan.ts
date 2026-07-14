@@ -6,8 +6,4 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminStatsTenantsByPlan = {
-  free: number;
-  pro: number;
-  business: number;
-};
+export type AdminStatsTenantsByPlan = {[key: string]: number};
