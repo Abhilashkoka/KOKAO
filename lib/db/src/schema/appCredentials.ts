@@ -42,3 +42,15 @@ export const twitterAppCredentialsSchema = z.object({
   clientSecret: z.string(),
 });
 export type TwitterAppCredentials = z.infer<typeof twitterAppCredentialsSchema>;
+
+/**
+ * OAuth 2.0 client credentials for LinkedIn (from the app's Auth tab in the
+ * LinkedIn developer portal). They drive the authorization-code flow tenants
+ * use to connect their LinkedIn account. Stored encrypted; the
+ * LINKEDIN_CLIENT_ID/LINKEDIN_CLIENT_SECRET env vars remain a fallback.
+ */
+export const linkedinAppCredentialsSchema = z.object({
+  clientId: z.string(),
+  clientSecret: z.string(),
+});
+export type LinkedinAppCredentials = z.infer<typeof linkedinAppCredentialsSchema>;

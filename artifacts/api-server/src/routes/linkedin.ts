@@ -1,7 +1,14 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, connectedAccountsTable, contentItemsTable } from "@workspace/db";
+import {
+  db,
+  connectedAccountsTable,
+  contentItemsTable,
+  appCredentialsTable,
+  type LinkedinAppCredentials,
+} from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { ObjectStorageService } from "../lib/objectStorage";
+import { decryptJson } from "../lib/secretCrypto";
 import { signOAuthState, verifyOAuthState, randomNonce } from "../lib/oauthState";
 import { notifySocialConnectionFailed } from "../lib/notifications";
 import { splitForLinkedin } from "@workspace/social-limits";
@@ -17,7 +24,31 @@ const TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken";
 const USERINFO_URL = "https://api.linkedin.com/v2/userinfo";
 const REST_BASE = "https://api.linkedin.com/rest";
 
-function getCredentials(): { clientId: string; clientSecret: string } | null {
+/**
+ * App-level LinkedIn OAuth credentials. The superadmin-managed database row
+ * (saved from the admin page, encrypted at rest) wins; the
+ * LINKEDIN_CLIENT_ID/LINKEDIN_CLIENT_SECRET env vars remain a fallback for
+ * env-based setups. Returns null when neither source is usable.
+ */
+async function getCredentials(): Promise<{
+  clientId: string;
+  clientSecret: string;
+} | null> {
+  try {
+    const row = (
+      await db
+        .select()
+        .from(appCredentialsTable)
+        .where(eq(appCredentialsTable.provider, "linkedin"))
+        .limit(1)
+    )[0];
+    if (row) {
+      const creds = decryptJson<LinkedinAppCredentials>(row.encryptedCredentials);
+      if (creds.clientId && creds.clientSecret) return creds;
+    }
+  } catch {
+    // Fall through to the env fallback on read/decrypt failure.
+  }
   const clientId = process.env.LINKEDIN_CLIENT_ID;
   const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
   if (!clientId || !clientSecret) return null;
@@ -34,8 +65,8 @@ function redirectUri(req: Request): string {
   return `${proto}://${host}/api/linkedin/auth/callback`;
 }
 
-function isConfigured(): boolean {
-  return !!getCredentials() && !!process.env.SESSION_SECRET;
+async function isConfigured(): Promise<boolean> {
+  return !!(await getCredentials()) && !!process.env.SESSION_SECRET;
 }
 
 function verifyState(state: string, tenantId: number): boolean {
@@ -211,12 +242,12 @@ router.param("id", (req, res, next, value) => {
   next();
 });
 
-router.get("/linkedin/auth/url", (req: Request, res: Response) => {
-  const creds = getCredentials();
-  if (!creds || !isConfigured()) {
+router.get("/linkedin/auth/url", async (req: Request, res: Response) => {
+  const creds = await getCredentials();
+  if (!creds || !process.env.SESSION_SECRET) {
     res.status(503).json({
       error:
-        "LinkedIn is not configured. Add LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET and SESSION_SECRET.",
+        "LinkedIn is not configured. Ask an administrator to save the LinkedIn Client ID and Client Secret on the Admin page.",
     });
     return;
   }
@@ -235,8 +266,8 @@ router.get("/linkedin/auth/callback", async (req: Request, res: Response) => {
   const fail = (reason: string) =>
     res.redirect(`${webBase}?linkedin=error&reason=${encodeURIComponent(reason)}`);
 
-  const creds = getCredentials();
-  if (!creds || !isConfigured()) {
+  const creds = await getCredentials();
+  if (!creds || !process.env.SESSION_SECRET) {
     fail("not_configured");
     return;
   }
@@ -342,6 +373,7 @@ router.get("/linkedin/auth/callback", async (req: Request, res: Response) => {
 function serializeStatus(
   req: Request,
   account: Awaited<ReturnType<typeof getLinkedinAccount>> | undefined,
+  configured: boolean,
 ) {
   const connected =
     !!account?.accessToken &&
@@ -354,7 +386,7 @@ function serializeStatus(
   return {
     connected,
     accountName: connected ? account!.accountName : null,
-    configured: isConfigured(),
+    configured,
     redirectUri: redirectUri(req),
     expired,
   };
@@ -371,7 +403,7 @@ router.get("/linkedin/status", async (req: Request, res: Response) => {
       req.log.error({ err }, "LinkedIn auto re-verify failed");
     }
   }
-  res.json(serializeStatus(req, account));
+  res.json(serializeStatus(req, account, await isConfigured()));
 });
 
 router.delete("/linkedin", async (req: Request, res: Response) => {
@@ -387,7 +419,7 @@ router.delete("/linkedin", async (req: Request, res: Response) => {
       })
       .where(eq(connectedAccountsTable.id, existing.id));
   }
-  res.json(serializeStatus(req, undefined));
+  res.json(serializeStatus(req, undefined, await isConfigured()));
 });
 
 router.post("/linkedin/retest", async (req: Request, res: Response) => {
@@ -433,7 +465,7 @@ router.post("/linkedin/retest", async (req: Request, res: Response) => {
   }
 
   const refreshed = await getLinkedinAccount(req.tenantId);
-  res.json(serializeStatus(req, refreshed));
+  res.json(serializeStatus(req, refreshed, await isConfigured()));
 });
 
 router.post(

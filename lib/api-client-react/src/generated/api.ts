@@ -60,6 +60,8 @@ import type {
   InstagramCredentialInput,
   LinkedInAuthUrlResult,
   LinkedInStatus,
+  LinkedinAppCredentialInput,
+  LinkedinAppCredentialStatus,
   ListBrandKitsParams,
   MeProfile,
   MetaAppCredentialInput,
@@ -5937,6 +5939,153 @@ export const useAdminSaveTwitterCredentials = <TError = ErrorType<ErrorEnvelope>
         TContext
       > => {
       return useMutation(getAdminSaveTwitterCredentialsMutationOptions(options));
+    }
+
+export const getAdminGetLinkedinCredentialsUrl = () => {
+
+
+
+
+  return `/api/admin/platform-credentials/linkedin`
+}
+
+/**
+ * @summary Get masked app-level LinkedIn credentials (superadmin only)
+ */
+export const adminGetLinkedinCredentials = async ( options?: RequestInit): Promise<LinkedinAppCredentialStatus> => {
+
+  return customFetch<LinkedinAppCredentialStatus>(getAdminGetLinkedinCredentialsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetLinkedinCredentialsQueryKey = () => {
+    return [
+    `/api/admin/platform-credentials/linkedin`
+    ] as const;
+    }
+
+
+export const getAdminGetLinkedinCredentialsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetLinkedinCredentials>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetLinkedinCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetLinkedinCredentialsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetLinkedinCredentials>>> = ({ signal }) => adminGetLinkedinCredentials({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetLinkedinCredentials>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetLinkedinCredentialsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetLinkedinCredentials>>>
+export type AdminGetLinkedinCredentialsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get masked app-level LinkedIn credentials (superadmin only)
+ */
+
+export function useAdminGetLinkedinCredentials<TData = Awaited<ReturnType<typeof adminGetLinkedinCredentials>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetLinkedinCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetLinkedinCredentialsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminSaveLinkedinCredentialsUrl = () => {
+
+
+
+
+  return `/api/admin/platform-credentials/linkedin`
+}
+
+/**
+ * @summary Save app-level LinkedIn OAuth credentials (superadmin only)
+ */
+export const adminSaveLinkedinCredentials = async (linkedinAppCredentialInput: LinkedinAppCredentialInput, options?: RequestInit): Promise<LinkedinAppCredentialStatus> => {
+
+  return customFetch<LinkedinAppCredentialStatus>(getAdminSaveLinkedinCredentialsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(linkedinAppCredentialInput)
+  }
+);}
+
+
+
+
+export const getAdminSaveLinkedinCredentialsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveLinkedinCredentials>>, TError,{data: BodyType<LinkedinAppCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSaveLinkedinCredentials>>, TError,{data: BodyType<LinkedinAppCredentialInput>}, TContext> => {
+
+const mutationKey = ['adminSaveLinkedinCredentials'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSaveLinkedinCredentials>>, {data: BodyType<LinkedinAppCredentialInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminSaveLinkedinCredentials(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSaveLinkedinCredentialsMutationResult = NonNullable<Awaited<ReturnType<typeof adminSaveLinkedinCredentials>>>
+    export type AdminSaveLinkedinCredentialsMutationBody = BodyType<LinkedinAppCredentialInput>
+    export type AdminSaveLinkedinCredentialsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save app-level LinkedIn OAuth credentials (superadmin only)
+ */
+export const useAdminSaveLinkedinCredentials = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveLinkedinCredentials>>, TError,{data: BodyType<LinkedinAppCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSaveLinkedinCredentials>>,
+        TError,
+        {data: BodyType<LinkedinAppCredentialInput>},
+        TContext
+      > => {
+      return useMutation(getAdminSaveLinkedinCredentialsMutationOptions(options));
     }
 
 export const getGetTwitterAuthUrlUrl = () => {

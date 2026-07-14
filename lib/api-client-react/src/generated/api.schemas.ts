@@ -855,6 +855,26 @@ export interface Notification {
   createdAt: string;
 }
 
+export interface LinkedinAppCredentialInput {
+  /** @minLength 1 */
+  clientId: string;
+  /** @minLength 1 */
+  clientSecret: string;
+}
+
+export interface LinkedinAppCredentialStatus {
+  /** Whether LinkedIn OAuth client credentials have been saved. */
+  configured: boolean;
+  /** @nullable */
+  clientIdMasked?: string | null;
+  /** @nullable */
+  clientSecretMasked?: string | null;
+  /** The exact OAuth callback URL to register in the LinkedIn app. */
+  redirectUri: string;
+  /** @nullable */
+  savedAt?: string | null;
+}
+
 export interface TwitterAppCredentialInput {
   /** @minLength 1 */
   clientId: string;

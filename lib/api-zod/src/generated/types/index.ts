@@ -75,6 +75,8 @@ export * from './imageRequest';
 export * from './imageRequestSize';
 export * from './imageResult';
 export * from './instagramCredentialInput';
+export * from './linkedinAppCredentialInput';
+export * from './linkedinAppCredentialStatus';
 export * from './linkedInAuthUrlResult';
 export * from './linkedInStatus';
 export * from './listBrandKitsParams';

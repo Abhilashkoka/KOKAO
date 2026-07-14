@@ -3828,6 +3828,39 @@ export const AdminSaveTwitterCredentialsResponse = zod.object({
 
 
 /**
+ * @summary Get masked app-level LinkedIn credentials (superadmin only)
+ */
+export const AdminGetLinkedinCredentialsResponse = zod.object({
+  "configured": zod.boolean().describe('Whether LinkedIn OAuth client credentials have been saved.'),
+  "clientIdMasked": zod.string().nullish(),
+  "clientSecretMasked": zod.string().nullish(),
+  "redirectUri": zod.string().describe('The exact OAuth callback URL to register in the LinkedIn app.'),
+  "savedAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Save app-level LinkedIn OAuth credentials (superadmin only)
+ */
+
+
+
+
+export const AdminSaveLinkedinCredentialsBody = zod.object({
+  "clientId": zod.string().min(1),
+  "clientSecret": zod.string().min(1)
+})
+
+export const AdminSaveLinkedinCredentialsResponse = zod.object({
+  "configured": zod.boolean().describe('Whether LinkedIn OAuth client credentials have been saved.'),
+  "clientIdMasked": zod.string().nullish(),
+  "clientSecretMasked": zod.string().nullish(),
+  "redirectUri": zod.string().describe('The exact OAuth callback URL to register in the LinkedIn app.'),
+  "savedAt": zod.coerce.date().nullish()
+})
+
+
+/**
  * @summary Get the X (Twitter) OAuth 2.0 PKCE authorization URL to begin connecting
  */
 export const GetTwitterAuthUrlResponse = zod.object({
