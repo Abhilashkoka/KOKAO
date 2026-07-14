@@ -11,9 +11,9 @@ import aiRouter from "./ai";
 import schedulesRouter from "./schedules";
 import accountsRouter from "./accounts";
 import metaRouter from "./meta";
-import twitterRouter from "./twitter";
+import twitterRouter, { twitterCallbackRouter } from "./twitter";
 import credentialsRouter from "./credentials";
-import linkedinRouter from "./linkedin";
+import linkedinRouter, { linkedinCallbackRouter } from "./linkedin";
 import notificationsRouter from "./notifications";
 import notificationSettingsRouter from "./notificationSettings";
 import emailSettingsRouter from "./emailSettings";
@@ -29,6 +29,13 @@ router.use(healthRouter);
 router.use(publicStorageRouter);
 router.use(plansRouter);
 router.use(publicAppBrandRouter);
+// OAuth callbacks arrive as top-level redirects from the provider and may not
+// carry the app session; they authenticate via the HMAC-signed `state` token
+// instead. Rate-limited like the other OAuth/credential routes.
+router.use("/twitter", sensitiveLimiter);
+router.use("/linkedin", sensitiveLimiter);
+router.use(twitterCallbackRouter);
+router.use(linkedinCallbackRouter);
 
 // Everything below requires an authenticated tenant
 router.use(requireTenant);
@@ -38,8 +45,6 @@ router.use(requireTenant);
 // routers so they run first for matching paths.
 router.use("/ai", aiLimiter);
 router.use("/social-credentials", sensitiveLimiter);
-router.use("/twitter", sensitiveLimiter);
-router.use("/linkedin", sensitiveLimiter);
 
 router.use(protectedStorageRouter);
 router.use(meRouter);

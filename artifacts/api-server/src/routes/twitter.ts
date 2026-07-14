@@ -16,7 +16,7 @@ import {
   type TwitterOAuth2Credentials,
 } from "../lib/twitterApi";
 import { encryptJson } from "../lib/secretCrypto";
-import { signOAuthState, verifyOAuthState } from "../lib/oauthState";
+import { signOAuthState, verifySignedOAuthState } from "../lib/oauthState";
 import { reverifyTwitter } from "../lib/socialReverify";
 
 const router: IRouter = Router();
@@ -75,7 +75,18 @@ router.get("/twitter/auth/url", async (req: Request, res: Response) => {
   res.json({ url });
 });
 
-router.get("/twitter/auth/callback", async (req: Request, res: Response) => {
+/**
+ * The OAuth callback lives on a separate PUBLIC router (mounted before the
+ * session gate in routes/index.ts): it arrives as a top-level browser
+ * navigation from x.com that may not carry the app's session token. The
+ * HMAC-signed, TTL'd `state` minted by /twitter/auth/url is what authenticates
+ * the request and identifies the initiating tenant.
+ */
+export const twitterCallbackRouter: IRouter = Router();
+
+twitterCallbackRouter.get(
+  "/twitter/auth/callback",
+  async (req: Request, res: Response) => {
   const webBase = "/accounts";
   const fail = (reason: string) =>
     res.redirect(`${webBase}?twitter=error&reason=${encodeURIComponent(reason)}`);
@@ -99,11 +110,12 @@ router.get("/twitter/auth/callback", async (req: Request, res: Response) => {
     fail("invalid_state");
     return;
   }
-  const verified = verifyOAuthState(state, req.tenantId);
+  const verified = verifySignedOAuthState(state);
   if (!verified || !verified.data) {
     fail("invalid_state");
     return;
   }
+  const tenantId = verified.tenantId;
 
   try {
     const tokens = await exchangeCodeForTokens({
@@ -124,7 +136,7 @@ router.get("/twitter/auth/callback", async (req: Request, res: Response) => {
       refreshToken: tokens.refreshToken,
     } satisfies TwitterOAuth2Credentials);
     const now = new Date();
-    const existing = await getTwitterAccount(req.tenantId);
+    const existing = await getTwitterAccount(tenantId);
     if (existing) {
       await db
         .update(connectedAccountsTable)
@@ -142,7 +154,7 @@ router.get("/twitter/auth/callback", async (req: Request, res: Response) => {
         .where(eq(connectedAccountsTable.id, existing.id));
     } else {
       await db.insert(connectedAccountsTable).values({
-        tenantId: req.tenantId,
+        tenantId,
         platform: "twitter",
         accountName: user.accountName,
         status: "connected",
@@ -160,7 +172,8 @@ router.get("/twitter/auth/callback", async (req: Request, res: Response) => {
     req.log.error({ err: error }, "X OAuth callback failed");
     fail("token_exchange");
   }
-});
+  },
+);
 
 function serializeStatus(
   req: Request,

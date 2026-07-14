@@ -35,16 +35,18 @@ export function signOAuthState(tenantId: number, data = ""): string {
 }
 
 /**
- * Verify a state against the expected tenant. Returns the opaque `data` (which
- * may be an empty string) when the signature, tenant binding, and TTL all pass;
- * otherwise returns null. `data` may itself contain no dots (PKCE verifiers and
- * hex nonces are dot-free), so the payload is split into exactly three fields.
+ * Verify a state's signature and TTL and extract the tenant it was issued for.
+ * Used by OAuth CALLBACKS, which arrive as top-level browser navigations that
+ * may not carry an app session — the HMAC signature (keyed on SESSION_SECRET)
+ * is what authenticates the request, and the embedded tenant id identifies the
+ * workspace that initiated the flow. Returns null on any failure.
+ * `data` may itself contain no dots (PKCE verifiers and hex nonces are
+ * dot-free), so the payload is split into exactly three fields.
  */
-export function verifyOAuthState(
+export function verifySignedOAuthState(
   state: string,
-  tenantId: number,
   ttlMs = DEFAULT_STATE_TTL_MS,
-): { data: string } | null {
+): { tenantId: number; data: string } | null {
   const secret = process.env.SESSION_SECRET;
   if (!secret) return null;
   try {
@@ -62,15 +64,30 @@ export function verifyOAuthState(
     const firstDot = payload.indexOf(".");
     const secondDot = payload.indexOf(".", firstDot + 1);
     if (firstDot < 0 || secondDot < 0) return null;
-    const tid = payload.slice(0, firstDot);
+    const tid = Number(payload.slice(0, firstDot));
     const ts = payload.slice(firstDot + 1, secondDot);
     const data = payload.slice(secondDot + 1);
-    if (Number(tid) !== tenantId) return null;
+    if (!Number.isInteger(tid) || tid <= 0) return null;
     if (!Number.isFinite(Number(ts)) || Date.now() - Number(ts) > ttlMs) {
       return null;
     }
-    return { data };
+    return { tenantId: tid, data };
   } catch {
     return null;
   }
+}
+
+/**
+ * Verify a state against the expected tenant. Returns the opaque `data` (which
+ * may be an empty string) when the signature, tenant binding, and TTL all pass;
+ * otherwise returns null.
+ */
+export function verifyOAuthState(
+  state: string,
+  tenantId: number,
+  ttlMs = DEFAULT_STATE_TTL_MS,
+): { data: string } | null {
+  const verified = verifySignedOAuthState(state, ttlMs);
+  if (!verified || verified.tenantId !== tenantId) return null;
+  return { data: verified.data };
 }

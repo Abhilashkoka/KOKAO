@@ -9,7 +9,11 @@ import {
 import { and, eq } from "drizzle-orm";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { decryptJson } from "../lib/secretCrypto";
-import { signOAuthState, verifyOAuthState, randomNonce } from "../lib/oauthState";
+import {
+  signOAuthState,
+  verifySignedOAuthState,
+  randomNonce,
+} from "../lib/oauthState";
 import { notifySocialConnectionFailed } from "../lib/notifications";
 import { splitForLinkedin } from "@workspace/social-limits";
 
@@ -67,10 +71,6 @@ function redirectUri(req: Request): string {
 
 async function isConfigured(): Promise<boolean> {
   return !!(await getCredentials()) && !!process.env.SESSION_SECRET;
-}
-
-function verifyState(state: string, tenantId: number): boolean {
-  return verifyOAuthState(state, tenantId) !== null;
 }
 
 /**
@@ -261,7 +261,18 @@ router.get("/linkedin/auth/url", async (req: Request, res: Response) => {
   res.json({ url: `${AUTH_BASE}?${params.toString()}` });
 });
 
-router.get("/linkedin/auth/callback", async (req: Request, res: Response) => {
+/**
+ * The OAuth callback lives on a separate PUBLIC router (mounted before the
+ * session gate in routes/index.ts): it arrives as a top-level browser
+ * navigation from linkedin.com that may not carry the app's session token.
+ * The HMAC-signed, TTL'd `state` minted by /linkedin/auth/url is what
+ * authenticates the request and identifies the initiating tenant.
+ */
+export const linkedinCallbackRouter: IRouter = Router();
+
+linkedinCallbackRouter.get(
+  "/linkedin/auth/callback",
+  async (req: Request, res: Response) => {
   const webBase = "/accounts";
   const fail = (reason: string) =>
     res.redirect(`${webBase}?linkedin=error&reason=${encodeURIComponent(reason)}`);
@@ -281,10 +292,12 @@ router.get("/linkedin/auth/callback", async (req: Request, res: Response) => {
     fail(oauthError);
     return;
   }
-  if (!code || !state || !verifyState(state, req.tenantId)) {
+  const verified = state ? verifySignedOAuthState(state) : null;
+  if (!code || !verified) {
     fail("invalid_state");
     return;
   }
+  const tenantId = verified.tenantId;
 
   try {
     const tokenRes = await fetch(TOKEN_URL, {
@@ -333,7 +346,7 @@ router.get("/linkedin/auth/callback", async (req: Request, res: Response) => {
 
     const accountName = userJson.name || "LinkedIn";
     const now = new Date();
-    const existing = await getLinkedinAccount(req.tenantId);
+    const existing = await getLinkedinAccount(tenantId);
     if (existing) {
       await db
         .update(connectedAccountsTable)
@@ -350,7 +363,7 @@ router.get("/linkedin/auth/callback", async (req: Request, res: Response) => {
         .where(eq(connectedAccountsTable.id, existing.id));
     } else {
       await db.insert(connectedAccountsTable).values({
-        tenantId: req.tenantId,
+        tenantId,
         platform: "linkedin",
         accountName,
         status: "connected",
@@ -368,7 +381,8 @@ router.get("/linkedin/auth/callback", async (req: Request, res: Response) => {
     req.log.error({ err: error }, "LinkedIn OAuth callback failed");
     fail("server_error");
   }
-});
+  },
+);
 
 function serializeStatus(
   req: Request,
