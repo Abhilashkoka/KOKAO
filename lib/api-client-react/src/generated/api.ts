@@ -102,7 +102,11 @@ import type {
   UpdateTenantPlanBody,
   UpdateTenantSuperadminBody,
   UploadUrlRequest,
-  UploadUrlResponse
+  UploadUrlResponse,
+  YoutubeAppCredentialInput,
+  YoutubeAppCredentialStatus,
+  YoutubeAuthUrlResult,
+  YoutubeStatus
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -6086,6 +6090,447 @@ export const useAdminSaveLinkedinCredentials = <TError = ErrorType<ErrorEnvelope
         TContext
       > => {
       return useMutation(getAdminSaveLinkedinCredentialsMutationOptions(options));
+    }
+
+export const getGetYoutubeAuthUrlUrl = () => {
+
+
+
+
+  return `/api/youtube/auth/url`
+}
+
+/**
+ * @summary Get the Google OAuth authorization URL to begin connecting YouTube
+ */
+export const getYoutubeAuthUrl = async ( options?: RequestInit): Promise<YoutubeAuthUrlResult> => {
+
+  return customFetch<YoutubeAuthUrlResult>(getGetYoutubeAuthUrlUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetYoutubeAuthUrlQueryKey = () => {
+    return [
+    `/api/youtube/auth/url`
+    ] as const;
+    }
+
+
+export const getGetYoutubeAuthUrlQueryOptions = <TData = Awaited<ReturnType<typeof getYoutubeAuthUrl>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getYoutubeAuthUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetYoutubeAuthUrlQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getYoutubeAuthUrl>>> = ({ signal }) => getYoutubeAuthUrl({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getYoutubeAuthUrl>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetYoutubeAuthUrlQueryResult = NonNullable<Awaited<ReturnType<typeof getYoutubeAuthUrl>>>
+export type GetYoutubeAuthUrlQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the Google OAuth authorization URL to begin connecting YouTube
+ */
+
+export function useGetYoutubeAuthUrl<TData = Awaited<ReturnType<typeof getYoutubeAuthUrl>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getYoutubeAuthUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetYoutubeAuthUrlQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetYoutubeStatusUrl = () => {
+
+
+
+
+  return `/api/youtube/status`
+}
+
+/**
+ * @summary Whether a YouTube channel is connected
+ */
+export const getYoutubeStatus = async ( options?: RequestInit): Promise<YoutubeStatus> => {
+
+  return customFetch<YoutubeStatus>(getGetYoutubeStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetYoutubeStatusQueryKey = () => {
+    return [
+    `/api/youtube/status`
+    ] as const;
+    }
+
+
+export const getGetYoutubeStatusQueryOptions = <TData = Awaited<ReturnType<typeof getYoutubeStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getYoutubeStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetYoutubeStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getYoutubeStatus>>> = ({ signal }) => getYoutubeStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getYoutubeStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetYoutubeStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getYoutubeStatus>>>
+export type GetYoutubeStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Whether a YouTube channel is connected
+ */
+
+export function useGetYoutubeStatus<TData = Awaited<ReturnType<typeof getYoutubeStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getYoutubeStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetYoutubeStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDisconnectYoutubeUrl = () => {
+
+
+
+
+  return `/api/youtube`
+}
+
+/**
+ * @summary Disconnect YouTube, clearing the stored OAuth tokens and channel
+ */
+export const disconnectYoutube = async ( options?: RequestInit): Promise<YoutubeStatus> => {
+
+  return customFetch<YoutubeStatus>(getDisconnectYoutubeUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDisconnectYoutubeMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectYoutube>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof disconnectYoutube>>, TError,void, TContext> => {
+
+const mutationKey = ['disconnectYoutube'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof disconnectYoutube>>, void> = () => {
+
+
+          return  disconnectYoutube(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DisconnectYoutubeMutationResult = NonNullable<Awaited<ReturnType<typeof disconnectYoutube>>>
+
+    export type DisconnectYoutubeMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Disconnect YouTube, clearing the stored OAuth tokens and channel
+ */
+export const useDisconnectYoutube = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectYoutube>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof disconnectYoutube>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDisconnectYoutubeMutationOptions(options));
+    }
+
+export const getRetestYoutubeUrl = () => {
+
+
+
+
+  return `/api/youtube/retest`
+}
+
+/**
+ * @summary Re-check the stored YouTube connection; flags it if no longer valid
+ */
+export const retestYoutube = async ( options?: RequestInit): Promise<YoutubeStatus> => {
+
+  return customFetch<YoutubeStatus>(getRetestYoutubeUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRetestYoutubeMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retestYoutube>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retestYoutube>>, TError,void, TContext> => {
+
+const mutationKey = ['retestYoutube'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retestYoutube>>, void> = () => {
+
+
+          return  retestYoutube(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetestYoutubeMutationResult = NonNullable<Awaited<ReturnType<typeof retestYoutube>>>
+
+    export type RetestYoutubeMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Re-check the stored YouTube connection; flags it if no longer valid
+ */
+export const useRetestYoutube = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retestYoutube>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof retestYoutube>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getRetestYoutubeMutationOptions(options));
+    }
+
+export const getAdminGetYoutubeCredentialsUrl = () => {
+
+
+
+
+  return `/api/admin/platform-credentials/youtube`
+}
+
+/**
+ * @summary Get masked app-level Google OAuth credentials for YouTube (superadmin only)
+ */
+export const adminGetYoutubeCredentials = async ( options?: RequestInit): Promise<YoutubeAppCredentialStatus> => {
+
+  return customFetch<YoutubeAppCredentialStatus>(getAdminGetYoutubeCredentialsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetYoutubeCredentialsQueryKey = () => {
+    return [
+    `/api/admin/platform-credentials/youtube`
+    ] as const;
+    }
+
+
+export const getAdminGetYoutubeCredentialsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetYoutubeCredentials>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetYoutubeCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetYoutubeCredentialsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetYoutubeCredentials>>> = ({ signal }) => adminGetYoutubeCredentials({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetYoutubeCredentials>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetYoutubeCredentialsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetYoutubeCredentials>>>
+export type AdminGetYoutubeCredentialsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get masked app-level Google OAuth credentials for YouTube (superadmin only)
+ */
+
+export function useAdminGetYoutubeCredentials<TData = Awaited<ReturnType<typeof adminGetYoutubeCredentials>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetYoutubeCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetYoutubeCredentialsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminSaveYoutubeCredentialsUrl = () => {
+
+
+
+
+  return `/api/admin/platform-credentials/youtube`
+}
+
+/**
+ * @summary Save app-level Google OAuth credentials for YouTube (superadmin only)
+ */
+export const adminSaveYoutubeCredentials = async (youtubeAppCredentialInput: YoutubeAppCredentialInput, options?: RequestInit): Promise<YoutubeAppCredentialStatus> => {
+
+  return customFetch<YoutubeAppCredentialStatus>(getAdminSaveYoutubeCredentialsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(youtubeAppCredentialInput)
+  }
+);}
+
+
+
+
+export const getAdminSaveYoutubeCredentialsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveYoutubeCredentials>>, TError,{data: BodyType<YoutubeAppCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSaveYoutubeCredentials>>, TError,{data: BodyType<YoutubeAppCredentialInput>}, TContext> => {
+
+const mutationKey = ['adminSaveYoutubeCredentials'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSaveYoutubeCredentials>>, {data: BodyType<YoutubeAppCredentialInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminSaveYoutubeCredentials(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSaveYoutubeCredentialsMutationResult = NonNullable<Awaited<ReturnType<typeof adminSaveYoutubeCredentials>>>
+    export type AdminSaveYoutubeCredentialsMutationBody = BodyType<YoutubeAppCredentialInput>
+    export type AdminSaveYoutubeCredentialsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save app-level Google OAuth credentials for YouTube (superadmin only)
+ */
+export const useAdminSaveYoutubeCredentials = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveYoutubeCredentials>>, TError,{data: BodyType<YoutubeAppCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSaveYoutubeCredentials>>,
+        TError,
+        {data: BodyType<YoutubeAppCredentialInput>},
+        TContext
+      > => {
+      return useMutation(getAdminSaveYoutubeCredentialsMutationOptions(options));
     }
 
 export const getGetTwitterAuthUrlUrl = () => {

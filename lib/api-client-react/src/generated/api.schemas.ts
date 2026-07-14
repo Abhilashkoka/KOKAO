@@ -875,6 +875,42 @@ export interface LinkedinAppCredentialStatus {
   savedAt?: string | null;
 }
 
+export interface YoutubeAuthUrlResult {
+  url: string;
+}
+
+export interface YoutubeStatus {
+  connected: boolean;
+  /** @nullable */
+  accountName?: string | null;
+  /** Whether the platform-level Google OAuth credentials are set by the admin. */
+  configured: boolean;
+  /** The exact OAuth redirect URL to register in the Google Cloud OAuth client. */
+  redirectUri: string;
+  /** True when a channel was previously connected but its access has since been revoked, so the user should reconnect. */
+  expired?: boolean;
+}
+
+export interface YoutubeAppCredentialInput {
+  /** @minLength 1 */
+  clientId: string;
+  /** @minLength 1 */
+  clientSecret: string;
+}
+
+export interface YoutubeAppCredentialStatus {
+  /** Whether Google OAuth client credentials have been saved. */
+  configured: boolean;
+  /** @nullable */
+  clientIdMasked?: string | null;
+  /** @nullable */
+  clientSecretMasked?: string | null;
+  /** The exact OAuth redirect URL to register in the Google Cloud OAuth client. */
+  redirectUri: string;
+  /** @nullable */
+  savedAt?: string | null;
+}
+
 export interface TwitterAppCredentialInput {
   /** @minLength 1 */
   clientId: string;

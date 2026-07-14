@@ -54,3 +54,16 @@ export const linkedinAppCredentialsSchema = z.object({
   clientSecret: z.string(),
 });
 export type LinkedinAppCredentials = z.infer<typeof linkedinAppCredentialsSchema>;
+
+/**
+ * Google OAuth 2.0 client credentials used for the YouTube connect flow (from
+ * a Google Cloud project's "OAuth client ID" of type Web application). They
+ * drive the authorization-code flow tenants use to connect their YouTube
+ * channel. Stored encrypted; GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET env vars
+ * remain a fallback.
+ */
+export const youtubeAppCredentialsSchema = z.object({
+  clientId: z.string(),
+  clientSecret: z.string(),
+});
+export type YoutubeAppCredentials = z.infer<typeof youtubeAppCredentialsSchema>;

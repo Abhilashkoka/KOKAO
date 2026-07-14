@@ -2008,6 +2008,118 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /youtube/auth/url:
+    get:
+      operationId: getYoutubeAuthUrl
+      tags: [youtube]
+      summary: Get the Google OAuth authorization URL to begin connecting YouTube
+      responses:
+        "200":
+          description: Authorization URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YoutubeAuthUrlResult"
+        "503":
+          description: YouTube is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /youtube/status:
+    get:
+      operationId: getYoutubeStatus
+      tags: [youtube]
+      summary: Whether a YouTube channel is connected
+      responses:
+        "200":
+          description: YouTube connection status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YoutubeStatus"
+
+  /youtube:
+    delete:
+      operationId: disconnectYoutube
+      tags: [youtube]
+      summary: Disconnect YouTube, clearing the stored OAuth tokens and channel
+      responses:
+        "200":
+          description: YouTube connection status after disconnecting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YoutubeStatus"
+
+  /youtube/retest:
+    post:
+      operationId: retestYoutube
+      tags: [youtube]
+      summary: Re-check the stored YouTube connection; flags it if no longer valid
+      responses:
+        "200":
+          description: YouTube connection status after re-checking
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YoutubeStatus"
+        "400":
+          description: No stored YouTube connection to re-test
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/platform-credentials/youtube:
+    get:
+      operationId: adminGetYoutubeCredentials
+      tags: [platform-credentials]
+      summary: Get masked app-level Google OAuth credentials for YouTube (superadmin only)
+      responses:
+        "200":
+          description: YouTube app credential status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YoutubeAppCredentialStatus"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminSaveYoutubeCredentials
+      tags: [platform-credentials]
+      summary: Save app-level Google OAuth credentials for YouTube (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/YoutubeAppCredentialInput"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YoutubeAppCredentialStatus"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /twitter/auth/url:
     get:
       operationId: getTwitterAuthUrl
@@ -3276,6 +3388,58 @@ components:
         redirectUri:
           type: string
           description: The exact OAuth callback URL to register in the LinkedIn app.
+        savedAt:
+          type: ["string", "null"]
+          format: date-time
+    YoutubeAuthUrlResult:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+    YoutubeStatus:
+      type: object
+      required: [connected, configured, redirectUri]
+      properties:
+        connected:
+          type: boolean
+        accountName:
+          type: ["string", "null"]
+        configured:
+          type: boolean
+          description: Whether the platform-level Google OAuth credentials are set by the admin.
+        redirectUri:
+          type: string
+          description: The exact OAuth redirect URL to register in the Google Cloud OAuth client.
+        expired:
+          type: boolean
+          description: >-
+            True when a channel was previously connected but its access has
+            since been revoked, so the user should reconnect.
+    YoutubeAppCredentialInput:
+      type: object
+      required: [clientId, clientSecret]
+      properties:
+        clientId:
+          type: string
+          minLength: 1
+        clientSecret:
+          type: string
+          minLength: 1
+    YoutubeAppCredentialStatus:
+      type: object
+      required: [configured, redirectUri]
+      properties:
+        configured:
+          type: boolean
+          description: Whether Google OAuth client credentials have been saved.
+        clientIdMasked:
+          type: ["string", "null"]
+        clientSecretMasked:
+          type: ["string", "null"]
+        redirectUri:
+          type: string
+          description: The exact OAuth redirect URL to register in the Google Cloud OAuth client.
         savedAt:
           type: ["string", "null"]
           format: date-time

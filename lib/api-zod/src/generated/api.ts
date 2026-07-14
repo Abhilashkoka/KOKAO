@@ -3861,6 +3861,83 @@ export const AdminSaveLinkedinCredentialsResponse = zod.object({
 
 
 /**
+ * @summary Get the Google OAuth authorization URL to begin connecting YouTube
+ */
+export const GetYoutubeAuthUrlResponse = zod.object({
+  "url": zod.string()
+})
+
+
+/**
+ * @summary Whether a YouTube channel is connected
+ */
+export const GetYoutubeStatusResponse = zod.object({
+  "connected": zod.boolean(),
+  "accountName": zod.string().nullish(),
+  "configured": zod.boolean().describe('Whether the platform-level Google OAuth credentials are set by the admin.'),
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the Google Cloud OAuth client.'),
+  "expired": zod.boolean().optional().describe('True when a channel was previously connected but its access has since been revoked, so the user should reconnect.')
+})
+
+
+/**
+ * @summary Disconnect YouTube, clearing the stored OAuth tokens and channel
+ */
+export const DisconnectYoutubeResponse = zod.object({
+  "connected": zod.boolean(),
+  "accountName": zod.string().nullish(),
+  "configured": zod.boolean().describe('Whether the platform-level Google OAuth credentials are set by the admin.'),
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the Google Cloud OAuth client.'),
+  "expired": zod.boolean().optional().describe('True when a channel was previously connected but its access has since been revoked, so the user should reconnect.')
+})
+
+
+/**
+ * @summary Re-check the stored YouTube connection; flags it if no longer valid
+ */
+export const RetestYoutubeResponse = zod.object({
+  "connected": zod.boolean(),
+  "accountName": zod.string().nullish(),
+  "configured": zod.boolean().describe('Whether the platform-level Google OAuth credentials are set by the admin.'),
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the Google Cloud OAuth client.'),
+  "expired": zod.boolean().optional().describe('True when a channel was previously connected but its access has since been revoked, so the user should reconnect.')
+})
+
+
+/**
+ * @summary Get masked app-level Google OAuth credentials for YouTube (superadmin only)
+ */
+export const AdminGetYoutubeCredentialsResponse = zod.object({
+  "configured": zod.boolean().describe('Whether Google OAuth client credentials have been saved.'),
+  "clientIdMasked": zod.string().nullish(),
+  "clientSecretMasked": zod.string().nullish(),
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the Google Cloud OAuth client.'),
+  "savedAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Save app-level Google OAuth credentials for YouTube (superadmin only)
+ */
+
+
+
+
+export const AdminSaveYoutubeCredentialsBody = zod.object({
+  "clientId": zod.string().min(1),
+  "clientSecret": zod.string().min(1)
+})
+
+export const AdminSaveYoutubeCredentialsResponse = zod.object({
+  "configured": zod.boolean().describe('Whether Google OAuth client credentials have been saved.'),
+  "clientIdMasked": zod.string().nullish(),
+  "clientSecretMasked": zod.string().nullish(),
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the Google Cloud OAuth client.'),
+  "savedAt": zod.coerce.date().nullish()
+})
+
+
+/**
  * @summary Get the X (Twitter) OAuth 2.0 PKCE authorization URL to begin connecting
  */
 export const GetTwitterAuthUrlResponse = zod.object({

@@ -10,6 +10,9 @@ import {
   useAdminGetLinkedinCredentials,
   useAdminSaveLinkedinCredentials,
   getAdminGetLinkedinCredentialsQueryKey,
+  useAdminGetYoutubeCredentials,
+  useAdminSaveYoutubeCredentials,
+  getAdminGetYoutubeCredentialsQueryKey,
   useAdminSaveTwitterCredentials,
   useAdminListNotificationPolicies,
   useAdminUpdateNotificationPolicies,
@@ -514,6 +517,154 @@ function LinkedinCredentialsCard() {
               }
             >
               {saveLinkedin.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                </>
+              ) : (
+                "Save"
+              )}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function YoutubeCredentialsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useAdminGetYoutubeCredentials();
+  const saveYoutube = useAdminSaveYoutubeCredentials();
+
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (data && !dirty) {
+      setClientId(data.clientIdMasked ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const copyRedirect = () => {
+    if (!data?.redirectUri) return;
+    navigator.clipboard.writeText(data.redirectUri);
+    toast({ title: "Callback URL copied" });
+  };
+
+  const handleSave = () => {
+    if (!clientId.trim() || !clientSecret.trim()) return;
+    saveYoutube.mutate(
+      { data: { clientId: clientId.trim(), clientSecret: clientSecret.trim() } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetYoutubeCredentialsQueryKey(),
+          });
+          setClientSecret("");
+          setDirty(false);
+          toast({
+            title: "YouTube credentials saved",
+            description:
+              "Workspaces can now connect their YouTube channel on the Accounts page.",
+          });
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description: err?.response?.data?.error || "Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>YouTube app credentials</CardTitle>
+        <CardDescription>
+          One-time platform setup. Enter the Client ID and Client Secret of a
+          Google Cloud OAuth client (type "Web application") with the YouTube
+          Data API v3 enabled. Every workspace then connects their own YouTube
+          channel through Google sign-in on the Accounts page. Secrets are
+          encrypted at rest and never shown again.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-xl">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (
+          <>
+            {data?.configured && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-green-600 flex items-center gap-1">
+                  <CheckCircle2 className="h-4 w-4" /> Saved
+                </span>
+              </div>
+            )}
+            {data?.redirectUri && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Callback URL (register this in your Google Cloud OAuth client)
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input readOnly value={data.redirectUri} />
+                  <Button type="button" variant="outline" onClick={copyRedirect}>
+                    Copy
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Add this exact URL to the "Authorized redirect URIs" list on
+                  your OAuth client in the Google Cloud console, and make sure
+                  the project has the YouTube Data API v3 enabled.
+                </p>
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Client ID</label>
+              <Input
+                value={clientId}
+                onChange={(e) => {
+                  setClientId(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="Google OAuth Client ID"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Client Secret</label>
+              <Input
+                type="password"
+                value={clientSecret}
+                onChange={(e) => {
+                  setClientSecret(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder={
+                  data?.configured
+                    ? "Enter to replace the saved secret"
+                    : "Google OAuth Client Secret"
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Find both values under APIs &amp; Services, Credentials in the
+                Google Cloud console.
+              </p>
+            </div>
+            <Button
+              onClick={handleSave}
+              disabled={
+                saveYoutube.isPending || !clientId.trim() || !clientSecret.trim()
+              }
+            >
+              {saveYoutube.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
                 </>
@@ -1581,6 +1732,7 @@ export function AdminPage() {
       <MetaCredentialsCard />
       <TwitterCredentialsCard />
       <LinkedinCredentialsCard />
+      <YoutubeCredentialsCard />
       <EmailDeliveryCard />
       <NotificationPoliciesCard />
       <AuditLogCard />

@@ -21,6 +21,11 @@ import {
   useGetTwitterStatus,
   useDisconnectTwitter,
   useRetestTwitterCredentials,
+  getYoutubeAuthUrl,
+  useGetYoutubeStatus,
+  useDisconnectYoutube,
+  useRetestYoutube,
+  getGetYoutubeStatusQueryKey,
   getGetFacebookCredentialsQueryKey,
   getGetInstagramCredentialsQueryKey,
   getGetTwitterStatusQueryKey
@@ -682,6 +687,9 @@ export function AccountsPage() {
   const deleteAccount = useDeleteAccount();
   const disconnectLinkedin = useDisconnectLinkedin();
   const retestLinkedin = useRetestLinkedin();
+  const { data: youtubeStatus } = useGetYoutubeStatus();
+  const disconnectYoutube = useDisconnectYoutube();
+  const retestYoutube = useRetestYoutube();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -689,6 +697,7 @@ export function AccountsPage() {
   const [platform, setPlatform] = useState<string>("instagram");
   const [accountName, setAccountName] = useState("");
   const [linkedinConnecting, setLinkedinConnecting] = useState(false);
+  const [youtubeConnecting, setYoutubeConnecting] = useState(false);
 
   const refreshLinkedin = () => {
     queryClient.invalidateQueries({ queryKey: getGetLinkedinStatusQueryKey() });
@@ -750,10 +759,87 @@ export function AccountsPage() {
     toast({ title: "Redirect URL copied" });
   };
 
+  const refreshYoutube = () => {
+    queryClient.invalidateQueries({ queryKey: getGetYoutubeStatusQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
+  };
+
+  const handleDisconnectYoutube = () => {
+    if (
+      !confirm(
+        "Disconnect YouTube? This clears the stored access to your channel. You'll need to reconnect to link it again.",
+      )
+    )
+      return;
+    disconnectYoutube.mutate(undefined, {
+      onSuccess: () => {
+        toast({ title: "YouTube disconnected" });
+        refreshYoutube();
+      },
+      onError: (err: any) => {
+        toast({
+          variant: "destructive",
+          title: "Couldn't disconnect YouTube",
+          description: err?.response?.data?.error || "Please try again.",
+        });
+      },
+    });
+  };
+
+  const handleRetestYoutube = () => {
+    retestYoutube.mutate(undefined, {
+      onSuccess: (data) => {
+        if (data.connected) {
+          toast({
+            title: "YouTube still connected",
+            description: "Your stored channel access is still valid.",
+          });
+        } else {
+          toast({
+            variant: "destructive",
+            title: "YouTube access no longer valid",
+            description: "Please reconnect your YouTube channel.",
+          });
+        }
+        refreshYoutube();
+      },
+      onError: (err: any) => {
+        toast({
+          variant: "destructive",
+          title: "Couldn't re-test YouTube",
+          description: err?.response?.data?.error || "Please try again.",
+        });
+      },
+    });
+  };
+
+  const handleConnectYoutube = async () => {
+    setYoutubeConnecting(true);
+    try {
+      const { url } = await getYoutubeAuthUrl();
+      // Open in a NEW top-level tab: Google blocks its sign-in page inside
+      // embedded frames, which would show as "refused to connect".
+      const popup = window.open(url, "_blank", "noopener");
+      if (!popup) {
+        window.location.href = url;
+      }
+    } catch (err: any) {
+      setYoutubeConnecting(false);
+      toast({
+        variant: "destructive",
+        title: "Couldn't start YouTube connection",
+        description:
+          err?.response?.data?.error ||
+          "YouTube isn't configured yet. Please try again later.",
+      });
+    }
+  };
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const status = params.get("linkedin");
-    if (!status) return;
+    const ytStatusParam = params.get("youtube");
+    if (!status && !ytStatusParam) return;
     if (status === "connected") {
       toast({ title: "LinkedIn connected", description: "You can now publish posts to LinkedIn." });
       queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
@@ -767,6 +853,19 @@ export function AccountsPage() {
     }
     params.delete("linkedin");
     params.delete("reason");
+    const ytStatus = params.get("youtube");
+    if (ytStatus === "connected") {
+      toast({ title: "YouTube connected", description: "Your channel is now linked." });
+      queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
+    } else if (ytStatus === "error") {
+      toast({
+        variant: "destructive",
+        title: "YouTube connection failed",
+        description:
+          "We couldn't finish connecting your YouTube channel. Please try again.",
+      });
+    }
+    params.delete("youtube");
     const qs = params.toString();
     window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : ""));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -800,6 +899,33 @@ export function AccountsPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkedinConnecting]);
+
+  // YouTube OAuth also completes in a separate tab, so a status flip to
+  // connected means the flow finished.
+  useEffect(() => {
+    if (youtubeConnecting && youtubeStatus?.connected) {
+      setYoutubeConnecting(false);
+      toast({
+        title: "YouTube connected",
+        description: "Your channel is now linked.",
+      });
+      refreshYoutube();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [youtubeConnecting, youtubeStatus?.connected]);
+
+  useEffect(() => {
+    if (!youtubeConnecting) return;
+    const interval = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: getGetYoutubeStatusQueryKey() });
+    }, 3000);
+    const timeout = setTimeout(() => setYoutubeConnecting(false), 5 * 60 * 1000);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [youtubeConnecting]);
 
   const handleConnectLinkedin = async () => {
     setLinkedinConnecting(true);
@@ -997,6 +1123,137 @@ export function AccountsPage() {
                         <span className="font-medium text-foreground">Client Secret</span> from the Auth tab and add them as the secrets{" "}
                         <code className="text-xs bg-background border border-border rounded px-1 py-0.5">LINKEDIN_CLIENT_ID</code> and{" "}
                         <code className="text-xs bg-background border border-border rounded px-1 py-0.5">LINKEDIN_CLIENT_SECRET</code>.
+                      </li>
+                    </ol>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="overflow-hidden border-border">
+        <CardContent className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-red-600/10 text-red-600 shrink-0">
+              <Youtube className="h-6 w-6" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-bold text-lg">YouTube Channel</h3>
+                {youtubeStatus?.connected ? (
+                  <span className="text-xs font-medium text-green-600 flex items-center gap-1 bg-green-600/10 px-2 py-0.5 rounded-full">
+                    <CheckCircle2 className="h-3 w-3" /> Connected
+                  </span>
+                ) : youtubeStatus?.expired ? (
+                  <span className="text-xs font-medium text-destructive flex items-center gap-1 bg-destructive/10 px-2 py-0.5 rounded-full">
+                    <AlertCircle className="h-3 w-3" /> Reconnect needed
+                  </span>
+                ) : youtubeStatus?.configured ? (
+                  <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                    Not connected
+                  </span>
+                ) : (
+                  <span className="text-xs font-medium text-amber-600 flex items-center gap-1 bg-amber-600/10 px-2 py-0.5 rounded-full">
+                    <AlertCircle className="h-3 w-3" /> Needs setup
+                  </span>
+                )}
+              </div>
+
+              {youtubeStatus?.connected ? (
+                <div className="mt-2 space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Linked to <span className="font-medium text-foreground">{youtubeStatus.accountName}</span>. Your YouTube channel is connected via Google sign-in.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={handleRetestYoutube} disabled={retestYoutube.isPending}>
+                      {retestYoutube.isPending ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Re-testing...</>
+                      ) : (
+                        "Re-test now"
+                      )}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={handleConnectYoutube} disabled={youtubeConnecting}>
+                      {youtubeConnecting ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Reconnecting...</>
+                      ) : (
+                        "Reconnect"
+                      )}
+                    </Button>
+                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={handleDisconnectYoutube} disabled={disconnectYoutube.isPending}>
+                      {disconnectYoutube.isPending ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
+                      ) : (
+                        <><Trash2 className="h-4 w-4 mr-2" /> Disconnect</>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              ) : youtubeStatus?.configured ? (
+                <div className="mt-2 space-y-3">
+                  {youtubeStatus?.expired ? (
+                    <p className="text-sm text-destructive">
+                      Access to your YouTube channel has expired or been revoked. Reconnect with Google to restore the link.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Connect your YouTube channel through Google sign-in. You will be redirected to Google to approve read access to your channel.
+                    </p>
+                  )}
+                  <Button onClick={handleConnectYoutube} disabled={youtubeConnecting}>
+                    {youtubeConnecting ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {youtubeStatus?.expired ? "Reconnecting..." : "Connecting..."}</>
+                    ) : (
+                      <><Youtube className="h-4 w-4 mr-2" /> {youtubeStatus?.expired ? "Reconnect YouTube" : "Connect YouTube"}</>
+                    )}
+                  </Button>
+                </div>
+              ) : (
+                <div className="mt-3 space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    YouTube connections require a one-time setup by the workspace administrator. Once configured, every member can connect their own YouTube channel with Google sign-in.
+                  </p>
+                  <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-3 text-sm">
+                    <p className="font-semibold">Administrator setup</p>
+                    <ol className="list-decimal pl-5 space-y-2 text-muted-foreground">
+                      <li>
+                        Create an OAuth client (type "Web application") in a Google Cloud project at{" "}
+                        <a
+                          href="https://console.cloud.google.com/apis/credentials"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-red-600 font-medium inline-flex items-center gap-1 hover:underline"
+                        >
+                          console.cloud.google.com/apis/credentials <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </li>
+                      <li>
+                        Enable the <span className="font-medium text-foreground">YouTube Data API v3</span> for the project (APIs &amp; Services, Library).
+                      </li>
+                      <li>
+                        Add this exact Authorized redirect URI to the OAuth client:
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <code className="flex-1 truncate rounded bg-background border border-border px-2 py-1.5 text-xs">
+                            {youtubeStatus?.redirectUri ?? "Loading..."}
+                          </code>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8 shrink-0"
+                            onClick={() => {
+                              if (!youtubeStatus?.redirectUri) return;
+                              navigator.clipboard.writeText(youtubeStatus.redirectUri);
+                              toast({ title: "Redirect URL copied" });
+                            }}
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </li>
+                      <li>
+                        Copy the <span className="font-medium text-foreground">Client ID</span> and{" "}
+                        <span className="font-medium text-foreground">Client Secret</span> and save them on the Admin page under YouTube app credentials.
                       </li>
                     </ol>
                   </div>

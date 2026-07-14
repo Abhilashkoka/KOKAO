@@ -132,3 +132,7 @@ export * from './updateTenantSuperadminBody';
 export * from './uploadUrlRequest';
 export * from './uploadUrlResponse';
 export * from './usage';
+export * from './youtubeAppCredentialInput';
+export * from './youtubeAppCredentialStatus';
+export * from './youtubeAuthUrlResult';
+export * from './youtubeStatus';
