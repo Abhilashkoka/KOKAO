@@ -249,6 +249,50 @@ export const AdminUpdateTenantPlanResponse = zod.object({
 
 
 /**
+ * @summary Update a subscription plan's price, limits, and features (superadmin only)
+ */
+export const AdminUpdatePlanParams = zod.object({
+  "planId": zod.coerce.string()
+})
+
+export const adminUpdatePlanBodyNameMax = 60;
+
+export const adminUpdatePlanBodyPriceLabelMax = 40;
+
+export const adminUpdatePlanBodyFeaturesItemMax = 120;
+
+export const adminUpdatePlanBodyFeaturesMax = 12;
+
+
+
+export const AdminUpdatePlanBody = zod.object({
+  "name": zod.string().min(1).max(adminUpdatePlanBodyNameMax),
+  "priceLabel": zod.string().min(1).max(adminUpdatePlanBodyPriceLabelMax),
+  "limits": zod.object({
+  "captions": zod.number().describe('Monthly caption generation limit. -1 means unlimited.'),
+  "images": zod.number().describe('Monthly image generation limit. -1 means unlimited.'),
+  "brandKits": zod.number().describe('Max brand kits. -1 means unlimited.'),
+  "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
+}),
+  "features": zod.array(zod.string().min(1).max(adminUpdatePlanBodyFeaturesItemMax)).max(adminUpdatePlanBodyFeaturesMax)
+})
+
+export const AdminUpdatePlanResponseItem = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "priceLabel": zod.string(),
+  "limits": zod.object({
+  "captions": zod.number().describe('Monthly caption generation limit. -1 means unlimited.'),
+  "images": zod.number().describe('Monthly image generation limit. -1 means unlimited.'),
+  "brandKits": zod.number().describe('Max brand kits. -1 means unlimited.'),
+  "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
+}),
+  "features": zod.array(zod.string())
+})
+export const AdminUpdatePlanResponse = zod.array(AdminUpdatePlanResponseItem)
+
+
+/**
  * @summary Grant or revoke a tenant's superadmin role (superadmin only)
  */
 export const AdminUpdateTenantSuperadminParams = zod.object({
@@ -303,10 +347,10 @@ export const AdminGetStatsResponse = zod.object({
  */
 export const AdminListAuditLogsResponseItem = zod.object({
   "id": zod.number(),
-  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke']).describe('The privileged action that was recorded.'),
+  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit']).describe('The privileged action that was recorded.'),
   "actorTenantId": zod.number().describe('Tenant id of the superadmin who performed the action.'),
   "actorEmail": zod.string().nullish().describe('Cached email of the actor at the time of the action.'),
-  "targetTenantId": zod.number().describe('Tenant id whose plan or role was changed.'),
+  "targetTenantId": zod.number().nullable().describe('Tenant id whose plan or role was changed. Null for platform-wide actions such as plan edits.'),
   "targetEmail": zod.string().nullish().describe('Cached email of the target tenant.'),
   "oldValue": zod.string().nullish().describe('Previous value (plan name or superadmin boolean string).'),
   "newValue": zod.string().nullish().describe('New value (plan name or superadmin boolean string).'),

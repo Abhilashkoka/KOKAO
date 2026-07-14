@@ -3,13 +3,14 @@ import { db, adminAuditLogsTable } from "@workspace/db";
 export type AdminAuditAction =
   | "plan_change"
   | "superadmin_grant"
-  | "superadmin_revoke";
+  | "superadmin_revoke"
+  | "plan_edit";
 
 export interface RecordAdminActionInput {
   action: AdminAuditAction;
   actorTenantId: number;
   actorEmail: string | null;
-  targetTenantId: number;
+  targetTenantId: number | null;
   targetEmail: string | null;
   oldValue: string | null;
   newValue: string | null;

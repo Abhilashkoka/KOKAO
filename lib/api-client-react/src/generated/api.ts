@@ -70,6 +70,7 @@ import type {
   NotificationSettingsInput,
   OnboardingStatus,
   Plan,
+  PlanUpdateInput,
   PublishFacebookResult,
   PublishInstagramResult,
   PublishLinkedInResult,
@@ -940,6 +941,77 @@ export const useAdminUpdateTenantPlan = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAdminUpdateTenantPlanMutationOptions(options));
+    }
+
+export const getAdminUpdatePlanUrl = (planId: string,) => {
+
+
+
+
+  return `/api/admin/plans/${planId}`
+}
+
+/**
+ * @summary Update a subscription plan's price, limits, and features (superadmin only)
+ */
+export const adminUpdatePlan = async (planId: string,
+    planUpdateInput: PlanUpdateInput, options?: RequestInit): Promise<Plan[]> => {
+
+  return customFetch<Plan[]>(getAdminUpdatePlanUrl(planId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(planUpdateInput)
+  }
+);}
+
+
+
+
+export const getAdminUpdatePlanMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdatePlan>>, TError,{planId: string;data: BodyType<PlanUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdatePlan>>, TError,{planId: string;data: BodyType<PlanUpdateInput>}, TContext> => {
+
+const mutationKey = ['adminUpdatePlan'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdatePlan>>, {planId: string;data: BodyType<PlanUpdateInput>}> = (props) => {
+          const {planId,data} = props ?? {};
+
+          return  adminUpdatePlan(planId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdatePlanMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdatePlan>>>
+    export type AdminUpdatePlanMutationBody = BodyType<PlanUpdateInput>
+    export type AdminUpdatePlanMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update a subscription plan's price, limits, and features (superadmin only)
+ */
+export const useAdminUpdatePlan = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdatePlan>>, TError,{planId: string;data: BodyType<PlanUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdatePlan>>,
+        TError,
+        {planId: string;data: BodyType<PlanUpdateInput>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdatePlanMutationOptions(options));
     }
 
 export const getAdminUpdateTenantSuperadminUrl = (id: number,) => {

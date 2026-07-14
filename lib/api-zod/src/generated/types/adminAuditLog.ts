@@ -18,8 +18,11 @@ export interface AdminAuditLog {
      * @nullable
      */
   actorEmail?: string | null;
-  /** Tenant id whose plan or role was changed. */
-  targetTenantId: number;
+  /**
+     * Tenant id whose plan or role was changed. Null for platform-wide actions such as plan edits.
+     * @nullable
+     */
+  targetTenantId: number | null;
   /**
      * Cached email of the target tenant.
      * @nullable

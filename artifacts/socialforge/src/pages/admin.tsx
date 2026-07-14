@@ -21,8 +21,12 @@ import {
   getAdminListNotificationPoliciesQueryKey,
   getAdminGetEmailSettingsQueryKey,
   getAdminListAuditLogsQueryKey,
+  useListPlans,
+  useAdminUpdatePlan,
+  getListPlansQueryKey,
   useGetMe,
 } from "@workspace/api-client-react";
+import { Textarea } from "@/components/ui/textarea";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -760,7 +764,238 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   plan_change: "Plan change",
   superadmin_grant: "Superadmin granted",
   superadmin_revoke: "Superadmin revoked",
+  plan_edit: "Plan limits edited",
 };
+
+interface PlanDraft {
+  name: string;
+  priceLabel: string;
+  captions: string;
+  images: string;
+  brandKits: string;
+  scheduledPosts: string;
+  features: string;
+}
+
+function parseLimit(value: string): number | null {
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed === "" ) return null;
+  if (trimmed === "unlimited" || trimmed === "-1") return -1;
+  const n = Number(trimmed);
+  if (!Number.isInteger(n) || n < 0) return null;
+  return n;
+}
+
+function limitToInput(n: number): string {
+  return n === -1 ? "unlimited" : String(n);
+}
+
+const LIMIT_FIELDS: { key: keyof Pick<PlanDraft, "captions" | "images" | "brandKits" | "scheduledPosts">; label: string }[] = [
+  { key: "captions", label: "AI captions / month" },
+  { key: "images", label: "AI images / month" },
+  { key: "brandKits", label: "Brand kits" },
+  { key: "scheduledPosts", label: "Scheduled posts" },
+];
+
+function PlansCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data: plans, isLoading } = useListPlans();
+  const updatePlan = useAdminUpdatePlan();
+
+  const [drafts, setDrafts] = useState<Record<string, PlanDraft>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!plans) return;
+    setDrafts((prev) => {
+      const next = { ...prev };
+      for (const p of plans) {
+        if (!next[p.id]) {
+          next[p.id] = {
+            name: p.name,
+            priceLabel: p.priceLabel,
+            captions: limitToInput(p.limits.captions),
+            images: limitToInput(p.limits.images),
+            brandKits: limitToInput(p.limits.brandKits),
+            scheduledPosts: limitToInput(p.limits.scheduledPosts),
+            features: p.features.join("\n"),
+          };
+        }
+      }
+      return next;
+    });
+  }, [plans]);
+
+  const setField = (planId: string, field: keyof PlanDraft, value: string) => {
+    setDrafts((prev) => ({
+      ...prev,
+      [planId]: { ...prev[planId]!, [field]: value },
+    }));
+  };
+
+  const handleSave = (planId: string) => {
+    const draft = drafts[planId];
+    if (!draft) return;
+
+    const limits = {
+      captions: parseLimit(draft.captions),
+      images: parseLimit(draft.images),
+      brandKits: parseLimit(draft.brandKits),
+      scheduledPosts: parseLimit(draft.scheduledPosts),
+    };
+    if (
+      !draft.name.trim() ||
+      !draft.priceLabel.trim() ||
+      Object.values(limits).some((v) => v === null)
+    ) {
+      toast({
+        variant: "destructive",
+        title: "Check the fields",
+        description:
+          'Limits must be whole numbers, or "unlimited". Name and price are required.',
+      });
+      return;
+    }
+
+    setSavingId(planId);
+    updatePlan.mutate(
+      {
+        planId,
+        data: {
+          name: draft.name.trim(),
+          priceLabel: draft.priceLabel.trim(),
+          limits: {
+            captions: limits.captions!,
+            images: limits.images!,
+            brandKits: limits.brandKits!,
+            scheduledPosts: limits.scheduledPosts!,
+          },
+          features: draft.features
+            .split("\n")
+            .map((f) => f.trim())
+            .filter(Boolean)
+            .slice(0, 12),
+        },
+      },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListPlansQueryKey() });
+          queryClient.invalidateQueries({
+            queryKey: getAdminListAuditLogsQueryKey(),
+          });
+          toast({
+            title: "Plan saved",
+            description:
+              "New limits apply to everyone on this plan within about 30 seconds.",
+          });
+          setSavingId(null);
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save plan",
+            description: err?.response?.data?.error || "Please try again.",
+          });
+          setSavingId(null);
+        },
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Subscription plans</CardTitle>
+        <CardDescription>
+          Edit the monthly quotas, display price, and feature list of each plan.
+          Changes apply to every workspace on that plan. Type "unlimited" (or
+          -1) for no limit. The price shown here is a label only — it does not
+          charge anyone.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading || !plans ? (
+          <div className="space-y-3">
+            <Skeleton className="h-40 w-full" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {plans.map((p) => {
+              const draft = drafts[p.id];
+              if (!draft) return null;
+              return (
+                <div
+                  key={p.id}
+                  className="rounded-xl border border-border p-4 space-y-4"
+                >
+                  <Badge variant="secondary" className="uppercase">
+                    {p.id}
+                  </Badge>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Plan name</label>
+                    <Input
+                      value={draft.name}
+                      onChange={(e) => setField(p.id, "name", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Price label (display only)
+                    </label>
+                    <Input
+                      value={draft.priceLabel}
+                      onChange={(e) =>
+                        setField(p.id, "priceLabel", e.target.value)
+                      }
+                      placeholder="$29 / mo"
+                    />
+                  </div>
+                  {LIMIT_FIELDS.map((f) => (
+                    <div key={f.key} className="space-y-2">
+                      <label className="text-sm font-medium">{f.label}</label>
+                      <Input
+                        value={draft[f.key]}
+                        onChange={(e) => setField(p.id, f.key, e.target.value)}
+                        placeholder='e.g. 100 or "unlimited"'
+                      />
+                    </div>
+                  ))}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Features (one per line)
+                    </label>
+                    <Textarea
+                      rows={5}
+                      value={draft.features}
+                      onChange={(e) =>
+                        setField(p.id, "features", e.target.value)
+                      }
+                    />
+                  </div>
+                  <Button
+                    onClick={() => handleSave(p.id)}
+                    disabled={updatePlan.isPending}
+                    className="w-full"
+                  >
+                    {savingId === p.id && updatePlan.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />{" "}
+                        Saving...
+                      </>
+                    ) : (
+                      `Save ${draft.name || p.name}`
+                    )}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function formatAuditValue(action: string, value: string | null): string {
   if (value === null || value === "") return "—";
@@ -821,7 +1056,10 @@ function AuditLogCard() {
                       {log.actorEmail ?? `#${log.actorTenantId}`}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {log.targetEmail ?? `#${log.targetTenantId}`}
+                      {log.targetEmail ??
+                        (log.targetTenantId != null
+                          ? `#${log.targetTenantId}`
+                          : "—")}
                     </TableCell>
                     <TableCell>
                       {formatAuditValue(log.action, log.oldValue ?? null)}
@@ -987,6 +1225,7 @@ export function AdminPage() {
         </div>
       )}
 
+      <PlansCard />
       <MetaCredentialsCard />
       <TwitterCredentialsCard />
       <EmailDeliveryCard />

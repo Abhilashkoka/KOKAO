@@ -16,8 +16,10 @@ import {
   AdminUpdateTenantPlanBody,
   AdminUpdateTenantSuperadminBody,
   AdminUpdateNotificationPoliciesBody,
+  AdminUpdatePlanBody,
 } from "@workspace/api-zod";
-import { notificationPoliciesTable } from "@workspace/db";
+import { notificationPoliciesTable, planSettingsTable } from "@workspace/db";
+import { PLAN_IDS, listPlans, invalidatePlanCache } from "../lib/plans";
 import { isSuperadminEmail } from "../lib/superadmins";
 import { fetchVerifiedEmail } from "../lib/clerkUser";
 import { currentPeriodStart } from "../lib/usage";
@@ -302,6 +304,77 @@ router.patch(
     res.json(serializeAdminTenant(updated));
   },
 );
+
+/**
+ * PUT /admin/plans/:planId
+ * Superadmin edit of a subscription plan's name, price label, limits, and
+ * feature list. Overrides are stored in plan_settings; the plan ids themselves
+ * are fixed (free/pro/business). Returns the full updated catalog.
+ */
+router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
+  const planId = String(req.params.planId);
+  if (!PLAN_IDS.includes(planId)) {
+    res.status(404).json({ error: "Unknown plan" });
+    return;
+  }
+
+  const parsed = AdminUpdatePlanBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+
+  const { name, priceLabel, limits, features } = parsed.data;
+  const invalid = (n: number) => !Number.isInteger(n) || (n < 0 && n !== -1);
+  if (
+    invalid(limits.captions) ||
+    invalid(limits.images) ||
+    invalid(limits.brandKits) ||
+    invalid(limits.scheduledPosts)
+  ) {
+    res
+      .status(400)
+      .json({ error: "Limits must be whole numbers (use -1 for unlimited)" });
+    return;
+  }
+
+  const previous = (await listPlans()).find((p) => p.id === planId);
+
+  const values = {
+    id: planId,
+    name: name.trim(),
+    priceLabel: priceLabel.trim(),
+    captions: limits.captions,
+    images: limits.images,
+    brandKits: limits.brandKits,
+    scheduledPosts: limits.scheduledPosts,
+    features: features.map((f) => f.trim()).filter(Boolean),
+    updatedAt: new Date(),
+  };
+
+  await db
+    .insert(planSettingsTable)
+    .values(values)
+    .onConflictDoUpdate({ target: planSettingsTable.id, set: values });
+
+  invalidatePlanCache();
+
+  try {
+    await recordAdminAction({
+      action: "plan_edit",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: previous ? JSON.stringify(previous.limits) : null,
+      newValue: JSON.stringify(limits),
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write plan-edit audit log");
+  }
+
+  res.json(await listPlans());
+});
 
 /**
  * GET /admin/audit-logs

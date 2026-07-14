@@ -203,7 +203,7 @@ async function countActiveKits(tenantId: number): Promise<number> {
 }
 
 async function enforceKitLimit(tenantId: number, plan: string) {
-  const limit = getPlanLimits(plan).brandKits;
+  const limit = (await getPlanLimits(plan)).brandKits;
   if (limit === -1) return;
   const count = await countActiveKits(tenantId);
   if (count >= limit) {

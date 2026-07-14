@@ -74,7 +74,7 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
     return;
   }
 
-  const limits = getPlanLimits(tenant.plan);
+  const limits = await getPlanLimits(tenant.plan);
   const usage = await getUsage(req.tenantId);
   if (limits.captions !== -1 && usage.captions >= limits.captions) {
     res.status(402).json({ error: "Monthly caption quota reached. Upgrade your plan to continue." });
@@ -154,7 +154,7 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
     return;
   }
 
-  const limits = getPlanLimits(tenant.plan);
+  const limits = await getPlanLimits(tenant.plan);
   const usage = await getUsage(req.tenantId);
   if (limits.images !== -1 && usage.images >= limits.images) {
     res.status(402).json({ error: "Monthly image quota reached. Upgrade your plan to continue." });
@@ -494,7 +494,7 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     return;
   }
 
-  const limits = getPlanLimits(tenant.plan);
+  const limits = await getPlanLimits(tenant.plan);
   const usage = await getUsage(req.tenantId);
   if (limits.captions !== -1 && usage.captions + platforms.length > limits.captions) {
     res.status(402).json({

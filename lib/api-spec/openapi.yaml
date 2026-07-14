@@ -276,6 +276,50 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/plans/{planId}:
+    put:
+      operationId: adminUpdatePlan
+      tags: [admin]
+      summary: Update a subscription plan's price, limits, and features (superadmin only)
+      parameters:
+        - name: planId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanUpdateInput"
+      responses:
+        "200":
+          description: The full updated plan catalog
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Plan"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Unknown plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/tenants/{id}/superadmin:
     patch:
       operationId: adminUpdateTenantSuperadmin
@@ -2205,6 +2249,27 @@ components:
           items:
             type: string
 
+    PlanUpdateInput:
+      type: object
+      required: [name, priceLabel, limits, features]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 60
+        priceLabel:
+          type: string
+          minLength: 1
+          maxLength: 40
+        limits:
+          $ref: "#/components/schemas/PlanLimits"
+        features:
+          type: array
+          maxItems: 12
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
     AdminTenantCounts:
       type: object
       required: [content, brandKits, scheduledPosts, connectedAccounts]
@@ -2303,7 +2368,7 @@ components:
           type: integer
         action:
           type: string
-          enum: [plan_change, superadmin_grant, superadmin_revoke]
+          enum: [plan_change, superadmin_grant, superadmin_revoke, plan_edit]
           description: The privileged action that was recorded.
         actorTenantId:
           type: integer
@@ -2312,8 +2377,10 @@ components:
           type: ["string", "null"]
           description: Cached email of the actor at the time of the action.
         targetTenantId:
-          type: integer
-          description: Tenant id whose plan or role was changed.
+          type: ["integer", "null"]
+          description: >-
+            Tenant id whose plan or role was changed. Null for platform-wide
+            actions such as plan edits.
         targetEmail:
           type: ["string", "null"]
           description: Cached email of the target tenant.

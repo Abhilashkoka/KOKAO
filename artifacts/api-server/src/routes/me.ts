@@ -29,7 +29,7 @@ router.get("/me", async (req: Request, res: Response) => {
       images: usage.images,
       periodStart: usage.periodStart.toISOString(),
     },
-    limits: getPlanLimits(tenant.plan),
+    limits: await getPlanLimits(tenant.plan),
     isSuperadmin: req.isSuperadmin,
     // UI hint only: role-management authorization is enforced server-side
     // against the live verified email in the admin route.

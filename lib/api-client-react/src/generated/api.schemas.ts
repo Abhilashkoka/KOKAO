@@ -132,6 +132,26 @@ export interface Plan {
   features: string[];
 }
 
+export interface PlanUpdateInput {
+  /**
+     * @minLength 1
+     * @maxLength 60
+     */
+  name: string;
+  /**
+     * @minLength 1
+     * @maxLength 40
+     */
+  priceLabel: string;
+  limits: PlanLimits;
+  /**
+     * @maxItems 12
+     * @items.minLength 1
+     * @items.maxLength 120
+     */
+  features: string[];
+}
+
 export interface AdminTenantCounts {
   content: number;
   brandKits: number;
@@ -196,6 +216,7 @@ export const AdminAuditLogAction = {
   plan_change: 'plan_change',
   superadmin_grant: 'superadmin_grant',
   superadmin_revoke: 'superadmin_revoke',
+  plan_edit: 'plan_edit',
 } as const;
 
 export interface AdminAuditLog {
@@ -209,8 +230,11 @@ export interface AdminAuditLog {
      * @nullable
      */
   actorEmail?: string | null;
-  /** Tenant id whose plan or role was changed. */
-  targetTenantId: number;
+  /**
+     * Tenant id whose plan or role was changed. Null for platform-wide actions such as plan edits.
+     * @nullable
+     */
+  targetTenantId: number | null;
   /**
      * Cached email of the target tenant.
      * @nullable

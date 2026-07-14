@@ -13,13 +13,16 @@ import { z } from "zod/v4";
  *  - "plan_change":        a tenant's plan was overridden.
  *  - "superadmin_grant":   the in-app superadmin role was granted.
  *  - "superadmin_revoke":  the in-app superadmin role was revoked.
+ *  - "plan_edit":          a subscription plan's limits/pricing were edited
+ *                          (platform-wide; no target tenant).
  */
 export const adminAuditLogsTable = pgTable("admin_audit_logs", {
   id: serial("id").primaryKey(),
   action: text("action").notNull(),
   actorTenantId: integer("actor_tenant_id").notNull(),
   actorEmail: text("actor_email"),
-  targetTenantId: integer("target_tenant_id").notNull(),
+  // Nullable: platform-wide actions (e.g. plan_edit) have no target tenant.
+  targetTenantId: integer("target_tenant_id"),
   targetEmail: text("target_email"),
   oldValue: text("old_value"),
   newValue: text("new_value"),

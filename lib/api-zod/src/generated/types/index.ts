@@ -92,6 +92,7 @@ export * from './notificationTypeSettingEmailPolicy';
 export * from './onboardingStatus';
 export * from './plan';
 export * from './planLimits';
+export * from './planUpdateInput';
 export * from './publishFacebookResult';
 export * from './publishInstagramResult';
 export * from './publishLinkedInResult';

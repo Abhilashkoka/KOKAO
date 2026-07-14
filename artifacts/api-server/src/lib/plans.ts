@@ -1,3 +1,6 @@
+import { db, planSettingsTable } from "@workspace/db";
+import { logger } from "./logger";
+
 export interface PlanLimits {
   captions: number;
   images: number;
@@ -13,7 +16,7 @@ export interface Plan {
   features: string[];
 }
 
-export const PLANS: Plan[] = [
+export const DEFAULT_PLANS: Plan[] = [
   {
     id: "free",
     name: "Free",
@@ -54,10 +57,63 @@ export const PLANS: Plan[] = [
   },
 ];
 
-export function getPlan(planId: string): Plan {
-  return PLANS.find((p) => p.id === planId) ?? PLANS[0]!;
+export const PLAN_IDS = DEFAULT_PLANS.map((p) => p.id);
+
+const CACHE_TTL_MS = 30_000;
+
+let cache: { plans: Plan[]; expiresAt: number } | null = null;
+
+export function invalidatePlanCache(): void {
+  cache = null;
 }
 
-export function getPlanLimits(planId: string): PlanLimits {
-  return getPlan(planId).limits;
+/**
+ * Returns the plan catalog: built-in defaults merged with any superadmin
+ * overrides stored in plan_settings. Cached briefly to keep quota checks
+ * cheap. Falls back to defaults if the DB read fails.
+ */
+export async function listPlans(): Promise<Plan[]> {
+  const now = Date.now();
+  if (cache && cache.expiresAt > now) return cache.plans;
+
+  let overrides: Map<string, Plan>;
+  try {
+    const rows = await db.select().from(planSettingsTable);
+    overrides = new Map(
+      rows.map((r) => [
+        r.id,
+        {
+          id: r.id,
+          name: r.name,
+          priceLabel: r.priceLabel,
+          limits: {
+            captions: r.captions,
+            images: r.images,
+            brandKits: r.brandKits,
+            scheduledPosts: r.scheduledPosts,
+          },
+          features: r.features,
+        },
+      ]),
+    );
+  } catch (error) {
+    // Serve the built-in defaults rather than failing every quota check and
+    // the public /plans endpoint if the overrides table is unreadable. Do NOT
+    // cache this degraded result so a recovered DB is picked up immediately.
+    logger.error({ err: error }, "Failed to read plan_settings; using default plans");
+    return DEFAULT_PLANS;
+  }
+
+  const plans = DEFAULT_PLANS.map((p) => overrides.get(p.id) ?? p);
+  cache = { plans, expiresAt: now + CACHE_TTL_MS };
+  return plans;
+}
+
+export async function getPlan(planId: string): Promise<Plan> {
+  const plans = await listPlans();
+  return plans.find((p) => p.id === planId) ?? plans[0]!;
+}
+
+export async function getPlanLimits(planId: string): Promise<PlanLimits> {
+  return (await getPlan(planId)).limits;
 }
