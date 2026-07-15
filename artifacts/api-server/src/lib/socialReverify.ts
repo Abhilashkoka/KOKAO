@@ -1,4 +1,9 @@
-import { db, connectedAccountsTable } from "@workspace/db";
+import {
+  db,
+  connectedAccountsTable,
+  appCredentialsTable,
+  type YoutubeAppCredentials,
+} from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { decryptJson } from "./secretCrypto";
 import {
@@ -324,4 +329,256 @@ export async function reverifyTwitter(
     accountName: test.ok ? test.accountName : row.accountName || "X account",
   });
   return loadAccountRow(tenantId, "twitter");
+}
+
+// ---------------------------------------------------------------------------
+// Threads
+// ---------------------------------------------------------------------------
+
+const THREADS_GRAPH_BASE = "https://graph.threads.net/v1.0";
+const THREADS_REFRESH_URL = "https://graph.threads.net/refresh_access_token";
+
+/** Refresh when a Threads long-lived token is within this window of expiry. */
+export const THREADS_REFRESH_WHEN_REMAINING_MS = 7 * 24 * 60 * 60 * 1000;
+
+const THREADS_TOKEN_INVALID_MESSAGE =
+  "Your Threads access is no longer valid. Reconnect Threads to keep publishing.";
+
+async function markFailed(
+  row: AccountRow,
+  message: string,
+): Promise<void> {
+  await db
+    .update(connectedAccountsTable)
+    .set({
+      status: "error",
+      verifyStatus: "failed",
+      verifyError: message,
+      verifiedAt: new Date(),
+    })
+    .where(eq(connectedAccountsTable.id, row.id));
+  if (row.verifyStatus === "verified") {
+    await notifySocialConnectionFailed(row.tenantId, row.platform, message);
+  }
+}
+
+/**
+ * Proactively re-verify a tenant's stored Threads connection when stale (or
+ * forced). Threads long-lived tokens last ~60 days and are refreshed on a
+ * rolling basis — an inactive user's token silently lapses, so the sweep
+ * refreshes it when it is inside the renewal window and otherwise live-probes
+ * the /me endpoint. On a definitive rejection the row flips to failed (with
+ * the deduped breakage notification on a fresh verified -> failed transition);
+ * transient errors only reset the check clock. Never throws.
+ */
+export async function reverifyThreads(
+  tenantId: number,
+  opts: ReverifyOptions = {},
+): Promise<AccountRow | undefined> {
+  const row = await loadAccountRow(tenantId, "threads");
+  if (!row?.accessToken || row.status === "disconnected") return row;
+
+  // Expired by timestamp — Threads refuses to refresh an already-expired
+  // token, so no live call is needed to know the connection is dead.
+  if (row.tokenExpiresAt !== null && row.tokenExpiresAt.getTime() <= Date.now()) {
+    if (row.verifyStatus === "verified") {
+      await markFailed(row, THREADS_TOKEN_INVALID_MESSAGE);
+      return loadAccountRow(tenantId, "threads");
+    }
+    return row;
+  }
+
+  if (!opts.force && !isStale(row.verifiedAt)) return row;
+
+  // Inside the renewal window: refresh instead of probing, so the rolling
+  // long-lived token never lapses for a tenant who isn't using the app.
+  if (
+    row.tokenExpiresAt !== null &&
+    row.tokenExpiresAt.getTime() - Date.now() <= THREADS_REFRESH_WHEN_REMAINING_MS
+  ) {
+    try {
+      const params = new URLSearchParams({
+        grant_type: "th_refresh_token",
+        access_token: row.accessToken,
+      });
+      const res = await fetch(`${THREADS_REFRESH_URL}?${params.toString()}`);
+      const json = (await res.json()) as {
+        access_token?: string;
+        expires_in?: number;
+      };
+      if (res.ok && json.access_token) {
+        await db
+          .update(connectedAccountsTable)
+          .set({
+            accessToken: json.access_token,
+            tokenExpiresAt: json.expires_in
+              ? new Date(Date.now() + json.expires_in * 1000)
+              : null,
+            status: "connected",
+            verifyStatus: "verified",
+            verifyError: null,
+            verifiedAt: new Date(),
+          })
+          .where(eq(connectedAccountsTable.id, row.id));
+        await resolveSocialConnectionNotifications(tenantId, "threads");
+      } else if (res.status === 400 || res.status === 401) {
+        // Threads definitively refused to renew the token.
+        await markFailed(row, THREADS_TOKEN_INVALID_MESSAGE);
+      } else {
+        await touchChecked(row);
+      }
+    } catch {
+      await touchChecked(row);
+    }
+    return loadAccountRow(tenantId, "threads");
+  }
+
+  // Otherwise a cheap live identity probe catches early revocation.
+  try {
+    const res = await fetch(
+      `${THREADS_GRAPH_BASE}/me?fields=id,username&access_token=${encodeURIComponent(row.accessToken)}`,
+    );
+    if (res.ok) {
+      const json = (await res.json()) as { id?: string; username?: string };
+      await db
+        .update(connectedAccountsTable)
+        .set({
+          status: "connected",
+          verifyStatus: "verified",
+          verifyError: null,
+          verifiedAt: new Date(),
+          accountName: json.username ? `@${json.username}` : row.accountName,
+        })
+        .where(eq(connectedAccountsTable.id, row.id));
+      await resolveSocialConnectionNotifications(tenantId, "threads");
+    } else if (res.status === 400 || res.status === 401 || res.status === 403) {
+      await markFailed(row, THREADS_TOKEN_INVALID_MESSAGE);
+    } else {
+      await touchChecked(row);
+    }
+  } catch {
+    await touchChecked(row);
+  }
+
+  return loadAccountRow(tenantId, "threads");
+}
+
+// ---------------------------------------------------------------------------
+// YouTube
+// ---------------------------------------------------------------------------
+
+const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+
+const YOUTUBE_TOKEN_INVALID_MESSAGE =
+  "Your YouTube access is no longer valid. Reconnect YouTube to restore the connection.";
+
+/**
+ * App-level Google OAuth credentials, resolved the same way as
+ * routes/youtube.ts: the superadmin-managed database row wins, with the
+ * GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET env vars as a fallback for env-based
+ * setups. Returns null when neither source is usable.
+ */
+async function getYoutubeAppCredentials(): Promise<{
+  clientId: string;
+  clientSecret: string;
+} | null> {
+  try {
+    const row = (
+      await db
+        .select()
+        .from(appCredentialsTable)
+        .where(eq(appCredentialsTable.provider, "youtube"))
+        .limit(1)
+    )[0];
+    if (row) {
+      const creds = decryptJson<YoutubeAppCredentials>(row.encryptedCredentials);
+      if (creds.clientId && creds.clientSecret) return creds;
+    }
+  } catch {
+    // Fall through to the env fallback on read/decrypt failure.
+  }
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  if (!clientId || !clientSecret) return null;
+  return { clientId, clientSecret };
+}
+
+/**
+ * Proactively re-verify a tenant's stored YouTube (Google OAuth) connection
+ * when stale (or forced). A YouTube connection is only truly alive while its
+ * refresh token works, so the check exercises a token refresh against Google:
+ * success re-verifies (and persists the fresh access token), a definitive
+ * invalid_grant/4xx rejection flips the row to failed with the deduped
+ * breakage notification, and transient errors only reset the check clock.
+ * Never throws.
+ */
+export async function reverifyYoutube(
+  tenantId: number,
+  opts: ReverifyOptions = {},
+): Promise<AccountRow | undefined> {
+  const row = await loadAccountRow(tenantId, "youtube");
+  if (!row?.encryptedCredentials || row.status === "disconnected") return row;
+  if (!opts.force && !isStale(row.verifiedAt)) return row;
+
+  const app = await getYoutubeAppCredentials();
+  if (!app) return row; // Cannot test without app-level client credentials.
+
+  let refreshToken: string | null = null;
+  try {
+    const creds = decryptJson<{ refreshToken?: string }>(
+      row.encryptedCredentials,
+    );
+    refreshToken = creds.refreshToken || null;
+  } catch {
+    return row;
+  }
+  if (!refreshToken) return row;
+
+  try {
+    const res = await fetch(GOOGLE_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: app.clientId,
+        client_secret: app.clientSecret,
+      }).toString(),
+    });
+    const json = (await res.json()) as {
+      access_token?: string;
+      expires_in?: number;
+      error?: string;
+    };
+    if (res.ok && json.access_token) {
+      await db
+        .update(connectedAccountsTable)
+        .set({
+          accessToken: json.access_token,
+          tokenExpiresAt: json.expires_in
+            ? new Date(Date.now() + json.expires_in * 1000)
+            : null,
+          status: "connected",
+          verifyStatus: "verified",
+          verifyError: null,
+          verifiedAt: new Date(),
+        })
+        .where(eq(connectedAccountsTable.id, row.id));
+      await resolveSocialConnectionNotifications(tenantId, "youtube");
+    } else if (
+      json.error === "invalid_grant" ||
+      res.status === 400 ||
+      res.status === 401
+    ) {
+      // The refresh token was revoked or expired — the connection is dead.
+      await markFailed(row, YOUTUBE_TOKEN_INVALID_MESSAGE);
+    } else {
+      await touchChecked(row);
+    }
+  } catch {
+    // Transient/network error: reset the clock, never flip a valid token.
+    await touchChecked(row);
+  }
+
+  return loadAccountRow(tenantId, "youtube");
 }

@@ -42,9 +42,13 @@ import {
   deleteTenant,
   insertConnectedAccount,
   insertLinkedinAccount,
+  insertThreadsAccount,
   getConnectedAccount,
   getNotifications,
   setAccountState,
+  snapshotAppCredentialRow,
+  setAppCredentialRow,
+  restoreAppCredentialRow,
 } from "../test/dbHelpers";
 
 const mockFb = vi.mocked(testFacebookCredentials);
@@ -158,6 +162,284 @@ describe("sweepDeadConnections", () => {
       );
       expect(li).toHaveLength(1);
     } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("flips a stale Threads token rejected by the live probe and notifies once", async () => {
+    const tenant = await createTenant();
+    try {
+      // No expiry timestamp -> the sweep uses the live /me probe path.
+      await insertThreadsAccount(tenant.tenantId, {
+        verifiedAt: staleDate(),
+        tokenExpiresAt: null,
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response("{}", { status: 401 })),
+      );
+
+      await sweepDeadConnections();
+
+      const row = await getConnectedAccount(tenant.tenantId, "threads");
+      expect(row?.verifyStatus).toBe("failed");
+      expect(row?.status).toBe("error");
+
+      const notifications = await getNotifications(tenant.tenantId);
+      expect(
+        notifications.filter(
+          (n) =>
+            n.type === "social_connection_failed" && n.platform === "threads",
+        ),
+      ).toHaveLength(1);
+
+      // A second sweep of the known breakage produces no duplicate spam.
+      await setAccountState(tenant.tenantId, "threads", {
+        verifiedAt: staleDate(),
+      });
+      await sweepDeadConnections();
+      const after = await getNotifications(tenant.tenantId);
+      expect(
+        after.filter(
+          (n) =>
+            n.type === "social_connection_failed" && n.platform === "threads",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("flips a stale Threads token already expired by timestamp without a live call", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        verifiedAt: staleDate(),
+        tokenExpiresAt: new Date(Date.now() - 60 * 1000),
+      });
+      const fetchSpy = vi.fn(async () => new Response("{}", { status: 200 }));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await sweepDeadConnections();
+
+      const row = await getConnectedAccount(tenant.tenantId, "threads");
+      expect(row?.verifyStatus).toBe("failed");
+      expect(row?.status).toBe("error");
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      const notifications = await getNotifications(tenant.tenantId);
+      expect(
+        notifications.filter(
+          (n) =>
+            n.type === "social_connection_failed" && n.platform === "threads",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("refreshes a Threads token inside the renewal window and keeps it verified", async () => {
+    const tenant = await createTenant();
+    try {
+      // Expires in 2 days -> inside the 7-day renewal window.
+      await insertThreadsAccount(tenant.tenantId, {
+        verifiedAt: staleDate(),
+        tokenExpiresAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                access_token: "th_tok_refreshed",
+                expires_in: 60 * 24 * 60 * 60,
+              }),
+              { status: 200 },
+            ),
+        ),
+      );
+
+      await sweepDeadConnections();
+
+      const row = await getConnectedAccount(tenant.tenantId, "threads");
+      expect(row?.verifyStatus).toBe("verified");
+      expect(row?.status).toBe("connected");
+      expect(row?.accessToken).toBe("th_tok_refreshed");
+      expect(row?.tokenExpiresAt!.getTime()).toBeGreaterThan(
+        Date.now() + 30 * 24 * 60 * 60 * 1000,
+      );
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("flips a stale YouTube connection whose refresh token Google rejects, and notifies", async () => {
+    const tenant = await createTenant();
+    const snapshot = await snapshotAppCredentialRow("youtube");
+    try {
+      await setAppCredentialRow("youtube", {
+        clientId: "google-client-id",
+        clientSecret: "google-client-secret",
+      });
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "youtube",
+        { refreshToken: "yt_refresh_tok" },
+        "verified",
+      );
+      await setAccountState(tenant.tenantId, "youtube", {
+        verifiedAt: staleDate(),
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(JSON.stringify({ error: "invalid_grant" }), {
+              status: 400,
+            }),
+        ),
+      );
+
+      await sweepDeadConnections();
+
+      const row = await getConnectedAccount(tenant.tenantId, "youtube");
+      expect(row?.verifyStatus).toBe("failed");
+      expect(row?.status).toBe("error");
+
+      const notifications = await getNotifications(tenant.tenantId);
+      expect(
+        notifications.filter(
+          (n) =>
+            n.type === "social_connection_failed" && n.platform === "youtube",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      await restoreAppCredentialRow("youtube", snapshot);
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("re-verifies a stale YouTube connection whose refresh succeeds, persisting the fresh token", async () => {
+    const tenant = await createTenant();
+    const snapshot = await snapshotAppCredentialRow("youtube");
+    try {
+      await setAppCredentialRow("youtube", {
+        clientId: "google-client-id",
+        clientSecret: "google-client-secret",
+      });
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "youtube",
+        { refreshToken: "yt_refresh_tok" },
+        "failed",
+      );
+      await setAccountState(tenant.tenantId, "youtube", {
+        verifiedAt: staleDate(),
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({ access_token: "yt_tok_fresh", expires_in: 3600 }),
+              { status: 200 },
+            ),
+        ),
+      );
+
+      await sweepDeadConnections();
+
+      const row = await getConnectedAccount(tenant.tenantId, "youtube");
+      expect(row?.verifyStatus).toBe("verified");
+      expect(row?.status).toBe("connected");
+      expect(row?.accessToken).toBe("yt_tok_fresh");
+    } finally {
+      await restoreAppCredentialRow("youtube", snapshot);
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("re-verifies YouTube using env-var app credentials when no DB row exists", async () => {
+    const tenant = await createTenant();
+    const snapshot = await snapshotAppCredentialRow("youtube");
+    try {
+      // No DB app-credential row — only the env fallback is configured.
+      await restoreAppCredentialRow("youtube", null);
+      vi.stubEnv("GOOGLE_CLIENT_ID", "env-google-client-id");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "env-google-client-secret");
+
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "youtube",
+        { refreshToken: "yt_refresh_tok" },
+        "verified",
+      );
+      await setAccountState(tenant.tenantId, "youtube", {
+        verifiedAt: staleDate(),
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(JSON.stringify({ error: "invalid_grant" }), {
+              status: 400,
+            }),
+        ),
+      );
+
+      await sweepDeadConnections();
+
+      const row = await getConnectedAccount(tenant.tenantId, "youtube");
+      expect(row?.verifyStatus).toBe("failed");
+      expect(row?.status).toBe("error");
+
+      const notifications = await getNotifications(tenant.tenantId);
+      expect(
+        notifications.filter(
+          (n) =>
+            n.type === "social_connection_failed" && n.platform === "youtube",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      vi.unstubAllEnvs();
+      await restoreAppCredentialRow("youtube", snapshot);
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("YouTube transient refresh error only resets the clock, never flips a valid connection", async () => {
+    const tenant = await createTenant();
+    const snapshot = await snapshotAppCredentialRow("youtube");
+    try {
+      await setAppCredentialRow("youtube", {
+        clientId: "google-client-id",
+        clientSecret: "google-client-secret",
+      });
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "youtube",
+        { refreshToken: "yt_refresh_tok" },
+        "verified",
+      );
+      await setAccountState(tenant.tenantId, "youtube", {
+        verifiedAt: staleDate(),
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response("{}", { status: 503 })),
+      );
+
+      await sweepDeadConnections();
+
+      const row = await getConnectedAccount(tenant.tenantId, "youtube");
+      expect(row?.verifyStatus).toBe("verified");
+      expect(row?.status).toBe("connected");
+      // The clock was reset so the next sweep won't immediately re-test.
+      expect(Date.now() - row!.verifiedAt!.getTime()).toBeLessThan(60 * 1000);
+    } finally {
+      await restoreAppCredentialRow("youtube", snapshot);
       await deleteTenant(tenant.tenantId);
     }
   });

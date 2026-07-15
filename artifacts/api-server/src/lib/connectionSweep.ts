@@ -19,6 +19,8 @@ import {
   reverifyInstagram,
   reverifyLinkedin,
   reverifyTwitter,
+  reverifyThreads,
+  reverifyYoutube,
 } from "./socialReverify";
 
 /** How often the sweep runs. Matches the reverify staleness window so each
@@ -28,7 +30,14 @@ export const CONNECTION_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
 /** Delay before the first sweep after boot, so startup traffic settles. */
 export const CONNECTION_SWEEP_INITIAL_DELAY_MS = 60 * 1000;
 
-const SWEEP_PLATFORMS = ["facebook", "instagram", "linkedin", "twitter"] as const;
+const SWEEP_PLATFORMS = [
+  "facebook",
+  "instagram",
+  "linkedin",
+  "twitter",
+  "threads",
+  "youtube",
+] as const;
 
 const REVERIFIERS: Record<
   (typeof SWEEP_PLATFORMS)[number],
@@ -38,6 +47,8 @@ const REVERIFIERS: Record<
   instagram: (tenantId) => reverifyInstagram(tenantId),
   linkedin: (tenantId) => reverifyLinkedin(tenantId),
   twitter: (tenantId) => reverifyTwitter(tenantId),
+  threads: (tenantId) => reverifyThreads(tenantId),
+  youtube: (tenantId) => reverifyYoutube(tenantId),
 };
 
 /**
