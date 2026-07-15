@@ -909,6 +909,83 @@ describe("X (Twitter) connect: GET /twitter/auth/callback", () => {
     }
   });
 
+  it("reactivates a dead connection in place on reconnect (UPDATE, not a second row)", async () => {
+    await setVerifiedTwitterRow();
+    const calls = mockConnectApi();
+    const tenant = await createTenant();
+    try {
+      // Seed an existing X row that went dead: verification failed, an error
+      // recorded, stale legacy OAuth 1.0a credentials, an old provider user id
+      // and handle, and an expired token clock.
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "twitter",
+        {
+          accessToken: X_LEGACY_ACCESS_TOKEN,
+          accessTokenSecret: X_LEGACY_TOKEN_SECRET,
+        },
+        "failed",
+        "@oldhandle",
+      );
+      await setAccountState(tenant.tenantId, "twitter", {
+        providerUserId: "x_user_old",
+        tokenExpiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        accessToken: "legacy_plaintext_token",
+      });
+      const deadRow = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(deadRow.verifyStatus).toBe("failed");
+      expect(deadRow.verifyError).toBeTruthy();
+
+      // Drive the callback happy path for the same tenant with a real signed
+      // state minted by the authorize-URL endpoint.
+      actAs(tenant.clerkUserId);
+      const urlRes = await request(app).get("/api/twitter/auth/url");
+      const state = new URL(urlRes.body.url).searchParams.get("state")!;
+
+      const res = await request(app)
+        .get("/api/twitter/auth/callback")
+        .query({ code: "AUTH_CODE", state });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe("/accounts?twitter=connected");
+      expect(calls.some((c) => c.url.includes("/2/oauth2/token"))).toBe(true);
+
+      // Exactly one twitter row exists for the tenant — the callback updated
+      // the dead row rather than inserting a second one.
+      const { rows } = await pool.query(
+        "SELECT id FROM connected_accounts WHERE tenant_id = $1 AND platform = 'twitter'",
+        [tenant.tenantId],
+      );
+      expect(rows.length).toBe(1);
+      expect(rows[0].id).toBe(deadRow.id);
+
+      // The row was fully reactivated: status back to connected/verified, the
+      // stale error cleared, and identity fields refreshed.
+      const row = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(row.status).toBe("connected");
+      expect(row.verifyStatus).toBe("verified");
+      expect(row.verifyError).toBeNull();
+      expect(row.providerUserId).toBe(X_CONNECT_USER_ID);
+      expect(row.accountName).toBe(`@${X_CONNECT_USERNAME}`);
+      expect(row.tokenExpiresAt).toBeTruthy();
+      expect(row.tokenExpiresAt!.getTime()).toBeGreaterThan(Date.now());
+      // The legacy plaintext token column is wiped on reconnect.
+      expect(row.accessToken).toBeNull();
+
+      // The stored credentials decrypt to the newly exchanged OAuth 2.0
+      // tokens — no trace of the stale legacy blob remains.
+      const creds = decryptJson<TwitterOAuth2Credentials>(
+        row.encryptedCredentials!,
+      );
+      expect(creds.accessToken).toBe(X_CONNECT_ACCESS_TOKEN);
+      expect(creds.refreshToken).toBe(X_CONNECT_REFRESH_TOKEN);
+      expect(JSON.stringify(creds)).not.toContain(X_LEGACY_ACCESS_TOKEN);
+      expect(JSON.stringify(creds)).not.toContain(X_LEGACY_TOKEN_SECRET);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("redirects with not_configured and writes nothing when app creds are missing", async () => {
     await clearTwitterRow();
     const tenant = await createTenant();
