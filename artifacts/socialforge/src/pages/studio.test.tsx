@@ -78,7 +78,7 @@ describe("Studio caption X character warning", () => {
         exact: false,
       }),
     ).toBeTruthy();
-    expect(screen.queryByText(/over; will be trimmed/i)).toBeNull();
+    expect(screen.queryByText(/over; will post as a thread/i)).toBeNull();
   });
 
   it("shows no warning at exactly the limit", async () => {
@@ -90,7 +90,7 @@ describe("Studio caption X character warning", () => {
         exact: false,
       }),
     ).toBeTruthy();
-    expect(screen.queryByText(/over; will be trimmed/i)).toBeNull();
+    expect(screen.queryByText(/over; will post as a thread/i)).toBeNull();
   });
 
   it("warns with the shared helper's over-by count when over the limit", async () => {
@@ -102,5 +102,7 @@ describe("Studio caption X character warning", () => {
       { exact: false },
     );
     expect(warning.textContent).toContain(`${tweetOverBy(caption)} over`);
+    expect(warning.textContent).toContain("will post as a thread on X");
+    expect(warning.textContent).not.toContain("trimmed");
   });
 });

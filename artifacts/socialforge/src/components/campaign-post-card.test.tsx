@@ -51,7 +51,7 @@ describe("CampaignPostCard X character warning", () => {
         exact: false,
       }),
     ).toBeTruthy();
-    expect(screen.queryByText(/over; will be trimmed/i)).toBeNull();
+    expect(screen.queryByText(/over; will post as a thread/i)).toBeNull();
   });
 
   it("shows no over-limit warning for an exactly at-limit caption", () => {
@@ -64,7 +64,7 @@ describe("CampaignPostCard X character warning", () => {
         exact: false,
       }),
     ).toBeTruthy();
-    expect(screen.queryByText(/over; will be trimmed/i)).toBeNull();
+    expect(screen.queryByText(/over; will post as a thread/i)).toBeNull();
   });
 
   it("warns with the shared helper's over-by count for an over-limit caption", () => {
@@ -77,6 +77,8 @@ describe("CampaignPostCard X character warning", () => {
     );
     // The displayed over-by number must equal the shared helper's output.
     expect(warning.textContent).toContain(`${tweetOverBy(caption)} over`);
+    expect(warning.textContent).toContain("will post as a thread on X");
+    expect(warning.textContent).not.toContain("trimmed");
   });
 
   it("renders no X warning for non-twitter platforms", () => {

@@ -713,7 +713,7 @@ export function StudioPage() {
                           return (
                             <p className={`mt-3 text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
                               {tweetText.length} / {TWEET_MAX_LENGTH} characters for X
-                              {overLimit && ` \u2014 ${tweetOverBy(tweetText)} over; will be trimmed when posting to X (other platforms allow more)`}
+                              {overLimit && ` \u2014 ${tweetOverBy(tweetText)} over; will post as a thread on X (other platforms allow more)`}
                             </p>
                           );
                         })()}
