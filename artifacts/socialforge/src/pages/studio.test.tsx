@@ -5,6 +5,7 @@ import {
   TWEET_MAX_LENGTH,
   isOverTweetLimit,
   tweetOverBy,
+  splitIntoTweets,
 } from "@workspace/social-limits";
 
 /**
@@ -102,7 +103,9 @@ describe("Studio caption X character warning", () => {
       { exact: false },
     );
     expect(warning.textContent).toContain(`${tweetOverBy(caption)} over`);
-    expect(warning.textContent).toContain("will post as a thread on X");
+    expect(warning.textContent).toContain(
+      `will post as a thread of ${splitIntoTweets(caption).length} tweets on X`,
+    );
     expect(warning.textContent).not.toContain("trimmed");
   });
 });

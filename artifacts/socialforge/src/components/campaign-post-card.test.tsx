@@ -5,6 +5,7 @@ import {
   TWEET_MAX_LENGTH,
   isOverTweetLimit,
   tweetOverBy,
+  splitIntoTweets,
 } from "@workspace/social-limits";
 
 /**
@@ -77,7 +78,9 @@ describe("CampaignPostCard X character warning", () => {
     );
     // The displayed over-by number must equal the shared helper's output.
     expect(warning.textContent).toContain(`${tweetOverBy(caption)} over`);
-    expect(warning.textContent).toContain("will post as a thread on X");
+    expect(warning.textContent).toContain(
+      `will post as a thread of ${splitIntoTweets(caption).length} tweets on X`,
+    );
     expect(warning.textContent).not.toContain("trimmed");
   });
 

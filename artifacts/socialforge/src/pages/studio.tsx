@@ -28,7 +28,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Wand2, Image as ImageIcon, Save, Loader2, Lightbulb, Link2, Layers, Globe, ExternalLink } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { CampaignPostCard } from "@/components/campaign-post-card";
-import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy } from "@workspace/social-limits";
+import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, splitIntoTweets } from "@workspace/social-limits";
 
 const schema = z.object({
   prompt: z.string().min(3, "Prompt must be at least 3 characters"),
@@ -713,7 +713,7 @@ export function StudioPage() {
                           return (
                             <p className={`mt-3 text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
                               {tweetText.length} / {TWEET_MAX_LENGTH} characters for X
-                              {overLimit && ` \u2014 ${tweetOverBy(tweetText)} over; will post as a thread on X (other platforms allow more)`}
+                              {overLimit && ` \u2014 ${tweetOverBy(tweetText)} over; will post as a thread of ${splitIntoTweets(tweetText).length} tweets on X (other platforms allow more)`}
                             </p>
                           );
                         })()}

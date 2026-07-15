@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Image as ImageIcon, Save, Loader2, Check } from "lucide-react";
-import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy } from "@workspace/social-limits";
+import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, splitIntoTweets } from "@workspace/social-limits";
 
 const PLATFORM_LABELS: Record<string, string> = {
   instagram: "Instagram",
@@ -131,7 +131,7 @@ export function CampaignPostCard({ post, brandKitId, brief }: CampaignPostCardPr
           return (
             <p className={`text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
               {tweetText.length} / {TWEET_MAX_LENGTH} characters for X
-              {overLimit && ` \u2014 ${tweetOverBy(tweetText)} over; will post as a thread on X (other platforms allow more)`}
+              {overLimit && ` \u2014 ${tweetOverBy(tweetText)} over; will post as a thread of ${splitIntoTweets(tweetText).length} tweets on X (other platforms allow more)`}
             </p>
           );
         })()}
