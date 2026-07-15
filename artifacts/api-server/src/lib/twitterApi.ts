@@ -64,73 +64,10 @@ function isLegacyOAuth1(
   );
 }
 
-/**
- * Split a caption into a sequence of tweets, each within `maxLength`, so a
- * long post can be published as a reply-chained thread instead of being
- * truncated. Splitting prefers sentence boundaries, then word boundaries, and
- * only hard-splits a single token that is itself longer than `maxLength`.
- *
- * Always returns at least one tweet (an empty input yields `[""]`), so callers
- * can post the first tweet unconditionally.
- */
-export function splitIntoTweets(
-  text: string,
-  maxLength: number = TWEET_MAX_LENGTH,
-): string[] {
-  const normalized = text.trim();
-  if (normalized.length <= maxLength) {
-    return [normalized];
-  }
-
-  const tweets: string[] = [];
-  let current = "";
-
-  const flush = () => {
-    const trimmed = current.trim();
-    if (trimmed.length > 0) {
-      tweets.push(trimmed);
-    }
-    current = "";
-  };
-
-  // Break the text into atomic tokens: runs of whitespace are preserved as
-  // separators so we can rejoin without losing paragraph breaks.
-  const tokens = normalized.match(/\s+|\S+/g) ?? [];
-
-  for (const token of tokens) {
-    if (current.length + token.length <= maxLength) {
-      current += token;
-      continue;
-    }
-
-    // The token doesn't fit on the current tweet.
-    if (/^\s+$/.test(token)) {
-      // Whitespace separator: just start a new tweet, dropping the break.
-      flush();
-      continue;
-    }
-
-    // A non-whitespace token that doesn't fit: flush what we have first.
-    flush();
-
-    if (token.length <= maxLength) {
-      current = token;
-      continue;
-    }
-
-    // A single token longer than a whole tweet: hard-split it into pieces.
-    let rest = token;
-    while (rest.length > maxLength) {
-      tweets.push(rest.slice(0, maxLength));
-      rest = rest.slice(maxLength);
-    }
-    current = rest;
-  }
-
-  flush();
-
-  return tweets.length > 0 ? tweets : [""];
-}
+// Re-exported from the shared lib so existing imports keep working; the
+// implementation lives in @workspace/social-limits alongside the Library
+// preview's copy to prevent client/server drift.
+export { splitIntoTweets } from "@workspace/social-limits";
 
 export interface TestResult {
   ok: boolean;

@@ -26,49 +26,10 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, splitForLinkedin, chunkOnWhitespace } from "@workspace/social-limits";
+import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, splitForLinkedin, chunkOnWhitespace, splitIntoTweets } from "@workspace/social-limits";
 
 // Mirrors THREADS_MAX_LENGTH on the server (api-server routes/threads.ts).
 const THREADS_MAX_LENGTH = 500;
-
-// Mirror of the server-side thread splitter (see api-server twitterApi.ts) so
-// the dialog can preview how many tweets a long caption will become.
-function splitIntoTweets(text: string, maxLength: number = TWEET_MAX_LENGTH): string[] {
-  const normalized = text.trim();
-  if (normalized.length <= maxLength) return [normalized];
-
-  const tweets: string[] = [];
-  let current = "";
-  const flush = () => {
-    const trimmed = current.trim();
-    if (trimmed.length > 0) tweets.push(trimmed);
-    current = "";
-  };
-  const tokens = normalized.match(/\s+|\S+/g) ?? [];
-  for (const token of tokens) {
-    if (current.length + token.length <= maxLength) {
-      current += token;
-      continue;
-    }
-    if (/^\s+$/.test(token)) {
-      flush();
-      continue;
-    }
-    flush();
-    if (token.length <= maxLength) {
-      current = token;
-      continue;
-    }
-    let rest = token;
-    while (rest.length > maxLength) {
-      tweets.push(rest.slice(0, maxLength));
-      rest = rest.slice(maxLength);
-    }
-    current = rest;
-  }
-  flush();
-  return tweets.length > 0 ? tweets : [""];
-}
 
 export function LibraryPage() {
   const { data: content, isLoading } = useListContent({
