@@ -302,6 +302,14 @@ describe("LinkedIn publish", () => {
       expect(body.object).toBe("urn:li:share:555");
       expect(body.actor).toBe("urn:li:person:member123");
       expect(body.message.text).toBe(expectedComments[i]);
+      // Multi-comment overflow is numbered so readers can follow the order
+      // even if LinkedIn reorders comments, and stays within the limit.
+      if (expectedComments.length > 1) {
+        expect(body.message.text).toMatch(
+          new RegExp(`^\\(${i + 1}/${expectedComments.length}\\) `),
+        );
+      }
+      expect((body.message.text as string).length).toBeLessThanOrEqual(1250);
       // Comment URN is URL-encoded into the path.
       expect(c.url).toContain(encodeURIComponent("urn:li:share:555"));
     });

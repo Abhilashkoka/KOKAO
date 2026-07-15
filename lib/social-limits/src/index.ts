@@ -83,7 +83,36 @@ export function splitForLinkedin(text: string): {
   const main = chunkOnWhitespace(trimmed, LINKEDIN_MAX_LENGTH)[0] ?? "";
   const remainder = trimmed.slice(main.length).trimStart();
   const comments = remainder
-    ? chunkOnWhitespace(remainder, LINKEDIN_COMMENT_MAX_LENGTH)
+    ? numberLinkedinComments(remainder, LINKEDIN_COMMENT_MAX_LENGTH)
     : [];
   return { main, comments };
+}
+
+/**
+ * Chunk overflow text into comments, prefixing each with its position
+ * ("(2/4) ...") when there is more than one comment so readers can follow
+ * the intended order even if LinkedIn reorders comments. The prefix counts
+ * toward the per-comment limit; a single comment is returned unnumbered.
+ */
+function numberLinkedinComments(text: string, limit: number): string[] {
+  const plain = chunkOnWhitespace(text, limit);
+  if (plain.length <= 1) return plain;
+  // Reserve room for the "(i/n) " prefix. The prefix length depends on the
+  // final count, which itself depends on the reserved room, so iterate until
+  // the count is stable (grows monotonically, so this terminates quickly).
+  let count = plain.length;
+  let chunks = plain;
+  for (;;) {
+    const prefixLen = `(${count}/${count}) `.length;
+    const next = chunkOnWhitespace(text, Math.max(1, limit - prefixLen));
+    if (next.length <= count) {
+      chunks = next;
+      break;
+    }
+    count = next.length;
+    chunks = next;
+  }
+  const total = chunks.length;
+  if (total <= 1) return chunks;
+  return chunks.map((chunk, i) => `(${i + 1}/${total}) ${chunk}`);
 }

@@ -163,7 +163,27 @@ describe("splitForLinkedin", () => {
   it("preserves the full caption text across the post and comments (nothing dropped)", () => {
     const text = "lorem ".repeat(800).trim();
     const { main, comments } = splitForLinkedin(text);
-    // Re-joining the visible pieces on whitespace reproduces the words in order.
-    expect([main, ...comments].join(" ")).toBe(text);
+    // Strip the "(i/n) " ordering prefixes before re-joining: the visible
+    // words must reproduce the caption in order with nothing dropped.
+    const stripped = comments.map((c) => c.replace(/^\(\d+\/\d+\) /, ""));
+    expect([main, ...stripped].join(" ")).toBe(text);
+  });
+
+  it("numbers multi-comment overflow so readers can follow the order", () => {
+    const text = "lorem ".repeat(800).trim();
+    const { comments } = splitForLinkedin(text);
+    expect(comments.length).toBeGreaterThan(1);
+    comments.forEach((c, i) => {
+      expect(c.startsWith(`(${i + 1}/${comments.length}) `)).toBe(true);
+      expect(c.length).toBeLessThanOrEqual(LINKEDIN_COMMENT_MAX_LENGTH);
+    });
+  });
+
+  it("leaves a single overflow comment unnumbered", () => {
+    // Just over the post limit: the remainder fits in one comment.
+    const text = ("word ".repeat(LINKEDIN_MAX_LENGTH / 5) + "tail extra").trim();
+    const { comments } = splitForLinkedin(text);
+    expect(comments.length).toBe(1);
+    expect(comments[0]).not.toMatch(/^\(\d+\/\d+\) /);
   });
 });
