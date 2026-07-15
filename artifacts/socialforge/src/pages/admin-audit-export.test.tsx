@@ -1,0 +1,205 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+/**
+ * Regression guard for the Audit trail "Download CSV" browser flow.
+ *
+ * The export is a browser-native download: clicking the button builds an
+ * anchor pointing at /api/admin/audit-logs/export with the CURRENTLY APPLIED
+ * filters as query params (cookie auth rides along automatically because it
+ * is a same-origin navigation) and clicks it. A refactor could silently drop
+ * filter propagation (exporting everything) or the disabled state when no
+ * records match. These tests mock the list hook and assert:
+ *  - the export anchor href carries the applied filters,
+ *  - unapplied (typed but not submitted) filter input is NOT sent,
+ *  - the button is disabled when total === 0 and enabled otherwise.
+ */
+
+const mockState: {
+  auditLogs: { items: unknown[]; total: number };
+  lastParams: Record<string, unknown> | null;
+} = {
+  auditLogs: { items: [], total: 0 },
+  lastParams: null,
+};
+
+vi.mock("@/hooks/use-toast", () => ({
+  useToast: () => ({ toast: vi.fn() }),
+}));
+
+vi.mock("@workspace/api-client-react", () => {
+  const mutation = () => ({ mutate: vi.fn(), isPending: false });
+  const query = () => ({ data: undefined, isLoading: false, isFetching: false });
+  return {
+    useAdminListAuditLogs: (params: Record<string, unknown>) => {
+      mockState.lastParams = params;
+      return {
+        data: mockState.auditLogs,
+        isLoading: false,
+        isFetching: false,
+      };
+    },
+    getAdminListAuditLogsQueryKey: (params: Record<string, unknown>) => [
+      "admin-audit-logs",
+      params,
+    ],
+    useAdminListTenants: query,
+    useAdminGetStats: query,
+    useAdminUpdateTenantPlan: mutation,
+    useAdminUpdateTenantSuperadmin: mutation,
+    useAdminGetMetaCredentials: query,
+    useAdminSaveMetaCredentials: mutation,
+    useAdminGetTwitterCredentials: query,
+    useAdminGetLinkedinCredentials: query,
+    useAdminSaveLinkedinCredentials: mutation,
+    getAdminGetLinkedinCredentialsQueryKey: () => ["admin-linkedin-creds"],
+    useAdminGetYoutubeCredentials: query,
+    useAdminSaveYoutubeCredentials: mutation,
+    getAdminGetYoutubeCredentialsQueryKey: () => ["admin-youtube-creds"],
+    useAdminGetThreadsCredentials: query,
+    useAdminSaveThreadsCredentials: mutation,
+    getAdminGetThreadsCredentialsQueryKey: () => ["admin-threads-creds"],
+    useAdminSaveTwitterCredentials: mutation,
+    useAdminListNotificationPolicies: query,
+    useAdminUpdateNotificationPolicies: mutation,
+    useAdminGetEmailSettings: query,
+    useAdminUpdateEmailSettings: mutation,
+    useAdminSendTestEmail: mutation,
+    getAdminListTenantsQueryKey: () => ["admin-tenants"],
+    getAdminGetStatsQueryKey: () => ["admin-stats"],
+    getAdminGetMetaCredentialsQueryKey: () => ["admin-meta-creds"],
+    getAdminGetTwitterCredentialsQueryKey: () => ["admin-twitter-creds"],
+    getAdminListNotificationPoliciesQueryKey: () => ["admin-notif-policies"],
+    getAdminGetEmailSettingsQueryKey: () => ["admin-email-settings"],
+    useListPlans: query,
+    useAdminUpdatePlan: mutation,
+    useAdminCreatePlan: mutation,
+    useAdminDeletePlan: mutation,
+    getListPlansQueryKey: () => ["plans"],
+    useGetMe: query,
+  };
+});
+
+// Imported after the mock so the mocked module is picked up.
+import { AuditLogCard } from "./admin";
+
+function renderCard() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <AuditLogCard />
+    </QueryClientProvider>,
+  );
+}
+
+function makeRow(id: number, actorEmail: string) {
+  return {
+    id,
+    action: "plan_change",
+    actorTenantId: 1,
+    actorEmail,
+    targetTenantId: 2,
+    targetEmail: "target@example.com",
+    oldValue: "free",
+    newValue: "pro",
+    createdAt: new Date("2026-07-01T12:00:00Z").toISOString(),
+  };
+}
+
+describe("AuditLogCard CSV export", () => {
+  let clickedAnchors: HTMLAnchorElement[];
+  let clickSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    mockState.auditLogs = { items: [], total: 0 };
+    mockState.lastParams = null;
+    clickedAnchors = [];
+    // jsdom would attempt (and fail) real navigation on anchor click;
+    // capture the anchor instead so we can assert on href/download.
+    clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        clickedAnchors.push(this);
+      });
+  });
+
+  afterEach(() => {
+    clickSpy.mockRestore();
+    cleanup();
+  });
+
+  it("downloads the unfiltered export when no filters are applied", () => {
+    mockState.auditLogs = { items: [makeRow(1, "a@example.com")], total: 1 };
+    renderCard();
+
+    const button = screen.getByTestId("button-audit-export");
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(button);
+
+    expect(clickedAnchors).toHaveLength(1);
+    const anchor = clickedAnchors[0];
+    expect(anchor.getAttribute("href")).toBe("/api/admin/audit-logs/export");
+    expect(anchor.getAttribute("download")).toMatch(
+      /^audit-log-\d{4}-\d{2}-\d{2}\.csv$/,
+    );
+  });
+
+  it("propagates the APPLIED filters into the export URL", () => {
+    mockState.auditLogs = {
+      items: [makeRow(1, "match@example.com"), makeRow(2, "match@example.com")],
+      total: 2,
+    };
+    renderCard();
+
+    fireEvent.change(screen.getByTestId("input-audit-actor"), {
+      target: { value: "match@example.com" },
+    });
+    fireEvent.change(screen.getByTestId("input-audit-target"), {
+      target: { value: "target@example.com" },
+    });
+    fireEvent.click(screen.getByTestId("button-audit-apply"));
+
+    // The list query and the export must see the same filters.
+    expect(mockState.lastParams).toMatchObject({
+      actor: "match@example.com",
+      target: "target@example.com",
+    });
+
+    fireEvent.click(screen.getByTestId("button-audit-export"));
+    expect(clickedAnchors).toHaveLength(1);
+    const href = clickedAnchors[0].getAttribute("href")!;
+    const url = new URL(href, "http://localhost");
+    expect(url.pathname).toBe("/api/admin/audit-logs/export");
+    expect(url.searchParams.get("actor")).toBe("match@example.com");
+    expect(url.searchParams.get("target")).toBe("target@example.com");
+    expect(url.searchParams.get("action")).toBeNull();
+  });
+
+  it("does NOT send filter text that was typed but not applied", () => {
+    mockState.auditLogs = { items: [makeRow(1, "a@example.com")], total: 1 };
+    renderCard();
+
+    fireEvent.change(screen.getByTestId("input-audit-actor"), {
+      target: { value: "typed-but-not-applied" },
+    });
+    fireEvent.click(screen.getByTestId("button-audit-export"));
+
+    expect(clickedAnchors).toHaveLength(1);
+    expect(clickedAnchors[0].getAttribute("href")).toBe(
+      "/api/admin/audit-logs/export",
+    );
+  });
+
+  it("disables the export button when no records match the filters", () => {
+    mockState.auditLogs = { items: [], total: 0 };
+    renderCard();
+
+    const button = screen.getByTestId("button-audit-export");
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(button);
+    expect(clickedAnchors).toHaveLength(0);
+  });
+});

@@ -1743,7 +1743,7 @@ function formatAuditValue(action: string, value: string | null): string {
 
 const AUDIT_PAGE_SIZE = 50;
 
-function AuditLogCard() {
+export function AuditLogCard() {
   const [actionFilter, setActionFilter] = useState("all");
   const [actorInput, setActorInput] = useState("");
   const [targetInput, setTargetInput] = useState("");
