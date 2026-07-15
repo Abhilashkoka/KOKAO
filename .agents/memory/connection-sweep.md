@@ -31,3 +31,9 @@ every cycle.
   a refresh-token exchange against Google (invalid_grant = dead). The route
   files (`routes/threads.ts`, `routes/youtube.ts`) still carry their own copies
   of the refresh logic — keep behavior in sync if either changes.
+- Sweep health is persisted to the single-row `sweep_status` table (id=1
+  upsert after every run: last run time, duration, accounts checked, error
+  count) and surfaced on the admin dashboard via `/admin/stats`
+  (`connectionSweep`, null until the first run). The UI flags it Stale after
+  ~35 min (two missed 15-min cycles). Keep `recordSweepRun` best-effort — a
+  bookkeeping failure must never affect the sweep.

@@ -2917,6 +2917,30 @@ components:
           type: integer
         totalConnectedAccounts:
           type: integer
+        connectionSweep:
+          type: object
+          nullable: true
+          description: >-
+            Health of the background dead-connection sweep. Null when the
+            sweep has never completed a run (e.g. fresh deploy).
+          required:
+            - lastRunAt
+            - durationMs
+            - accountsChecked
+            - errorCount
+          properties:
+            lastRunAt:
+              type: string
+              format: date-time
+            durationMs:
+              type: integer
+            accountsChecked:
+              type: integer
+            errorCount:
+              type: integer
+            lastError:
+              type: string
+              nullable: true
     UpdateTenantPlanBody:
       type: object
       required: [plan]

@@ -195,12 +195,25 @@ export interface AdminTenant {
 
 export type AdminStatsTenantsByPlan = {[key: string]: number};
 
+/**
+ * Health of the background dead-connection sweep. Null when the sweep has never completed a run (e.g. fresh deploy).
+ */
+export type AdminStatsConnectionSweep = {
+  lastRunAt: string;
+  durationMs: number;
+  accountsChecked: number;
+  errorCount: number;
+  lastError?: string | null;
+} | null;
+
 export interface AdminStats {
   totalTenants: number;
   tenantsByPlan: AdminStatsTenantsByPlan;
   totalContent: number;
   totalScheduledPosts: number;
   totalConnectedAccounts: number;
+  /** Health of the background dead-connection sweep. Null when the sweep has never completed a run (e.g. fresh deploy). */
+  connectionSweep?: AdminStatsConnectionSweep;
 }
 
 export interface UpdateTenantPlanBody {

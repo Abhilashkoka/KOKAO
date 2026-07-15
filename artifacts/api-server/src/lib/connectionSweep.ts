@@ -11,8 +11,8 @@
  * the deduped notifySocialConnectionFailed on a fresh verified -> failed
  * transition. An already-known breakage produces no duplicate spam.
  */
-import { db, connectedAccountsTable } from "@workspace/db";
-import { inArray } from "drizzle-orm";
+import { db, connectedAccountsTable, sweepStatusTable } from "@workspace/db";
+import { inArray, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import {
   reverifyFacebook,
@@ -51,6 +51,13 @@ const REVERIFIERS: Record<
   youtube: (tenantId) => reverifyYoutube(tenantId),
 };
 
+/** Outcome of one full sweep, persisted for admin-dashboard visibility. */
+export interface SweepResult {
+  accountsChecked: number;
+  errorCount: number;
+  lastError: string | null;
+}
+
 /**
  * Run one full sweep: find every tenant that has a connected-account row for a
  * sweepable platform, then re-verify each of their platforms sequentially
@@ -58,7 +65,12 @@ const REVERIFIERS: Record<
  * tenant+platform check is individually guarded — one failure is logged and
  * never aborts the rest of the sweep. Never throws.
  */
-export async function sweepDeadConnections(): Promise<void> {
+export async function sweepDeadConnections(): Promise<SweepResult> {
+  const result: SweepResult = {
+    accountsChecked: 0,
+    errorCount: 0,
+    lastError: null,
+  };
   let rows: { tenantId: number; platform: string }[];
   try {
     rows = await db
@@ -70,7 +82,9 @@ export async function sweepDeadConnections(): Promise<void> {
       .where(inArray(connectedAccountsTable.platform, [...SWEEP_PLATFORMS]));
   } catch (err) {
     logger.error({ err }, "Connection sweep failed to list connected accounts");
-    return;
+    result.errorCount = 1;
+    result.lastError = err instanceof Error ? err.message : String(err);
+    return result;
   }
 
   // Instagram verification rides on the Facebook Page token, so re-check
@@ -88,6 +102,7 @@ export async function sweepDeadConnections(): Promise<void> {
   for (const [tenantId, platforms] of byTenant) {
     for (const platform of SWEEP_PLATFORMS) {
       if (!platforms.has(platform)) continue;
+      result.accountsChecked += 1;
       try {
         await REVERIFIERS[platform](tenantId);
       } catch (err) {
@@ -95,8 +110,49 @@ export async function sweepDeadConnections(): Promise<void> {
           { err, tenantId, platform },
           "Connection sweep re-verify failed",
         );
+        result.errorCount += 1;
+        result.lastError = err instanceof Error ? err.message : String(err);
       }
     }
+  }
+  return result;
+}
+
+/**
+ * Persist the outcome of a completed sweep run into the single-row
+ * `sweep_status` table (id=1 upsert), so the admin dashboard can show
+ * "last sweep ran at" even across restarts/redeploys. Best-effort: a
+ * bookkeeping failure is logged and never affects the sweep itself.
+ */
+export async function recordSweepRun(
+  lastRunAt: Date,
+  durationMs: number,
+  outcome: SweepResult,
+): Promise<void> {
+  try {
+    await db
+      .insert(sweepStatusTable)
+      .values({
+        id: 1,
+        lastRunAt,
+        durationMs,
+        accountsChecked: outcome.accountsChecked,
+        errorCount: outcome.errorCount,
+        lastError: outcome.lastError,
+      })
+      .onConflictDoUpdate({
+        target: sweepStatusTable.id,
+        set: {
+          lastRunAt,
+          durationMs,
+          accountsChecked: outcome.accountsChecked,
+          errorCount: outcome.errorCount,
+          lastError: outcome.lastError,
+          updatedAt: sql`now()`,
+        },
+      });
+  } catch (err) {
+    logger.error({ err }, "Failed to record connection sweep status");
   }
 }
 
@@ -109,11 +165,17 @@ async function runSweepOnce(): Promise<void> {
   sweepRunning = true;
   const startedAt = Date.now();
   try {
-    await sweepDeadConnections();
+    const outcome = await sweepDeadConnections();
+    const durationMs = Date.now() - startedAt;
     logger.info(
-      { durationMs: Date.now() - startedAt },
+      {
+        durationMs,
+        accountsChecked: outcome.accountsChecked,
+        errorCount: outcome.errorCount,
+      },
       "Connection sweep completed",
     );
+    await recordSweepRun(new Date(startedAt), durationMs, outcome);
   } catch (err) {
     // sweepDeadConnections never throws, but guard anyway: a sweep failure
     // must never take down the interval or the process.

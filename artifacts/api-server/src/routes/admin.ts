@@ -8,6 +8,7 @@ import {
   connectedAccountsTable,
   usageEventsTable,
   adminAuditLogsTable,
+  sweepStatusTable,
 } from "@workspace/db";
 import { eq, sql, desc, gte, lte, and, or, ilike } from "drizzle-orm";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
@@ -143,7 +144,7 @@ router.get("/admin/tenants", async (_req: Request, res: Response) => {
  * Platform-wide aggregate stats.
  */
 router.get("/admin/stats", async (_req: Request, res: Response) => {
-  const [tenantRows, contentRow, scheduleRow, accountRow] = await Promise.all([
+  const [tenantRows, contentRow, scheduleRow, accountRow, sweepRow] = await Promise.all([
     db
       .select({ plan: tenantsTable.plan, count: sql<number>`count(*)::int` })
       .from(tenantsTable)
@@ -153,6 +154,11 @@ router.get("/admin/stats", async (_req: Request, res: Response) => {
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(connectedAccountsTable),
+    db
+      .select()
+      .from(sweepStatusTable)
+      .where(eq(sweepStatusTable.id, 1))
+      .limit(1),
   ]);
 
   // Include every catalog plan (even those with zero tenants) plus any plan
@@ -171,6 +177,15 @@ router.get("/admin/stats", async (_req: Request, res: Response) => {
     totalContent: contentRow[0]?.count ?? 0,
     totalScheduledPosts: scheduleRow[0]?.count ?? 0,
     totalConnectedAccounts: accountRow[0]?.count ?? 0,
+    connectionSweep: sweepRow[0]
+      ? {
+          lastRunAt: sweepRow[0].lastRunAt.toISOString(),
+          durationMs: sweepRow[0].durationMs,
+          accountsChecked: sweepRow[0].accountsChecked,
+          errorCount: sweepRow[0].errorCount,
+          lastError: sweepRow[0].lastError,
+        }
+      : null,
   });
 });
 

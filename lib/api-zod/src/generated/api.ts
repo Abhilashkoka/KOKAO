@@ -405,7 +405,14 @@ export const AdminGetStatsResponse = zod.object({
   "tenantsByPlan": zod.record(zod.string(), zod.number()),
   "totalContent": zod.number(),
   "totalScheduledPosts": zod.number(),
-  "totalConnectedAccounts": zod.number()
+  "totalConnectedAccounts": zod.number(),
+  "connectionSweep": zod.object({
+  "lastRunAt": zod.coerce.date(),
+  "durationMs": zod.number(),
+  "accountsChecked": zod.number(),
+  "errorCount": zod.number(),
+  "lastError": zod.string().nullish()
+}).nullish().describe('Health of the background dead-connection sweep. Null when the sweep has never completed a run (e.g. fresh deploy).')
 })
 
 

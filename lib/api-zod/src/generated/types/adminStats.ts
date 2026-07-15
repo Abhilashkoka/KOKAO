@@ -5,6 +5,7 @@
  * SocialForge API
  * OpenAPI spec version: 0.1.0
  */
+import type { AdminStatsConnectionSweep } from './adminStatsConnectionSweep';
 import type { AdminStatsTenantsByPlan } from './adminStatsTenantsByPlan';
 
 export interface AdminStats {
@@ -13,4 +14,6 @@ export interface AdminStats {
   totalContent: number;
   totalScheduledPosts: number;
   totalConnectedAccounts: number;
+  /** Health of the background dead-connection sweep. Null when the sweep has never completed a run (e.g. fresh deploy). */
+  connectionSweep?: AdminStatsConnectionSweep;
 }

@@ -36,7 +36,7 @@ vi.mock("./email", () => ({
 
 import { pool } from "@workspace/db";
 import { testFacebookCredentials } from "./metaApi";
-import { sweepDeadConnections } from "./connectionSweep";
+import { sweepDeadConnections, recordSweepRun } from "./connectionSweep";
 import {
   createTenant,
   deleteTenant,
@@ -474,7 +474,12 @@ describe("sweepDeadConnections", () => {
         return { ok: true, accountName: "Page B" };
       });
 
-      await expect(sweepDeadConnections()).resolves.toBeUndefined();
+      const outcome = await sweepDeadConnections();
+      // The crash is counted, not thrown. The shared dev DB may hold other
+      // tenants' rows, so assert lower bounds rather than exact counts.
+      expect(outcome.errorCount).toBeGreaterThanOrEqual(1);
+      expect(outcome.accountsChecked).toBeGreaterThanOrEqual(2);
+      expect(outcome.lastError).toContain("unexpected crash");
       expect(mockFb).toHaveBeenCalledTimes(2);
 
       const rows = await Promise.all([
@@ -490,5 +495,34 @@ describe("sweepDeadConnections", () => {
       await deleteTenant(broken.tenantId);
       await deleteTenant(healthy.tenantId);
     }
+  });
+});
+
+describe("recordSweepRun", () => {
+  it("upserts the single sweep_status row (id=1) and never grows the table", async () => {
+    const { db, sweepStatusTable } = await import("@workspace/db");
+
+    const firstRun = new Date("2026-07-15T10:00:00Z");
+    await recordSweepRun(firstRun, 1200, {
+      accountsChecked: 3,
+      errorCount: 0,
+      lastError: null,
+    });
+
+    const secondRun = new Date("2026-07-15T10:15:00Z");
+    await recordSweepRun(secondRun, 800, {
+      accountsChecked: 4,
+      errorCount: 1,
+      lastError: "boom",
+    });
+
+    const rows = await db.select().from(sweepStatusTable);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(1);
+    expect(rows[0]!.lastRunAt.toISOString()).toBe(secondRun.toISOString());
+    expect(rows[0]!.durationMs).toBe(800);
+    expect(rows[0]!.accountsChecked).toBe(4);
+    expect(rows[0]!.errorCount).toBe(1);
+    expect(rows[0]!.lastError).toBe("boom");
   });
 });

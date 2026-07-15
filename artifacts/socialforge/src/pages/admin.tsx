@@ -73,6 +73,7 @@ import {
   Calendar,
   Share2,
   ShieldAlert,
+  RadioTower,
   CheckCircle2,
   AlertCircle,
   Loader2,
@@ -85,6 +86,18 @@ const PLAN_LABELS: Record<string, string> = {
   pro: "Pro",
   business: "Business",
 };
+
+/** The sweep runs every 15 minutes; call it stale after two missed cycles. */
+const SWEEP_STALE_MS = 35 * 60 * 1000;
+
+function isSweepStale(lastRunAt: string): boolean {
+  return Date.now() - new Date(lastRunAt).getTime() > SWEEP_STALE_MS;
+}
+
+function formatSweepDuration(ms: number): string {
+  if (ms < 1000) return `${ms} ms`;
+  return `${(ms / 1000).toFixed(1)} s`;
+}
 
 function isForbidden(error: unknown): boolean {
   return (
@@ -2107,6 +2120,93 @@ export function AdminPage() {
           ))}
         </div>
       )}
+
+      <Card data-testid="card-connection-sweep">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <RadioTower className="h-5 w-5 text-muted-foreground" />
+              Connection Sweep
+            </CardTitle>
+            <CardDescription>
+              Background job that re-checks every workspace's social
+              connections and alerts users when one breaks.
+            </CardDescription>
+          </div>
+          {!statsLoading &&
+            (stats?.connectionSweep ? (
+              isSweepStale(stats.connectionSweep.lastRunAt) ? (
+                <Badge
+                  variant="destructive"
+                  data-testid="badge-sweep-stale"
+                >
+                  Stale
+                </Badge>
+              ) : (
+                <Badge variant="secondary" data-testid="badge-sweep-healthy">
+                  Healthy
+                </Badge>
+              )
+            ) : (
+              <Badge variant="outline" data-testid="badge-sweep-never">
+                Never ran
+              </Badge>
+            ))}
+        </CardHeader>
+        <CardContent>
+          {statsLoading ? (
+            <Skeleton className="h-8 w-64" />
+          ) : stats?.connectionSweep ? (
+            <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
+              <div>
+                <div className="text-muted-foreground">Last run</div>
+                <div className="font-medium" data-testid="text-sweep-last-run">
+                  {new Date(stats.connectionSweep.lastRunAt).toLocaleString()}
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Duration</div>
+                <div className="font-medium">
+                  {formatSweepDuration(stats.connectionSweep.durationMs)}
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Accounts checked</div>
+                <div className="font-medium">
+                  {stats.connectionSweep.accountsChecked}
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Errors</div>
+                <div
+                  className={
+                    stats.connectionSweep.errorCount > 0
+                      ? "font-medium text-destructive"
+                      : "font-medium"
+                  }
+                  data-testid="text-sweep-errors"
+                >
+                  {stats.connectionSweep.errorCount}
+                </div>
+              </div>
+              {stats.connectionSweep.errorCount > 0 &&
+                stats.connectionSweep.lastError && (
+                  <div className="w-full">
+                    <div className="text-muted-foreground">Last error</div>
+                    <div className="font-mono text-xs break-all">
+                      {stats.connectionSweep.lastError}
+                    </div>
+                  </div>
+                )}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              The sweep has not completed a run yet. It runs about a minute
+              after the server starts and every 15 minutes after that.
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       <PlansCard />
       <MetaCredentialsCard />
