@@ -9,7 +9,7 @@ import {
   type InstagramCredentials,
 } from "../lib/metaApi";
 import { reverifyFacebook, reverifyInstagram } from "../lib/socialReverify";
-import { enqueueBackgroundJob } from "../lib/backgroundJobs";
+import { enqueueBackgroundJob, isShuttingDown } from "../lib/backgroundJobs";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -753,10 +753,24 @@ router.post(
     // timeouts on a blocking request. Flip the item to "publishing", return
     // immediately, and run the create -> poll -> publish flow in the
     // background. The job persists the final "published"/"failed" status.
+    //
+    // If graceful shutdown has begun, refuse to start a new background publish
+    // — the process is about to exit, so the job could be killed mid-flight
+    // and leave the item stuck on "publishing". Return a retriable error
+    // instead; any job that still races past this check is included in the
+    // shutdown drain (see backgroundJobs.waitForPendingJobs).
+    if (isShuttingDown()) {
+      res.status(503).json({
+        error:
+          "The server is restarting. Your post was not published — please try again in a moment.",
+      });
+      return;
+    }
+    const previousStatus = item.status;
     await setContentStatus(id, req.tenantId, "publishing");
 
     const tenantId = req.tenantId;
-    enqueueBackgroundJob(() =>
+    const accepted = enqueueBackgroundJob(() =>
       runInstagramPublish({
         id,
         tenantId,
@@ -766,6 +780,25 @@ router.post(
         caption,
       }),
     );
+    if (!accepted) {
+      // Shutdown began between the isShuttingDown() check above and the
+      // enqueue. Nothing was sent to Instagram; revert the status we just set
+      // so the item is not stuck on "publishing", and tell the client to
+      // retry.
+      try {
+        await setContentStatus(id, req.tenantId, previousStatus);
+      } catch (err) {
+        req.log.error(
+          { err, contentItemId: id },
+          "Failed to revert content status after shutdown-rejected enqueue",
+        );
+      }
+      res.status(503).json({
+        error:
+          "The server is restarting. Your post was not published — please try again in a moment.",
+      });
+      return;
+    }
 
     res.status(202).json({ status: "publishing" });
   },

@@ -1,6 +1,6 @@
 import type { Server } from "node:http";
 import { logger } from "./logger";
-import { waitForPendingJobs } from "./backgroundJobs";
+import { markShutdownStarted, waitForPendingJobs } from "./backgroundJobs";
 
 /**
  * Graceful shutdown: stop accepting new connections, then drain any in-flight
@@ -38,6 +38,11 @@ export function createShutdownHandler(options: ShutdownOptions) {
   return async function shutdown(signal: string): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
+    // Flip the global flag FIRST so request handlers stop accepting new
+    // background work (they return a retriable 503) before we snapshot the
+    // drain. Any job that still slips in is picked up by the drain loop in
+    // waitForPendingJobs.
+    markShutdownStarted();
     logger.info({ signal }, "Shutting down: draining in-flight jobs");
 
     server.close();
