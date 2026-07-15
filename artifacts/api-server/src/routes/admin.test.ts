@@ -34,6 +34,10 @@ import {
   deleteTenant,
   getTenant,
   getAuditLogsForTarget,
+  snapshotNotificationPolicy,
+  setNotificationPolicy,
+  clearNotificationPolicy,
+  restoreNotificationPolicy,
 } from "../test/dbHelpers";
 
 // This is baked into the permanent allowlist in lib/superadmins.ts, so an actor
@@ -565,5 +569,196 @@ describe("Audit trail — privileged actions are recorded", () => {
     } finally {
       await deleteTenant(actor.tenantId);
     }
+  });
+});
+
+describe("GET/PUT /admin/notification-policies — global notification policy", () => {
+  const TYPE = "social_connection_failed";
+
+  it("GET returns the built-in defaults for every catalog type when no row is stored", async () => {
+    const snapshot = await snapshotNotificationPolicy(TYPE);
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    try {
+      await clearNotificationPolicy(TYPE);
+      actAs(actor.clerkUserId, actor.email);
+
+      const res = await request(app).get("/api/admin/notification-policies");
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      // Every catalog type appears even without a stored row.
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0]).toMatchObject({
+        type: TYPE,
+        enabled: true,
+        emailPolicy: "optional",
+      });
+      expect(res.body[0]).toHaveProperty("label");
+      expect(res.body[0]).toHaveProperty("description");
+    } finally {
+      await restoreNotificationPolicy(TYPE, snapshot);
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
+  it("GET reflects a stored policy row instead of the defaults", async () => {
+    const snapshot = await snapshotNotificationPolicy(TYPE);
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    try {
+      await setNotificationPolicy(TYPE, {
+        enabled: false,
+        emailPolicy: "off",
+      });
+      actAs(actor.clerkUserId, actor.email);
+
+      const res = await request(app).get("/api/admin/notification-policies");
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({
+        type: TYPE,
+        enabled: false,
+        emailPolicy: "off",
+      });
+    } finally {
+      await restoreNotificationPolicy(TYPE, snapshot);
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
+  it("PUT persists an enabled + emailPolicy change and a fresh GET reads it back", async () => {
+    const snapshot = await snapshotNotificationPolicy(TYPE);
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    try {
+      await clearNotificationPolicy(TYPE);
+      actAs(actor.clerkUserId, actor.email);
+
+      const put = await request(app)
+        .put("/api/admin/notification-policies")
+        .send({
+          policies: [{ type: TYPE, enabled: false, emailPolicy: "forced" }],
+        });
+      expect(put.status).toBe(200);
+      // The PUT response returns the folded list with the new values.
+      expect(put.body[0]).toMatchObject({
+        type: TYPE,
+        enabled: false,
+        emailPolicy: "forced",
+      });
+
+      // The change is persisted, not just echoed.
+      const stored = await snapshotNotificationPolicy(TYPE);
+      expect(stored).not.toBeNull();
+      expect(stored!.enabled).toBe(false);
+      expect(stored!.emailPolicy).toBe("forced");
+
+      const get = await request(app).get("/api/admin/notification-policies");
+      expect(get.status).toBe(200);
+      expect(get.body[0]).toMatchObject({
+        type: TYPE,
+        enabled: false,
+        emailPolicy: "forced",
+      });
+    } finally {
+      await restoreNotificationPolicy(TYPE, snapshot);
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
+  it("PUT rejects an emailPolicy outside optional/forced/off with 400 and does not write", async () => {
+    const snapshot = await snapshotNotificationPolicy(TYPE);
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    try {
+      await clearNotificationPolicy(TYPE);
+      actAs(actor.clerkUserId, actor.email);
+
+      const res = await request(app)
+        .put("/api/admin/notification-policies")
+        .send({
+          policies: [{ type: TYPE, enabled: true, emailPolicy: "always" }],
+        });
+      expect(res.status).toBe(400);
+
+      // No row was created by the rejected write.
+      const stored = await snapshotNotificationPolicy(TYPE);
+      expect(stored).toBeNull();
+    } finally {
+      await restoreNotificationPolicy(TYPE, snapshot);
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
+  it("PUT rejects an unknown notification type with 400 and does not create a junk row", async () => {
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+
+      const res = await request(app)
+        .put("/api/admin/notification-policies")
+        .send({
+          policies: [
+            { type: "bogus_type", enabled: false, emailPolicy: "off" },
+          ],
+        });
+      expect(res.status).toBe(400);
+
+      const stored = await snapshotNotificationPolicy("bogus_type");
+      expect(stored).toBeNull();
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
+  it("is superadmin-gated: a plain tenant gets 403 on GET and PUT, and no write occurs", async () => {
+    const snapshot = await snapshotNotificationPolicy(TYPE);
+    const actor = await createTenant({
+      email: `plain-${randomUUID()}@example.com`,
+    });
+    try {
+      await clearNotificationPolicy(TYPE);
+      actAs(actor.clerkUserId, actor.email);
+
+      const get = await request(app).get("/api/admin/notification-policies");
+      expect(get.status).toBe(403);
+
+      const put = await request(app)
+        .put("/api/admin/notification-policies")
+        .send({
+          policies: [{ type: TYPE, enabled: false, emailPolicy: "off" }],
+        });
+      expect(put.status).toBe(403);
+
+      // The rejected write left no policy row behind.
+      const stored = await snapshotNotificationPolicy(TYPE);
+      expect(stored).toBeNull();
+    } finally {
+      await restoreNotificationPolicy(TYPE, snapshot);
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
+  it("returns 401 to an unauthenticated caller on both GET and PUT", async () => {
+    resetAuthState();
+    const get = await request(app).get("/api/admin/notification-policies");
+    expect(get.status).toBe(401);
+
+    const put = await request(app)
+      .put("/api/admin/notification-policies")
+      .send({
+        policies: [{ type: TYPE, enabled: false, emailPolicy: "off" }],
+      });
+    expect(put.status).toBe(401);
   });
 });
