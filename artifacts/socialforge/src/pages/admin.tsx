@@ -1751,44 +1751,24 @@ function AuditLogCard() {
     setApplied({});
   };
 
-  const [isExporting, setIsExporting] = useState(false);
-  const { toast } = useToast();
-
-  const downloadCsv = async () => {
-    setIsExporting(true);
-    try {
-      const search = new URLSearchParams();
-      if (applied.action) search.set("action", applied.action);
-      if (applied.actor) search.set("actor", applied.actor);
-      if (applied.target) search.set("target", applied.target);
-      if (applied.from) search.set("from", applied.from);
-      if (applied.to) search.set("to", applied.to);
-      const qs = search.toString();
-      const response = await fetch(
-        `/api/admin/audit-logs/export${qs ? `?${qs}` : ""}`,
-        { credentials: "include" },
-      );
-      if (!response.ok) {
-        throw new Error(`Export failed (${response.status})`);
-      }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-    } catch {
-      toast({
-        title: "Export failed",
-        description: "Could not download the audit log CSV. Try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsExporting(false);
-    }
+  // Streams the export straight to disk via a browser-native download
+  // (anchor navigation + server Content-Disposition) instead of buffering
+  // the whole CSV into an in-memory Blob, which could freeze the tab for
+  // very large audit histories.
+  const downloadCsv = () => {
+    const search = new URLSearchParams();
+    if (applied.action) search.set("action", applied.action);
+    if (applied.actor) search.set("actor", applied.actor);
+    if (applied.target) search.set("target", applied.target);
+    if (applied.from) search.set("from", applied.from);
+    if (applied.to) search.set("to", applied.to);
+    const qs = search.toString();
+    const link = document.createElement("a");
+    link.href = `/api/admin/audit-logs/export${qs ? `?${qs}` : ""}`;
+    link.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   };
 
   return (
@@ -1879,10 +1859,10 @@ function AuditLogCard() {
             size="sm"
             variant="outline"
             onClick={downloadCsv}
-            disabled={isExporting || total === 0}
+            disabled={total === 0}
             data-testid="button-audit-export"
           >
-            {isExporting ? "Exporting..." : "Download CSV"}
+            Download CSV
           </Button>
         </div>
         {isLoading ? (
