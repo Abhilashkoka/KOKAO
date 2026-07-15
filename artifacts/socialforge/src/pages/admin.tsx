@@ -1242,6 +1242,8 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   plan_delete: "Plan deleted",
   notification_policy_change: "Notification policy changed",
   credential_change: "Platform credentials saved",
+  app_brand_change: "App branding changed",
+  email_settings_change: "Email settings changed",
 };
 
 interface PlanDraft {
@@ -1679,6 +1681,42 @@ function formatAuditValue(action: string, value: string | null): string {
       if (parsed.type) parts.push(parsed.type.replace(/_/g, " "));
       parts.push(parsed.enabled ? "enabled" : "disabled");
       if (parsed.emailPolicy) parts.push(`email: ${parsed.emailPolicy}`);
+      return parts.join(", ");
+    } catch {
+      return value;
+    }
+  }
+  if (action === "app_brand_change") {
+    try {
+      const parsed = JSON.parse(value) as {
+        appName?: string | null;
+        logoUrl?: string | null;
+        iconUrl?: string | null;
+        primaryColor?: string | null;
+        backgroundColor?: string | null;
+      };
+      const parts: string[] = [];
+      parts.push(`name: ${parsed.appName ?? "default"}`);
+      parts.push(`logo: ${parsed.logoUrl ? "custom" : "default"}`);
+      parts.push(`icon: ${parsed.iconUrl ? "custom" : "default"}`);
+      parts.push(`primary: ${parsed.primaryColor ?? "default"}`);
+      parts.push(`background: ${parsed.backgroundColor ?? "default"}`);
+      return parts.join(", ");
+    } catch {
+      return value;
+    }
+  }
+  if (action === "email_settings_change") {
+    try {
+      const parsed = JSON.parse(value) as {
+        sendingEnabled?: boolean;
+        fromEmail?: string | null;
+        apiKeyMasked?: string | null;
+      };
+      const parts: string[] = [];
+      parts.push(parsed.sendingEnabled ? "sending enabled" : "sending paused");
+      if (parsed.fromEmail) parts.push(`from: ${parsed.fromEmail}`);
+      if (parsed.apiKeyMasked) parts.push(`key: ${parsed.apiKeyMasked}`);
       return parts.join(", ");
     } catch {
       return value;

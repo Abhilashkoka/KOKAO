@@ -21,4 +21,6 @@ export const AdminAuditLogAction = {
   plan_delete: 'plan_delete',
   notification_policy_change: 'notification_policy_change',
   credential_change: 'credential_change',
+  app_brand_change: 'app_brand_change',
+  email_settings_change: 'email_settings_change',
 } as const;

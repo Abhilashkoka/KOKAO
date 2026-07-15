@@ -8,7 +8,9 @@ export type AdminAuditAction =
   | "plan_create"
   | "plan_delete"
   | "notification_policy_change"
-  | "credential_change";
+  | "credential_change"
+  | "app_brand_change"
+  | "email_settings_change";
 
 export interface RecordAdminActionInput {
   action: AdminAuditAction;

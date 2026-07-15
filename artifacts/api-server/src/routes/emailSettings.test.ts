@@ -44,6 +44,7 @@ import {
   restoreEmailSettings,
   getEmailSettingsRow,
   setTenantSuperadmin,
+  getAuditLogsForActor,
 } from "../test/dbHelpers";
 
 const app = createAdminTestApp();
@@ -249,6 +250,77 @@ describe("PUT /admin/email-settings", () => {
         .send({ sendingEnabled: "yes-please" });
       expect(res.status).toBe(400);
       expect(await getEmailSettingsRow()).toBeUndefined();
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
+});
+
+describe("PUT /admin/email-settings audit trail", () => {
+  it("records exactly one audit row per real change, with the API key masked", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(admin.clerkUserId, "admin@example.com");
+
+      const res = await request(app).put("/api/admin/email-settings").send({
+        sendingEnabled: true,
+        fromEmail: "alerts@socialforge.test",
+        apiKey: "SG.audit-secret-key-5555",
+      });
+      expect(res.status).toBe(200);
+
+      const logs = await getAuditLogsForActor(admin.tenantId);
+      expect(logs.length).toBe(1);
+      const log = logs[0];
+      expect(log.action).toBe("email_settings_change");
+      expect(log.actorTenantId).toBe(admin.tenantId);
+      expect(log.targetTenantId).toBeNull();
+      // Old side reflects the fail-closed defaults (no row yet).
+      expect(JSON.parse(log.oldValue!)).toEqual({
+        sendingEnabled: false,
+        fromEmail: null,
+        apiKeyMasked: null,
+      });
+      const newVal = JSON.parse(log.newValue!);
+      expect(newVal.sendingEnabled).toBe(true);
+      expect(newVal.fromEmail).toBe("alerts@socialforge.test");
+      // The key must appear only MASKED — never the raw secret.
+      expect(newVal.apiKeyMasked).toMatch(/5555$/);
+      expect(log.newValue!).not.toContain("SG.audit-secret-key-5555");
+      expect(log.oldValue!).not.toContain("SG.audit-secret-key-5555");
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
+  it("writes NO audit row for a no-op save", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(admin.clerkUserId, "admin@example.com");
+
+      await request(app).put("/api/admin/email-settings").send({
+        sendingEnabled: true,
+        fromEmail: "alerts@socialforge.test",
+        apiKey: "SG.noop-key-2222",
+      });
+      expect((await getAuditLogsForActor(admin.tenantId)).length).toBe(1);
+
+      // Re-save identical values (key omitted keeps the stored one).
+      const res = await request(app)
+        .put("/api/admin/email-settings")
+        .send({ sendingEnabled: true, fromEmail: "alerts@socialforge.test" });
+      expect(res.status).toBe(200);
+
+      // Still exactly one row: the no-op produced nothing.
+      expect((await getAuditLogsForActor(admin.tenantId)).length).toBe(1);
+
+      // A real toggle then adds a second row.
+      await request(app)
+        .put("/api/admin/email-settings")
+        .send({ sendingEnabled: false, fromEmail: "alerts@socialforge.test" });
+      const logs = await getAuditLogsForActor(admin.tenantId);
+      expect(logs.length).toBe(2);
+      expect(JSON.parse(logs[1].newValue!).sendingEnabled).toBe(false);
     } finally {
       await deleteTenant(admin.tenantId);
     }

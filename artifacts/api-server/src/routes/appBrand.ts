@@ -9,6 +9,7 @@ import {
 } from "@workspace/api-zod";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
+import { recordAdminAction } from "../lib/adminAudit";
 
 const objectStorageService = new ObjectStorageService();
 
@@ -69,6 +70,8 @@ protectedAppBrandRouter.put(
     }
 
     const values = parsed.data;
+    const oldBrand = await loadBrand();
+
     await db
       .insert(appBrandSettingsTable)
       .values({ id: 1, ...values })
@@ -78,6 +81,30 @@ protectedAppBrandRouter.put(
       });
 
     const brand = await loadBrand();
+
+    // Best-effort audit trail: record who changed the white-label branding,
+    // but only when something actually changed (no row for no-op saves), and
+    // never fail the save if the audit write fails. No secret material here —
+    // branding fields are public by design.
+    if (JSON.stringify(oldBrand) !== JSON.stringify(brand)) {
+      try {
+        await recordAdminAction({
+          action: "app_brand_change",
+          actorTenantId: req.tenantId,
+          actorEmail: req.tenantEmail,
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: JSON.stringify(oldBrand),
+          newValue: JSON.stringify(brand),
+        });
+      } catch (error) {
+        req.log.error(
+          { err: error },
+          "Failed to write app-brand-change audit log",
+        );
+      }
+    }
+
     res.json(GetAppBrandResponse.parse(brand));
   },
 );

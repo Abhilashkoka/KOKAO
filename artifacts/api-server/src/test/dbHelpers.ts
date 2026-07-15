@@ -1,6 +1,8 @@
 import {
   db,
   tenantsTable,
+  appBrandSettingsTable,
+  type AppBrandSettings,
   connectedAccountsTable,
   contentItemsTable,
   appCredentialsTable,
@@ -469,6 +471,42 @@ export async function restoreEmailSettings(
       lastTestedAt: snapshot.lastTestedAt,
       lastTestError: snapshot.lastTestError,
       updatedAt: snapshot.updatedAt,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// App branding (singleton row, id=1). Snapshot/restore so tests never destroy
+// real dev configuration.
+// ---------------------------------------------------------------------------
+
+export async function snapshotAppBrand(): Promise<AppBrandSettings | null> {
+  const row = (
+    await db
+      .select()
+      .from(appBrandSettingsTable)
+      .where(eq(appBrandSettingsTable.id, 1))
+      .limit(1)
+  )[0];
+  return row ?? null;
+}
+
+export async function clearAppBrand(): Promise<void> {
+  await db.delete(appBrandSettingsTable);
+}
+
+export async function restoreAppBrand(
+  snapshot: AppBrandSettings | null,
+): Promise<void> {
+  await db.delete(appBrandSettingsTable);
+  if (snapshot) {
+    await db.insert(appBrandSettingsTable).values({
+      id: 1,
+      appName: snapshot.appName,
+      logoUrl: snapshot.logoUrl,
+      iconUrl: snapshot.iconUrl,
+      primaryColor: snapshot.primaryColor,
+      backgroundColor: snapshot.backgroundColor,
     });
   }
 }

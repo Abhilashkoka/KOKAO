@@ -494,6 +494,8 @@ paths:
                 plan_delete,
                 notification_policy_change,
                 credential_change,
+                app_brand_change,
+                email_settings_change,
               ]
           description: Only return records of this action type.
         - name: actor
@@ -565,6 +567,8 @@ paths:
                 plan_delete,
                 notification_policy_change,
                 credential_change,
+                app_brand_change,
+                email_settings_change,
               ]
           description: Only export records of this action type.
         - name: actor
@@ -2981,6 +2985,8 @@ components:
               plan_delete,
               notification_policy_change,
               credential_change,
+              app_brand_change,
+              email_settings_change,
             ]
           description: The privileged action that was recorded.
         actorTenantId:

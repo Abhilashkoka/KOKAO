@@ -19,6 +19,10 @@ import { z } from "zod/v4";
  *                          (platform-wide; values are per-type enabled/email).
  *  - "credential_change":  app-level platform credentials were saved/replaced
  *                          (platform-wide; values are masked, never secrets).
+ *  - "app_brand_change":   white-label app branding was changed
+ *                          (platform-wide; values are the brand fields).
+ *  - "email_settings_change": email delivery settings were changed
+ *                          (platform-wide; API key appears only masked).
  */
 export const adminAuditLogsTable = pgTable("admin_audit_logs", {
   id: serial("id").primaryKey(),

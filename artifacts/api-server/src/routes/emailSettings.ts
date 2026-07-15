@@ -13,6 +13,28 @@ import {
   isEncryptionConfigured,
 } from "../lib/secretCrypto";
 import { isConnectorEmailAvailable, sendTestEmail } from "../lib/email";
+import { recordAdminAction } from "../lib/adminAudit";
+
+/**
+ * Auditable summary of an email-settings row: the pause switch, from address,
+ * and a MASKED API key. No secret material ever reaches the audit table.
+ */
+function auditSummary(row: EmailSettings | undefined) {
+  let apiKeyMasked: string | null = null;
+  if (row?.encryptedApiKey) {
+    try {
+      const { apiKey } = decryptJson<{ apiKey: string }>(row.encryptedApiKey);
+      apiKeyMasked = maskSecret(apiKey, 4);
+    } catch {
+      apiKeyMasked = null;
+    }
+  }
+  return {
+    sendingEnabled: row ? row.sendingEnabled : false,
+    fromEmail: row?.fromEmail ?? null,
+    apiKeyMasked,
+  };
+}
 
 const router: IRouter = Router();
 
@@ -75,6 +97,7 @@ router.put(
 
     const now = new Date();
     const existing = await loadRow();
+    const oldSummary = auditSummary(existing);
 
     const nextFromEmail =
       fromEmail !== undefined ? fromEmail.trim() || null : existing?.fromEmail ?? null;
@@ -102,7 +125,33 @@ router.put(
       });
     }
 
-    res.json(await serializeStatus(await loadRow()));
+    const updated = await loadRow();
+
+    // Best-effort audit trail: record who changed email delivery settings,
+    // but only when something actually changed (no row for no-op saves), and
+    // never fail the save if the audit write fails. Values carry the pause
+    // switch, from address, and a MASKED key — never the secret itself.
+    const newSummary = auditSummary(updated);
+    if (JSON.stringify(oldSummary) !== JSON.stringify(newSummary)) {
+      try {
+        await recordAdminAction({
+          action: "email_settings_change",
+          actorTenantId: req.tenantId,
+          actorEmail: req.tenantEmail,
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: JSON.stringify(oldSummary),
+          newValue: JSON.stringify(newSummary),
+        });
+      } catch (error) {
+        req.log.error(
+          { err: error },
+          "Failed to write email-settings-change audit log",
+        );
+      }
+    }
+
+    res.json(await serializeStatus(updated));
   },
 );
 

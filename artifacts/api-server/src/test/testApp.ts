@@ -7,6 +7,7 @@ import twitterRouter, { twitterCallbackRouter } from "../routes/twitter";
 import threadsRouter, { threadsCallbackRouter } from "../routes/threads";
 import adminRouter from "../routes/admin";
 import emailSettingsRouter from "../routes/emailSettings";
+import { protectedAppBrandRouter } from "../routes/appBrand";
 import notificationsRouter from "../routes/notifications";
 import notificationSettingsRouter from "../routes/notificationSettings";
 
@@ -76,6 +77,7 @@ export function createAdminTestApp(): Express {
     requireTenant,
     adminRouter,
     emailSettingsRouter,
+    protectedAppBrandRouter,
     credentialsRouter,
   );
   return app;
