@@ -71,6 +71,12 @@ export function createAdminTestApp(): Express {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
   attachLogStub(app);
-  app.use("/api", requireTenant, adminRouter, emailSettingsRouter);
+  app.use(
+    "/api",
+    requireTenant,
+    adminRouter,
+    emailSettingsRouter,
+    credentialsRouter,
+  );
   return app;
 }

@@ -39,6 +39,8 @@ import {
   setNotificationPolicy,
   clearNotificationPolicy,
   restoreNotificationPolicy,
+  setTenantSuperadmin,
+  getPlanSettingsRow,
 } from "../test/dbHelpers";
 
 // This is baked into the permanent allowlist in lib/superadmins.ts, so an actor
@@ -1015,5 +1017,150 @@ describe("GET/PUT /admin/notification-policies — global notification policy", 
         policies: [{ type: TYPE, enabled: false, emailPolicy: "off" }],
       });
     expect(put.status).toBe(401);
+  });
+});
+
+describe("revoking the superadmin DB flag instantly locks out every platform-wide admin surface", () => {
+  const TYPE = "social_connection_failed";
+
+  // A syntactically valid plan body; the writes below must never land, either
+  // because the plan id is unknown (404 while granted) or because the actor
+  // was revoked (403 afterwards).
+  const planBody = {
+    name: "Revoke Test Plan",
+    priceLabel: "$0",
+    limits: { captions: 1, images: 1, brandKits: 1, scheduledPosts: 1 },
+    features: ["nothing"],
+  };
+
+  it("plan catalog (/admin/plans): access while granted, 403 on the very next request after revoke, no row written", async () => {
+    const tenant = await createTenant({
+      email: `revoked-${randomUUID()}@example.com`,
+    });
+    const bogusPlanId = `revoke-test-${randomUUID().slice(0, 8)}`;
+    try {
+      actAs(tenant.clerkUserId, tenant.email);
+
+      // Not yet a superadmin: the gate rejects before the handler runs.
+      const before = await request(app)
+        .put(`/api/admin/plans/${bogusPlanId}`)
+        .send(planBody);
+      expect(before.status).toBe(403);
+
+      // Granted: the request now clears the gate and reaches the handler,
+      // which 404s on the unknown plan id (proof of access without mutating
+      // the shared catalog).
+      await setTenantSuperadmin(tenant.tenantId, true);
+      const granted = await request(app)
+        .put(`/api/admin/plans/${bogusPlanId}`)
+        .send(planBody);
+      expect(granted.status).toBe(404);
+
+      // Revoked: the very next request is rejected at the gate again — the
+      // flag is read fresh each request, so there is no caching window.
+      await setTenantSuperadmin(tenant.tenantId, false);
+      const revokedPut = await request(app)
+        .put(`/api/admin/plans/${bogusPlanId}`)
+        .send(planBody);
+      expect(revokedPut.status).toBe(403);
+
+      // Creation and deletion are locked out too.
+      const revokedPost = await request(app)
+        .post("/api/admin/plans")
+        .send({ ...planBody, id: bogusPlanId });
+      expect(revokedPost.status).toBe(403);
+      const revokedDelete = await request(app).delete(
+        `/api/admin/plans/${bogusPlanId}`,
+      );
+      expect(revokedDelete.status).toBe(403);
+
+      // None of the rejected writes left a plan_settings row behind.
+      expect(await getPlanSettingsRow(bogusPlanId)).toBeUndefined();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("notification policies (/admin/notification-policies): access while granted, 403 + no write after revoke", async () => {
+    const snapshot = await snapshotNotificationPolicy(TYPE);
+    const tenant = await createTenant({
+      email: `revoked-${randomUUID()}@example.com`,
+    });
+    try {
+      await clearNotificationPolicy(TYPE);
+      actAs(tenant.clerkUserId, tenant.email);
+
+      const before = await request(app).get(
+        "/api/admin/notification-policies",
+      );
+      expect(before.status).toBe(403);
+
+      await setTenantSuperadmin(tenant.tenantId, true);
+      const granted = await request(app).get(
+        "/api/admin/notification-policies",
+      );
+      expect(granted.status).toBe(200);
+
+      await setTenantSuperadmin(tenant.tenantId, false);
+      const revokedGet = await request(app).get(
+        "/api/admin/notification-policies",
+      );
+      expect(revokedGet.status).toBe(403);
+
+      const revokedPut = await request(app)
+        .put("/api/admin/notification-policies")
+        .send({
+          policies: [{ type: TYPE, enabled: false, emailPolicy: "off" }],
+        });
+      expect(revokedPut.status).toBe(403);
+
+      // The rejected write created no policy row.
+      expect(await snapshotNotificationPolicy(TYPE)).toBeNull();
+    } finally {
+      await restoreNotificationPolicy(TYPE, snapshot);
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("platform credentials (/admin/platform-credentials/*): access while granted, 403 on read and write after revoke", async () => {
+    const tenant = await createTenant({
+      email: `revoked-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(tenant.clerkUserId, tenant.email);
+
+      const before = await request(app).get(
+        "/api/admin/platform-credentials/meta",
+      );
+      expect(before.status).toBe(403);
+
+      await setTenantSuperadmin(tenant.tenantId, true);
+      const granted = await request(app).get(
+        "/api/admin/platform-credentials/meta",
+      );
+      expect(granted.status).toBe(200);
+
+      await setTenantSuperadmin(tenant.tenantId, false);
+      const revokedGet = await request(app).get(
+        "/api/admin/platform-credentials/meta",
+      );
+      expect(revokedGet.status).toBe(403);
+
+      // Writes to app-level credentials are locked out too — and every other
+      // provider surface behind the same path prefix rejects reads as well.
+      const revokedPut = await request(app)
+        .put("/api/admin/platform-credentials/meta")
+        .send({ appId: "should-not-store", appSecret: "should-not-store" });
+      expect(revokedPut.status).toBe(403);
+
+      for (const provider of ["twitter", "linkedin", "youtube", "threads"]) {
+        const res = await request(app).get(
+          `/api/admin/platform-credentials/${provider}`,
+        );
+        expect(res.status).toBe(403);
+      }
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
   });
 });

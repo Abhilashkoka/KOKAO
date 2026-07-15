@@ -9,6 +9,7 @@ import {
   notificationPoliciesTable,
   adminAuditLogsTable,
   emailSettingsTable,
+  planSettingsTable,
   type AppCredential,
   type NotificationPolicy,
   type EmailSettings,
@@ -470,6 +471,25 @@ export async function restoreEmailSettings(
       updatedAt: snapshot.updatedAt,
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Plan catalog overrides (plan_settings). Tests that only assert a write was
+// REJECTED just need to confirm no row exists for a unique custom plan id.
+// ---------------------------------------------------------------------------
+
+export async function getPlanSettingsRow(planId: string) {
+  return (
+    await db
+      .select()
+      .from(planSettingsTable)
+      .where(eq(planSettingsTable.id, planId))
+      .limit(1)
+  )[0];
+}
+
+export async function deletePlanSettingsRow(planId: string): Promise<void> {
+  await db.delete(planSettingsTable).where(eq(planSettingsTable.id, planId));
 }
 
 // ---------------------------------------------------------------------------
