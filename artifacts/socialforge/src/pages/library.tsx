@@ -26,7 +26,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, linkedinOverBy, trimToLinkedinLength, chunkOnWhitespace } from "@workspace/social-limits";
+import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, splitForLinkedin, chunkOnWhitespace } from "@workspace/social-limits";
 
 // Mirrors THREADS_MAX_LENGTH on the server (api-server routes/threads.ts).
 const THREADS_MAX_LENGTH = 500;
@@ -577,19 +577,21 @@ export function LibraryPage() {
           {linkedinItem && (() => {
             const liText = ((linkedinItem.caption?.trim() || linkedinItem.title) ?? "").trim();
             const overLimit = isOverLinkedinLimit(liText);
-            const preview = trimToLinkedinLength(liText);
+            const liSplit = splitForLinkedin(liText);
+            const commentCount = liSplit.comments.length;
             return (
               <div className="space-y-2 py-2">
                 <p className="font-medium">{linkedinItem.title}</p>
                 {liText && (
-                  <p className="text-sm text-muted-foreground line-clamp-4 whitespace-pre-wrap break-words">{preview}</p>
+                  <p className="text-sm text-muted-foreground line-clamp-4 whitespace-pre-wrap break-words">{liText}</p>
                 )}
-                <p className={`text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                <p className={`text-xs ${overLimit ? "font-medium" : ""} text-muted-foreground`}>
                   {liText.length} / {LINKEDIN_MAX_LENGTH} characters
+                  {overLimit ? ` \u00b7 ${commentCount} follow-up comment${commentCount === 1 ? "" : "s"}` : ""}
                 </p>
                 {overLimit && (
-                  <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-                    This caption is {linkedinOverBy(liText)} characters over the {LINKEDIN_MAX_LENGTH}-character LinkedIn limit and will be trimmed before posting.
+                  <div className="rounded-md border p-3 text-sm text-muted-foreground">
+                    Over {LINKEDIN_MAX_LENGTH} characters — the rest will be posted as {commentCount} follow-up comment{commentCount === 1 ? "" : "s"}. Your full message is preserved.
                   </div>
                 )}
               </div>
