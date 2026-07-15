@@ -65,6 +65,7 @@ import {
   setMetaRow,
   setVerifiedMetaRow,
   restoreMetaRow,
+  getAuditLogsForActor,
 } from "../test/dbHelpers";
 
 const app = createTestApp();
@@ -166,6 +167,37 @@ describe("admin Meta credential endpoints", () => {
       const stored = await snapshotMetaRow();
       expect(stored?.encryptedCredentials).toBeTruthy();
       expect(stored?.encryptedCredentials).not.toContain("brand-new-secret-xyz");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("audits a credential save with masked values only (no secrets in the audit row)", async () => {
+    const tenant = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(tenant.clerkUserId, tenant.email);
+      await setMetaRow("old-app-id-111", "old-secret-abc", "verified");
+
+      const res = await request(app)
+        .put("/api/admin/platform-credentials/meta")
+        .send({ appId: "new-app-id-999", appSecret: "new-secret-xyz" });
+      expect(res.status).toBe(200);
+
+      const logs = (await getAuditLogsForActor(tenant.tenantId)).filter(
+        (l) => l.action === "credential_change",
+      );
+      expect(logs).toHaveLength(1);
+      const log = logs[0];
+      expect(log.targetTenantId).toBeNull();
+      expect(JSON.parse(log.newValue!)).toMatchObject({ provider: "meta" });
+      expect(JSON.parse(log.oldValue!)).toMatchObject({ provider: "meta" });
+
+      // No secret material — old or new — may appear in the audit row.
+      const raw = `${log.oldValue}${log.newValue}`;
+      expect(raw).not.toContain("old-secret-abc");
+      expect(raw).not.toContain("new-secret-xyz");
+      expect(raw).not.toContain("new-app-id-999");
+      expect(raw).not.toContain("old-app-id-111");
     } finally {
       await deleteTenant(tenant.tenantId);
     }

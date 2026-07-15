@@ -80,6 +80,14 @@ export async function getAuditLogsForTarget(targetTenantId: number) {
     .where(eq(adminAuditLogsTable.targetTenantId, targetTenantId));
 }
 
+/** Audit rows written BY an actor (platform-wide actions have no target). */
+export async function getAuditLogsForActor(actorTenantId: number) {
+  return db
+    .select()
+    .from(adminAuditLogsTable)
+    .where(eq(adminAuditLogsTable.actorTenantId, actorTenantId));
+}
+
 export async function getNotifications(tenantId: number) {
   return db
     .select()

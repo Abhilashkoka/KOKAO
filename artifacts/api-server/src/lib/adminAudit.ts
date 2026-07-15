@@ -6,7 +6,9 @@ export type AdminAuditAction =
   | "superadmin_revoke"
   | "plan_edit"
   | "plan_create"
-  | "plan_delete";
+  | "plan_delete"
+  | "notification_policy_change"
+  | "credential_change";
 
 export interface RecordAdminActionInput {
   action: AdminAuditAction;

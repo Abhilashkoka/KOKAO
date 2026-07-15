@@ -638,6 +638,10 @@ router.put(
       return;
     }
 
+    // Snapshot the prior policies so each real change (not no-op saves) can be
+    // audited with old vs new values.
+    const priorMap = await getPolicyMap();
+
     for (const policy of parsed.data.policies) {
       await db
         .insert(notificationPoliciesTable)
@@ -655,6 +659,42 @@ router.put(
             updatedAt: new Date(),
           },
         });
+    }
+
+    // Best-effort audit of real changes AFTER the primary mutation succeeded:
+    // one row per changed type, with old vs new enabled/emailPolicy.
+    for (const policy of parsed.data.policies) {
+      const prior = priorMap.get(policy.type) ?? defaultPolicy();
+      if (
+        prior.enabled === policy.enabled &&
+        prior.emailPolicy === policy.emailPolicy
+      ) {
+        continue;
+      }
+      try {
+        await recordAdminAction({
+          action: "notification_policy_change",
+          actorTenantId: req.tenantId,
+          actorEmail: req.tenantEmail,
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: JSON.stringify({
+            type: policy.type,
+            enabled: prior.enabled,
+            emailPolicy: prior.emailPolicy,
+          }),
+          newValue: JSON.stringify({
+            type: policy.type,
+            enabled: policy.enabled,
+            emailPolicy: policy.emailPolicy,
+          }),
+        });
+      } catch (error) {
+        req.log.error(
+          { err: error },
+          "Failed to write notification-policy audit log",
+        );
+      }
     }
 
     const map = await getPolicyMap();

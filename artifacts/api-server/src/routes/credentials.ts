@@ -35,8 +35,41 @@ import {
 } from "../lib/metaApi";
 import { reverifyFacebook, reverifyInstagram } from "../lib/socialReverify";
 import { resolveSocialConnectionNotifications } from "../lib/notifications";
+import { recordAdminAction } from "../lib/adminAudit";
 
 const router: IRouter = Router();
+
+/**
+ * Best-effort audit of an app-level platform credential save/replace. Called
+ * AFTER the primary write has succeeded; a logging failure never fails the
+ * save. Values carry only the provider and a MASKED public identifier — no
+ * secret material ever reaches the audit table.
+ */
+async function auditCredentialChange(
+  req: Request,
+  provider: string,
+  oldIdMasked: string | null,
+  newIdMasked: string | null,
+): Promise<void> {
+  try {
+    await recordAdminAction({
+      action: "credential_change",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: oldIdMasked
+        ? JSON.stringify({ provider, idMasked: oldIdMasked })
+        : null,
+      newValue: JSON.stringify({ provider, idMasked: newIdMasked }),
+    });
+  } catch (error) {
+    req.log.error(
+      { err: error, provider },
+      "Failed to write credential-change audit log",
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Admin: app-level Meta credentials (superadmin only)
@@ -113,6 +146,17 @@ router.put(
     const encrypted = encryptJson({ appId, appSecret });
 
     const existing = await loadMetaRow();
+    let oldAppIdMasked: string | null = null;
+    if (existing) {
+      try {
+        const oldCreds = decryptJson<MetaAppCredentials>(
+          existing.encryptedCredentials,
+        );
+        oldAppIdMasked = maskSecret(oldCreds.appId, 4);
+      } catch {
+        oldAppIdMasked = null;
+      }
+    }
     if (existing) {
       await db
         .update(appCredentialsTable)
@@ -133,6 +177,13 @@ router.put(
         lastTestError: test.ok ? null : test.error ?? "Verification failed",
       });
     }
+
+    await auditCredentialChange(
+      req,
+      "meta",
+      oldAppIdMasked,
+      maskSecret(appId, 4),
+    );
 
     const row = await loadMetaRow();
     res.json(serializeMetaStatus(row));
@@ -229,6 +280,17 @@ router.put(
     const encrypted = encryptJson({ clientId, clientSecret });
 
     const existing = await loadTwitterRow();
+    let oldClientIdMasked: string | null = null;
+    if (existing) {
+      try {
+        const oldCreds = decryptJson<TwitterAppCredentials>(
+          existing.encryptedCredentials,
+        );
+        oldClientIdMasked = maskSecret(oldCreds.clientId, 4);
+      } catch {
+        oldClientIdMasked = null;
+      }
+    }
     if (existing) {
       await db
         .update(appCredentialsTable)
@@ -246,6 +308,13 @@ router.put(
         encryptedCredentials: encrypted,
       });
     }
+
+    await auditCredentialChange(
+      req,
+      "twitter",
+      oldClientIdMasked,
+      maskSecret(clientId, 4),
+    );
 
     const row = await loadTwitterRow();
     res.json(serializeTwitterStatus(req, row));
@@ -347,6 +416,17 @@ router.put(
     });
 
     const existing = await loadLinkedinRow();
+    let oldClientIdMasked: string | null = null;
+    if (existing) {
+      try {
+        const oldCreds = decryptJson<LinkedinAppCredentials>(
+          existing.encryptedCredentials,
+        );
+        oldClientIdMasked = maskSecret(oldCreds.clientId, 4);
+      } catch {
+        oldClientIdMasked = null;
+      }
+    }
     if (existing) {
       await db
         .update(appCredentialsTable)
@@ -364,6 +444,13 @@ router.put(
         encryptedCredentials: encrypted,
       });
     }
+
+    await auditCredentialChange(
+      req,
+      "linkedin",
+      oldClientIdMasked,
+      maskSecret(clientId.trim(), 4),
+    );
 
     const row = await loadLinkedinRow();
     res.json(serializeLinkedinStatus(req, row));
@@ -465,6 +552,17 @@ router.put(
     });
 
     const existing = await loadYoutubeRow();
+    let oldClientIdMasked: string | null = null;
+    if (existing) {
+      try {
+        const oldCreds = decryptJson<YoutubeAppCredentials>(
+          existing.encryptedCredentials,
+        );
+        oldClientIdMasked = maskSecret(oldCreds.clientId, 4);
+      } catch {
+        oldClientIdMasked = null;
+      }
+    }
     if (existing) {
       await db
         .update(appCredentialsTable)
@@ -482,6 +580,13 @@ router.put(
         encryptedCredentials: encrypted,
       });
     }
+
+    await auditCredentialChange(
+      req,
+      "youtube",
+      oldClientIdMasked,
+      maskSecret(clientId.trim(), 4),
+    );
 
     const row = await loadYoutubeRow();
     res.json(serializeYoutubeStatus(req, row));
@@ -576,6 +681,17 @@ router.put(
     });
 
     const existing = await loadThreadsRow();
+    let oldAppIdMasked: string | null = null;
+    if (existing) {
+      try {
+        const oldCreds = decryptJson<ThreadsAppCredentials>(
+          existing.encryptedCredentials,
+        );
+        oldAppIdMasked = maskSecret(oldCreds.appId, 4);
+      } catch {
+        oldAppIdMasked = null;
+      }
+    }
     if (existing) {
       await db
         .update(appCredentialsTable)
@@ -593,6 +709,13 @@ router.put(
         encryptedCredentials: encrypted,
       });
     }
+
+    await auditCredentialChange(
+      req,
+      "threads",
+      oldAppIdMasked,
+      maskSecret(appId.trim(), 4),
+    );
 
     const row = await loadThreadsRow();
     res.json(serializeThreadsStatus(req, row));

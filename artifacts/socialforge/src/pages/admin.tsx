@@ -1226,6 +1226,8 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   plan_edit: "Plan limits edited",
   plan_create: "Plan created",
   plan_delete: "Plan deleted",
+  notification_policy_change: "Notification policy changed",
+  credential_change: "Platform credentials saved",
 };
 
 interface PlanDraft {
@@ -1652,6 +1654,35 @@ function PlansCard() {
 function formatAuditValue(action: string, value: string | null): string {
   if (value === null || value === "") return "—";
   if (action === "plan_change") return PLAN_LABELS[value] ?? value;
+  if (action === "notification_policy_change") {
+    try {
+      const parsed = JSON.parse(value) as {
+        type?: string;
+        enabled?: boolean;
+        emailPolicy?: string;
+      };
+      const parts: string[] = [];
+      if (parsed.type) parts.push(parsed.type.replace(/_/g, " "));
+      parts.push(parsed.enabled ? "enabled" : "disabled");
+      if (parsed.emailPolicy) parts.push(`email: ${parsed.emailPolicy}`);
+      return parts.join(", ");
+    } catch {
+      return value;
+    }
+  }
+  if (action === "credential_change") {
+    try {
+      const parsed = JSON.parse(value) as {
+        provider?: string;
+        idMasked?: string | null;
+      };
+      const provider =
+        parsed.provider === "twitter" ? "X (Twitter)" : parsed.provider;
+      return [provider, parsed.idMasked].filter(Boolean).join(" ");
+    } catch {
+      return value;
+    }
+  }
   if (value === "true") return "Yes";
   if (value === "false") return "No";
   return value;
@@ -1665,8 +1696,9 @@ function AuditLogCard() {
       <CardHeader>
         <CardTitle>Audit trail</CardTitle>
         <CardDescription>
-          Append-only record of privileged actions: plan overrides and
-          superadmin grants/revokes. Shows the 100 most recent entries.
+          Append-only record of privileged actions: plan overrides, superadmin
+          grants/revokes, notification policy changes, and platform credential
+          saves. Shows the 100 most recent entries.
         </CardDescription>
       </CardHeader>
       <CardContent>

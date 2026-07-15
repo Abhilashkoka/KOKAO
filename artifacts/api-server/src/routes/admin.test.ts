@@ -34,6 +34,7 @@ import {
   deleteTenant,
   getTenant,
   getAuditLogsForTarget,
+  getAuditLogsForActor,
   snapshotNotificationPolicy,
   setNotificationPolicy,
   clearNotificationPolicy,
@@ -551,6 +552,76 @@ describe("Audit trail — privileged actions are recorded", () => {
     } finally {
       await deleteTenant(actor.tenantId);
       await deleteTenant(target.tenantId);
+    }
+  });
+
+  it("audits a global notification-policy change (actor, old vs new values) and skips no-op saves", async () => {
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    const snapshot = await snapshotNotificationPolicy(
+      "social_connection_failed",
+    );
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      // Known starting point.
+      await setNotificationPolicy("social_connection_failed", {
+        enabled: true,
+        emailPolicy: "optional",
+      });
+
+      // Real change: disable the type and force email off.
+      const res = await request(app)
+        .put("/api/admin/notification-policies")
+        .send({
+          policies: [
+            {
+              type: "social_connection_failed",
+              enabled: false,
+              emailPolicy: "off",
+            },
+          ],
+        });
+      expect(res.status).toBe(200);
+
+      let logs = (await getAuditLogsForActor(actor.tenantId)).filter(
+        (l) => l.action === "notification_policy_change",
+      );
+      expect(logs).toHaveLength(1);
+      expect(logs[0].targetTenantId).toBeNull();
+      expect(JSON.parse(logs[0].oldValue!)).toMatchObject({
+        type: "social_connection_failed",
+        enabled: true,
+        emailPolicy: "optional",
+      });
+      expect(JSON.parse(logs[0].newValue!)).toMatchObject({
+        type: "social_connection_failed",
+        enabled: false,
+        emailPolicy: "off",
+      });
+
+      // No-op save: identical values must not add another audit row.
+      const noop = await request(app)
+        .put("/api/admin/notification-policies")
+        .send({
+          policies: [
+            {
+              type: "social_connection_failed",
+              enabled: false,
+              emailPolicy: "off",
+            },
+          ],
+        });
+      expect(noop.status).toBe(200);
+
+      logs = (await getAuditLogsForActor(actor.tenantId)).filter(
+        (l) => l.action === "notification_policy_change",
+      );
+      expect(logs).toHaveLength(1);
+    } finally {
+      await restoreNotificationPolicy("social_connection_failed", snapshot);
+      await deleteTenant(actor.tenantId);
     }
   });
 

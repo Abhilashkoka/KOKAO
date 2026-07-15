@@ -15,6 +15,10 @@ import { z } from "zod/v4";
  *  - "superadmin_revoke":  the in-app superadmin role was revoked.
  *  - "plan_edit":          a subscription plan's limits/pricing were edited
  *                          (platform-wide; no target tenant).
+ *  - "notification_policy_change": a global notification policy was changed
+ *                          (platform-wide; values are per-type enabled/email).
+ *  - "credential_change":  app-level platform credentials were saved/replaced
+ *                          (platform-wide; values are masked, never secrets).
  */
 export const adminAuditLogsTable = pgTable("admin_audit_logs", {
   id: serial("id").primaryKey(),
