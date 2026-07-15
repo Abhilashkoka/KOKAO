@@ -43,6 +43,12 @@ const IMAGE_SIZES = [
 ] as const;
 type ImageSize = (typeof IMAGE_SIZES)[number]["value"];
 
+const CAPTION_TWEAKS = [
+  { label: "Shorter", instruction: "Make the caption shorter and more concise." },
+  { label: "Punchier", instruction: "Make the caption punchier and more attention-grabbing." },
+  { label: "More formal", instruction: "Make the caption more formal and professional." },
+] as const;
+
 function errorMessage(err: unknown): string {
   const anyErr = err as {
     status?: number;
@@ -72,6 +78,7 @@ export default function StudioScreen() {
   const [niche, setNiche] = useState("");
   const [ideas, setIdeas] = useState<string[]>([]);
   const [caption, setCaption] = useState<string | null>(null);
+  const [captionTweak, setCaptionTweak] = useState<string | null>(null);
   const [hashtags, setHashtags] = useState<string[]>([]);
   const [imageB64, setImageB64] = useState<string | null>(null);
   const [imagePath, setImagePath] = useState<string | null>(null);
@@ -118,14 +125,16 @@ export default function StudioScreen() {
     );
   };
 
-  const handleGenerateCaption = () => {
+  const runGenerateCaption = (tweak?: string | null) => {
     if (!prompt.trim()) return;
     haptic();
     setError(null);
     setQuotaHit(false);
     setSaved(false);
+    setCaptionTweak(tweak ?? null);
+    const tweakInstruction = tweak ? ` ${CAPTION_TWEAKS.find((t) => t.label === tweak)?.instruction ?? ""}` : "";
     genCaption.mutate(
-      { data: { prompt: prompt.trim(), platform, tone, brandKitId } },
+      { data: { prompt: `${prompt.trim()}${tweakInstruction}`, platform, tone, brandKitId } },
       {
         onSuccess: (res) => {
           setCaption(res.caption);
@@ -135,6 +144,8 @@ export default function StudioScreen() {
       },
     );
   };
+
+  const handleGenerateCaption = () => runGenerateCaption(null);
 
   const handleGenerateImage = () => {
     if (!prompt.trim()) return;
@@ -368,6 +379,25 @@ export default function StudioScreen() {
                 {hashtags.map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ")}
               </Text>
             ) : null}
+            <View style={styles.chipRow2}>
+              {CAPTION_TWEAKS.map((t) => (
+                <Chip
+                  key={t.label}
+                  label={t.label}
+                  selected={captionTweak === t.label}
+                  onPress={() => runGenerateCaption(t.label)}
+                />
+              ))}
+            </View>
+            <Button
+              title="Regenerate"
+              icon="refresh-cw"
+              variant="secondary"
+              onPress={() => runGenerateCaption(null)}
+              loading={genCaption.isPending}
+              disabled={!prompt.trim()}
+              style={{ marginTop: 10 }}
+            />
           </Card>
         ) : null}
 
@@ -559,6 +589,7 @@ const styles = StyleSheet.create({
     lineHeight: 21,
   },
   hashtags: { fontFamily: fonts.medium, fontSize: 13, color: c.primary, marginTop: 10 },
+  chipRow2: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 14 },
   image: { width: "100%", borderRadius: colors.radius },
   imagePlaceholder: {
     width: "100%",
