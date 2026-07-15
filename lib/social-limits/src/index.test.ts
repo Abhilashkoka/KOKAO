@@ -4,6 +4,7 @@ import {
   isOverTweetLimit,
   tweetOverBy,
   trimToTweetLength,
+  splitIntoTweets,
   LINKEDIN_MAX_LENGTH,
   LINKEDIN_COMMENT_MAX_LENGTH,
   chunkOnWhitespace,
@@ -100,6 +101,71 @@ describe("trimToTweetLength", () => {
       expect(isOverTweetLimit(text)).toBe(true);
       expect(trimToTweetLength(text).length).toBe(TWEET_MAX_LENGTH);
     }
+  });
+});
+
+describe("splitIntoTweets", () => {
+  it("returns a single tweet when within the limit", () => {
+    expect(splitIntoTweets("short caption")).toEqual(["short caption"]);
+    const exact = "a".repeat(TWEET_MAX_LENGTH);
+    expect(splitIntoTweets(exact)).toEqual([exact]);
+  });
+
+  it("trims surrounding whitespace before measuring", () => {
+    expect(splitIntoTweets("  hello world  ")).toEqual(["hello world"]);
+  });
+
+  it("splits on word boundaries and keeps every tweet within the limit", () => {
+    const caption = Array.from({ length: 120 }, (_, i) => `word${i}`).join(" ");
+    const tweets = splitIntoTweets(caption);
+    expect(tweets.length).toBeGreaterThan(1);
+    for (const t of tweets) {
+      expect(t.length).toBeLessThanOrEqual(TWEET_MAX_LENGTH);
+      // Word boundaries preserved: no tweet starts or ends mid-word.
+      expect(t).toBe(t.trim());
+    }
+    // No content lost: every word survives the split, in order.
+    const rejoinedWords = tweets.join(" ").split(/\s+/);
+    expect(rejoinedWords).toEqual(caption.split(" "));
+  });
+
+  it("never cuts a word in half when splitting on boundaries", () => {
+    const caption = "aaaa bbbb cccc dddd eeee".repeat(20);
+    const tweets = splitIntoTweets(caption, 20);
+    for (const t of tweets) {
+      expect(t.length).toBeLessThanOrEqual(20);
+    }
+  });
+
+  it("hard-splits a single token longer than a whole tweet", () => {
+    const caption = "b".repeat(700);
+    const tweets = splitIntoTweets(caption);
+    expect(tweets.length).toBe(3);
+    for (const t of tweets) {
+      expect(t.length).toBeLessThanOrEqual(TWEET_MAX_LENGTH);
+    }
+    expect(tweets.join("")).toBe(caption);
+  });
+
+  it("hard-splits an oversized token embedded between normal words", () => {
+    const giant = "x".repeat(600);
+    const tweets = splitIntoTweets(`intro ${giant} outro`);
+    for (const t of tweets) {
+      expect(t.length).toBeLessThanOrEqual(TWEET_MAX_LENGTH);
+    }
+    expect(tweets.join("")).toContain(giant.slice(0, TWEET_MAX_LENGTH));
+    expect(tweets[0]).toBe("intro");
+    expect(tweets[tweets.length - 1]!.endsWith("outro")).toBe(true);
+  });
+
+  it("respects a custom maxLength", () => {
+    const tweets = splitIntoTweets("aaaa bbbb cccc", 9);
+    expect(tweets).toEqual(["aaaa bbbb", "cccc"]);
+  });
+
+  it("returns a single empty tweet for empty or whitespace-only input", () => {
+    expect(splitIntoTweets("")).toEqual([""]);
+    expect(splitIntoTweets("   ")).toEqual([""]);
   });
 });
 

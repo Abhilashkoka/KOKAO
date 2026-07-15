@@ -70,45 +70,9 @@ const X_REFRESH_TOKEN = "x_refresh_token_secret_never_leaked";
 const X_LEGACY_ACCESS_TOKEN = "x_legacy_access_token";
 const X_LEGACY_TOKEN_SECRET = "x_legacy_token_secret";
 
-// ---------------------------------------------------------------------------
-// Thread splitter unit tests
-// ---------------------------------------------------------------------------
-
-describe("splitIntoTweets", () => {
-  it("returns a single tweet when within the limit", () => {
-    expect(splitIntoTweets("short caption")).toEqual(["short caption"]);
-    const exact = "a".repeat(TWEET_MAX_LENGTH);
-    expect(splitIntoTweets(exact)).toEqual([exact]);
-  });
-
-  it("splits on word boundaries and keeps every tweet within the limit", () => {
-    const caption = Array.from({ length: 120 }, (_, i) => `word${i}`).join(" ");
-    const tweets = splitIntoTweets(caption);
-    expect(tweets.length).toBeGreaterThan(1);
-    for (const t of tweets) {
-      expect(t.length).toBeLessThanOrEqual(TWEET_MAX_LENGTH);
-    }
-    // No content lost: every word survives the split.
-    const rejoined = tweets.join(" ");
-    for (let i = 0; i < 120; i++) {
-      expect(rejoined).toContain(`word${i}`);
-    }
-  });
-
-  it("hard-splits a single token longer than a whole tweet", () => {
-    const caption = "b".repeat(700);
-    const tweets = splitIntoTweets(caption);
-    for (const t of tweets) {
-      expect(t.length).toBeLessThanOrEqual(TWEET_MAX_LENGTH);
-    }
-    expect(tweets.join("")).toBe(caption);
-  });
-
-  it("returns a single empty tweet for empty input", () => {
-    expect(splitIntoTweets("")).toEqual([""]);
-    expect(splitIntoTweets("   ")).toEqual([""]);
-  });
-});
+// Thread splitter unit tests live in lib/social-limits (the shared source of
+// truth); this file keeps only integration-level checks that exercise the
+// splitter through the publish route.
 
 let twitterSnapshot: AppCredential | null = null;
 
