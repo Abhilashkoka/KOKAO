@@ -3,7 +3,7 @@ import { assertRequiredEnv } from "./lib/assertEnv";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { recoverStuckPublishingItems } from "./lib/recoverStuckPublishes";
-import { waitForPendingJobs } from "./lib/backgroundJobs";
+import { createShutdownHandler } from "./lib/shutdown";
 
 // Fail loudly before binding if a deployed context is missing required env,
 // rather than booting into a silently-degraded state.
@@ -39,35 +39,9 @@ const server: Server = app.listen(port, (err) => {
   void recoverStuckPublishingItems();
 });
 
-/**
- * Graceful shutdown: stop accepting new connections, then drain any in-flight
- * background publish jobs so they finish (and persist their outcome) instead of
- * being killed mid-flight and orphaned. Bounded by a timeout so a stuck job
- * can't block shutdown indefinitely.
- */
-const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
-let shuttingDown = false;
-
-async function shutdown(signal: string): Promise<void> {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  logger.info({ signal }, "Shutting down: draining in-flight jobs");
-
-  server.close();
-
-  try {
-    await Promise.race([
-      waitForPendingJobs(),
-      new Promise<void>((resolve) =>
-        setTimeout(resolve, SHUTDOWN_DRAIN_TIMEOUT_MS),
-      ),
-    ]);
-  } catch (err) {
-    logger.error({ err }, "Error while draining jobs during shutdown");
-  }
-
-  process.exit(0);
-}
+// Graceful shutdown: drain in-flight background publish jobs (bounded by a
+// timeout) before exiting. Logic lives in lib/shutdown.ts so it is testable.
+const shutdown = createShutdownHandler({ server });
 
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
