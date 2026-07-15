@@ -211,6 +211,42 @@ async function findRecentMatchingPagePost(
 }
 
 /**
+ * Look for an Instagram post that the current publish attempt already created:
+ * one created at/after `since` whose `caption` exactly matches what we sent.
+ * Used as the duplicate-post probe after a transient failure in the IG
+ * create -> poll -> publish flow — `media_publish` can commit the post and
+ * then lose the response, and re-running the whole flow would publish the
+ * same image twice. Returns the matching media id, or null. The Page token
+ * rides in the Authorization header so it never lands in a URL/log.
+ */
+async function findRecentMatchingInstagramMedia(
+  igUserId: string,
+  pageToken: string,
+  caption: string,
+  since: Date,
+): Promise<string | null> {
+  if (!caption) return null;
+  const res = await fetch(
+    `${GRAPH_BASE}/${encodeURIComponent(igUserId)}/media?fields=id,caption,timestamp&limit=10`,
+    { headers: { Authorization: `Bearer ${pageToken}` } },
+  );
+  const json = (await res.json()) as {
+    data?: Array<{ id?: string; caption?: string; timestamp?: string }>;
+    error?: GraphError;
+  };
+  if (!res.ok || json.error || !Array.isArray(json.data)) return null;
+
+  for (const media of json.data) {
+    if (!media.id || media.caption !== caption) continue;
+    const created = media.timestamp ? Date.parse(media.timestamp) : NaN;
+    if (!Number.isNaN(created) && created >= since.getTime()) {
+      return media.id;
+    }
+  }
+  return null;
+}
+
+/**
  * Instagram fetches the container's image asynchronously, so a freshly created
  * container usually reports `status_code: IN_PROGRESS` for a moment. Publishing
  * before it becomes `FINISHED` fails, so poll the container status (with
@@ -407,22 +443,28 @@ async function attemptInstagramPublish(
   }
 
   const postId = publishJson.id;
+  const permalink = await fetchInstagramPermalink(postId, pageToken);
+  return { postId, permalink };
+}
 
-  // Best-effort: resolve the post's public permalink. Token goes in the
-  // Authorization header so it never lands in a URL/access log.
-  let permalink: string | null = null;
+/**
+ * Best-effort: resolve an IG post's public permalink. Token goes in the
+ * Authorization header so it never lands in a URL/access log.
+ */
+async function fetchInstagramPermalink(
+  postId: string,
+  pageToken: string,
+): Promise<string | null> {
   try {
     const linkRes = await fetch(
       `${GRAPH_BASE}/${encodeURIComponent(postId)}?fields=permalink`,
       { headers: { Authorization: `Bearer ${pageToken}` } },
     );
     const linkJson = (await linkRes.json()) as { permalink?: string };
-    permalink = linkJson.permalink ?? null;
+    return linkJson.permalink ?? null;
   } catch {
-    permalink = null;
+    return null;
   }
-
-  return { postId, permalink };
 }
 
 /**
@@ -437,8 +479,13 @@ async function attemptInstagramPublish(
 async function runInstagramPublish(
   params: InstagramPublishParams,
 ): Promise<void> {
-  const { id, tenantId } = params;
+  const { id, tenantId, igUserId, pageToken, caption } = params;
   let delay = IG_PUBLISH_RETRY.initialDelayMs;
+
+  // Anchor for the duplicate-post probe: only IG posts created at/after this
+  // moment can be a result of THIS publish job. A small backward buffer
+  // absorbs clock skew between us and Meta.
+  const publishStartedAt = new Date(Date.now() - 60_000);
 
   for (let attempt = 1; attempt <= IG_PUBLISH_RETRY.maxAttempts; attempt++) {
     try {
@@ -452,6 +499,44 @@ async function runInstagramPublish(
       const retryable =
         error instanceof InstagramPublishError ? error.retryable : true;
       const attemptsLeft = attempt < IG_PUBLISH_RETRY.maxAttempts;
+
+      // Retry idempotency: a transient-looking failure does not prove the
+      // publish did NOT land — `media_publish` can commit the post and then
+      // lose the response. Re-running the whole create -> poll -> publish flow
+      // would post the same image twice. Before retrying (and before the final
+      // give-up), probe the account's recent media and short-circuit if this
+      // publish already landed. The probe is best-effort: if it fails we fall
+      // back to the normal retry/give-up path.
+      if (retryable) {
+        try {
+          const existingId = await findRecentMatchingInstagramMedia(
+            igUserId,
+            pageToken,
+            caption,
+            publishStartedAt,
+          );
+          if (existingId) {
+            logger.warn(
+              { contentItemId: id, tenantId, attempt, postId: existingId },
+              "Instagram publish returned a transient error but the post already landed; skipping retry to avoid a duplicate",
+            );
+            const permalink = await fetchInstagramPermalink(
+              existingId,
+              pageToken,
+            );
+            await markPublished(id, tenantId, {
+              postId: existingId,
+              permalink,
+            });
+            return;
+          }
+        } catch (probeErr) {
+          logger.warn(
+            { err: probeErr, contentItemId: id, tenantId },
+            "Instagram duplicate-post probe failed; proceeding with retry",
+          );
+        }
+      }
 
       if (retryable && attemptsLeft) {
         logger.warn(

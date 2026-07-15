@@ -1138,4 +1138,126 @@ describe("Instagram publish retry", () => {
       await deleteTenant(tenant.tenantId);
     }
   });
+
+  /**
+   * Simulate the IG retry-idempotency hazard: media_publish actually COMMITS
+   * the post, but the response is lost (a transient 500). The duplicate-post
+   * probe (GET /{ig-user-id}/media) then reports the post as already existing,
+   * so the retry loop must NOT re-run the create -> poll -> publish flow.
+   */
+  function mockGraphIgPublishThenLoseResponse(
+    calls: string[],
+    existingMedia: { id: string; caption: string; timestamp: string } | null,
+  ) {
+    let publishAttempts = 0;
+    return vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        calls.push(url);
+        const json = (body: unknown, s = 200) =>
+          new Response(JSON.stringify(body), {
+            status: s,
+            headers: { "content-type": "application/json" },
+          });
+
+        if (url.includes("/media_publish")) {
+          publishAttempts += 1;
+          if (publishAttempts === 1) {
+            // The publish committed, but the caller sees a transient failure.
+            return json({ error: { message: "temporarily unavailable" } }, 500);
+          }
+          // Any further publish would create a DUPLICATE post.
+          return json({ id: "IG_DUPLICATE" });
+        }
+        if (url.includes("/media?fields=id,caption,timestamp")) {
+          return json({ data: existingMedia ? [existingMedia] : [] });
+        }
+        if (url.includes("fields=status_code"))
+          return json({ status_code: "FINISHED" });
+        if (url.includes("fields=permalink"))
+          return json({ permalink: "https://www.instagram.com/p/landed/" });
+        if (url.includes("fields=id,name"))
+          return json({ id: lastPathSegment(url), name: "Test Page" });
+        if (url.includes("fields=id,username"))
+          return json({ id: lastPathSegment(url), username: "testacct" });
+        if (url.includes("/media")) return json({ id: "IG_CONTAINER_1" });
+        return json({});
+      });
+  }
+
+  it("does not double-post when a transient media_publish failure actually landed the post", async () => {
+    const calls: string[] = [];
+    mockGraphIgPublishThenLoseResponse(calls, {
+      id: "IG_ALREADY_LANDED",
+      // Must match what the handler sends (item caption).
+      caption: "hello world",
+      timestamp: new Date().toISOString(),
+    });
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getSignedDownloadURL",
+    ).mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
+
+    const { tenant, itemId } = await setupVerifiedTenant();
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-instagram`,
+      );
+      expect(res.status).toBe(202);
+      await waitForPendingJobs();
+
+      // Exactly ONE publish write — the "lost" one. No second publish, and no
+      // second container-create either.
+      expect(calls.filter((u) => u.includes("/media_publish")).length).toBe(1);
+      expect(calls.filter((u) => u.endsWith("/IG_OK/media")).length).toBe(1);
+      // The probe queried recent media and never put the token in a URL.
+      expect(
+        calls.some((u) =>
+          u.includes("/IG_OK/media?fields=id,caption,timestamp"),
+        ),
+      ).toBe(true);
+      expect(calls.every((u) => !u.includes(FB_PAGE_TOKEN))).toBe(true);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("IG_ALREADY_LANDED");
+      expect(item.permalink).toBe("https://www.instagram.com/p/landed/");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("still retries when the probe finds no matching recent media", async () => {
+    const calls: string[] = [];
+    // Probe sees only an OLD post with the same caption — created long before
+    // this publish started, so it must not be mistaken for ours.
+    mockGraphIgPublishThenLoseResponse(calls, {
+      id: "IG_OLD_SAME_TEXT",
+      caption: "hello world",
+      timestamp: new Date(Date.now() - 86_400_000).toISOString(),
+    });
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getSignedDownloadURL",
+    ).mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
+
+    const { tenant, itemId } = await setupVerifiedTenant();
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-instagram`,
+      );
+      expect(res.status).toBe(202);
+      await waitForPendingJobs();
+
+      // The failed publish + the successful retry.
+      expect(calls.filter((u) => u.includes("/media_publish")).length).toBe(2);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("IG_DUPLICATE");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
 });
