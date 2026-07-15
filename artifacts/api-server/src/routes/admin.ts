@@ -9,7 +9,7 @@ import {
   usageEventsTable,
   adminAuditLogsTable,
 } from "@workspace/db";
-import { eq, sql, desc, gte } from "drizzle-orm";
+import { eq, sql, desc, gte, lte, and, or, ilike } from "drizzle-orm";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import { recordAdminAction } from "../lib/adminAudit";
 import {
@@ -568,15 +568,111 @@ router.delete("/admin/plans/:planId", async (req: Request, res: Response) => {
  * The append-only trail of privileged admin actions (plan overrides and
  * superadmin grants/revokes), most recent first. Read-only, superadmin-scoped.
  */
-router.get("/admin/audit-logs", async (_req: Request, res: Response) => {
-  const rows = await db
-    .select()
-    .from(adminAuditLogsTable)
-    .orderBy(desc(adminAuditLogsTable.createdAt))
-    .limit(100);
+const AUDIT_ACTIONS = new Set([
+  "plan_change",
+  "superadmin_grant",
+  "superadmin_revoke",
+  "plan_edit",
+  "plan_create",
+  "plan_delete",
+  "notification_policy_change",
+  "credential_change",
+]);
 
-  res.json(
-    rows.map((r) => ({
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+router.get("/admin/audit-logs", async (req: Request, res: Response) => {
+  const q = req.query as Record<string, unknown>;
+
+  const rawLimit = Number.parseInt(String(q.limit ?? ""), 10);
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(Math.max(rawLimit, 1), 200)
+    : 50;
+  const rawOffset = Number.parseInt(String(q.offset ?? ""), 10);
+  const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
+
+  const conditions = [];
+
+  const action = typeof q.action === "string" ? q.action : undefined;
+  if (action) {
+    if (!AUDIT_ACTIONS.has(action)) {
+      res
+        .status(400)
+        .json({ error: { message: `Unknown action "${action}"` } });
+      return;
+    }
+    conditions.push(eq(adminAuditLogsTable.action, action));
+  }
+
+  const actor =
+    typeof q.actor === "string" && q.actor.trim() !== ""
+      ? q.actor.trim().slice(0, 200)
+      : undefined;
+  if (actor) {
+    const asId = /^\d+$/.test(actor) ? Number.parseInt(actor, 10) : null;
+    const emailMatch = ilike(
+      adminAuditLogsTable.actorEmail,
+      `%${escapeLike(actor)}%`,
+    );
+    conditions.push(
+      asId !== null
+        ? or(emailMatch, eq(adminAuditLogsTable.actorTenantId, asId))!
+        : emailMatch,
+    );
+  }
+
+  const target =
+    typeof q.target === "string" && q.target.trim() !== ""
+      ? q.target.trim().slice(0, 200)
+      : undefined;
+  if (target) {
+    const asId = /^\d+$/.test(target) ? Number.parseInt(target, 10) : null;
+    const emailMatch = ilike(
+      adminAuditLogsTable.targetEmail,
+      `%${escapeLike(target)}%`,
+    );
+    conditions.push(
+      asId !== null
+        ? or(emailMatch, eq(adminAuditLogsTable.targetTenantId, asId))!
+        : emailMatch,
+    );
+  }
+
+  for (const [key, op] of [
+    ["from", gte],
+    ["to", lte],
+  ] as const) {
+    const raw = typeof q[key] === "string" ? (q[key] as string) : undefined;
+    if (raw) {
+      const date = new Date(raw);
+      if (Number.isNaN(date.getTime())) {
+        res.status(400).json({ error: { message: `Invalid ${key} date` } });
+        return;
+      }
+      conditions.push(op(adminAuditLogsTable.createdAt, date));
+    }
+  }
+
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [rows, [{ count }]] = await Promise.all([
+    db
+      .select()
+      .from(adminAuditLogsTable)
+      .where(where)
+      .orderBy(desc(adminAuditLogsTable.createdAt), desc(adminAuditLogsTable.id))
+      .limit(limit)
+      .offset(offset),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(adminAuditLogsTable)
+      .where(where),
+  ]);
+
+  res.json({
+    items: rows.map((r) => ({
       id: r.id,
       action: r.action,
       actorTenantId: r.actorTenantId,
@@ -587,7 +683,10 @@ router.get("/admin/audit-logs", async (_req: Request, res: Response) => {
       newValue: r.newValue ?? null,
       createdAt: r.createdAt.toISOString(),
     })),
-  );
+    total: count,
+    limit,
+    offset,
+  });
 });
 
 /**

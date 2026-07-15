@@ -1688,8 +1688,68 @@ function formatAuditValue(action: string, value: string | null): string {
   return value;
 }
 
+const AUDIT_PAGE_SIZE = 50;
+
 function AuditLogCard() {
-  const { data, isLoading } = useAdminListAuditLogs();
+  const [actionFilter, setActionFilter] = useState("all");
+  const [actorInput, setActorInput] = useState("");
+  const [targetInput, setTargetInput] = useState("");
+  const [fromInput, setFromInput] = useState("");
+  const [toInput, setToInput] = useState("");
+  const [applied, setApplied] = useState<{
+    action?: string;
+    actor?: string;
+    target?: string;
+    from?: string;
+    to?: string;
+  }>({});
+  const [offset, setOffset] = useState(0);
+
+  const params = {
+    limit: AUDIT_PAGE_SIZE,
+    offset,
+    ...(applied.action ? { action: applied.action as never } : {}),
+    ...(applied.actor ? { actor: applied.actor } : {}),
+    ...(applied.target ? { target: applied.target } : {}),
+    ...(applied.from ? { from: applied.from } : {}),
+    ...(applied.to ? { to: applied.to } : {}),
+  };
+
+  const { data, isLoading, isFetching } = useAdminListAuditLogs(params, {
+    query: {
+      queryKey: getAdminListAuditLogsQueryKey(params),
+      placeholderData: (prev) => prev,
+    },
+  });
+
+  const items = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const hasFilters =
+    actionFilter !== "all" || actorInput || targetInput || fromInput || toInput;
+
+  const applyFilters = () => {
+    setOffset(0);
+    setApplied({
+      action: actionFilter === "all" ? undefined : actionFilter,
+      actor: actorInput.trim() || undefined,
+      target: targetInput.trim() || undefined,
+      from: fromInput ? new Date(fromInput).toISOString() : undefined,
+      to: toInput
+        ? new Date(new Date(toInput).getTime() + 24 * 60 * 60 * 1000 - 1)
+            .toISOString()
+        : undefined,
+    });
+  };
+
+  const clearFilters = () => {
+    setActionFilter("all");
+    setActorInput("");
+    setTargetInput("");
+    setFromInput("");
+    setToInput("");
+    setOffset(0);
+    setApplied({});
+  };
 
   return (
     <Card>
@@ -1698,19 +1758,97 @@ function AuditLogCard() {
         <CardDescription>
           Append-only record of privileged actions: plan overrides, superadmin
           grants/revokes, notification policy changes, and platform credential
-          saves. Shows the 100 most recent entries.
+          saves. Filter by action, actor, target, or date, and page through
+          the full history.
         </CardDescription>
       </CardHeader>
       <CardContent>
+        <div className="mb-4 flex flex-wrap items-end gap-2">
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">Action</p>
+            <Select value={actionFilter} onValueChange={setActionFilter}>
+              <SelectTrigger className="w-[180px]" data-testid="select-audit-action">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All actions</SelectItem>
+                {Object.entries(AUDIT_ACTION_LABELS).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">Actor</p>
+            <Input
+              className="w-[180px]"
+              placeholder="Email or tenant #"
+              value={actorInput}
+              onChange={(e) => setActorInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && applyFilters()}
+              data-testid="input-audit-actor"
+            />
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">Target</p>
+            <Input
+              className="w-[180px]"
+              placeholder="Email or tenant #"
+              value={targetInput}
+              onChange={(e) => setTargetInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && applyFilters()}
+              data-testid="input-audit-target"
+            />
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">From</p>
+            <Input
+              type="date"
+              className="w-[150px]"
+              value={fromInput}
+              onChange={(e) => setFromInput(e.target.value)}
+              data-testid="input-audit-from"
+            />
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">To</p>
+            <Input
+              type="date"
+              className="w-[150px]"
+              value={toInput}
+              onChange={(e) => setToInput(e.target.value)}
+              data-testid="input-audit-to"
+            />
+          </div>
+          <Button size="sm" onClick={applyFilters} data-testid="button-audit-apply">
+            Apply
+          </Button>
+          {hasFilters && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={clearFilters}
+              data-testid="button-audit-clear"
+            >
+              Clear
+            </Button>
+          )}
+        </div>
         {isLoading ? (
           <div className="space-y-3">
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
           </div>
-        ) : (data ?? []).length === 0 ? (
+        ) : items.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No admin actions have been recorded yet.
+            {Object.keys(applied).some(
+              (k) => applied[k as keyof typeof applied],
+            )
+              ? "No audit records match these filters."
+              : "No admin actions have been recorded yet."}
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -1726,7 +1864,7 @@ function AuditLogCard() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(data ?? []).map((log) => (
+                {items.map((log) => (
                   <TableRow key={log.id}>
                     <TableCell className="text-muted-foreground whitespace-nowrap">
                       {new Date(log.createdAt).toLocaleString()}
@@ -1755,6 +1893,34 @@ function AuditLogCard() {
                 ))}
               </TableBody>
             </Table>
+          </div>
+        )}
+        {!isLoading && total > 0 && (
+          <div className="mt-4 flex items-center justify-between">
+            <p className="text-sm text-muted-foreground" data-testid="text-audit-range">
+              Showing {total === 0 ? 0 : offset + 1}–
+              {Math.min(offset + AUDIT_PAGE_SIZE, total)} of {total}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={offset === 0 || isFetching}
+                onClick={() => setOffset(Math.max(0, offset - AUDIT_PAGE_SIZE))}
+                data-testid="button-audit-prev"
+              >
+                Newer
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={offset + AUDIT_PAGE_SIZE >= total || isFetching}
+                onClick={() => setOffset(offset + AUDIT_PAGE_SIZE)}
+                data-testid="button-audit-next"
+              >
+                Older
+              </Button>
+            </div>
           </div>
         )}
       </CardContent>

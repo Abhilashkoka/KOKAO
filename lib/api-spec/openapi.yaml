@@ -461,15 +461,80 @@ paths:
       operationId: adminListAuditLogs
       tags: [admin]
       summary: List the privileged admin action audit trail (superadmin only)
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+          description: Page size (max 200).
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Number of records to skip (most recent first).
+        - name: action
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              [
+                plan_change,
+                superadmin_grant,
+                superadmin_revoke,
+                plan_edit,
+                plan_create,
+                plan_delete,
+                notification_policy_change,
+                credential_change,
+              ]
+          description: Only return records of this action type.
+        - name: actor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 200
+          description: >-
+            Case-insensitive substring match on the actor email, or an exact
+            actor tenant id when numeric.
+        - name: target
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 200
+          description: >-
+            Case-insensitive substring match on the target email, or an exact
+            target tenant id when numeric.
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Only return records created at or after this time.
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Only return records created at or before this time.
       responses:
         "200":
-          description: Recent admin audit records, most recent first
+          description: A page of admin audit records, most recent first
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/AdminAuditLog"
+                $ref: "#/components/schemas/AdminAuditLogPage"
         "403":
           description: Forbidden
           content:
@@ -2783,6 +2848,8 @@ components:
               plan_edit,
               plan_create,
               plan_delete,
+              notification_policy_change,
+              credential_change,
             ]
           description: The privileged action that was recorded.
         actorTenantId:
@@ -2808,6 +2875,22 @@ components:
         createdAt:
           type: string
           format: date-time
+
+    AdminAuditLogPage:
+      type: object
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminAuditLog"
+        total:
+          type: integer
+          description: Total number of records matching the filters.
+        limit:
+          type: integer
+        offset:
+          type: integer
 
     NotificationChannelPreference:
       type: object

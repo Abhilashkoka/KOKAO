@@ -536,9 +536,12 @@ describe("Audit trail — privileged actions are recorded", () => {
 
       const res = await request(app).get("/api/admin/audit-logs");
       expect(res.status).toBe(200);
-      expect(Array.isArray(res.body)).toBe(true);
+      expect(Array.isArray(res.body.items)).toBe(true);
+      expect(typeof res.body.total).toBe("number");
+      expect(res.body.limit).toBe(50);
+      expect(res.body.offset).toBe(0);
 
-      const entry = (res.body as Array<Record<string, unknown>>).find(
+      const entry = (res.body.items as Array<Record<string, unknown>>).find(
         (r) => r.targetTenantId === target.tenantId,
       );
       expect(entry).toBeDefined();
@@ -625,6 +628,82 @@ describe("Audit trail — privileged actions are recorded", () => {
     }
   });
 
+  it("supports filtering and pagination on GET /admin/audit-logs", async () => {
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    const target = await createTenant({
+      email: `target-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}`)
+        .send({ plan: "pro" });
+      await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}`)
+        .send({ plan: "business" });
+
+      // Filter by action + target
+      const filtered = await request(app).get(
+        `/api/admin/audit-logs?action=plan_change&target=${target.tenantId}`,
+      );
+      expect(filtered.status).toBe(200);
+      expect(filtered.body.total).toBe(2);
+      expect(
+        (filtered.body.items as Array<Record<string, unknown>>).every(
+          (r) =>
+            r.action === "plan_change" && r.targetTenantId === target.tenantId,
+        ),
+      ).toBe(true);
+
+      // Filter by actor email substring
+      const byActor = await request(app).get(
+        `/api/admin/audit-logs?actor=${encodeURIComponent(actor.email ?? "")}`,
+      );
+      expect(byActor.status).toBe(200);
+      expect(byActor.body.total).toBeGreaterThanOrEqual(2);
+      expect(
+        (byActor.body.items as Array<Record<string, unknown>>).every(
+          (r) => r.actorTenantId === actor.tenantId,
+        ),
+      ).toBe(true);
+
+      // Pagination: limit 1 pages through both records, newest first
+      const page1 = await request(app).get(
+        `/api/admin/audit-logs?target=${target.tenantId}&limit=1&offset=0`,
+      );
+      const page2 = await request(app).get(
+        `/api/admin/audit-logs?target=${target.tenantId}&limit=1&offset=1`,
+      );
+      expect(page1.body.items).toHaveLength(1);
+      expect(page2.body.items).toHaveLength(1);
+      expect(page1.body.items[0].id).not.toBe(page2.body.items[0].id);
+      expect(page1.body.items[0].newValue).toBe("business");
+      expect(page2.body.items[0].newValue).toBe("pro");
+
+      // Date range excluding everything
+      const none = await request(app).get(
+        "/api/admin/audit-logs?to=2000-01-01T00:00:00.000Z",
+      );
+      expect(none.body.total).toBe(0);
+
+      // Invalid inputs are rejected
+      const badAction = await request(app).get(
+        "/api/admin/audit-logs?action=bogus",
+      );
+      expect(badAction.status).toBe(400);
+      const badDate = await request(app).get(
+        "/api/admin/audit-logs?from=not-a-date",
+      );
+      expect(badDate.status).toBe(400);
+    } finally {
+      await deleteTenant(actor.tenantId);
+      await deleteTenant(target.tenantId);
+    }
+  });
+
   it("returns 403 to a non-superadmin and 401 to an unauthenticated caller for GET /admin/audit-logs", async () => {
     const actor = await createTenant({
       email: `plain-${randomUUID()}@example.com`,
@@ -660,14 +739,18 @@ describe("GET/PUT /admin/notification-policies — global notification policy", 
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
       // Every catalog type appears even without a stored row.
-      expect(res.body).toHaveLength(1);
-      expect(res.body[0]).toMatchObject({
+      expect(res.body.length).toBeGreaterThanOrEqual(1);
+      const entry = (res.body as Array<Record<string, unknown>>).find(
+        (p) => p.type === TYPE,
+      );
+      expect(entry).toBeDefined();
+      expect(entry).toMatchObject({
         type: TYPE,
         enabled: true,
         emailPolicy: "optional",
       });
-      expect(res.body[0]).toHaveProperty("label");
-      expect(res.body[0]).toHaveProperty("description");
+      expect(entry).toHaveProperty("label");
+      expect(entry).toHaveProperty("description");
     } finally {
       await restoreNotificationPolicy(TYPE, snapshot);
       await deleteTenant(actor.tenantId);

@@ -22,7 +22,8 @@ import type {
 import type {
   AccountInput,
   ActivateVersionInput,
-  AdminAuditLog,
+  AdminAuditLogPage,
+  AdminListAuditLogsParams,
   AdminStats,
   AdminTenant,
   AppBrand,
@@ -1314,20 +1315,27 @@ export function useAdminGetStats<TData = Awaited<ReturnType<typeof adminGetStats
 
 
 
-export const getAdminListAuditLogsUrl = () => {
+export const getAdminListAuditLogsUrl = (params?: AdminListAuditLogsParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/admin/audit-logs`
+  return stringifiedParams.length > 0 ? `/api/admin/audit-logs?${stringifiedParams}` : `/api/admin/audit-logs`
 }
 
 /**
  * @summary List the privileged admin action audit trail (superadmin only)
  */
-export const adminListAuditLogs = async ( options?: RequestInit): Promise<AdminAuditLog[]> => {
+export const adminListAuditLogs = async (params?: AdminListAuditLogsParams, options?: RequestInit): Promise<AdminAuditLogPage> => {
 
-  return customFetch<AdminAuditLog[]>(getAdminListAuditLogsUrl(),
+  return customFetch<AdminAuditLogPage>(getAdminListAuditLogsUrl(params),
   {
     ...options,
     method: 'GET'
@@ -1340,23 +1348,23 @@ export const adminListAuditLogs = async ( options?: RequestInit): Promise<AdminA
 
 
 
-export const getAdminListAuditLogsQueryKey = () => {
+export const getAdminListAuditLogsQueryKey = (params?: AdminListAuditLogsParams,) => {
     return [
-    `/api/admin/audit-logs`
+    `/api/admin/audit-logs`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getAdminListAuditLogsQueryOptions = <TData = Awaited<ReturnType<typeof adminListAuditLogs>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListAuditLogs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getAdminListAuditLogsQueryOptions = <TData = Awaited<ReturnType<typeof adminListAuditLogs>>, TError = ErrorType<ErrorEnvelope>>(params?: AdminListAuditLogsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListAuditLogs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getAdminListAuditLogsQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getAdminListAuditLogsQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListAuditLogs>>> = ({ signal }) => adminListAuditLogs({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListAuditLogs>>> = ({ signal }) => adminListAuditLogs(params, { signal, ...requestOptions });
 
 
 
@@ -1374,11 +1382,11 @@ export type AdminListAuditLogsQueryError = ErrorType<ErrorEnvelope>
  */
 
 export function useAdminListAuditLogs<TData = Awaited<ReturnType<typeof adminListAuditLogs>>, TError = ErrorType<ErrorEnvelope>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListAuditLogs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ params?: AdminListAuditLogsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListAuditLogs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getAdminListAuditLogsQueryOptions(options)
+  const queryOptions = getAdminListAuditLogsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

@@ -228,6 +228,8 @@ export const AdminAuditLogAction = {
   plan_edit: 'plan_edit',
   plan_create: 'plan_create',
   plan_delete: 'plan_delete',
+  notification_policy_change: 'notification_policy_change',
+  credential_change: 'credential_change',
 } as const;
 
 export interface AdminAuditLog {
@@ -262,6 +264,14 @@ export interface AdminAuditLog {
      */
   newValue?: string | null;
   createdAt: string;
+}
+
+export interface AdminAuditLogPage {
+  items: AdminAuditLog[];
+  /** Total number of records matching the filters. */
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface NotificationChannelPreference {
@@ -1283,6 +1293,56 @@ export interface UploadUrlResponse {
   objectPath: string;
   metadata?: UploadUrlRequest;
 }
+
+export type AdminListAuditLogsParams = {
+/**
+ * Page size (max 200).
+ * @minimum 1
+ * @maximum 200
+ */
+limit?: number;
+/**
+ * Number of records to skip (most recent first).
+ * @minimum 0
+ */
+offset?: number;
+/**
+ * Only return records of this action type.
+ */
+action?: AdminListAuditLogsAction;
+/**
+ * Case-insensitive substring match on the actor email, or an exact actor tenant id when numeric.
+ * @maxLength 200
+ */
+actor?: string;
+/**
+ * Case-insensitive substring match on the target email, or an exact target tenant id when numeric.
+ * @maxLength 200
+ */
+target?: string;
+/**
+ * Only return records created at or after this time.
+ */
+from?: string;
+/**
+ * Only return records created at or before this time.
+ */
+to?: string;
+};
+
+export type AdminListAuditLogsAction = typeof AdminListAuditLogsAction[keyof typeof AdminListAuditLogsAction];
+
+
+export const AdminListAuditLogsAction = {
+  plan_change: 'plan_change',
+  superadmin_grant: 'superadmin_grant',
+  superadmin_revoke: 'superadmin_revoke',
+  plan_edit: 'plan_edit',
+  plan_create: 'plan_create',
+  plan_delete: 'plan_delete',
+  notification_policy_change: 'notification_policy_change',
+  credential_change: 'credential_change',
+} as const;
 
 export type ListBrandKitsParams = {
 includeArchived?: boolean;

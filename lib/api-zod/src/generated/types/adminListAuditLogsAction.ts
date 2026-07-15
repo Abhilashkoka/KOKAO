@@ -6,13 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-/**
- * The privileged action that was recorded.
- */
-export type AdminAuditLogAction = typeof AdminAuditLogAction[keyof typeof AdminAuditLogAction];
+export type AdminListAuditLogsAction = typeof AdminListAuditLogsAction[keyof typeof AdminListAuditLogsAction];
 
 
-export const AdminAuditLogAction = {
+export const AdminListAuditLogsAction = {
   plan_change: 'plan_change',
   superadmin_grant: 'superadmin_grant',
   superadmin_revoke: 'superadmin_revoke',

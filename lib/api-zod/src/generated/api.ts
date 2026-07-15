@@ -412,9 +412,32 @@ export const AdminGetStatsResponse = zod.object({
 /**
  * @summary List the privileged admin action audit trail (superadmin only)
  */
-export const AdminListAuditLogsResponseItem = zod.object({
+export const adminListAuditLogsQueryLimitDefault = 50;
+export const adminListAuditLogsQueryLimitMax = 200;
+
+export const adminListAuditLogsQueryOffsetDefault = 0;
+export const adminListAuditLogsQueryOffsetMin = 0;
+
+export const adminListAuditLogsQueryActorMax = 200;
+
+export const adminListAuditLogsQueryTargetMax = 200;
+
+
+
+export const AdminListAuditLogsQueryParams = zod.object({
+  "limit": zod.coerce.number().min(1).max(adminListAuditLogsQueryLimitMax).default(adminListAuditLogsQueryLimitDefault).describe('Page size (max 200).'),
+  "offset": zod.coerce.number().min(adminListAuditLogsQueryOffsetMin).default(adminListAuditLogsQueryOffsetDefault).describe('Number of records to skip (most recent first).'),
+  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change']).optional().describe('Only return records of this action type.'),
+  "actor": zod.coerce.string().max(adminListAuditLogsQueryActorMax).optional().describe('Case-insensitive substring match on the actor email, or an exact actor tenant id when numeric.'),
+  "target": zod.coerce.string().max(adminListAuditLogsQueryTargetMax).optional().describe('Case-insensitive substring match on the target email, or an exact target tenant id when numeric.'),
+  "from": zod.date().optional().describe('Only return records created at or after this time.'),
+  "to": zod.date().optional().describe('Only return records created at or before this time.')
+})
+
+export const AdminListAuditLogsResponse = zod.object({
+  "items": zod.array(zod.object({
   "id": zod.number(),
-  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete']).describe('The privileged action that was recorded.'),
+  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change']).describe('The privileged action that was recorded.'),
   "actorTenantId": zod.number().describe('Tenant id of the superadmin who performed the action.'),
   "actorEmail": zod.string().nullish().describe('Cached email of the actor at the time of the action.'),
   "targetTenantId": zod.number().nullable().describe('Tenant id whose plan or role was changed. Null for platform-wide actions such as plan edits.'),
@@ -422,8 +445,11 @@ export const AdminListAuditLogsResponseItem = zod.object({
   "oldValue": zod.string().nullish().describe('Previous value (plan name or superadmin boolean string).'),
   "newValue": zod.string().nullish().describe('New value (plan name or superadmin boolean string).'),
   "createdAt": zod.coerce.date()
+})),
+  "total": zod.number().describe('Total number of records matching the filters.'),
+  "limit": zod.number(),
+  "offset": zod.number()
 })
-export const AdminListAuditLogsResponse = zod.array(AdminListAuditLogsResponseItem)
 
 
 /**
