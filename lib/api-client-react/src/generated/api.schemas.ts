@@ -853,6 +853,22 @@ export interface PublishLinkedInResult {
   commentWarning?: string | null;
 }
 
+export interface ResendLinkedinCommentsResult {
+  /** Total comments now posted across all attempts. */
+  commentsPosted: number;
+  /** How many follow-up comments the caption overflow required. */
+  commentsTotal: number;
+  /** Comments still missing after this attempt (0 = complete). */
+  commentsRemaining: number;
+  /** @nullable */
+  permalink?: string | null;
+  /**
+     * Present when some comments still could not be posted.
+     * @nullable
+     */
+  commentWarning?: string | null;
+}
+
 export interface Notification {
   id: number;
   type: string;
@@ -1036,6 +1052,8 @@ export interface ContentItem {
   postId?: string | null;
   /** @nullable */
   permalink?: string | null;
+  /** How many LinkedIn follow-up comments from the last publish are still missing (0 when none). When > 0 the client can offer a "resend remaining comments" action. */
+  linkedinCommentsPending?: number;
   /** @nullable */
   brandKitId?: number | null;
   createdAt: string;

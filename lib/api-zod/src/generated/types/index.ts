@@ -109,6 +109,7 @@ export * from './publishTwitterResult';
 export * from './researchRequest';
 export * from './researchResult';
 export * from './researchSource';
+export * from './resendLinkedinCommentsResult';
 export * from './resolveSelectionInput';
 export * from './resolveSelectionResult';
 export * from './resolveSelectionResultStatus';

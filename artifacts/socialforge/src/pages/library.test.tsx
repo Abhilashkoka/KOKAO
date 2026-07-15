@@ -71,6 +71,7 @@ vi.mock("@workspace/api-client-react", () => {
       isPending: false,
     }),
     usePublishContentToLinkedin: mutation,
+    useResendLinkedinComments: mutation,
     usePublishContentToTwitter: mutation,
     usePublishContentToThreads: mutation,
     useGetFacebookCredentials: () => ({ data: { verifyStatus: "verified" } }),

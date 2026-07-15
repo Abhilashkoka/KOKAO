@@ -26,6 +26,8 @@ export interface ContentItem {
   postId?: string | null;
   /** @nullable */
   permalink?: string | null;
+  /** How many LinkedIn follow-up comments from the last publish are still missing (0 when none). When > 0 the client can offer a "resend remaining comments" action. */
+  linkedinCommentsPending?: number;
   /** @nullable */
   brandKitId?: number | null;
   createdAt: Date;

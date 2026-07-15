@@ -554,6 +554,9 @@ router.post(
           failureReason: null,
           postId: postId || null,
           permalink,
+          // A fresh publish starts a new comment sequence; any resend state
+          // from an earlier publish points at a stale post URN.
+          linkedinCommentState: null,
           updatedAt: new Date(),
         })
         .where(
@@ -586,6 +589,35 @@ router.post(
               const remaining = overflowComments.length - index;
               commentWarning = `The post was published, but ${remaining} of ${overflowComments.length} follow-up comment(s) with the rest of the caption could not be posted.`;
               break;
+            }
+          }
+          // Persist which numbered comments made it (with the exact texts, so
+          // a later caption edit can't renumber a resend) whenever the
+          // sequence is incomplete; the resend endpoint picks up from
+          // postedCount. Best-effort: a DB hiccup must not fail the publish.
+          if (commentsPosted < overflowComments.length) {
+            try {
+              await db
+                .update(contentItemsTable)
+                .set({
+                  linkedinCommentState: {
+                    postUrn: postId,
+                    comments: overflowComments,
+                    postedCount: commentsPosted,
+                  },
+                  updatedAt: new Date(),
+                })
+                .where(
+                  and(
+                    eq(contentItemsTable.id, id),
+                    eq(contentItemsTable.tenantId, req.tenantId),
+                  ),
+                );
+            } catch (stateErr) {
+              req.log.error(
+                { err: stateErr, contentItemId: id },
+                "Failed to record LinkedIn comment resend state",
+              );
             }
           }
         }
@@ -625,6 +657,120 @@ router.post(
       }
       res.status(502).json({ error: reason });
     }
+  },
+);
+
+/**
+ * Resend the follow-up comments that failed during an earlier publish. Posts
+ * only the missing comments (from the persisted snapshot, so the original
+ * "(i/n)" numbering is preserved even if the caption was edited since), and
+ * clears the state once the sequence is complete.
+ */
+router.post(
+  "/content/:id/resend-linkedin-comments",
+  async (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    const item = (
+      await db
+        .select()
+        .from(contentItemsTable)
+        .where(
+          and(
+            eq(contentItemsTable.id, id),
+            eq(contentItemsTable.tenantId, req.tenantId),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (!item) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+
+    const state = item.linkedinCommentState;
+    if (!state || state.postedCount >= state.comments.length) {
+      res.status(400).json({
+        error: "There are no missing LinkedIn follow-up comments to resend.",
+      });
+      return;
+    }
+
+    let account = await getLinkedinAccount(req.tenantId);
+    if (account?.accessToken) {
+      try {
+        account =
+          (await reverifyLinkedin(req.tenantId, { force: true })) ?? account;
+      } catch (err) {
+        req.log.error({ err }, "LinkedIn pre-resend re-verify failed");
+      }
+    }
+    const tokenValid =
+      !!account?.accessToken &&
+      account.verifyStatus !== "failed" &&
+      (account.tokenExpiresAt === null ||
+        account.tokenExpiresAt.getTime() > Date.now());
+    if (!account || !tokenValid || !account.providerUserId) {
+      res.status(400).json({
+        error:
+          "LinkedIn is not connected or its access token is no longer valid. Reconnect your LinkedIn account on the Accounts page and try again.",
+      });
+      return;
+    }
+
+    const author = `urn:li:person:${account.providerUserId}`;
+    const baseHeaders = {
+      Authorization: `Bearer ${account.accessToken!}`,
+      "LinkedIn-Version": LINKEDIN_VERSION,
+      "X-Restli-Protocol-Version": "2.0.0",
+    };
+
+    let postedCount = state.postedCount;
+    let commentWarning: string | null = null;
+    for (let i = postedCount; i < state.comments.length; i++) {
+      try {
+        await postLinkedinComment(
+          state.postUrn,
+          author,
+          state.comments[i]!,
+          baseHeaders,
+        );
+        postedCount += 1;
+      } catch (commentError) {
+        req.log.error(
+          { err: commentError, postUrn: state.postUrn },
+          "LinkedIn comment resend failed",
+        );
+        const remaining = state.comments.length - postedCount;
+        commentWarning = `${remaining} of ${state.comments.length} follow-up comment(s) still could not be posted. You can try resending again.`;
+        break;
+      }
+    }
+
+    const complete = postedCount >= state.comments.length;
+    await db
+      .update(contentItemsTable)
+      .set({
+        linkedinCommentState: complete
+          ? null
+          : { ...state, postedCount },
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(contentItemsTable.id, id),
+          eq(contentItemsTable.tenantId, req.tenantId),
+        ),
+      );
+
+    res.json({
+      commentsPosted: postedCount,
+      commentsTotal: state.comments.length,
+      commentsRemaining: state.comments.length - postedCount,
+      permalink:
+        item.permalink ??
+        `https://www.linkedin.com/feed/update/${state.postUrn}`,
+      ...(commentWarning ? { commentWarning } : {}),
+    });
   },
 );
 

@@ -83,6 +83,7 @@ import type {
   PublishTwitterResult,
   ResearchRequest,
   ResearchResult,
+  ResendLinkedinCommentsResult,
   ResolveSelectionInput,
   ResolveSelectionResult,
   ScheduleInput,
@@ -5747,6 +5748,77 @@ export const usePublishContentToLinkedin = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getPublishContentToLinkedinMutationOptions(options));
+    }
+
+export const getResendLinkedinCommentsUrl = (id: number,) => {
+
+
+
+
+  return `/api/content/${id}/resend-linkedin-comments`
+}
+
+/**
+ * Posts only the follow-up comments that are still missing from an earlier LinkedIn publish, keeping their original "(i/n)" numbering. Available only while the content item has an incomplete comment sequence recorded.
+ * @summary Resend LinkedIn follow-up comments that failed during a publish
+ */
+export const resendLinkedinComments = async (id: number, options?: RequestInit): Promise<ResendLinkedinCommentsResult> => {
+
+  return customFetch<ResendLinkedinCommentsResult>(getResendLinkedinCommentsUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getResendLinkedinCommentsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resendLinkedinComments>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resendLinkedinComments>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['resendLinkedinComments'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resendLinkedinComments>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  resendLinkedinComments(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResendLinkedinCommentsMutationResult = NonNullable<Awaited<ReturnType<typeof resendLinkedinComments>>>
+
+    export type ResendLinkedinCommentsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Resend LinkedIn follow-up comments that failed during a publish
+ */
+export const useResendLinkedinComments = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resendLinkedinComments>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof resendLinkedinComments>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getResendLinkedinCommentsMutationOptions(options));
     }
 
 export const getListNotificationsUrl = () => {

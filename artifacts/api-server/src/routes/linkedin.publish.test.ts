@@ -353,6 +353,17 @@ describe("LinkedIn publish", () => {
       c.url.includes("/socialActions/"),
     );
     expect(commentCalls.length).toBe(1);
+    // The incomplete sequence is persisted so it can be resent later with
+    // the same numbering, even if the caption is edited in the meantime.
+    const saved = state.content[0].linkedinCommentState as {
+      postUrn: string;
+      comments: string[];
+      postedCount: number;
+    };
+    expect(saved).toBeTruthy();
+    expect(saved.postUrn).toBe("urn:li:share:556");
+    expect(saved.comments).toEqual(expectedComments);
+    expect(saved.postedCount).toBe(0);
   });
 
   it("publishes a post with an image (init -> upload -> attach)", async () => {
@@ -420,6 +431,109 @@ describe("LinkedIn publish", () => {
     expect(state.content[0].failureReason).toContain("LinkedIn rejected the post");
     // The post was never attempted after the init failure.
     expect(fetchCalls.some((c) => c.url.endsWith("/rest/posts"))).toBe(false);
+  });
+});
+
+describe("LinkedIn comment resend", () => {
+  const COMMENTS = ["(1/3) part one", "(2/3) part two", "(3/3) part three"];
+
+  function seedWithPendingComments(postedCount: number) {
+    seedConnectedAccount();
+    seedContentItem({
+      status: "published",
+      postId: "urn:li:share:556",
+      permalink: "https://www.linkedin.com/feed/update/urn:li:share:556",
+      linkedinCommentState: {
+        postUrn: "urn:li:share:556",
+        comments: COMMENTS,
+        postedCount,
+      },
+    });
+  }
+
+  it("posts only the missing comments with their original numbering and clears the state", async () => {
+    seedWithPendingComments(1);
+    fetchHandler = (call) => {
+      if (call.url.includes("/userinfo")) {
+        return makeRes({ json: { sub: "member123", name: "Jane Member" } });
+      }
+      if (call.url.includes("/socialActions/")) {
+        return makeRes({ status: 201 });
+      }
+      return makeRes();
+    };
+
+    const res = await drive("POST", "/content/1/resend-linkedin-comments");
+
+    expect(res.status).toBe(200);
+    expect(res.json.commentsPosted).toBe(3);
+    expect(res.json.commentsTotal).toBe(3);
+    expect(res.json.commentsRemaining).toBe(0);
+    expect(res.json.commentWarning).toBeUndefined();
+    expect(res.json.permalink).toContain("urn:li:share:556");
+
+    // Only the two missing comments went out — the already-posted first one
+    // is never re-sent (no duplicates), and numbering is preserved.
+    const commentCalls = fetchCalls.filter((c) =>
+      c.url.includes("/socialActions/"),
+    );
+    expect(commentCalls.length).toBe(2);
+    expect((commentCalls[0]!.body as any).message.text).toBe(COMMENTS[1]);
+    expect((commentCalls[1]!.body as any).message.text).toBe(COMMENTS[2]);
+    // Completed: the pending state is cleared.
+    expect(state.content[0].linkedinCommentState).toBeNull();
+  });
+
+  it("keeps the remaining state and warns when a resend fails again mid-sequence", async () => {
+    seedWithPendingComments(0);
+    let commentCallCount = 0;
+    fetchHandler = (call) => {
+      if (call.url.includes("/userinfo")) {
+        return makeRes({ json: { sub: "member123" } });
+      }
+      if (call.url.includes("/socialActions/")) {
+        commentCallCount += 1;
+        // First comment succeeds, second fails.
+        return commentCallCount === 1
+          ? makeRes({ status: 201 })
+          : makeRes({ status: 500, json: { message: "rate limited" } });
+      }
+      return makeRes();
+    };
+
+    const res = await drive("POST", "/content/1/resend-linkedin-comments");
+
+    expect(res.status).toBe(200);
+    expect(res.json.commentsPosted).toBe(1);
+    expect(res.json.commentsRemaining).toBe(2);
+    expect(res.json.commentWarning).toBeTruthy();
+    // Progress is persisted so the next resend starts at the right comment.
+    const saved = state.content[0].linkedinCommentState as {
+      postedCount: number;
+      comments: string[];
+    };
+    expect(saved.postedCount).toBe(1);
+    expect(saved.comments).toEqual(COMMENTS);
+  });
+
+  it("returns 400 when there is nothing to resend", async () => {
+    seedConnectedAccount();
+    seedContentItem({ status: "published" });
+
+    const res = await drive("POST", "/content/1/resend-linkedin-comments");
+
+    expect(res.status).toBe(400);
+    expect(fetchCalls.filter((c) => c.url.includes("/socialActions/")).length).toBe(0);
+  });
+
+  it("returns 400 when LinkedIn is no longer connected", async () => {
+    seedWithPendingComments(0);
+    state.accounts[0]!.accessToken = null;
+
+    const res = await drive("POST", "/content/1/resend-linkedin-comments");
+
+    expect(res.status).toBe(400);
+    expect(res.json.error).toContain("Reconnect");
   });
 });
 

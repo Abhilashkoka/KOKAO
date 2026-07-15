@@ -3134,6 +3134,7 @@ export const ListContentResponseItem = zod.object({
   "failureReason": zod.string().nullish().describe('Why the last publish attempt failed. Set to a canonical restart-interruption message when the server auto-failed an orphaned \"publishing\" item, or a platform rejection message on a real publish failure. Null when not failed.'),
   "postId": zod.string().nullish(),
   "permalink": zod.string().nullish(),
+  "linkedinCommentsPending": zod.number().optional().describe('How many LinkedIn follow-up comments from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend remaining comments\" action.'),
   "brandKitId": zod.number().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -3170,6 +3171,7 @@ export const CreateContentResponse = zod.object({
   "failureReason": zod.string().nullish().describe('Why the last publish attempt failed. Set to a canonical restart-interruption message when the server auto-failed an orphaned \"publishing\" item, or a platform rejection message on a real publish failure. Null when not failed.'),
   "postId": zod.string().nullish(),
   "permalink": zod.string().nullish(),
+  "linkedinCommentsPending": zod.number().optional().describe('How many LinkedIn follow-up comments from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend remaining comments\" action.'),
   "brandKitId": zod.number().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -3195,6 +3197,7 @@ export const GetContentResponse = zod.object({
   "failureReason": zod.string().nullish().describe('Why the last publish attempt failed. Set to a canonical restart-interruption message when the server auto-failed an orphaned \"publishing\" item, or a platform rejection message on a real publish failure. Null when not failed.'),
   "postId": zod.string().nullish(),
   "permalink": zod.string().nullish(),
+  "linkedinCommentsPending": zod.number().optional().describe('How many LinkedIn follow-up comments from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend remaining comments\" action.'),
   "brandKitId": zod.number().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -3234,6 +3237,7 @@ export const UpdateContentResponse = zod.object({
   "failureReason": zod.string().nullish().describe('Why the last publish attempt failed. Set to a canonical restart-interruption message when the server auto-failed an orphaned \"publishing\" item, or a platform rejection message on a real publish failure. Null when not failed.'),
   "postId": zod.string().nullish(),
   "permalink": zod.string().nullish(),
+  "linkedinCommentsPending": zod.number().optional().describe('How many LinkedIn follow-up comments from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend remaining comments\" action.'),
   "brandKitId": zod.number().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -3816,6 +3820,23 @@ export const PublishContentToLinkedinResponse = zod.object({
   "commentsPosted": zod.number().optional().describe('How many follow-up comments carrying caption overflow were posted.'),
   "commentsTotal": zod.number().optional().describe('How many follow-up comments the caption overflow required.'),
   "commentWarning": zod.string().nullish().describe('Present when the post published but some follow-up comments with the rest of the caption could not be posted.')
+})
+
+
+/**
+ * Posts only the follow-up comments that are still missing from an earlier LinkedIn publish, keeping their original "(i/n)" numbering. Available only while the content item has an incomplete comment sequence recorded.
+ * @summary Resend LinkedIn follow-up comments that failed during a publish
+ */
+export const ResendLinkedinCommentsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ResendLinkedinCommentsResponse = zod.object({
+  "commentsPosted": zod.number().describe('Total comments now posted across all attempts.'),
+  "commentsTotal": zod.number().describe('How many follow-up comments the caption overflow required.'),
+  "commentsRemaining": zod.number().describe('Comments still missing after this attempt (0 = complete).'),
+  "permalink": zod.string().nullish(),
+  "commentWarning": zod.string().nullish().describe('Present when some comments still could not be posted.')
 })
 
 

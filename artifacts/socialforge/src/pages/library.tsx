@@ -6,6 +6,7 @@ import {
   usePublishContentToFacebook,
   usePublishContentToInstagram,
   usePublishContentToLinkedin,
+  useResendLinkedinComments,
   usePublishContentToTwitter,
   usePublishContentToThreads,
   useGetThreadsStatus,
@@ -59,6 +60,48 @@ export function LibraryPage() {
 
   const [linkedinItem, setLinkedinItem] = useState<any | null>(null);
   const publishLinkedin = usePublishContentToLinkedin();
+  const resendLinkedinComments = useResendLinkedinComments();
+  const [resendingId, setResendingId] = useState<number | null>(null);
+
+  // Resend only the LinkedIn follow-up comments that failed during a
+  // publish; the server keeps the original "(i/n)" numbering.
+  const handleResendLinkedinComments = (itemId: number) => {
+    setResendingId(itemId);
+    resendLinkedinComments.mutate(
+      { id: itemId },
+      {
+        onSuccess: (res) => {
+          if (res?.commentWarning) {
+            toast({
+              title: "Some comments are still missing",
+              description: res.commentWarning,
+              variant: "destructive",
+              action: viewPostAction(res?.permalink),
+            });
+          } else {
+            toast({
+              title: "Comments resent",
+              description: `All ${res?.commentsTotal ?? ""} follow-up comment(s) are now posted on LinkedIn.`,
+              action: viewPostAction(res?.permalink),
+            });
+          }
+          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+        },
+        onError: (err: any) => {
+          toast({
+            title: "Resend failed",
+            description:
+              err?.response?.data?.error ||
+              "Could not resend the LinkedIn comments. Try again.",
+            variant: "destructive",
+          });
+        },
+        onSettled: () => {
+          setResendingId(null);
+        },
+      },
+    );
+  };
 
   const [twitterItem, setTwitterItem] = useState<any | null>(null);
   const publishTwitter = usePublishContentToTwitter();
@@ -181,11 +224,19 @@ export function LibraryPage() {
       {
         onSuccess: (res) => {
           if (res?.commentWarning) {
+            const itemId = linkedinItem.id;
             toast({
               title: "Published, but some comments failed",
-              description: res.commentWarning,
+              description: `${res.commentWarning} You can resend the missing comments from this card in the library.`,
               variant: "destructive",
-              action: viewPostAction(res?.permalink),
+              action: (
+                <ToastAction
+                  altText="Resend comments"
+                  onClick={() => handleResendLinkedinComments(itemId)}
+                >
+                  Resend comments
+                </ToastAction>
+              ),
             });
           } else {
             const extra =
@@ -381,6 +432,28 @@ export function LibraryPage() {
                 
                 {item.caption && (
                   <p className="text-muted-foreground text-sm line-clamp-3 mb-4">{item.caption}</p>
+                )}
+
+                {(item.linkedinCommentsPending ?? 0) > 0 && (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-400 mb-4 space-y-2" data-testid={`text-linkedin-comments-pending-${item.id}`}>
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <span>
+                        {item.linkedinCommentsPending} LinkedIn follow-up comment{item.linkedinCommentsPending === 1 ? "" : "s"} with the rest of the caption {item.linkedinCommentsPending === 1 ? "is" : "are"} still missing from the published post.
+                      </span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      disabled={resendingId === item.id}
+                      onClick={() => handleResendLinkedinComments(item.id)}
+                      data-testid={`button-resend-linkedin-comments-${item.id}`}
+                    >
+                      <RotateCw className={`h-3 w-3 mr-1 ${resendingId === item.id ? 'animate-spin' : ''}`} />
+                      {resendingId === item.id ? "Resending..." : "Resend comments"}
+                    </Button>
+                  </div>
                 )}
 
                 {item.status === 'failed' && item.failureReason && (

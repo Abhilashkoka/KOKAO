@@ -2006,6 +2006,42 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /content/{id}/resend-linkedin-comments:
+    post:
+      operationId: resendLinkedinComments
+      tags: [linkedin]
+      summary: Resend LinkedIn follow-up comments that failed during a publish
+      description: >-
+        Posts only the follow-up comments that are still missing from an
+        earlier LinkedIn publish, keeping their original "(i/n)" numbering.
+        Available only while the content item has an incomplete comment
+        sequence recorded.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Resend attempt finished (fully or partially)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResendLinkedinCommentsResult"
+        "400":
+          description: Nothing to resend or LinkedIn not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /notifications:
     get:
       operationId: listNotifications
@@ -3648,6 +3684,24 @@ components:
           description: >-
             Present when the post published but some follow-up comments with the
             rest of the caption could not be posted.
+    ResendLinkedinCommentsResult:
+      type: object
+      required: [commentsPosted, commentsTotal, commentsRemaining]
+      properties:
+        commentsPosted:
+          type: integer
+          description: Total comments now posted across all attempts.
+        commentsTotal:
+          type: integer
+          description: How many follow-up comments the caption overflow required.
+        commentsRemaining:
+          type: integer
+          description: Comments still missing after this attempt (0 = complete).
+        permalink:
+          type: ["string", "null"]
+        commentWarning:
+          type: ["string", "null"]
+          description: Present when some comments still could not be posted.
     Notification:
       type: object
       required: [id, type, title, message, createdAt]
@@ -3922,6 +3976,12 @@ components:
           type: ["string", "null"]
         permalink:
           type: ["string", "null"]
+        linkedinCommentsPending:
+          type: integer
+          description: >-
+            How many LinkedIn follow-up comments from the last publish are
+            still missing (0 when none). When > 0 the client can offer a
+            "resend remaining comments" action.
         brandKitId:
           type: ["integer", "null"]
         createdAt:

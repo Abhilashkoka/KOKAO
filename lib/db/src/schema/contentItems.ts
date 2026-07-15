@@ -1,6 +1,25 @@
-import { pgTable, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  serial,
+  integer,
+  timestamp,
+  jsonb,
+} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+
+/**
+ * Snapshot of a LinkedIn overflow-comment sequence that did not fully post.
+ * The exact comment texts (already "(i/n)"-numbered) are stored so a later
+ * caption edit cannot change the numbering of a resend; postedCount marks how
+ * many leading comments already succeeded.
+ */
+export interface LinkedinCommentState {
+  postUrn: string;
+  comments: string[];
+  postedCount: number;
+}
 
 export const contentItemsTable = pgTable("content_items", {
   id: serial("id").primaryKey(),
@@ -21,6 +40,9 @@ export const contentItemsTable = pgTable("content_items", {
   failureReason: text("failure_reason"),
   postId: text("post_id"),
   permalink: text("permalink"),
+  // Present only while a LinkedIn overflow-comment sequence is incomplete;
+  // cleared when all comments are posted (or a fresh publish starts over).
+  linkedinCommentState: jsonb("linkedin_comment_state").$type<LinkedinCommentState>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
@@ -31,6 +53,7 @@ export const contentItemsTable = pgTable("content_items", {
 export const insertContentItemSchema = createInsertSchema(contentItemsTable).omit({
   id: true,
   tenantId: true,
+  linkedinCommentState: true,
   createdAt: true,
   updatedAt: true,
 });
