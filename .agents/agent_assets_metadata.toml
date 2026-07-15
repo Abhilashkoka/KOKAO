@@ -1,8 +1,13 @@
 uploads = []
-outputs = []
 
 [[generated]]
 id = "1Nd3jBaMVreIJmsgSIuDy"
 uri = "file://artifacts/socialforge/public/hero-image.png"
 type = "image"
 title = "SocialForge marketing hero image"
+
+[[outputs]]
+id = "LgNRwiiOXO_7QWJPCUO09"
+uri = "file://exports/api-inventory.xlsx"
+type = "table"
+title = "API Inventory — SocialForge (104 endpoints)"
