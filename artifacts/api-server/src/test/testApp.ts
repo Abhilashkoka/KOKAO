@@ -5,6 +5,7 @@ import metaRouter from "../routes/meta";
 import linkedinRouter, { linkedinCallbackRouter } from "../routes/linkedin";
 import twitterRouter, { twitterCallbackRouter } from "../routes/twitter";
 import adminRouter from "../routes/admin";
+import emailSettingsRouter from "../routes/emailSettings";
 import notificationsRouter from "../routes/notifications";
 import notificationSettingsRouter from "../routes/notificationSettings";
 
@@ -63,6 +64,6 @@ export function createAdminTestApp(): Express {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
   attachLogStub(app);
-  app.use("/api", requireTenant, adminRouter);
+  app.use("/api", requireTenant, adminRouter, emailSettingsRouter);
   return app;
 }

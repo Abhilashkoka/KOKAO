@@ -8,8 +8,10 @@ import {
   notificationPreferencesTable,
   notificationPoliciesTable,
   adminAuditLogsTable,
+  emailSettingsTable,
   type AppCredential,
   type NotificationPolicy,
+  type EmailSettings,
 } from "@workspace/db";
 import type { EmailPolicy } from "../lib/notificationCatalog";
 import { and, eq, or } from "drizzle-orm";
@@ -341,6 +343,43 @@ export async function restoreTwitterRow(
       lastTestStatus: snapshot.lastTestStatus,
       lastTestedAt: snapshot.lastTestedAt,
       lastTestError: snapshot.lastTestError,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// App-level email delivery settings (singleton row). Snapshot/restore so tests
+// never destroy real dev configuration.
+// ---------------------------------------------------------------------------
+
+export async function snapshotEmailSettings(): Promise<EmailSettings | null> {
+  const row = (await db.select().from(emailSettingsTable).limit(1))[0];
+  return row ?? null;
+}
+
+export async function clearEmailSettings(): Promise<void> {
+  await db.delete(emailSettingsTable);
+}
+
+export async function getEmailSettingsRow(): Promise<
+  EmailSettings | undefined
+> {
+  return (await db.select().from(emailSettingsTable).limit(1))[0];
+}
+
+export async function restoreEmailSettings(
+  snapshot: EmailSettings | null,
+): Promise<void> {
+  await db.delete(emailSettingsTable);
+  if (snapshot) {
+    await db.insert(emailSettingsTable).values({
+      sendingEnabled: snapshot.sendingEnabled,
+      fromEmail: snapshot.fromEmail,
+      encryptedApiKey: snapshot.encryptedApiKey,
+      lastTestStatus: snapshot.lastTestStatus,
+      lastTestedAt: snapshot.lastTestedAt,
+      lastTestError: snapshot.lastTestError,
+      updatedAt: snapshot.updatedAt,
     });
   }
 }
