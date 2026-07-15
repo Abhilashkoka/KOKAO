@@ -100,6 +100,9 @@ export function trimToLinkedinLength(text: string): string {
   return text.slice(0, LINKEDIN_MAX_LENGTH - 1).trimEnd() + ELLIPSIS;
 }
 
+/** Threads posts are capped at 500 characters of text. */
+export const THREADS_MAX_LENGTH = 500;
+
 /**
  * LinkedIn comments have a smaller character budget than posts (~1250 chars),
  * so caption overflow that spills into follow-up comments must be chunked to

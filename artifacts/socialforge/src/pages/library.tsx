@@ -26,10 +26,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, splitForLinkedin, chunkOnWhitespace, splitIntoTweets } from "@workspace/social-limits";
-
-// Mirrors THREADS_MAX_LENGTH on the server (api-server routes/threads.ts).
-const THREADS_MAX_LENGTH = 500;
+import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, splitForLinkedin, chunkOnWhitespace, splitIntoTweets, THREADS_MAX_LENGTH } from "@workspace/social-limits";
 
 export function LibraryPage() {
   const { data: content, isLoading } = useListContent({

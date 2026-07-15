@@ -19,7 +19,7 @@ import {
   notifySocialConnectionFailed,
   resolveSocialConnectionNotifications,
 } from "../lib/notifications";
-import { chunkOnWhitespace } from "@workspace/social-limits";
+import { chunkOnWhitespace, THREADS_MAX_LENGTH } from "@workspace/social-limits";
 
 const router: IRouter = Router();
 
@@ -31,9 +31,6 @@ const TOKEN_URL = "https://graph.threads.net/oauth/access_token";
 const GRAPH_BASE = "https://graph.threads.net/v1.0";
 const LONG_LIVED_URL = "https://graph.threads.net/access_token";
 const REFRESH_URL = "https://graph.threads.net/refresh_access_token";
-
-/** Threads posts are capped at 500 characters of text. */
-const THREADS_MAX_LENGTH = 500;
 
 /**
  * App-level Threads OAuth credentials (the Threads App ID/Secret from a Meta
