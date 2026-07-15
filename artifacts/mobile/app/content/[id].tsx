@@ -9,6 +9,10 @@ import {
   useGetContent,
   useUpdateContent,
   useDeleteContent,
+  usePublishContentToFacebook,
+  usePublishContentToInstagram,
+  useGetFacebookCredentials,
+  useGetInstagramCredentials,
   getListContentQueryKey,
   getGetContentQueryKey,
 } from "@workspace/api-client-react";
@@ -30,9 +34,23 @@ export default function ContentDetailScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const { data, isLoading, isError, error, refetch } = useGetContent(contentId);
+  const { data, isLoading, isError, error, refetch } = useGetContent(contentId, {
+    query: {
+      queryKey: getGetContentQueryKey(contentId),
+      // Instagram publishes asynchronously (the item sits in "publishing"
+      // while Meta processes the image). Poll so the screen flips to
+      // published/failed without a manual refresh.
+      refetchInterval: (query) =>
+        query.state.data?.status === "publishing" ? 4000 : false,
+    },
+  });
   const update = useUpdateContent();
   const remove = useDeleteContent();
+
+  const publishFacebook = usePublishContentToFacebook();
+  const publishInstagram = usePublishContentToInstagram();
+  const { data: fbCreds } = useGetFacebookCredentials();
+  const { data: igCreds } = useGetInstagramCredentials();
 
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
@@ -41,6 +59,8 @@ export default function ContentDetailScreen() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  const [publishMsg, setPublishMsg] = useState<string | null>(null);
+  const [publishErr, setPublishErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (data && !dirty) {
@@ -77,6 +97,69 @@ export default function ContentDetailScreen() {
           queryClient.invalidateQueries({ queryKey: getGetContentQueryKey(contentId) });
         },
         onError: (err) => setErrMsg(err?.message || "Could not save changes."),
+      },
+    );
+  };
+
+  const apiErrorText = (err: unknown, fallback: string) => {
+    const data = (err as { data?: { error?: string } } | null)?.data;
+    return data?.error || (err as Error | null)?.message || fallback;
+  };
+
+  const fbReady = fbCreds?.verifyStatus === "verified";
+  const igReady = igCreds?.verifyStatus === "verified";
+  const fbBroken = !!fbCreds?.saved && fbCreds?.verifyStatus === "failed";
+  const igBroken = !!igCreds?.saved && igCreds?.verifyStatus === "failed";
+
+  const invalidateContent = () => {
+    queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetContentQueryKey(contentId) });
+  };
+
+  const handlePublishFacebook = () => {
+    haptic();
+    setPublishMsg(null);
+    setPublishErr(null);
+    publishFacebook.mutate(
+      { id: contentId },
+      {
+        onSuccess: () => {
+          setPublishMsg("Published to Facebook. Your post is live.");
+          invalidateContent();
+        },
+        onError: (err) => {
+          setPublishErr(
+            apiErrorText(
+              err,
+              "Could not publish to Facebook. Check your Page connection on the web app.",
+            ),
+          );
+        },
+      },
+    );
+  };
+
+  const handlePublishInstagram = () => {
+    haptic();
+    setPublishMsg(null);
+    setPublishErr(null);
+    publishInstagram.mutate(
+      { id: contentId },
+      {
+        onSuccess: () => {
+          setPublishMsg(
+            "Publishing to Instagram. This will update to Published once it's live.",
+          );
+          invalidateContent();
+        },
+        onError: (err) => {
+          setPublishErr(
+            apiErrorText(
+              err,
+              "Could not publish to Instagram. Check your Instagram connection on the web app.",
+            ),
+          );
+        },
       },
     );
   };
@@ -174,6 +257,79 @@ export default function ContentDetailScreen() {
         ))}
       </View>
 
+      <View style={{ marginTop: 16 }}>
+        <Label>Publish</Label>
+      </View>
+      {data.status === "publishing" ? (
+        <Card>
+          <Text style={styles.publishNote}>
+            Instagram is processing this post. It will switch to Published once
+            it&apos;s live.
+          </Text>
+        </Card>
+      ) : (
+        <>
+          {fbReady || igReady ? (
+            <View style={styles.publishRow}>
+              {fbReady ? (
+                <Button
+                  title="Facebook"
+                  icon="facebook"
+                  variant="secondary"
+                  onPress={handlePublishFacebook}
+                  loading={publishFacebook.isPending}
+                  disabled={publishInstagram.isPending}
+                  style={{ flex: 1 }}
+                />
+              ) : null}
+              {igReady ? (
+                <Button
+                  title="Instagram"
+                  icon="instagram"
+                  variant="secondary"
+                  onPress={handlePublishInstagram}
+                  loading={publishInstagram.isPending}
+                  disabled={publishFacebook.isPending || !data.imagePath}
+                  style={{ flex: 1 }}
+                />
+              ) : null}
+            </View>
+          ) : null}
+          {igReady && !data.imagePath ? (
+            <Text style={styles.publishHint}>
+              Instagram needs an image. Generate one for this post in the Studio
+              first.
+            </Text>
+          ) : null}
+          {fbBroken || igBroken ? (
+            <View style={styles.brokenBox}>
+              <Feather name="alert-triangle" size={14} color={c.destructive} />
+              <Text style={styles.brokenText}>
+                {fbBroken && igBroken
+                  ? "Your Facebook and Instagram connections stopped working. Reconnect them from KOKAO on the web."
+                  : fbBroken
+                    ? "Your Facebook Page connection stopped working. Reconnect it from KOKAO on the web."
+                    : "Your Instagram connection stopped working. Reconnect it from KOKAO on the web."}
+              </Text>
+            </View>
+          ) : null}
+          {!fbReady && !igReady && !fbBroken && !igBroken ? (
+            <Text style={styles.publishHint}>
+              No verified accounts to publish to. Connect Facebook or Instagram
+              from KOKAO on the web.
+            </Text>
+          ) : null}
+        </>
+      )}
+
+      {publishMsg ? (
+        <View style={styles.messageRow}>
+          <Feather name="check-circle" size={16} color={c.success} />
+          <Text style={styles.messageText}>{publishMsg}</Text>
+        </View>
+      ) : null}
+      {publishErr ? <Text style={styles.error}>{publishErr}</Text> : null}
+
       {data.permalink ? (
         <Card style={{ marginTop: 16 }}>
           <Text style={styles.permalinkLabel}>Published link</Text>
@@ -250,4 +406,33 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   confirmRow: { flexDirection: "row", gap: 10, marginTop: 10 },
+  publishRow: { flexDirection: "row", gap: 10 },
+  publishHint: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: c.mutedForeground,
+    marginTop: 8,
+    lineHeight: 17,
+  },
+  publishNote: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    color: c.mutedForeground,
+    lineHeight: 18,
+  },
+  brokenBox: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 8,
+    backgroundColor: "#fdecec",
+    borderRadius: colors.radius,
+    padding: 10,
+  },
+  brokenText: {
+    flex: 1,
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: c.destructive,
+    lineHeight: 17,
+  },
 });
