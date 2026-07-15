@@ -171,6 +171,35 @@ export async function insertLinkedinAccount(
   });
 }
 
+export async function insertThreadsAccount(
+  tenantId: number,
+  opts: {
+    accessToken?: string | null;
+    providerUserId?: string | null;
+    tokenExpiresAt?: Date | null;
+    status?: string;
+    accountName?: string;
+    verifyStatus?: string | null;
+    verifyError?: string | null;
+    verifiedAt?: Date | null;
+  } = {},
+): Promise<void> {
+  await db.insert(connectedAccountsTable).values({
+    tenantId,
+    platform: "threads",
+    accountName: opts.accountName ?? "@threadsuser",
+    status: opts.status ?? "connected",
+    accessToken:
+      opts.accessToken === undefined ? "th_tok_secret" : opts.accessToken,
+    providerUserId:
+      opts.providerUserId === undefined ? "th_user_123" : opts.providerUserId,
+    tokenExpiresAt: opts.tokenExpiresAt ?? null,
+    verifyStatus: opts.verifyStatus ?? "verified",
+    verifyError: opts.verifyError ?? null,
+    verifiedAt: opts.verifiedAt ?? new Date(),
+  });
+}
+
 /**
  * Adjust the stored check-state fields on an existing connected account row.
  * Used by re-verification tests to simulate a stale check clock, a prior
