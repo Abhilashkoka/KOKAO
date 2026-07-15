@@ -1163,4 +1163,76 @@ describe("revoking the superadmin DB flag instantly locks out every platform-wid
       await deleteTenant(tenant.tenantId);
     }
   });
+
+  it("audit log (/admin/audit-logs): access while granted, 403 on the very next request after revoke", async () => {
+    const tenant = await createTenant({
+      email: `revoked-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(tenant.clerkUserId, tenant.email);
+
+      // Not yet a superadmin: the gate rejects the listing outright.
+      const before = await request(app).get("/api/admin/audit-logs");
+      expect(before.status).toBe(403);
+
+      // Granted: the audit trail is readable.
+      await setTenantSuperadmin(tenant.tenantId, true);
+      const granted = await request(app).get("/api/admin/audit-logs");
+      expect(granted.status).toBe(200);
+      expect(Array.isArray(granted.body.items)).toBe(true);
+
+      // Revoked: the very next request is rejected — the flag is read fresh
+      // each request, so a demoted admin cannot keep browsing the trail.
+      await setTenantSuperadmin(tenant.tenantId, false);
+      const revoked = await request(app).get("/api/admin/audit-logs");
+      expect(revoked.status).toBe(403);
+
+      // The export surface behind the same gate is locked out too.
+      const revokedExport = await request(app).get(
+        "/api/admin/audit-logs/export",
+      );
+      expect(revokedExport.status).toBe(403);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("per-tenant plan override (PATCH /admin/tenants/:id): access while granted, 403 + no plan change after revoke", async () => {
+    const actor = await createTenant({
+      email: `revoked-${randomUUID()}@example.com`,
+    });
+    const target = await createTenant({
+      email: `target-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+
+      // Not yet a superadmin: the write is rejected and the plan is untouched.
+      const before = await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}`)
+        .send({ plan: "pro" });
+      expect(before.status).toBe(403);
+      expect((await getTenant(target.tenantId)).plan).toBe("free");
+
+      // Granted: the override lands.
+      await setTenantSuperadmin(actor.tenantId, true);
+      const granted = await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}`)
+        .send({ plan: "pro" });
+      expect(granted.status).toBe(200);
+      expect((await getTenant(target.tenantId)).plan).toBe("pro");
+
+      // Revoked: the very next write is rejected and the target keeps its
+      // current plan — no change is written by the demoted admin.
+      await setTenantSuperadmin(actor.tenantId, false);
+      const revoked = await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}`)
+        .send({ plan: "business" });
+      expect(revoked.status).toBe(403);
+      expect((await getTenant(target.tenantId)).plan).toBe("pro");
+    } finally {
+      await deleteTenant(actor.tenantId);
+      await deleteTenant(target.tenantId);
+    }
+  });
 });
