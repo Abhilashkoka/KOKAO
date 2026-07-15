@@ -1,4 +1,4 @@
-# SocialForge Load-Testing Plan
+# KOKAO Load-Testing Plan
 
 Scope: the 5 highest-priority endpoints from the verified API inventory.
 Auth model: Clerk **session cookie** (no JWT). Every protected request must send the

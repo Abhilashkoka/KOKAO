@@ -6,7 +6,7 @@ import { fetchVerifiedEmail } from "../lib/clerkUser";
 import { isSuperadminEmail } from "../lib/superadmins";
 
 /**
- * Resolves the Clerk-authenticated user to a SocialForge tenant, auto-provisioning
+ * Resolves the Clerk-authenticated user to a KOKAO tenant, auto-provisioning
  * one on first authenticated request. Attaches `req.tenantId`, `req.clerkUserId`,
  * `req.tenantEmail`, and `req.isSuperadmin`.
  *

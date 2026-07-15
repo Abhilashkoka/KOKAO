@@ -1,6 +1,6 @@
-# SocialForge
+# KOKAO
 
-SocialForge is a multi-tenant SaaS web app for AI-powered social media content: it generates on-brand captions and images, organizes a content library, manages brand kits, schedules posts, and connects social accounts (Instagram/Facebook/LinkedIn/YouTube). Built to scale to 5K-20K users with per-tenant subscription quotas (free/pro/business).
+KOKAO (internal codename SocialForge; code packages keep the `@workspace/socialforge` name) is a multi-tenant SaaS web app for AI-powered social media content: it generates on-brand captions and images, organizes a content library, manages brand kits, schedules posts, and connects social accounts (Instagram/Facebook/LinkedIn/YouTube). Built to scale to 5K-20K users with per-tenant subscription quotas (free/pro/business).
 
 ## Run & Operate
 

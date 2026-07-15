@@ -168,9 +168,9 @@ router.post(
 
     const result = await sendTestEmail({
       to,
-      subject: "SocialForge test email",
-      text: "This is a test email from SocialForge confirming email delivery is working.",
-      html: "<p>This is a test email from <strong>SocialForge</strong> confirming email delivery is working.</p>",
+      subject: "KOKAO test email",
+      text: "This is a test email from KOKAO confirming email delivery is working.",
+      html: "<p>This is a test email from <strong>KOKAO</strong> confirming email delivery is working.</p>",
     });
 
     // Record the outcome so the admin card reflects the last test.
