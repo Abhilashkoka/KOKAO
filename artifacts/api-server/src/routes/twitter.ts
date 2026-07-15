@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { trackSyncPublish } from "../middlewares/trackSyncPublish";
 import { db, connectedAccountsTable, contentItemsTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { ObjectStorageService } from "../lib/objectStorage";
@@ -428,6 +429,7 @@ async function markPublished(
  */
 router.post(
   "/content/:id/publish-twitter",
+  trackSyncPublish,
   async (req: Request, res: Response) => {
     const id = Number(req.params.id);
     const item = await loadContentItem(id, req.tenantId);

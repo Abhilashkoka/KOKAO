@@ -10,6 +10,7 @@ import {
 } from "../lib/metaApi";
 import { reverifyFacebook, reverifyInstagram } from "../lib/socialReverify";
 import { enqueueBackgroundJob, isShuttingDown } from "../lib/backgroundJobs";
+import { trackSyncPublish } from "../middlewares/trackSyncPublish";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -596,6 +597,7 @@ async function runInstagramPublish(
  */
 router.post(
   "/content/:id/publish-facebook",
+  trackSyncPublish,
   async (req: Request, res: Response) => {
     const id = Number(req.params.id);
     const item = await loadContentItem(id, req.tenantId);

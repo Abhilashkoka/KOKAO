@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { trackSyncPublish } from "../middlewares/trackSyncPublish";
 import {
   db,
   connectedAccountsTable,
@@ -568,6 +569,7 @@ async function publishOneThread(opts: {
 
 router.post(
   "/content/:id/publish-threads",
+  trackSyncPublish,
   async (req: Request, res: Response) => {
     const id = Number(req.params.id);
     const item = (

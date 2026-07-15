@@ -68,6 +68,34 @@ export function enqueueBackgroundJob(task: () => Promise<void>): boolean {
 }
 
 /**
+ * Track a synchronous (request-scoped) unit of work in the same `pending` set
+ * the shutdown drain awaits, so an in-flight HTTP publish is not killed
+ * mid-request when SIGTERM arrives. Returns a `done()` callback the caller
+ * MUST invoke when the request finishes (success or failure), or `null` if
+ * shutdown has already begun — in which case the caller must reject the
+ * request with a retriable error instead of starting platform writes.
+ */
+export function beginTrackedRequest(): (() => void) | null {
+  if (shuttingDown) {
+    return null;
+  }
+  let resolve!: () => void;
+  const job = new Promise<void>((r) => {
+    resolve = r;
+  });
+  pending.add(job);
+  void job.finally(() => {
+    pending.delete(job);
+  });
+  let called = false;
+  return () => {
+    if (called) return;
+    called = true;
+    resolve();
+  };
+}
+
+/**
  * Await all in-flight background jobs, including any enqueued while the drain
  * is in progress (the loop re-snapshots `pending` until it is empty). Used by
  * tests and graceful shutdown.

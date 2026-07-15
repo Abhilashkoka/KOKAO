@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { trackSyncPublish } from "../middlewares/trackSyncPublish";
 import {
   db,
   connectedAccountsTable,
@@ -404,6 +405,7 @@ router.post("/linkedin/retest", async (req: Request, res: Response) => {
 
 router.post(
   "/content/:id/publish-linkedin",
+  trackSyncPublish,
   async (req: Request, res: Response) => {
     const id = Number(req.params.id);
     const item = (
