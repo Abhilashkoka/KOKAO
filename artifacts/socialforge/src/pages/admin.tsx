@@ -68,6 +68,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { localDayStartISO, localDayEndISO } from "@/lib/auditDateRange";
 import {
   Users,
   Layers,
@@ -1785,11 +1786,8 @@ function AuditLogCard() {
       action: actionFilter === "all" ? undefined : actionFilter,
       actor: actorInput.trim() || undefined,
       target: targetInput.trim() || undefined,
-      from: fromInput ? new Date(fromInput).toISOString() : undefined,
-      to: toInput
-        ? new Date(new Date(toInput).getTime() + 24 * 60 * 60 * 1000 - 1)
-            .toISOString()
-        : undefined,
+      from: fromInput ? localDayStartISO(fromInput) : undefined,
+      to: toInput ? localDayEndISO(toInput) : undefined,
     });
   };
 
