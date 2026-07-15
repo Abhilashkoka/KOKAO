@@ -66,17 +66,31 @@ import {
   setVerifiedMetaRow,
   restoreMetaRow,
   getAuditLogsForActor,
+  snapshotAppCredentialRow,
+  setAppCredentialRow,
+  restoreAppCredentialRow,
 } from "../test/dbHelpers";
 
 const app = createTestApp();
 let metaSnapshot: AppCredential | null = null;
+const OTHER_PROVIDERS = ["twitter", "linkedin", "youtube", "threads"] as const;
+const providerSnapshots = new Map<string, AppCredential | null>();
 
 beforeAll(async () => {
   metaSnapshot = await snapshotMetaRow();
+  for (const provider of OTHER_PROVIDERS) {
+    providerSnapshots.set(provider, await snapshotAppCredentialRow(provider));
+  }
 });
 
 afterAll(async () => {
   await restoreMetaRow(metaSnapshot);
+  for (const provider of OTHER_PROVIDERS) {
+    await restoreAppCredentialRow(
+      provider,
+      providerSnapshots.get(provider) ?? null,
+    );
+  }
   await pool.end();
 });
 
@@ -816,4 +830,139 @@ describe("X (Twitter) disconnect endpoint", () => {
       await deleteTenant(other.tenantId);
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// Audit coverage for the remaining app-level credential PUT routes (X,
+// LinkedIn, YouTube, Threads). They share auditCredentialChange with Meta;
+// these tests guard that a future edit to any one route can never leak raw
+// secret material (or even the raw public identifier) into the audit table.
+// ---------------------------------------------------------------------------
+
+describe("credential-save audit rows are masked for all providers", () => {
+  interface ProviderCase {
+    provider: string;
+    path: string;
+    seed: Record<string, string>;
+    body: Record<string, string>;
+    secrets: string[];
+  }
+
+  const cases: ProviderCase[] = [
+    {
+      provider: "twitter",
+      path: "/api/admin/platform-credentials/twitter",
+      seed: { clientId: "x-old-client-id-1111", clientSecret: "x-old-secret-aaa" },
+      body: { clientId: "x-new-client-id-9999", clientSecret: "x-new-secret-zzz" },
+      secrets: [
+        "x-old-secret-aaa",
+        "x-new-secret-zzz",
+        "x-old-client-id-1111",
+        "x-new-client-id-9999",
+      ],
+    },
+    {
+      provider: "linkedin",
+      path: "/api/admin/platform-credentials/linkedin",
+      seed: { clientId: "li-old-client-id-1111", clientSecret: "li-old-secret-aaa" },
+      body: { clientId: "li-new-client-id-9999", clientSecret: "li-new-secret-zzz" },
+      secrets: [
+        "li-old-secret-aaa",
+        "li-new-secret-zzz",
+        "li-old-client-id-1111",
+        "li-new-client-id-9999",
+      ],
+    },
+    {
+      provider: "youtube",
+      path: "/api/admin/platform-credentials/youtube",
+      seed: { clientId: "yt-old-client-id-1111", clientSecret: "yt-old-secret-aaa" },
+      body: { clientId: "yt-new-client-id-9999", clientSecret: "yt-new-secret-zzz" },
+      secrets: [
+        "yt-old-secret-aaa",
+        "yt-new-secret-zzz",
+        "yt-old-client-id-1111",
+        "yt-new-client-id-9999",
+      ],
+    },
+    {
+      provider: "threads",
+      path: "/api/admin/platform-credentials/threads",
+      seed: { appId: "th-old-app-id-1111", appSecret: "th-old-secret-aaa" },
+      body: { appId: "th-new-app-id-9999", appSecret: "th-new-secret-zzz" },
+      secrets: [
+        "th-old-secret-aaa",
+        "th-new-secret-zzz",
+        "th-old-app-id-1111",
+        "th-new-app-id-9999",
+      ],
+    },
+  ];
+
+  for (const c of cases) {
+    it(`audits a ${c.provider} credential replace with masked values only`, async () => {
+      const tenant = await createTenant({ isSuperadmin: true });
+      try {
+        actAs(tenant.clerkUserId, tenant.email);
+        await setAppCredentialRow(c.provider, c.seed);
+
+        const res = await request(app).put(c.path).send(c.body);
+        expect(res.status).toBe(200);
+
+        const logs = (await getAuditLogsForActor(tenant.tenantId)).filter(
+          (l) => l.action === "credential_change",
+        );
+        expect(logs).toHaveLength(1);
+        const log = logs[0];
+        expect(log.targetTenantId).toBeNull();
+        expect(JSON.parse(log.newValue!)).toMatchObject({
+          provider: c.provider,
+        });
+        expect(JSON.parse(log.oldValue!)).toMatchObject({
+          provider: c.provider,
+        });
+        // The masked identifier fields must actually be populated (a helper
+        // regression that logged nulls would otherwise pass the leak checks).
+        expect(JSON.parse(log.oldValue!).idMasked).toBeTruthy();
+        expect(JSON.parse(log.newValue!).idMasked).toBeTruthy();
+
+        // No secret material — old or new, IDs or secrets — in the audit row.
+        const raw = `${log.oldValue}${log.newValue}`;
+        for (const secret of c.secrets) {
+          expect(raw).not.toContain(secret);
+        }
+      } finally {
+        await deleteTenant(tenant.tenantId);
+      }
+    });
+
+    it(`audits a first-time ${c.provider} credential save with a null oldValue and masked newValue`, async () => {
+      const tenant = await createTenant({ isSuperadmin: true });
+      try {
+        actAs(tenant.clerkUserId, tenant.email);
+        await restoreAppCredentialRow(c.provider, null); // no existing row
+
+        const res = await request(app).put(c.path).send(c.body);
+        expect(res.status).toBe(200);
+
+        const logs = (await getAuditLogsForActor(tenant.tenantId)).filter(
+          (l) => l.action === "credential_change",
+        );
+        expect(logs).toHaveLength(1);
+        const log = logs[0];
+        expect(log.oldValue).toBeNull();
+        expect(JSON.parse(log.newValue!)).toMatchObject({
+          provider: c.provider,
+        });
+        expect(JSON.parse(log.newValue!).idMasked).toBeTruthy();
+
+        const raw = `${log.newValue}`;
+        for (const secret of c.secrets) {
+          expect(raw).not.toContain(secret);
+        }
+      } finally {
+        await deleteTenant(tenant.tenantId);
+      }
+    });
+  }
 });

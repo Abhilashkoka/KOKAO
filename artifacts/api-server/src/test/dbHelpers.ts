@@ -358,6 +358,55 @@ export async function restoreTwitterRow(
 }
 
 // ---------------------------------------------------------------------------
+// Generic app-level credential row helpers (global, unique on provider).
+// Snapshot/restore so tests never destroy real dev configuration.
+// ---------------------------------------------------------------------------
+
+export async function snapshotAppCredentialRow(
+  provider: string,
+): Promise<AppCredential | null> {
+  const row = (
+    await db
+      .select()
+      .from(appCredentialsTable)
+      .where(eq(appCredentialsTable.provider, provider))
+      .limit(1)
+  )[0];
+  return row ?? null;
+}
+
+export async function setAppCredentialRow(
+  provider: string,
+  creds: unknown,
+): Promise<void> {
+  await db
+    .delete(appCredentialsTable)
+    .where(eq(appCredentialsTable.provider, provider));
+  await db.insert(appCredentialsTable).values({
+    provider,
+    encryptedCredentials: encryptJson(creds),
+  });
+}
+
+export async function restoreAppCredentialRow(
+  provider: string,
+  snapshot: AppCredential | null,
+): Promise<void> {
+  await db
+    .delete(appCredentialsTable)
+    .where(eq(appCredentialsTable.provider, provider));
+  if (snapshot) {
+    await db.insert(appCredentialsTable).values({
+      provider,
+      encryptedCredentials: snapshot.encryptedCredentials,
+      lastTestStatus: snapshot.lastTestStatus,
+      lastTestedAt: snapshot.lastTestedAt,
+      lastTestError: snapshot.lastTestError,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // App-level email delivery settings (singleton row). Snapshot/restore so tests
 // never destroy real dev configuration.
 // ---------------------------------------------------------------------------
