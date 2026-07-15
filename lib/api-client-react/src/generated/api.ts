@@ -23,6 +23,7 @@ import type {
   AccountInput,
   ActivateVersionInput,
   AdminAuditLogPage,
+  AdminExportAuditLogsParams,
   AdminListAuditLogsParams,
   AdminStats,
   AdminTenant,
@@ -1387,6 +1388,90 @@ export function useAdminListAuditLogs<TData = Awaited<ReturnType<typeof adminLis
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getAdminListAuditLogsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminExportAuditLogsUrl = (params?: AdminExportAuditLogsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/audit-logs/export?${stringifiedParams}` : `/api/admin/audit-logs/export`
+}
+
+/**
+ * @summary Download the full admin audit trail matching the given filters as a CSV file (superadmin only)
+ */
+export const adminExportAuditLogs = async (params?: AdminExportAuditLogsParams, options?: RequestInit): Promise<string> => {
+
+  return customFetch<string>(getAdminExportAuditLogsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminExportAuditLogsQueryKey = (params?: AdminExportAuditLogsParams,) => {
+    return [
+    `/api/admin/audit-logs/export`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getAdminExportAuditLogsQueryOptions = <TData = Awaited<ReturnType<typeof adminExportAuditLogs>>, TError = ErrorType<ErrorEnvelope>>(params?: AdminExportAuditLogsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminExportAuditLogs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminExportAuditLogsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminExportAuditLogs>>> = ({ signal }) => adminExportAuditLogs(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminExportAuditLogs>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminExportAuditLogsQueryResult = NonNullable<Awaited<ReturnType<typeof adminExportAuditLogs>>>
+export type AdminExportAuditLogsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Download the full admin audit trail matching the given filters as a CSV file (superadmin only)
+ */
+
+export function useAdminExportAuditLogs<TData = Awaited<ReturnType<typeof adminExportAuditLogs>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: AdminExportAuditLogsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminExportAuditLogs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminExportAuditLogsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

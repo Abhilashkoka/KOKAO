@@ -12,6 +12,8 @@ export * from './activateVersionInput';
 export * from './adminAuditLog';
 export * from './adminAuditLogAction';
 export * from './adminAuditLogPage';
+export * from './adminExportAuditLogsAction';
+export * from './adminExportAuditLogsParams';
 export * from './adminListAuditLogsAction';
 export * from './adminListAuditLogsParams';
 export * from './adminStats';

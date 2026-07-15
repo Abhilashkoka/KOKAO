@@ -453,6 +453,26 @@ export const AdminListAuditLogsResponse = zod.object({
 
 
 /**
+ * @summary Download the full admin audit trail matching the given filters as a CSV file (superadmin only)
+ */
+export const adminExportAuditLogsQueryActorMax = 200;
+
+export const adminExportAuditLogsQueryTargetMax = 200;
+
+
+
+export const AdminExportAuditLogsQueryParams = zod.object({
+  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change']).optional().describe('Only export records of this action type.'),
+  "actor": zod.coerce.string().max(adminExportAuditLogsQueryActorMax).optional().describe('Case-insensitive substring match on the actor email, or an exact actor tenant id when numeric.'),
+  "target": zod.coerce.string().max(adminExportAuditLogsQueryTargetMax).optional().describe('Case-insensitive substring match on the target email, or an exact target tenant id when numeric.'),
+  "from": zod.date().optional().describe('Only export records created at or after this time.'),
+  "to": zod.date().optional().describe('Only export records created at or before this time.')
+})
+
+export const AdminExportAuditLogsResponse = zod.unknown()
+
+
+/**
  * @summary List global notification policies (superadmin only)
  */
 export const AdminListNotificationPoliciesResponseItem = zod.object({

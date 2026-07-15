@@ -704,6 +704,104 @@ describe("Audit trail — privileged actions are recorded", () => {
     }
   });
 
+  it("exports filtered audit records as CSV via GET /admin/audit-logs/export", async () => {
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    const target = await createTenant({
+      email: `target-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}`)
+        .send({ plan: "pro" });
+      await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}`)
+        .send({ plan: "business" });
+
+      const res = await request(app).get(
+        `/api/admin/audit-logs/export?action=plan_change&target=${target.tenantId}`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toContain("text/csv");
+      expect(res.headers["content-disposition"]).toContain("attachment");
+      expect(res.headers["content-disposition"]).toContain(".csv");
+
+      const lines = res.text.trim().split(/\r\n/);
+      expect(lines[0]).toBe(
+        "id,createdAt,action,actorTenantId,actorEmail,targetTenantId,targetEmail,oldValue,newValue",
+      );
+      // Both plan changes are exported (not just one page), newest first.
+      expect(lines).toHaveLength(3);
+      expect(lines[1]).toContain("plan_change");
+      expect(lines[1]).toContain("business");
+      expect(lines[2]).toContain("pro");
+      expect(lines[1]).toContain(String(target.tenantId));
+
+      // Filters that match nothing yield only the header.
+      const empty = await request(app).get(
+        "/api/admin/audit-logs/export?to=2000-01-01T00:00:00.000Z",
+      );
+      expect(empty.status).toBe(200);
+      expect(empty.text.trim().split(/\r\n/)).toHaveLength(1);
+
+      // Invalid filters are rejected the same as the list endpoint.
+      const bad = await request(app).get(
+        "/api/admin/audit-logs/export?action=bogus",
+      );
+      expect(bad.status).toBe(400);
+    } finally {
+      await deleteTenant(actor.tenantId);
+      await deleteTenant(target.tenantId);
+    }
+  });
+
+  it("neutralizes spreadsheet formula injection in exported CSV cells", async () => {
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    // A hostile email that a spreadsheet would interpret as a formula.
+    const target = await createTenant({
+      email: `=HYPERLINK("https://evil.example/${randomUUID()}")`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      await request(app)
+        .patch(`/api/admin/tenants/${target.tenantId}`)
+        .send({ plan: "pro" });
+
+      const res = await request(app).get(
+        `/api/admin/audit-logs/export?target=${target.tenantId}`,
+      );
+      expect(res.status).toBe(200);
+      // The raw formula must never appear at the start of a cell; it must be
+      // prefixed with a single quote (inside the quoted CSV cell).
+      expect(res.text).not.toContain(`,"=HYPERLINK`);
+      expect(res.text).toContain(`"'=HYPERLINK`);
+    } finally {
+      await deleteTenant(actor.tenantId);
+      await deleteTenant(target.tenantId);
+    }
+  });
+
+  it("returns 403 to a non-superadmin for GET /admin/audit-logs/export", async () => {
+    const actor = await createTenant({
+      email: `plain-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      const forbidden = await request(app).get(
+        "/api/admin/audit-logs/export",
+      );
+      expect(forbidden.status).toBe(403);
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
   it("returns 403 to a non-superadmin and 401 to an unauthenticated caller for GET /admin/audit-logs", async () => {
     const actor = await createTenant({
       email: `plain-${randomUUID()}@example.com`,

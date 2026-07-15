@@ -1344,6 +1344,45 @@ export const AdminListAuditLogsAction = {
   credential_change: 'credential_change',
 } as const;
 
+export type AdminExportAuditLogsParams = {
+/**
+ * Only export records of this action type.
+ */
+action?: AdminExportAuditLogsAction;
+/**
+ * Case-insensitive substring match on the actor email, or an exact actor tenant id when numeric.
+ * @maxLength 200
+ */
+actor?: string;
+/**
+ * Case-insensitive substring match on the target email, or an exact target tenant id when numeric.
+ * @maxLength 200
+ */
+target?: string;
+/**
+ * Only export records created at or after this time.
+ */
+from?: string;
+/**
+ * Only export records created at or before this time.
+ */
+to?: string;
+};
+
+export type AdminExportAuditLogsAction = typeof AdminExportAuditLogsAction[keyof typeof AdminExportAuditLogsAction];
+
+
+export const AdminExportAuditLogsAction = {
+  plan_change: 'plan_change',
+  superadmin_grant: 'superadmin_grant',
+  superadmin_revoke: 'superadmin_revoke',
+  plan_edit: 'plan_edit',
+  plan_create: 'plan_create',
+  plan_delete: 'plan_delete',
+  notification_policy_change: 'notification_policy_change',
+  credential_change: 'credential_change',
+} as const;
+
 export type ListBrandKitsParams = {
 includeArchived?: boolean;
 };

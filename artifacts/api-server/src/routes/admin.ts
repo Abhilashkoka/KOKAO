@@ -583,25 +583,15 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
-router.get("/admin/audit-logs", async (req: Request, res: Response) => {
-  const q = req.query as Record<string, unknown>;
-
-  const rawLimit = Number.parseInt(String(q.limit ?? ""), 10);
-  const limit = Number.isFinite(rawLimit)
-    ? Math.min(Math.max(rawLimit, 1), 200)
-    : 50;
-  const rawOffset = Number.parseInt(String(q.offset ?? ""), 10);
-  const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
-
+function buildAuditLogWhere(
+  q: Record<string, unknown>,
+): { ok: true; where: ReturnType<typeof and> } | { ok: false; message: string } {
   const conditions = [];
 
   const action = typeof q.action === "string" ? q.action : undefined;
   if (action) {
     if (!AUDIT_ACTIONS.has(action)) {
-      res
-        .status(400)
-        .json({ error: { message: `Unknown action "${action}"` } });
-      return;
+      return { ok: false, message: `Unknown action "${action}"` };
     }
     conditions.push(eq(adminAuditLogsTable.action, action));
   }
@@ -648,14 +638,34 @@ router.get("/admin/audit-logs", async (req: Request, res: Response) => {
     if (raw) {
       const date = new Date(raw);
       if (Number.isNaN(date.getTime())) {
-        res.status(400).json({ error: { message: `Invalid ${key} date` } });
-        return;
+        return { ok: false, message: `Invalid ${key} date` };
       }
       conditions.push(op(adminAuditLogsTable.createdAt, date));
     }
   }
 
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  return {
+    ok: true,
+    where: conditions.length > 0 ? and(...conditions) : undefined,
+  };
+}
+
+router.get("/admin/audit-logs", async (req: Request, res: Response) => {
+  const q = req.query as Record<string, unknown>;
+
+  const rawLimit = Number.parseInt(String(q.limit ?? ""), 10);
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(Math.max(rawLimit, 1), 200)
+    : 50;
+  const rawOffset = Number.parseInt(String(q.offset ?? ""), 10);
+  const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
+
+  const parsed = buildAuditLogWhere(q);
+  if (!parsed.ok) {
+    res.status(400).json({ error: { message: parsed.message } });
+    return;
+  }
+  const where = parsed.where;
 
   const [rows, [{ count }]] = await Promise.all([
     db
@@ -688,6 +698,82 @@ router.get("/admin/audit-logs", async (req: Request, res: Response) => {
     offset,
   });
 });
+
+/**
+ * GET /admin/audit-logs/export
+ * Streams ALL audit records matching the same filters as GET /admin/audit-logs
+ * as a CSV download (no paging). Superadmin-scoped like the rest of /admin.
+ */
+function csvCell(value: string | number | null): string {
+  if (value === null) return "";
+  let s = String(value);
+  // Neutralize spreadsheet formula injection: a leading =, +, -, @ (or a
+  // tab/CR before one) would be interpreted as a formula by Excel/Sheets.
+  if (/^[=+\-@\t\r]/.test(s)) {
+    s = `'${s}`;
+  }
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+const AUDIT_EXPORT_BATCH = 500;
+
+router.get(
+  "/admin/audit-logs/export",
+  async (req: Request, res: Response) => {
+    const parsed = buildAuditLogWhere(req.query as Record<string, unknown>);
+    if (!parsed.ok) {
+      res.status(400).json({ error: { message: parsed.message } });
+      return;
+    }
+    const where = parsed.where;
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="audit-log-${stamp}.csv"`,
+    );
+
+    res.write(
+      "id,createdAt,action,actorTenantId,actorEmail,targetTenantId,targetEmail,oldValue,newValue\r\n",
+    );
+
+    let offset = 0;
+    for (;;) {
+      const rows = await db
+        .select()
+        .from(adminAuditLogsTable)
+        .where(where)
+        .orderBy(
+          desc(adminAuditLogsTable.createdAt),
+          desc(adminAuditLogsTable.id),
+        )
+        .limit(AUDIT_EXPORT_BATCH)
+        .offset(offset);
+
+      for (const r of rows) {
+        res.write(
+          [
+            csvCell(r.id),
+            csvCell(r.createdAt.toISOString()),
+            csvCell(r.action),
+            csvCell(r.actorTenantId),
+            csvCell(r.actorEmail ?? null),
+            csvCell(r.targetTenantId),
+            csvCell(r.targetEmail ?? null),
+            csvCell(r.oldValue ?? null),
+            csvCell(r.newValue ?? null),
+          ].join(",") + "\r\n",
+        );
+      }
+
+      if (rows.length < AUDIT_EXPORT_BATCH) break;
+      offset += AUDIT_EXPORT_BATCH;
+    }
+
+    res.end();
+  },
+);
 
 /**
  * GET /admin/notification-policies

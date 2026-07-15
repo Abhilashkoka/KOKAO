@@ -542,6 +542,77 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /admin/audit-logs/export:
+    get:
+      operationId: adminExportAuditLogs
+      tags: [admin]
+      summary: >-
+        Download the full admin audit trail matching the given filters as a
+        CSV file (superadmin only)
+      parameters:
+        - name: action
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              [
+                plan_change,
+                superadmin_grant,
+                superadmin_revoke,
+                plan_edit,
+                plan_create,
+                plan_delete,
+                notification_policy_change,
+                credential_change,
+              ]
+          description: Only export records of this action type.
+        - name: actor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 200
+          description: >-
+            Case-insensitive substring match on the actor email, or an exact
+            actor tenant id when numeric.
+        - name: target
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 200
+          description: >-
+            Case-insensitive substring match on the target email, or an exact
+            target tenant id when numeric.
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Only export records created at or after this time.
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Only export records created at or before this time.
+      responses:
+        "200":
+          description: CSV file of all matching audit records, most recent first
+          content:
+            text/csv:
+              schema:
+                type: string
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /admin/notification-policies:
     get:
       operationId: adminListNotificationPolicies
