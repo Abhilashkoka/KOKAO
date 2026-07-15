@@ -17,3 +17,15 @@ id = "LgNRwiiOXO_7QWJPCUO09"
 uri = "file://exports/api-inventory.xlsx"
 type = "table"
 title = "API Inventory — verified at runtime (108 endpoints)"
+
+[[outputs]]
+id = "f8NBfdY199UKWm5iVU6Z0"
+uri = "file://loadtest/PLAN.md"
+type = "text"
+title = "Load-testing plan"
+
+[[outputs]]
+id = "66cGi3QKyx22myR_mCwkM"
+uri = "file://loadtest/loadtest-bundle.zip"
+type = "unspecified"
+title = "k6 scripts + plan (download bundle)"
