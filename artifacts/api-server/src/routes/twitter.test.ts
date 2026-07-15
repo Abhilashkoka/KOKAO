@@ -1530,3 +1530,217 @@ describe("X (Twitter) status auto re-verify: GET /twitter/status", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Duplicate-post guard: a publish can commit on X but return a
+// transient-looking error, so a retried publish must probe the account's
+// recent tweets and short-circuit if the content already landed.
+// ---------------------------------------------------------------------------
+
+type RecentTweetFixture = { id: string; text: string; created_at: string };
+
+/**
+ * Like mockXApi, but the duplicate-post probe (GET /2/users/{id}/tweets) sees
+ * the given recent tweets — the posts a previous "committed but response
+ * lost" attempt actually created. Set `recentStatus` to make the probe fail.
+ */
+function mockXApiWithRecent(
+  calls: MockCall[],
+  opts: { recent?: RecentTweetFixture[]; recentStatus?: number } = {},
+) {
+  let tweetSeq = 0;
+  return vi
+    .spyOn(globalThis, "fetch")
+    .mockImplementation(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const auth =
+          (init?.headers as Record<string, string> | undefined)
+            ?.Authorization ?? "";
+        calls.push({ url, auth, body: init?.body });
+
+        const json = (body: unknown, status = 200) =>
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "content-type": "application/json" },
+          });
+
+        if (url.includes("/2/users/") && url.includes("/tweets")) {
+          if (opts.recentStatus && opts.recentStatus >= 400) {
+            return json({ title: "boom" }, opts.recentStatus);
+          }
+          return json({ data: opts.recent ?? [] });
+        }
+        if (url.includes("/2/media/upload")) {
+          return json({ data: { id: "MEDIA_1" } });
+        }
+        if (url.includes("/2/tweets")) {
+          tweetSeq += 1;
+          return json({ data: { id: `TWEET_${tweetSeq}` } });
+        }
+        return json({});
+      },
+    );
+}
+
+function tweetCreateCalls(calls: MockCall[]): MockCall[] {
+  return calls.filter((c) => c.url.includes("/2/tweets"));
+}
+
+describe("X (Twitter) publish duplicate-post guard", () => {
+  beforeEach(async () => {
+    await setVerifiedTwitterRow();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("short-circuits with the existing tweet when the publish already landed (committed but response lost)", async () => {
+    const calls: MockCall[] = [];
+    mockXApiWithRecent(calls, {
+      recent: [
+        {
+          id: "EXISTING_1",
+          text: "hello world",
+          created_at: new Date().toISOString(),
+        },
+      ],
+    });
+    const downloadSpy = vi.spyOn(
+      ObjectStorageService.prototype,
+      "getObjectEntityFile",
+    );
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      const itemId = await insertContentItem(tenant.tenantId, {
+        imagePath: "/objects/uploads/test.png",
+      });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-twitter`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("EXISTING_1");
+      // Only one post exists in total: no new tweet-create call was made.
+      expect(tweetCreateCalls(calls).length).toBe(0);
+      // The image already went with the landed tweet — no re-upload.
+      expect(calls.some((c) => c.url.includes("/2/media/upload"))).toBe(false);
+      expect(downloadSpy).not.toHaveBeenCalled();
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("EXISTING_1");
+      expect(item.permalink).toBe(
+        "https://x.com/testhandle/status/EXISTING_1",
+      );
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("resumes a partially landed thread: skips the landed first tweet and chains the rest from it", async () => {
+    const caption = Array.from({ length: 120 }, (_, i) => `word${i}`).join(" ");
+    const tweets = splitIntoTweets(caption);
+    expect(tweets.length).toBeGreaterThan(1);
+
+    const calls: MockCall[] = [];
+    mockXApiWithRecent(calls, {
+      recent: [
+        {
+          id: "EXISTING_FIRST",
+          text: tweets[0],
+          created_at: new Date().toISOString(),
+        },
+      ],
+    });
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      const itemId = await insertContentItem(tenant.tenantId, { caption });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-twitter`,
+      );
+
+      expect(res.status).toBe(200);
+      // The already-landed first tweet anchors the thread.
+      expect(res.body.postId).toBe("EXISTING_FIRST");
+
+      // Only the follow-up tweets were posted; the first was NOT re-posted.
+      const creates = tweetCreateCalls(calls);
+      expect(creates.length).toBe(tweets.length - 1);
+      const firstBody = JSON.parse(String(creates[0].body)) as {
+        text: string;
+        reply?: { in_reply_to_tweet_id?: string };
+      };
+      expect(firstBody.text).toBe(tweets[1]);
+      // The first follow-up chains as a reply to the EXISTING tweet.
+      expect(firstBody.reply?.in_reply_to_tweet_id).toBe("EXISTING_FIRST");
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("EXISTING_FIRST");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("posts normally when the identical recent tweet is older than the dedupe window", async () => {
+    const calls: MockCall[] = [];
+    mockXApiWithRecent(calls, {
+      recent: [
+        {
+          id: "OLD_TWEET",
+          text: "hello world",
+          created_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+        },
+      ],
+    });
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      const itemId = await insertContentItem(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-twitter`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("TWEET_1");
+      expect(tweetCreateCalls(calls).length).toBe(1);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("still publishes when the duplicate-post probe itself fails (best-effort)", async () => {
+    const calls: MockCall[] = [];
+    mockXApiWithRecent(calls, { recentStatus: 500 });
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      const itemId = await insertContentItem(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-twitter`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("TWEET_1");
+      expect(tweetCreateCalls(calls).length).toBe(1);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});

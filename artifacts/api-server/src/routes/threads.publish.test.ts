@@ -1,0 +1,310 @@
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  afterEach,
+  vi,
+} from "vitest";
+import request from "supertest";
+
+vi.mock("@clerk/express", async () => {
+  const { authState } = await import("../test/authState");
+  return {
+    getAuth: () =>
+      authState.userId
+        ? {
+            userId: authState.userId,
+            sessionClaims: { userId: authState.userId },
+          }
+        : {},
+    clerkClient: {
+      users: {
+        getUser: async (id: string) => {
+          const u = authState.users[id];
+          if (!u) throw new Error("user not found");
+          return u;
+        },
+      },
+    },
+    clerkMiddleware: () => (_req: unknown, _res: unknown, next: () => void) =>
+      next(),
+  };
+});
+
+import { pool, type AppCredential } from "@workspace/db";
+import { chunkOnWhitespace } from "@workspace/social-limits";
+import { createTestApp } from "../test/testApp";
+import { resetAuthState, actAs } from "../test/authState";
+import {
+  createTenant,
+  deleteTenant,
+  insertThreadsAccount,
+  insertContentItem,
+  getContentItem,
+  snapshotAppCredentialRow,
+  setAppCredentialRow,
+  restoreAppCredentialRow,
+} from "../test/dbHelpers";
+import { ObjectStorageService } from "../lib/objectStorage";
+
+const app = createTestApp();
+
+const TH_TOKEN = "th_tok_secret";
+const TH_USER_ID = "th_user_123";
+const GRAPH_BASE = "https://graph.threads.net/v1.0";
+
+let threadsSnapshot: AppCredential | null = null;
+
+beforeAll(async () => {
+  threadsSnapshot = await snapshotAppCredentialRow("threads");
+});
+
+afterAll(async () => {
+  await restoreAppCredentialRow("threads", threadsSnapshot);
+  await pool.end();
+});
+
+beforeEach(async () => {
+  resetAuthState();
+  process.env.SESSION_SECRET =
+    process.env.SESSION_SECRET || "test-session-secret";
+  await setAppCredentialRow("threads", {
+    appId: "th-app-id-default",
+    appSecret: "th-app-secret-default",
+  });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+interface MockCall {
+  url: string;
+  method: string;
+  body: string;
+}
+
+type RecentPost = { id: string; text: string; timestamp: string };
+
+/**
+ * Simulate the Threads Graph API. `recentPosts` is what the duplicate-post
+ * probe (GET /{user}/threads) sees — the posts a previous "committed but
+ * response lost" attempt actually created. Set `recentPostsStatus` to make
+ * the probe itself fail. Container creation and publish POSTs are recorded
+ * and return sequential ids.
+ */
+function mockThreadsApi(opts: {
+  recentPosts?: RecentPost[];
+  recentPostsStatus?: number;
+}): MockCall[] {
+  const calls: MockCall[] = [];
+  let containerSeq = 0;
+  let publishSeq = 0;
+  vi.spyOn(globalThis, "fetch").mockImplementation(
+    async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      calls.push({ url, method, body: String(init?.body ?? "") });
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+
+      if (
+        method === "GET" &&
+        url.startsWith(`${GRAPH_BASE}/${TH_USER_ID}/threads?`)
+      ) {
+        if (opts.recentPostsStatus && opts.recentPostsStatus >= 400) {
+          return json({ error: { message: "boom" } }, opts.recentPostsStatus);
+        }
+        return json({ data: opts.recentPosts ?? [] });
+      }
+      if (method === "POST" && url === `${GRAPH_BASE}/${TH_USER_ID}/threads`) {
+        containerSeq += 1;
+        return json({ id: `CONTAINER_${containerSeq}` });
+      }
+      if (
+        method === "POST" &&
+        url === `${GRAPH_BASE}/${TH_USER_ID}/threads_publish`
+      ) {
+        publishSeq += 1;
+        return json({ id: `POST_${publishSeq}` });
+      }
+      return json({});
+    },
+  );
+  return calls;
+}
+
+function publishPosts(calls: MockCall[]): MockCall[] {
+  return calls.filter(
+    (c) =>
+      c.method === "POST" && c.url === `${GRAPH_BASE}/${TH_USER_ID}/threads`,
+  );
+}
+
+describe("Threads publish duplicate-post guard", () => {
+  it("short-circuits with the existing post when the publish already landed (committed but response lost)", async () => {
+    const caption = "hello world";
+    const calls = mockThreadsApi({
+      recentPosts: [
+        {
+          id: "EXISTING_1",
+          text: caption,
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    });
+    const signedUrlSpy = vi.spyOn(
+      ObjectStorageService.prototype,
+      "getSignedDownloadURL",
+    );
+
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: TH_USER_ID,
+      });
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption,
+        imagePath: "/objects/uploads/test.png",
+      });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-threads`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("EXISTING_1");
+      // Only one post happened in total (the original, before this request):
+      // no new container/publish POSTs were made.
+      expect(publishPosts(calls).length).toBe(0);
+      expect(
+        calls.filter((c) => c.url.endsWith("/threads_publish")).length,
+      ).toBe(0);
+      // The image already went with the landed post — no new signed URL.
+      expect(signedUrlSpy).not.toHaveBeenCalled();
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("EXISTING_1");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("resumes a partially landed reply chain: skips the landed first post and chains the rest from it", async () => {
+    const caption = Array.from({ length: 200 }, (_, i) => `word${i}`).join(" ");
+    const chunks = chunkOnWhitespace(caption, 500);
+    expect(chunks.length).toBeGreaterThan(1);
+
+    const calls = mockThreadsApi({
+      recentPosts: [
+        {
+          id: "EXISTING_FIRST",
+          text: chunks[0],
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    });
+
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: TH_USER_ID,
+      });
+      const itemId = await insertContentItem(tenant.tenantId, { caption });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-threads`,
+      );
+
+      expect(res.status).toBe(200);
+      // The already-landed first post is reused as the thread anchor.
+      expect(res.body.postId).toBe("EXISTING_FIRST");
+      expect(res.body.postsTotal).toBe(chunks.length);
+
+      // Only the follow-up chunks were posted; the first was NOT re-posted.
+      const containerCalls = publishPosts(calls);
+      expect(containerCalls.length).toBe(chunks.length - 1);
+      for (const c of containerCalls) {
+        expect(c.body).not.toContain(encodeURIComponent(chunks[0]));
+      }
+      // The first follow-up chains as a reply to the EXISTING post.
+      expect(containerCalls[0].body).toContain("reply_to_id=EXISTING_FIRST");
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("EXISTING_FIRST");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("posts normally when the identical recent post is older than the dedupe window", async () => {
+    const caption = "hello world";
+    const calls = mockThreadsApi({
+      recentPosts: [
+        {
+          id: "OLD_POST",
+          text: caption,
+          timestamp: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+        },
+      ],
+    });
+
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: TH_USER_ID,
+      });
+      const itemId = await insertContentItem(tenant.tenantId, { caption });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-threads`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("POST_1");
+      expect(publishPosts(calls).length).toBe(1);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("still publishes when the duplicate-post probe itself fails (best-effort)", async () => {
+    const calls = mockThreadsApi({ recentPostsStatus: 500 });
+
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: TH_USER_ID,
+      });
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: "hello world",
+      });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-threads`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("POST_1");
+      expect(publishPosts(calls).length).toBe(1);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});

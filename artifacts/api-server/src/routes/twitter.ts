@@ -294,6 +294,65 @@ async function loadContentItem(id: number, tenantId: number) {
 }
 
 /**
+ * How far back a previous publish attempt's posts still count as "this
+ * content already landed". A retried publish (the user re-clicking after a
+ * transient-looking failure, or any future auto-retry) happens within
+ * minutes; older identical posts are treated as intentional re-posts.
+ */
+const PUBLISH_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
+
+type RecentTweet = { id: string; text: string; createdAtMs: number };
+
+/**
+ * Fetch the account's most recent tweets so a (re-)publish can detect that a
+ * previous attempt actually landed despite a lost/transient-looking response.
+ * The X API has no idempotency key for tweet creation, so probing recent
+ * posts is the only way to avoid double-posting on retry. Best-effort: any
+ * failure is treated as "no recent posts" by the caller.
+ */
+async function fetchRecentTweets(
+  userId: string,
+  accessToken: string,
+): Promise<RecentTweet[]> {
+  const res = await fetch(
+    `${TWITTER_API_BASE}/2/users/${encodeURIComponent(userId)}/tweets?max_results=10&tweet.fields=created_at`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  const json = (await res.json()) as {
+    data?: Array<{ id?: string; text?: string; created_at?: string }>;
+  };
+  if (!res.ok || !Array.isArray(json.data)) return [];
+  const out: RecentTweet[] = [];
+  for (const t of json.data) {
+    if (!t.id || typeof t.text !== "string") continue;
+    const createdAtMs = t.created_at ? Date.parse(t.created_at) : NaN;
+    if (Number.isNaN(createdAtMs)) continue;
+    out.push({ id: t.id, text: t.text, createdAtMs });
+  }
+  return out;
+}
+
+/**
+ * Find (and consume) a recent post whose text exactly matches what we are
+ * about to send and that was created within the dedupe window. Consuming the
+ * match means two identical chunks in one publish can't both map to the same
+ * existing post.
+ */
+function takeMatchingRecentPost(
+  recent: { id: string; text: string; createdAtMs: number }[],
+  text: string,
+  sinceMs: number,
+): string | null {
+  if (!text) return null;
+  const idx = recent.findIndex(
+    (p) => p.text === text && p.createdAtMs >= sinceMs,
+  );
+  if (idx === -1) return null;
+  const [match] = recent.splice(idx, 1);
+  return match.id;
+}
+
+/**
  * Post a single tweet (optionally with media and/or chained as a reply) and
  * return its id. Authorizes with the tenant's OAuth 2.0 bearer token — no
  * OAuth 1.0a signing. Throws with a safe, human-friendly message on failure.
@@ -398,10 +457,40 @@ router.post(
     // truncated, so the full message survives.
     const tweets = splitIntoTweets(text);
 
+    // A publish can commit on X but return a transient-looking error, so a
+    // retry (the user re-clicking, or any future auto-retry) would post the
+    // same content twice. Before (re-)posting, probe the account's recent
+    // tweets and short-circuit any chunk that already landed within the
+    // dedupe window. Best-effort: probe failure means no short-circuit.
+    let recentPosts: RecentTweet[] = [];
+    const account = await getTwitterAccount(req.tenantId);
+    if (account?.providerUserId) {
+      try {
+        recentPosts = await fetchRecentTweets(
+          account.providerUserId,
+          accessToken,
+        );
+      } catch (err) {
+        req.log.warn(
+          { err },
+          "X duplicate-post probe failed; proceeding without dedupe",
+        );
+      }
+    }
+    const dedupeSinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
+
     try {
       let mediaId: string | null = null;
 
-      if (item.imagePath) {
+      // If the first tweet already landed, its media went with it — skip the
+      // upload entirely.
+      const existingFirstId = takeMatchingRecentPost(
+        recentPosts,
+        tweets[0],
+        dedupeSinceMs,
+      );
+
+      if (!existingFirstId && item.imagePath) {
         const file = await objectStorageService.getObjectEntityFile(
           item.imagePath,
           req.tenantId,
@@ -418,14 +507,27 @@ router.post(
       let replyToId: string | null = null;
 
       for (let i = 0; i < tweets.length; i++) {
-        // The attached image goes on the first tweet only.
-        const attachMedia = i === 0 ? mediaId : null;
-        const postId = await postTweet({
-          text: tweets[i],
-          mediaId: attachMedia,
-          replyToId,
-          accessToken,
-        });
+        const existingId =
+          i === 0
+            ? existingFirstId
+            : takeMatchingRecentPost(recentPosts, tweets[i], dedupeSinceMs);
+        let postId: string;
+        if (existingId) {
+          req.log.warn(
+            { existingId, index: i },
+            "X publish: this part of the content already landed recently; reusing the existing post instead of re-posting",
+          );
+          postId = existingId;
+        } else {
+          // The attached image goes on the first tweet only.
+          const attachMedia = i === 0 ? mediaId : null;
+          postId = await postTweet({
+            text: tweets[i],
+            mediaId: attachMedia,
+            replyToId,
+            accessToken,
+          });
+        }
         if (i === 0) {
           firstPostId = postId;
         }

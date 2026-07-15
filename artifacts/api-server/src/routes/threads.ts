@@ -446,6 +446,65 @@ async function threadsErrorMessage(res: globalThis.Response, fallback: string) {
 }
 
 /**
+ * How far back a previous publish attempt's posts still count as "this
+ * content already landed". A retried publish (the user re-clicking after a
+ * transient-looking failure, or any future auto-retry) happens within
+ * minutes; older identical posts are treated as intentional re-posts.
+ */
+const PUBLISH_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
+
+type RecentThreadPost = { id: string; text: string; createdAtMs: number };
+
+/**
+ * Fetch the account's most recent Threads posts so a (re-)publish can detect
+ * that a previous attempt actually landed despite a lost/transient-looking
+ * response. Threads has no idempotency key for publishing, and long captions
+ * publish as multi-post reply chains, so a blind retry can duplicate several
+ * posts at once. Best-effort: any failure is treated as "no recent posts" by
+ * the caller. The limit covers a full reply chain from a prior attempt.
+ */
+async function fetchRecentThreadPosts(
+  userId: string,
+  accessToken: string,
+): Promise<RecentThreadPost[]> {
+  const res = await fetch(
+    `${GRAPH_BASE}/${encodeURIComponent(userId)}/threads?fields=id,text,timestamp&limit=25&access_token=${encodeURIComponent(accessToken)}`,
+  );
+  const json = (await res.json()) as {
+    data?: Array<{ id?: string; text?: string; timestamp?: string }>;
+  };
+  if (!res.ok || !Array.isArray(json.data)) return [];
+  const out: RecentThreadPost[] = [];
+  for (const p of json.data) {
+    if (!p.id || typeof p.text !== "string") continue;
+    const createdAtMs = p.timestamp ? Date.parse(p.timestamp) : NaN;
+    if (Number.isNaN(createdAtMs)) continue;
+    out.push({ id: p.id, text: p.text, createdAtMs });
+  }
+  return out;
+}
+
+/**
+ * Find (and consume) a recent post whose text exactly matches what we are
+ * about to send and that was created within the dedupe window. Consuming the
+ * match means two identical chunks in one publish can't both map to the same
+ * existing post.
+ */
+function takeMatchingRecentPost(
+  recent: RecentThreadPost[],
+  text: string,
+  sinceMs: number,
+): string | null {
+  if (!text) return null;
+  const idx = recent.findIndex(
+    (p) => p.text === text && p.createdAtMs >= sinceMs,
+  );
+  if (idx === -1) return null;
+  const [match] = recent.splice(idx, 1);
+  return match.id;
+}
+
+/**
  * Create a media container and publish it. Returns the published Threads
  * media id. `replyToId` chains the post as a reply for long-caption threads.
  */
@@ -553,32 +612,70 @@ router.post(
     const fullText = (item.caption?.trim() || item.title).trim();
     const chunks = chunkOnWhitespace(fullText, THREADS_MAX_LENGTH);
 
+    // A publish can commit on Threads but return a transient-looking error,
+    // so a retry (the user re-clicking, or any future auto-retry) would post
+    // the same content twice — and long captions duplicate a whole reply
+    // chain. Before (re-)posting, probe the account's recent posts and
+    // short-circuit any chunk that already landed within the dedupe window.
+    // Best-effort: probe failure means no short-circuit.
+    let recentPosts: RecentThreadPost[] = [];
     try {
+      recentPosts = await fetchRecentThreadPosts(userId, accessToken);
+    } catch (err) {
+      req.log.warn(
+        { err },
+        "Threads duplicate-post probe failed; proceeding without dedupe",
+      );
+    }
+    const dedupeSinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
+
+    try {
+      let firstPostId: string | null = null;
+      let replyToId: string | null = null;
+      let postsPublished = 0;
+      let publishWarning: string | null = null;
+
+      // If the first post already landed, its image went with it — skip
+      // minting a signed URL entirely.
+      const existingFirstId = takeMatchingRecentPost(
+        recentPosts,
+        chunks[0],
+        dedupeSinceMs,
+      );
+
       // Threads fetches the image itself, so hand it a short-lived signed GET
       // URL for the private object.
       let imageUrl: string | null = null;
-      if (item.imagePath) {
+      if (!existingFirstId && item.imagePath) {
         imageUrl = await objectStorageService.getSignedDownloadURL(
           item.imagePath,
           req.tenantId,
         );
       }
 
-      let firstPostId: string | null = null;
-      let replyToId: string | null = null;
-      let postsPublished = 0;
-      let publishWarning: string | null = null;
-
       for (const [index, text] of chunks.entries()) {
         try {
-          const postId = await publishOneThread({
-            userId,
-            accessToken,
-            text,
-            imageUrl: index === 0 ? imageUrl : null,
-            replyToId,
-          });
-          postsPublished += 1;
+          const existingId =
+            index === 0
+              ? existingFirstId
+              : takeMatchingRecentPost(recentPosts, text, dedupeSinceMs);
+          let postId: string;
+          if (existingId) {
+            req.log.warn(
+              { existingId, index },
+              "Threads publish: this part of the content already landed recently; reusing the existing post instead of re-posting",
+            );
+            postId = existingId;
+          } else {
+            postId = await publishOneThread({
+              userId,
+              accessToken,
+              text,
+              imageUrl: index === 0 ? imageUrl : null,
+              replyToId,
+            });
+            postsPublished += 1;
+          }
           replyToId = postId;
           if (index === 0) firstPostId = postId;
         } catch (chunkError) {
