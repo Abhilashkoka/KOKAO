@@ -13,7 +13,10 @@ import {
   ensureFreshTwitterToken,
   testTwitterCredentials,
 } from "./twitterApi";
-import { notifySocialConnectionFailed } from "./notifications";
+import {
+  notifySocialConnectionFailed,
+  resolveSocialConnectionNotifications,
+} from "./notifications";
 
 /**
  * How long a stored credential's last verification stays "fresh" before an
@@ -76,6 +79,12 @@ async function writeStatus(
       row.platform,
       values.verifyError ?? undefined,
     );
+  }
+
+  // The moment a connection verifies again, auto-dismiss any lingering
+  // "connection failed" banner for this platform.
+  if (values.verifyStatus === "verified") {
+    await resolveSocialConnectionNotifications(row.tenantId, row.platform);
   }
 }
 

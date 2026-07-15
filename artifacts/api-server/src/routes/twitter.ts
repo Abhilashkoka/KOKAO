@@ -18,6 +18,7 @@ import {
 import { encryptJson } from "../lib/secretCrypto";
 import { signOAuthState, verifySignedOAuthState } from "../lib/oauthState";
 import { reverifyTwitter } from "../lib/socialReverify";
+import { resolveSocialConnectionNotifications } from "../lib/notifications";
 
 const router: IRouter = Router();
 
@@ -166,6 +167,9 @@ twitterCallbackRouter.get(
         verifiedAt: now,
       });
     }
+
+    // Reconnecting clears any lingering "connection failed" notification.
+    await resolveSocialConnectionNotifications(tenantId, "twitter");
 
     res.redirect(`${webBase}?twitter=connected`);
   } catch (error) {

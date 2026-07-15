@@ -14,7 +14,10 @@ import {
   verifySignedOAuthState,
   randomNonce,
 } from "../lib/oauthState";
-import { notifySocialConnectionFailed } from "../lib/notifications";
+import {
+  notifySocialConnectionFailed,
+  resolveSocialConnectionNotifications,
+} from "../lib/notifications";
 import { splitForLinkedin } from "@workspace/social-limits";
 
 const router: IRouter = Router();
@@ -215,6 +218,7 @@ async function reverifyLinkedin(
           verifiedAt: new Date(),
         })
         .where(eq(connectedAccountsTable.id, account.id));
+      await resolveSocialConnectionNotifications(tenantId, "linkedin");
     } else {
       // Unexpected non-auth status: reset the clock, keep prior state.
       await db
@@ -375,6 +379,9 @@ linkedinCallbackRouter.get(
         verifiedAt: now,
       });
     }
+
+    // Reconnecting clears any lingering "connection failed" notification.
+    await resolveSocialConnectionNotifications(tenantId, "linkedin");
 
     res.redirect(`${webBase}?linkedin=connected`);
   } catch (error) {

@@ -1004,27 +1004,42 @@ describe("X (Twitter) connect: GET /twitter/auth/callback", () => {
     }
   });
 
-  it("rejects a state signed for a different tenant and writes nothing", async () => {
+  it("writes the connection to the tenant bound in the signed state, not the browser session", async () => {
+    // The callback is PUBLIC (the provider redirects the browser without a
+    // session), so the tenant binding comes exclusively from the HMAC-signed
+    // state minted at authorize time. A signed state for tenant B must land
+    // the connection on tenant B even if a different tenant's session cookie
+    // rides along on the redirect.
     await setVerifiedTwitterRow();
-    const tenant = await createTenant();
+    const calls = mockConnectApi();
+    const stateTenant = await createTenant();
+    const sessionTenant = await createTenant();
     try {
-      actAs(tenant.clerkUserId);
-      // Validly signed, but bound to some other tenant id.
-      const otherTenantState = craftState(
-        tenant.tenantId + 999999,
-        "some_verifier",
-      );
+      // Mint a real signed state as the state tenant...
+      actAs(stateTenant.clerkUserId);
+      const urlRes = await request(app).get("/api/twitter/auth/url");
+      const state = new URL(urlRes.body.url).searchParams.get("state")!;
+
+      // ...then hit the callback while the browser is signed in as someone else.
+      actAs(sessionTenant.clerkUserId);
       const res = await request(app)
         .get("/api/twitter/auth/callback")
-        .query({ code: "AUTH_CODE", state: otherTenantState });
+        .query({ code: "AUTH_CODE", state });
 
       expect(res.status).toBe(302);
-      expect(res.headers.location).toBe(
-        "/accounts?twitter=error&reason=invalid_state",
-      );
-      expect(await getConnectedAccount(tenant.tenantId, "twitter")).toBeFalsy();
+      expect(res.headers.location).toBe("/accounts?twitter=connected");
+      expect(calls.some((c) => c.url.includes("/2/oauth2/token"))).toBe(true);
+
+      // The connection belongs to the tenant in the state, never the session.
+      const row = await getConnectedAccount(stateTenant.tenantId, "twitter");
+      expect(row).toBeTruthy();
+      expect(row.verifyStatus).toBe("verified");
+      expect(
+        await getConnectedAccount(sessionTenant.tenantId, "twitter"),
+      ).toBeFalsy();
     } finally {
-      await deleteTenant(tenant.tenantId);
+      await deleteTenant(stateTenant.tenantId);
+      await deleteTenant(sessionTenant.tenantId);
     }
   });
 

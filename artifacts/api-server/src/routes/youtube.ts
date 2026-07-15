@@ -12,7 +12,10 @@ import {
   verifySignedOAuthState,
   randomNonce,
 } from "../lib/oauthState";
-import { notifySocialConnectionFailed } from "../lib/notifications";
+import {
+  notifySocialConnectionFailed,
+  resolveSocialConnectionNotifications,
+} from "../lib/notifications";
 
 const router: IRouter = Router();
 
@@ -153,6 +156,7 @@ async function ensureFreshAccessToken(
         verifiedAt: new Date(),
       })
       .where(eq(connectedAccountsTable.id, account.id));
+    await resolveSocialConnectionNotifications(account.tenantId, "youtube");
     return json.access_token;
   }
 
@@ -341,6 +345,9 @@ youtubeCallbackRouter.get(
         });
       }
 
+      // Reconnecting clears any lingering "connection failed" notification.
+      await resolveSocialConnectionNotifications(tenantId, "youtube");
+
       res.redirect(`${webBase}?youtube=connected`);
     } catch (error) {
       req.log.error({ err: error }, "YouTube OAuth callback failed");
@@ -440,6 +447,7 @@ router.post("/youtube/retest", async (req: Request, res: Response) => {
             verifiedAt: new Date(),
           })
           .where(eq(connectedAccountsTable.id, existing.id));
+        await resolveSocialConnectionNotifications(existing.tenantId, "youtube");
       } else if (channelRes.status === 401 || channelRes.status === 403) {
         await db
           .update(connectedAccountsTable)

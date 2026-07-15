@@ -34,6 +34,7 @@ import {
   type InstagramCredentials,
 } from "../lib/metaApi";
 import { reverifyFacebook, reverifyInstagram } from "../lib/socialReverify";
+import { resolveSocialConnectionNotifications } from "../lib/notifications";
 
 const router: IRouter = Router();
 
@@ -744,6 +745,9 @@ router.put(
       verifiedAt: now,
       verifyError: test.ok ? null : test.error ?? "Verification failed",
     });
+    if (test.ok) {
+      await resolveSocialConnectionNotifications(req.tenantId, "facebook");
+    }
 
     const row = await loadAccountRow(req.tenantId, "facebook");
     res.json(serializeSocialStatus("facebook", true, row));
@@ -796,6 +800,9 @@ router.post(
       verifiedAt: now,
       verifyError: test.ok ? null : test.error ?? "Verification failed",
     });
+    if (test.ok) {
+      await resolveSocialConnectionNotifications(req.tenantId, "facebook");
+    }
 
     const row = await loadAccountRow(req.tenantId, "facebook");
     res.json(serializeSocialStatus("facebook", true, row));
@@ -869,6 +876,9 @@ router.put(
       verifiedAt: now,
       verifyError: test.ok ? null : test.error ?? "Verification failed",
     });
+    if (test.ok) {
+      await resolveSocialConnectionNotifications(req.tenantId, "instagram");
+    }
 
     const row = await loadAccountRow(req.tenantId, "instagram");
     res.json(serializeSocialStatus("instagram", true, row));
@@ -935,6 +945,9 @@ router.post(
       verifiedAt: now,
       verifyError: test.ok ? null : test.error ?? "Verification failed",
     });
+    if (test.ok) {
+      await resolveSocialConnectionNotifications(req.tenantId, "instagram");
+    }
 
     const row = await loadAccountRow(req.tenantId, "instagram");
     res.json(serializeSocialStatus("instagram", true, row));

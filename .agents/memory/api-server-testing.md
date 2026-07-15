@@ -30,3 +30,6 @@ description: Durable decisions for writing tests in artifacts/api-server.
 - If DB inserts fail with "column ... does not exist", the dev schema is stale → `pnpm --filter
   @workspace/db run push`. If types claim `@workspace/db` lacks an export/column, rebuild lib
   declarations (`pnpm run typecheck:libs`) before the leaf typecheck.
+
+## Public OAuth callback routers in testApp
+`createTestApp()` must mount the PUBLIC callback routers (`linkedinCallbackRouter`, `twitterCallbackRouter`) before `requireTenant`, mirroring routes/index.ts — otherwise callback tests 404. On the public callback, tenant identity comes ONLY from the HMAC-signed state; do not write tests expecting session-vs-state tenant mismatch to be rejected (a validly-signed state for tenant B lands the connection on tenant B regardless of session).

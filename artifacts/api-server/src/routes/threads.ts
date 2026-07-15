@@ -14,7 +14,10 @@ import {
   verifySignedOAuthState,
   randomNonce,
 } from "../lib/oauthState";
-import { notifySocialConnectionFailed } from "../lib/notifications";
+import {
+  notifySocialConnectionFailed,
+  resolveSocialConnectionNotifications,
+} from "../lib/notifications";
 import { chunkOnWhitespace } from "@workspace/social-limits";
 
 const router: IRouter = Router();
@@ -130,6 +133,7 @@ async function maybeRefreshToken(
           verifiedAt: new Date(),
         })
         .where(eq(connectedAccountsTable.id, account.id));
+      await resolveSocialConnectionNotifications(account.tenantId, "threads");
     } else if (remaining <= 0 || res.status === 400 || res.status === 401) {
       // Token already dead and Threads refused to renew it.
       await db
@@ -320,6 +324,9 @@ threadsCallbackRouter.get(
         });
       }
 
+      // Reconnecting clears any lingering "connection failed" notification.
+      await resolveSocialConnectionNotifications(tenantId, "threads");
+
       res.redirect(`${webBase}?threads=connected`);
     } catch (error) {
       req.log.error({ err: error }, "Threads OAuth callback failed");
@@ -408,6 +415,7 @@ router.post("/threads/retest", async (req: Request, res: Response) => {
         verifiedAt: new Date(),
       })
       .where(eq(connectedAccountsTable.id, existing.id));
+    await resolveSocialConnectionNotifications(existing.tenantId, "threads");
   } else {
     await db
       .update(connectedAccountsTable)

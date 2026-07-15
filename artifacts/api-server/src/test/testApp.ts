@@ -2,8 +2,8 @@ import express, { type Express } from "express";
 import { requireTenant } from "../middlewares/requireTenant";
 import credentialsRouter from "../routes/credentials";
 import metaRouter from "../routes/meta";
-import linkedinRouter from "../routes/linkedin";
-import twitterRouter from "../routes/twitter";
+import linkedinRouter, { linkedinCallbackRouter } from "../routes/linkedin";
+import twitterRouter, { twitterCallbackRouter } from "../routes/twitter";
 import adminRouter from "../routes/admin";
 import notificationsRouter from "../routes/notifications";
 import notificationSettingsRouter from "../routes/notificationSettings";
@@ -33,6 +33,10 @@ export function createTestApp(): Express {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
   attachLogStub(app);
+  // OAuth callbacks are PUBLIC in routes/index.ts (mounted before the tenant
+  // gate) because the provider redirects the browser without a session; the
+  // signed state carries the tenant binding. Mirror that ordering here.
+  app.use("/api", linkedinCallbackRouter, twitterCallbackRouter);
   app.use(
     "/api",
     requireTenant,

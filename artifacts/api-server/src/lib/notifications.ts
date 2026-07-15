@@ -85,6 +85,36 @@ async function emailSocialConnectionFailed(
 }
 
 /**
+ * Auto-dismiss any unread "connection failed" notification for a platform the
+ * moment its connection is verified again (reconnect, credential re-save, or
+ * successful re-test). Marking the row read both hides the banner and re-arms
+ * the dedupe so a future breakage produces a fresh notification. Never throws.
+ */
+export async function resolveSocialConnectionNotifications(
+  tenantId: number,
+  platform: string,
+): Promise<void> {
+  try {
+    await db
+      .update(notificationsTable)
+      .set({ readAt: new Date() })
+      .where(
+        and(
+          eq(notificationsTable.tenantId, tenantId),
+          eq(notificationsTable.type, SOCIAL_CONNECTION_FAILED),
+          eq(notificationsTable.platform, platform),
+          isNull(notificationsTable.readAt),
+        ),
+      );
+  } catch (err) {
+    logger.error(
+      { err, tenantId, platform },
+      "Failed to resolve social connection notifications",
+    );
+  }
+}
+
+/**
  * Record a one-time notification that a tenant's social connection has broken
  * (an expired/revoked token flipped from verified to failed). Deduped so a
  * single breakage produces a single notification even if the token is

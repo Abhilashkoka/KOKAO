@@ -87,6 +87,22 @@ export async function getNotifications(tenantId: number) {
     .where(eq(notificationsTable.tenantId, tenantId));
 }
 
+/** Seed an UNREAD social_connection_failed notification for a platform. */
+export async function insertConnectionFailedNotification(
+  tenantId: number,
+  platform: string,
+): Promise<void> {
+  await db.insert(notificationsTable).values({
+    tenantId,
+    type: "social_connection_failed",
+    platform,
+    title: `${platform} disconnected`,
+    message: `Your ${platform} connection is no longer valid.`,
+    linkUrl: "/accounts",
+    inApp: true,
+  });
+}
+
 export async function insertConnectedAccount(
   tenantId: number,
   platform: string,

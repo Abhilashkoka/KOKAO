@@ -44,6 +44,7 @@ import {
   insertContentItem,
   getConnectedAccount,
   getNotifications,
+  insertConnectionFailedNotification,
 } from "../test/dbHelpers";
 
 const app = createTestApp();
@@ -334,6 +335,8 @@ describe("LinkedIn OAuth reconnect", () => {
           "Your LinkedIn access token is no longer valid. Reconnect LinkedIn to keep publishing.",
         accessToken: "dead-token",
       });
+      // The breakage also left an unread "connection failed" notification.
+      await insertConnectionFailedNotification(tenant.tenantId, "linkedin");
 
       const state = await getSignedState(tenant.clerkUserId);
 
@@ -362,6 +365,14 @@ describe("LinkedIn OAuth reconnect", () => {
       expect(row?.status).toBe("connected");
       expect(row?.accessToken).toBe("fresh-token");
       expect(row?.providerUserId).toBe("sub_456");
+
+      // The stale breakage notification is auto-dismissed by the reconnect.
+      const notifications = await getNotifications(tenant.tenantId);
+      const failed = notifications.filter(
+        (n) => n.type === "social_connection_failed" && n.platform === "linkedin",
+      );
+      expect(failed.length).toBe(1);
+      expect(failed[0].readAt).not.toBeNull();
     } finally {
       await deleteTenant(tenant.tenantId);
     }
