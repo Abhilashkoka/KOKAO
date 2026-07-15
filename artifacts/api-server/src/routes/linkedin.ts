@@ -10,6 +10,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { decryptJson } from "../lib/secretCrypto";
+import { platformFetch } from "../lib/platformFetch";
 import {
   signOAuthState,
   verifySignedOAuthState,
@@ -97,7 +98,7 @@ async function postLinkedinComment(
   text: string,
   baseHeaders: Record<string, string>,
 ): Promise<void> {
-  const res = await fetch(
+  const res = await platformFetch(
     `${REST_BASE}/socialActions/${encodeURIComponent(postUrn)}/comments`,
     {
       method: "POST",
@@ -146,7 +147,7 @@ async function fetchRecentLinkedinPosts(
   author: string,
   baseHeaders: Record<string, string>,
 ): Promise<RecentLinkedinPost[]> {
-  const res = await fetch(
+  const res = await platformFetch(
     `${REST_BASE}/posts?author=${encodeURIComponent(author)}&q=author&count=10&sortBy=LAST_MODIFIED`,
     { headers: baseHeaders },
   );
@@ -281,7 +282,7 @@ linkedinCallbackRouter.get(
   const tenantId = verified.tenantId;
 
   try {
-    const tokenRes = await fetch(TOKEN_URL, {
+    const tokenRes = await platformFetch(TOKEN_URL, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -312,7 +313,7 @@ linkedinCallbackRouter.get(
       ? new Date(Date.now() + tokenJson.expires_in * 1000)
       : null;
 
-    const userRes = await fetch(USERINFO_URL, {
+    const userRes = await platformFetch(USERINFO_URL, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     const userJson = (await userRes.json()) as {
@@ -431,7 +432,7 @@ router.post("/linkedin/retest", async (req: Request, res: Response) => {
   let accountName = existing.accountName;
   let providerUserId = existing.providerUserId;
   try {
-    const userRes = await fetch(USERINFO_URL, {
+    const userRes = await platformFetch(USERINFO_URL, {
       headers: { Authorization: `Bearer ${existing.accessToken}` },
     });
     const userJson = (await userRes.json()) as { sub?: string; name?: string };
@@ -490,7 +491,7 @@ async function createLinkedinPost(opts: {
     );
     const [buffer] = await file.download();
 
-    const initRes = await fetch(`${REST_BASE}/images?action=initializeUpload`, {
+    const initRes = await platformFetch(`${REST_BASE}/images?action=initializeUpload`, {
       method: "POST",
       headers: { ...baseHeaders, "Content-Type": "application/json" },
       body: JSON.stringify({ initializeUploadRequest: { owner: author } }),
@@ -502,7 +503,7 @@ async function createLinkedinPost(opts: {
       throw new Error(`Image upload could not be initialized (${initRes.status})`);
     }
 
-    const uploadRes = await fetch(initJson.value.uploadUrl, {
+    const uploadRes = await platformFetch(initJson.value.uploadUrl, {
       method: "PUT",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -534,7 +535,7 @@ async function createLinkedinPost(opts: {
     };
   }
 
-  const postRes = await fetch(`${REST_BASE}/posts`, {
+  const postRes = await platformFetch(`${REST_BASE}/posts`, {
     method: "POST",
     headers: { ...baseHeaders, "Content-Type": "application/json" },
     body: JSON.stringify(postBody),

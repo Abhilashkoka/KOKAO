@@ -12,6 +12,7 @@ import { reverifyFacebook, reverifyInstagram } from "../lib/socialReverify";
 import { enqueueBackgroundJob, isShuttingDown } from "../lib/backgroundJobs";
 import { trackSyncPublish } from "../middlewares/trackSyncPublish";
 import { logger } from "../lib/logger";
+import { platformFetch, PlatformTimeoutError } from "../lib/platformFetch";
 
 const router: IRouter = Router();
 
@@ -134,7 +135,7 @@ async function postToGraphWithRetry<T extends { error?: GraphError }>(
   let delay = FB_PUBLISH_RETRY.initialDelayMs;
   let lastError = new Error(label);
   for (let attempt = 0; attempt < FB_PUBLISH_RETRY.maxAttempts; attempt++) {
-    const res = await fetch(url, { method: "POST", body: buildBody() });
+    const res = await platformFetch(url, { method: "POST", body: buildBody() });
     const json = (await res.json()) as T;
     if (res.ok && !json.error) return json;
 
@@ -211,7 +212,7 @@ async function probeGraphPages<T>(
 ): Promise<string | null> {
   let url: string | undefined = firstUrl;
   for (let page = 0; page < DEDUPE_PROBE.maxPages && url; page++) {
-    const res = await fetch(url, {
+    const res = await platformFetch(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     const json = (await res.json()) as ProbePage<T>;
@@ -329,7 +330,7 @@ async function waitForContainerReady(
   let delay = IG_CONTAINER_POLL.initialDelayMs;
   for (let attempt = 0; attempt < IG_CONTAINER_POLL.maxAttempts; attempt++) {
     // Token rides in the Authorization header so it never lands in a URL/log.
-    const statusRes = await fetch(
+    const statusRes = await platformFetch(
       `${GRAPH_BASE}/${encodeURIComponent(creationId)}?fields=status_code`,
       { headers: { Authorization: `Bearer ${pageToken}` } },
     );
@@ -472,7 +473,7 @@ async function attemptInstagramPublish(
     caption,
     access_token: pageToken,
   });
-  const createRes = await fetch(
+  const createRes = await platformFetch(
     `${GRAPH_BASE}/${encodeURIComponent(igUserId)}/media`,
     { method: "POST", body: createForm },
   );
@@ -496,7 +497,7 @@ async function attemptInstagramPublish(
     creation_id: createJson.id,
     access_token: pageToken,
   });
-  const publishRes = await fetch(
+  const publishRes = await platformFetch(
     `${GRAPH_BASE}/${encodeURIComponent(igUserId)}/media_publish`,
     { method: "POST", body: publishForm },
   );
@@ -525,7 +526,7 @@ async function fetchInstagramPermalink(
   pageToken: string,
 ): Promise<string | null> {
   try {
-    const linkRes = await fetch(
+    const linkRes = await platformFetch(
       `${GRAPH_BASE}/${encodeURIComponent(postId)}?fields=permalink`,
       { headers: { Authorization: `Bearer ${pageToken}` } },
     );
@@ -564,9 +565,13 @@ async function runInstagramPublish(
     } catch (error) {
       // Unknown (non-classified) errors — e.g. a network blip or a storage
       // hiccup — are treated as transient so they get the bounded retry rather
-      // than failing on the first flake.
+      // than failing on the first flake. Timeouts are the exception: a hung
+      // platform call already burned its bounded window, and retrying a hang
+      // during shutdown would eat the entire drain cap — fail fast instead.
       const retryable =
-        error instanceof InstagramPublishError ? error.retryable : true;
+        error instanceof InstagramPublishError
+          ? error.retryable
+          : !(error instanceof PlatformTimeoutError);
       const attemptsLeft = attempt < IG_PUBLISH_RETRY.maxAttempts;
 
       // Retry idempotency: a transient-looking failure does not prove the

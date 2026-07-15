@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { trackSyncPublish } from "../middlewares/trackSyncPublish";
 import { db, connectedAccountsTable, contentItemsTable } from "@workspace/db";
+import { platformFetch } from "../lib/platformFetch";
 import { and, eq } from "drizzle-orm";
 import { ObjectStorageService } from "../lib/objectStorage";
 import {
@@ -315,7 +316,7 @@ async function fetchRecentTweets(
   userId: string,
   accessToken: string,
 ): Promise<RecentTweet[]> {
-  const res = await fetch(
+  const res = await platformFetch(
     `${TWITTER_API_BASE}/2/users/${encodeURIComponent(userId)}/tweets?max_results=10&tweet.fields=created_at`,
     { headers: { Authorization: `Bearer ${accessToken}` } },
   );
@@ -373,7 +374,7 @@ async function postTweet(opts: {
   if (replyToId) {
     tweetBody.reply = { in_reply_to_tweet_id: replyToId };
   }
-  const tweetRes = await fetch(tweetUrl, {
+  const tweetRes = await platformFetch(tweetUrl, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,

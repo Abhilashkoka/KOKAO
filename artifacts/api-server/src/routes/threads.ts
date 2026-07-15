@@ -10,6 +10,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { decryptJson } from "../lib/secretCrypto";
+import { platformFetch } from "../lib/platformFetch";
 import {
   signOAuthState,
   verifySignedOAuthState,
@@ -112,7 +113,7 @@ async function maybeRefreshToken(
       grant_type: "th_refresh_token",
       access_token: account.accessToken,
     });
-    const res = await fetch(`${REFRESH_URL}?${params.toString()}`);
+    const res = await platformFetch(`${REFRESH_URL}?${params.toString()}`);
     const json = (await res.json()) as {
       access_token?: string;
       expires_in?: number;
@@ -227,7 +228,7 @@ threadsCallbackRouter.get(
 
     try {
       // 1) Exchange the code for a short-lived (1h) token.
-      const tokenRes = await fetch(TOKEN_URL, {
+      const tokenRes = await platformFetch(TOKEN_URL, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
@@ -260,7 +261,7 @@ threadsCallbackRouter.get(
         client_secret: creds.appSecret,
         access_token: tokenJson.access_token,
       });
-      const longRes = await fetch(`${LONG_LIVED_URL}?${longParams.toString()}`);
+      const longRes = await platformFetch(`${LONG_LIVED_URL}?${longParams.toString()}`);
       const longJson = (await longRes.json()) as {
         access_token?: string;
         expires_in?: number;
@@ -280,7 +281,7 @@ threadsCallbackRouter.get(
         : null;
 
       // 3) Look up the profile for a display name + stable user id.
-      const meRes = await fetch(
+      const meRes = await platformFetch(
         `${GRAPH_BASE}/me?fields=id,username&access_token=${encodeURIComponent(accessToken)}`,
       );
       const meJson = (await meRes.json()) as { id?: string; username?: string };
@@ -388,7 +389,7 @@ router.post("/threads/retest", async (req: Request, res: Response) => {
   let accountName = existing.accountName;
   let providerUserId = existing.providerUserId;
   try {
-    const meRes = await fetch(
+    const meRes = await platformFetch(
       `${GRAPH_BASE}/me?fields=id,username&access_token=${encodeURIComponent(existing.accessToken)}`,
     );
     const meJson = (await meRes.json()) as { id?: string; username?: string };
@@ -465,7 +466,7 @@ async function fetchRecentThreadPosts(
   userId: string,
   accessToken: string,
 ): Promise<RecentThreadPost[]> {
-  const res = await fetch(
+  const res = await platformFetch(
     `${GRAPH_BASE}/${encodeURIComponent(userId)}/threads?fields=id,text,timestamp&limit=25&access_token=${encodeURIComponent(accessToken)}`,
   );
   const json = (await res.json()) as {
@@ -523,7 +524,7 @@ async function publishOneThread(opts: {
   if (imageUrl) createParams.set("image_url", imageUrl);
   if (replyToId) createParams.set("reply_to_id", replyToId);
 
-  const createRes = await fetch(`${GRAPH_BASE}/${userId}/threads`, {
+  const createRes = await platformFetch(`${GRAPH_BASE}/${userId}/threads`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: createParams.toString(),
@@ -541,7 +542,7 @@ async function publishOneThread(opts: {
     throw new Error("Threads did not return a media container id.");
   }
 
-  const publishRes = await fetch(`${GRAPH_BASE}/${userId}/threads_publish`, {
+  const publishRes = await platformFetch(`${GRAPH_BASE}/${userId}/threads_publish`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({

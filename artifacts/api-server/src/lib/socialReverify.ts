@@ -6,6 +6,7 @@ import {
 } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { decryptJson } from "./secretCrypto";
+import { platformFetch } from "./platformFetch";
 import {
   testFacebookCredentials,
   testInstagramCredentials,
@@ -236,7 +237,7 @@ export async function reverifyLinkedin(
   if (!opts.force && !isStale(row.verifiedAt)) return row;
 
   try {
-    const userRes = await fetch(LINKEDIN_USERINFO_URL, {
+    const userRes = await platformFetch(LINKEDIN_USERINFO_URL, {
       headers: { Authorization: `Bearer ${row.accessToken}` },
     });
     if (userRes.status === 401 || userRes.status === 403) {
@@ -401,7 +402,7 @@ export async function reverifyThreads(
         grant_type: "th_refresh_token",
         access_token: row.accessToken,
       });
-      const res = await fetch(`${THREADS_REFRESH_URL}?${params.toString()}`);
+      const res = await platformFetch(`${THREADS_REFRESH_URL}?${params.toString()}`);
       const json = (await res.json()) as {
         access_token?: string;
         expires_in?: number;
@@ -435,7 +436,7 @@ export async function reverifyThreads(
 
   // Otherwise a cheap live identity probe catches early revocation.
   try {
-    const res = await fetch(
+    const res = await platformFetch(
       `${THREADS_GRAPH_BASE}/me?fields=id,username&access_token=${encodeURIComponent(row.accessToken)}`,
     );
     if (res.ok) {
@@ -535,7 +536,7 @@ export async function reverifyYoutube(
   if (!refreshToken) return row;
 
   try {
-    const res = await fetch(GOOGLE_TOKEN_URL, {
+    const res = await platformFetch(GOOGLE_TOKEN_URL, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({

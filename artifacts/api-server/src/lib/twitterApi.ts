@@ -4,6 +4,7 @@ import { createHash, randomBytes } from "crypto";
 import type { TwitterAppCredentials } from "@workspace/db";
 import { TWEET_MAX_LENGTH } from "@workspace/social-limits";
 import { decryptJson, encryptJson } from "./secretCrypto";
+import { platformFetch } from "./platformFetch";
 
 // Re-export the shared tweet-length limit so callers can source it from a single
 // place and stay aligned with @workspace/social-limits (no 280-char drift).
@@ -161,7 +162,7 @@ export async function exchangeCodeForTokens(opts: {
   redirectUri: string;
   verifier: string;
 }): Promise<TwitterTokens> {
-  const res = await fetch(TWITTER_TOKEN_URL, {
+  const res = await platformFetch(TWITTER_TOKEN_URL, {
     method: "POST",
     headers: {
       Authorization: `Basic ${basicAuth(opts.app)}`,
@@ -189,7 +190,7 @@ export async function refreshTwitterTokens(opts: {
   app: TwitterAppCredentials;
   refreshToken: string;
 }): Promise<TwitterTokens> {
-  const res = await fetch(TWITTER_TOKEN_URL, {
+  const res = await platformFetch(TWITTER_TOKEN_URL, {
     method: "POST",
     headers: {
       Authorization: `Basic ${basicAuth(opts.app)}`,
@@ -220,7 +221,7 @@ export async function fetchTwitterUser(
   accessToken: string,
 ): Promise<{ id: string; accountName: string } | null> {
   try {
-    const res = await fetch(`${TWITTER_API_BASE}/2/users/me`, {
+    const res = await platformFetch(`${TWITTER_API_BASE}/2/users/me`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     const json = (await res.json()) as {
@@ -252,7 +253,7 @@ export async function testTwitterCredentials(
 ): Promise<TwitterTestResult> {
   let res: Response;
   try {
-    res = await fetch(`${TWITTER_API_BASE}/2/users/me`, {
+    res = await platformFetch(`${TWITTER_API_BASE}/2/users/me`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
   } catch {
@@ -323,7 +324,7 @@ export async function uploadTwitterMedia(opts: {
     media_type: contentType,
     media_category: "tweet_image",
   };
-  const initRes = await fetch(TWITTER_MEDIA_UPLOAD_URL, {
+  const initRes = await platformFetch(TWITTER_MEDIA_UPLOAD_URL, {
     method: "POST",
     headers: {
       Authorization: authHeader,
@@ -347,7 +348,7 @@ export async function uploadTwitterMedia(opts: {
     new Blob([new Uint8Array(buffer)], { type: contentType }),
     "media",
   );
-  const appendRes = await fetch(TWITTER_MEDIA_UPLOAD_URL, {
+  const appendRes = await platformFetch(TWITTER_MEDIA_UPLOAD_URL, {
     method: "POST",
     headers: { Authorization: authHeader },
     body: form,
@@ -367,7 +368,7 @@ export async function uploadTwitterMedia(opts: {
     command: "FINALIZE",
     media_id: mediaId,
   };
-  const finalizeRes = await fetch(TWITTER_MEDIA_UPLOAD_URL, {
+  const finalizeRes = await platformFetch(TWITTER_MEDIA_UPLOAD_URL, {
     method: "POST",
     headers: {
       Authorization: authHeader,

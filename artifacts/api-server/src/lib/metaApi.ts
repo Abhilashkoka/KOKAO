@@ -2,6 +2,7 @@ import { db, appCredentialsTable, connectedAccountsTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import type { MetaAppCredentials } from "@workspace/db";
 import { decryptJson } from "./secretCrypto";
+import { platformFetch } from "./platformFetch";
 
 export const GRAPH_VERSION = "v21.0";
 export const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
@@ -86,7 +87,7 @@ export async function testMetaAppCredentials(
       client_secret: appSecret,
       grant_type: "client_credentials",
     });
-    const res = await fetch(`${GRAPH_ROOT}/oauth/access_token`, {
+    const res = await platformFetch(`${GRAPH_ROOT}/oauth/access_token`, {
       method: "POST",
       body,
     });
@@ -114,7 +115,7 @@ export async function testFacebookCredentials(
   try {
     // Pass the token via the Authorization header (not the URL) so it can't
     // leak into upstream/proxy access logs.
-    const res = await fetch(
+    const res = await platformFetch(
       `${GRAPH_BASE}/${encodeURIComponent(creds.pageId)}?fields=id,name`,
       { headers: { Authorization: `Bearer ${creds.pageAccessToken}` } },
     );
@@ -149,7 +150,7 @@ export async function testInstagramCredentials(
   try {
     // Pass the token via the Authorization header (not the URL) so it can't
     // leak into upstream/proxy access logs.
-    const res = await fetch(
+    const res = await platformFetch(
       `${GRAPH_BASE}/${encodeURIComponent(creds.igUserId)}?fields=id,username`,
       { headers: { Authorization: `Bearer ${pageToken}` } },
     );
