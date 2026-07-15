@@ -28,6 +28,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, splitForLinkedin, chunkOnWhitespace, splitIntoTweets, THREADS_MAX_LENGTH } from "@workspace/social-limits";
+import { mutateWithRestartRetry } from "@/lib/restartRetry";
 
 export function LibraryPage() {
   const { data: content, isLoading } = useListContent({
@@ -131,58 +132,73 @@ export function LibraryPage() {
         )
       : undefined;
 
+  // Shown when a publish is rejected because the server is restarting and we
+  // are about to retry it automatically (the restart 503 is issued BEFORE any
+  // platform write, so the retry cannot create a duplicate post).
+  const restartRetryToast = (platform: string) =>
+    toast({
+      title: "Server is restarting",
+      description: `Nothing was posted yet. Retrying your ${platform} publish automatically in a moment...`,
+    });
+
+  const publishErrorDescription = (err: any, fallback: string, retried: boolean) => {
+    const serverMessage = err?.data?.error || err?.response?.data?.error;
+    const base = serverMessage || fallback;
+    return retried ? `The automatic retry also failed. ${base}` : base;
+  };
+
   const handlePublish = () => {
     if (!publishItem) return;
-    publishContent.mutate(
-      { id: publishItem.id },
-      {
-        onSuccess: (res) => {
-          toast({
-            title: "Published to Facebook",
-            description: res?.permalink ? "Your post is live on Facebook." : undefined,
-            action: viewPostAction(res?.permalink),
-          });
-          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
-          setPublishItem(null);
-        },
-        onError: (err: any) => {
-          toast({
-            title: "Publish failed",
-            description:
-              err?.response?.data?.error ||
-              "Could not publish to Facebook. Connect and verify your Facebook Page on the Accounts page first.",
-            variant: "destructive",
-          });
-        },
+    mutateWithRestartRetry(publishContent, { id: publishItem.id }, {
+      onSuccess: (res) => {
+        toast({
+          title: "Published to Facebook",
+          description: res?.permalink ? "Your post is live on Facebook." : undefined,
+          action: viewPostAction(res?.permalink),
+        });
+        queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+        setPublishItem(null);
       },
-    );
+      onRetrying: () => restartRetryToast("Facebook"),
+      onError: (err: any, { retried }) => {
+        toast({
+          title: "Publish failed",
+          description: publishErrorDescription(
+            err,
+            "Could not publish to Facebook. Connect and verify your Facebook Page on the Accounts page first.",
+            retried,
+          ),
+          variant: "destructive",
+        });
+      },
+    });
   };
 
   const handlePublishInstagram = () => {
     if (!instagramItem) return;
-    publishInstagram.mutate(
-      { id: instagramItem.id },
-      {
-        onSuccess: () => {
-          toast({
-            title: "Publishing to Instagram",
-            description:
-              "Instagram is processing your image. This card will update to Published when it's live.",
-          });
-          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
-          setInstagramItem(null);
-        },
-        onError: (err: any) => {
-          toast({
-            title: "Publish failed",
-            description:
-              err?.response?.data?.error ||
-              "Could not publish to Instagram. Connect and verify your Instagram account on the Accounts page first.",
-            variant: "destructive",
-          });
-        },
+    mutateWithRestartRetry(publishInstagram, { id: instagramItem.id }, {
+      onSuccess: () => {
+        toast({
+          title: "Publishing to Instagram",
+          description:
+            "Instagram is processing your image. This card will update to Published when it's live.",
+        });
+        queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+        setInstagramItem(null);
       },
-    );
+      onRetrying: () => restartRetryToast("Instagram"),
+      onError: (err: any, { retried }) => {
+        toast({
+          title: "Publish failed",
+          description: publishErrorDescription(
+            err,
+            "Could not publish to Instagram. Connect and verify your Instagram account on the Accounts page first.",
+            retried,
+          ),
+          variant: "destructive",
+        });
+      },
+    });
   };
 
   // One-click retry for a failed publish. Re-uses the same Instagram publish
@@ -190,38 +206,35 @@ export function LibraryPage() {
   // bounded background retry; the card then updates via the polling above.
   const handleRetry = (item: any) => {
     setRetryingId(item.id);
-    publishInstagram.mutate(
-      { id: item.id },
-      {
-        onSuccess: () => {
-          toast({
-            title: "Retrying publish",
-            description:
-              "Instagram is processing your image again. This card will update to Published when it's live.",
-          });
-          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
-        },
-        onError: (err: any) => {
-          toast({
-            title: "Retry failed",
-            description:
-              err?.response?.data?.error ||
-              "Could not publish to Instagram. Connect and verify your Instagram account on the Accounts page first.",
-            variant: "destructive",
-          });
-        },
-        onSettled: () => {
-          setRetryingId(null);
-        },
+    mutateWithRestartRetry(publishInstagram, { id: item.id }, {
+      onSuccess: () => {
+        toast({
+          title: "Retrying publish",
+          description:
+            "Instagram is processing your image again. This card will update to Published when it's live.",
+        });
+        queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+        setRetryingId(null);
       },
-    );
+      onRetrying: () => restartRetryToast("Instagram"),
+      onError: (err: any, { retried }) => {
+        toast({
+          title: "Retry failed",
+          description: publishErrorDescription(
+            err,
+            "Could not publish to Instagram. Connect and verify your Instagram account on the Accounts page first.",
+            retried,
+          ),
+          variant: "destructive",
+        });
+        setRetryingId(null);
+      },
+    });
   };
 
   const handlePublishLinkedin = () => {
     if (!linkedinItem) return;
-    publishLinkedin.mutate(
-      { id: linkedinItem.id },
-      {
+    mutateWithRestartRetry(publishLinkedin, { id: linkedinItem.id }, {
         onSuccess: (res) => {
           if (res?.commentWarning) {
             const itemId = linkedinItem.id;
@@ -254,50 +267,50 @@ export function LibraryPage() {
           queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
           setLinkedinItem(null);
         },
-        onError: (err: any) => {
+        onRetrying: () => restartRetryToast("LinkedIn"),
+        onError: (err: any, { retried }) => {
           toast({
             title: "Publish failed",
-            description:
-              err?.response?.data?.error ||
+            description: publishErrorDescription(
+              err,
               "Could not publish to LinkedIn. Connect your LinkedIn account on the Accounts page and try again.",
+              retried,
+            ),
             variant: "destructive",
           });
         },
-      },
-    );
+    });
   };
 
   const handlePublishTwitter = () => {
     if (!twitterItem) return;
-    publishTwitter.mutate(
-      { id: twitterItem.id },
-      {
-        onSuccess: (res) => {
-          toast({
-            title: "Published to X",
-            description: res?.permalink ? "Your post is live on X." : undefined,
-          });
-          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
-          setTwitterItem(null);
-        },
-        onError: (err: any) => {
-          toast({
-            title: "Publish failed",
-            description:
-              err?.response?.data?.error ||
-              "Could not publish to X. Connect and verify your X account on the Accounts page first.",
-            variant: "destructive",
-          });
-        },
+    mutateWithRestartRetry(publishTwitter, { id: twitterItem.id }, {
+      onSuccess: (res) => {
+        toast({
+          title: "Published to X",
+          description: res?.permalink ? "Your post is live on X." : undefined,
+        });
+        queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+        setTwitterItem(null);
       },
-    );
+      onRetrying: () => restartRetryToast("X"),
+      onError: (err: any, { retried }) => {
+        toast({
+          title: "Publish failed",
+          description: publishErrorDescription(
+            err,
+            "Could not publish to X. Connect and verify your X account on the Accounts page first.",
+            retried,
+          ),
+          variant: "destructive",
+        });
+      },
+    });
   };
 
   const handlePublishThreads = () => {
     if (!threadsItem) return;
-    publishThreads.mutate(
-      { id: threadsItem.id },
-      {
+    mutateWithRestartRetry(publishThreads, { id: threadsItem.id }, {
         onSuccess: (res) => {
           if (res?.publishWarning) {
             toast({
@@ -322,17 +335,19 @@ export function LibraryPage() {
           queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
           setThreadsItem(null);
         },
-        onError: (err: any) => {
+        onRetrying: () => restartRetryToast("Threads"),
+        onError: (err: any, { retried }) => {
           toast({
             title: "Publish failed",
-            description:
-              err?.response?.data?.error ||
+            description: publishErrorDescription(
+              err,
               "Could not publish to Threads. Connect your Threads profile on the Accounts page first.",
+              retried,
+            ),
             variant: "destructive",
           });
         },
-      },
-    );
+    });
   };
 
   const handleDelete = (id: number) => {
