@@ -65,10 +65,10 @@ vi.mock("@workspace/api-client-react", () => {
     useRetestInstagramCredentials: mutation,
     useDisconnectTwitter: mutation,
     useRetestTwitterCredentials: mutation,
-    useGetYoutubeStatus: () => ({ data: mockState.youtube }),
+    useGetYoutubeStatus: () => ({ data: mockState.youtube, isLoading: false }),
     useDisconnectYoutube: mutation,
     useRetestYoutube: mutation,
-    useGetThreadsStatus: () => ({ data: mockState.threads }),
+    useGetThreadsStatus: () => ({ data: mockState.threads, isLoading: false }),
     useDisconnectThreads: mutation,
     useRetestThreads: mutation,
     getListAccountsQueryKey: () => ["accounts"],
@@ -117,7 +117,7 @@ beforeEach(() => {
   mockState.linkedin = {};
   mockState.facebook = {};
   mockState.instagram = {};
-  // Keep Twitter card harmless/unconfigured for FB/IG/LinkedIn-focused tests.
+  // Keep Twitter/YouTube cards harmless/unconfigured for FB/IG/LinkedIn-focused tests.
   mockState.twitter = { configured: false };
   mockState.youtube = { configured: false };
   mockState.threads = { configured: false };

@@ -31,3 +31,13 @@ page reconnect-prompt regression guard). Setup + conventions that aren't obvious
 **Why:** the Accounts page reconnect prompts are pure functions of the status
 hooks; a UI refactor could silently drop them. A mocked-hook rendering test is the
 faithful, fast guard (proven by mutation: disabling the callouts fails the tests).
+
+- **Wholesale api-client mock rots as pages grow.** Any new platform hook used
+  by a page (e.g. YouTube/Threads on Accounts) breaks existing tests with
+  "No X export is defined on the mock" — extend the `vi.mock` factory and
+  `mockState` (seed new platforms `{ configured: false }` so they stay inert).
+- **Char-limit warning tests derive expected values FROM `@workspace/social-limits`**
+  (studio/library/campaign-card tests): assert displayed counts/over-by equal
+  helper outputs and previews equal the trim helpers; verified by mutation.
+  Radix menus/dialogs in jsdom need `hasPointerCapture`/`scrollIntoView`/
+  `ResizeObserver` stubs + `@testing-library/user-event` to open dropdowns.
