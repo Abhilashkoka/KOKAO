@@ -6,6 +6,7 @@ import { sendEmail } from "./email";
 import { getEffectiveSetting } from "./notificationSettings";
 
 export const SOCIAL_CONNECTION_FAILED = "social_connection_failed";
+export const PUBLISH_INTERRUPTED = "publish_interrupted";
 
 const PLATFORM_LABELS: Record<string, string> = {
   facebook: "Facebook Page",
@@ -110,6 +111,63 @@ export async function resolveSocialConnectionNotifications(
     logger.error(
       { err, tenantId, platform },
       "Failed to resolve social connection notifications",
+    );
+  }
+}
+
+/**
+ * Record an in-app notification that one or more of a tenant's posts were
+ * auto-failed because a server restart interrupted publishing mid-flight.
+ * Called from startup recovery, once per affected tenant. Deduped against an
+ * existing UNREAD notification of the same type so repeated restarts do not
+ * stack banners. In-app only — no email; this is a routine "just retry"
+ * situation, not a broken connection. Never throws — a notification failure
+ * must not break server startup recovery.
+ */
+export async function notifyPublishInterrupted(
+  tenantId: number,
+  titles: string[],
+): Promise<void> {
+  try {
+    const existing = await db
+      .select({ id: notificationsTable.id })
+      .from(notificationsTable)
+      .where(
+        and(
+          eq(notificationsTable.tenantId, tenantId),
+          eq(notificationsTable.type, PUBLISH_INTERRUPTED),
+          isNull(notificationsTable.readAt),
+        ),
+      )
+      .limit(1);
+    if (existing.length > 0) return;
+
+    const effective = await getEffectiveSetting(tenantId, PUBLISH_INTERRUPTED);
+    if (!effective.enabled) return;
+
+    const count = titles.length;
+    const firstTitle = titles[0] ?? "";
+    const message =
+      count === 1
+        ? `"${firstTitle}" was being published when the server restarted, so it was marked failed. Nothing was wrong with the post — just publish it again from the Content Library.`
+        : `${count} posts were being published when the server restarted, so they were marked failed. Nothing was wrong with them — just publish them again from the Content Library.`;
+
+    await db.insert(notificationsTable).values({
+      tenantId,
+      type: PUBLISH_INTERRUPTED,
+      platform: null,
+      title:
+        count === 1
+          ? "A publish was interrupted"
+          : `${count} publishes were interrupted`,
+      message,
+      linkUrl: "/library",
+      inApp: effective.inApp,
+    });
+  } catch (err) {
+    logger.error(
+      { err, tenantId },
+      "Failed to record publish-interrupted notification",
     );
   }
 }

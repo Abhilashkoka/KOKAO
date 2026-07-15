@@ -24,6 +24,12 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     description:
       "A connected social account's access expired or was revoked and needs reconnecting before you can keep publishing.",
   },
+  {
+    type: "publish_interrupted",
+    label: "Interrupted publishes",
+    description:
+      "A post that was mid-publish when the server restarted was marked failed and needs a quick retry.",
+  },
 ];
 
 export const NOTIFICATION_TYPE_SET = new Set(

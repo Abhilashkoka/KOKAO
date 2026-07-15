@@ -22,6 +22,15 @@
 import { db, contentItemsTable } from "@workspace/db";
 import { and, eq, lt } from "drizzle-orm";
 import { logger } from "./logger";
+import { notifyPublishInterrupted } from "./notifications";
+
+/**
+ * Canonical reason stamped onto items auto-failed by startup recovery. The UI
+ * shows this verbatim so users know the failure was a restart, not a rejection
+ * from the platform, and that a simple retry is safe.
+ */
+export const PUBLISH_INTERRUPTED_REASON =
+  "Publishing was interrupted by a server restart before it could finish. Nothing was wrong with your post — please try publishing again.";
 
 /**
  * How long an item may sit in "publishing" before a newly started process
@@ -44,14 +53,22 @@ export async function recoverStuckPublishingItems(
   try {
     const reclaimed = await db
       .update(contentItemsTable)
-      .set({ status: "failed", updatedAt: new Date() })
+      .set({
+        status: "failed",
+        failureReason: PUBLISH_INTERRUPTED_REASON,
+        updatedAt: new Date(),
+      })
       .where(
         and(
           eq(contentItemsTable.status, "publishing"),
           lt(contentItemsTable.updatedAt, cutoff),
         ),
       )
-      .returning({ id: contentItemsTable.id });
+      .returning({
+        id: contentItemsTable.id,
+        tenantId: contentItemsTable.tenantId,
+        title: contentItemsTable.title,
+      });
 
     if (reclaimed.length > 0) {
       logger.warn(
@@ -62,6 +79,18 @@ export async function recoverStuckPublishingItems(
         },
         "Recovered content items stuck in 'publishing' after a server restart; marked them 'failed'",
       );
+
+      // Best-effort in-app heads-up so affected tenants learn why their post
+      // flipped to failed even if they miss the reason badge in the library.
+      const byTenant = new Map<number, string[]>();
+      for (const r of reclaimed) {
+        const titles = byTenant.get(r.tenantId) ?? [];
+        titles.push(r.title);
+        byTenant.set(r.tenantId, titles);
+      }
+      for (const [tenantId, titles] of byTenant) {
+        await notifyPublishInterrupted(tenantId, titles);
+      }
     }
     return reclaimed.length;
   } catch (err) {

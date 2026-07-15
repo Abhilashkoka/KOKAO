@@ -26,6 +26,7 @@ export function serializeContent(c: ContentItem) {
     platform: c.platform,
     contentType: c.contentType,
     status: c.status,
+    failureReason: c.failureReason ?? null,
     postId: c.postId ?? null,
     permalink: c.permalink ?? null,
     brandKitId: c.brandKitId ?? null,

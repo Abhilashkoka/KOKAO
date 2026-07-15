@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
-import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, Twitter, ExternalLink, AtSign } from "lucide-react";
+import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, Twitter, ExternalLink, AtSign, AlertCircle } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -390,6 +390,13 @@ export function LibraryPage() {
                 
                 {item.caption && (
                   <p className="text-muted-foreground text-sm line-clamp-3 mb-4">{item.caption}</p>
+                )}
+
+                {item.status === 'failed' && item.failureReason && (
+                  <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-2.5 text-xs text-destructive mb-4" data-testid={`text-failure-reason-${item.id}`}>
+                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>{item.failureReason}</span>
+                  </div>
                 )}
               </CardContent>
               

@@ -1017,6 +1017,11 @@ export interface ContentItem {
   platform: string;
   contentType: string;
   status: string;
+  /**
+     * Why the last publish attempt failed. Set to a canonical restart-interruption message when the server auto-failed an orphaned "publishing" item, or a platform rejection message on a real publish failure. Null when not failed.
+     * @nullable
+     */
+  failureReason?: string | null;
   /** @nullable */
   postId?: string | null;
   /** @nullable */

@@ -15,6 +15,10 @@ export const contentItemsTable = pgTable("content_items", {
   // ad_creative | landing_page | email
   contentType: text("content_type").notNull().default("social_post"),
   status: text("status").notNull().default("draft"),
+  // Human-readable reason a publish failed. Set by the background publisher on
+  // a real rejection and by startup recovery when a restart orphaned the item;
+  // cleared whenever a new publish attempt starts or the item is published.
+  failureReason: text("failure_reason"),
   postId: text("post_id"),
   permalink: text("permalink"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

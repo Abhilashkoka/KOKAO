@@ -1,8 +1,12 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { db, contentItemsTable, pool } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, contentItemsTable, notificationsTable, pool } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
 import { createTenant, deleteTenant, getContentItem } from "../test/dbHelpers";
-import { recoverStuckPublishingItems } from "./recoverStuckPublishes";
+import {
+  recoverStuckPublishingItems,
+  PUBLISH_INTERRUPTED_REASON,
+} from "./recoverStuckPublishes";
+import { PUBLISH_INTERRUPTED } from "./notifications";
 
 async function setPublishing(id: number, tenantId: number, updatedAt: Date) {
   await db
@@ -43,6 +47,57 @@ describe("recoverStuckPublishingItems", () => {
 
       const item = await getContentItem(id, tenant.tenantId);
       expect(item.status).toBe("failed");
+      // The user-visible reason distinguishes a restart interruption from a
+      // real platform rejection.
+      expect(item.failureReason).toBe(PUBLISH_INTERRUPTED_REASON);
+
+      // An in-app notification is recorded for the affected tenant.
+      const notifications = await db
+        .select()
+        .from(notificationsTable)
+        .where(
+          and(
+            eq(notificationsTable.tenantId, tenant.tenantId),
+            eq(notificationsTable.type, PUBLISH_INTERRUPTED),
+          ),
+        );
+      expect(notifications.length).toBe(1);
+      expect(notifications[0].message).toContain("server restarted");
+      expect(notifications[0].linkUrl).toBe("/library");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("does not stack a second notification while one is unread", async () => {
+    const tenant = await createTenant();
+    try {
+      const first = await insertItem(tenant.tenantId);
+      await setPublishing(
+        first,
+        tenant.tenantId,
+        new Date(Date.now() - 30 * 60 * 1000),
+      );
+      await recoverStuckPublishingItems();
+
+      const second = await insertItem(tenant.tenantId);
+      await setPublishing(
+        second,
+        tenant.tenantId,
+        new Date(Date.now() - 30 * 60 * 1000),
+      );
+      await recoverStuckPublishingItems();
+
+      const notifications = await db
+        .select()
+        .from(notificationsTable)
+        .where(
+          and(
+            eq(notificationsTable.tenantId, tenant.tenantId),
+            eq(notificationsTable.type, PUBLISH_INTERRUPTED),
+          ),
+        );
+      expect(notifications.length).toBe(1);
     } finally {
       await deleteTenant(tenant.tenantId);
     }

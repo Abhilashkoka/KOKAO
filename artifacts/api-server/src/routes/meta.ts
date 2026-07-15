@@ -235,6 +235,7 @@ async function markPublished(
     .update(contentItemsTable)
     .set({
       status: "published",
+      failureReason: null,
       postId: meta?.postId || null,
       permalink: meta?.permalink || null,
       updatedAt: new Date(),
@@ -251,10 +252,11 @@ async function setContentStatus(
   id: number,
   tenantId: number,
   status: string,
+  failureReason: string | null = null,
 ) {
   await db
     .update(contentItemsTable)
-    .set({ status, updatedAt: new Date() })
+    .set({ status, failureReason, updatedAt: new Date() })
     .where(
       and(
         eq(contentItemsTable.id, id),
@@ -405,7 +407,11 @@ async function runInstagramPublish(
       // Flip the item to "failed" so the UI can surface it instead of leaving it
       // stuck on "publishing" forever.
       try {
-        await setContentStatus(id, tenantId, "failed");
+        const reason =
+          error instanceof Error && error.message
+            ? `Instagram rejected the post: ${error.message}`
+            : "Instagram rejected the post.";
+        await setContentStatus(id, tenantId, "failed", reason);
       } catch (updateErr) {
         logger.error(
           { err: updateErr, contentItemId: id, tenantId },

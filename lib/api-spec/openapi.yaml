@@ -3757,6 +3757,13 @@ components:
           type: string
         status:
           type: string
+        failureReason:
+          type: ["string", "null"]
+          description: >-
+            Why the last publish attempt failed. Set to a canonical
+            restart-interruption message when the server auto-failed an
+            orphaned "publishing" item, or a platform rejection message on a
+            real publish failure. Null when not failed.
         postId:
           type: ["string", "null"]
         permalink:
