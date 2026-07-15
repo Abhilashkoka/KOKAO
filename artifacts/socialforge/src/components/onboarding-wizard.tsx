@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import {
   useGetMe,
   useDraftBrandKit,
@@ -17,6 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Sparkles, Loader2, Palette, Wand2, ArrowRight } from "lucide-react";
 
 export function OnboardingWizard() {
+  const [location] = useLocation();
   const { data: me } = useGetMe();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -32,7 +34,8 @@ export function OnboardingWizard() {
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const shouldShow = !!me && !me.brandOnboardingComplete;
+  const onAdminPage = location === "/admin" || location.startsWith("/admin/");
+  const shouldShow = !!me && !me.brandOnboardingComplete && !onAdminPage;
   if (!shouldShow) return null;
 
   const refresh = () => {
