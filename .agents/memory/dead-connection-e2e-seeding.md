@@ -19,10 +19,13 @@ naively-seeded state. To seed a *stable* dead connection for an e2e/UI check:
   So FB-failed and IG-failed cannot be shown in the same page load; seed them in two
   phases (FB failed + LinkedIn expired first, then FB verified + IG failed).
 - **LinkedIn expired**: set `access_token` non-null and `token_expires_at` in the
-  **past**. `reverifyLinkedin` returns early on timestamp-expiry WITHOUT clearing the
-  token, so `/linkedin/status` reports `expired=true` → "Reconnect needed" pill +
-  "Reconnect LinkedIn" button. (If instead you leave a future/no expiry with a fake
-  token, the live USERINFO call clears it and the card shows "Not connected".)
+  **past**. `reverifyLinkedin` (now in `lib/socialReverify.ts`, shared with the
+  background sweep) does NOT clear the token on timestamp-expiry, so
+  `/linkedin/status` reports `expired=true` → "Reconnect needed" pill. NOTE: if the
+  seeded row has `verify_status='verified'`, timestamp-expiry now flips it to
+  `failed` + fires the breakage notification; seed `verify_status='failed'` if you
+  don't want a notification row. (A future/no expiry with a fake token gets cleared
+  by the live USERINFO call → "Not connected".)
 - **Meta must be app-configured** for the FB/IG cards to render forms at all: insert
   an `app_credentials` row `provider='meta'` with `last_test_status='verified'`
   (`isMetaAppConfigured` only checks that column, doesn't decrypt). Dev usually has

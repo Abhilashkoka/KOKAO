@@ -4,6 +4,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { recoverStuckPublishingItems } from "./lib/recoverStuckPublishes";
 import { createShutdownHandler } from "./lib/shutdown";
+import { startConnectionSweep, stopConnectionSweep } from "./lib/connectionSweep";
 
 // Fail loudly before binding if a deployed context is missing required env,
 // rather than booting into a silently-degraded state.
@@ -37,6 +38,11 @@ const server: Server = app.listen(port, (err) => {
   // forever. Runs after we're listening so recovery never delays startup, and
   // it swallows its own errors.
   void recoverStuckPublishingItems();
+
+  // Periodically re-verify every tenant's stored social connections in the
+  // background so an expired/revoked token triggers the breakage notification
+  // even for users who never open the Accounts page.
+  startConnectionSweep();
 });
 
 // Graceful shutdown: drain in-flight background publish jobs (bounded by a
@@ -45,6 +51,7 @@ const shutdown = createShutdownHandler({ server });
 
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
+    stopConnectionSweep();
     void shutdown(signal);
   });
 }

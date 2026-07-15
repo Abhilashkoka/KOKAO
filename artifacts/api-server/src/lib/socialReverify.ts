@@ -182,6 +182,99 @@ export async function reverifyInstagram(
   return loadAccountRow(tenantId, "instagram");
 }
 
+const LINKEDIN_USERINFO_URL = "https://api.linkedin.com/v2/userinfo";
+
+const LINKEDIN_TOKEN_INVALID_MESSAGE =
+  "Your LinkedIn access token is no longer valid. Reconnect LinkedIn to keep publishing.";
+
+/**
+ * Proactively re-check a tenant's stored LinkedIn token against the live
+ * userinfo endpoint when it has gone stale (or when forced). A token can be
+ * revoked by the user before its stored expiry, so this catches breakage the
+ * expiry timestamp alone would miss. On a definitive rejection the row flips
+ * to "failed"/error so the UI prompts a reconnect and the tenant is notified
+ * once; transient/network errors only reset the check clock and never flip a
+ * still-valid connection. A token already expired by timestamp is flipped
+ * (and notified) without spending a live call. Never throws.
+ */
+export async function reverifyLinkedin(
+  tenantId: number,
+  opts: ReverifyOptions = {},
+): Promise<AccountRow | undefined> {
+  const row = await loadAccountRow(tenantId, "linkedin");
+  if (!row?.accessToken) return row;
+
+  // Expired by timestamp — no live call needed to know it's dead. Flip a
+  // previously-verified row to failed so the breakage notification fires even
+  // for users who never load the Accounts page.
+  if (row.tokenExpiresAt !== null && row.tokenExpiresAt.getTime() <= Date.now()) {
+    if (row.verifyStatus === "verified") {
+      await db
+        .update(connectedAccountsTable)
+        .set({
+          status: "error",
+          verifyStatus: "failed",
+          verifyError: LINKEDIN_TOKEN_INVALID_MESSAGE,
+          verifiedAt: new Date(),
+        })
+        .where(eq(connectedAccountsTable.id, row.id));
+      await notifySocialConnectionFailed(
+        tenantId,
+        "linkedin",
+        LINKEDIN_TOKEN_INVALID_MESSAGE,
+      );
+      return loadAccountRow(tenantId, "linkedin");
+    }
+    return row;
+  }
+
+  if (!opts.force && !isStale(row.verifiedAt)) return row;
+
+  try {
+    const userRes = await fetch(LINKEDIN_USERINFO_URL, {
+      headers: { Authorization: `Bearer ${row.accessToken}` },
+    });
+    if (userRes.status === 401 || userRes.status === 403) {
+      await db
+        .update(connectedAccountsTable)
+        .set({
+          status: "error",
+          verifyStatus: "failed",
+          verifyError: LINKEDIN_TOKEN_INVALID_MESSAGE,
+          verifiedAt: new Date(),
+        })
+        .where(eq(connectedAccountsTable.id, row.id));
+      // Notify once when a previously-good connection first breaks.
+      if (row.verifyStatus === "verified") {
+        await notifySocialConnectionFailed(
+          tenantId,
+          "linkedin",
+          LINKEDIN_TOKEN_INVALID_MESSAGE,
+        );
+      }
+    } else if (userRes.ok) {
+      await db
+        .update(connectedAccountsTable)
+        .set({
+          status: "connected",
+          verifyStatus: "verified",
+          verifyError: null,
+          verifiedAt: new Date(),
+        })
+        .where(eq(connectedAccountsTable.id, row.id));
+      await resolveSocialConnectionNotifications(tenantId, "linkedin");
+    } else {
+      // Unexpected non-auth status: reset the clock, keep prior state.
+      await touchChecked(row);
+    }
+  } catch {
+    // Transient/network error: reset the clock, never flip a valid token.
+    await touchChecked(row);
+  }
+
+  return loadAccountRow(tenantId, "linkedin");
+}
+
 /**
  * Automatically re-verify a tenant's stored X (Twitter) OAuth 2.0 connection.
  * Resolves a usable access token (refreshing when expired), then live-tests it
