@@ -588,17 +588,22 @@ describe("Audit trail — privileged actions are recorded", () => {
         });
       expect(res.status).toBe(200);
 
-      let logs = (await getAuditLogsForActor(actor.tenantId)).filter(
-        (l) => l.action === "notification_policy_change",
-      );
+      // Exactly ONE audit row total for this actor — nothing else may be
+      // written as a side effect of the policy save.
+      let logs = await getAuditLogsForActor(actor.tenantId);
       expect(logs).toHaveLength(1);
+      expect(logs[0].action).toBe("notification_policy_change");
+      expect(logs[0].actorTenantId).toBe(actor.tenantId);
+      expect(logs[0].actorEmail).toBe(actor.email);
       expect(logs[0].targetTenantId).toBeNull();
-      expect(JSON.parse(logs[0].oldValue!)).toMatchObject({
+      expect(logs[0].targetEmail).toBeNull();
+      // Exact payloads — no extra or missing keys.
+      expect(JSON.parse(logs[0].oldValue!)).toEqual({
         type: "social_connection_failed",
         enabled: true,
         emailPolicy: "optional",
       });
-      expect(JSON.parse(logs[0].newValue!)).toMatchObject({
+      expect(JSON.parse(logs[0].newValue!)).toEqual({
         type: "social_connection_failed",
         enabled: false,
         emailPolicy: "off",
@@ -618,9 +623,7 @@ describe("Audit trail — privileged actions are recorded", () => {
         });
       expect(noop.status).toBe(200);
 
-      logs = (await getAuditLogsForActor(actor.tenantId)).filter(
-        (l) => l.action === "notification_policy_change",
-      );
+      logs = await getAuditLogsForActor(actor.tenantId);
       expect(logs).toHaveLength(1);
     } finally {
       await restoreNotificationPolicy("social_connection_failed", snapshot);
