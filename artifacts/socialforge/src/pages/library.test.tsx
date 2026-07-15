@@ -8,8 +8,7 @@ import {
   tweetOverBy,
   LINKEDIN_MAX_LENGTH,
   isOverLinkedinLimit,
-  linkedinOverBy,
-  trimToLinkedinLength,
+  splitForLinkedin,
 } from "@workspace/social-limits";
 
 /**
@@ -250,15 +249,17 @@ describe("Library publish-to-X dialog preview", () => {
 });
 
 describe("Library publish-to-LinkedIn dialog preview", () => {
-  it("previews exactly trimToLinkedinLength and warns with linkedinOverBy when over the limit", async () => {
+  it("previews the full caption and warns about follow-up comments, gated by splitForLinkedin", async () => {
     const caption = "f".repeat(LINKEDIN_MAX_LENGTH + 5);
     expect(isOverLinkedinLimit(caption)).toBe(true);
+    const commentCount = splitForLinkedin(caption).comments.length;
+    expect(commentCount).toBeGreaterThan(0);
     renderPageWithCaption(caption);
     await openMenuAndClick(/publish to linkedin/i);
 
     const dialog = await screen.findByRole("dialog");
-    // Displayed preview must equal the shared trim helper's output.
-    expect(within(dialog).getByText(trimToLinkedinLength(caption))).toBeTruthy();
+    // Full caption is previewed (the server posts overflow as comments, no trimming).
+    expect(within(dialog).getByText(caption)).toBeTruthy();
     expect(
       within(dialog).getByText(`${caption.length} / ${LINKEDIN_MAX_LENGTH} characters`, {
         exact: false,
@@ -266,7 +267,7 @@ describe("Library publish-to-LinkedIn dialog preview", () => {
     ).toBeTruthy();
     expect(
       within(dialog).getByText(
-        `${linkedinOverBy(caption)} characters over the ${LINKEDIN_MAX_LENGTH}-character LinkedIn limit`,
+        `the rest will be posted as ${commentCount} follow-up comment${commentCount === 1 ? "" : "s"}`,
         { exact: false },
       ),
     ).toBeTruthy();
@@ -275,7 +276,7 @@ describe("Library publish-to-LinkedIn dialog preview", () => {
   it("previews the untrimmed caption with no warning when under the limit", async () => {
     const caption = "A normal LinkedIn caption.";
     expect(isOverLinkedinLimit(caption)).toBe(false);
-    expect(trimToLinkedinLength(caption)).toBe(caption);
+    expect(splitForLinkedin(caption).comments).toHaveLength(0);
     renderPageWithCaption(caption);
     await openMenuAndClick(/publish to linkedin/i);
 
