@@ -14,4 +14,5 @@ export const AccountInputPlatform = {
   facebook: 'facebook',
   linkedin: 'linkedin',
   youtube: 'youtube',
+  threads: 'threads',
 } as const;

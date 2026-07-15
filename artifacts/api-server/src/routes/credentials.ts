@@ -8,12 +8,14 @@ import {
   AdminSaveTwitterCredentialsBody,
   AdminSaveLinkedinCredentialsBody,
   AdminSaveYoutubeCredentialsBody,
+  AdminSaveThreadsCredentialsBody,
 } from "@workspace/api-zod";
 import type {
   MetaAppCredentials,
   TwitterAppCredentials,
   LinkedinAppCredentials,
   YoutubeAppCredentials,
+  ThreadsAppCredentials,
 } from "@workspace/db";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import {
@@ -482,6 +484,117 @@ router.put(
 
     const row = await loadYoutubeRow();
     res.json(serializeYoutubeStatus(req, row));
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Admin: app-level Threads (by Meta) credentials (superadmin only)
+// ---------------------------------------------------------------------------
+
+async function loadThreadsRow() {
+  return (
+    await db
+      .select()
+      .from(appCredentialsTable)
+      .where(eq(appCredentialsTable.provider, "threads"))
+      .limit(1)
+  )[0];
+}
+
+function threadsRedirectUri(req: Request): string {
+  const proto =
+    (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0] ||
+    req.protocol ||
+    "https";
+  const host =
+    (req.headers["x-forwarded-host"] as string | undefined) || req.headers.host;
+  return `${proto}://${host}/api/threads/auth/callback`;
+}
+
+function serializeThreadsStatus(
+  req: Request,
+  row: Awaited<ReturnType<typeof loadThreadsRow>> | undefined,
+) {
+  const redirectUri = threadsRedirectUri(req);
+  if (!row) {
+    return {
+      configured: false,
+      appIdMasked: null,
+      appSecretMasked: null,
+      redirectUri,
+      savedAt: null,
+    };
+  }
+  let creds: ThreadsAppCredentials | null = null;
+  try {
+    creds = decryptJson<ThreadsAppCredentials>(row.encryptedCredentials);
+  } catch {
+    creds = null;
+  }
+  return {
+    configured: true,
+    appIdMasked: maskSecret(creds?.appId, 4),
+    appSecretMasked: maskSecret(creds?.appSecret, 4),
+    redirectUri,
+    savedAt: row.updatedAt ? row.updatedAt.toISOString() : null,
+  };
+}
+
+router.get(
+  "/admin/platform-credentials/threads",
+  requireSuperadmin,
+  async (req: Request, res: Response) => {
+    const row = await loadThreadsRow();
+    res.json(serializeThreadsStatus(req, row));
+  },
+);
+
+router.put(
+  "/admin/platform-credentials/threads",
+  requireSuperadmin,
+  async (req: Request, res: Response) => {
+    if (!isEncryptionConfigured()) {
+      res
+        .status(400)
+        .json({ error: "Server is missing SESSION_SECRET; cannot store secrets." });
+      return;
+    }
+    const parsed = AdminSaveThreadsCredentialsBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+
+    const { appId, appSecret } = parsed.data;
+    // Threads OAuth app credentials cannot be validated without a full user
+    // authorization, so there is no live pre-test — we store them and treat
+    // the row's presence as "configured".
+    const encrypted = encryptJson({
+      appId: appId.trim(),
+      appSecret: appSecret.trim(),
+    });
+
+    const existing = await loadThreadsRow();
+    if (existing) {
+      await db
+        .update(appCredentialsTable)
+        .set({
+          encryptedCredentials: encrypted,
+          lastTestStatus: null,
+          lastTestedAt: null,
+          lastTestError: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(appCredentialsTable.id, existing.id));
+    } else {
+      await db.insert(appCredentialsTable).values({
+        provider: "threads",
+        encryptedCredentials: encrypted,
+      });
+    }
+
+    const row = await loadThreadsRow();
+    res.json(serializeThreadsStatus(req, row));
   },
 );
 

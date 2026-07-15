@@ -67,3 +67,16 @@ export const youtubeAppCredentialsSchema = z.object({
   clientSecret: z.string(),
 });
 export type YoutubeAppCredentials = z.infer<typeof youtubeAppCredentialsSchema>;
+
+/**
+ * Threads (by Meta) OAuth 2.0 app credentials — the "Threads App ID" and
+ * "Threads App Secret" from a Meta app with the "Access the Threads API" use
+ * case. NOTE: these are distinct from the regular Facebook App ID/Secret, even
+ * within the same Meta app. They drive the authorization-code flow tenants use
+ * to connect their Threads profile. Stored encrypted.
+ */
+export const threadsAppCredentialsSchema = z.object({
+  appId: z.string(),
+  appSecret: z.string(),
+});
+export type ThreadsAppCredentials = z.infer<typeof threadsAppCredentialsSchema>;

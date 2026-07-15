@@ -13,6 +13,9 @@ import {
   useAdminGetYoutubeCredentials,
   useAdminSaveYoutubeCredentials,
   getAdminGetYoutubeCredentialsQueryKey,
+  useAdminGetThreadsCredentials,
+  useAdminSaveThreadsCredentials,
+  getAdminGetThreadsCredentialsQueryKey,
   useAdminSaveTwitterCredentials,
   useAdminListNotificationPolicies,
   useAdminUpdateNotificationPolicies,
@@ -665,6 +668,156 @@ function YoutubeCredentialsCard() {
               }
             >
               {saveYoutube.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                </>
+              ) : (
+                "Save"
+              )}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ThreadsCredentialsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useAdminGetThreadsCredentials();
+  const saveThreads = useAdminSaveThreadsCredentials();
+
+  const [appId, setAppId] = useState("");
+  const [appSecret, setAppSecret] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (data && !dirty) {
+      setAppId(data.appIdMasked ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const copyRedirect = () => {
+    if (!data?.redirectUri) return;
+    navigator.clipboard.writeText(data.redirectUri);
+    toast({ title: "Callback URL copied" });
+  };
+
+  const handleSave = () => {
+    if (!appId.trim() || !appSecret.trim()) return;
+    saveThreads.mutate(
+      { data: { appId: appId.trim(), appSecret: appSecret.trim() } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetThreadsCredentialsQueryKey(),
+          });
+          setAppSecret("");
+          setDirty(false);
+          toast({
+            title: "Threads credentials saved",
+            description:
+              "Workspaces can now connect their Threads profile on the Accounts page.",
+          });
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description: err?.response?.data?.error || "Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Threads app credentials</CardTitle>
+        <CardDescription>
+          One-time platform setup. Enter the Threads App ID and Threads App
+          Secret of a Meta app with the "Access the Threads API" use case
+          added. These are different from the regular Facebook App ID and
+          Secret, even inside the same Meta app. Every workspace then connects
+          their own Threads profile on the Accounts page. Secrets are
+          encrypted at rest and never shown again.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-xl">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (
+          <>
+            {data?.configured && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-green-600 flex items-center gap-1">
+                  <CheckCircle2 className="h-4 w-4" /> Saved
+                </span>
+              </div>
+            )}
+            {data?.redirectUri && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Callback URL (register this in the Meta app's Threads API settings)
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input readOnly value={data.redirectUri} />
+                  <Button type="button" variant="outline" onClick={copyRedirect}>
+                    Copy
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Add this exact URL as a Redirect Callback URL in the Threads
+                  API settings of your Meta app (under the "Access the Threads
+                  API" use case, Customize, Settings).
+                </p>
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Threads App ID</label>
+              <Input
+                value={appId}
+                onChange={(e) => {
+                  setAppId(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="Threads App ID"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Threads App Secret</label>
+              <Input
+                type="password"
+                value={appSecret}
+                onChange={(e) => {
+                  setAppSecret(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder={
+                  data?.configured
+                    ? "Enter to replace the saved secret"
+                    : "Threads App Secret"
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Find both values in the Meta app under App settings, Basic —
+                scroll to the Threads section (not the regular App ID/Secret at
+                the top).
+              </p>
+            </div>
+            <Button
+              onClick={handleSave}
+              disabled={
+                saveThreads.isPending || !appId.trim() || !appSecret.trim()
+              }
+            >
+              {saveThreads.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
                 </>
@@ -1733,6 +1886,7 @@ export function AdminPage() {
       <TwitterCredentialsCard />
       <LinkedinCredentialsCard />
       <YoutubeCredentialsCard />
+      <ThreadsCredentialsCard />
       <EmailDeliveryCard />
       <NotificationPoliciesCard />
       <AuditLogCard />

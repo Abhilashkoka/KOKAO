@@ -911,6 +911,57 @@ export interface YoutubeAppCredentialStatus {
   savedAt?: string | null;
 }
 
+export interface ThreadsAuthUrlResult {
+  url: string;
+}
+
+export interface ThreadsStatus {
+  connected: boolean;
+  /** @nullable */
+  accountName?: string | null;
+  /** Whether the platform-level Threads app credentials are set by the admin. */
+  configured: boolean;
+  /** The exact OAuth redirect URL to register in the Meta app's Threads API settings. */
+  redirectUri: string;
+  /** True when a profile was previously connected but its access has since expired or been revoked, so the user should reconnect. */
+  expired?: boolean;
+}
+
+export interface ThreadsAppCredentialInput {
+  /** @minLength 1 */
+  appId: string;
+  /** @minLength 1 */
+  appSecret: string;
+}
+
+export interface ThreadsAppCredentialStatus {
+  /** Whether Threads app credentials have been saved. */
+  configured: boolean;
+  /** @nullable */
+  appIdMasked?: string | null;
+  /** @nullable */
+  appSecretMasked?: string | null;
+  /** The exact OAuth redirect URL to register in the Meta app's Threads API settings. */
+  redirectUri: string;
+  /** @nullable */
+  savedAt?: string | null;
+}
+
+export interface PublishThreadsResult {
+  postId: string;
+  /** @nullable */
+  permalink?: string | null;
+  /** How many posts of the reply-chained thread were published. */
+  postsPublished?: number;
+  /** How many posts the caption required. */
+  postsTotal?: number;
+  /**
+     * Present when the first post published but some follow-up replies with the rest of the caption could not be posted.
+     * @nullable
+     */
+  publishWarning?: string | null;
+}
+
 export interface TwitterAppCredentialInput {
   /** @minLength 1 */
   clientId: string;
@@ -1193,6 +1244,7 @@ export const AccountInputPlatform = {
   facebook: 'facebook',
   linkedin: 'linkedin',
   youtube: 'youtube',
+  threads: 'threads',
 } as const;
 
 export interface AccountInput {

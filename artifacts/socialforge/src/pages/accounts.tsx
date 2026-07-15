@@ -26,6 +26,11 @@ import {
   useDisconnectYoutube,
   useRetestYoutube,
   getGetYoutubeStatusQueryKey,
+  getThreadsAuthUrl,
+  useGetThreadsStatus,
+  useDisconnectThreads,
+  useRetestThreads,
+  getGetThreadsStatusQueryKey,
   getGetFacebookCredentialsQueryKey,
   getGetInstagramCredentialsQueryKey,
   getGetTwitterStatusQueryKey
@@ -37,7 +42,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Share2, Plus, Trash2, CheckCircle2, Instagram, Facebook, Linkedin, Youtube, Loader2, Copy, ExternalLink, AlertCircle, Twitter } from "lucide-react";
+import { Share2, Plus, Trash2, CheckCircle2, Instagram, Facebook, Linkedin, Youtube, Loader2, Copy, ExternalLink, AlertCircle, Twitter, AtSign } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 function StatusPill({ status }: { status?: string | null }) {
@@ -659,6 +664,7 @@ const ICONS: Record<string, any> = {
   facebook: { icon: Facebook, color: "text-blue-600", bg: "bg-blue-600/10" },
   linkedin: { icon: Linkedin, color: "text-blue-700", bg: "bg-blue-700/10" },
   youtube: { icon: Youtube, color: "text-red-600", bg: "bg-red-600/10" },
+  threads: { icon: AtSign, color: "text-foreground", bg: "bg-foreground/10" },
 };
 
 const HANDLE_HINTS: Record<string, { placeholder: string; hint: string }> = {
@@ -678,6 +684,10 @@ const HANDLE_HINTS: Record<string, { placeholder: string; hint: string }> = {
     placeholder: "@yourchannel",
     hint: "On youtube.com, click your avatar > Your channel. Your handle is the @name shown under the channel title (or in Settings > Channel).",
   },
+  threads: {
+    placeholder: "@yourbrand",
+    hint: "Open the Threads app or threads.net and go to your profile. Your handle is the @username shown at the top of your profile.",
+  },
 };
 
 export function AccountsPage() {
@@ -690,6 +700,9 @@ export function AccountsPage() {
   const { data: youtubeStatus } = useGetYoutubeStatus();
   const disconnectYoutube = useDisconnectYoutube();
   const retestYoutube = useRetestYoutube();
+  const { data: threadsStatus } = useGetThreadsStatus();
+  const disconnectThreads = useDisconnectThreads();
+  const retestThreads = useRetestThreads();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -698,6 +711,7 @@ export function AccountsPage() {
   const [accountName, setAccountName] = useState("");
   const [linkedinConnecting, setLinkedinConnecting] = useState(false);
   const [youtubeConnecting, setYoutubeConnecting] = useState(false);
+  const [threadsConnecting, setThreadsConnecting] = useState(false);
 
   const refreshLinkedin = () => {
     queryClient.invalidateQueries({ queryKey: getGetLinkedinStatusQueryKey() });
@@ -839,7 +853,8 @@ export function AccountsPage() {
     const params = new URLSearchParams(window.location.search);
     const status = params.get("linkedin");
     const ytStatusParam = params.get("youtube");
-    if (!status && !ytStatusParam) return;
+    const threadsStatusParam = params.get("threads");
+    if (!status && !ytStatusParam && !threadsStatusParam) return;
     if (status === "connected") {
       toast({ title: "LinkedIn connected", description: "You can now publish posts to LinkedIn." });
       queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
@@ -866,6 +881,19 @@ export function AccountsPage() {
       });
     }
     params.delete("youtube");
+    if (threadsStatusParam === "connected") {
+      toast({ title: "Threads connected", description: "You can now publish posts to Threads." });
+      queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getGetThreadsStatusQueryKey() });
+    } else if (threadsStatusParam === "error") {
+      toast({
+        variant: "destructive",
+        title: "Threads connection failed",
+        description:
+          "We couldn't finish connecting your Threads account. Please try again.",
+      });
+    }
+    params.delete("threads");
     const qs = params.toString();
     window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : ""));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -926,6 +954,109 @@ export function AccountsPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [youtubeConnecting]);
+
+  const refreshThreads = () => {
+    queryClient.invalidateQueries({ queryKey: getGetThreadsStatusQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
+  };
+
+  const handleDisconnectThreads = () => {
+    if (
+      !confirm(
+        "Disconnect Threads? This clears your stored Threads access. You'll need to reconnect to publish again.",
+      )
+    )
+      return;
+    disconnectThreads.mutate(undefined, {
+      onSuccess: () => {
+        toast({ title: "Threads disconnected" });
+        refreshThreads();
+      },
+      onError: (err: any) => {
+        toast({
+          variant: "destructive",
+          title: "Couldn't disconnect Threads",
+          description: err?.response?.data?.error || "Please try again.",
+        });
+      },
+    });
+  };
+
+  const handleRetestThreads = () => {
+    retestThreads.mutate(undefined, {
+      onSuccess: (data) => {
+        if (data.connected) {
+          toast({
+            title: "Threads still connected",
+            description: "Your stored access is still valid.",
+          });
+        } else {
+          toast({
+            variant: "destructive",
+            title: "Threads access no longer valid",
+            description: "We cleared the broken connection. Please reconnect.",
+          });
+        }
+        refreshThreads();
+      },
+      onError: (err: any) => {
+        toast({
+          variant: "destructive",
+          title: "Couldn't re-test Threads",
+          description: err?.response?.data?.error || "Please try again.",
+        });
+      },
+    });
+  };
+
+  const handleConnectThreads = async () => {
+    setThreadsConnecting(true);
+    try {
+      const { url } = await getThreadsAuthUrl();
+      // Open in a NEW top-level tab: Threads blocks its sign-in page inside
+      // embedded frames, which would show as "refused to connect".
+      const popup = window.open(url, "_blank", "noopener");
+      if (!popup) {
+        window.location.href = url;
+      }
+    } catch (err: any) {
+      setThreadsConnecting(false);
+      toast({
+        variant: "destructive",
+        title: "Couldn't start Threads connection",
+        description:
+          err?.response?.data?.error ||
+          "Threads isn't configured yet. Please try again later.",
+      });
+    }
+  };
+
+  // Threads OAuth completes in a separate tab, so a status flip to connected
+  // means the flow finished.
+  useEffect(() => {
+    if (threadsConnecting && threadsStatus?.connected) {
+      setThreadsConnecting(false);
+      toast({
+        title: "Threads connected",
+        description: "You can now publish posts to Threads.",
+      });
+      refreshThreads();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadsConnecting, threadsStatus?.connected]);
+
+  useEffect(() => {
+    if (!threadsConnecting) return;
+    const interval = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: getGetThreadsStatusQueryKey() });
+    }, 3000);
+    const timeout = setTimeout(() => setThreadsConnecting(false), 5 * 60 * 1000);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadsConnecting]);
 
   const handleConnectLinkedin = async () => {
     setLinkedinConnecting(true);
@@ -1264,6 +1395,135 @@ export function AccountsPage() {
         </CardContent>
       </Card>
 
+      <Card className="overflow-hidden border-border">
+        <CardContent className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-foreground/10 text-foreground shrink-0">
+              <AtSign className="h-6 w-6" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-bold text-lg">Threads Publishing</h3>
+                {threadsStatus?.connected ? (
+                  <span className="text-xs font-medium text-green-600 flex items-center gap-1 bg-green-600/10 px-2 py-0.5 rounded-full">
+                    <CheckCircle2 className="h-3 w-3" /> Connected
+                  </span>
+                ) : threadsStatus?.expired ? (
+                  <span className="text-xs font-medium text-destructive flex items-center gap-1 bg-destructive/10 px-2 py-0.5 rounded-full">
+                    <AlertCircle className="h-3 w-3" /> Reconnect needed
+                  </span>
+                ) : threadsStatus?.configured ? (
+                  <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                    Not connected
+                  </span>
+                ) : (
+                  <span className="text-xs font-medium text-amber-600 flex items-center gap-1 bg-amber-600/10 px-2 py-0.5 rounded-full">
+                    <AlertCircle className="h-3 w-3" /> Needs setup
+                  </span>
+                )}
+              </div>
+
+              {threadsStatus?.connected ? (
+                <div className="mt-2 space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Posting as <span className="font-medium text-foreground">{threadsStatus.accountName}</span>. You can publish content items to Threads from the Content Library.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={handleRetestThreads} disabled={retestThreads.isPending}>
+                      {retestThreads.isPending ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Re-testing...</>
+                      ) : (
+                        "Re-test now"
+                      )}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={handleConnectThreads} disabled={threadsConnecting}>
+                      {threadsConnecting ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Reconnecting...</>
+                      ) : (
+                        "Reconnect"
+                      )}
+                    </Button>
+                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={handleDisconnectThreads} disabled={disconnectThreads.isPending}>
+                      {disconnectThreads.isPending ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
+                      ) : (
+                        <><Trash2 className="h-4 w-4 mr-2" /> Disconnect</>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              ) : threadsStatus?.configured ? (
+                <div className="mt-2 space-y-3">
+                  {threadsStatus?.expired ? (
+                    <p className="text-sm text-destructive">
+                      Your Threads access has expired or been revoked, so publishing is paused. Reconnect your account to resume posting.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Connect your Threads profile to publish posts directly from the Content Library. You will be redirected to Threads to authorize access.
+                    </p>
+                  )}
+                  <Button onClick={handleConnectThreads} disabled={threadsConnecting}>
+                    {threadsConnecting ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {threadsStatus?.expired ? "Reconnecting..." : "Connecting..."}</>
+                    ) : (
+                      <><AtSign className="h-4 w-4 mr-2" /> {threadsStatus?.expired ? "Reconnect Threads" : "Connect Threads"}</>
+                    )}
+                  </Button>
+                </div>
+              ) : (
+                <div className="mt-3 space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Threads publishing requires a one-time setup by the workspace administrator. Once configured, every member can connect their own Threads profile and publish from the Content Library.
+                  </p>
+                  <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-3 text-sm">
+                    <p className="font-semibold">Administrator setup</p>
+                    <ol className="list-decimal pl-5 space-y-2 text-muted-foreground">
+                      <li>
+                        Create (or open) a Meta app at{" "}
+                        <a
+                          href="https://developers.facebook.com/apps"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-foreground font-medium inline-flex items-center gap-1 hover:underline"
+                        >
+                          developers.facebook.com/apps <ExternalLink className="h-3 w-3" />
+                        </a>{" "}
+                        and add the <span className="font-medium text-foreground">"Access the Threads API"</span> use case.
+                      </li>
+                      <li>
+                        In the Threads use case settings, add this exact Redirect Callback URL:
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <code className="flex-1 truncate rounded bg-background border border-border px-2 py-1.5 text-xs">
+                            {threadsStatus?.redirectUri ?? "Loading..."}
+                          </code>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8 shrink-0"
+                            onClick={() => {
+                              if (!threadsStatus?.redirectUri) return;
+                              navigator.clipboard.writeText(threadsStatus.redirectUri);
+                              toast({ title: "Redirect URL copied" });
+                            }}
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </li>
+                      <li>
+                        Copy the <span className="font-medium text-foreground">Threads App ID</span> and{" "}
+                        <span className="font-medium text-foreground">Threads App Secret</span> (found under App settings, Basic, in the Threads section — these are different from the regular App ID and Secret) and save them on the Admin page under Threads app credentials.
+                      </li>
+                    </ol>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <FacebookCredentialsCard />
       <InstagramCredentialsCard />
       <TwitterCredentialsCard />
@@ -1326,6 +1586,7 @@ export function AccountsPage() {
                   <SelectItem value="facebook"><div className="flex items-center gap-2"><Facebook className="text-blue-600"/> Facebook</div></SelectItem>
                   <SelectItem value="linkedin"><div className="flex items-center gap-2"><Linkedin className="text-blue-700"/> LinkedIn</div></SelectItem>
                   <SelectItem value="youtube"><div className="flex items-center gap-2"><Youtube className="text-red-600"/> YouTube</div></SelectItem>
+                  <SelectItem value="threads"><div className="flex items-center gap-2"><AtSign className="text-foreground"/> Threads</div></SelectItem>
                 </SelectContent>
               </Select>
             </div>

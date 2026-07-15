@@ -15,6 +15,7 @@ import twitterRouter, { twitterCallbackRouter } from "./twitter";
 import credentialsRouter from "./credentials";
 import linkedinRouter, { linkedinCallbackRouter } from "./linkedin";
 import youtubeRouter, { youtubeCallbackRouter } from "./youtube";
+import threadsRouter, { threadsCallbackRouter } from "./threads";
 import notificationsRouter from "./notifications";
 import notificationSettingsRouter from "./notificationSettings";
 import emailSettingsRouter from "./emailSettings";
@@ -36,9 +37,11 @@ router.use(publicAppBrandRouter);
 router.use("/twitter", sensitiveLimiter);
 router.use("/linkedin", sensitiveLimiter);
 router.use("/youtube", sensitiveLimiter);
+router.use("/threads", sensitiveLimiter);
 router.use(twitterCallbackRouter);
 router.use(linkedinCallbackRouter);
 router.use(youtubeCallbackRouter);
+router.use(threadsCallbackRouter);
 
 // Everything below requires an authenticated tenant
 router.use(requireTenant);
@@ -63,6 +66,7 @@ router.use(twitterRouter);
 router.use(credentialsRouter);
 router.use(linkedinRouter);
 router.use(youtubeRouter);
+router.use(threadsRouter);
 router.use(notificationsRouter);
 router.use(notificationSettingsRouter);
 router.use(emailSettingsRouter);

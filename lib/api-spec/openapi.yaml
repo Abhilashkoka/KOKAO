@@ -2072,6 +2072,155 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /threads/auth/url:
+    get:
+      operationId: getThreadsAuthUrl
+      tags: [threads]
+      summary: Get the Threads OAuth authorization URL to begin connecting Threads
+      responses:
+        "200":
+          description: Authorization URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThreadsAuthUrlResult"
+        "503":
+          description: Threads is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /threads/status:
+    get:
+      operationId: getThreadsStatus
+      tags: [threads]
+      summary: Whether a Threads profile is connected
+      responses:
+        "200":
+          description: Threads connection status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThreadsStatus"
+
+  /threads:
+    delete:
+      operationId: disconnectThreads
+      tags: [threads]
+      summary: Disconnect Threads, clearing the stored OAuth token and profile
+      responses:
+        "200":
+          description: Threads connection status after disconnecting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThreadsStatus"
+
+  /threads/retest:
+    post:
+      operationId: retestThreads
+      tags: [threads]
+      summary: Re-check the stored Threads connection; clears it if no longer valid
+      responses:
+        "200":
+          description: Threads connection status after re-checking
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThreadsStatus"
+        "400":
+          description: No stored Threads connection to re-test
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /content/{id}/publish-threads:
+    post:
+      operationId: publishContentToThreads
+      tags: [threads]
+      summary: Publish a content item to the connected Threads profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishThreadsResult"
+        "400":
+          description: Invalid input or Threads not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Threads API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/platform-credentials/threads:
+    get:
+      operationId: adminGetThreadsCredentials
+      tags: [platform-credentials]
+      summary: Get masked app-level Threads OAuth credentials (superadmin only)
+      responses:
+        "200":
+          description: Threads app credential status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThreadsAppCredentialStatus"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminSaveThreadsCredentials
+      tags: [platform-credentials]
+      summary: Save app-level Threads OAuth credentials (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ThreadsAppCredentialInput"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThreadsAppCredentialStatus"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /admin/platform-credentials/youtube:
     get:
       operationId: adminGetYoutubeCredentials
@@ -3443,6 +3592,77 @@ components:
         savedAt:
           type: ["string", "null"]
           format: date-time
+    ThreadsAuthUrlResult:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+    ThreadsStatus:
+      type: object
+      required: [connected, configured, redirectUri]
+      properties:
+        connected:
+          type: boolean
+        accountName:
+          type: ["string", "null"]
+        configured:
+          type: boolean
+          description: Whether the platform-level Threads app credentials are set by the admin.
+        redirectUri:
+          type: string
+          description: The exact OAuth redirect URL to register in the Meta app's Threads API settings.
+        expired:
+          type: boolean
+          description: >-
+            True when a profile was previously connected but its access has
+            since expired or been revoked, so the user should reconnect.
+    ThreadsAppCredentialInput:
+      type: object
+      required: [appId, appSecret]
+      properties:
+        appId:
+          type: string
+          minLength: 1
+        appSecret:
+          type: string
+          minLength: 1
+    ThreadsAppCredentialStatus:
+      type: object
+      required: [configured, redirectUri]
+      properties:
+        configured:
+          type: boolean
+          description: Whether Threads app credentials have been saved.
+        appIdMasked:
+          type: ["string", "null"]
+        appSecretMasked:
+          type: ["string", "null"]
+        redirectUri:
+          type: string
+          description: The exact OAuth redirect URL to register in the Meta app's Threads API settings.
+        savedAt:
+          type: ["string", "null"]
+          format: date-time
+    PublishThreadsResult:
+      type: object
+      required: [postId]
+      properties:
+        postId:
+          type: string
+        permalink:
+          type: ["string", "null"]
+        postsPublished:
+          type: integer
+          description: How many posts of the reply-chained thread were published.
+        postsTotal:
+          type: integer
+          description: How many posts the caption required.
+        publishWarning:
+          type: ["string", "null"]
+          description: >-
+            Present when the first post published but some follow-up replies
+            with the rest of the caption could not be posted.
     TwitterAppCredentialInput:
       type: object
       required: [clientId, clientSecret]
@@ -3828,7 +4048,7 @@ components:
       properties:
         platform:
           type: string
-          enum: [instagram, facebook, linkedin, youtube]
+          enum: [instagram, facebook, linkedin, youtube, threads]
         accountName:
           type: string
           minLength: 1

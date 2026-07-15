@@ -7,6 +7,8 @@ import {
   usePublishContentToInstagram,
   usePublishContentToLinkedin,
   usePublishContentToTwitter,
+  usePublishContentToThreads,
+  useGetThreadsStatus,
   useGetFacebookCredentials,
   useGetInstagramCredentials,
   useGetTwitterStatus,
@@ -19,12 +21,15 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
-import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, Twitter, ExternalLink } from "lucide-react";
+import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, Twitter, ExternalLink, AtSign } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, linkedinOverBy, trimToLinkedinLength } from "@workspace/social-limits";
+import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, linkedinOverBy, trimToLinkedinLength, chunkOnWhitespace } from "@workspace/social-limits";
+
+// Mirrors THREADS_MAX_LENGTH on the server (api-server routes/threads.ts).
+const THREADS_MAX_LENGTH = 500;
 
 // Mirror of the server-side thread splitter (see api-server twitterApi.ts) so
 // the dialog can preview how many tweets a long caption will become.
@@ -99,14 +104,19 @@ export function LibraryPage() {
   const [twitterItem, setTwitterItem] = useState<any | null>(null);
   const publishTwitter = usePublishContentToTwitter();
 
+  const [threadsItem, setThreadsItem] = useState<any | null>(null);
+  const publishThreads = usePublishContentToThreads();
+
   const { data: fbCreds } = useGetFacebookCredentials();
   const { data: igCreds } = useGetInstagramCredentials();
   const { data: twStatus } = useGetTwitterStatus();
   const { data: linkedinStatus } = useGetLinkedinStatus();
+  const { data: threadsStatus } = useGetThreadsStatus();
   const fbReady = fbCreds?.verifyStatus === "verified";
   const igReady = igCreds?.verifyStatus === "verified";
   const twReady = !!twStatus?.connected;
   const liReady = !!linkedinStatus?.connected;
+  const thReady = !!threadsStatus?.connected;
 
   const viewPostAction = (permalink: string | null | undefined) =>
     permalink
@@ -241,6 +251,48 @@ export function LibraryPage() {
     );
   };
 
+  const handlePublishThreads = () => {
+    if (!threadsItem) return;
+    publishThreads.mutate(
+      { id: threadsItem.id },
+      {
+        onSuccess: (res) => {
+          if (res?.publishWarning) {
+            toast({
+              title: "Published, but some follow-up posts failed",
+              description: res.publishWarning,
+              variant: "destructive",
+              action: viewPostAction(res?.permalink),
+            });
+          } else {
+            const extra =
+              res?.postsPublished && res.postsPublished > 1
+                ? ` Your caption was posted as a chain of ${res.postsPublished} connected posts.`
+                : "";
+            toast({
+              title: "Published to Threads",
+              description: res?.permalink
+                ? `Your post is live on Threads.${extra}`
+                : extra.trim() || undefined,
+              action: viewPostAction(res?.permalink),
+            });
+          }
+          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+          setThreadsItem(null);
+        },
+        onError: (err: any) => {
+          toast({
+            title: "Publish failed",
+            description:
+              err?.response?.data?.error ||
+              "Could not publish to Threads. Connect your Threads profile on the Accounts page first.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
   const handleDelete = (id: number) => {
     if (!confirm("Are you sure you want to delete this content?")) return;
     deleteContent.mutate({ id }, {
@@ -330,6 +382,7 @@ export function LibraryPage() {
                       <DropdownMenuItem disabled={!igReady || item.status === 'publishing'} onClick={() => setInstagramItem(item)}><Instagram className="h-4 w-4 mr-2" /> Publish to Instagram</DropdownMenuItem>
                       <DropdownMenuItem disabled={!liReady} onClick={() => setLinkedinItem(item)}><Linkedin className="h-4 w-4 mr-2" /> Publish to LinkedIn</DropdownMenuItem>
                       <DropdownMenuItem disabled={!twReady} onClick={() => setTwitterItem(item)}><Twitter className="h-4 w-4 mr-2" /> Publish to X</DropdownMenuItem>
+                      <DropdownMenuItem disabled={!thReady} onClick={() => setThreadsItem(item)}><AtSign className="h-4 w-4 mr-2" /> Publish to Threads</DropdownMenuItem>
                       <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(item.id)}><Trash2 className="h-4 w-4 mr-2" /> Delete</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -524,6 +577,42 @@ export function LibraryPage() {
             <Button variant="outline" onClick={() => setTwitterItem(null)}>Cancel</Button>
             <Button onClick={handlePublishTwitter} disabled={publishTwitter.isPending}>
               {publishTwitter.isPending ? "Publishing..." : "Publish"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!threadsItem} onOpenChange={(open) => !open && setThreadsItem(null)}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle>Publish to Threads</DialogTitle>
+            <DialogDescription>
+              This posts the caption{threadsItem?.imagePath ? " and image" : ""} to your connected Threads profile{threadsStatus?.accountName ? ` (${threadsStatus.accountName})` : ""}.
+            </DialogDescription>
+          </DialogHeader>
+          {threadsItem && (() => {
+            const thText = ((threadsItem.caption?.trim() || threadsItem.title) ?? "").trim();
+            const overLimit = thText.length > THREADS_MAX_LENGTH;
+            const chunks = chunkOnWhitespace(thText, THREADS_MAX_LENGTH);
+            return (
+              <div className="space-y-2 py-2">
+                <p className="font-medium">{threadsItem.title}</p>
+                <p className="text-sm text-muted-foreground line-clamp-4 whitespace-pre-wrap break-words">{thText}</p>
+                <p className={`text-xs ${overLimit ? "font-medium" : ""} text-muted-foreground`}>
+                  {thText.length} characters
+                  {overLimit ? ` \u00b7 ${chunks.length} posts` : ` / ${THREADS_MAX_LENGTH}`}
+                </p>
+                {overLimit && (
+                  <div className="rounded-md border p-3 text-sm text-muted-foreground">
+                    This caption is over the {THREADS_MAX_LENGTH}-character limit, so it will be posted as a chain of {chunks.length} connected posts. Your full message is preserved{threadsItem.imagePath ? ", and the image goes on the first post" : ""}.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setThreadsItem(null)}>Cancel</Button>
+            <Button onClick={handlePublishThreads} disabled={publishThreads.isPending}>
+              {publishThreads.isPending ? "Publishing..." : "Publish"}
             </Button>
           </DialogFooter>
         </DialogContent>

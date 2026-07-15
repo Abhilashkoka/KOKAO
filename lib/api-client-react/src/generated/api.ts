@@ -77,6 +77,7 @@ import type {
   PublishFacebookResult,
   PublishInstagramResult,
   PublishLinkedInResult,
+  PublishThreadsResult,
   PublishTwitterResult,
   ResearchRequest,
   ResearchResult,
@@ -92,6 +93,10 @@ import type {
   SummarizeUrlResult,
   Tenant,
   TenantSettings,
+  ThreadsAppCredentialInput,
+  ThreadsAppCredentialStatus,
+  ThreadsAuthUrlResult,
+  ThreadsStatus,
   TopicIdeasRequest,
   TopicIdeasResult,
   TwitterAppCredentialInput,
@@ -6384,6 +6389,517 @@ export const useRetestYoutube = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getRetestYoutubeMutationOptions(options));
+    }
+
+export const getGetThreadsAuthUrlUrl = () => {
+
+
+
+
+  return `/api/threads/auth/url`
+}
+
+/**
+ * @summary Get the Threads OAuth authorization URL to begin connecting Threads
+ */
+export const getThreadsAuthUrl = async ( options?: RequestInit): Promise<ThreadsAuthUrlResult> => {
+
+  return customFetch<ThreadsAuthUrlResult>(getGetThreadsAuthUrlUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetThreadsAuthUrlQueryKey = () => {
+    return [
+    `/api/threads/auth/url`
+    ] as const;
+    }
+
+
+export const getGetThreadsAuthUrlQueryOptions = <TData = Awaited<ReturnType<typeof getThreadsAuthUrl>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getThreadsAuthUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetThreadsAuthUrlQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getThreadsAuthUrl>>> = ({ signal }) => getThreadsAuthUrl({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getThreadsAuthUrl>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetThreadsAuthUrlQueryResult = NonNullable<Awaited<ReturnType<typeof getThreadsAuthUrl>>>
+export type GetThreadsAuthUrlQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the Threads OAuth authorization URL to begin connecting Threads
+ */
+
+export function useGetThreadsAuthUrl<TData = Awaited<ReturnType<typeof getThreadsAuthUrl>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getThreadsAuthUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetThreadsAuthUrlQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetThreadsStatusUrl = () => {
+
+
+
+
+  return `/api/threads/status`
+}
+
+/**
+ * @summary Whether a Threads profile is connected
+ */
+export const getThreadsStatus = async ( options?: RequestInit): Promise<ThreadsStatus> => {
+
+  return customFetch<ThreadsStatus>(getGetThreadsStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetThreadsStatusQueryKey = () => {
+    return [
+    `/api/threads/status`
+    ] as const;
+    }
+
+
+export const getGetThreadsStatusQueryOptions = <TData = Awaited<ReturnType<typeof getThreadsStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getThreadsStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetThreadsStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getThreadsStatus>>> = ({ signal }) => getThreadsStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getThreadsStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetThreadsStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getThreadsStatus>>>
+export type GetThreadsStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Whether a Threads profile is connected
+ */
+
+export function useGetThreadsStatus<TData = Awaited<ReturnType<typeof getThreadsStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getThreadsStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetThreadsStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDisconnectThreadsUrl = () => {
+
+
+
+
+  return `/api/threads`
+}
+
+/**
+ * @summary Disconnect Threads, clearing the stored OAuth token and profile
+ */
+export const disconnectThreads = async ( options?: RequestInit): Promise<ThreadsStatus> => {
+
+  return customFetch<ThreadsStatus>(getDisconnectThreadsUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDisconnectThreadsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectThreads>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof disconnectThreads>>, TError,void, TContext> => {
+
+const mutationKey = ['disconnectThreads'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof disconnectThreads>>, void> = () => {
+
+
+          return  disconnectThreads(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DisconnectThreadsMutationResult = NonNullable<Awaited<ReturnType<typeof disconnectThreads>>>
+
+    export type DisconnectThreadsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Disconnect Threads, clearing the stored OAuth token and profile
+ */
+export const useDisconnectThreads = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectThreads>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof disconnectThreads>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDisconnectThreadsMutationOptions(options));
+    }
+
+export const getRetestThreadsUrl = () => {
+
+
+
+
+  return `/api/threads/retest`
+}
+
+/**
+ * @summary Re-check the stored Threads connection; clears it if no longer valid
+ */
+export const retestThreads = async ( options?: RequestInit): Promise<ThreadsStatus> => {
+
+  return customFetch<ThreadsStatus>(getRetestThreadsUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRetestThreadsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retestThreads>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retestThreads>>, TError,void, TContext> => {
+
+const mutationKey = ['retestThreads'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retestThreads>>, void> = () => {
+
+
+          return  retestThreads(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetestThreadsMutationResult = NonNullable<Awaited<ReturnType<typeof retestThreads>>>
+
+    export type RetestThreadsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Re-check the stored Threads connection; clears it if no longer valid
+ */
+export const useRetestThreads = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retestThreads>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof retestThreads>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getRetestThreadsMutationOptions(options));
+    }
+
+export const getPublishContentToThreadsUrl = (id: number,) => {
+
+
+
+
+  return `/api/content/${id}/publish-threads`
+}
+
+/**
+ * @summary Publish a content item to the connected Threads profile
+ */
+export const publishContentToThreads = async (id: number, options?: RequestInit): Promise<PublishThreadsResult> => {
+
+  return customFetch<PublishThreadsResult>(getPublishContentToThreadsUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getPublishContentToThreadsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishContentToThreads>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof publishContentToThreads>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['publishContentToThreads'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof publishContentToThreads>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  publishContentToThreads(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PublishContentToThreadsMutationResult = NonNullable<Awaited<ReturnType<typeof publishContentToThreads>>>
+
+    export type PublishContentToThreadsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Publish a content item to the connected Threads profile
+ */
+export const usePublishContentToThreads = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishContentToThreads>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof publishContentToThreads>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getPublishContentToThreadsMutationOptions(options));
+    }
+
+export const getAdminGetThreadsCredentialsUrl = () => {
+
+
+
+
+  return `/api/admin/platform-credentials/threads`
+}
+
+/**
+ * @summary Get masked app-level Threads OAuth credentials (superadmin only)
+ */
+export const adminGetThreadsCredentials = async ( options?: RequestInit): Promise<ThreadsAppCredentialStatus> => {
+
+  return customFetch<ThreadsAppCredentialStatus>(getAdminGetThreadsCredentialsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetThreadsCredentialsQueryKey = () => {
+    return [
+    `/api/admin/platform-credentials/threads`
+    ] as const;
+    }
+
+
+export const getAdminGetThreadsCredentialsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetThreadsCredentials>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetThreadsCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetThreadsCredentialsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetThreadsCredentials>>> = ({ signal }) => adminGetThreadsCredentials({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetThreadsCredentials>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetThreadsCredentialsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetThreadsCredentials>>>
+export type AdminGetThreadsCredentialsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get masked app-level Threads OAuth credentials (superadmin only)
+ */
+
+export function useAdminGetThreadsCredentials<TData = Awaited<ReturnType<typeof adminGetThreadsCredentials>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetThreadsCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetThreadsCredentialsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminSaveThreadsCredentialsUrl = () => {
+
+
+
+
+  return `/api/admin/platform-credentials/threads`
+}
+
+/**
+ * @summary Save app-level Threads OAuth credentials (superadmin only)
+ */
+export const adminSaveThreadsCredentials = async (threadsAppCredentialInput: ThreadsAppCredentialInput, options?: RequestInit): Promise<ThreadsAppCredentialStatus> => {
+
+  return customFetch<ThreadsAppCredentialStatus>(getAdminSaveThreadsCredentialsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(threadsAppCredentialInput)
+  }
+);}
+
+
+
+
+export const getAdminSaveThreadsCredentialsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveThreadsCredentials>>, TError,{data: BodyType<ThreadsAppCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSaveThreadsCredentials>>, TError,{data: BodyType<ThreadsAppCredentialInput>}, TContext> => {
+
+const mutationKey = ['adminSaveThreadsCredentials'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSaveThreadsCredentials>>, {data: BodyType<ThreadsAppCredentialInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminSaveThreadsCredentials(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSaveThreadsCredentialsMutationResult = NonNullable<Awaited<ReturnType<typeof adminSaveThreadsCredentials>>>
+    export type AdminSaveThreadsCredentialsMutationBody = BodyType<ThreadsAppCredentialInput>
+    export type AdminSaveThreadsCredentialsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save app-level Threads OAuth credentials (superadmin only)
+ */
+export const useAdminSaveThreadsCredentials = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveThreadsCredentials>>, TError,{data: BodyType<ThreadsAppCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSaveThreadsCredentials>>,
+        TError,
+        {data: BodyType<ThreadsAppCredentialInput>},
+        TContext
+      > => {
+      return useMutation(getAdminSaveThreadsCredentialsMutationOptions(options));
     }
 
 export const getAdminGetYoutubeCredentialsUrl = () => {

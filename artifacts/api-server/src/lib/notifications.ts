@@ -12,6 +12,8 @@ const PLATFORM_LABELS: Record<string, string> = {
   instagram: "Instagram account",
   linkedin: "LinkedIn account",
   twitter: "X account",
+  youtube: "YouTube channel",
+  threads: "Threads profile",
 };
 
 function platformLabel(platform: string): string {

@@ -3411,7 +3411,7 @@ export const ListAccountsResponse = zod.array(ListAccountsResponseItem)
 
 
 export const CreateAccountBody = zod.object({
-  "platform": zod.enum(['instagram', 'facebook', 'linkedin', 'youtube']),
+  "platform": zod.enum(['instagram', 'facebook', 'linkedin', 'youtube', 'threads']),
   "accountName": zod.string().min(1)
 })
 
@@ -3901,6 +3901,99 @@ export const RetestYoutubeResponse = zod.object({
   "configured": zod.boolean().describe('Whether the platform-level Google OAuth credentials are set by the admin.'),
   "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the Google Cloud OAuth client.'),
   "expired": zod.boolean().optional().describe('True when a channel was previously connected but its access has since been revoked, so the user should reconnect.')
+})
+
+
+/**
+ * @summary Get the Threads OAuth authorization URL to begin connecting Threads
+ */
+export const GetThreadsAuthUrlResponse = zod.object({
+  "url": zod.string()
+})
+
+
+/**
+ * @summary Whether a Threads profile is connected
+ */
+export const GetThreadsStatusResponse = zod.object({
+  "connected": zod.boolean(),
+  "accountName": zod.string().nullish(),
+  "configured": zod.boolean().describe('Whether the platform-level Threads app credentials are set by the admin.'),
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the Meta app\'s Threads API settings.'),
+  "expired": zod.boolean().optional().describe('True when a profile was previously connected but its access has since expired or been revoked, so the user should reconnect.')
+})
+
+
+/**
+ * @summary Disconnect Threads, clearing the stored OAuth token and profile
+ */
+export const DisconnectThreadsResponse = zod.object({
+  "connected": zod.boolean(),
+  "accountName": zod.string().nullish(),
+  "configured": zod.boolean().describe('Whether the platform-level Threads app credentials are set by the admin.'),
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the Meta app\'s Threads API settings.'),
+  "expired": zod.boolean().optional().describe('True when a profile was previously connected but its access has since expired or been revoked, so the user should reconnect.')
+})
+
+
+/**
+ * @summary Re-check the stored Threads connection; clears it if no longer valid
+ */
+export const RetestThreadsResponse = zod.object({
+  "connected": zod.boolean(),
+  "accountName": zod.string().nullish(),
+  "configured": zod.boolean().describe('Whether the platform-level Threads app credentials are set by the admin.'),
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the Meta app\'s Threads API settings.'),
+  "expired": zod.boolean().optional().describe('True when a profile was previously connected but its access has since expired or been revoked, so the user should reconnect.')
+})
+
+
+/**
+ * @summary Publish a content item to the connected Threads profile
+ */
+export const PublishContentToThreadsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const PublishContentToThreadsResponse = zod.object({
+  "postId": zod.string(),
+  "permalink": zod.string().nullish(),
+  "postsPublished": zod.number().optional().describe('How many posts of the reply-chained thread were published.'),
+  "postsTotal": zod.number().optional().describe('How many posts the caption required.'),
+  "publishWarning": zod.string().nullish().describe('Present when the first post published but some follow-up replies with the rest of the caption could not be posted.')
+})
+
+
+/**
+ * @summary Get masked app-level Threads OAuth credentials (superadmin only)
+ */
+export const AdminGetThreadsCredentialsResponse = zod.object({
+  "configured": zod.boolean().describe('Whether Threads app credentials have been saved.'),
+  "appIdMasked": zod.string().nullish(),
+  "appSecretMasked": zod.string().nullish(),
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the Meta app\'s Threads API settings.'),
+  "savedAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Save app-level Threads OAuth credentials (superadmin only)
+ */
+
+
+
+
+export const AdminSaveThreadsCredentialsBody = zod.object({
+  "appId": zod.string().min(1),
+  "appSecret": zod.string().min(1)
+})
+
+export const AdminSaveThreadsCredentialsResponse = zod.object({
+  "configured": zod.boolean().describe('Whether Threads app credentials have been saved.'),
+  "appIdMasked": zod.string().nullish(),
+  "appSecretMasked": zod.string().nullish(),
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the Meta app\'s Threads API settings.'),
+  "savedAt": zod.coerce.date().nullish()
 })
 
 
