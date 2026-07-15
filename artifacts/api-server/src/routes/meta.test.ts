@@ -528,6 +528,162 @@ describe("Facebook publish transient-error retry", () => {
     }
   });
 
+  /**
+   * Simulate the retry-idempotency hazard: the first /photos attempt actually
+   * CREATES the post on Meta's side, but the response is lost (a transient
+   * 500). The duplicate-post probe (GET /{page}/posts) then reports the post
+   * as already existing, so the handler must NOT post again.
+   */
+  function mockGraphWriteThenLoseResponse(
+    calls: string[],
+    existingPost: { id: string; message: string; created_time: string },
+  ) {
+    let photoAttempts = 0;
+    return vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        calls.push(url);
+        const json = (body: unknown, status = 200) =>
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "content-type": "application/json" },
+          });
+
+        if (url.includes("/photos")) {
+          photoAttempts += 1;
+          if (photoAttempts === 1) {
+            // The write committed, but the caller sees a transient failure.
+            return json(
+              { error: { message: "temporarily unavailable", code: 2 } },
+              500,
+            );
+          }
+          // Any further attempt would create a DUPLICATE post.
+          return json({ id: "PHOTO_DUP", post_id: "POST_DUPLICATE" });
+        }
+        if (url.includes("/posts?")) {
+          return json({ data: [existingPost] });
+        }
+        if (url.includes("fields=id,name"))
+          return json({ id: lastPathSegment(url), name: "Test Page" });
+        if (url.includes("fields=id,username"))
+          return json({ id: lastPathSegment(url), username: "testacct" });
+        return json({});
+      });
+  }
+
+  it("does not double-post when a transient failure actually landed the post", async () => {
+    const calls: string[] = [];
+    mockGraphWriteThenLoseResponse(calls, {
+      id: "POST_ALREADY_LANDED",
+      // Must match what the handler sends (item caption).
+      message: "hello world",
+      created_time: new Date().toISOString(),
+    });
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getObjectEntityFile",
+    ).mockResolvedValue({
+      download: async () => [Buffer.from("fake-image-bytes")],
+    } as never);
+
+    const { tenant, itemId } = await setupVerifiedFbTenant();
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-facebook`,
+      );
+
+      // Succeeds with the post that already landed, WITHOUT a second write.
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("POST_ALREADY_LANDED");
+      expect(calls.filter((u) => u.includes("/photos")).length).toBe(1);
+      // The probe queried recent Page posts and never put the token in a URL.
+      expect(calls.some((u) => u.includes("/PAGE_OK/posts"))).toBe(true);
+      expect(calls.every((u) => !u.includes(FB_PAGE_TOKEN))).toBe(true);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("POST_ALREADY_LANDED");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("still retries when the probe finds no matching recent post", async () => {
+    const calls: string[] = [];
+    // First attempt fails transiently; the probe sees only an OLD post with a
+    // different message, so it must not be mistaken for ours and the retry
+    // proceeds and succeeds.
+    let photoAttempts = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        calls.push(url);
+        const json = (body: unknown, status = 200) =>
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "content-type": "application/json" },
+          });
+
+        if (url.includes("/photos")) {
+          photoAttempts += 1;
+          if (photoAttempts === 1) {
+            return json(
+              { error: { message: "temporarily unavailable", code: 2 } },
+              500,
+            );
+          }
+          return json({ id: "PHOTO_1", post_id: "POST_RETRIED" });
+        }
+        if (url.includes("/posts?")) {
+          return json({
+            data: [
+              {
+                id: "POST_UNRELATED",
+                message: "an old unrelated post",
+                created_time: new Date().toISOString(),
+              },
+              {
+                id: "POST_OLD_SAME_TEXT",
+                message: "hello world",
+                // Way before this publish started -> not ours.
+                created_time: new Date(Date.now() - 86_400_000).toISOString(),
+              },
+            ],
+          });
+        }
+        if (url.includes("fields=id,name"))
+          return json({ id: lastPathSegment(url), name: "Test Page" });
+        if (url.includes("fields=id,username"))
+          return json({ id: lastPathSegment(url), username: "testacct" });
+        return json({});
+      },
+    );
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getObjectEntityFile",
+    ).mockResolvedValue({
+      download: async () => [Buffer.from("fake-image-bytes")],
+    } as never);
+
+    const { tenant, itemId } = await setupVerifiedFbTenant();
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-facebook`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("POST_RETRIED");
+      expect(calls.filter((u) => u.includes("/photos")).length).toBe(2);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("does NOT retry a definitive error (fails fast, 502)", async () => {
     const calls: string[] = [];
     // A permission/param error (no transient markers) must fail on the first try.

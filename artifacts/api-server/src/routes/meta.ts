@@ -114,11 +114,21 @@ function isTransientGraphError(status: number, error?: GraphError): boolean {
  * failures. `buildBody` is called fresh for every attempt because a request
  * body (FormData/Blob) is consumed once per fetch. Throws the last error once
  * a definitive failure is seen or the attempt cap is reached.
+ *
+ * Retry idempotency: a "transient" failure does not prove the write did NOT
+ * land — Meta can commit the post and then lose the response (network timeout
+ * after write, or a 5xx returned after the commit). Blindly retrying in that
+ * case creates a DUPLICATE post on the Page. The Graph API has no idempotency
+ * key for Page posts, so after every transient failure the optional
+ * `checkAlreadyPosted` probe queries the Page's recent posts; if the previous
+ * attempt already landed, its result is returned and the retry (or final
+ * throw) is short-circuited.
  */
 async function postToGraphWithRetry<T extends { error?: GraphError }>(
   url: string,
   buildBody: () => FormData,
   label: string,
+  checkAlreadyPosted?: () => Promise<T | null>,
 ): Promise<T> {
   let delay = FB_PUBLISH_RETRY.initialDelayMs;
   let lastError = new Error(label);
@@ -129,7 +139,31 @@ async function postToGraphWithRetry<T extends { error?: GraphError }>(
 
     lastError = new Error(json.error?.message || `${label} (${res.status})`);
     const transient = isTransientGraphError(res.status, json.error);
-    if (!transient || attempt === FB_PUBLISH_RETRY.maxAttempts - 1) {
+    if (!transient) throw lastError;
+
+    // The write may have committed despite the transient-looking error. Check
+    // before retrying (and before the final throw) so we never double-post.
+    if (checkAlreadyPosted) {
+      try {
+        const existing = await checkAlreadyPosted();
+        if (existing) {
+          logger.warn(
+            { url: url.split("?")[0], attempt: attempt + 1 },
+            "Facebook publish returned a transient error but the post already landed; skipping retry to avoid a duplicate",
+          );
+          return existing;
+        }
+      } catch (probeErr) {
+        // The dedupe probe is best-effort: if it fails we fall back to the
+        // normal retry rather than failing the whole publish.
+        logger.warn(
+          { err: probeErr },
+          "Facebook duplicate-post probe failed; proceeding with retry",
+        );
+      }
+    }
+
+    if (attempt === FB_PUBLISH_RETRY.maxAttempts - 1) {
       throw lastError;
     }
 
@@ -140,6 +174,40 @@ async function postToGraphWithRetry<T extends { error?: GraphError }>(
     );
   }
   throw lastError;
+}
+
+/**
+ * Look for a post that the current publish attempt already created on the
+ * Page: one created at/after `since` whose `message` exactly matches what we
+ * sent. Used as the duplicate-post probe after a transient publish failure.
+ * Returns the matching post id, or null. The Page token rides in the
+ * Authorization header so it never lands in a URL/log.
+ */
+async function findRecentMatchingPagePost(
+  pageId: string,
+  pageAccessToken: string,
+  message: string,
+  since: Date,
+): Promise<string | null> {
+  if (!message) return null;
+  const res = await fetch(
+    `${GRAPH_BASE}/${encodeURIComponent(pageId)}/posts?fields=id,message,created_time&limit=10`,
+    { headers: { Authorization: `Bearer ${pageAccessToken}` } },
+  );
+  const json = (await res.json()) as {
+    data?: Array<{ id?: string; message?: string; created_time?: string }>;
+    error?: GraphError;
+  };
+  if (!res.ok || json.error || !Array.isArray(json.data)) return null;
+
+  for (const post of json.data) {
+    if (!post.id || post.message !== message) continue;
+    const created = post.created_time ? Date.parse(post.created_time) : NaN;
+    if (!Number.isNaN(created) && created >= since.getTime()) {
+      return post.id;
+    }
+  }
+  return null;
 }
 
 /**
@@ -461,6 +529,18 @@ router.post(
     const { pageId, pageAccessToken } = fb.creds;
     const message = item.caption?.trim() || item.title;
 
+    // Anchor for the duplicate-post probe: only posts created at/after this
+    // moment can be a result of THIS publish request. A small backward buffer
+    // absorbs clock skew between us and Meta.
+    const publishStartedAt = new Date(Date.now() - 60_000);
+    const checkAlreadyPosted = () =>
+      findRecentMatchingPagePost(
+        pageId,
+        pageAccessToken,
+        message,
+        publishStartedAt,
+      );
+
     try {
       let postId: string;
 
@@ -489,7 +569,10 @@ router.post(
           id?: string;
           post_id?: string;
           error?: GraphError;
-        }>(`${GRAPH_BASE}/${pageId}/photos`, buildForm, "Facebook API error");
+        }>(`${GRAPH_BASE}/${pageId}/photos`, buildForm, "Facebook API error", async () => {
+          const existingId = await checkAlreadyPosted();
+          return existingId ? { post_id: existingId } : null;
+        });
         postId = fbJson.post_id || fbJson.id || "";
       } else {
         const buildForm = () => {
@@ -502,7 +585,10 @@ router.post(
         const fbJson = await postToGraphWithRetry<{
           id?: string;
           error?: GraphError;
-        }>(`${GRAPH_BASE}/${pageId}/feed`, buildForm, "Facebook API error");
+        }>(`${GRAPH_BASE}/${pageId}/feed`, buildForm, "Facebook API error", async () => {
+          const existingId = await checkAlreadyPosted();
+          return existingId ? { id: existingId } : null;
+        });
         postId = fbJson.id || "";
       }
 
