@@ -37,6 +37,7 @@ import {
   getListPlansQueryKey,
   useGetMe,
 } from "@workspace/api-client-react";
+import { useAdminAccessRevoked } from "@/lib/admin-guard";
 import { Textarea } from "@/components/ui/textarea";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
@@ -1972,6 +1973,7 @@ function AuditLogCard() {
 
 export function AdminPage() {
   const { data: me } = useGetMe();
+  const adminAccessRevoked = useAdminAccessRevoked();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -1995,6 +1997,7 @@ export function AdminPage() {
   // Deny on the cached hint OR when the server authoritatively returns 403 —
   // the latter covers live revocation even while `me` is still stale-cached.
   const accessDenied =
+    adminAccessRevoked ||
     (me && !me.isSuperadmin) ||
     isForbidden(tenantsError) ||
     isForbidden(statsError);

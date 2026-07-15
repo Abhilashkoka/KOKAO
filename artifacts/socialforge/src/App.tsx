@@ -12,7 +12,18 @@ import { AdminPage } from "@/pages/admin";
 import { BrandProvider } from "@/lib/brand";
 
 import { Switch, Route, Redirect, useLocation, Router as WouterRouter } from "wouter";
-import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import {
+  QueryCache,
+  MutationCache,
+  QueryClient,
+  QueryClientProvider,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
+  handleAdminForbidden,
+  handleAdminQuerySuccess,
+  resetAdminAccessRevoked,
+} from "@/lib/admin-guard";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
@@ -21,7 +32,18 @@ import { ClerkProvider, Show, useClerk } from "@clerk/react";
 import { publishableKeyFromHost } from "@clerk/react/internal";
 import { useEffect, useRef } from "react";
 
-const queryClient = new QueryClient();
+// Global 403 handling: when any /admin request is rejected (live superadmin
+// revocation), immediately purge cached admin data and flip role-gated UI —
+// don't wait for the open tab to be manually refreshed.
+const queryClient: QueryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error) => handleAdminForbidden(queryClient, error),
+    onSuccess: (_data, query) => handleAdminQuerySuccess(query.queryKey),
+  }),
+  mutationCache: new MutationCache({
+    onError: (error) => handleAdminForbidden(queryClient, error),
+  }),
+});
 
 // Resolve the key from window.location.hostname so the same build serves multiple custom domains
 const clerkPubKey = publishableKeyFromHost(
@@ -56,6 +78,7 @@ function ClerkQueryClientCacheInvalidator() {
         prevUserIdRef.current !== userId
       ) {
         qc.clear();
+        resetAdminAccessRevoked();
       }
       prevUserIdRef.current = userId;
     });
