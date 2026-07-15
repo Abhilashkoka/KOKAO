@@ -23,3 +23,5 @@
 - [E2E false failures](e2e-test-flakiness.md) — if an e2e run fails on missing toasts/dialogs but the DB has the data, check for mid-test workflow restarts and re-run before changing code.
 - [Clerk 401s from duplicate cookie shadowing](stale-clerk-session-401.md) — duplicate __session cookies make even fresh sign-ins 401; server self-heals by expiring Clerk cookies on token-expired+duplicates.
 - [Expo e2e testing pitfalls](expo-e2e-testing.md) — Clerk test sign-in doesn't carry to the Expo domain; verify mobile flows via Clerk backend-API bearer tokens instead.
+- [Clerk Turnstile e2e bypass](clerk-turnstile-e2e-bypass.md) — sign-up CAPTCHA stalls all automation; bypass = testing token on FAPI requests + rewrite environment sitekey to Cloudflare's always-pass key.
+- [Expo web CORS](clerk-turnstile-e2e-bypass.md) — REPLIT_DOMAINS excludes the Expo dev domain; the API CORS allowlist must add REPLIT_EXPO_DEV_DOMAIN or mobile-web API reads fail.

@@ -20,8 +20,12 @@ import { logger } from "./lib/logger";
  * always allowed; any other origin is rejected rather than blindly reflected.
  */
 const allowedOrigins = new Set(
-  (process.env.REPLIT_DOMAINS ?? "")
-    .split(",")
+  [
+    ...(process.env.REPLIT_DOMAINS ?? "").split(","),
+    // The Expo dev server (mobile app on web) runs on its own domain and
+    // calls the API cross-origin with a bearer token.
+    process.env.REPLIT_EXPO_DEV_DOMAIN ?? "",
+  ]
     .map((d) => d.trim())
     .filter(Boolean)
     .map((d) => `https://${d}`),
