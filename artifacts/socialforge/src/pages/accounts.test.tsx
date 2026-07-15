@@ -277,4 +277,110 @@ describe("Accounts page reconnect prompts", () => {
     expect(x.queryByText("Reconnect needed")).toBeNull();
     expect(x.queryByText("Connected")).toBeNull();
   });
+
+  it("warns about a dead (expired) YouTube connection", () => {
+    // Dead YouTube = app configured, not connected, token expired/revoked.
+    mockState.youtube = {
+      configured: true,
+      connected: false,
+      expired: true,
+      accountName: "Brand Channel",
+    };
+
+    renderPage();
+
+    const yt = cardFor("YouTube Channel");
+    expect(yt.getByText("Reconnect needed")).toBeTruthy();
+    expect(
+      yt.getByText(/Access to your YouTube channel has expired or been revoked/i),
+    ).toBeTruthy();
+    expect(yt.getByRole("button", { name: /Reconnect YouTube/i })).toBeTruthy();
+    expect(yt.queryByText("Connected")).toBeNull();
+  });
+
+  it("shows the connected YouTube state with the channel name and no reconnect prompt", () => {
+    mockState.youtube = {
+      configured: true,
+      connected: true,
+      expired: false,
+      accountName: "Brand Channel",
+    };
+
+    renderPage();
+
+    const yt = cardFor("YouTube Channel");
+    expect(yt.getByText("Connected")).toBeTruthy();
+    expect(yt.getByText("Brand Channel")).toBeTruthy();
+    expect(yt.queryByText("Reconnect needed")).toBeNull();
+    expect(
+      yt.queryByText(/Access to your YouTube channel has expired or been revoked/i),
+    ).toBeNull();
+  });
+
+  it("shows the 'Needs setup' YouTube state when the app is not configured", () => {
+    mockState.youtube = { configured: false };
+
+    renderPage();
+
+    const yt = cardFor("YouTube Channel");
+    expect(yt.getByText("Needs setup")).toBeTruthy();
+    expect(
+      yt.getByText(/require a one-time setup by the workspace administrator/i),
+    ).toBeTruthy();
+    expect(yt.queryByText("Reconnect needed")).toBeNull();
+    expect(yt.queryByText("Connected")).toBeNull();
+  });
+
+  it("warns about a dead (expired) Threads connection", () => {
+    // Dead Threads = app configured, not connected, token expired/revoked.
+    mockState.threads = {
+      configured: true,
+      connected: false,
+      expired: true,
+      accountName: "brand.threads",
+    };
+
+    renderPage();
+
+    const th = cardFor("Threads Publishing");
+    expect(th.getByText("Reconnect needed")).toBeTruthy();
+    expect(
+      th.getByText(/Your Threads access has expired or been revoked, so publishing is paused/i),
+    ).toBeTruthy();
+    expect(th.getByRole("button", { name: /Reconnect Threads/i })).toBeTruthy();
+    expect(th.queryByText("Connected")).toBeNull();
+  });
+
+  it("shows the connected Threads state with the account name and no reconnect prompt", () => {
+    mockState.threads = {
+      configured: true,
+      connected: true,
+      expired: false,
+      accountName: "brand.threads",
+    };
+
+    renderPage();
+
+    const th = cardFor("Threads Publishing");
+    expect(th.getByText("Connected")).toBeTruthy();
+    expect(th.getByText("brand.threads")).toBeTruthy();
+    expect(th.queryByText("Reconnect needed")).toBeNull();
+    expect(
+      th.queryByText(/Your Threads access has expired or been revoked/i),
+    ).toBeNull();
+  });
+
+  it("shows the 'Needs setup' Threads state when the app is not configured", () => {
+    mockState.threads = { configured: false };
+
+    renderPage();
+
+    const th = cardFor("Threads Publishing");
+    expect(th.getByText("Needs setup")).toBeTruthy();
+    expect(
+      th.getByText(/requires a one-time setup by the workspace administrator/i),
+    ).toBeTruthy();
+    expect(th.queryByText("Reconnect needed")).toBeNull();
+    expect(th.queryByText("Connected")).toBeNull();
+  });
 });
