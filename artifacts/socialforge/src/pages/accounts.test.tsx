@@ -21,24 +21,58 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
  *  - LinkedIn dead = configured + not connected + expired (token expired).
  */
 
-type Mutable = { data: any; isLoading: boolean };
+// Contract guard: the mock status objects below are TYPED against the
+// generated OpenAPI types, so a spec rename/reshape of these fields breaks
+// this suite at compile time instead of letting the mocks drift silently.
+import type {
+  ConnectedAccount,
+  LinkedInStatus,
+  TwitterStatus,
+  YoutubeStatus,
+  ThreadsStatus,
+  SocialCredentialStatus,
+} from "@workspace/api-client-react";
+
+// OAuth-style status payloads (LinkedIn/X/YouTube/Threads) share one shape.
+type OAuthStatus = LinkedInStatus & TwitterStatus & YoutubeStatus & ThreadsStatus;
+
+function oauthStatus(overrides: Partial<OAuthStatus> = {}): OAuthStatus {
+  return {
+    configured: false,
+    connected: false,
+    redirectUri: "https://app.example/oauth/callback",
+    ...overrides,
+  };
+}
+
+function credentialStatus(
+  platform: "facebook" | "instagram",
+  overrides: Partial<SocialCredentialStatus> = {},
+): SocialCredentialStatus {
+  return {
+    platform,
+    appConfigured: false,
+    saved: false,
+    ...overrides,
+  };
+}
 
 const mockState: {
-  accounts: Mutable;
-  linkedin: any;
-  facebook: any;
-  instagram: any;
-  twitter: any;
-  youtube: any;
-  threads: any;
+  accounts: { data: ConnectedAccount[]; isLoading: boolean };
+  linkedin: LinkedInStatus;
+  facebook: SocialCredentialStatus;
+  instagram: SocialCredentialStatus;
+  twitter: TwitterStatus;
+  youtube: YoutubeStatus;
+  threads: ThreadsStatus;
 } = {
   accounts: { data: [], isLoading: false },
-  linkedin: {},
-  facebook: {},
-  instagram: {},
-  twitter: {},
-  youtube: {},
-  threads: {},
+  linkedin: oauthStatus(),
+  facebook: credentialStatus("facebook"),
+  instagram: credentialStatus("instagram"),
+  twitter: oauthStatus(),
+  youtube: oauthStatus(),
+  threads: oauthStatus(),
 };
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -114,34 +148,34 @@ function cardFor(heading: string) {
 beforeEach(() => {
   cleanup();
   mockState.accounts = { data: [], isLoading: false };
-  mockState.linkedin = {};
-  mockState.facebook = {};
-  mockState.instagram = {};
+  mockState.linkedin = oauthStatus();
+  mockState.facebook = credentialStatus("facebook");
+  mockState.instagram = credentialStatus("instagram");
   // Keep Twitter/YouTube cards harmless/unconfigured for FB/IG/LinkedIn-focused tests.
-  mockState.twitter = { configured: false };
-  mockState.youtube = { configured: false };
-  mockState.threads = { configured: false };
+  mockState.twitter = oauthStatus({ configured: false });
+  mockState.youtube = oauthStatus({ configured: false });
+  mockState.threads = oauthStatus({ configured: false });
 });
 
 describe("Accounts page reconnect prompts", () => {
   it("warns about a dead Facebook connection and an expired LinkedIn connection", () => {
-    mockState.facebook = {
+    mockState.facebook = credentialStatus("facebook", {
       saved: true,
       appConfigured: true,
       verifyStatus: "failed",
       verifyError: "Meta rejected the Page token.",
       pageId: "123",
-    };
+    });
     // Instagram cannot show its own failed prompt while Facebook is not verified;
     // it correctly falls back to the "connect Facebook first" state here.
-    mockState.instagram = { saved: true, appConfigured: true, verifyStatus: "failed", igUserId: "456" };
-    mockState.linkedin = {
+    mockState.instagram = credentialStatus("instagram", { saved: true, appConfigured: true, verifyStatus: "failed", igUserId: "456" });
+    mockState.linkedin = oauthStatus({
       configured: true,
       connected: false,
       expired: true,
       accountName: "Jane Doe",
       redirectUri: "https://app.example/linkedin/callback",
-    };
+    });
 
     renderPage();
 
@@ -160,19 +194,19 @@ describe("Accounts page reconnect prompts", () => {
 
   it("warns about a dead Instagram connection when Facebook is verified", () => {
     // Facebook healthy so the Instagram card renders its own re-enter form.
-    mockState.facebook = {
+    mockState.facebook = credentialStatus("facebook", {
       saved: true,
       appConfigured: true,
       verifyStatus: "verified",
       pageId: "123",
-    };
-    mockState.instagram = {
+    });
+    mockState.instagram = credentialStatus("instagram", {
       saved: true,
       appConfigured: true,
       verifyStatus: "failed",
       verifyError: "Instagram account no longer verifies.",
       igUserId: "456",
-    };
+    });
 
     renderPage();
 
@@ -189,25 +223,25 @@ describe("Accounts page reconnect prompts", () => {
   });
 
   it("shows the connected/verified state and no reconnect prompts when everything is healthy", () => {
-    mockState.facebook = {
+    mockState.facebook = credentialStatus("facebook", {
       saved: true,
       appConfigured: true,
       verifyStatus: "verified",
       pageId: "123",
-    };
-    mockState.instagram = {
+    });
+    mockState.instagram = credentialStatus("instagram", {
       saved: true,
       appConfigured: true,
       verifyStatus: "verified",
       igUserId: "456",
-    };
-    mockState.linkedin = {
+    });
+    mockState.linkedin = oauthStatus({
       configured: true,
       connected: true,
       expired: false,
       accountName: "Jane Doe",
       redirectUri: "https://app.example/linkedin/callback",
-    };
+    });
 
     renderPage();
 
@@ -227,12 +261,12 @@ describe("Accounts page reconnect prompts", () => {
 
   it("warns about a dead (expired) X connection", () => {
     // Dead X = app configured, not connected, token expired.
-    mockState.twitter = {
+    mockState.twitter = oauthStatus({
       configured: true,
       connected: false,
       expired: true,
       accountName: "brand_x",
-    };
+    });
 
     renderPage();
 
@@ -246,12 +280,12 @@ describe("Accounts page reconnect prompts", () => {
   });
 
   it("shows the connected X state with the account name and no reconnect prompt", () => {
-    mockState.twitter = {
+    mockState.twitter = oauthStatus({
       configured: true,
       connected: true,
       expired: false,
       accountName: "brand_x",
-    };
+    });
 
     renderPage();
 
@@ -265,7 +299,7 @@ describe("Accounts page reconnect prompts", () => {
   });
 
   it("shows the 'Needs admin setup' X state when the app is not configured", () => {
-    mockState.twitter = { configured: false };
+    mockState.twitter = oauthStatus({ configured: false });
 
     renderPage();
 
@@ -280,12 +314,12 @@ describe("Accounts page reconnect prompts", () => {
 
   it("warns about a dead (expired) YouTube connection", () => {
     // Dead YouTube = app configured, not connected, token expired/revoked.
-    mockState.youtube = {
+    mockState.youtube = oauthStatus({
       configured: true,
       connected: false,
       expired: true,
       accountName: "Brand Channel",
-    };
+    });
 
     renderPage();
 
@@ -299,12 +333,12 @@ describe("Accounts page reconnect prompts", () => {
   });
 
   it("shows the connected YouTube state with the channel name and no reconnect prompt", () => {
-    mockState.youtube = {
+    mockState.youtube = oauthStatus({
       configured: true,
       connected: true,
       expired: false,
       accountName: "Brand Channel",
-    };
+    });
 
     renderPage();
 
@@ -318,7 +352,7 @@ describe("Accounts page reconnect prompts", () => {
   });
 
   it("shows the 'Needs setup' YouTube state when the app is not configured", () => {
-    mockState.youtube = { configured: false };
+    mockState.youtube = oauthStatus({ configured: false });
 
     renderPage();
 
@@ -333,12 +367,12 @@ describe("Accounts page reconnect prompts", () => {
 
   it("warns about a dead (expired) Threads connection", () => {
     // Dead Threads = app configured, not connected, token expired/revoked.
-    mockState.threads = {
+    mockState.threads = oauthStatus({
       configured: true,
       connected: false,
       expired: true,
       accountName: "brand.threads",
-    };
+    });
 
     renderPage();
 
@@ -352,12 +386,12 @@ describe("Accounts page reconnect prompts", () => {
   });
 
   it("shows the connected Threads state with the account name and no reconnect prompt", () => {
-    mockState.threads = {
+    mockState.threads = oauthStatus({
       configured: true,
       connected: true,
       expired: false,
       accountName: "brand.threads",
-    };
+    });
 
     renderPage();
 
@@ -371,7 +405,7 @@ describe("Accounts page reconnect prompts", () => {
   });
 
   it("shows the 'Needs setup' Threads state when the app is not configured", () => {
-    mockState.threads = { configured: false };
+    mockState.threads = oauthStatus({ configured: false });
 
     renderPage();
 
