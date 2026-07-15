@@ -682,12 +682,22 @@ router.post(
       res.json({ postId, permalink });
     } catch (error) {
       req.log.error({ err: error }, "Facebook publish failed");
-      res.status(502).json({
-        error:
-          error instanceof Error
-            ? `Facebook rejected the post: ${error.message}`
-            : "Failed to publish to Facebook.",
-      });
+      const reason =
+        error instanceof Error && error.message
+          ? `Facebook rejected the post: ${error.message}`
+          : "Failed to publish to Facebook.";
+      // Persist the rejection so it stays reviewable in the Content Library
+      // after the toast is gone. Best-effort: a DB hiccup here must not mask
+      // the original publish error in the response.
+      try {
+        await setContentStatus(id, req.tenantId, "failed", reason);
+      } catch (updateErr) {
+        req.log.error(
+          { err: updateErr, contentItemId: id },
+          "Failed to record Facebook publish failure",
+        );
+      }
+      res.status(502).json({ error: reason });
     }
   },
 );

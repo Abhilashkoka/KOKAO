@@ -348,6 +348,7 @@ async function markPublished(
     .update(contentItemsTable)
     .set({
       status: "published",
+      failureReason: null,
       postId: meta?.postId || null,
       permalink: meta?.permalink || null,
       updatedAt: new Date(),
@@ -441,12 +442,30 @@ router.post(
       res.json({ postId: firstPostId, permalink, tweetCount: tweets.length });
     } catch (error) {
       req.log.error({ err: error }, "X publish failed");
-      res.status(502).json({
-        error:
-          error instanceof Error
-            ? `X rejected the post: ${error.message}`
-            : "Failed to publish to X.",
-      });
+      const reason =
+        error instanceof Error && error.message
+          ? `X rejected the post: ${error.message}`
+          : "Failed to publish to X.";
+      // Persist the rejection so it stays reviewable in the Content Library
+      // after the toast is gone. Best-effort: a DB hiccup here must not mask
+      // the original publish error in the response.
+      try {
+        await db
+          .update(contentItemsTable)
+          .set({ status: "failed", failureReason: reason, updatedAt: new Date() })
+          .where(
+            and(
+              eq(contentItemsTable.id, id),
+              eq(contentItemsTable.tenantId, req.tenantId),
+            ),
+          );
+      } catch (updateErr) {
+        req.log.error(
+          { err: updateErr, contentItemId: id },
+          "Failed to record X publish failure",
+        );
+      }
+      res.status(502).json({ error: reason });
     }
   },
 );

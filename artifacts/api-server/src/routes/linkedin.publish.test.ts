@@ -415,7 +415,9 @@ describe("LinkedIn publish", () => {
     const res = await drive("POST", "/content/1/publish-linkedin");
 
     expect(res.status).toBe(502);
-    expect(state.content[0].status).toBe("draft");
+    // The rejection is persisted so it stays reviewable after the toast.
+    expect(state.content[0].status).toBe("failed");
+    expect(state.content[0].failureReason).toContain("LinkedIn rejected the post");
     // The post was never attempted after the init failure.
     expect(fetchCalls.some((c) => c.url.endsWith("/rest/posts"))).toBe(false);
   });

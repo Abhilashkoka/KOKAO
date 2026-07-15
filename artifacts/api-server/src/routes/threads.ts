@@ -601,6 +601,7 @@ router.post(
         .update(contentItemsTable)
         .set({
           status: "published",
+          failureReason: null,
           postId: firstPostId,
           permalink,
           updatedAt: new Date(),
@@ -621,12 +622,30 @@ router.post(
       });
     } catch (error) {
       req.log.error({ err: error }, "Threads publish failed");
-      res.status(502).json({
-        error:
-          error instanceof Error
-            ? `Threads rejected the post: ${error.message}`
-            : "Failed to publish to Threads.",
-      });
+      const reason =
+        error instanceof Error && error.message
+          ? `Threads rejected the post: ${error.message}`
+          : "Failed to publish to Threads.";
+      // Persist the rejection so it stays reviewable in the Content Library
+      // after the toast is gone. Best-effort: a DB hiccup here must not mask
+      // the original publish error in the response.
+      try {
+        await db
+          .update(contentItemsTable)
+          .set({ status: "failed", failureReason: reason, updatedAt: new Date() })
+          .where(
+            and(
+              eq(contentItemsTable.id, id),
+              eq(contentItemsTable.tenantId, req.tenantId),
+            ),
+          );
+      } catch (updateErr) {
+        req.log.error(
+          { err: updateErr, contentItemId: id },
+          "Failed to record Threads publish failure",
+        );
+      }
+      res.status(502).json({ error: reason });
     }
   },
 );
