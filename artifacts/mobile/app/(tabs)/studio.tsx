@@ -22,6 +22,7 @@ import {
   useUpdateContent,
   getListContentQueryKey,
   getGetContentQueryKey,
+  type BrandKit,
   type ContentItem,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -49,6 +50,80 @@ const CAPTION_TWEAKS = [
   { label: "Punchier", instruction: "Make the caption punchier and more attention-grabbing." },
   { label: "More formal", instruction: "Make the caption more formal and professional." },
 ] as const;
+
+const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+function kitSwatches(kit: BrandKit, max = 4): string[] {
+  const palette = kit.activeVersion?.payload?.colors;
+  if (!palette) return [];
+  const out: string[] = [];
+  for (const group of [palette.primary, palette.secondary, palette.neutral]) {
+    for (const color of group ?? []) {
+      const hex = color.hex?.trim();
+      if (hex && HEX_RE.test(hex) && !out.includes(hex.toLowerCase())) {
+        out.push(hex.toLowerCase());
+        if (out.length >= max) return out;
+      }
+    }
+  }
+  return out;
+}
+
+function SwatchStrip({ hexes, size = 12 }: { hexes: string[]; size?: number }) {
+  if (hexes.length === 0) return null;
+  return (
+    <View style={{ flexDirection: "row", gap: 3 }}>
+      {hexes.map((hex, i) => (
+        <View
+          key={`${hex}-${i}`}
+          style={{
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            backgroundColor: hex,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: "rgba(0,0,0,0.2)",
+          }}
+        />
+      ))}
+    </View>
+  );
+}
+
+function BrandChip({
+  label,
+  swatches,
+  selected,
+  onPress,
+}: {
+  label: string;
+  swatches: string[];
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.brandChip,
+        {
+          backgroundColor: selected ? c.primary : c.secondary,
+          opacity: pressed ? 0.85 : 1,
+        },
+      ]}
+    >
+      <Text
+        style={[
+          styles.brandChipText,
+          { color: selected ? "#ffffff" : c.secondaryForeground },
+        ]}
+      >
+        {label}
+      </Text>
+      <SwatchStrip hexes={swatches} size={11} />
+    </Pressable>
+  );
+}
 
 function errorMessage(err: unknown): string {
   const anyErr = err as {
@@ -102,6 +177,11 @@ export default function StudioScreen() {
   });
 
   const kits = (brandKits.data ?? []).filter((k) => !k.isArchived);
+  const activeKit =
+    brandKitId !== null
+      ? (kits.find((k) => k.id === brandKitId) ?? null)
+      : (kits.find((k) => k.isDefault) ?? null);
+  const activeSwatches = activeKit ? kitSwatches(activeKit, 6) : [];
 
   const haptic = () => {
     if (Platform.OS !== "web") {
@@ -312,9 +392,10 @@ export default function StudioScreen() {
                 onPress={() => setBrandKitId(null)}
               />
               {kits.map((kit) => (
-                <Chip
+                <BrandChip
                   key={kit.id}
                   label={kit.isDefault ? `${kit.name} (default)` : kit.name}
+                  swatches={kitSwatches(kit)}
                   selected={brandKitId === kit.id}
                   onPress={() => setBrandKitId(kit.id)}
                 />
@@ -352,6 +433,15 @@ export default function StudioScreen() {
             />
           ))}
         </View>
+
+        {activeKit && activeSwatches.length > 0 ? (
+          <View style={styles.paletteRow}>
+            <Text style={styles.paletteLabel} numberOfLines={1}>
+              Generating for {activeKit.name}
+            </Text>
+            <SwatchStrip hexes={activeSwatches} size={14} />
+          </View>
+        ) : null}
 
         <View style={styles.actionRow}>
           <Button
@@ -617,6 +707,32 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   actionRow: { flexDirection: "row", gap: 10, marginTop: 22 },
+  brandChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+  },
+  brandChipText: { fontFamily: fonts.medium, fontSize: 13 },
+  paletteRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginTop: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: colors.radius,
+    backgroundColor: c.muted,
+  },
+  paletteLabel: {
+    flex: 1,
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: c.mutedForeground,
+  },
   errorBox: {
     flexDirection: "row",
     alignItems: "flex-start",
