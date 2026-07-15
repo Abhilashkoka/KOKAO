@@ -178,15 +178,67 @@ async function postToGraphWithRetry<T extends { error?: GraphError }>(
 }
 
 /**
+ * Pagination bounds for the duplicate-post probes. The probes filter
+ * server-side with Graph's `since` param, so on a quiet account one page is
+ * plenty — but a busy Page/IG account (or one posting from several tools at
+ * once) can push the landed post past a single page, so the probes follow
+ * `paging.next` links up to `maxPages`. Exported (and mutable) so tests can
+ * exercise the pagination without huge fixtures.
+ */
+export const DEDUPE_PROBE = {
+  pageSize: 25,
+  maxPages: 5,
+};
+
+type ProbePage<T> = {
+  data?: T[];
+  paging?: { next?: string };
+  error?: GraphError;
+};
+
+/**
+ * Fetch up to `DEDUPE_PROBE.maxPages` pages of a Graph edge, calling `match`
+ * on each item, and return the first match. `firstUrl` must already carry the
+ * `since` filter so the window is bounded server-side and a recently landed
+ * post cannot scroll out of it. The token rides in the Authorization header
+ * (never in a URL/log); Graph's `paging.next` links are followed as-is but
+ * re-authenticated via the same header.
+ */
+async function probeGraphPages<T>(
+  firstUrl: string,
+  accessToken: string,
+  match: (item: T) => string | null,
+): Promise<string | null> {
+  let url: string | undefined = firstUrl;
+  for (let page = 0; page < DEDUPE_PROBE.maxPages && url; page++) {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const json = (await res.json()) as ProbePage<T>;
+    if (!res.ok || json.error || !Array.isArray(json.data)) return null;
+    for (const item of json.data) {
+      const id = match(item);
+      if (id) return id;
+    }
+    // An empty page means the `since` window is exhausted.
+    if (json.data.length === 0) return null;
+    url = json.paging?.next;
+  }
+  return null;
+}
+
+/**
  * Look for a post that the current publish attempt already created on the
  * Page: one created at/after `since` whose `message` exactly matches what we
  * sent. When the publish had NO caption (blank message), a landed post also
  * has no `message`, so the probe instead matches any caption-less post
  * created at/after `since` — otherwise a retried caption-less image publish
  * after a "committed but response lost" failure would still duplicate.
- * Used as the duplicate-post probe after a transient publish failure.
- * Returns the matching post id, or null. The Page token rides in the
- * Authorization header so it never lands in a URL/log.
+ * The window is bounded server-side via Graph's `since` param and the probe
+ * paginates (see DEDUPE_PROBE) so a landed post on a busy Page cannot scroll
+ * past the probed window. Used as the duplicate-post probe after a transient
+ * publish failure. Returns the matching post id, or null. The Page token
+ * rides in the Authorization header so it never lands in a URL/log.
  */
 async function findRecentMatchingPagePost(
   pageId: string,
@@ -194,28 +246,28 @@ async function findRecentMatchingPagePost(
   message: string,
   since: Date,
 ): Promise<string | null> {
-  const res = await fetch(
-    `${GRAPH_BASE}/${encodeURIComponent(pageId)}/posts?fields=id,message,created_time&limit=10`,
-    { headers: { Authorization: `Bearer ${pageAccessToken}` } },
+  const sinceSec = Math.floor(since.getTime() / 1000);
+  return probeGraphPages<{
+    id?: string;
+    message?: string;
+    created_time?: string;
+  }>(
+    `${GRAPH_BASE}/${encodeURIComponent(pageId)}/posts?fields=id,message,created_time&limit=${DEDUPE_PROBE.pageSize}&since=${sinceSec}`,
+    pageAccessToken,
+    (post) => {
+      if (!post.id) return null;
+      // Blank publishes match blank posts; non-blank publishes need the exact
+      // text. Graph omits `message` entirely on caption-less photo posts.
+      const matches = message ? post.message === message : !post.message;
+      if (!matches) return null;
+      // Belt-and-braces: re-check the timestamp locally even though the
+      // request already filtered with `since` server-side.
+      const created = post.created_time ? Date.parse(post.created_time) : NaN;
+      return !Number.isNaN(created) && created >= since.getTime()
+        ? post.id
+        : null;
+    },
   );
-  const json = (await res.json()) as {
-    data?: Array<{ id?: string; message?: string; created_time?: string }>;
-    error?: GraphError;
-  };
-  if (!res.ok || json.error || !Array.isArray(json.data)) return null;
-
-  for (const post of json.data) {
-    if (!post.id) continue;
-    // Blank publishes match blank posts; non-blank publishes need the exact
-    // text. Graph omits `message` entirely on caption-less photo posts.
-    const matches = message ? post.message === message : !post.message;
-    if (!matches) continue;
-    const created = post.created_time ? Date.parse(post.created_time) : NaN;
-    if (!Number.isNaN(created) && created >= since.getTime()) {
-      return post.id;
-    }
-  }
-  return null;
 }
 
 /**
@@ -227,8 +279,11 @@ async function findRecentMatchingPagePost(
  * same image twice. When the publish had NO caption, a landed media item also
  * has no `caption`, so the probe matches any caption-less media created
  * at/after `since` instead of skipping (which would let a retry duplicate a
- * caption-less image post). Returns the matching media id, or null. The Page
- * token rides in the Authorization header so it never lands in a URL/log.
+ * caption-less image post). The window is bounded server-side via Graph's
+ * `since` param and the probe paginates (see DEDUPE_PROBE) so a landed post
+ * on a busy account cannot scroll past the probed window. Returns the
+ * matching media id, or null. The Page token rides in the Authorization
+ * header so it never lands in a URL/log.
  */
 async function findRecentMatchingInstagramMedia(
   igUserId: string,
@@ -236,28 +291,28 @@ async function findRecentMatchingInstagramMedia(
   caption: string,
   since: Date,
 ): Promise<string | null> {
-  const res = await fetch(
-    `${GRAPH_BASE}/${encodeURIComponent(igUserId)}/media?fields=id,caption,timestamp&limit=10`,
-    { headers: { Authorization: `Bearer ${pageToken}` } },
+  const sinceSec = Math.floor(since.getTime() / 1000);
+  return probeGraphPages<{
+    id?: string;
+    caption?: string;
+    timestamp?: string;
+  }>(
+    `${GRAPH_BASE}/${encodeURIComponent(igUserId)}/media?fields=id,caption,timestamp&limit=${DEDUPE_PROBE.pageSize}&since=${sinceSec}`,
+    pageToken,
+    (media) => {
+      if (!media.id) return null;
+      // Blank publishes match blank media; non-blank publishes need the exact
+      // caption. Graph omits `caption` entirely on caption-less media.
+      const matches = caption ? media.caption === caption : !media.caption;
+      if (!matches) return null;
+      // Belt-and-braces: re-check the timestamp locally even though the
+      // request already filtered with `since` server-side.
+      const created = media.timestamp ? Date.parse(media.timestamp) : NaN;
+      return !Number.isNaN(created) && created >= since.getTime()
+        ? media.id
+        : null;
+    },
   );
-  const json = (await res.json()) as {
-    data?: Array<{ id?: string; caption?: string; timestamp?: string }>;
-    error?: GraphError;
-  };
-  if (!res.ok || json.error || !Array.isArray(json.data)) return null;
-
-  for (const media of json.data) {
-    if (!media.id) continue;
-    // Blank publishes match blank media; non-blank publishes need the exact
-    // caption. Graph omits `caption` entirely on caption-less media.
-    const matches = caption ? media.caption === caption : !media.caption;
-    if (!matches) continue;
-    const created = media.timestamp ? Date.parse(media.timestamp) : NaN;
-    if (!Number.isNaN(created) && created >= since.getTime()) {
-      return media.id;
-    }
-  }
-  return null;
 }
 
 /**

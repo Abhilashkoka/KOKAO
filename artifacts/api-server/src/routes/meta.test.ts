@@ -71,6 +71,7 @@ import {
   IG_CONTAINER_POLL,
   IG_PUBLISH_RETRY,
   FB_PUBLISH_RETRY,
+  DEDUPE_PROBE,
 } from "./meta";
 import { waitForPendingJobs } from "../lib/backgroundJobs";
 
@@ -680,6 +681,162 @@ describe("Facebook publish transient-error retry", () => {
       expect(res.status).toBe(200);
       expect(res.body.postId).toBe("POST_DUPLICATE");
       expect(calls.filter((u) => u.includes("/photos")).length).toBe(2);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("finds the landed post even when it is beyond the first page of results (busy Page)", async () => {
+    const calls: string[] = [];
+    let photoAttempts = 0;
+    // A busy Page: the first probe page is full of OTHER tools' posts, and the
+    // landed post only shows up on page 2 (reachable via paging.next).
+    const filler = Array.from({ length: DEDUPE_PROBE.pageSize }, (_, i) => ({
+      id: `POST_OTHER_${i}`,
+      message: `unrelated concurrent post ${i}`,
+      created_time: new Date().toISOString(),
+    }));
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        calls.push(url);
+        const json = (body: unknown, status = 200) =>
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "content-type": "application/json" },
+          });
+
+        if (url.includes("/photos")) {
+          photoAttempts += 1;
+          if (photoAttempts === 1) {
+            // The write committed, but the caller sees a transient failure.
+            return json(
+              { error: { message: "temporarily unavailable", code: 2 } },
+              500,
+            );
+          }
+          // Any further attempt would create a DUPLICATE post.
+          return json({ id: "PHOTO_DUP", post_id: "POST_DUPLICATE" });
+        }
+        if (url.includes("/posts?") && url.includes("after=PAGE2")) {
+          return json({
+            data: [
+              {
+                id: "POST_LANDED_PAGE2",
+                message: "hello world",
+                created_time: new Date().toISOString(),
+              },
+            ],
+          });
+        }
+        if (url.includes("/posts?")) {
+          // First probe page must carry the server-side `since` filter.
+          expect(url).toMatch(/[?&]since=\d+/);
+          return json({
+            data: filler,
+            paging: { next: `${url}&after=PAGE2` },
+          });
+        }
+        if (url.includes("fields=id,name"))
+          return json({ id: lastPathSegment(url), name: "Test Page" });
+        if (url.includes("fields=id,username"))
+          return json({ id: lastPathSegment(url), username: "testacct" });
+        return json({});
+      },
+    );
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getObjectEntityFile",
+    ).mockResolvedValue({
+      download: async () => [Buffer.from("fake-image-bytes")],
+    } as never);
+
+    const { tenant, itemId } = await setupVerifiedFbTenant();
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-facebook`,
+      );
+
+      // Found on page 2 — no second write.
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("POST_LANDED_PAGE2");
+      expect(calls.filter((u) => u.includes("/photos")).length).toBe(1);
+      // The probe paginated: two /posts reads, the second via paging.next.
+      expect(calls.filter((u) => u.includes("/posts?")).length).toBe(2);
+      expect(calls.some((u) => u.includes("after=PAGE2"))).toBe(true);
+      expect(calls.every((u) => !u.includes(FB_PAGE_TOKEN))).toBe(true);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("POST_LANDED_PAGE2");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("gives up paginating after the page cap and falls back to the retry", async () => {
+    const calls: string[] = [];
+    let photoAttempts = 0;
+    const filler = Array.from({ length: DEDUPE_PROBE.pageSize }, (_, i) => ({
+      id: `POST_OTHER_${i}`,
+      message: `unrelated concurrent post ${i}`,
+      created_time: new Date().toISOString(),
+    }));
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        calls.push(url);
+        const json = (body: unknown, status = 200) =>
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "content-type": "application/json" },
+          });
+
+        if (url.includes("/photos")) {
+          photoAttempts += 1;
+          if (photoAttempts === 1) {
+            return json(
+              { error: { message: "temporarily unavailable", code: 2 } },
+              500,
+            );
+          }
+          return json({ id: "PHOTO_1", post_id: "POST_RETRIED" });
+        }
+        if (url.includes("/posts?")) {
+          // Endless full pages that never contain our post.
+          return json({
+            data: filler,
+            paging: { next: `${url.split("&after=")[0]}&after=MORE` },
+          });
+        }
+        if (url.includes("fields=id,name"))
+          return json({ id: lastPathSegment(url), name: "Test Page" });
+        if (url.includes("fields=id,username"))
+          return json({ id: lastPathSegment(url), username: "testacct" });
+        return json({});
+      },
+    );
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getObjectEntityFile",
+    ).mockResolvedValue({
+      download: async () => [Buffer.from("fake-image-bytes")],
+    } as never);
+
+    const { tenant, itemId } = await setupVerifiedFbTenant();
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-facebook`,
+      );
+
+      // No match found within the page cap -> normal retry proceeds.
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("POST_RETRIED");
+      expect(calls.filter((u) => u.includes("/photos")).length).toBe(2);
+      // The probe stopped at the page cap instead of following next forever.
+      expect(
+        calls.filter((u) => u.includes("/posts?")).length,
+      ).toBeLessThanOrEqual(DEDUPE_PROBE.maxPages);
     } finally {
       await deleteTenant(tenant.tenantId);
     }
@@ -1342,6 +1499,102 @@ describe("Instagram publish retry", () => {
       const item = await getContentItem(itemId, tenant.tenantId);
       expect(item.status).toBe("published");
       expect(item.postId).toBe("IG_BLANK_LANDED");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("finds the landed IG post even when it is beyond the first page of results (busy account)", async () => {
+    const calls: string[] = [];
+    let publishAttempts = 0;
+    // A busy IG account: page 1 of the probe is full of OTHER tools' media;
+    // the landed post only shows up on page 2 via paging.next.
+    const filler = Array.from({ length: DEDUPE_PROBE.pageSize }, (_, i) => ({
+      id: `IG_OTHER_${i}`,
+      caption: `unrelated concurrent media ${i}`,
+      timestamp: new Date().toISOString(),
+    }));
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        calls.push(url);
+        const json = (body: unknown, s = 200) =>
+          new Response(JSON.stringify(body), {
+            status: s,
+            headers: { "content-type": "application/json" },
+          });
+
+        if (url.includes("/media_publish")) {
+          publishAttempts += 1;
+          if (publishAttempts === 1) {
+            // The publish committed, but the caller sees a transient failure.
+            return json({ error: { message: "temporarily unavailable" } }, 500);
+          }
+          // Any further publish would create a DUPLICATE post.
+          return json({ id: "IG_DUPLICATE" });
+        }
+        if (
+          url.includes("/media?fields=id,caption,timestamp") &&
+          url.includes("after=PAGE2")
+        ) {
+          return json({
+            data: [
+              {
+                id: "IG_LANDED_PAGE2",
+                caption: "hello world",
+                timestamp: new Date().toISOString(),
+              },
+            ],
+          });
+        }
+        if (url.includes("/media?fields=id,caption,timestamp")) {
+          // First probe page must carry the server-side `since` filter.
+          expect(url).toMatch(/[?&]since=\d+/);
+          return json({
+            data: filler,
+            paging: { next: `${url}&after=PAGE2` },
+          });
+        }
+        if (url.includes("fields=status_code"))
+          return json({ status_code: "FINISHED" });
+        if (url.includes("fields=permalink"))
+          return json({ permalink: "https://www.instagram.com/p/landed2/" });
+        if (url.includes("fields=id,name"))
+          return json({ id: lastPathSegment(url), name: "Test Page" });
+        if (url.includes("fields=id,username"))
+          return json({ id: lastPathSegment(url), username: "testacct" });
+        if (url.includes("/media")) return json({ id: "IG_CONTAINER_1" });
+        return json({});
+      },
+    );
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getSignedDownloadURL",
+    ).mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
+
+    const { tenant, itemId } = await setupVerifiedTenant();
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-instagram`,
+      );
+      expect(res.status).toBe(202);
+      await waitForPendingJobs();
+
+      // Found on page 2 — no second publish, no second container-create.
+      expect(calls.filter((u) => u.includes("/media_publish")).length).toBe(1);
+      expect(calls.filter((u) => u.endsWith("/IG_OK/media")).length).toBe(1);
+      expect(
+        calls.filter((u) =>
+          u.includes("/media?fields=id,caption,timestamp"),
+        ).length,
+      ).toBe(2);
+      expect(calls.some((u) => u.includes("after=PAGE2"))).toBe(true);
+      expect(calls.every((u) => !u.includes(FB_PAGE_TOKEN))).toBe(true);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("IG_LANDED_PAGE2");
+      expect(item.permalink).toBe("https://www.instagram.com/p/landed2/");
     } finally {
       await deleteTenant(tenant.tenantId);
     }
