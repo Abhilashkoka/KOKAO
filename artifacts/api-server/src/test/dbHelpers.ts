@@ -41,6 +41,16 @@ export async function createTenant(
   return { tenantId: row.id, clerkUserId, email };
 }
 
+export async function setTenantSuperadmin(
+  tenantId: number,
+  isSuperadmin: boolean,
+): Promise<void> {
+  await db
+    .update(tenantsTable)
+    .set({ isSuperadmin })
+    .where(eq(tenantsTable.id, tenantId));
+}
+
 export async function getTenant(tenantId: number) {
   return (
     await db

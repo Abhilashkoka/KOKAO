@@ -43,6 +43,7 @@ import {
   clearEmailSettings,
   restoreEmailSettings,
   getEmailSettingsRow,
+  setTenantSuperadmin,
 } from "../test/dbHelpers";
 
 const app = createAdminTestApp();
@@ -118,6 +119,37 @@ describe("superadmin gate on /admin/email-settings", () => {
       // Nothing must have been written and no email sent.
       expect(await getEmailSettingsRow()).toBeUndefined();
       expect(sendgridCalls.length).toBe(0);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("revoking the superadmin flag locks the tenant out on the very next request", async () => {
+    const tenant = await createTenant();
+    try {
+      actAs(tenant.clerkUserId, "revoked@example.com");
+
+      // Not yet a superadmin: denied.
+      const before = await request(app).get("/api/admin/email-settings");
+      expect(before.status).toBe(403);
+
+      // Grant the DB flag; access works immediately.
+      await setTenantSuperadmin(tenant.tenantId, true);
+      const granted = await request(app).get("/api/admin/email-settings");
+      expect(granted.status).toBe(200);
+
+      // Revoke: the gate reads the flag fresh each request, so the very
+      // next request must be rejected — no caching window.
+      await setTenantSuperadmin(tenant.tenantId, false);
+      const revoked = await request(app).get("/api/admin/email-settings");
+      expect(revoked.status).toBe(403);
+
+      // Writes are locked out too.
+      const put = await request(app)
+        .put("/api/admin/email-settings")
+        .send({ sendingEnabled: true });
+      expect(put.status).toBe(403);
+      expect(await getEmailSettingsRow()).toBeUndefined();
     } finally {
       await deleteTenant(tenant.tenantId);
     }
