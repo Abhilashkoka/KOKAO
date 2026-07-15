@@ -29,12 +29,16 @@ const mockState: {
   facebook: any;
   instagram: any;
   twitter: any;
+  youtube: any;
+  threads: any;
 } = {
   accounts: { data: [], isLoading: false },
   linkedin: {},
   facebook: {},
   instagram: {},
   twitter: {},
+  youtube: {},
+  threads: {},
 };
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -61,11 +65,21 @@ vi.mock("@workspace/api-client-react", () => {
     useRetestInstagramCredentials: mutation,
     useDisconnectTwitter: mutation,
     useRetestTwitterCredentials: mutation,
+    useGetYoutubeStatus: () => ({ data: mockState.youtube }),
+    useDisconnectYoutube: mutation,
+    useRetestYoutube: mutation,
+    useGetThreadsStatus: () => ({ data: mockState.threads }),
+    useDisconnectThreads: mutation,
+    useRetestThreads: mutation,
     getListAccountsQueryKey: () => ["accounts"],
     getGetLinkedinStatusQueryKey: () => ["linkedin-status"],
     getGetFacebookCredentialsQueryKey: () => ["facebook-credentials"],
     getGetInstagramCredentialsQueryKey: () => ["instagram-credentials"],
     getGetTwitterStatusQueryKey: () => ["twitter-status"],
+    getGetYoutubeStatusQueryKey: () => ["youtube-status"],
+    getGetThreadsStatusQueryKey: () => ["threads-status"],
+    getYoutubeAuthUrl: async () => ({ url: "https://youtube.example/auth" }),
+    getThreadsAuthUrl: async () => ({ url: "https://threads.example/auth" }),
     getLinkedinAuthUrl: async () => ({ url: "https://linkedin.example/auth" }),
     getTwitterAuthUrl: async () => ({ url: "https://x.example/auth" }),
   };
@@ -105,6 +119,8 @@ beforeEach(() => {
   mockState.instagram = {};
   // Keep Twitter card harmless/unconfigured for FB/IG/LinkedIn-focused tests.
   mockState.twitter = { configured: false };
+  mockState.youtube = { configured: false };
+  mockState.threads = { configured: false };
 });
 
 describe("Accounts page reconnect prompts", () => {
@@ -207,5 +223,58 @@ describe("Accounts page reconnect prompts", () => {
     expect(screen.queryAllByText("Reconnect needed")).toHaveLength(0);
     expect(screen.queryByText(/Enter a fresh Page access token below to reconnect/i)).toBeNull();
     expect(screen.queryByText(/Re-enter your Instagram Business account ID below to reconnect/i)).toBeNull();
+  });
+
+  it("warns about a dead (expired) X connection", () => {
+    // Dead X = app configured, not connected, token expired.
+    mockState.twitter = {
+      configured: true,
+      connected: false,
+      expired: true,
+      accountName: "brand_x",
+    };
+
+    renderPage();
+
+    const x = cardFor("X (Twitter) Publishing");
+    expect(x.getByText("Reconnect needed")).toBeTruthy();
+    expect(
+      x.getByText(/Your X connection is no longer valid, so publishing is paused/i),
+    ).toBeTruthy();
+    expect(x.getByRole("button", { name: /Connect X/i })).toBeTruthy();
+    expect(x.queryByText("Connected")).toBeNull();
+  });
+
+  it("shows the connected X state with the account name and no reconnect prompt", () => {
+    mockState.twitter = {
+      configured: true,
+      connected: true,
+      expired: false,
+      accountName: "brand_x",
+    };
+
+    renderPage();
+
+    const x = cardFor("X (Twitter) Publishing");
+    expect(x.getByText("Connected")).toBeTruthy();
+    expect(x.getByText("brand_x")).toBeTruthy();
+    expect(x.queryByText("Reconnect needed")).toBeNull();
+    expect(
+      x.queryByText(/Your X connection is no longer valid/i),
+    ).toBeNull();
+  });
+
+  it("shows the 'Needs admin setup' X state when the app is not configured", () => {
+    mockState.twitter = { configured: false };
+
+    renderPage();
+
+    const x = cardFor("X (Twitter) Publishing");
+    expect(x.getByText("Needs admin setup")).toBeTruthy();
+    expect(
+      x.getByText(/needs a one-time X app setup by a platform administrator/i),
+    ).toBeTruthy();
+    expect(x.queryByText("Reconnect needed")).toBeNull();
+    expect(x.queryByText("Connected")).toBeNull();
   });
 });
