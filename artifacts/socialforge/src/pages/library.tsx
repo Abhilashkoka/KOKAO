@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
-import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, Twitter, ExternalLink, AtSign, AlertCircle } from "lucide-react";
+import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, Twitter, ExternalLink, AtSign, AlertCircle, RotateCw } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -97,6 +97,7 @@ export function LibraryPage() {
 
   const [instagramItem, setInstagramItem] = useState<any | null>(null);
   const publishInstagram = usePublishContentToInstagram();
+  const [retryingId, setRetryingId] = useState<number | null>(null);
 
   const [linkedinItem, setLinkedinItem] = useState<any | null>(null);
   const publishLinkedin = usePublishContentToLinkedin();
@@ -178,6 +179,38 @@ export function LibraryPage() {
               "Could not publish to Instagram. Connect and verify your Instagram account on the Accounts page first.",
             variant: "destructive",
           });
+        },
+      },
+    );
+  };
+
+  // One-click retry for a failed publish. Re-uses the same Instagram publish
+  // endpoint, which flips the item back to "publishing" and re-runs the
+  // bounded background retry; the card then updates via the polling above.
+  const handleRetry = (item: any) => {
+    setRetryingId(item.id);
+    publishInstagram.mutate(
+      { id: item.id },
+      {
+        onSuccess: () => {
+          toast({
+            title: "Retrying publish",
+            description:
+              "Instagram is processing your image again. This card will update to Published when it's live.",
+          });
+          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+        },
+        onError: (err: any) => {
+          toast({
+            title: "Retry failed",
+            description:
+              err?.response?.data?.error ||
+              "Could not publish to Instagram. Connect and verify your Instagram account on the Accounts page first.",
+            variant: "destructive",
+          });
+        },
+        onSettled: () => {
+          setRetryingId(null);
         },
       },
     );
@@ -403,6 +436,25 @@ export function LibraryPage() {
               <CardFooter className="p-4 pt-0 bg-card flex justify-between items-center gap-2 text-xs text-muted-foreground">
                 <span className="capitalize font-medium px-2 py-1 bg-muted rounded-md">{item.platform}</span>
                 <div className="flex items-center gap-2">
+                  {item.status === 'failed' && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      disabled={!igReady || !item.imagePath || retryingId === item.id}
+                      onClick={() => handleRetry(item)}
+                      title={
+                        !igReady
+                          ? "Connect and verify your Instagram account on the Accounts page first."
+                          : !item.imagePath
+                            ? "Instagram posts require an image."
+                            : "Retry publishing to Instagram"
+                      }
+                    >
+                      <RotateCw className={`h-3 w-3 mr-1 ${retryingId === item.id ? 'animate-spin' : ''}`} />
+                      {retryingId === item.id ? "Retrying..." : "Retry"}
+                    </Button>
+                  )}
                   {item.status === 'published' && item.permalink && (
                     <a
                       href={item.permalink}
