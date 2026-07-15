@@ -307,4 +307,91 @@ describe("Threads publish duplicate-post guard", () => {
       await deleteTenant(tenant.tenantId);
     }
   });
+
+  it("always addresses the probe to the stored providerUserId, never a client-supplied id", async () => {
+    const calls = mockThreadsApi({ recentPosts: [] });
+
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: TH_USER_ID,
+      });
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: "hello world",
+      });
+      actAs(tenant.clerkUserId);
+
+      // A hostile client tries to steer the probe toward someone else's
+      // account. The endpoint takes no user id, so none of these must ever
+      // reach the Threads API.
+      const res = await request(app)
+        .post(
+          `/api/content/${itemId}/publish-threads?userId=attacker_999&providerUserId=attacker_999`,
+        )
+        .send({ userId: "attacker_999", providerUserId: "attacker_999" });
+
+      expect(res.status).toBe(200);
+
+      // The probe ran exactly once and was addressed to the STORED account id.
+      const probeCalls = calls.filter(
+        (c) => c.method === "GET" && c.url.includes("/threads?"),
+      );
+      expect(probeCalls.length).toBe(1);
+      expect(
+        probeCalls[0].url.startsWith(`${GRAPH_BASE}/${TH_USER_ID}/threads?`),
+      ).toBe(true);
+
+      // No outbound request anywhere carried the client-supplied id.
+      for (const c of calls) {
+        expect(c.url).not.toContain("attacker_999");
+        expect(c.body).not.toContain("attacker_999");
+      }
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("never probes when providerUserId is missing: publish is blocked with a reconnect prompt", async () => {
+    // Threads cannot publish at all without the stored account id (both the
+    // probe and every publish call are addressed by it), so a missing
+    // providerUserId must block the publish outright — it must never fall
+    // back to some other identifier for the probe.
+    const calls = mockThreadsApi({
+      recentPosts: [
+        {
+          id: "EXISTING_1",
+          text: "hello world",
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    });
+
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: null,
+      });
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: "hello world",
+      });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-threads`,
+      );
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/reconnect/i);
+      // No Threads API traffic at all: no probe, no container, no publish.
+      expect(calls.length).toBe(0);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).not.toBe("published");
+      expect(item.postId ?? null).toBeNull();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
 });

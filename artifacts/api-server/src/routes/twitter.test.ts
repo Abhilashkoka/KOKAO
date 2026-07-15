@@ -1743,4 +1743,89 @@ describe("X (Twitter) publish duplicate-post guard", () => {
       await deleteTenant(tenant.tenantId);
     }
   });
+
+  it("always addresses the probe to the stored providerUserId, never a client-supplied id", async () => {
+    const calls: MockCall[] = [];
+    mockXApiWithRecent(calls, { recent: [] });
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId); // stores providerUserId x_user_123
+      const itemId = await insertContentItem(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+
+      // A hostile client tries to steer the probe toward someone else's
+      // account. The endpoint takes no user id, so none of these must ever
+      // reach the X API.
+      const res = await request(app)
+        .post(
+          `/api/content/${itemId}/publish-twitter?userId=attacker_999&providerUserId=attacker_999`,
+        )
+        .send({ userId: "attacker_999", providerUserId: "attacker_999" });
+
+      expect(res.status).toBe(200);
+
+      // The probe ran exactly once and was addressed to the STORED account id.
+      const probeCalls = calls.filter(
+        (c) => c.url.includes("/2/users/") && c.url.includes("/tweets"),
+      );
+      expect(probeCalls.length).toBe(1);
+      expect(probeCalls[0].url).toContain("/2/users/x_user_123/tweets");
+
+      // No outbound request anywhere carried the client-supplied id.
+      for (const c of calls) {
+        expect(c.url).not.toContain("attacker_999");
+        expect(JSON.stringify(c.body ?? "")).not.toContain("attacker_999");
+      }
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("skips the probe entirely and publishes normally when providerUserId is missing", async () => {
+    const calls: MockCall[] = [];
+    // A matching recent tweet exists, but with no stored providerUserId there
+    // is no safe account to probe — so no dedupe short-circuit may occur.
+    mockXApiWithRecent(calls, {
+      recent: [
+        {
+          id: "EXISTING_1",
+          text: "hello world",
+          created_at: new Date().toISOString(),
+        },
+      ],
+    });
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      await setAccountState(tenant.tenantId, "twitter", {
+        providerUserId: null,
+      });
+      const itemId = await insertContentItem(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-twitter`,
+      );
+
+      expect(res.status).toBe(200);
+      // The probe never ran (no user id to address it to)...
+      expect(
+        calls.some(
+          (c) => c.url.includes("/2/users/") && c.url.includes("/tweets"),
+        ),
+      ).toBe(false);
+      // ...so the publish proceeded normally with a fresh tweet, never
+      // linking to the (unverifiable) existing post.
+      expect(res.body.postId).toBe("TWEET_1");
+      expect(tweetCreateCalls(calls).length).toBe(1);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("TWEET_1");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
 });
