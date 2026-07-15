@@ -1,9 +1,9 @@
 ---
-name: Threads/X publish duplicate-post guard
-description: Pre-publish probe of recent posts so a retried Threads or X publish never double-posts.
+name: Threads/X/LinkedIn publish duplicate-post guard
+description: Pre-publish probe of recent posts so a retried Threads, X, or LinkedIn publish never double-posts.
 ---
 
-**Rule:** Threads and X have no idempotency key for post creation, so every publish probes the account's recent posts first (X: GET `/2/users/{id}/tweets?tweet.fields=created_at`; Threads: GET `/{userId}/threads?fields=id,text,timestamp`) and short-circuits any chunk whose exact text already landed within a 10-minute dedupe window, reusing the existing post id.
+**Rule:** Threads, X, and LinkedIn have no idempotency key for post creation, so every publish probes the account's recent posts first (X: GET `/2/users/{id}/tweets?tweet.fields=created_at`; Threads: GET `/{userId}/threads?fields=id,text,timestamp`; LinkedIn: GET `/rest/posts?author={urn}&q=author&count=10`) and short-circuits any chunk whose exact text already landed within a 10-minute dedupe window, reusing the existing post id. LinkedIn matches on the ESCAPED "Little Text" commentary (what was actually sent), and on a dedupe hit it also resumes overflow comments from the persisted `linkedinCommentState`/published-postId instead of re-posting them.
 
 **Why:** A publish can commit but return a transient-looking error; the user re-clicking (or a future auto-retry) would double-post — on Threads a whole reply chain can duplicate.
 

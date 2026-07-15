@@ -434,6 +434,236 @@ describe("LinkedIn publish", () => {
   });
 });
 
+describe("LinkedIn publish dedupe (retry after committed-but-lost response)", () => {
+  const CAPTION = "Check this (out) #great & more";
+  // Same escaping the route applies before sending.
+  const ESCAPED = "Check this \\(out\\) \\#great & more";
+
+  function probeHandler(opts: {
+    elements: unknown[];
+    postId?: string;
+    probeStatus?: number;
+  }): FetchHandler {
+    return (call) => {
+      if (call.method === "GET" && call.url.includes("/rest/posts?")) {
+        return makeRes({
+          status: opts.probeStatus ?? 200,
+          json: { elements: opts.elements },
+        });
+      }
+      if (call.method === "POST" && call.url.endsWith("/rest/posts")) {
+        return makeRes({
+          status: 201,
+          headers: { "x-restli-id": opts.postId ?? "urn:li:share:new" },
+        });
+      }
+      if (call.url.includes("/socialActions/")) {
+        return makeRes({ status: 201 });
+      }
+      return makeRes();
+    };
+  }
+
+  it("simulates a committed-but-lost publish: the retry reuses the existing post instead of double-posting", async () => {
+    seedConnectedAccount();
+    seedContentItem({ caption: CAPTION });
+
+    // First attempt: the post commits on LinkedIn but the response is lost
+    // (server error surface). Probe sees nothing yet.
+    let committed = false;
+    fetchHandler = (call) => {
+      if (call.method === "GET" && call.url.includes("/rest/posts?")) {
+        return makeRes({
+          json: {
+            elements: committed
+              ? [
+                  {
+                    id: "urn:li:share:landed",
+                    commentary: ESCAPED,
+                    createdAt: Date.now() - 30 * 1000,
+                  },
+                ]
+              : [],
+          },
+        });
+      }
+      if (call.method === "POST" && call.url.endsWith("/rest/posts")) {
+        // The write COMMITS but the response is "lost" (transient error).
+        committed = true;
+        return makeRes({ status: 500, json: { message: "gateway timeout" } });
+      }
+      return makeRes();
+    };
+
+    const first = await drive("POST", "/content/1/publish-linkedin");
+    expect(first.status).toBe(502);
+    expect(state.content[0].status).toBe("failed");
+
+    // The user re-clicks Publish.
+    const retry = await drive("POST", "/content/1/publish-linkedin");
+
+    expect(retry.status).toBe(200);
+    expect(retry.json.postId).toBe("urn:li:share:landed");
+    expect(state.content[0].status).toBe("published");
+    expect(state.content[0].postId).toBe("urn:li:share:landed");
+
+    // Exactly ONE post creation happened across both attempts.
+    const creates = fetchCalls.filter(
+      (c) => c.method === "POST" && c.url.endsWith("/rest/posts"),
+    );
+    expect(creates.length).toBe(1);
+  });
+
+  it("skips the image upload entirely when the post already landed", async () => {
+    seedConnectedAccount();
+    seedContentItem({ caption: CAPTION, imagePath: "/objects/pic.png" });
+    fetchHandler = probeHandler({
+      elements: [
+        {
+          id: "urn:li:share:landed",
+          commentary: ESCAPED,
+          createdAt: Date.now() - 60 * 1000,
+        },
+      ],
+    });
+
+    const res = await drive("POST", "/content/1/publish-linkedin");
+
+    expect(res.status).toBe(200);
+    expect(res.json.postId).toBe("urn:li:share:landed");
+    expect(fetchCalls.some((c) => c.url.includes("initializeUpload"))).toBe(
+      false,
+    );
+    expect(
+      fetchCalls.filter(
+        (c) => c.method === "POST" && c.url.endsWith("/rest/posts"),
+      ).length,
+    ).toBe(0);
+  });
+
+  it("still publishes when the identical post is older than the dedupe window (intentional re-post)", async () => {
+    seedConnectedAccount();
+    seedContentItem({ caption: CAPTION });
+    fetchHandler = probeHandler({
+      elements: [
+        {
+          id: "urn:li:share:old",
+          commentary: ESCAPED,
+          createdAt: Date.now() - 11 * 60 * 1000,
+        },
+      ],
+      postId: "urn:li:share:fresh",
+    });
+
+    const res = await drive("POST", "/content/1/publish-linkedin");
+
+    expect(res.status).toBe(200);
+    expect(res.json.postId).toBe("urn:li:share:fresh");
+    expect(
+      fetchCalls.filter(
+        (c) => c.method === "POST" && c.url.endsWith("/rest/posts"),
+      ).length,
+    ).toBe(1);
+  });
+
+  it("publishes normally when the probe itself fails (best-effort dedupe)", async () => {
+    seedConnectedAccount();
+    seedContentItem({ caption: CAPTION });
+    fetchHandler = probeHandler({
+      elements: [],
+      probeStatus: 500,
+      postId: "urn:li:share:fresh",
+    });
+
+    const res = await drive("POST", "/content/1/publish-linkedin");
+
+    expect(res.status).toBe(200);
+    expect(res.json.postId).toBe("urn:li:share:fresh");
+    expect(state.content[0].status).toBe("published");
+  });
+
+  it("posts overflow comments after a dedupe hit when the failed attempt never got to them", async () => {
+    const longCaption = "lorem ".repeat(800).trim();
+    const { main, comments: expectedComments } = splitForLinkedin(longCaption);
+    expect(expectedComments.length).toBeGreaterThan(0);
+    const escapedMain = main.replace(/[\\<>@~#*_(){}\[\]|]/g, (c) => `\\${c}`);
+
+    seedConnectedAccount();
+    // Previous attempt failed after the post committed: item is "failed", no
+    // comment state — so no comments went out yet.
+    seedContentItem({ caption: longCaption, status: "failed" });
+    fetchHandler = probeHandler({
+      elements: [
+        {
+          id: "urn:li:share:landed",
+          commentary: escapedMain,
+          createdAt: Date.now() - 60 * 1000,
+        },
+      ],
+    });
+
+    const res = await drive("POST", "/content/1/publish-linkedin");
+
+    expect(res.status).toBe(200);
+    expect(res.json.postId).toBe("urn:li:share:landed");
+    expect(res.json.commentsPosted).toBe(expectedComments.length);
+    // No new post; all comments attached to the found post.
+    expect(
+      fetchCalls.filter(
+        (c) => c.method === "POST" && c.url.endsWith("/rest/posts"),
+      ).length,
+    ).toBe(0);
+    const commentCalls = fetchCalls.filter((c) =>
+      c.url.includes("/socialActions/"),
+    );
+    expect(commentCalls.length).toBe(expectedComments.length);
+    commentCalls.forEach((c) => {
+      expect(c.url).toContain(encodeURIComponent("urn:li:share:landed"));
+    });
+  });
+
+  it("does not re-post comments that a previous attempt already delivered", async () => {
+    const longCaption = "lorem ".repeat(800).trim();
+    const { main, comments: expectedComments } = splitForLinkedin(longCaption);
+    expect(expectedComments.length).toBeGreaterThan(1);
+    const escapedMain = main.replace(/[\\<>@~#*_(){}\[\]|]/g, (c) => `\\${c}`);
+
+    seedConnectedAccount();
+    seedContentItem({
+      caption: longCaption,
+      status: "published",
+      postId: "urn:li:share:landed",
+      linkedinCommentState: {
+        postUrn: "urn:li:share:landed",
+        comments: expectedComments,
+        postedCount: 1,
+      },
+    });
+    fetchHandler = probeHandler({
+      elements: [
+        {
+          id: "urn:li:share:landed",
+          commentary: escapedMain,
+          createdAt: Date.now() - 60 * 1000,
+        },
+      ],
+    });
+
+    const res = await drive("POST", "/content/1/publish-linkedin");
+
+    expect(res.status).toBe(200);
+    expect(res.json.commentsPosted).toBe(expectedComments.length);
+    // Only the missing comments went out, starting from the second one.
+    const commentCalls = fetchCalls.filter((c) =>
+      c.url.includes("/socialActions/"),
+    );
+    expect(commentCalls.length).toBe(expectedComments.length - 1);
+    expect((commentCalls[0]!.body as any).message.text).toBe(
+      expectedComments[1],
+    );
+  });
+});
+
 describe("LinkedIn comment resend", () => {
   const COMMENTS = ["(1/3) part one", "(2/3) part two", "(3/3) part three"];
 

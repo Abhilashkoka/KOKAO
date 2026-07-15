@@ -121,6 +121,69 @@ async function postLinkedinComment(
   }
 }
 
+/**
+ * How far back a previous publish attempt's post still counts as "this
+ * content already landed". A retried publish (the user re-clicking after a
+ * transient-looking failure) happens within minutes; older identical posts
+ * are treated as intentional re-posts.
+ */
+const PUBLISH_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
+
+type RecentLinkedinPost = {
+  id: string;
+  commentary: string;
+  createdAtMs: number;
+};
+
+/**
+ * Fetch the member's most recent posts so a (re-)publish can detect that a
+ * previous attempt actually landed despite a lost/transient-looking response.
+ * LinkedIn's Posts API has no idempotency key for post creation, so probing
+ * recent posts is the only way to avoid double-posting on retry.
+ * Best-effort: any failure is treated as "no recent posts" by the caller.
+ */
+async function fetchRecentLinkedinPosts(
+  author: string,
+  baseHeaders: Record<string, string>,
+): Promise<RecentLinkedinPost[]> {
+  const res = await fetch(
+    `${REST_BASE}/posts?author=${encodeURIComponent(author)}&q=author&count=10&sortBy=LAST_MODIFIED`,
+    { headers: baseHeaders },
+  );
+  const json = (await res.json()) as {
+    elements?: Array<{
+      id?: string;
+      commentary?: string;
+      createdAt?: number;
+    }>;
+  };
+  if (!res.ok || !Array.isArray(json.elements)) return [];
+  const out: RecentLinkedinPost[] = [];
+  for (const p of json.elements) {
+    if (!p.id || typeof p.commentary !== "string") continue;
+    if (typeof p.createdAt !== "number") continue;
+    out.push({ id: p.id, commentary: p.commentary, createdAtMs: p.createdAt });
+  }
+  return out;
+}
+
+/**
+ * Find a recent post whose commentary exactly matches what we are about to
+ * send and that was created within the dedupe window. Returns its id so the
+ * retry can short-circuit instead of posting a duplicate.
+ */
+function findMatchingRecentPost(
+  recent: RecentLinkedinPost[],
+  commentary: string,
+  sinceMs: number,
+): string | null {
+  if (!commentary) return null;
+  const match = recent.find(
+    (p) => p.commentary === commentary && p.createdAtMs >= sinceMs,
+  );
+  return match ? match.id : null;
+}
+
 function imageContentType(path: string): string {
   const ext = path.split(".").pop()?.toLowerCase();
   switch (ext) {
@@ -403,6 +466,97 @@ router.post("/linkedin/retest", async (req: Request, res: Response) => {
   res.json(serializeStatus(req, refreshed, await isConfigured()));
 });
 
+/**
+ * Upload the item's image (if any) and create the LinkedIn post, returning the
+ * new post's URN ("" when LinkedIn does not return one). Extracted so the
+ * publish route can skip the whole sequence when a duplicate-post probe finds
+ * the content already landed. Throws on any failure.
+ */
+async function createLinkedinPost(opts: {
+  item: { imagePath: string | null; title: string };
+  author: string;
+  commentary: string;
+  baseHeaders: Record<string, string>;
+  token: string;
+  tenantId: number;
+}): Promise<string> {
+  const { item, author, commentary, baseHeaders, token, tenantId } = opts;
+  let imageUrn: string | null = null;
+
+  if (item.imagePath) {
+    const file = await objectStorageService.getObjectEntityFile(
+      item.imagePath,
+      tenantId,
+    );
+    const [buffer] = await file.download();
+
+    const initRes = await fetch(`${REST_BASE}/images?action=initializeUpload`, {
+      method: "POST",
+      headers: { ...baseHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ initializeUploadRequest: { owner: author } }),
+    });
+    const initJson = (await initRes.json()) as {
+      value?: { uploadUrl?: string; image?: string };
+    };
+    if (!initRes.ok || !initJson.value?.uploadUrl || !initJson.value.image) {
+      throw new Error(`Image upload could not be initialized (${initRes.status})`);
+    }
+
+    const uploadRes = await fetch(initJson.value.uploadUrl, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": imageContentType(item.imagePath),
+      },
+      body: new Uint8Array(buffer),
+    });
+    if (!uploadRes.ok) {
+      throw new Error(`Image binary upload failed (${uploadRes.status})`);
+    }
+    imageUrn = initJson.value.image;
+  }
+
+  const postBody: Record<string, unknown> = {
+    author,
+    commentary,
+    visibility: "PUBLIC",
+    distribution: {
+      feedDistribution: "MAIN_FEED",
+      targetEntities: [],
+      thirdPartyDistributionChannels: [],
+    },
+    lifecycleState: "PUBLISHED",
+    isReshareDisabledByAuthor: false,
+  };
+  if (imageUrn) {
+    postBody.content = {
+      media: { id: imageUrn, title: item.title.slice(0, 400) },
+    };
+  }
+
+  const postRes = await fetch(`${REST_BASE}/posts`, {
+    method: "POST",
+    headers: { ...baseHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify(postBody),
+  });
+  if (postRes.status !== 201 && !postRes.ok) {
+    let detail = `LinkedIn API error (${postRes.status})`;
+    try {
+      const errJson = (await postRes.json()) as { message?: string };
+      if (errJson.message) detail = errJson.message;
+    } catch {
+      /* ignore non-JSON body */
+    }
+    throw new Error(detail);
+  }
+
+  return (
+    postRes.headers.get("x-restli-id") ||
+    postRes.headers.get("x-linkedin-id") ||
+    ""
+  );
+}
+
 router.post(
   "/content/:id/publish-linkedin",
   trackSyncPublish,
@@ -468,80 +622,63 @@ router.post(
       "X-Restli-Protocol-Version": "2.0.0",
     };
 
+    // A publish can commit on LinkedIn but return a transient-looking error
+    // (or the response can be lost entirely), so a retry — the user
+    // re-clicking Publish — would post the same content twice. Before
+    // (re-)posting, probe the member's recent posts and short-circuit when an
+    // identical post already landed within the dedupe window. Best-effort:
+    // probe failure means no short-circuit.
+    let existingPostId: string | null = null;
     try {
-      let imageUrn: string | null = null;
-
-      if (item.imagePath) {
-        const file = await objectStorageService.getObjectEntityFile(
-          item.imagePath,
-          req.tenantId,
-        );
-        const [buffer] = await file.download();
-
-        const initRes = await fetch(`${REST_BASE}/images?action=initializeUpload`, {
-          method: "POST",
-          headers: { ...baseHeaders, "Content-Type": "application/json" },
-          body: JSON.stringify({ initializeUploadRequest: { owner: author } }),
-        });
-        const initJson = (await initRes.json()) as {
-          value?: { uploadUrl?: string; image?: string };
-        };
-        if (!initRes.ok || !initJson.value?.uploadUrl || !initJson.value.image) {
-          throw new Error(`Image upload could not be initialized (${initRes.status})`);
-        }
-
-        const uploadRes = await fetch(initJson.value.uploadUrl, {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": imageContentType(item.imagePath),
-          },
-          body: new Uint8Array(buffer),
-        });
-        if (!uploadRes.ok) {
-          throw new Error(`Image binary upload failed (${uploadRes.status})`);
-        }
-        imageUrn = initJson.value.image;
-      }
-
-      const postBody: Record<string, unknown> = {
-        author,
+      const recent = await fetchRecentLinkedinPosts(author, baseHeaders);
+      existingPostId = findMatchingRecentPost(
+        recent,
         commentary,
-        visibility: "PUBLIC",
-        distribution: {
-          feedDistribution: "MAIN_FEED",
-          targetEntities: [],
-          thirdPartyDistributionChannels: [],
-        },
-        lifecycleState: "PUBLISHED",
-        isReshareDisabledByAuthor: false,
-      };
-      if (imageUrn) {
-        postBody.content = {
-          media: { id: imageUrn, title: item.title.slice(0, 400) },
-        };
-      }
+        Date.now() - PUBLISH_DEDUPE_WINDOW_MS,
+      );
+    } catch (err) {
+      req.log.warn(
+        { err },
+        "LinkedIn duplicate-post probe failed; proceeding without dedupe",
+      );
+    }
 
-      const postRes = await fetch(`${REST_BASE}/posts`, {
-        method: "POST",
-        headers: { ...baseHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify(postBody),
-      });
-      if (postRes.status !== 201 && !postRes.ok) {
-        let detail = `LinkedIn API error (${postRes.status})`;
-        try {
-          const errJson = (await postRes.json()) as { message?: string };
-          if (errJson.message) detail = errJson.message;
-        } catch {
-          /* ignore non-JSON body */
-        }
-        throw new Error(detail);
+    // When the dedupe probe matches, work out how many overflow comments the
+    // earlier attempt already posted so a resumed publish never re-posts them:
+    // a persisted resend snapshot for that post is authoritative; an item
+    // already marked published against the same post means the whole sequence
+    // (post + comments) completed earlier.
+    let alreadyPostedComments = 0;
+    if (existingPostId) {
+      const priorState = item.linkedinCommentState;
+      if (priorState && priorState.postUrn === existingPostId) {
+        alreadyPostedComments = Math.min(
+          priorState.postedCount,
+          overflowComments.length,
+        );
+      } else if (item.status === "published" && item.postId === existingPostId) {
+        alreadyPostedComments = overflowComments.length;
       }
+    }
 
-      const postId =
-        postRes.headers.get("x-restli-id") ||
-        postRes.headers.get("x-linkedin-id") ||
-        "";
+    try {
+      let postId: string;
+      if (existingPostId) {
+        req.log.warn(
+          { existingPostId },
+          "LinkedIn publish: identical post already landed recently; reusing the existing post instead of re-posting",
+        );
+        postId = existingPostId;
+      } else {
+        postId = await createLinkedinPost({
+          item,
+          author,
+          commentary,
+          baseHeaders,
+          token,
+          tenantId: req.tenantId,
+        });
+      }
 
       const permalink = postId
         ? `https://www.linkedin.com/feed/update/${postId}`
@@ -570,14 +707,19 @@ router.post(
       // out as follow-up comments so the full caption reaches readers. A comment
       // failure must NOT undo the published post — surface it instead of failing
       // silently. Comments can only be posted when we know the post's URN.
-      let commentsPosted = 0;
+      let commentsPosted = alreadyPostedComments;
       let commentWarning: string | null = null;
       if (overflowComments.length > 0) {
         if (!postId) {
           commentWarning =
             "The post was published, but LinkedIn did not return a post id, so the rest of the caption could not be added as comments.";
         } else {
-          for (const [index, text] of overflowComments.entries()) {
+          for (
+            let index = alreadyPostedComments;
+            index < overflowComments.length;
+            index++
+          ) {
+            const text = overflowComments[index]!;
             try {
               await postLinkedinComment(postId, author, text, baseHeaders);
               commentsPosted += 1;
