@@ -6,6 +6,12 @@ uri = "file://artifacts/socialforge/public/hero-image.png"
 type = "image"
 title = "SocialForge marketing hero image"
 
+[[generated]]
+id = "IcA3n2reCUIQBRRXLAr1M"
+uri = "file://artifacts/mobile/assets/images/icon.png"
+type = "image"
+title = "generated_image"
+
 [[outputs]]
 id = "LgNRwiiOXO_7QWJPCUO09"
 uri = "file://exports/api-inventory.xlsx"
