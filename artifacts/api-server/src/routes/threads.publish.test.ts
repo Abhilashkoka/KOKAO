@@ -44,6 +44,7 @@ import {
   insertThreadsAccount,
   insertContentItem,
   getContentItem,
+  getConnectedAccount,
   snapshotAppCredentialRow,
   setAppCredentialRow,
   restoreAppCredentialRow,
@@ -390,6 +391,289 @@ describe("Threads publish duplicate-post guard", () => {
       const item = await getContentItem(itemId, tenant.tenantId);
       expect(item.status).not.toBe("published");
       expect(item.postId ?? null).toBeNull();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Token auto-refresh runs INLINE before a publish (same maybeRefreshToken as
+// GET /threads/status). These tests pin the publish-path outcomes:
+//   1. a rejected refresh of a dead token returns the clear 400 reconnect
+//      error and never touches the Graph publish endpoints;
+//   2. a transient refresh blip with a still-valid token lets the publish
+//      proceed on the STORED token;
+//   3. a successful refresh publishes with the ROLLED token.
+// ---------------------------------------------------------------------------
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const REFRESH_URL = "https://graph.threads.net/refresh_access_token";
+const TH_ROLLED_TOKEN = "th_rolled_token_publish";
+
+type RefreshBehavior =
+  | { kind: "success"; accessToken: string; expiresIn: number }
+  | { kind: "rejected"; status: number }
+  | { kind: "network-error" };
+
+/**
+ * Like mockThreadsApi, but also intercepts the refresh endpoint with the
+ * requested behavior so publish + inline refresh can be exercised together.
+ */
+function mockThreadsApiWithRefresh(behavior: RefreshBehavior): MockCall[] {
+  const calls: MockCall[] = [];
+  let containerSeq = 0;
+  let publishSeq = 0;
+  vi.spyOn(globalThis, "fetch").mockImplementation(
+    async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      calls.push({ url, method, body: String(init?.body ?? "") });
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+
+      if (url.startsWith(REFRESH_URL)) {
+        switch (behavior.kind) {
+          case "success":
+            return json({
+              access_token: behavior.accessToken,
+              expires_in: behavior.expiresIn,
+            });
+          case "rejected":
+            return json(
+              { error: { message: "Token is invalid" } },
+              behavior.status,
+            );
+          case "network-error":
+            throw new TypeError("fetch failed");
+        }
+      }
+      if (
+        method === "GET" &&
+        url.startsWith(`${GRAPH_BASE}/${TH_USER_ID}/threads?`)
+      ) {
+        return json({ data: [] });
+      }
+      if (method === "POST" && url === `${GRAPH_BASE}/${TH_USER_ID}/threads`) {
+        containerSeq += 1;
+        return json({ id: `CONTAINER_${containerSeq}` });
+      }
+      if (
+        method === "POST" &&
+        url === `${GRAPH_BASE}/${TH_USER_ID}/threads_publish`
+      ) {
+        publishSeq += 1;
+        return json({ id: `POST_${publishSeq}` });
+      }
+      return json({});
+    },
+  );
+  return calls;
+}
+
+function graphCalls(calls: MockCall[]): MockCall[] {
+  return calls.filter((c) => c.url.startsWith(GRAPH_BASE));
+}
+
+describe("Threads publish inline token refresh", () => {
+  it("returns the 400 reconnect error and makes no publish calls when an expired token's refresh is rejected", async () => {
+    const calls = mockThreadsApiWithRefresh({ kind: "rejected", status: 401 });
+
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: TH_USER_ID,
+        tokenExpiresAt: new Date(Date.now() - DAY_MS),
+      });
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: "hello world",
+      });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-threads`,
+      );
+
+      // The clear reconnect message — not a confusing Threads platform error.
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/reconnect/i);
+
+      // The refresh was attempted, but no Graph traffic followed: no probe,
+      // no container, no publish on the dead token.
+      expect(calls.some((c) => c.url.startsWith(REFRESH_URL))).toBe(true);
+      expect(graphCalls(calls).length).toBe(0);
+
+      // The row was flipped so the Accounts page shows the reconnect prompt.
+      const row = await getConnectedAccount(tenant.tenantId, "threads");
+      expect(row?.verifyStatus).toBe("failed");
+      expect(row?.verifyError).toContain("Reconnect Threads");
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).not.toBe("published");
+      expect(item.postId ?? null).toBeNull();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("publishes on the stored token when the refresh fails transiently but the token is still valid", async () => {
+    const calls = mockThreadsApiWithRefresh({ kind: "network-error" });
+
+    const tenant = await createTenant();
+    try {
+      // Inside the 7-day renewal window but not yet expired.
+      const nearExpiry = new Date(Date.now() + 2 * DAY_MS);
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: TH_USER_ID,
+        tokenExpiresAt: nearExpiry,
+      });
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: "hello world",
+      });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-threads`,
+      );
+
+      // A transient refresh blip must not block the publish.
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("POST_1");
+
+      // The refresh was attempted; the publish went through on the STORED
+      // token.
+      expect(calls.some((c) => c.url.startsWith(REFRESH_URL))).toBe(true);
+      const containers = calls.filter(
+        (c) =>
+          c.method === "POST" &&
+          c.url === `${GRAPH_BASE}/${TH_USER_ID}/threads`,
+      );
+      expect(containers.length).toBe(1);
+      expect(containers[0].body).toContain(encodeURIComponent(TH_TOKEN));
+
+      // Token and state untouched by the blip.
+      const row = await getConnectedAccount(tenant.tenantId, "threads");
+      expect(row?.accessToken).toBe(TH_TOKEN);
+      expect(row?.tokenExpiresAt?.getTime()).toBe(nearExpiry.getTime());
+      expect(row?.verifyStatus).toBe("verified");
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("POST_1");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("publishes with the rolled token after a successful inline refresh", async () => {
+    const calls = mockThreadsApiWithRefresh({
+      kind: "success",
+      accessToken: TH_ROLLED_TOKEN,
+      expiresIn: (60 * DAY_MS) / 1000,
+    });
+
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: TH_USER_ID,
+        tokenExpiresAt: new Date(Date.now() + 2 * DAY_MS),
+      });
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: "hello world",
+      });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-threads`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("POST_1");
+
+      // The publish carried the NEW token, not the stale one.
+      const containers = calls.filter(
+        (c) =>
+          c.method === "POST" &&
+          c.url === `${GRAPH_BASE}/${TH_USER_ID}/threads`,
+      );
+      expect(containers.length).toBe(1);
+      expect(containers[0].body).toContain(
+        encodeURIComponent(TH_ROLLED_TOKEN),
+      );
+      expect(containers[0].body).not.toContain(encodeURIComponent(TH_TOKEN));
+
+      const row = await getConnectedAccount(tenant.tenantId, "threads");
+      expect(row?.accessToken).toBe(TH_ROLLED_TOKEN);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("refreshes an already-expired token inline and publishes on the rolled token", async () => {
+    mockThreadsApiWithRefresh({
+      kind: "success",
+      accessToken: TH_ROLLED_TOKEN,
+      expiresIn: (60 * DAY_MS) / 1000,
+    });
+
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: TH_USER_ID,
+        tokenExpiresAt: new Date(Date.now() - DAY_MS),
+      });
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: "hello world",
+      });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-threads`,
+      );
+
+      // The expired-but-refreshable token recovers transparently.
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("POST_1");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("blocks the publish when the token is expired and the refresh fails transiently", async () => {
+    const calls = mockThreadsApiWithRefresh({ kind: "network-error" });
+
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: TH_USER_ID,
+        tokenExpiresAt: new Date(Date.now() - DAY_MS),
+      });
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: "hello world",
+      });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-threads`,
+      );
+
+      // An expired token with no successful refresh must NOT be sent to the
+      // Graph API (confusing platform error) — clear 400 instead.
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/reconnect/i);
+      expect(graphCalls(calls).length).toBe(0);
+
+      // Transient failure: the stored token survives for the next attempt.
+      const row = await getConnectedAccount(tenant.tenantId, "threads");
+      expect(row?.accessToken).toBe(TH_TOKEN);
     } finally {
       await deleteTenant(tenant.tenantId);
     }
