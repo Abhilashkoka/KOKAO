@@ -27,6 +27,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { Image } from "expo-image";
 
+import { ContentImage } from "@/components/ContentImage";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { Button, Card, Chip, EmptyState, Input, Label, Skeleton } from "@/components/ui";
 import colors from "@/constants/colors";
@@ -87,6 +88,7 @@ export default function StudioScreen() {
   const [saved, setSaved] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [attachingId, setAttachingId] = useState<number | null>(null);
+  const [replaceTarget, setReplaceTarget] = useState<ContentItem | null>(null);
   const [attachedTitle, setAttachedTitle] = useState<string | null>(null);
 
   const brandKits = useListBrandKits();
@@ -197,9 +199,20 @@ export default function StudioScreen() {
     );
   };
 
-  const handleAttach = (item: ContentItem) => {
+  const handleAttachPress = (item: ContentItem) => {
+    if (!imagePath || attachingId !== null) return;
+    if (item.imagePath) {
+      haptic();
+      setReplaceTarget(item);
+      return;
+    }
+    doAttach(item);
+  };
+
+  const doAttach = (item: ContentItem) => {
     if (!imagePath || attachingId !== null) return;
     haptic();
+    setReplaceTarget(null);
     setError(null);
     setAttachingId(item.id);
     updateContent.mutate(
@@ -466,20 +479,59 @@ export default function StudioScreen() {
         visible={attachOpen}
         animationType="slide"
         transparent
-        onRequestClose={() => setAttachOpen(false)}
+        onRequestClose={() => {
+          setReplaceTarget(null);
+          setAttachOpen(false);
+        }}
       >
         <View style={styles.modalBackdrop}>
           <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 16 }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Attach image to a post</Text>
+              <Text style={styles.modalTitle}>
+                {replaceTarget ? "Replace existing image?" : "Attach image to a post"}
+              </Text>
               <Pressable
-                onPress={() => setAttachOpen(false)}
+                onPress={() => {
+                  setReplaceTarget(null);
+                  setAttachOpen(false);
+                }}
                 hitSlop={10}
                 disabled={attachingId !== null}
               >
                 <Feather name="x" size={22} color={c.mutedForeground} />
               </Pressable>
             </View>
+            {replaceTarget ? (
+              <View>
+                <Text style={styles.modalSubtitle}>
+                  "{replaceTarget.title}" already has an image. Attaching will permanently
+                  replace it with the new one.
+                </Text>
+                {replaceTarget.imagePath ? (
+                  <View style={styles.replacePreview}>
+                    <ContentImage
+                      imagePath={replaceTarget.imagePath}
+                      style={styles.replaceThumb}
+                    />
+                    <Text style={styles.replacePreviewLabel}>Current image</Text>
+                  </View>
+                ) : null}
+                <Button
+                  title="Replace image"
+                  onPress={() => doAttach(replaceTarget)}
+                  loading={attachingId === replaceTarget.id}
+                  style={{ marginTop: 16 }}
+                />
+                <Button
+                  title="Cancel"
+                  variant="secondary"
+                  onPress={() => setReplaceTarget(null)}
+                  disabled={attachingId !== null}
+                  style={{ marginTop: 10 }}
+                />
+              </View>
+            ) : (
+              <>
             <Text style={styles.modalSubtitle}>
               The generated image will replace the selected post's current image.
             </Text>
@@ -512,7 +564,7 @@ export default function StudioScreen() {
                 style={{ marginTop: 12 }}
                 renderItem={({ item }) => (
                   <Pressable
-                    onPress={() => handleAttach(item)}
+                    onPress={() => handleAttachPress(item)}
                     disabled={attachingId !== null}
                     style={({ pressed }) => [
                       styles.attachItem,
@@ -536,6 +588,8 @@ export default function StudioScreen() {
                   </Pressable>
                 )}
               />
+            )}
+              </>
             )}
           </View>
         </View>
@@ -652,6 +706,13 @@ const styles = StyleSheet.create({
     borderBottomColor: c.border,
   },
   attachItemTitle: { fontFamily: fonts.semiBold, fontSize: 14, color: c.foreground },
+  replacePreview: { marginTop: 14, alignItems: "flex-start", gap: 6 },
+  replaceThumb: { width: 96, height: 96, borderRadius: 12 },
+  replacePreviewLabel: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: c.mutedForeground,
+  },
   attachItemMeta: {
     fontFamily: fonts.regular,
     fontSize: 12,
