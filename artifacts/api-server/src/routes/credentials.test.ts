@@ -486,6 +486,186 @@ describe("tenant social credential endpoints", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Facebook / Instagram disconnect
+//
+// DELETE /social-credentials/facebook and /social-credentials/instagram
+// HARD-DELETE the tenant's connected_accounts row (unlike X, which performs a
+// soft disconnect that keeps the row). Both respond with the serialized status
+// for a missing row — the "Not connected" state: saved=false, verifyStatus
+// null, no identifiers or masked secrets. These tests guard that "Disconnect"
+// really removes the stored encrypted Meta credentials, is a safe no-op when
+// nothing is saved, and never touches another tenant's row.
+// ---------------------------------------------------------------------------
+
+describe("Facebook / Instagram disconnect endpoints", () => {
+  beforeEach(async () => {
+    await setVerifiedMetaRow();
+  });
+
+  it("hard-deletes the Facebook row and reports not connected", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "facebook",
+        { pageId: "PAGE_DEL", pageAccessToken: "FB_TOKEN_TO_DELETE" },
+        "verified",
+      );
+      // Sanity check: credentials really are stored before the disconnect.
+      const before = await getConnectedAccount(tenant.tenantId, "facebook");
+      expect(before?.encryptedCredentials).toBeTruthy();
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).delete("/api/social-credentials/facebook");
+
+      // Response is the "Not connected" status with nothing left behind.
+      expect(res.status).toBe(200);
+      expect(res.body.saved).toBe(false);
+      expect(res.body.verifyStatus).toBeNull();
+      expect(res.body.pageId).toBeNull();
+      expect(res.body.pageAccessTokenMasked).toBeNull();
+      expect(res.body.accountName).toBeNull();
+      expect(JSON.stringify(res.body)).not.toContain("FB_TOKEN_TO_DELETE");
+
+      // The row is gone — no stale encrypted credentials remain.
+      const after = await getConnectedAccount(tenant.tenantId, "facebook");
+      expect(after).toBeUndefined();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("hard-deletes the Instagram row and reports not connected", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "instagram",
+        { igUserId: "IG_DEL_123" },
+        "verified",
+      );
+      const before = await getConnectedAccount(tenant.tenantId, "instagram");
+      expect(before?.encryptedCredentials).toBeTruthy();
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).delete(
+        "/api/social-credentials/instagram",
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.saved).toBe(false);
+      expect(res.body.verifyStatus).toBeNull();
+      expect(res.body.igUserId).toBeNull();
+      expect(res.body.accountName).toBeNull();
+
+      const after = await getConnectedAccount(tenant.tenantId, "instagram");
+      expect(after).toBeUndefined();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("Facebook disconnect is a safe no-op when nothing is saved", async () => {
+    const tenant = await createTenant();
+    try {
+      expect(
+        await getConnectedAccount(tenant.tenantId, "facebook"),
+      ).toBeUndefined();
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).delete("/api/social-credentials/facebook");
+
+      expect(res.status).toBe(200);
+      expect(res.body.saved).toBe(false);
+      expect(res.body.verifyStatus).toBeNull();
+
+      // Still no row afterwards — the no-op didn't create anything.
+      expect(
+        await getConnectedAccount(tenant.tenantId, "facebook"),
+      ).toBeUndefined();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("Instagram disconnect is a safe no-op when nothing is saved", async () => {
+    const tenant = await createTenant();
+    try {
+      expect(
+        await getConnectedAccount(tenant.tenantId, "instagram"),
+      ).toBeUndefined();
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).delete(
+        "/api/social-credentials/instagram",
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.saved).toBe(false);
+      expect(res.body.verifyStatus).toBeNull();
+
+      expect(
+        await getConnectedAccount(tenant.tenantId, "instagram"),
+      ).toBeUndefined();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("disconnects only the caller's own Meta rows (tenant isolation)", async () => {
+    const owner = await createTenant();
+    const other = await createTenant();
+    try {
+      await insertConnectedAccount(
+        owner.tenantId,
+        "facebook",
+        { pageId: "PAGE_OWNER", pageAccessToken: "owner_fb_tok" },
+        "verified",
+      );
+      await insertConnectedAccount(
+        other.tenantId,
+        "facebook",
+        { pageId: "PAGE_OTHER", pageAccessToken: "other_fb_tok" },
+        "verified",
+      );
+      await insertConnectedAccount(
+        other.tenantId,
+        "instagram",
+        { igUserId: "IG_OTHER" },
+        "verified",
+      );
+
+      actAs(owner.clerkUserId);
+      const fbRes = await request(app).delete(
+        "/api/social-credentials/facebook",
+      );
+      expect(fbRes.status).toBe(200);
+      expect(fbRes.body.saved).toBe(false);
+      const igRes = await request(app).delete(
+        "/api/social-credentials/instagram",
+      );
+      expect(igRes.status).toBe(200);
+
+      // The owner's Facebook row is gone...
+      expect(
+        await getConnectedAccount(owner.tenantId, "facebook"),
+      ).toBeUndefined();
+
+      // ...but the other tenant's Facebook and Instagram rows are untouched.
+      const otherFb = await getConnectedAccount(other.tenantId, "facebook");
+      expect(otherFb?.encryptedCredentials).toBeTruthy();
+      expect(otherFb?.verifyStatus).toBe("verified");
+      const otherIg = await getConnectedAccount(other.tenantId, "instagram");
+      expect(otherIg?.encryptedCredentials).toBeTruthy();
+      expect(otherIg?.verifyStatus).toBe("verified");
+    } finally {
+      await deleteTenant(owner.tenantId);
+      await deleteTenant(other.tenantId);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // X (Twitter) disconnect
 //
 // The X disconnect endpoint is DELETE /twitter (operationId `disconnectTwitter`
