@@ -786,7 +786,12 @@ router.post(
       // so the item is not stuck on "publishing", and tell the client to
       // retry.
       try {
-        await setContentStatus(id, req.tenantId, previousStatus);
+        await setContentStatus(
+          id,
+          req.tenantId,
+          previousStatus,
+          item.failureReason ?? null,
+        );
       } catch (err) {
         req.log.error(
           { err, contentItemId: id },

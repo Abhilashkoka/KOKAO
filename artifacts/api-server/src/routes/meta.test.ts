@@ -1104,6 +1104,9 @@ describe("Instagram publish retry", () => {
 
       const item = await getContentItem(itemId, tenant.tenantId);
       expect(item.status).toBe("failed");
+      // The final failure reason is persisted so the UI can explain the
+      // failure next to the Retry button.
+      expect(item.failureReason).toMatch(/^Instagram rejected the post/);
     } finally {
       await deleteTenant(tenant.tenantId);
     }
@@ -1134,6 +1137,7 @@ describe("Instagram publish retry", () => {
 
       const item = await getContentItem(itemId, tenant.tenantId);
       expect(item.status).toBe("failed");
+      expect(item.failureReason).toMatch(/^Instagram rejected the post/);
     } finally {
       await deleteTenant(tenant.tenantId);
     }
