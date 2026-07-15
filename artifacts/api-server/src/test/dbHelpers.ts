@@ -247,13 +247,13 @@ export async function getConnectedAccount(tenantId: number, platform: string) {
 
 export async function insertContentItem(
   tenantId: number,
-  opts: { imagePath?: string | null; caption?: string } = {},
+  opts: { imagePath?: string | null; caption?: string; title?: string } = {},
 ): Promise<number> {
   const [row] = await db
     .insert(contentItemsTable)
     .values({
       tenantId,
-      title: "Test post",
+      title: opts.title ?? "Test post",
       caption: opts.caption ?? "hello world",
       imagePath: opts.imagePath ?? null,
     })

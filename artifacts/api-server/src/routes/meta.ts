@@ -179,7 +179,11 @@ async function postToGraphWithRetry<T extends { error?: GraphError }>(
 /**
  * Look for a post that the current publish attempt already created on the
  * Page: one created at/after `since` whose `message` exactly matches what we
- * sent. Used as the duplicate-post probe after a transient publish failure.
+ * sent. When the publish had NO caption (blank message), a landed post also
+ * has no `message`, so the probe instead matches any caption-less post
+ * created at/after `since` — otherwise a retried caption-less image publish
+ * after a "committed but response lost" failure would still duplicate.
+ * Used as the duplicate-post probe after a transient publish failure.
  * Returns the matching post id, or null. The Page token rides in the
  * Authorization header so it never lands in a URL/log.
  */
@@ -189,7 +193,6 @@ async function findRecentMatchingPagePost(
   message: string,
   since: Date,
 ): Promise<string | null> {
-  if (!message) return null;
   const res = await fetch(
     `${GRAPH_BASE}/${encodeURIComponent(pageId)}/posts?fields=id,message,created_time&limit=10`,
     { headers: { Authorization: `Bearer ${pageAccessToken}` } },
@@ -201,7 +204,11 @@ async function findRecentMatchingPagePost(
   if (!res.ok || json.error || !Array.isArray(json.data)) return null;
 
   for (const post of json.data) {
-    if (!post.id || post.message !== message) continue;
+    if (!post.id) continue;
+    // Blank publishes match blank posts; non-blank publishes need the exact
+    // text. Graph omits `message` entirely on caption-less photo posts.
+    const matches = message ? post.message === message : !post.message;
+    if (!matches) continue;
     const created = post.created_time ? Date.parse(post.created_time) : NaN;
     if (!Number.isNaN(created) && created >= since.getTime()) {
       return post.id;
@@ -216,8 +223,11 @@ async function findRecentMatchingPagePost(
  * Used as the duplicate-post probe after a transient failure in the IG
  * create -> poll -> publish flow — `media_publish` can commit the post and
  * then lose the response, and re-running the whole flow would publish the
- * same image twice. Returns the matching media id, or null. The Page token
- * rides in the Authorization header so it never lands in a URL/log.
+ * same image twice. When the publish had NO caption, a landed media item also
+ * has no `caption`, so the probe matches any caption-less media created
+ * at/after `since` instead of skipping (which would let a retry duplicate a
+ * caption-less image post). Returns the matching media id, or null. The Page
+ * token rides in the Authorization header so it never lands in a URL/log.
  */
 async function findRecentMatchingInstagramMedia(
   igUserId: string,
@@ -225,7 +235,6 @@ async function findRecentMatchingInstagramMedia(
   caption: string,
   since: Date,
 ): Promise<string | null> {
-  if (!caption) return null;
   const res = await fetch(
     `${GRAPH_BASE}/${encodeURIComponent(igUserId)}/media?fields=id,caption,timestamp&limit=10`,
     { headers: { Authorization: `Bearer ${pageToken}` } },
@@ -237,7 +246,11 @@ async function findRecentMatchingInstagramMedia(
   if (!res.ok || json.error || !Array.isArray(json.data)) return null;
 
   for (const media of json.data) {
-    if (!media.id || media.caption !== caption) continue;
+    if (!media.id) continue;
+    // Blank publishes match blank media; non-blank publishes need the exact
+    // caption. Graph omits `caption` entirely on caption-less media.
+    const matches = caption ? media.caption === caption : !media.caption;
+    if (!matches) continue;
     const created = media.timestamp ? Date.parse(media.timestamp) : NaN;
     if (!Number.isNaN(created) && created >= since.getTime()) {
       return media.id;

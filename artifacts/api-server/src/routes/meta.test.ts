@@ -449,7 +449,9 @@ describe("Facebook publish transient-error retry", () => {
       });
   }
 
-  async function setupVerifiedFbTenant() {
+  async function setupVerifiedFbTenant(
+    itemOpts: { caption?: string; title?: string } = {},
+  ) {
     const tenant = await createTenant();
     await insertConnectedAccount(
       tenant.tenantId,
@@ -459,6 +461,7 @@ describe("Facebook publish transient-error retry", () => {
     );
     const itemId = await insertContentItem(tenant.tenantId, {
       imagePath: "/objects/uploads/test.png",
+      ...itemOpts,
     });
     actAs(tenant.clerkUserId);
     return { tenant, itemId };
@@ -536,7 +539,7 @@ describe("Facebook publish transient-error retry", () => {
    */
   function mockGraphWriteThenLoseResponse(
     calls: string[],
-    existingPost: { id: string; message: string; created_time: string },
+    existingPost: { id: string; message?: string; created_time: string },
   ) {
     let photoAttempts = 0;
     return vi
@@ -605,6 +608,78 @@ describe("Facebook publish transient-error retry", () => {
       const item = await getContentItem(itemId, tenant.tenantId);
       expect(item.status).toBe("published");
       expect(item.postId).toBe("POST_ALREADY_LANDED");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("does not double-post a caption-less image when a transient failure actually landed the post", async () => {
+    const calls: string[] = [];
+    // The landed photo post has NO `message` (Graph omits it for caption-less
+    // posts). The probe must match it by "blank + recent" instead of skipping.
+    mockGraphWriteThenLoseResponse(calls, {
+      id: "POST_BLANK_LANDED",
+      created_time: new Date().toISOString(),
+    });
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getObjectEntityFile",
+    ).mockResolvedValue({
+      download: async () => [Buffer.from("fake-image-bytes")],
+    } as never);
+
+    // Blank caption AND blank title -> the publish sends no message at all.
+    const { tenant, itemId } = await setupVerifiedFbTenant({
+      caption: "",
+      title: "",
+    });
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-facebook`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("POST_BLANK_LANDED");
+      // Exactly ONE write — no duplicate.
+      expect(calls.filter((u) => u.includes("/photos")).length).toBe(1);
+      expect(calls.some((u) => u.includes("/PAGE_OK/posts"))).toBe(true);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("POST_BLANK_LANDED");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("a blank-caption probe does not match recent posts that HAVE a caption", async () => {
+    const calls: string[] = [];
+    // Only a recent post WITH text exists — not ours (ours is caption-less),
+    // so the retry must proceed.
+    mockGraphWriteThenLoseResponse(calls, {
+      id: "POST_WITH_TEXT",
+      message: "someone else's captioned post",
+      created_time: new Date().toISOString(),
+    });
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getObjectEntityFile",
+    ).mockResolvedValue({
+      download: async () => [Buffer.from("fake-image-bytes")],
+    } as never);
+
+    const { tenant, itemId } = await setupVerifiedFbTenant({
+      caption: "",
+      title: "",
+    });
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-facebook`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("POST_DUPLICATE");
+      expect(calls.filter((u) => u.includes("/photos")).length).toBe(2);
     } finally {
       await deleteTenant(tenant.tenantId);
     }
@@ -985,7 +1060,9 @@ describe("Instagram publish retry", () => {
     vi.restoreAllMocks();
   });
 
-  async function setupVerifiedTenant() {
+  async function setupVerifiedTenant(
+    itemOpts: { caption?: string; title?: string } = {},
+  ) {
     const tenant = await createTenant();
     await insertConnectedAccount(
       tenant.tenantId,
@@ -1001,6 +1078,7 @@ describe("Instagram publish retry", () => {
     );
     const itemId = await insertContentItem(tenant.tenantId, {
       imagePath: "/objects/uploads/test.png",
+      ...itemOpts,
     });
     actAs(tenant.clerkUserId);
     return { tenant, itemId };
@@ -1151,7 +1229,7 @@ describe("Instagram publish retry", () => {
    */
   function mockGraphIgPublishThenLoseResponse(
     calls: string[],
-    existingMedia: { id: string; caption: string; timestamp: string } | null,
+    existingMedia: { id: string; caption?: string; timestamp: string } | null,
   ) {
     let publishAttempts = 0;
     return vi
@@ -1227,6 +1305,79 @@ describe("Instagram publish retry", () => {
       expect(item.status).toBe("published");
       expect(item.postId).toBe("IG_ALREADY_LANDED");
       expect(item.permalink).toBe("https://www.instagram.com/p/landed/");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("does not double-post a caption-less image when a transient media_publish failure actually landed the post", async () => {
+    const calls: string[] = [];
+    // The landed IG media has NO `caption` (Graph omits it for caption-less
+    // media). The probe must match it by "blank + recent" instead of skipping.
+    mockGraphIgPublishThenLoseResponse(calls, {
+      id: "IG_BLANK_LANDED",
+      timestamp: new Date().toISOString(),
+    });
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getSignedDownloadURL",
+    ).mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
+
+    // Blank caption AND blank title -> the publish sends an empty caption.
+    const { tenant, itemId } = await setupVerifiedTenant({
+      caption: "",
+      title: "",
+    });
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-instagram`,
+      );
+      expect(res.status).toBe(202);
+      await waitForPendingJobs();
+
+      // Exactly ONE publish write — the "lost" one. No second publish.
+      expect(calls.filter((u) => u.includes("/media_publish")).length).toBe(1);
+      expect(calls.filter((u) => u.endsWith("/IG_OK/media")).length).toBe(1);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("IG_BLANK_LANDED");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("a blank-caption probe does not match recent media that HAS a caption", async () => {
+    const calls: string[] = [];
+    // Only recent media WITH text exists — not ours (ours is caption-less),
+    // so the retry must proceed.
+    mockGraphIgPublishThenLoseResponse(calls, {
+      id: "IG_WITH_TEXT",
+      caption: "someone else's captioned media",
+      timestamp: new Date().toISOString(),
+    });
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getSignedDownloadURL",
+    ).mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
+
+    const { tenant, itemId } = await setupVerifiedTenant({
+      caption: "",
+      title: "",
+    });
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-instagram`,
+      );
+      expect(res.status).toBe(202);
+      await waitForPendingJobs();
+
+      // The failed publish + the successful retry.
+      expect(calls.filter((u) => u.includes("/media_publish")).length).toBe(2);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("IG_DUPLICATE");
     } finally {
       await deleteTenant(tenant.tenantId);
     }
