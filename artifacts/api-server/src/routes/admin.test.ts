@@ -367,6 +367,17 @@ describe("POST /admin/sweep/run — on-demand sweep stays admin-only", () => {
       const res = await request(app).post("/api/admin/sweep/run");
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ started: true });
+
+      // The manual trigger is audited: actor recorded, no target, outcome in
+      // newValue — best-effort like the other privileged actions.
+      const logs = await getAuditLogsForActor(actor.tenantId);
+      const sweepLogs = logs.filter((l) => l.action === "sweep_run");
+      expect(sweepLogs).toHaveLength(1);
+      expect(sweepLogs[0].actorEmail).toBe(actor.email);
+      expect(sweepLogs[0].targetTenantId).toBeNull();
+      expect(JSON.parse(sweepLogs[0].newValue ?? "")).toEqual({
+        started: true,
+      });
     } finally {
       await deleteTenant(actor.tenantId);
     }

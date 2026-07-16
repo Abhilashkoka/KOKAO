@@ -253,6 +253,7 @@ export const AdminAuditLogAction = {
   app_brand_change: 'app_brand_change',
   email_settings_change: 'email_settings_change',
   email_test_send: 'email_test_send',
+  sweep_run: 'sweep_run',
 } as const;
 
 export interface AdminAuditLog {
@@ -1424,6 +1425,7 @@ export const AdminListAuditLogsAction = {
   app_brand_change: 'app_brand_change',
   email_settings_change: 'email_settings_change',
   email_test_send: 'email_test_send',
+  sweep_run: 'sweep_run',
 } as const;
 
 export type AdminExportAuditLogsParams = {
@@ -1466,6 +1468,7 @@ export const AdminExportAuditLogsAction = {
   app_brand_change: 'app_brand_change',
   email_settings_change: 'email_settings_change',
   email_test_send: 'email_test_send',
+  sweep_run: 'sweep_run',
 } as const;
 
 export type ListBrandKitsParams = {

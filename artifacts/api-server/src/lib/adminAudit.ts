@@ -11,7 +11,8 @@ export type AdminAuditAction =
   | "credential_change"
   | "app_brand_change"
   | "email_settings_change"
-  | "email_test_send";
+  | "email_test_send"
+  | "sweep_run";
 
 export interface RecordAdminActionInput {
   action: AdminAuditAction;

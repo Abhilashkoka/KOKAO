@@ -1247,6 +1247,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   app_brand_change: "App branding changed",
   email_settings_change: "Email settings changed",
   email_test_send: "Test email sent",
+  sweep_run: "Manual sweep run",
 };
 
 interface PlanDraft {
@@ -1737,6 +1738,16 @@ function formatAuditValue(action: string, value: string | null): string {
       if (parsed.outcome) parts.push(parsed.outcome);
       if (parsed.error) parts.push(parsed.error);
       return parts.join(", ") || value;
+    } catch {
+      return value;
+    }
+  }
+  if (action === "sweep_run") {
+    try {
+      const parsed = JSON.parse(value) as { started?: boolean };
+      return parsed.started
+        ? "sweep completed"
+        : "skipped (already running)";
     } catch {
       return value;
     }

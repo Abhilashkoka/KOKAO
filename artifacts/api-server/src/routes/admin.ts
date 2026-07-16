@@ -208,8 +208,21 @@ router.get("/admin/stats", async (_req: Request, res: Response) => {
  * request is a no-op and returns started=false. The dashboard polls
  * /admin/stats (which reports sweepRunning) until the run completes.
  */
-router.post("/admin/sweep/run", (_req: Request, res: Response) => {
+router.post("/admin/sweep/run", async (req: Request, res: Response) => {
   const started = triggerSweepNow();
+  try {
+    await recordAdminAction({
+      action: "sweep_run",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: null,
+      newValue: JSON.stringify({ started }),
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write sweep-run audit log");
+  }
   res.json({ started });
 });
 
@@ -616,6 +629,10 @@ const AUDIT_ACTIONS = new Set([
   "plan_delete",
   "notification_policy_change",
   "credential_change",
+  "app_brand_change",
+  "email_settings_change",
+  "email_test_send",
+  "sweep_run",
 ]);
 
 function escapeLike(value: string): string {
