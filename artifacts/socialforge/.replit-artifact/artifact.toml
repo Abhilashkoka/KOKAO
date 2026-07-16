@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "SocialForge"
+title = "KOKAO"
 version = "1.0.0"
 id = "artifacts/socialforge"
 router = "path"
