@@ -30,6 +30,7 @@ import {
 import { isSuperadminEmail } from "../lib/superadmins";
 import { fetchVerifiedEmail } from "../lib/clerkUser";
 import { currentPeriodStart } from "../lib/usage";
+import { triggerSweepNow } from "../lib/connectionSweep";
 import {
   NOTIFICATION_TYPES,
   NOTIFICATION_TYPE_SET,
@@ -187,6 +188,18 @@ router.get("/admin/stats", async (_req: Request, res: Response) => {
         }
       : null,
   });
+});
+
+/**
+ * POST /admin/sweep/run
+ * Trigger a connection sweep immediately (admin "Run now"). Respects the
+ * in-process overlap guard: if a sweep is already in flight the request is a
+ * no-op and returns started=false. Resolves after the sweep completes so the
+ * dashboard can refetch fresh stats.
+ */
+router.post("/admin/sweep/run", async (_req: Request, res: Response) => {
+  const started = await triggerSweepNow();
+  res.json({ started });
 });
 
 /**

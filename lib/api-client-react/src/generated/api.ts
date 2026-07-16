@@ -26,6 +26,7 @@ import type {
   AdminExportAuditLogsParams,
   AdminListAuditLogsParams,
   AdminStats,
+  AdminSweepRunResult,
   AdminTenant,
   AppBrand,
   AppBrandInput,
@@ -1317,6 +1318,76 @@ export function useAdminGetStats<TData = Awaited<ReturnType<typeof adminGetStats
 
 
 
+
+export const getAdminRunSweepUrl = () => {
+
+
+
+
+  return `/api/admin/sweep/run`
+}
+
+/**
+ * @summary Trigger a connection sweep immediately (superadmin only)
+ */
+export const adminRunSweep = async ( options?: RequestInit): Promise<AdminSweepRunResult> => {
+
+  return customFetch<AdminSweepRunResult>(getAdminRunSweepUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getAdminRunSweepMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRunSweep>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminRunSweep>>, TError,void, TContext> => {
+
+const mutationKey = ['adminRunSweep'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminRunSweep>>, void> = () => {
+
+
+          return  adminRunSweep(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminRunSweepMutationResult = NonNullable<Awaited<ReturnType<typeof adminRunSweep>>>
+
+    export type AdminRunSweepMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Trigger a connection sweep immediately (superadmin only)
+ */
+export const useAdminRunSweep = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRunSweep>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminRunSweep>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getAdminRunSweepMutationOptions(options));
+    }
 
 export const getAdminListAuditLogsUrl = (params?: AdminListAuditLogsParams,) => {
   const normalizedParams = new URLSearchParams();

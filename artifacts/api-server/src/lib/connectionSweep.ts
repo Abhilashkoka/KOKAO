@@ -160,8 +160,8 @@ let sweepTimer: NodeJS.Timeout | null = null;
 let initialTimer: NodeJS.Timeout | null = null;
 let sweepRunning = false;
 
-async function runSweepOnce(): Promise<void> {
-  if (sweepRunning) return; // Never overlap two sweeps.
+async function runSweepOnce(): Promise<boolean> {
+  if (sweepRunning) return false; // Never overlap two sweeps.
   sweepRunning = true;
   const startedAt = Date.now();
   try {
@@ -183,6 +183,17 @@ async function runSweepOnce(): Promise<void> {
   } finally {
     sweepRunning = false;
   }
+  return true;
+}
+
+/**
+ * Run a sweep immediately, on demand (admin "Run now"). Respects the same
+ * overlap guard as the periodic timer: if a sweep is already in flight this
+ * returns false without starting another. Resolves after the sweep completes
+ * (and its outcome is persisted), so callers can refetch stats right away.
+ */
+export async function triggerSweepNow(): Promise<boolean> {
+  return runSweepOnce();
 }
 
 /**

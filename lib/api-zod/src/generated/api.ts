@@ -417,6 +417,14 @@ export const AdminGetStatsResponse = zod.object({
 
 
 /**
+ * @summary Trigger a connection sweep immediately (superadmin only)
+ */
+export const AdminRunSweepResponse = zod.object({
+  "started": zod.boolean().describe('True when a sweep ran to completion; false when one was already running and the request was a no-op.')
+})
+
+
+/**
  * @summary List the privileged admin action audit trail (superadmin only)
  */
 export const adminListAuditLogsQueryLimitDefault = 50;

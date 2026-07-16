@@ -23,6 +23,7 @@ import {
   useAdminUpdateEmailSettings,
   useAdminSendTestEmail,
   useAdminListAuditLogs,
+  useAdminRunSweep,
   getAdminListTenantsQueryKey,
   getAdminGetStatsQueryKey,
   getAdminGetMetaCredentialsQueryKey,
@@ -2026,6 +2027,36 @@ export function AdminPage() {
   const { data: planCatalog } = useListPlans();
   const updatePlan = useAdminUpdateTenantPlan();
   const updateSuperadmin = useAdminUpdateTenantSuperadmin();
+  const runSweep = useAdminRunSweep();
+
+  const handleRunSweep = () => {
+    runSweep.mutate(undefined, {
+      onSuccess: (result) => {
+        queryClient.invalidateQueries({
+          queryKey: getAdminGetStatsQueryKey(),
+        });
+        if (result.started) {
+          toast({
+            title: "Sweep completed",
+            description: "All social connections were re-checked.",
+          });
+        } else {
+          toast({
+            title: "Sweep already running",
+            description:
+              "A sweep is already in progress. Its results will appear shortly.",
+          });
+        }
+      },
+      onError: () => {
+        toast({
+          title: "Sweep failed",
+          description: "Could not run the connection sweep.",
+          variant: "destructive",
+        });
+      },
+    });
+  };
 
   const planNameById: Record<string, string> = {};
   for (const p of planCatalog ?? []) planNameById[p.id] = p.name;
@@ -2172,6 +2203,23 @@ export function AdminPage() {
               connections and alerts users when one breaks.
             </CardDescription>
           </div>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRunSweep}
+              disabled={runSweep.isPending}
+              data-testid="button-run-sweep"
+            >
+              {runSweep.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Running...
+                </>
+              ) : (
+                "Run now"
+              )}
+            </Button>
           {!statsLoading &&
             (stats?.connectionSweep ? (
               isSweepStale(stats.connectionSweep.lastRunAt) ? (
@@ -2191,6 +2239,7 @@ export function AdminPage() {
                 Never ran
               </Badge>
             ))}
+          </div>
         </CardHeader>
         <CardContent>
           {statsLoading ? (

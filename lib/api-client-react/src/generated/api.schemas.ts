@@ -216,6 +216,11 @@ export interface AdminStats {
   connectionSweep?: AdminStatsConnectionSweep;
 }
 
+export interface AdminSweepRunResult {
+  /** True when a sweep ran to completion; false when one was already running and the request was a no-op. */
+  started: boolean;
+}
+
 export interface UpdateTenantPlanBody {
   /**
      * @minLength 1

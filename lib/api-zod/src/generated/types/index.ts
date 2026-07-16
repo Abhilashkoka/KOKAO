@@ -19,6 +19,7 @@ export * from './adminListAuditLogsParams';
 export * from './adminStats';
 export * from './adminStatsConnectionSweep';
 export * from './adminStatsTenantsByPlan';
+export * from './adminSweepRunResult';
 export * from './adminTenant';
 export * from './adminTenantCounts';
 export * from './appBrand';

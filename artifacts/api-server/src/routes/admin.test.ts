@@ -26,6 +26,14 @@ vi.mock("@clerk/express", async () => {
   };
 });
 
+// The on-demand sweep endpoint delegates to the real sweep, which would hit
+// live provider APIs for any connected accounts in the dev DB. Stub the
+// trigger: this file tests the route's auth gating + response shape, while
+// the sweep logic itself is covered by connectionSweep.test.ts.
+vi.mock("../lib/connectionSweep", () => ({
+  triggerSweepNow: vi.fn(async () => true),
+}));
+
 import { pool } from "@workspace/db";
 import { createAdminTestApp } from "../test/testApp";
 import { resetAuthState, actAs } from "../test/authState";
@@ -315,6 +323,42 @@ describe("GET /admin/stats — platform stats stay admin-only", () => {
       expect(res.body.tenantsByPlan).toHaveProperty("free");
       expect(res.body.tenantsByPlan).toHaveProperty("pro");
       expect(res.body.tenantsByPlan).toHaveProperty("business");
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+});
+
+describe("POST /admin/sweep/run — on-demand sweep stays admin-only", () => {
+  it("returns 401 to an unauthenticated caller", async () => {
+    resetAuthState();
+    const res = await request(app).post("/api/admin/sweep/run");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 to an authenticated non-superadmin", async () => {
+    const actor = await createTenant({
+      email: `plain-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      const res = await request(app).post("/api/admin/sweep/run");
+      expect(res.status).toBe(403);
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
+  it("lets a superadmin trigger a sweep and reports whether it started", async () => {
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      const res = await request(app).post("/api/admin/sweep/run");
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ started: true });
     } finally {
       await deleteTenant(actor.tenantId);
     }

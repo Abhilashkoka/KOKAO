@@ -36,7 +36,11 @@ vi.mock("./email", () => ({
 
 import { pool } from "@workspace/db";
 import { testFacebookCredentials } from "./metaApi";
-import { sweepDeadConnections, recordSweepRun } from "./connectionSweep";
+import {
+  sweepDeadConnections,
+  recordSweepRun,
+  triggerSweepNow,
+} from "./connectionSweep";
 import {
   createTenant,
   deleteTenant,
@@ -524,5 +528,20 @@ describe("recordSweepRun", () => {
     expect(rows[0]!.accountsChecked).toBe(4);
     expect(rows[0]!.errorCount).toBe(1);
     expect(rows[0]!.lastError).toBe("boom");
+  });
+});
+
+describe("triggerSweepNow", () => {
+  it("runs a sweep to completion and respects the overlap guard for a concurrent call", async () => {
+    const [first, second] = await Promise.all([
+      triggerSweepNow(),
+      triggerSweepNow(),
+    ]);
+    // Exactly one of the two concurrent triggers actually runs; the other is
+    // rejected by the overlap guard.
+    expect([first, second].filter(Boolean)).toHaveLength(1);
+
+    // Once the in-flight sweep finished, a new trigger runs again.
+    await expect(triggerSweepNow()).resolves.toBe(true);
   });
 });
