@@ -118,9 +118,15 @@ export function DashboardPage() {
                   <div key={item.id} className="p-4 hover:bg-muted/50 transition-colors flex justify-between items-center group">
                     <div>
                       <h4 className="font-semibold truncate max-w-[200px] sm:max-w-xs">{item.title}</h4>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className="text-xs px-2 py-0.5 rounded-full bg-secondary text-secondary-foreground uppercase font-medium">{item.status}</span>
-                        <span className="text-xs text-muted-foreground capitalize">{item.platform}</span>
+                        {Object.keys(item.publishedPlatforms ?? {}).length > 0 ? (
+                          Object.keys(item.publishedPlatforms ?? {}).map(p => (
+                            <span key={p} className="text-xs text-muted-foreground capitalize">{p === "twitter" ? "X" : p}</span>
+                          ))
+                        ) : (
+                          <span className="text-xs text-muted-foreground capitalize">{item.platform}</span>
+                        )}
                       </div>
                     </div>
                     <Link href={`/library`}>

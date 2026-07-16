@@ -1,3 +1,4 @@
+import { mergePublishedPlatform } from "../lib/publishedPlatforms";
 import { buildPostText } from "../lib/postText";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { trackSyncPublish } from "../middlewares/trackSyncPublish";
@@ -753,6 +754,10 @@ router.post(
           failureReason: null,
           postId: postId || null,
           permalink,
+          publishedPlatforms: mergePublishedPlatform("linkedin", {
+            postId: postId || null,
+            permalink,
+          }),
           // A fresh publish starts a new comment sequence; any resend state
           // from an earlier publish points at a stale post URN.
           linkedinCommentState: null,

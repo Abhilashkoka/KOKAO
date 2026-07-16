@@ -3149,6 +3149,11 @@ export const ListContentResponseItem = zod.object({
   "failureReason": zod.string().nullish().describe('Why the last publish attempt failed. Set to a canonical restart-interruption message when the server auto-failed an orphaned \"publishing\" item, or a platform rejection message on a real publish failure. Null when not failed.'),
   "postId": zod.string().nullish(),
   "permalink": zod.string().nullish(),
+  "publishedPlatforms": zod.record(zod.string(), zod.object({
+  "postId": zod.string().nullish(),
+  "permalink": zod.string().nullish(),
+  "publishedAt": zod.coerce.date()
+})).optional().describe('Map of platform name -> publish record for every platform this item has been successfully published to. postId\/permalink above only reflect the latest publish; this map is the cumulative list the UI shows.'),
   "linkedinCommentsPending": zod.number().optional().describe('How many LinkedIn follow-up comments from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend remaining comments\" action.'),
   "threadsPostsPending": zod.number().optional().describe('How many Threads reply-chain posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
   "twitterPostsPending": zod.number().optional().describe('How many X thread posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
@@ -3188,6 +3193,11 @@ export const CreateContentResponse = zod.object({
   "failureReason": zod.string().nullish().describe('Why the last publish attempt failed. Set to a canonical restart-interruption message when the server auto-failed an orphaned \"publishing\" item, or a platform rejection message on a real publish failure. Null when not failed.'),
   "postId": zod.string().nullish(),
   "permalink": zod.string().nullish(),
+  "publishedPlatforms": zod.record(zod.string(), zod.object({
+  "postId": zod.string().nullish(),
+  "permalink": zod.string().nullish(),
+  "publishedAt": zod.coerce.date()
+})).optional().describe('Map of platform name -> publish record for every platform this item has been successfully published to. postId\/permalink above only reflect the latest publish; this map is the cumulative list the UI shows.'),
   "linkedinCommentsPending": zod.number().optional().describe('How many LinkedIn follow-up comments from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend remaining comments\" action.'),
   "threadsPostsPending": zod.number().optional().describe('How many Threads reply-chain posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
   "twitterPostsPending": zod.number().optional().describe('How many X thread posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
@@ -3216,6 +3226,11 @@ export const GetContentResponse = zod.object({
   "failureReason": zod.string().nullish().describe('Why the last publish attempt failed. Set to a canonical restart-interruption message when the server auto-failed an orphaned \"publishing\" item, or a platform rejection message on a real publish failure. Null when not failed.'),
   "postId": zod.string().nullish(),
   "permalink": zod.string().nullish(),
+  "publishedPlatforms": zod.record(zod.string(), zod.object({
+  "postId": zod.string().nullish(),
+  "permalink": zod.string().nullish(),
+  "publishedAt": zod.coerce.date()
+})).optional().describe('Map of platform name -> publish record for every platform this item has been successfully published to. postId\/permalink above only reflect the latest publish; this map is the cumulative list the UI shows.'),
   "linkedinCommentsPending": zod.number().optional().describe('How many LinkedIn follow-up comments from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend remaining comments\" action.'),
   "threadsPostsPending": zod.number().optional().describe('How many Threads reply-chain posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
   "twitterPostsPending": zod.number().optional().describe('How many X thread posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
@@ -3258,6 +3273,11 @@ export const UpdateContentResponse = zod.object({
   "failureReason": zod.string().nullish().describe('Why the last publish attempt failed. Set to a canonical restart-interruption message when the server auto-failed an orphaned \"publishing\" item, or a platform rejection message on a real publish failure. Null when not failed.'),
   "postId": zod.string().nullish(),
   "permalink": zod.string().nullish(),
+  "publishedPlatforms": zod.record(zod.string(), zod.object({
+  "postId": zod.string().nullish(),
+  "permalink": zod.string().nullish(),
+  "publishedAt": zod.coerce.date()
+})).optional().describe('Map of platform name -> publish record for every platform this item has been successfully published to. postId\/permalink above only reflect the latest publish; this map is the cumulative list the UI shows.'),
   "linkedinCommentsPending": zod.number().optional().describe('How many LinkedIn follow-up comments from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend remaining comments\" action.'),
   "threadsPostsPending": zod.number().optional().describe('How many Threads reply-chain posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
   "twitterPostsPending": zod.number().optional().describe('How many X thread posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),

@@ -4138,6 +4138,24 @@ components:
           type: ["string", "null"]
         permalink:
           type: ["string", "null"]
+        publishedPlatforms:
+          type: object
+          description: >-
+            Map of platform name -> publish record for every platform this
+            item has been successfully published to. postId/permalink above
+            only reflect the latest publish; this map is the cumulative list
+            the UI shows.
+          additionalProperties:
+            type: object
+            required: [publishedAt]
+            properties:
+              postId:
+                type: ["string", "null"]
+              permalink:
+                type: ["string", "null"]
+              publishedAt:
+                type: string
+                format: date-time
         linkedinCommentsPending:
           type: integer
           description: >-

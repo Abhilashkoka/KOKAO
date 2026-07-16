@@ -1,3 +1,4 @@
+import { mergePublishedPlatform } from "../lib/publishedPlatforms";
 import { buildPostText } from "../lib/postText";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, contentItemsTable } from "@workspace/db";
@@ -484,6 +485,7 @@ async function loadContentItem(id: number, tenantId: number) {
 async function markPublished(
   id: number,
   tenantId: number,
+  platform: "facebook" | "instagram",
   meta?: { postId?: string | null; permalink?: string | null },
 ) {
   await db
@@ -493,6 +495,10 @@ async function markPublished(
       failureReason: null,
       postId: meta?.postId || null,
       permalink: meta?.permalink || null,
+      publishedPlatforms: mergePublishedPlatform(platform, {
+        postId: meta?.postId || null,
+        permalink: meta?.permalink || null,
+      }),
       updatedAt: new Date(),
     })
     .where(
@@ -669,7 +675,7 @@ async function runInstagramPublish(
   for (let attempt = 1; attempt <= IG_PUBLISH_RETRY.maxAttempts; attempt++) {
     try {
       const { postId, permalink } = await attemptInstagramPublish(params);
-      await markPublished(id, tenantId, { postId, permalink });
+      await markPublished(id, tenantId, "instagram", { postId, permalink });
       return;
     } catch (error) {
       // Unknown (non-classified) errors — e.g. a network blip or a storage
@@ -708,7 +714,7 @@ async function runInstagramPublish(
               existingId,
               pageToken,
             );
-            await markPublished(id, tenantId, {
+            await markPublished(id, tenantId, "instagram", {
               postId: existingId,
               permalink,
             });
@@ -871,7 +877,7 @@ router.post(
       }
 
       const permalink = postId ? `https://www.facebook.com/${postId}` : null;
-      await markPublished(id, req.tenantId, { postId, permalink });
+      await markPublished(id, req.tenantId, "facebook", { postId, permalink });
       res.json({ postId, permalink });
     } catch (error) {
       req.log.error({ err: error }, "Facebook publish failed");

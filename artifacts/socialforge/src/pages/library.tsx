@@ -764,7 +764,25 @@ export function LibraryPage() {
                       {retryingId === item.id ? "Retrying..." : "Retry"}
                     </Button>
                   )}
-                  {item.status === 'published' && item.permalink && (
+                  {item.status === 'published' && Object.keys(item.publishedPlatforms ?? {}).length > 0 ? (
+                    Object.entries(item.publishedPlatforms ?? {}).map(([p, info]) =>
+                      info.permalink ? (
+                        <a
+                          key={p}
+                          href={info.permalink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 font-medium text-primary hover:underline capitalize"
+                        >
+                          {p === "twitter" ? "X" : p} <ExternalLink className="h-3 w-3" />
+                        </a>
+                      ) : (
+                        <span key={p} className="inline-flex items-center font-medium text-muted-foreground capitalize">
+                          {p === "twitter" ? "X" : p}
+                        </span>
+                      ),
+                    )
+                  ) : item.status === 'published' && item.permalink ? (
                     <a
                       href={item.permalink}
                       target="_blank"
@@ -773,7 +791,7 @@ export function LibraryPage() {
                     >
                       View post <ExternalLink className="h-3 w-3" />
                     </a>
-                  )}
+                  ) : null}
                   <span className={`px-2 py-1 rounded-md font-medium uppercase ${item.status === 'published' ? 'text-green-600 bg-green-600/10' : item.status === 'scheduled' ? 'text-blue-600 bg-blue-600/10' : item.status === 'publishing' ? 'text-amber-600 bg-amber-600/10 animate-pulse' : item.status === 'failed' ? 'text-destructive bg-destructive/10' : 'text-orange-600 bg-orange-600/10'}`}>
                     {item.status}
                   </span>

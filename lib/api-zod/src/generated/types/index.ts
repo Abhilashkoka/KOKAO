@@ -71,6 +71,7 @@ export * from './connectedAccount';
 export * from './contentInput';
 export * from './contentInputStatus';
 export * from './contentItem';
+export * from './contentItemPublishedPlatforms';
 export * from './contentUpdate';
 export * from './contentUpdateStatus';
 export * from './emailSettingsInput';

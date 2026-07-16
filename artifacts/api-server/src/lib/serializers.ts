@@ -29,6 +29,7 @@ export function serializeContent(c: ContentItem) {
     failureReason: c.failureReason ?? null,
     postId: c.postId ?? null,
     permalink: c.permalink ?? null,
+    publishedPlatforms: c.publishedPlatforms ?? {},
     linkedinCommentsPending: c.linkedinCommentState
       ? Math.max(
           0,

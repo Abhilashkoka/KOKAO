@@ -34,6 +34,17 @@ export interface ThreadChainState {
   postedCount: number;
 }
 
+/**
+ * Record of one successful publish to one platform. Keyed by platform name in
+ * the publishedPlatforms map so republishing to the same platform overwrites
+ * its own entry but never erases other platforms' entries.
+ */
+export interface PublishedPlatformInfo {
+  postId: string | null;
+  permalink: string | null;
+  publishedAt: string;
+}
+
 export const contentItemsTable = pgTable("content_items", {
   id: serial("id").primaryKey(),
   tenantId: integer("tenant_id").notNull(),
@@ -53,6 +64,12 @@ export const contentItemsTable = pgTable("content_items", {
   failureReason: text("failure_reason"),
   postId: text("post_id"),
   permalink: text("permalink"),
+  // Map of platform -> publish record for every platform this item has been
+  // successfully published to. postId/permalink above only reflect the LATEST
+  // publish; this map is the cumulative history the UI lists.
+  publishedPlatforms: jsonb("published_platforms").$type<
+    Record<string, PublishedPlatformInfo>
+  >(),
   // Present only while a LinkedIn overflow-comment sequence is incomplete;
   // cleared when all comments are posted (or a fresh publish starts over).
   linkedinCommentState: jsonb("linkedin_comment_state").$type<LinkedinCommentState>(),
@@ -72,6 +89,7 @@ export const contentItemsTable = pgTable("content_items", {
 export const insertContentItemSchema = createInsertSchema(contentItemsTable).omit({
   id: true,
   tenantId: true,
+  publishedPlatforms: true,
   linkedinCommentState: true,
   threadsChainState: true,
   twitterChainState: true,

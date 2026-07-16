@@ -1,3 +1,4 @@
+import { mergePublishedPlatform } from "../lib/publishedPlatforms";
 import { buildPostText } from "../lib/postText";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { trackSyncPublish } from "../middlewares/trackSyncPublish";
@@ -578,6 +579,10 @@ router.post(
           failureReason: null,
           postId: firstPostId,
           permalink,
+          publishedPlatforms: mergePublishedPlatform("twitter", {
+            postId: firstPostId,
+            permalink,
+          }),
           // Persist which thread posts made it (with the exact texts, so a
           // later caption edit can't change what a resend posts) whenever the
           // thread is incomplete; the resend endpoint picks up from

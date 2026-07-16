@@ -405,6 +405,10 @@ describe("Facebook publishing (happy path)", () => {
 
       const item = await getContentItem(itemId, tenant.tenantId);
       expect(item.status).toBe("published");
+      expect(item.publishedPlatforms?.facebook).toMatchObject({
+        postId: "FEED_POST_1",
+        permalink: "https://www.facebook.com/FEED_POST_1",
+      });
     } finally {
       await deleteTenant(tenant.tenantId);
     }

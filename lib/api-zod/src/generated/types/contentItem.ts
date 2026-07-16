@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { ContentItemPublishedPlatforms } from './contentItemPublishedPlatforms';
 
 export interface ContentItem {
   id: number;
@@ -26,6 +27,8 @@ export interface ContentItem {
   postId?: string | null;
   /** @nullable */
   permalink?: string | null;
+  /** Map of platform name -> publish record for every platform this item has been successfully published to. postId/permalink above only reflect the latest publish; this map is the cumulative list the UI shows. */
+  publishedPlatforms?: ContentItemPublishedPlatforms;
   /** How many LinkedIn follow-up comments from the last publish are still missing (0 when none). When > 0 the client can offer a "resend remaining comments" action. */
   linkedinCommentsPending?: number;
   /** How many Threads reply-chain posts from the last publish are still missing (0 when none). When > 0 the client can offer a "resend missing posts" action. */
