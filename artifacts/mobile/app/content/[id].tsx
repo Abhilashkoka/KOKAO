@@ -1,8 +1,10 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import React, { useEffect, useState } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -82,6 +84,16 @@ export default function ContentDetailScreen() {
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [publishMsg, setPublishMsg] = useState<string | null>(null);
   const [publishErr, setPublishErr] = useState<string | null>(null);
+  const [publishedLink, setPublishedLink] = useState<string | null>(null);
+
+  const openLink = (url: string) => {
+    haptic();
+    if (Platform.OS === "web") {
+      Linking.openURL(url);
+    } else {
+      WebBrowser.openBrowserAsync(url);
+    }
+  };
 
   useEffect(() => {
     if (data && !dirty) {
@@ -196,9 +208,11 @@ export default function ContentDetailScreen() {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
+    setPublishedLink(null);
     mutateWithRestartRetry(publishFacebook, { id: contentId }, {
-      onSuccess: () => {
+      onSuccess: (res) => {
         setPublishMsg("Published to Facebook. Your post is live.");
+        setPublishedLink(res?.permalink ?? null);
         invalidateContent();
       },
       onRetrying: () => setPublishMsg(restartRetryingMsg("Facebook")),
@@ -218,6 +232,7 @@ export default function ContentDetailScreen() {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
+    setPublishedLink(null);
     mutateWithRestartRetry(publishInstagram, { id: contentId }, {
       onSuccess: () => {
         setPublishMsg(
@@ -245,6 +260,7 @@ export default function ContentDetailScreen() {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
+    setPublishedLink(null);
     mutateWithRestartRetry(publishInstagram, { id: contentId }, {
       onSuccess: () => {
         setPublishMsg(
@@ -269,6 +285,7 @@ export default function ContentDetailScreen() {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
+    setPublishedLink(null);
     mutateWithRestartRetry(publishLinkedin, { id: contentId }, {
       onSuccess: (res) => {
         if (res?.commentWarning) {
@@ -283,6 +300,7 @@ export default function ContentDetailScreen() {
               : "";
           setPublishMsg(`Published to LinkedIn. Your post is live.${extra}`);
         }
+        setPublishedLink(res?.permalink ?? null);
         invalidateContent();
       },
       onRetrying: () => setPublishMsg(restartRetryingMsg("LinkedIn")),
@@ -302,6 +320,7 @@ export default function ContentDetailScreen() {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
+    setPublishedLink(null);
     mutateWithRestartRetry(publishTwitter, { id: contentId }, {
       onSuccess: (res) => {
         const extra =
@@ -309,6 +328,7 @@ export default function ContentDetailScreen() {
             ? ` Your caption was posted as a thread of ${res.tweetCount} tweets.`
             : "";
         setPublishMsg(`Published to X. Your post is live.${extra}`);
+        setPublishedLink(res?.permalink ?? null);
         invalidateContent();
       },
       onRetrying: () => setPublishMsg(restartRetryingMsg("X")),
@@ -328,6 +348,7 @@ export default function ContentDetailScreen() {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
+    setPublishedLink(null);
     mutateWithRestartRetry(publishThreads, { id: contentId }, {
       onSuccess: (res) => {
         if (res?.publishWarning) {
@@ -342,6 +363,7 @@ export default function ContentDetailScreen() {
               : "";
           setPublishMsg(`Published to Threads. Your post is live.${extra}`);
         }
+        setPublishedLink(res?.permalink ?? null);
         invalidateContent();
       },
       onRetrying: () => setPublishMsg(restartRetryingMsg("Threads")),
@@ -614,13 +636,34 @@ export default function ContentDetailScreen() {
       ) : null}
       {publishErr ? <Text style={styles.error}>{publishErr}</Text> : null}
 
+      {publishedLink ? (
+        <Button
+          title="View post"
+          icon="external-link"
+          variant="secondary"
+          onPress={() => openLink(publishedLink)}
+          style={{ marginTop: 10 }}
+        />
+      ) : null}
+
       {data.permalink ? (
-        <Card style={{ marginTop: 16 }}>
-          <Text style={styles.permalinkLabel}>Published link</Text>
-          <Text style={styles.permalink} numberOfLines={1}>
-            {data.permalink}
-          </Text>
-        </Card>
+        <Pressable
+          onPress={() => openLink(data.permalink!)}
+          accessibilityRole="link"
+          accessibilityLabel="Open published post"
+        >
+          <Card style={{ marginTop: 16 }}>
+            <View style={styles.permalinkRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.permalinkLabel}>Published link</Text>
+                <Text style={styles.permalink} numberOfLines={1}>
+                  {data.permalink}
+                </Text>
+              </View>
+              <Feather name="external-link" size={16} color={c.primary} />
+            </View>
+          </Card>
+        </Pressable>
       ) : null}
 
       {message ? (
@@ -674,6 +717,7 @@ const styles = StyleSheet.create({
   metaText: { fontFamily: fonts.medium, fontSize: 12, color: c.mutedForeground },
   metaDot: { color: c.mutedForeground },
   chipRow: { flexDirection: "row", gap: 8 },
+  permalinkRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   permalinkLabel: { fontFamily: fonts.semiBold, fontSize: 12, color: c.mutedForeground },
   permalink: { fontFamily: fonts.regular, fontSize: 13, color: c.primary, marginTop: 4 },
   messageRow: {
