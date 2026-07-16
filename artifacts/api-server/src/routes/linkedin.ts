@@ -24,7 +24,7 @@ const router: IRouter = Router();
 
 const objectStorageService = new ObjectStorageService();
 
-const LINKEDIN_VERSION = "202405";
+const LINKEDIN_VERSION = process.env.LINKEDIN_API_VERSION || "202506";
 const OAUTH_SCOPE = "openid profile w_member_social";
 const AUTH_BASE = "https://www.linkedin.com/oauth/v2/authorization";
 const TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken";
