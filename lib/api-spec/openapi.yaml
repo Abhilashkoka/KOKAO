@@ -365,6 +365,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /team/leave:
+    post:
+      operationId: leaveTeam
+      tags: [account]
+      summary: Leave the workspace you were invited to (members/admins only, not the owner)
+      responses:
+        "200":
+          description: Left the workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaveTeamResult"
+        "403":
+          description: The workspace owner cannot leave their own workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: No membership found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /admin/seat-requests:
     get:
       operationId: adminListSeatRequests
@@ -3053,7 +3078,7 @@ components:
           $ref: "#/components/schemas/TeamStatus"
     TeamStatus:
       type: object
-      required: [enabled, role, seatLimit]
+      required: [enabled, role, seatLimit, workspaceName]
       properties:
         enabled:
           type: boolean
@@ -3067,6 +3092,24 @@ components:
         seatLimit:
           type: integer
           description: Effective seat limit (workspace override or plan default).
+        workspaceName:
+          type: string
+          description: Name of the workspace the current user is working in.
+        invitedByEmail:
+          type: ["string", "null"]
+          description: >-
+            For invited members/admins, the email of the person who invited
+            them (null when unknown). Always null for the owner.
+        joinedAt:
+          type: ["string", "null"]
+          format: date-time
+          description: When the current user joined this workspace (members only).
+    LeaveTeamResult:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
     TeamMember:
       type: object
       required: [id, email, role, createdAt]

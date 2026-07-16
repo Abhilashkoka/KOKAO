@@ -14,4 +14,16 @@ export interface TeamStatus {
   role: TeamStatusRole;
   /** Effective seat limit (workspace override or plan default). */
   seatLimit: number;
+  /** Name of the workspace the current user is working in. */
+  workspaceName: string;
+  /**
+     * For invited members/admins, the email of the person who invited them (null when unknown). Always null for the owner.
+     * @nullable
+     */
+  invitedByEmail?: string | null;
+  /**
+     * When the current user joined this workspace (members only).
+     * @nullable
+     */
+  joinedAt?: Date | null;
 }

@@ -46,7 +46,10 @@ export const GetMeResponse = zod.object({
   "team": zod.object({
   "enabled": zod.boolean().describe('Whether the team add-on is active for this workspace (the plan includes team seats or a superadmin granted a seat override).'),
   "role": zod.enum(['owner', 'admin', 'member']).describe('The current user\'s role in this workspace.'),
-  "seatLimit": zod.number().describe('Effective seat limit (workspace override or plan default).')
+  "seatLimit": zod.number().describe('Effective seat limit (workspace override or plan default).'),
+  "workspaceName": zod.string().describe('Name of the workspace the current user is working in.'),
+  "invitedByEmail": zod.string().nullish().describe('For invited members\/admins, the email of the person who invited them (null when unknown). Always null for the owner.'),
+  "joinedAt": zod.coerce.date().nullish().describe('When the current user joined this workspace (members only).')
 }).optional()
 })
 
@@ -383,6 +386,14 @@ export const CreateSeatRequestResponse = zod.object({
   "decidedAt": zod.coerce.date().nullish(),
   "createdAt": zod.coerce.date()
 }))
+})
+
+
+/**
+ * @summary Leave the workspace you were invited to (members/admins only, not the owner)
+ */
+export const LeaveTeamResponse = zod.object({
+  "ok": zod.boolean()
 })
 
 

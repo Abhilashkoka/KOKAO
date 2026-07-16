@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { NotificationsBanner } from "@/components/notifications-banner";
 import { OnboardingWizard } from "@/components/onboarding-wizard";
+import { TeamWelcomeDialog } from "@/components/team-welcome-dialog";
 import { useBrand } from "@/lib/brand";
 
 const NAV_ITEMS = [
@@ -125,6 +126,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Main Content */}
       <main className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full">
         <OnboardingWizard />
+        <TeamWelcomeDialog />
         <NotificationsBanner />
         {children}
       </main>

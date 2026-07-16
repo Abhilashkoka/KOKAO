@@ -6,7 +6,7 @@ import { serializeTenant } from "../lib/serializers";
 import { getPlanLimits, listPlans } from "../lib/plans";
 import { getUsage } from "../lib/usage";
 import { isSuperadminEmail } from "../lib/superadmins";
-import { getEffectiveSeatLimit } from "../lib/team";
+import { getEffectiveSeatLimit, getMembershipDetails } from "../lib/team";
 import { requireWorkspaceAdmin } from "../middlewares/requireWorkspaceAdmin";
 
 const router: IRouter = Router();
@@ -25,6 +25,12 @@ router.get("/me", async (req: Request, res: Response) => {
   }
   const usage = await getUsage(req.tenantId);
   const seatLimit = await getEffectiveSeatLimit(tenant);
+  // For invited members/admins, surface who invited them and when they
+  // joined so the UI can explain which workspace they are in.
+  const membership =
+    req.memberRole !== "owner"
+      ? await getMembershipDetails(tenant, req.clerkUserId)
+      : { invitedByEmail: null, joinedAt: null };
   res.json({
     tenant: serializeTenant(tenant),
     usage: {
@@ -42,6 +48,9 @@ router.get("/me", async (req: Request, res: Response) => {
       enabled: seatLimit > 0,
       role: req.memberRole,
       seatLimit,
+      workspaceName: tenant.name,
+      invitedByEmail: membership.invitedByEmail,
+      joinedAt: membership.joinedAt,
     },
   });
 });

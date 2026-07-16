@@ -62,6 +62,7 @@ import type {
   ImageRequest,
   ImageResult,
   InstagramCredentialInput,
+  LeaveTeamResult,
   LinkedInAuthUrlResult,
   LinkedInStatus,
   LinkedinAppCredentialInput,
@@ -1172,6 +1173,76 @@ export const useCreateSeatRequest = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getCreateSeatRequestMutationOptions(options));
+    }
+
+export const getLeaveTeamUrl = () => {
+
+
+
+
+  return `/api/team/leave`
+}
+
+/**
+ * @summary Leave the workspace you were invited to (members/admins only, not the owner)
+ */
+export const leaveTeam = async ( options?: RequestInit): Promise<LeaveTeamResult> => {
+
+  return customFetch<LeaveTeamResult>(getLeaveTeamUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getLeaveTeamMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof leaveTeam>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof leaveTeam>>, TError,void, TContext> => {
+
+const mutationKey = ['leaveTeam'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof leaveTeam>>, void> = () => {
+
+
+          return  leaveTeam(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LeaveTeamMutationResult = NonNullable<Awaited<ReturnType<typeof leaveTeam>>>
+
+    export type LeaveTeamMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Leave the workspace you were invited to (members/admins only, not the owner)
+ */
+export const useLeaveTeam = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof leaveTeam>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof leaveTeam>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getLeaveTeamMutationOptions(options));
     }
 
 export const getAdminListSeatRequestsUrl = () => {

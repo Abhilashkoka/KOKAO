@@ -33,6 +33,36 @@ router.get("/team", async (req: Request, res: Response) => {
   res.json(await buildTeamOverview(req.tenantId, req.memberRole));
 });
 
+/**
+ * POST /team/leave — an invited member/admin removes themselves from the
+ * workspace. Owners cannot leave (the workspace IS their tenant). On the
+ * next request the leaver gets their own personal workspace auto-provisioned.
+ */
+router.post("/team/leave", async (req: Request, res: Response) => {
+  if (req.memberRole === "owner") {
+    res.status(403).json({
+      error: "The workspace owner cannot leave their own workspace",
+    });
+    return;
+  }
+  const deleted = (
+    await db
+      .delete(tenantMembersTable)
+      .where(
+        and(
+          eq(tenantMembersTable.tenantId, req.tenantId),
+          eq(tenantMembersTable.clerkUserId, req.clerkUserId),
+        ),
+      )
+      .returning()
+  )[0];
+  if (!deleted) {
+    res.status(404).json({ error: "Membership not found" });
+    return;
+  }
+  res.json({ ok: true });
+});
+
 // Everything below manages the team: owner/admin only.
 router.use("/team", requireWorkspaceAdmin);
 

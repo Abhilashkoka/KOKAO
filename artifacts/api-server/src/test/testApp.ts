@@ -11,6 +11,8 @@ import emailSettingsRouter from "../routes/emailSettings";
 import { protectedAppBrandRouter } from "../routes/appBrand";
 import notificationsRouter from "../routes/notifications";
 import notificationSettingsRouter from "../routes/notificationSettings";
+import meRouter from "../routes/me";
+import teamRouter from "../routes/team";
 
 function attachLogStub(app: Express): void {
   // pino-http normally attaches req.log; stub it so route handlers can log.
@@ -58,6 +60,8 @@ export function createTestApp(): Express {
     youtubeRouter,
     notificationsRouter,
     notificationSettingsRouter,
+    meRouter,
+    teamRouter,
   );
   return app;
 }

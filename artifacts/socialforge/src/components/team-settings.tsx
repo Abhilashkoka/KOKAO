@@ -6,6 +6,7 @@ import {
   useRevokeTeamInvite,
   useRemoveTeamMember,
   useCreateSeatRequest,
+  useLeaveTeam,
   getGetTeamQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -39,7 +40,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Loader2, Trash2, X } from "lucide-react";
+import { Users, Loader2, Trash2, X, LogOut } from "lucide-react";
 
 export function TeamSettings() {
   const { data: me } = useGetMe();
@@ -51,6 +52,7 @@ export function TeamSettings() {
   const revokeInvite = useRevokeTeamInvite();
   const removeMember = useRemoveTeamMember();
   const createSeatRequest = useCreateSeatRequest();
+  const leaveTeam = useLeaveTeam();
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"admin" | "member">("member");
@@ -60,6 +62,7 @@ export function TeamSettings() {
     id: number;
     email: string | null;
   } | null>(null);
+  const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
 
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: getGetTeamQueryKey() });
@@ -132,9 +135,88 @@ export function TeamSettings() {
   }
 
   const pendingRequest = team.seatRequests.find((r) => r.status === "pending");
+  const isInvitedUser = team.role !== "owner";
+
+  const handleLeave = () => {
+    leaveTeam.mutate(undefined as never, {
+      onSuccess: () => {
+        setLeaveConfirmOpen(false);
+        toast({
+          title: "You left the workspace",
+          description: "Setting up your own workspace...",
+        });
+        // A fresh personal workspace is auto-provisioned on the next request;
+        // a full reload drops every cached query from the old workspace.
+        setTimeout(() => window.location.assign("/"), 800);
+      },
+      onError: (err: any) => {
+        setLeaveConfirmOpen(false);
+        toast({
+          variant: "destructive",
+          title: "Could not leave the workspace",
+          description: err?.response?.data?.error || "Please try again.",
+        });
+      },
+    });
+  };
 
   return (
     <div className="space-y-6">
+      {isInvitedUser && (
+        <Card className="border-border shadow-sm">
+          <CardHeader>
+            <CardTitle>Your membership</CardTitle>
+            <CardDescription>
+              You&apos;re part of someone else&apos;s workspace. Everything you
+              see in this app belongs to it.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg border border-border divide-y divide-border">
+              <div className="flex items-center justify-between px-4 py-3">
+                <p className="text-sm text-muted-foreground">Workspace</p>
+                <p className="text-sm font-medium">
+                  {me?.team?.workspaceName || "Workspace"}
+                </p>
+              </div>
+              <div className="flex items-center justify-between px-4 py-3">
+                <p className="text-sm text-muted-foreground">Your role</p>
+                <Badge variant="outline" className="capitalize">
+                  {team.role}
+                </Badge>
+              </div>
+              {me?.team?.invitedByEmail && (
+                <div className="flex items-center justify-between px-4 py-3">
+                  <p className="text-sm text-muted-foreground">Invited by</p>
+                  <p className="text-sm font-medium">
+                    {me.team.invitedByEmail}
+                  </p>
+                </div>
+              )}
+              {me?.team?.joinedAt && (
+                <div className="flex items-center justify-between px-4 py-3">
+                  <p className="text-sm text-muted-foreground">Joined</p>
+                  <p className="text-sm font-medium">
+                    {new Date(me.team.joinedAt).toLocaleDateString()}
+                  </p>
+                </div>
+              )}
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => setLeaveConfirmOpen(true)}
+              disabled={leaveTeam.isPending}
+            >
+              {leaveTeam.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <LogOut className="h-4 w-4 mr-2" />
+              )}
+              Leave this workspace
+            </Button>
+          </CardContent>
+        </Card>
+      )}
       <Card className="border-border shadow-sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -372,6 +454,24 @@ export function TeamSettings() {
           </CardContent>
         </Card>
       )}
+
+      <AlertDialog open={leaveConfirmOpen} onOpenChange={setLeaveConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave this workspace?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You will immediately lose access to{" "}
+              {me?.team?.workspaceName || "this workspace"} and its content.
+              You&apos;ll get your own personal workspace instead, and your
+              seat is freed for someone else.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleLeave}>Leave</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={memberToRemove !== null}

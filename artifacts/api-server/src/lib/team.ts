@@ -9,7 +9,7 @@ import {
   type TeamInvite,
   type SeatRequest,
 } from "@workspace/db";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { getPlan } from "./plans";
 
 export type TeamRole = "owner" | "admin" | "member";
@@ -43,6 +43,74 @@ export async function getSeatsUsed(tenantId: number): Promise<number> {
       ),
   ]);
   return 1 + members.length + invites.length;
+}
+
+/**
+ * Details about the current user's membership in a workspace they were
+ * invited to: who invited them and when they joined. Best-effort — the
+ * inviter is resolved from the accepted invite matching the member's email,
+ * and their email from the tenant owner row or a fellow member row.
+ */
+export async function getMembershipDetails(
+  tenant: Tenant,
+  clerkUserId: string,
+): Promise<{ invitedByEmail: string | null; joinedAt: string | null }> {
+  const membership = (
+    await db
+      .select()
+      .from(tenantMembersTable)
+      .where(
+        and(
+          eq(tenantMembersTable.tenantId, tenant.id),
+          eq(tenantMembersTable.clerkUserId, clerkUserId),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (!membership) return { invitedByEmail: null, joinedAt: null };
+
+  let invitedByEmail: string | null = null;
+  if (membership.email) {
+    const invite = (
+      await db
+        .select()
+        .from(teamInvitesTable)
+        .where(
+          and(
+            eq(teamInvitesTable.tenantId, tenant.id),
+            sql`lower(${teamInvitesTable.email}) = ${membership.email.toLowerCase()}`,
+            eq(teamInvitesTable.status, "accepted"),
+          ),
+        )
+        .orderBy(desc(teamInvitesTable.createdAt))
+        .limit(1)
+    )[0];
+    const inviterId = invite?.invitedByClerkUserId ?? null;
+    if (inviterId) {
+      if (inviterId === tenant.clerkUserId) {
+        invitedByEmail = tenant.email ?? null;
+      } else {
+        const inviter = (
+          await db
+            .select({ email: tenantMembersTable.email })
+            .from(tenantMembersTable)
+            .where(
+              and(
+                eq(tenantMembersTable.tenantId, tenant.id),
+                eq(tenantMembersTable.clerkUserId, inviterId),
+              ),
+            )
+            .limit(1)
+        )[0];
+        invitedByEmail = inviter?.email ?? null;
+      }
+    }
+  }
+
+  return {
+    invitedByEmail,
+    joinedAt: membership.createdAt.toISOString(),
+  };
 }
 
 function serializeMember(m: TenantMember) {
