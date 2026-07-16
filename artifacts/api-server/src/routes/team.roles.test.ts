@@ -46,8 +46,14 @@ import { and, eq } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import teamRouter from "../routes/team";
 import meRouter from "../routes/me";
+import contentRouter from "../routes/content";
 import { resetAuthState, actAs } from "../test/authState";
-import { createTenant, deleteTenant, getTenant } from "../test/dbHelpers";
+import {
+  createTenant,
+  deleteTenant,
+  getTenant,
+  insertContentItem,
+} from "../test/dbHelpers";
 
 function createTeamTestApp(): Express {
   const app = express();
@@ -62,7 +68,7 @@ function createTeamTestApp(): Express {
     next();
   });
   // Mirror routes/index.ts ordering: requireTenant first, then routers.
-  app.use("/api", requireTenant, meRouter, teamRouter);
+  app.use("/api", requireTenant, meRouter, teamRouter, contentRouter);
   return app;
 }
 
@@ -308,6 +314,69 @@ describe("invite auto-accept seat check (requireTenant)", () => {
       expect(invite.status).toBe("accepted");
     } finally {
       await deleteTenantForClerkUser(newUserId);
+      await deleteTenant(owner.tenantId);
+    }
+  });
+});
+
+describe("member removal cuts access immediately (DELETE /team/members/:id)", () => {
+  it("removed member's next request resolves a fresh personal workspace, not the old tenant", async () => {
+    const owner = await createTenant({ email: "owner-remove@example.com" });
+    await setSeatLimit(owner.tenantId, 5);
+    const member = await addMember(owner.tenantId, "member");
+    const contentId = await insertContentItem(owner.tenantId, {
+      caption: "owner workspace secret",
+    });
+    try {
+      // Sanity: while a member, requests resolve to the shared workspace and
+      // tenant-scoped reads return the workspace's data.
+      actAs(member.clerkUserId, member.email);
+      const meBefore = await request(app).get("/api/me");
+      expect(meBefore.status).toBe(200);
+      expect(meBefore.body.tenant.id).toBe(owner.tenantId);
+      expect(meBefore.body.team.role).toBe("member");
+      const contentBefore = await request(app).get("/api/content");
+      expect(contentBefore.status).toBe(200);
+      expect(
+        contentBefore.body.map((c: { id: number }) => c.id),
+      ).toContain(contentId);
+
+      // Owner removes the member.
+      actAs(owner.clerkUserId, owner.email);
+      const remove = await request(app).delete(
+        `/api/team/members/${member.memberId}`,
+      );
+      expect(remove.status).toBe(200);
+      const rows = await db
+        .select()
+        .from(tenantMembersTable)
+        .where(eq(tenantMembersTable.tenantId, owner.tenantId));
+      expect(rows).toHaveLength(0);
+
+      // The ex-member's VERY NEXT request must no longer resolve the shared
+      // workspace: requireTenant provisions a fresh personal one instead.
+      actAs(member.clerkUserId, member.email);
+      const meAfter = await request(app).get("/api/me");
+      expect(meAfter.status).toBe(200);
+      expect(meAfter.body.team.role).toBe("owner");
+      expect(meAfter.body.tenant.id).not.toBe(owner.tenantId);
+
+      // Tenant-scoped reads no longer return the old workspace's data.
+      const contentAfter = await request(app).get("/api/content");
+      expect(contentAfter.status).toBe(200);
+      expect(
+        contentAfter.body.map((c: { id: number }) => c.id),
+      ).not.toContain(contentId);
+      const byId = await request(app).get(`/api/content/${contentId}`);
+      expect(byId.status).toBe(404);
+
+      // /team now describes the fresh personal workspace, not the old team.
+      const teamAfter = await request(app).get("/api/team");
+      expect(teamAfter.status).toBe(200);
+      expect(teamAfter.body.role).toBe("owner");
+      expect(teamAfter.body.members ?? []).toHaveLength(0);
+    } finally {
+      await deleteTenantForClerkUser(member.clerkUserId);
       await deleteTenant(owner.tenantId);
     }
   });
