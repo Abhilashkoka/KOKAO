@@ -168,11 +168,12 @@ type RecentLinkedinPost = {
 
 /**
  * Pagination bounds for the duplicate-post probe. LinkedIn's Posts API has no
- * server-side time filter, so on a busy account (or one posting from several
- * tools at once) a just-landed post can scroll past a single small page. The
- * probe pages through `start`/`count` offsets up to `maxPages` so the full
- * dedupe window stays covered with a sane cap. Exported (and mutable) so
- * tests can exercise the pagination without huge fixtures.
+ * server-side time filter for the author finder, so the probe pages through
+ * results (sorted newest-first) with `start`/`count` until it walks past the
+ * dedupe window or hits `maxPages` — a busy account (or one posting from
+ * several tools at once) can push a just-landed post past a single page.
+ * Exported (and mutable) so tests can exercise the pagination without huge
+ * fixtures.
  */
 export const LINKEDIN_DEDUPE_PROBE = {
   pageSize: 50,
@@ -180,29 +181,29 @@ export const LINKEDIN_DEDUPE_PROBE = {
 };
 
 /**
- * Fetch the member's most recent posts so a (re-)publish can detect that a
- * previous attempt actually landed despite a lost/transient-looking response.
- * LinkedIn's Posts API has no idempotency key for post creation, so probing
- * recent posts is the only way to avoid double-posting on retry. The probe
- * paginates (see LINKEDIN_DEDUPE_PROBE) so a landed post on a high-volume
- * account cannot scroll past the probed window; the `maxPages`/`pageSize` cap
- * is the sole bound because the API sorts by LAST_MODIFIED, not createdAt —
- * a page full of old-but-recently-edited posts says nothing about whether a
- * freshly created post sits on a later page, so no time-based early stop is
- * safe. Best-effort: any failure is treated as "no recent posts" by the
- * caller.
+ * Fetch the member's recent posts (created at/after `sinceMs`) so a
+ * (re-)publish can detect that a previous attempt actually landed despite a
+ * lost/transient-looking response. LinkedIn's Posts API has no idempotency
+ * key for post creation, so probing recent posts is the only way to avoid
+ * double-posting on retry. The probe paginates (see LINKEDIN_DEDUPE_PROBE)
+ * so a landed post on a busy account cannot scroll past the probed window.
+ * NOTE: results are sorted by LAST_MODIFIED, not creation time — an edited
+ * old post can appear before a just-landed one — so the probe must NOT stop
+ * early when a page contains only old posts; it pages until the results run
+ * out or the maxPages cap bounds the work.
+ * Best-effort: any failure is treated as "no recent posts" by the caller.
  */
 async function fetchRecentLinkedinPosts(
   author: string,
   baseHeaders: Record<string, string>,
+  sinceMs: number,
 ): Promise<RecentLinkedinPost[]> {
   const out: RecentLinkedinPost[] = [];
   for (let page = 0; page < LINKEDIN_DEDUPE_PROBE.maxPages; page++) {
     const start = page * LINKEDIN_DEDUPE_PROBE.pageSize;
     const res = await platformFetch(
       `${REST_BASE}/posts?author=${encodeURIComponent(author)}&q=author` +
-        `&count=${LINKEDIN_DEDUPE_PROBE.pageSize}&start=${start}` +
-        `&sortBy=LAST_MODIFIED`,
+        `&count=${LINKEDIN_DEDUPE_PROBE.pageSize}&start=${start}&sortBy=LAST_MODIFIED`,
       { headers: baseHeaders },
     );
     const json = (await res.json()) as {
@@ -222,9 +223,10 @@ async function fetchRecentLinkedinPosts(
         createdAtMs: p.createdAt,
       });
     }
-    // A short page means the account has no more posts. No time-based early
-    // stop: LAST_MODIFIED ordering means old-but-recently-edited posts can
-    // fill an earlier page than a freshly created one.
+    // Stop when the page came back short (no more posts). Do NOT early-stop
+    // on a page of old posts: LAST_MODIFIED ordering means an edited old
+    // post can sort ahead of a just-landed one, so later pages can still
+    // hold a fresh duplicate. maxPages bounds the work instead.
     if (json.elements.length < LINKEDIN_DEDUPE_PROBE.pageSize) break;
   }
   return out;
@@ -693,12 +695,13 @@ router.post(
     // probe failure means no short-circuit.
     let existingPostId: string | null = null;
     try {
-      const recent = await fetchRecentLinkedinPosts(author, baseHeaders);
-      existingPostId = findMatchingRecentPost(
-        recent,
-        commentary,
-        Date.now() - PUBLISH_DEDUPE_WINDOW_MS,
+      const sinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
+      const recent = await fetchRecentLinkedinPosts(
+        author,
+        baseHeaders,
+        sinceMs,
       );
+      existingPostId = findMatchingRecentPost(recent, commentary, sinceMs);
     } catch (err) {
       req.log.warn(
         { err },

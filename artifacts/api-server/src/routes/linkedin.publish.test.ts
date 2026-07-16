@@ -697,65 +697,78 @@ describe("LinkedIn publish dedupe (retry after committed-but-lost response)", ()
     expect(state.content[0].status).toBe("published");
   });
 
-  it("paginates past the first page and still finds the landed post on a busy account", async () => {
+  function pagedProbeHandler(opts: {
+    pages: unknown[][];
+    postId?: string;
+  }): FetchHandler {
+    return (call) => {
+      if (call.method === "GET" && call.url.includes("/rest/posts?")) {
+        const start = Number(
+          new URL(call.url).searchParams.get("start") ?? "0",
+        );
+        const page = Math.floor(start / LINKEDIN_DEDUPE_PROBE.pageSize);
+        return makeRes({ json: { elements: opts.pages[page] ?? [] } });
+      }
+      if (call.method === "POST" && call.url.endsWith("/rest/posts")) {
+        return makeRes({
+          status: 201,
+          headers: { "x-restli-id": opts.postId ?? "urn:li:share:new" },
+        });
+      }
+      if (call.url.includes("/socialActions/")) {
+        return makeRes({ status: 201 });
+      }
+      return makeRes();
+    };
+  }
+
+  const fillerPost = (i: number) => ({
+    id: `urn:li:share:filler${i}`,
+    commentary: `unrelated post ${i}`,
+    createdAt: Date.now() - i * 1000,
+  });
+
+  const fullPage = (offset: number) =>
+    Array.from({ length: LINKEDIN_DEDUPE_PROBE.pageSize }, (_, i) =>
+      fillerPost(offset + i),
+    );
+
+  it("finds the landed post beyond the first page on a busy account (paginates)", async () => {
     seedConnectedAccount();
     seedContentItem({ caption: CAPTION });
 
     const savedPageSize = LINKEDIN_DEDUPE_PROBE.pageSize;
     LINKEDIN_DEDUPE_PROBE.pageSize = 3;
     try {
-      // Page 1: three unrelated but recent posts (full page, all in window).
-      // Page 2: the landed post.
-      const filler = (i: number) => ({
-        id: `urn:li:share:other${i}`,
-        commentary: `unrelated ${i}`,
-        createdAt: Date.now() - 20 * 1000,
-      });
-      fetchHandler = (call) => {
-        if (call.method === "GET" && call.url.includes("/rest/posts?")) {
-          const start = Number(
-            new URL(call.url).searchParams.get("start") ?? "0",
-          );
-          return makeRes({
-            json: {
-              elements:
-                start === 0
-                  ? [filler(1), filler(2), filler(3)]
-                  : [
-                      {
-                        id: "urn:li:share:landed",
-                        commentary: ESCAPED,
-                        createdAt: Date.now() - 30 * 1000,
-                      },
-                    ],
+      // A busy account pushed the just-landed post onto page 2.
+      fetchHandler = pagedProbeHandler({
+        pages: [
+          fullPage(0),
+          [
+            {
+              id: "urn:li:share:landed",
+              commentary: ESCAPED,
+              createdAt: Date.now() - 30 * 1000,
             },
-          });
-        }
-        if (call.method === "POST" && call.url.endsWith("/rest/posts")) {
-          return makeRes({
-            status: 201,
-            headers: { "x-restli-id": "urn:li:share:dupe" },
-          });
-        }
-        return makeRes();
-      };
+          ],
+        ],
+      });
 
       const res = await drive("POST", "/content/1/publish-linkedin");
 
       expect(res.status).toBe(200);
       expect(res.json.postId).toBe("urn:li:share:landed");
-      // Two probe pages were fetched (start=0 then start=3), and no new post
-      // was created.
-      const probes = fetchCalls.filter(
-        (c) => c.method === "GET" && c.url.includes("/rest/posts?"),
-      );
-      expect(probes.length).toBe(2);
-      expect(probes[1].url).toContain("start=3");
+      // No new post was created — the retry reused the landed one.
       expect(
         fetchCalls.filter(
           (c) => c.method === "POST" && c.url.endsWith("/rest/posts"),
         ).length,
       ).toBe(0);
+      const probeCalls = fetchCalls.filter(
+        (c) => c.method === "GET" && c.url.includes("/rest/posts?"),
+      );
+      expect(probeCalls.length).toBe(2);
+      expect(probeCalls[1].url).toContain("start=3");
     } finally {
       LINKEDIN_DEDUPE_PROBE.pageSize = savedPageSize;
     }
@@ -765,50 +778,40 @@ describe("LinkedIn publish dedupe (retry after committed-but-lost response)", ()
     seedConnectedAccount();
     seedContentItem({ caption: CAPTION });
 
-    const savedPageSize = LINKEDIN_DEDUPE_PROBE.pageSize;
     const savedMaxPages = LINKEDIN_DEDUPE_PROBE.maxPages;
-    LINKEDIN_DEDUPE_PROBE.pageSize = 2;
     LINKEDIN_DEDUPE_PROBE.maxPages = 2;
     try {
-      // Every page is full of recent unrelated posts — the probe must give up
-      // at the cap instead of paging forever.
-      let probeCount = 0;
-      fetchHandler = (call) => {
-        if (call.method === "GET" && call.url.includes("/rest/posts?")) {
-          probeCount++;
-          return makeRes({
-            json: {
-              elements: [
-                {
-                  id: `urn:li:share:f${probeCount}a`,
-                  commentary: `filler ${probeCount}a`,
-                  createdAt: Date.now() - 10 * 1000,
-                },
-                {
-                  id: `urn:li:share:f${probeCount}b`,
-                  commentary: `filler ${probeCount}b`,
-                  createdAt: Date.now() - 10 * 1000,
-                },
-              ],
+      // The matching post sits on page 3, past the cap — the probe gives up
+      // (bounded work) and the publish proceeds as a fresh post.
+      fetchHandler = pagedProbeHandler({
+        pages: [
+          fullPage(0),
+          fullPage(LINKEDIN_DEDUPE_PROBE.pageSize),
+          [
+            {
+              id: "urn:li:share:beyondcap",
+              commentary: ESCAPED,
+              createdAt: Date.now() - 30 * 1000,
             },
-          });
-        }
-        if (call.method === "POST" && call.url.endsWith("/rest/posts")) {
-          return makeRes({
-            status: 201,
-            headers: { "x-restli-id": "urn:li:share:fresh" },
-          });
-        }
-        return makeRes();
-      };
+          ],
+        ],
+        postId: "urn:li:share:fresh",
+      });
 
       const res = await drive("POST", "/content/1/publish-linkedin");
 
       expect(res.status).toBe(200);
       expect(res.json.postId).toBe("urn:li:share:fresh");
-      expect(probeCount).toBe(2);
+      const probeCalls = fetchCalls.filter(
+        (c) => c.method === "GET" && c.url.includes("/rest/posts?"),
+      );
+      expect(probeCalls.length).toBe(2);
+      expect(
+        fetchCalls.filter(
+          (c) => c.method === "POST" && c.url.endsWith("/rest/posts"),
+        ).length,
+      ).toBe(1);
     } finally {
-      LINKEDIN_DEDUPE_PROBE.pageSize = savedPageSize;
       LINKEDIN_DEDUPE_PROBE.maxPages = savedMaxPages;
     }
   });
@@ -868,6 +871,10 @@ describe("LinkedIn publish dedupe (retry after committed-but-lost response)", ()
 
       expect(res.status).toBe(200);
       expect(res.json.postId).toBe("urn:li:share:landed");
+      const probeCalls = fetchCalls.filter(
+        (c) => c.method === "GET" && c.url.includes("/rest/posts?"),
+      );
+      expect(probeCalls.length).toBe(2);
       expect(
         fetchCalls.filter(
           (c) => c.method === "POST" && c.url.endsWith("/rest/posts"),
