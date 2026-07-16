@@ -10,7 +10,8 @@ export type AdminAuditAction =
   | "notification_policy_change"
   | "credential_change"
   | "app_brand_change"
-  | "email_settings_change";
+  | "email_settings_change"
+  | "email_test_send";
 
 export interface RecordAdminActionInput {
   action: AdminAuditAction;

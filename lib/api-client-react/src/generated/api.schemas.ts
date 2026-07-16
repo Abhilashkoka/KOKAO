@@ -250,6 +250,7 @@ export const AdminAuditLogAction = {
   credential_change: 'credential_change',
   app_brand_change: 'app_brand_change',
   email_settings_change: 'email_settings_change',
+  email_test_send: 'email_test_send',
 } as const;
 
 export interface AdminAuditLog {
@@ -1407,6 +1408,7 @@ export const AdminListAuditLogsAction = {
   credential_change: 'credential_change',
   app_brand_change: 'app_brand_change',
   email_settings_change: 'email_settings_change',
+  email_test_send: 'email_test_send',
 } as const;
 
 export type AdminExportAuditLogsParams = {
@@ -1448,6 +1450,7 @@ export const AdminExportAuditLogsAction = {
   credential_change: 'credential_change',
   app_brand_change: 'app_brand_change',
   email_settings_change: 'email_settings_change',
+  email_test_send: 'email_test_send',
 } as const;
 
 export type ListBrandKitsParams = {

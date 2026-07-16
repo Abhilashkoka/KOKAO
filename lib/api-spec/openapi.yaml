@@ -518,6 +518,8 @@ paths:
                 credential_change,
                 app_brand_change,
                 email_settings_change,
+              email_test_send,
+                email_test_send,
               ]
           description: Only return records of this action type.
         - name: actor
@@ -591,6 +593,8 @@ paths:
                 credential_change,
                 app_brand_change,
                 email_settings_change,
+              email_test_send,
+                email_test_send,
               ]
           description: Only export records of this action type.
         - name: actor
@@ -3091,6 +3095,7 @@ components:
               credential_change,
               app_brand_change,
               email_settings_change,
+              email_test_send,
             ]
           description: The privileged action that was recorded.
         actorTenantId:

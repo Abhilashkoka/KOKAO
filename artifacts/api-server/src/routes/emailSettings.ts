@@ -190,6 +190,30 @@ router.post(
       await db.insert(emailSettingsTable).values(testFields);
     }
 
+    // Best-effort audit trail: record who triggered the test send and to
+    // where — a test send reveals delivery configuration and reaches an
+    // arbitrary recipient. Never fail the request if the audit write fails.
+    try {
+      await recordAdminAction({
+        action: "email_test_send",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: JSON.stringify({
+          recipient: to,
+          outcome: result.ok ? "sent" : "failed",
+          error: result.ok ? null : result.error ?? "Test send failed",
+        }),
+      });
+    } catch (error) {
+      req.log.error(
+        { err: error },
+        "Failed to write email-test-send audit log",
+      );
+    }
+
     res.json({ ok: result.ok, error: result.ok ? null : result.error ?? null });
   },
 );

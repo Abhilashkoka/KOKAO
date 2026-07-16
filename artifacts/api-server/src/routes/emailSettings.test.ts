@@ -366,6 +366,20 @@ describe("POST /admin/email-settings/test", () => {
       expect(row?.lastTestedAt).toBeTruthy();
       // Pause switch itself is untouched.
       expect(row?.sendingEnabled).toBe(false);
+
+      // The test send is audited: who ran it, to where, and the outcome.
+      // (One earlier row is the email_settings_change from the PUT above.)
+      const logs = await getAuditLogsForActor(admin.tenantId);
+      const testLogs = logs.filter((l) => l.action === "email_test_send");
+      expect(testLogs.length).toBe(1);
+      expect(testLogs[0].actorTenantId).toBe(admin.tenantId);
+      expect(testLogs[0].targetTenantId).toBeNull();
+      expect(testLogs[0].oldValue).toBeNull();
+      expect(JSON.parse(testLogs[0].newValue!)).toEqual({
+        recipient: "admin@example.com",
+        outcome: "sent",
+        error: null,
+      });
     } finally {
       await deleteTenant(admin.tenantId);
     }
@@ -387,6 +401,15 @@ describe("POST /admin/email-settings/test", () => {
       const row = await getEmailSettingsRow();
       expect(row?.lastTestStatus).toBe("failed");
       expect(row?.lastTestError).toBeTruthy();
+
+      // A failed test send is audited too, with the failure outcome.
+      const logs = await getAuditLogsForActor(admin.tenantId);
+      const testLogs = logs.filter((l) => l.action === "email_test_send");
+      expect(testLogs.length).toBe(1);
+      const audited = JSON.parse(testLogs[0].newValue!);
+      expect(audited.recipient).toBe("admin@example.com");
+      expect(audited.outcome).toBe("failed");
+      expect(audited.error).toMatch(/no sendgrid credentials/i);
     } finally {
       await deleteTenant(admin.tenantId);
     }

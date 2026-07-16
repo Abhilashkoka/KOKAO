@@ -1246,6 +1246,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   credential_change: "Platform credentials saved",
   app_brand_change: "App branding changed",
   email_settings_change: "Email settings changed",
+  email_test_send: "Test email sent",
 };
 
 interface PlanDraft {
@@ -1720,6 +1721,22 @@ function formatAuditValue(action: string, value: string | null): string {
       if (parsed.fromEmail) parts.push(`from: ${parsed.fromEmail}`);
       if (parsed.apiKeyMasked) parts.push(`key: ${parsed.apiKeyMasked}`);
       return parts.join(", ");
+    } catch {
+      return value;
+    }
+  }
+  if (action === "email_test_send") {
+    try {
+      const parsed = JSON.parse(value) as {
+        recipient?: string;
+        outcome?: string;
+        error?: string | null;
+      };
+      const parts: string[] = [];
+      if (parsed.recipient) parts.push(`to: ${parsed.recipient}`);
+      if (parsed.outcome) parts.push(parsed.outcome);
+      if (parsed.error) parts.push(parsed.error);
+      return parts.join(", ") || value;
     } catch {
       return value;
     }
