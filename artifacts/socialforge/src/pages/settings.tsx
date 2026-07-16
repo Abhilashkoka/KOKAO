@@ -77,7 +77,7 @@ export function SettingsPage() {
       <Tabs defaultValue="general" className="space-y-8">
         <TabsList>
           <TabsTrigger value="general">General</TabsTrigger>
-          <TabsTrigger value="team">Team</TabsTrigger>
+          {me?.team?.enabled && <TabsTrigger value="team">Team</TabsTrigger>}
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
           {me?.isSuperadmin && (
             <TabsTrigger value="branding">Branding</TabsTrigger>
@@ -186,11 +186,13 @@ export function SettingsPage() {
       </div>
         </TabsContent>
 
-        <TabsContent value="team">
-          <div className="max-w-2xl">
-            <TeamSettings />
-          </div>
-        </TabsContent>
+        {me?.team?.enabled && (
+          <TabsContent value="team">
+            <div className="max-w-2xl">
+              <TeamSettings />
+            </div>
+          </TabsContent>
+        )}
 
         <TabsContent value="notifications">
           <div className="max-w-2xl">
