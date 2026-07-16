@@ -5,7 +5,7 @@ import {
   type YoutubeAppCredentials,
 } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
-import { decryptJson } from "./secretCrypto";
+import { decryptJson, encryptJson } from "./secretCrypto";
 import { platformFetch } from "./platformFetch";
 import {
   testFacebookCredentials,
@@ -137,6 +137,15 @@ export async function reverifyFacebook(
   if (!test.ok && test.transient) {
     await touchChecked(row);
     return loadAccountRow(tenantId, "facebook");
+  }
+
+  // The tenant stored a USER token that verification exchanged for the real
+  // Page token — persist it so the very next publish uses the working token.
+  if (test.ok && test.correctedCredentials) {
+    await db
+      .update(connectedAccountsTable)
+      .set({ encryptedCredentials: encryptJson(test.correctedCredentials) })
+      .where(eq(connectedAccountsTable.id, row.id));
   }
 
   await writeStatus(row, {

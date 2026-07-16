@@ -87,6 +87,59 @@ describe("testFacebookCredentials scope check", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("exchanges a USER token for the Page token and returns correctedCredentials", async () => {
+    mockPageRead();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        data: {
+          type: "USER",
+          scopes: ["pages_read_engagement", "pages_manage_posts"],
+        },
+      }),
+    );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { access_token: "real-page-token" }),
+    );
+    const res = await testFacebookCredentials(CREDS);
+    expect(res.ok).toBe(true);
+    expect(res.correctedCredentials).toEqual({
+      pageId: "page-1",
+      pageAccessToken: "real-page-token",
+    });
+  });
+
+  it("fails with guidance when a USER token cannot be exchanged", async () => {
+    mockPageRead();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        data: {
+          type: "USER",
+          scopes: ["pages_read_engagement", "pages_manage_posts"],
+        },
+      }),
+    );
+    fetchMock.mockResolvedValueOnce(jsonResponse(400, { error: { message: "nope" } }));
+    const res = await testFacebookCredentials(CREDS);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("Page access token");
+  });
+
+  it("keeps a PAGE token as-is with no correctedCredentials", async () => {
+    mockPageRead();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        data: {
+          type: "PAGE",
+          scopes: ["pages_read_engagement", "pages_manage_posts"],
+        },
+      }),
+    );
+    const res = await testFacebookCredentials(CREDS);
+    expect(res.ok).toBe(true);
+    expect(res.correctedCredentials).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("never puts the page token in a URL", async () => {
     mockPageRead();
     fetchMock.mockResolvedValueOnce(

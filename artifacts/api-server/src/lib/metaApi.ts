@@ -32,6 +32,12 @@ export interface TestResult {
    * connection to "failed" on a momentary network blip.
    */
   transient?: boolean;
+  /**
+   * Set when verification succeeded but the credentials should be stored in a
+   * corrected form (e.g. a pasted USER token was exchanged for the actual Page
+   * access token). Callers that persist credentials should save these instead.
+   */
+  correctedCredentials?: FacebookCredentials;
 }
 
 interface GraphError {
@@ -111,32 +117,66 @@ const REQUIRED_PAGE_PUBLISH_SCOPES = [
   "pages_manage_posts",
 ] as const;
 
+interface TokenInspection {
+  /** "PAGE", "USER", etc. Null when the debug call could not be made. */
+  type: string | null;
+  /** Publish-required permissions the token is missing. */
+  missing: string[];
+}
+
 /**
- * Inspect a Page token via /debug_token (using the app access token) and
- * return which publish-required permissions it is missing. Best-effort: if the
- * app credentials are absent or the debug call fails, returns [] so a
- * momentary hiccup never blocks saving otherwise-working credentials.
+ * Inspect a token via /debug_token (using the app access token) and return
+ * its type plus which publish-required permissions it is missing. Best-effort:
+ * if the app credentials are absent or the debug call fails, returns
+ * { type: null, missing: [] } so a momentary hiccup never blocks saving
+ * otherwise-working credentials.
  */
-async function missingPagePublishScopes(pageToken: string): Promise<string[]> {
+async function inspectToken(token: string): Promise<TokenInspection> {
+  const none: TokenInspection = { type: null, missing: [] };
   try {
     const app = await getMetaAppCredentials();
-    if (!app) return [];
+    if (!app) return none;
     // POST with the token in the body (never the URL) so it can't leak into
     // upstream/proxy access logs; `method=get` tells Graph to treat it as a read.
-    const body = new URLSearchParams({ input_token: pageToken, method: "get" });
+    const body = new URLSearchParams({ input_token: token, method: "get" });
     const res = await platformFetch(`${GRAPH_BASE}/debug_token`, {
       method: "POST",
       body,
       headers: { Authorization: `Bearer ${app.appId}|${app.appSecret}` },
     });
     const json = (await res.json()) as {
-      data?: { scopes?: string[] };
+      data?: { scopes?: string[]; type?: string };
     } & GraphError;
     const scopes = json.data?.scopes;
-    if (!res.ok || !Array.isArray(scopes)) return [];
-    return REQUIRED_PAGE_PUBLISH_SCOPES.filter((s) => !scopes.includes(s));
+    if (!res.ok || !Array.isArray(scopes)) return none;
+    return {
+      type: json.data?.type ?? null,
+      missing: REQUIRED_PAGE_PUBLISH_SCOPES.filter((s) => !scopes.includes(s)),
+    };
   } catch {
-    return [];
+    return none;
+  }
+}
+
+/**
+ * Exchange a USER access token for the Page's own access token via
+ * GET /<pageId>?fields=access_token (works when the user is a Page admin with
+ * pages_show_list). Returns null when the exchange is not possible.
+ */
+async function exchangeForPageToken(
+  pageId: string,
+  userToken: string,
+): Promise<string | null> {
+  try {
+    const res = await platformFetch(
+      `${GRAPH_BASE}/${encodeURIComponent(pageId)}?fields=access_token`,
+      { headers: { Authorization: `Bearer ${userToken}` } },
+    );
+    const json = (await res.json()) as { access_token?: string } & GraphError;
+    if (!res.ok || !json.access_token) return null;
+    return json.access_token;
+  } catch {
+    return null;
   }
 }
 
@@ -164,14 +204,37 @@ export async function testFacebookCredentials(
         error: "The access token does not belong to the entered Page ID.",
       };
     }
-    const missing = await missingPagePublishScopes(creds.pageAccessToken);
-    if (missing.length > 0) {
+    const inspection = await inspectToken(creds.pageAccessToken);
+    if (inspection.missing.length > 0) {
+      const missing = inspection.missing;
       return {
         ok: false,
         error:
           `The token works for reading, but is missing the permission${missing.length === 1 ? "" : "s"} ` +
           `${missing.join(" and ")} required to publish posts. Generate a new Page access token ` +
           "with pages_read_engagement and pages_manage_posts granted (as a Page admin) and save it again.",
+      };
+    }
+    if (inspection.type && inspection.type !== "PAGE") {
+      // A USER token can read the Page but can NOT publish to it; Facebook
+      // requires the Page's own token. Try to exchange automatically.
+      const pageToken = await exchangeForPageToken(
+        creds.pageId,
+        creds.pageAccessToken,
+      );
+      if (!pageToken) {
+        return {
+          ok: false,
+          error:
+            "This is a User access token, but publishing requires the Page's own access token. " +
+            "In Graph API Explorer, open the token dropdown and pick your Page (or call /me/accounts) " +
+            "to get the Page access token, then save that instead.",
+        };
+      }
+      return {
+        ok: true,
+        accountName: json.name || "Facebook Page",
+        correctedCredentials: { pageId: creds.pageId, pageAccessToken: pageToken },
       };
     }
     return { ok: true, accountName: json.name || "Facebook Page" };

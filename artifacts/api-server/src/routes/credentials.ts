@@ -863,7 +863,7 @@ router.put(
 
     await upsertAccount(req.tenantId, "facebook", {
       accountName: test.accountName || "Facebook Page",
-      encryptedCredentials: encryptJson(creds),
+      encryptedCredentials: encryptJson(test.correctedCredentials ?? creds),
       verifyStatus: test.ok ? "verified" : "failed",
       verifiedAt: now,
       verifyError: test.ok ? null : test.error ?? "Verification failed",
@@ -918,7 +918,9 @@ router.post(
     const now = new Date();
     await upsertAccount(req.tenantId, "facebook", {
       accountName: test.accountName || existing.accountName || "Facebook Page",
-      encryptedCredentials: existing.encryptedCredentials,
+      encryptedCredentials: test.correctedCredentials
+        ? encryptJson(test.correctedCredentials)
+        : existing.encryptedCredentials,
       verifyStatus: test.ok ? "verified" : "failed",
       verifiedAt: now,
       verifyError: test.ok ? null : test.error ?? "Verification failed",
