@@ -21,6 +21,7 @@ import {
   useGetThreadsStatus,
   getListContentQueryKey,
   getGetContentQueryKey,
+  mutateWithRestartRetry,
 } from "@workspace/api-client-react";
 import {
   TWEET_MAX_LENGTH,
@@ -176,52 +177,65 @@ export default function ContentDetailScreen() {
     queryClient.invalidateQueries({ queryKey: getGetContentQueryKey(contentId) });
   };
 
+  // Shown while the automatic one-shot retry (server-restart 503) is pending.
+  const restartRetryingMsg = (platform: string) =>
+    `The server is restarting. Retrying the ${platform} publish automatically in a few seconds...`;
+  const restartRetryFailedPrefix =
+    "The automatic retry after the server restart also failed. ";
+
+  const publishErrText = (
+    err: unknown,
+    retried: boolean,
+    fallback: string,
+  ) => {
+    if (retried) setPublishMsg(null);
+    return (retried ? restartRetryFailedPrefix : "") + apiErrorText(err, fallback);
+  };
+
   const handlePublishFacebook = () => {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
-    publishFacebook.mutate(
-      { id: contentId },
-      {
-        onSuccess: () => {
-          setPublishMsg("Published to Facebook. Your post is live.");
-          invalidateContent();
-        },
-        onError: (err) => {
-          setPublishErr(
-            apiErrorText(
-              err,
-              "Could not publish to Facebook. Check your Page connection on the web app.",
-            ),
-          );
-        },
+    mutateWithRestartRetry(publishFacebook, { id: contentId }, {
+      onSuccess: () => {
+        setPublishMsg("Published to Facebook. Your post is live.");
+        invalidateContent();
       },
-    );
+      onRetrying: () => setPublishMsg(restartRetryingMsg("Facebook")),
+      onError: (err, { retried }) => {
+        setPublishErr(
+          publishErrText(
+            err,
+            retried,
+            "Could not publish to Facebook. Check your Page connection on the web app.",
+          ),
+        );
+      },
+    });
   };
 
   const handlePublishInstagram = () => {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
-    publishInstagram.mutate(
-      { id: contentId },
-      {
-        onSuccess: () => {
-          setPublishMsg(
-            "Publishing to Instagram. This will update to Published once it's live.",
-          );
-          invalidateContent();
-        },
-        onError: (err) => {
-          setPublishErr(
-            apiErrorText(
-              err,
-              "Could not publish to Instagram. Check your Instagram connection on the web app.",
-            ),
-          );
-        },
+    mutateWithRestartRetry(publishInstagram, { id: contentId }, {
+      onSuccess: () => {
+        setPublishMsg(
+          "Publishing to Instagram. This will update to Published once it's live.",
+        );
+        invalidateContent();
       },
-    );
+      onRetrying: () => setPublishMsg(restartRetryingMsg("Instagram")),
+      onError: (err, { retried }) => {
+        setPublishErr(
+          publishErrText(
+            err,
+            retried,
+            "Could not publish to Instagram. Check your Instagram connection on the web app.",
+          ),
+        );
+      },
+    });
   };
 
   // One-click retry for a failed Instagram publish. Re-uses the same publish
@@ -231,120 +245,116 @@ export default function ContentDetailScreen() {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
-    publishInstagram.mutate(
-      { id: contentId },
-      {
-        onSuccess: () => {
-          setPublishMsg(
-            "Retrying publish. Instagram is processing your image again — this will update to Published once it's live.",
-          );
-          invalidateContent();
-        },
-        onError: (err) => {
-          setPublishErr(
-            apiErrorText(
-              err,
-              "Could not retry the Instagram publish. Check your Instagram connection on the web app.",
-            ),
-          );
-        },
+    mutateWithRestartRetry(publishInstagram, { id: contentId }, {
+      onSuccess: () => {
+        setPublishMsg(
+          "Retrying publish. Instagram is processing your image again — this will update to Published once it's live.",
+        );
+        invalidateContent();
       },
-    );
+      onRetrying: () => setPublishMsg(restartRetryingMsg("Instagram")),
+      onError: (err, { retried }) => {
+        setPublishErr(
+          publishErrText(
+            err,
+            retried,
+            "Could not retry the Instagram publish. Check your Instagram connection on the web app.",
+          ),
+        );
+      },
+    });
   };
 
   const handlePublishLinkedin = () => {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
-    publishLinkedin.mutate(
-      { id: contentId },
-      {
-        onSuccess: (res) => {
-          if (res?.commentWarning) {
-            setPublishMsg(null);
-            setPublishErr(
-              `Published to LinkedIn, but some comments failed. ${res.commentWarning} You can resend the missing comments from the web library.`,
-            );
-          } else {
-            const extra =
-              res?.commentsPosted && res.commentsPosted > 0
-                ? ` The rest of your caption was added as ${res.commentsPosted} comment(s).`
-                : "";
-            setPublishMsg(`Published to LinkedIn. Your post is live.${extra}`);
-          }
-          invalidateContent();
-        },
-        onError: (err) => {
+    mutateWithRestartRetry(publishLinkedin, { id: contentId }, {
+      onSuccess: (res) => {
+        if (res?.commentWarning) {
+          setPublishMsg(null);
           setPublishErr(
-            apiErrorText(
-              err,
-              "Could not publish to LinkedIn. Check your LinkedIn connection on the web app.",
-            ),
+            `Published to LinkedIn, but some comments failed. ${res.commentWarning} You can resend the missing comments from the web library.`,
           );
-        },
+        } else {
+          const extra =
+            res?.commentsPosted && res.commentsPosted > 0
+              ? ` The rest of your caption was added as ${res.commentsPosted} comment(s).`
+              : "";
+          setPublishMsg(`Published to LinkedIn. Your post is live.${extra}`);
+        }
+        invalidateContent();
       },
-    );
+      onRetrying: () => setPublishMsg(restartRetryingMsg("LinkedIn")),
+      onError: (err, { retried }) => {
+        setPublishErr(
+          publishErrText(
+            err,
+            retried,
+            "Could not publish to LinkedIn. Check your LinkedIn connection on the web app.",
+          ),
+        );
+      },
+    });
   };
 
   const handlePublishTwitter = () => {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
-    publishTwitter.mutate(
-      { id: contentId },
-      {
-        onSuccess: (res) => {
-          const extra =
-            res?.tweetCount && res.tweetCount > 1
-              ? ` Your caption was posted as a thread of ${res.tweetCount} tweets.`
-              : "";
-          setPublishMsg(`Published to X. Your post is live.${extra}`);
-          invalidateContent();
-        },
-        onError: (err) => {
-          setPublishErr(
-            apiErrorText(
-              err,
-              "Could not publish to X. Check your X connection on the web app.",
-            ),
-          );
-        },
+    mutateWithRestartRetry(publishTwitter, { id: contentId }, {
+      onSuccess: (res) => {
+        const extra =
+          res?.tweetCount && res.tweetCount > 1
+            ? ` Your caption was posted as a thread of ${res.tweetCount} tweets.`
+            : "";
+        setPublishMsg(`Published to X. Your post is live.${extra}`);
+        invalidateContent();
       },
-    );
+      onRetrying: () => setPublishMsg(restartRetryingMsg("X")),
+      onError: (err, { retried }) => {
+        setPublishErr(
+          publishErrText(
+            err,
+            retried,
+            "Could not publish to X. Check your X connection on the web app.",
+          ),
+        );
+      },
+    });
   };
 
   const handlePublishThreads = () => {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
-    publishThreads.mutate(
-      { id: contentId },
-      {
-        onSuccess: (res) => {
-          if (res?.publishWarning) {
-            setPublishMsg(null);
-            setPublishErr(
-              `Published to Threads, but some follow-up posts failed. ${res.publishWarning}`,
-            );
-          } else {
-            const extra =
-              res?.postsPublished && res.postsPublished > 1
-                ? ` Your caption was posted as a chain of ${res.postsPublished} connected posts.`
-                : "";
-            setPublishMsg(`Published to Threads. Your post is live.${extra}`);
-          }
-          invalidateContent();
-        },
-        onError: (err) => {
+    mutateWithRestartRetry(publishThreads, { id: contentId }, {
+      onSuccess: (res) => {
+        if (res?.publishWarning) {
+          setPublishMsg(null);
           setPublishErr(
-            apiErrorText(
-              err,
-              "Could not publish to Threads. Check your Threads connection on the web app.",
-            ),
+            `Published to Threads, but some follow-up posts failed. ${res.publishWarning}`,
           );
-        },
+        } else {
+          const extra =
+            res?.postsPublished && res.postsPublished > 1
+              ? ` Your caption was posted as a chain of ${res.postsPublished} connected posts.`
+              : "";
+          setPublishMsg(`Published to Threads. Your post is live.${extra}`);
+        }
+        invalidateContent();
       },
-    );
+      onRetrying: () => setPublishMsg(restartRetryingMsg("Threads")),
+      onError: (err, { retried }) => {
+        setPublishErr(
+          publishErrText(
+            err,
+            retried,
+            "Could not publish to Threads. Check your Threads connection on the web app.",
+          ),
+        );
+      },
+    });
   };
 
   const handleDelete = () => {
