@@ -345,6 +345,72 @@ export const THREADS_REFRESH_WHEN_REMAINING_MS = 7 * 24 * 60 * 60 * 1000;
 const THREADS_TOKEN_INVALID_MESSAGE =
   "Your Threads access is no longer valid. Reconnect Threads to keep publishing.";
 
+export type ThreadsRefreshOutcome =
+  | "not_needed"
+  | "refreshed"
+  | "invalid"
+  | "transient";
+
+/**
+ * SHARED Threads token-refresh core, used by BOTH the Accounts-page route
+ * handlers (routes/threads.ts) and the background sweep (reverifyThreads) so
+ * the two paths can never drift. Threads long-lived tokens last ~60 days and
+ * roll on refresh; when the stored token is inside the renewal window (or
+ * already expired), attempt a refresh:
+ *   - success persists the rolled token as verified and clears any breakage
+ *     notification ("refreshed");
+ *   - a definitive refusal (already expired, or a 400/401 rejection) flips
+ *     the row to failed with the deduped breakage notification ("invalid");
+ *   - anything else leaves the stored state untouched ("transient") — the
+ *     caller decides whether to reset the staleness clock.
+ * Never throws.
+ */
+export async function maybeRefreshThreadsToken(
+  row: AccountRow,
+): Promise<ThreadsRefreshOutcome> {
+  if (!row.accessToken || row.tokenExpiresAt === null) return "not_needed";
+  const remaining = row.tokenExpiresAt.getTime() - Date.now();
+  if (remaining > THREADS_REFRESH_WHEN_REMAINING_MS) return "not_needed";
+
+  try {
+    const params = new URLSearchParams({
+      grant_type: "th_refresh_token",
+      access_token: row.accessToken,
+    });
+    const res = await platformFetch(`${THREADS_REFRESH_URL}?${params.toString()}`);
+    const json = (await res.json()) as {
+      access_token?: string;
+      expires_in?: number;
+    };
+    if (res.ok && json.access_token) {
+      await db
+        .update(connectedAccountsTable)
+        .set({
+          accessToken: json.access_token,
+          tokenExpiresAt: json.expires_in
+            ? new Date(Date.now() + json.expires_in * 1000)
+            : null,
+          status: "connected",
+          verifyStatus: "verified",
+          verifyError: null,
+          verifiedAt: new Date(),
+        })
+        .where(eq(connectedAccountsTable.id, row.id));
+      await resolveSocialConnectionNotifications(row.tenantId, "threads");
+      return "refreshed";
+    }
+    if (remaining <= 0 || res.status === 400 || res.status === 401) {
+      // Token already dead, or Threads definitively refused to renew it.
+      await markFailed(row, THREADS_TOKEN_INVALID_MESSAGE);
+      return "invalid";
+    }
+    return "transient";
+  } catch {
+    // Transient/network error: keep the stored token, try again next time.
+    return "transient";
+  }
+}
+
 async function markFailed(
   row: AccountRow,
   message: string,
@@ -393,44 +459,13 @@ export async function reverifyThreads(
 
   // Inside the renewal window: refresh instead of probing, so the rolling
   // long-lived token never lapses for a tenant who isn't using the app.
+  // Uses the same shared refresh core as the Accounts-page route handlers.
   if (
     row.tokenExpiresAt !== null &&
     row.tokenExpiresAt.getTime() - Date.now() <= THREADS_REFRESH_WHEN_REMAINING_MS
   ) {
-    try {
-      const params = new URLSearchParams({
-        grant_type: "th_refresh_token",
-        access_token: row.accessToken,
-      });
-      const res = await platformFetch(`${THREADS_REFRESH_URL}?${params.toString()}`);
-      const json = (await res.json()) as {
-        access_token?: string;
-        expires_in?: number;
-      };
-      if (res.ok && json.access_token) {
-        await db
-          .update(connectedAccountsTable)
-          .set({
-            accessToken: json.access_token,
-            tokenExpiresAt: json.expires_in
-              ? new Date(Date.now() + json.expires_in * 1000)
-              : null,
-            status: "connected",
-            verifyStatus: "verified",
-            verifyError: null,
-            verifiedAt: new Date(),
-          })
-          .where(eq(connectedAccountsTable.id, row.id));
-        await resolveSocialConnectionNotifications(tenantId, "threads");
-      } else if (res.status === 400 || res.status === 401) {
-        // Threads definitively refused to renew the token.
-        await markFailed(row, THREADS_TOKEN_INVALID_MESSAGE);
-      } else {
-        await touchChecked(row);
-      }
-    } catch {
-      await touchChecked(row);
-    }
+    const outcome = await maybeRefreshThreadsToken(row);
+    if (outcome === "transient") await touchChecked(row);
     return loadAccountRow(tenantId, "threads");
   }
 
@@ -504,14 +539,108 @@ async function getYoutubeAppCredentials(): Promise<{
   return { clientId, clientSecret };
 }
 
+export type YoutubeTokenRefreshResult =
+  | { ok: true; accessToken: string }
+  | { ok: false; reason: "no_refresh_token" | "invalid_grant" };
+
+/**
+ * SHARED YouTube (Google OAuth) token-refresh core, used by BOTH the
+ * Accounts-page route handlers (routes/youtube.ts) and the background sweep
+ * (reverifyYoutube) so the two paths can never drift. Google access tokens
+ * expire after ~1 hour; a connection is only truly alive while its refresh
+ * token works. Unless a still-fresh access token short-circuits the call
+ * (skipped with `force`, which the sweep uses to genuinely exercise the
+ * refresh token), this refreshes against Google:
+ *   - success persists the fresh access token as verified and clears any
+ *     breakage notification;
+ *   - a definitive invalid_grant/400/401 rejection flips the row to failed
+ *     with the deduped breakage notification;
+ *   - transient errors THROW so callers don't mistake an outage for a
+ *     revocation.
+ */
+export async function ensureFreshYoutubeAccessToken(
+  account: AccountRow,
+  creds: { clientId: string; clientSecret: string },
+  opts: { force?: boolean } = {},
+): Promise<YoutubeTokenRefreshResult> {
+  const skewMs = 60 * 1000;
+  if (
+    !opts.force &&
+    account.accessToken &&
+    account.tokenExpiresAt !== null &&
+    account.tokenExpiresAt.getTime() > Date.now() + skewMs
+  ) {
+    return { ok: true, accessToken: account.accessToken };
+  }
+
+  let refreshToken: string | null = null;
+  if (account.encryptedCredentials) {
+    try {
+      const stored = decryptJson<{ refreshToken?: string }>(
+        account.encryptedCredentials,
+      );
+      refreshToken = stored.refreshToken || null;
+    } catch {
+      refreshToken = null;
+    }
+  }
+  if (!refreshToken) return { ok: false, reason: "no_refresh_token" };
+
+  const res = await platformFetch(GOOGLE_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      client_id: creds.clientId,
+      client_secret: creds.clientSecret,
+    }).toString(),
+  });
+  const json = (await res.json()) as {
+    access_token?: string;
+    expires_in?: number;
+    error?: string;
+  };
+
+  if (res.ok && json.access_token) {
+    await db
+      .update(connectedAccountsTable)
+      .set({
+        accessToken: json.access_token,
+        tokenExpiresAt: json.expires_in
+          ? new Date(Date.now() + json.expires_in * 1000)
+          : null,
+        status: "connected",
+        verifyStatus: "verified",
+        verifyError: null,
+        verifiedAt: new Date(),
+      })
+      .where(eq(connectedAccountsTable.id, account.id));
+    await resolveSocialConnectionNotifications(account.tenantId, "youtube");
+    return { ok: true, accessToken: json.access_token };
+  }
+
+  if (
+    json.error === "invalid_grant" ||
+    res.status === 400 ||
+    res.status === 401
+  ) {
+    // The refresh token was revoked or expired — the connection is dead.
+    await markFailed(account, YOUTUBE_TOKEN_INVALID_MESSAGE);
+    return { ok: false, reason: "invalid_grant" };
+  }
+
+  throw new Error(`Google token refresh failed (${res.status})`);
+}
+
 /**
  * Proactively re-verify a tenant's stored YouTube (Google OAuth) connection
  * when stale (or forced). A YouTube connection is only truly alive while its
- * refresh token works, so the check exercises a token refresh against Google:
- * success re-verifies (and persists the fresh access token), a definitive
- * invalid_grant/4xx rejection flips the row to failed with the deduped
- * breakage notification, and transient errors only reset the check clock.
- * Never throws.
+ * refresh token works, so the check exercises a token refresh against Google
+ * via the same shared core the route handlers use: success re-verifies (and
+ * persists the fresh access token), a definitive invalid_grant/4xx rejection
+ * flips the row to failed with the deduped breakage notification, and
+ * transient errors only reset the check clock. Never throws.
  */
 export async function reverifyYoutube(
   tenantId: number,
@@ -524,58 +653,13 @@ export async function reverifyYoutube(
   const app = await getYoutubeAppCredentials();
   if (!app) return row; // Cannot test without app-level client credentials.
 
-  let refreshToken: string | null = null;
   try {
-    const creds = decryptJson<{ refreshToken?: string }>(
-      row.encryptedCredentials,
-    );
-    refreshToken = creds.refreshToken || null;
-  } catch {
-    return row;
-  }
-  if (!refreshToken) return row;
-
-  try {
-    const res = await platformFetch(GOOGLE_TOKEN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: refreshToken,
-        client_id: app.clientId,
-        client_secret: app.clientSecret,
-      }).toString(),
+    // force: a still-fresh access token must not skip exercising the refresh
+    // token — the refresh token IS the connection's liveness.
+    const result = await ensureFreshYoutubeAccessToken(row, app, {
+      force: true,
     });
-    const json = (await res.json()) as {
-      access_token?: string;
-      expires_in?: number;
-      error?: string;
-    };
-    if (res.ok && json.access_token) {
-      await db
-        .update(connectedAccountsTable)
-        .set({
-          accessToken: json.access_token,
-          tokenExpiresAt: json.expires_in
-            ? new Date(Date.now() + json.expires_in * 1000)
-            : null,
-          status: "connected",
-          verifyStatus: "verified",
-          verifyError: null,
-          verifiedAt: new Date(),
-        })
-        .where(eq(connectedAccountsTable.id, row.id));
-      await resolveSocialConnectionNotifications(tenantId, "youtube");
-    } else if (
-      json.error === "invalid_grant" ||
-      res.status === 400 ||
-      res.status === 401
-    ) {
-      // The refresh token was revoked or expired — the connection is dead.
-      await markFailed(row, YOUTUBE_TOKEN_INVALID_MESSAGE);
-    } else {
-      await touchChecked(row);
-    }
+    if (!result.ok && result.reason === "no_refresh_token") return row;
   } catch {
     // Transient/network error: reset the clock, never flip a valid token.
     await touchChecked(row);

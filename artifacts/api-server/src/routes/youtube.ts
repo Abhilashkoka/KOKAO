@@ -12,10 +12,8 @@ import {
   verifySignedOAuthState,
   randomNonce,
 } from "../lib/oauthState";
-import {
-  notifySocialConnectionFailed,
-  resolveSocialConnectionNotifications,
-} from "../lib/notifications";
+import { resolveSocialConnectionNotifications } from "../lib/notifications";
+import { ensureFreshYoutubeAccessToken } from "../lib/socialReverify";
 
 const router: IRouter = Router();
 
@@ -103,86 +101,21 @@ function readStoredRefreshToken(account: YoutubeAccount): string | null {
 /**
  * Google access tokens expire after ~1 hour, so a connection is only truly
  * alive while we hold a refresh token. Refresh the short-lived access token
- * when it is missing or near expiry. Returns the fresh access token, or null
- * when Google definitively rejects the refresh token (revoked), in which case
- * the row is flipped to failed so the UI prompts a reconnect. Transient errors
- * throw instead so callers don't mistake an outage for a revocation.
+ * when it is missing or near expiry. Delegates to the SHARED refresh core in
+ * lib/socialReverify.ts — the exact same logic the background sweep uses —
+ * so the Accounts page and the sweep can never drift. Returns the fresh
+ * access token, or null when Google definitively rejects the refresh token
+ * (revoked), in which case the row is flipped to failed so the UI prompts a
+ * reconnect. Transient errors throw instead so callers don't mistake an
+ * outage for a revocation.
  */
 async function ensureFreshAccessToken(
-  tenantId: number,
+  _tenantId: number,
   account: YoutubeAccount,
   creds: { clientId: string; clientSecret: string },
 ): Promise<string | null> {
-  const skewMs = 60 * 1000;
-  if (
-    account.accessToken &&
-    account.tokenExpiresAt !== null &&
-    account.tokenExpiresAt.getTime() > Date.now() + skewMs
-  ) {
-    return account.accessToken;
-  }
-
-  const refreshToken = readStoredRefreshToken(account);
-  if (!refreshToken) return null;
-
-  const res = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-      client_id: creds.clientId,
-      client_secret: creds.clientSecret,
-    }).toString(),
-  });
-  const json = (await res.json()) as {
-    access_token?: string;
-    expires_in?: number;
-    error?: string;
-  };
-
-  if (res.ok && json.access_token) {
-    const expiresAt = json.expires_in
-      ? new Date(Date.now() + json.expires_in * 1000)
-      : null;
-    await db
-      .update(connectedAccountsTable)
-      .set({
-        accessToken: json.access_token,
-        tokenExpiresAt: expiresAt,
-        status: "connected",
-        verifyStatus: "verified",
-        verifyError: null,
-        verifiedAt: new Date(),
-      })
-      .where(eq(connectedAccountsTable.id, account.id));
-    await resolveSocialConnectionNotifications(account.tenantId, "youtube");
-    return json.access_token;
-  }
-
-  if (json.error === "invalid_grant" || res.status === 400 || res.status === 401) {
-    // The refresh token was revoked or expired — the connection is dead.
-    await db
-      .update(connectedAccountsTable)
-      .set({
-        status: "error",
-        verifyStatus: "failed",
-        verifyError:
-          "Your YouTube access is no longer valid. Reconnect YouTube to restore the connection.",
-        verifiedAt: new Date(),
-      })
-      .where(eq(connectedAccountsTable.id, account.id));
-    if (account.verifyStatus === "verified") {
-      await notifySocialConnectionFailed(
-        tenantId,
-        "youtube",
-        "Your YouTube access is no longer valid. Reconnect YouTube to restore the connection.",
-      );
-    }
-    return null;
-  }
-
-  throw new Error(`Google token refresh failed (${res.status})`);
+  const result = await ensureFreshYoutubeAccessToken(account, creds);
+  return result.ok ? result.accessToken : null;
 }
 
 router.get("/youtube/auth/url", async (req: Request, res: Response) => {

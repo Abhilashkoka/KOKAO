@@ -16,10 +16,8 @@ import {
   verifySignedOAuthState,
   randomNonce,
 } from "../lib/oauthState";
-import {
-  notifySocialConnectionFailed,
-  resolveSocialConnectionNotifications,
-} from "../lib/notifications";
+import { resolveSocialConnectionNotifications } from "../lib/notifications";
+import { maybeRefreshThreadsToken } from "../lib/socialReverify";
 import { chunkOnWhitespace, THREADS_MAX_LENGTH } from "@workspace/social-limits";
 
 const router: IRouter = Router();
@@ -31,7 +29,6 @@ const AUTH_BASE = "https://threads.net/oauth/authorize";
 const TOKEN_URL = "https://graph.threads.net/oauth/access_token";
 const GRAPH_BASE = "https://graph.threads.net/v1.0";
 const LONG_LIVED_URL = "https://graph.threads.net/access_token";
-const REFRESH_URL = "https://graph.threads.net/refresh_access_token";
 
 /**
  * App-level Threads OAuth credentials (the Threads App ID/Secret from a Meta
@@ -94,69 +91,18 @@ type ThreadsAccount = NonNullable<Awaited<ReturnType<typeof getThreadsAccount>>>
 /**
  * Threads long-lived tokens last ~60 days and can be refreshed (rolling) once
  * they are at least 24h old. Proactively refresh when within the renewal
- * window so an actively-used connection never lapses. On a definitive
- * rejection the row is flipped to failed so the UI prompts a reconnect;
- * transient errors leave the stored token as-is. Never throws.
+ * window so an actively-used connection never lapses. Delegates to the SHARED
+ * refresh core in lib/socialReverify.ts — the exact same logic the background
+ * sweep uses — so the Accounts page and the sweep can never drift. On a
+ * definitive rejection the row is flipped to failed so the UI prompts a
+ * reconnect; transient errors leave the stored token as-is. Never throws.
  */
-const REFRESH_WHEN_REMAINING_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-
 async function maybeRefreshToken(
   tenantId: number,
   account: ThreadsAccount,
 ): Promise<ThreadsAccount> {
-  if (!account.accessToken || account.tokenExpiresAt === null) return account;
-  const remaining = account.tokenExpiresAt.getTime() - Date.now();
-  if (remaining > REFRESH_WHEN_REMAINING_MS) return account;
-
-  try {
-    const params = new URLSearchParams({
-      grant_type: "th_refresh_token",
-      access_token: account.accessToken,
-    });
-    const res = await platformFetch(`${REFRESH_URL}?${params.toString()}`);
-    const json = (await res.json()) as {
-      access_token?: string;
-      expires_in?: number;
-    };
-    if (res.ok && json.access_token) {
-      await db
-        .update(connectedAccountsTable)
-        .set({
-          accessToken: json.access_token,
-          tokenExpiresAt: json.expires_in
-            ? new Date(Date.now() + json.expires_in * 1000)
-            : null,
-          status: "connected",
-          verifyStatus: "verified",
-          verifyError: null,
-          verifiedAt: new Date(),
-        })
-        .where(eq(connectedAccountsTable.id, account.id));
-      await resolveSocialConnectionNotifications(account.tenantId, "threads");
-    } else if (remaining <= 0 || res.status === 400 || res.status === 401) {
-      // Token already dead and Threads refused to renew it.
-      await db
-        .update(connectedAccountsTable)
-        .set({
-          status: "error",
-          verifyStatus: "failed",
-          verifyError:
-            "Your Threads access is no longer valid. Reconnect Threads to keep publishing.",
-          verifiedAt: new Date(),
-        })
-        .where(eq(connectedAccountsTable.id, account.id));
-      if (account.verifyStatus === "verified") {
-        await notifySocialConnectionFailed(
-          tenantId,
-          "threads",
-          "Your Threads access is no longer valid. Reconnect Threads to keep publishing.",
-        );
-      }
-    }
-  } catch {
-    // Transient/network error: keep the stored token, try again next time.
-  }
-
+  const outcome = await maybeRefreshThreadsToken(account);
+  if (outcome === "not_needed") return account;
   return (await getThreadsAccount(tenantId)) ?? account;
 }
 
