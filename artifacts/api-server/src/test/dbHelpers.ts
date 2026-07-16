@@ -256,7 +256,7 @@ export async function insertContentItem(
     .insert(contentItemsTable)
     .values({
       tenantId,
-      title: opts.title ?? "Test post",
+      title: opts.title ?? "",
       caption: opts.caption ?? "hello world",
       imagePath: opts.imagePath ?? null,
     })

@@ -1,3 +1,4 @@
+import { buildPostText } from "../lib/postText";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { trackSyncPublish } from "../middlewares/trackSyncPublish";
 import {
@@ -579,7 +580,7 @@ router.post(
 
     // Long captions become a reply-chained thread (Threads is built for this):
     // the first post carries the image, follow-ups carry the remaining text.
-    const fullText = (item.caption?.trim() || item.title).trim();
+    const fullText = buildPostText(item.title, item.caption);
     const chunks = chunkOnWhitespace(fullText, THREADS_MAX_LENGTH);
 
     // A publish can commit on Threads but return a transient-looking error,

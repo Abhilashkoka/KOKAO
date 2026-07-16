@@ -1,3 +1,4 @@
+import { buildPostText } from "../lib/postText";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { trackSyncPublish } from "../middlewares/trackSyncPublish";
 import { db, connectedAccountsTable, contentItemsTable } from "@workspace/db";
@@ -464,7 +465,7 @@ router.post(
     }
     const { accessToken, accountName } = tokenResult;
 
-    const text = (item.caption?.trim() || item.title).trim();
+    const text = buildPostText(item.title, item.caption);
     // Long captions are posted as a reply-chained thread instead of being
     // truncated, so the full message survives.
     const tweets = splitIntoTweets(text);

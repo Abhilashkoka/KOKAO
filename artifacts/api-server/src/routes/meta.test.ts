@@ -582,7 +582,7 @@ describe("Facebook publish transient-error retry", () => {
     mockGraphWriteThenLoseResponse(calls, {
       id: "POST_ALREADY_LANDED",
       // Must match what the handler sends (item caption).
-      message: "Test post\n\nhello world",
+      message: "hello world",
       created_time: new Date().toISOString(),
     });
     vi.spyOn(
@@ -723,7 +723,7 @@ describe("Facebook publish transient-error retry", () => {
             data: [
               {
                 id: "POST_LANDED_PAGE2",
-                message: "Test post\n\nhello world",
+                message: "hello world",
                 created_time: new Date().toISOString(),
               },
             ],
@@ -1430,7 +1430,7 @@ describe("Instagram publish retry", () => {
     mockGraphIgPublishThenLoseResponse(calls, {
       id: "IG_ALREADY_LANDED",
       // Must match what the handler sends (item caption).
-      caption: "Test post\n\nhello world",
+      caption: "hello world",
       timestamp: new Date().toISOString(),
     });
     vi.spyOn(
@@ -1541,7 +1541,7 @@ describe("Instagram publish retry", () => {
             data: [
               {
                 id: "IG_LANDED_PAGE2",
-                caption: "Test post\n\nhello world",
+                caption: "hello world",
                 timestamp: new Date().toISOString(),
               },
             ],

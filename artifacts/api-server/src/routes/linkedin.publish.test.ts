@@ -210,7 +210,7 @@ function seedContentItem(overrides: Row = {}) {
   state.content.push({
     id: 1,
     tenantId: TEST_TENANT,
-    title: "My Title",
+    title: "",
     caption: "Hello world",
     imagePath: null,
     status: "draft",

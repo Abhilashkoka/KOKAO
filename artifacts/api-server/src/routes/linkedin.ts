@@ -1,3 +1,4 @@
+import { buildPostText } from "../lib/postText";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { trackSyncPublish } from "../middlewares/trackSyncPublish";
 import {
@@ -641,7 +642,7 @@ router.post(
     // BEFORE escaping (the "Little Text" backslashes are formatting markers, not
     // counted against the limit).
     const { main, comments: overflowComments } = splitForLinkedin(
-      (item.caption?.trim() || item.title).trim(),
+      buildPostText(item.title, item.caption),
     );
     const commentary = escapeCommentary(main);
 
