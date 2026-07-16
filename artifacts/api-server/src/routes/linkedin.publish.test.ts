@@ -916,8 +916,8 @@ describe("LinkedIn publish dedupe (retry after committed-but-lost response)", ()
         (c) => c.method === "POST" && c.url.endsWith("/rest/posts"),
       ).length,
     ).toBe(0);
-    const commentCalls = fetchCalls.filter((c) =>
-      c.url.includes("/socialActions/"),
+    const commentCalls = fetchCalls.filter(
+      (c) => c.method === "POST" && c.url.includes("/socialActions/"),
     );
     expect(commentCalls.length).toBe(expectedComments.length);
     commentCalls.forEach((c) => {
@@ -957,13 +957,78 @@ describe("LinkedIn publish dedupe (retry after committed-but-lost response)", ()
     expect(res.status).toBe(200);
     expect(res.json.commentsPosted).toBe(expectedComments.length);
     // Only the missing comments went out, starting from the second one.
-    const commentCalls = fetchCalls.filter((c) =>
-      c.url.includes("/socialActions/"),
+    const commentCalls = fetchCalls.filter(
+      (c) => c.method === "POST" && c.url.includes("/socialActions/"),
     );
     expect(commentCalls.length).toBe(expectedComments.length - 1);
     expect((commentCalls[0]!.body as any).message.text).toBe(
       expectedComments[1],
     );
+  });
+
+  it("skips overflow comments that already exist on the reused post (lost comment response)", async () => {
+    const longCaption = "lorem ".repeat(800).trim();
+    const { main, comments: expectedComments } = splitForLinkedin(longCaption);
+    expect(expectedComments.length).toBeGreaterThan(1);
+    const escapedMain = main.replace(/[\\<>@~#*_(){}\[\]|]/g, (c) => `\\${c}`);
+
+    seedConnectedAccount();
+    // The previous attempt posted the first comment, but its response was
+    // lost, so the persisted snapshot undercounts (postedCount: 0).
+    seedContentItem({
+      caption: longCaption,
+      status: "failed",
+      linkedinCommentState: {
+        postUrn: "urn:li:share:landed",
+        comments: expectedComments,
+        postedCount: 0,
+      },
+    });
+    fetchHandler = (call) => {
+      if (call.method === "GET" && call.url.includes("/rest/posts?")) {
+        return makeRes({
+          json: {
+            elements: [
+              {
+                id: "urn:li:share:landed",
+                commentary: escapedMain,
+                createdAt: Date.now() - 60 * 1000,
+              },
+            ],
+          },
+        });
+      }
+      if (call.method === "GET" && call.url.includes("/socialActions/")) {
+        // The first comment DID land on LinkedIn.
+        return makeRes({
+          json: { elements: [{ message: { text: expectedComments[0] } }] },
+        });
+      }
+      if (call.method === "POST" && call.url.includes("/socialActions/")) {
+        return makeRes({ status: 201 });
+      }
+      return makeRes();
+    };
+
+    const res = await drive("POST", "/content/1/publish-linkedin");
+
+    expect(res.status).toBe(200);
+    expect(res.json.postId).toBe("urn:li:share:landed");
+    expect(res.json.commentsPosted).toBe(expectedComments.length);
+    // The already-landed first comment was skipped; only the rest went out.
+    const commentPosts = fetchCalls.filter(
+      (c) => c.method === "POST" && c.url.includes("/socialActions/"),
+    );
+    expect(commentPosts.length).toBe(expectedComments.length - 1);
+    expect((commentPosts[0]!.body as any).message.text).toBe(
+      expectedComments[1],
+    );
+    // No comment was posted with the first comment's text.
+    expect(
+      commentPosts.some(
+        (c) => (c.body as any).message.text === expectedComments[0],
+      ),
+    ).toBe(false);
   });
 });
 

@@ -784,12 +784,39 @@ router.post(
           commentWarning =
             "The post was published, but LinkedIn did not return a post id, so the rest of the caption could not be added as comments.";
         } else {
+          // When resuming against a post that already landed, the persisted
+          // snapshot count can undercount (a comment landed but its response
+          // was lost). Probe the post's existing comments and skip exact-text
+          // matches so a resumed publish never posts a duplicate. Best-effort:
+          // a probe failure means no skipping.
+          let existingTexts: Set<string> | null = null;
+          if (existingPostId && alreadyPostedComments < overflowComments.length) {
+            try {
+              existingTexts = await fetchExistingCommentTexts(
+                postId,
+                baseHeaders,
+              );
+            } catch (err) {
+              req.log.warn(
+                { err, postId },
+                "LinkedIn existing-comments probe failed; resuming without dedupe",
+              );
+            }
+          }
           for (
             let index = alreadyPostedComments;
             index < overflowComments.length;
             index++
           ) {
             const text = overflowComments[index]!;
+            if (existingTexts?.has(text)) {
+              req.log.warn(
+                { postId, index },
+                "LinkedIn comment already exists on the reused post; skipping instead of re-posting",
+              );
+              commentsPosted += 1;
+              continue;
+            }
             try {
               await postLinkedinComment(postId, author, text, baseHeaders);
               commentsPosted += 1;
