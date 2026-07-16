@@ -50,6 +50,27 @@ export interface PlanLimits {
   scheduledPosts: number;
 }
 
+/**
+ * The current user's role in this workspace.
+ */
+export type TeamStatusRole = typeof TeamStatusRole[keyof typeof TeamStatusRole];
+
+
+export const TeamStatusRole = {
+  owner: 'owner',
+  admin: 'admin',
+  member: 'member',
+} as const;
+
+export interface TeamStatus {
+  /** Whether the team add-on is active for this workspace (the plan includes team seats or a superadmin granted a seat override). */
+  enabled: boolean;
+  /** The current user's role in this workspace. */
+  role: TeamStatusRole;
+  /** Effective seat limit (workspace override or plan default). */
+  seatLimit: number;
+}
+
 export interface MeProfile {
   tenant: Tenant;
   usage: Usage;
@@ -60,6 +81,165 @@ export interface MeProfile {
   isOwner: boolean;
   /** Whether the tenant has finished (or skipped) brand onboarding. */
   brandOnboardingComplete: boolean;
+  team?: TeamStatus;
+}
+
+export type TeamMemberRole = typeof TeamMemberRole[keyof typeof TeamMemberRole];
+
+
+export const TeamMemberRole = {
+  owner: 'owner',
+  admin: 'admin',
+  member: 'member',
+} as const;
+
+export interface TeamMember {
+  id: number;
+  /** @nullable */
+  email: string | null;
+  role: TeamMemberRole;
+  createdAt: string;
+}
+
+export type TeamInviteRole = typeof TeamInviteRole[keyof typeof TeamInviteRole];
+
+
+export const TeamInviteRole = {
+  admin: 'admin',
+  member: 'member',
+} as const;
+
+export type TeamInviteStatus = typeof TeamInviteStatus[keyof typeof TeamInviteStatus];
+
+
+export const TeamInviteStatus = {
+  pending: 'pending',
+  accepted: 'accepted',
+  revoked: 'revoked',
+} as const;
+
+export interface TeamInvite {
+  id: number;
+  email: string;
+  role: TeamInviteRole;
+  status: TeamInviteStatus;
+  createdAt: string;
+}
+
+export type SeatRequestStatus = typeof SeatRequestStatus[keyof typeof SeatRequestStatus];
+
+
+export const SeatRequestStatus = {
+  pending: 'pending',
+  approved: 'approved',
+  denied: 'denied',
+} as const;
+
+export interface SeatRequest {
+  id: number;
+  requestedSeats: number;
+  /** @nullable */
+  note: string | null;
+  status: SeatRequestStatus;
+  /** @nullable */
+  grantedSeats: number | null;
+  /** @nullable */
+  decidedAt?: string | null;
+  createdAt: string;
+}
+
+export type TeamOverviewRole = typeof TeamOverviewRole[keyof typeof TeamOverviewRole];
+
+
+export const TeamOverviewRole = {
+  owner: 'owner',
+  admin: 'admin',
+  member: 'member',
+} as const;
+
+export interface TeamOverview {
+  enabled: boolean;
+  role: TeamOverviewRole;
+  seatLimit: number;
+  /** Owner + members + pending invites. */
+  seatsUsed: number;
+  members: TeamMember[];
+  invites: TeamInvite[];
+  seatRequests: SeatRequest[];
+}
+
+export type TeamInviteCreateInputRole = typeof TeamInviteCreateInputRole[keyof typeof TeamInviteCreateInputRole];
+
+
+export const TeamInviteCreateInputRole = {
+  admin: 'admin',
+  member: 'member',
+} as const;
+
+export interface TeamInviteCreateInput {
+  /** @maxLength 320 */
+  email: string;
+  role?: TeamInviteCreateInputRole;
+}
+
+export interface SeatRequestCreateInput {
+  /**
+     * @minimum 1
+     * @maximum 1000
+     */
+  requestedSeats: number;
+  /** @maxLength 1000 */
+  note?: string;
+}
+
+export type AdminSeatRequestStatus = typeof AdminSeatRequestStatus[keyof typeof AdminSeatRequestStatus];
+
+
+export const AdminSeatRequestStatus = {
+  pending: 'pending',
+  approved: 'approved',
+  denied: 'denied',
+} as const;
+
+export interface AdminSeatRequest {
+  id: number;
+  tenantId: number;
+  tenantName: string;
+  /** @nullable */
+  tenantEmail: string | null;
+  tenantPlan: string;
+  /** Effective seat limit for the workspace right now. */
+  currentSeatLimit: number;
+  seatsUsed: number;
+  requestedSeats: number;
+  /** @nullable */
+  note: string | null;
+  status: AdminSeatRequestStatus;
+  /** @nullable */
+  grantedSeats: number | null;
+  /** @nullable */
+  decidedByEmail?: string | null;
+  /** @nullable */
+  decidedAt?: string | null;
+  createdAt: string;
+}
+
+export type SeatRequestDecisionInputAction = typeof SeatRequestDecisionInputAction[keyof typeof SeatRequestDecisionInputAction];
+
+
+export const SeatRequestDecisionInputAction = {
+  approve: 'approve',
+  deny: 'deny',
+} as const;
+
+export interface SeatRequestDecisionInput {
+  action: SeatRequestDecisionInputAction;
+  /**
+     * Seats to grant on approval. Defaults to the requested amount. Ignored when denying.
+     * @minimum 1
+     * @maximum 1000
+     */
+  seats?: number;
 }
 
 export interface AppBrand {
@@ -121,6 +301,8 @@ export interface Plan {
   priceLabel: string;
   limits: PlanLimits;
   features: string[];
+  /** Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included. */
+  teamSeats: number;
 }
 
 export interface PlanCreateInput {
@@ -148,6 +330,11 @@ export interface PlanCreateInput {
      * @items.maxLength 120
      */
   features: string[];
+  /**
+     * Default team seat allotment. 0 disables the team add-on.
+     * @minimum 0
+     */
+  teamSeats?: number;
 }
 
 export interface PlanUpdateInput {
@@ -168,6 +355,11 @@ export interface PlanUpdateInput {
      * @items.maxLength 120
      */
   features: string[];
+  /**
+     * Default team seat allotment. 0 disables the team add-on.
+     * @minimum 0
+     */
+  teamSeats?: number;
 }
 
 export interface AdminTenantCounts {

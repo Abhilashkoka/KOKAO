@@ -28,6 +28,9 @@ export const planSettingsTable = pgTable("plan_settings", {
   brandKits: integer("brand_kits").notNull(),
   scheduledPosts: integer("scheduled_posts").notNull(),
   features: jsonb("features").$type<string[]>().notNull(),
+  // Team add-on: default seat allotment for workspaces on this plan.
+  // 0 = the team feature is not included in this plan.
+  teamSeats: integer("team_seats").notNull().default(0),
   sortOrder: integer("sort_order").notNull().default(0),
   archived: boolean("archived").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true })

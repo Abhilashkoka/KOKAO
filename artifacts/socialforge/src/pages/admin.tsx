@@ -24,6 +24,9 @@ import {
   useAdminSendTestEmail,
   useAdminListAuditLogs,
   useAdminRunSweep,
+  useAdminListSeatRequests,
+  useAdminDecideSeatRequest,
+  getAdminListSeatRequestsQueryKey,
   getAdminListTenantsQueryKey,
   getAdminGetStatsQueryKey,
   getAdminGetMetaCredentialsQueryKey,
@@ -1257,6 +1260,7 @@ interface PlanDraft {
   images: string;
   brandKits: string;
   scheduledPosts: string;
+  teamSeats: string;
   features: string;
 }
 
@@ -1287,8 +1291,187 @@ const EMPTY_NEW_PLAN: PlanDraft = {
   images: "",
   brandKits: "",
   scheduledPosts: "",
+  teamSeats: "0",
   features: "",
 };
+
+function SeatRequestsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data: requests, isLoading } = useAdminListSeatRequests();
+  const decide = useAdminDecideSeatRequest();
+
+  const [seatEdits, setSeatEdits] = useState<Record<number, string>>({});
+  const [decidingId, setDecidingId] = useState<number | null>(null);
+
+  const refresh = () => {
+    queryClient.invalidateQueries({
+      queryKey: getAdminListSeatRequestsQueryKey(),
+    });
+    queryClient.invalidateQueries({ queryKey: getAdminListTenantsQueryKey() });
+    queryClient.invalidateQueries({
+      queryKey: getAdminListAuditLogsQueryKey(),
+    });
+  };
+
+  const handleDecide = (
+    id: number,
+    action: "approve" | "deny",
+    requestedSeats: number,
+  ) => {
+    let seats: number | undefined;
+    if (action === "approve") {
+      const raw = (seatEdits[id] ?? "").trim();
+      if (raw !== "") {
+        const n = Number(raw);
+        if (!Number.isInteger(n) || n < 1) {
+          toast({
+            variant: "destructive",
+            title: "Invalid seat count",
+            description: "Seats must be a whole number of at least 1.",
+          });
+          return;
+        }
+        seats = n;
+      } else {
+        seats = requestedSeats;
+      }
+    }
+    setDecidingId(id);
+    decide.mutate(
+      { id, data: action === "approve" ? { action, seats } : { action } },
+      {
+        onSuccess: () => {
+          refresh();
+          toast({
+            title: action === "approve" ? "Request approved" : "Request denied",
+            description:
+              action === "approve"
+                ? `The workspace now has ${seats} team seats.`
+                : "The workspace has been notified.",
+          });
+          setDecidingId(null);
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save decision",
+            description: err?.response?.data?.error || "Please try again.",
+          });
+          setDecidingId(null);
+        },
+      },
+    );
+  };
+
+  const pending = (requests ?? []).filter((r) => r.status === "pending");
+  const decided = (requests ?? []).filter((r) => r.status !== "pending");
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Seat requests</CardTitle>
+        <CardDescription>
+          Workspaces asking for more team seats. Approving writes a
+          per-workspace seat override on top of the plan default. You can
+          adjust the number before approving.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {isLoading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : pending.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No pending seat requests.
+          </p>
+        ) : (
+          <div className="rounded-lg border border-border divide-y divide-border">
+            {pending.map((r) => (
+              <div
+                key={r.id}
+                className="flex flex-col md:flex-row md:items-center gap-3 px-4 py-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium truncate">
+                    {r.tenantName}
+                    {r.tenantEmail ? ` — ${r.tenantEmail}` : ""}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Requests {r.requestedSeats} seats · plan: {r.tenantPlan} ·
+                    current limit: {r.currentSeatLimit} · in use: {r.seatsUsed}
+                  </p>
+                  {r.note && (
+                    <p className="text-xs text-muted-foreground mt-1 italic">
+                      "{r.note}"
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    className="w-24"
+                    placeholder={String(r.requestedSeats)}
+                    value={seatEdits[r.id] ?? ""}
+                    onChange={(e) =>
+                      setSeatEdits((prev) => ({
+                        ...prev,
+                        [r.id]: e.target.value,
+                      }))
+                    }
+                    aria-label="Seats to grant"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      handleDecide(r.id, "approve", r.requestedSeats)
+                    }
+                    disabled={decide.isPending && decidingId === r.id}
+                  >
+                    Approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleDecide(r.id, "deny", r.requestedSeats)}
+                    disabled={decide.isPending && decidingId === r.id}
+                  >
+                    Deny
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {decided.length > 0 && (
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold">Recent decisions</h4>
+            <div className="rounded-lg border border-border divide-y divide-border">
+              {decided.slice(0, 8).map((r) => (
+                <div
+                  key={r.id}
+                  className="flex items-center justify-between px-4 py-2.5"
+                >
+                  <p className="text-sm truncate">
+                    {r.tenantName} — {r.requestedSeats} requested
+                    {r.status === "approved" &&
+                      r.grantedSeats !== null &&
+                      `, ${r.grantedSeats} granted`}
+                  </p>
+                  <Badge
+                    variant={r.status === "approved" ? "secondary" : "outline"}
+                    className="capitalize"
+                  >
+                    {r.status}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function PlansCard() {
   const queryClient = useQueryClient();
@@ -1318,22 +1501,27 @@ function PlansCard() {
       brandKits: parseLimit(draft.brandKits),
       scheduledPosts: parseLimit(draft.scheduledPosts),
     };
+    const teamSeatsTrimmed = draft.teamSeats.trim();
+    const teamSeats = teamSeatsTrimmed === "" ? 0 : Number(teamSeatsTrimmed);
     if (
       !draft.name.trim() ||
       !draft.priceLabel.trim() ||
-      Object.values(limits).some((v) => v === null)
+      Object.values(limits).some((v) => v === null) ||
+      !Number.isInteger(teamSeats) ||
+      teamSeats < 0
     ) {
       toast({
         variant: "destructive",
         title: "Check the fields",
         description:
-          'Limits must be whole numbers, or "unlimited". Name and price are required.',
+          'Limits must be whole numbers, or "unlimited". Team seats must be 0 or more. Name and price are required.',
       });
       return null;
     }
     return {
       name: draft.name.trim(),
       priceLabel: draft.priceLabel.trim(),
+      teamSeats,
       limits: {
         captions: limits.captions!,
         images: limits.images!,
@@ -1418,6 +1606,7 @@ function PlansCard() {
             images: limitToInput(p.limits.images),
             brandKits: limitToInput(p.limits.brandKits),
             scheduledPosts: limitToInput(p.limits.scheduledPosts),
+            teamSeats: String(p.teamSeats ?? 0),
             features: p.features.join("\n"),
           };
         }
@@ -1539,6 +1728,18 @@ function PlansCard() {
                   ))}
                   <div className="space-y-2">
                     <label className="text-sm font-medium">
+                      Team seats (0 = team add-on off)
+                    </label>
+                    <Input
+                      value={draft.teamSeats}
+                      onChange={(e) =>
+                        setField(p.id, "teamSeats", e.target.value)
+                      }
+                      placeholder="e.g. 5"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
                       Features (one per line)
                     </label>
                     <Textarea
@@ -1620,6 +1821,21 @@ function PlansCard() {
                       />
                     </div>
                   ))}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Team seats (0 = team add-on off)
+                    </label>
+                    <Input
+                      value={newPlan.teamSeats}
+                      onChange={(e) =>
+                        setNewPlan((prev) => ({
+                          ...prev,
+                          teamSeats: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g. 5"
+                    />
+                  </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">
                       Features (one per line)
@@ -2373,6 +2589,7 @@ export function AdminPage() {
         </CardContent>
       </Card>
 
+      <SeatRequestsCard />
       <PlansCard />
       <MetaCredentialsCard />
       <TwitterCredentialsCard />

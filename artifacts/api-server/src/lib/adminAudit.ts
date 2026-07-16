@@ -12,7 +12,9 @@ export type AdminAuditAction =
   | "app_brand_change"
   | "email_settings_change"
   | "email_test_send"
-  | "sweep_run";
+  | "sweep_run"
+  | "seat_request_approve"
+  | "seat_request_deny";
 
 export interface RecordAdminActionInput {
   action: AdminAuditAction;

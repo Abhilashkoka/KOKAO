@@ -25,6 +25,12 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
       "A connected social account's access expired or was revoked and needs reconnecting before you can keep publishing.",
   },
   {
+    type: "seat_request_decided",
+    label: "Seat request decisions",
+    description:
+      "A request for more team seats was approved or denied by a platform admin.",
+  },
+  {
     type: "publish_interrupted",
     label: "Interrupted publishes",
     description:

@@ -220,6 +220,214 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /team:
+    get:
+      operationId: getTeam
+      tags: [account]
+      summary: Get the workspace team overview (members, invites, seat requests)
+      responses:
+        "200":
+          description: Team overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamOverview"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /team/invites:
+    post:
+      operationId: createTeamInvite
+      tags: [account]
+      summary: Invite a user to this workspace by email (owner/admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamInviteCreateInput"
+      responses:
+        "200":
+          description: Updated team overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamOverview"
+        "400":
+          description: Invalid request (bad email, no seats left, duplicate)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Seat limit reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (members cannot manage the team)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /team/invites/{id}:
+    delete:
+      operationId: revokeTeamInvite
+      tags: [account]
+      summary: Revoke a pending invite (owner/admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated team overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamOverview"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /team/members/{id}:
+    delete:
+      operationId: removeTeamMember
+      tags: [account]
+      summary: Remove a member from this workspace (owner/admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated team overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamOverview"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /team/seat-requests:
+    post:
+      operationId: createSeatRequest
+      tags: [account]
+      summary: Request more team seats (owner/admin only; decided by a superadmin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SeatRequestCreateInput"
+      responses:
+        "200":
+          description: Updated team overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamOverview"
+        "400":
+          description: Invalid request (a request is already pending)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/seat-requests:
+    get:
+      operationId: adminListSeatRequests
+      tags: [admin]
+      summary: List team seat requests across all workspaces (superadmin only)
+      responses:
+        "200":
+          description: Seat requests, pending first then most recent decisions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminSeatRequest"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/seat-requests/{id}:
+    patch:
+      operationId: adminDecideSeatRequest
+      tags: [admin]
+      summary: Approve or deny a seat request (superadmin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SeatRequestDecisionInput"
+      responses:
+        "200":
+          description: The decided seat request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSeatRequest"
+        "400":
+          description: Invalid request (already decided)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /admin/tenants:
     get:
       operationId: adminListTenants
@@ -2841,6 +3049,190 @@ components:
         brandOnboardingComplete:
           type: boolean
           description: Whether the tenant has finished (or skipped) brand onboarding.
+        team:
+          $ref: "#/components/schemas/TeamStatus"
+    TeamStatus:
+      type: object
+      required: [enabled, role, seatLimit]
+      properties:
+        enabled:
+          type: boolean
+          description: >-
+            Whether the team add-on is active for this workspace (the plan
+            includes team seats or a superadmin granted a seat override).
+        role:
+          type: string
+          enum: [owner, admin, member]
+          description: The current user's role in this workspace.
+        seatLimit:
+          type: integer
+          description: Effective seat limit (workspace override or plan default).
+    TeamMember:
+      type: object
+      required: [id, email, role, createdAt]
+      properties:
+        id:
+          type: integer
+        email:
+          type: ["string", "null"]
+        role:
+          type: string
+          enum: [owner, admin, member]
+        createdAt:
+          type: string
+          format: date-time
+    TeamInvite:
+      type: object
+      required: [id, email, role, status, createdAt]
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        role:
+          type: string
+          enum: [admin, member]
+        status:
+          type: string
+          enum: [pending, accepted, revoked]
+        createdAt:
+          type: string
+          format: date-time
+    SeatRequest:
+      type: object
+      required: [id, requestedSeats, note, status, grantedSeats, createdAt]
+      properties:
+        id:
+          type: integer
+        requestedSeats:
+          type: integer
+        note:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [pending, approved, denied]
+        grantedSeats:
+          type: ["integer", "null"]
+        decidedAt:
+          type: ["string", "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+    TeamOverview:
+      type: object
+      required:
+        [enabled, role, seatLimit, seatsUsed, members, invites, seatRequests]
+      properties:
+        enabled:
+          type: boolean
+        role:
+          type: string
+          enum: [owner, admin, member]
+        seatLimit:
+          type: integer
+        seatsUsed:
+          type: integer
+          description: Owner + members + pending invites.
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/TeamMember"
+        invites:
+          type: array
+          items:
+            $ref: "#/components/schemas/TeamInvite"
+        seatRequests:
+          type: array
+          items:
+            $ref: "#/components/schemas/SeatRequest"
+    TeamInviteCreateInput:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        role:
+          type: string
+          enum: [admin, member]
+          default: member
+    SeatRequestCreateInput:
+      type: object
+      required: [requestedSeats]
+      properties:
+        requestedSeats:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        note:
+          type: string
+          maxLength: 1000
+    AdminSeatRequest:
+      type: object
+      required:
+        [
+          id,
+          tenantId,
+          tenantName,
+          tenantEmail,
+          tenantPlan,
+          currentSeatLimit,
+          seatsUsed,
+          requestedSeats,
+          note,
+          status,
+          grantedSeats,
+          createdAt,
+        ]
+      properties:
+        id:
+          type: integer
+        tenantId:
+          type: integer
+        tenantName:
+          type: string
+        tenantEmail:
+          type: ["string", "null"]
+        tenantPlan:
+          type: string
+        currentSeatLimit:
+          type: integer
+          description: Effective seat limit for the workspace right now.
+        seatsUsed:
+          type: integer
+        requestedSeats:
+          type: integer
+        note:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [pending, approved, denied]
+        grantedSeats:
+          type: ["integer", "null"]
+        decidedByEmail:
+          type: ["string", "null"]
+        decidedAt:
+          type: ["string", "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+    SeatRequestDecisionInput:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [approve, deny]
+        seats:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          description: >-
+            Seats to grant on approval. Defaults to the requested amount.
+            Ignored when denying.
     AppBrand:
       type: object
       required:
@@ -2893,7 +3285,7 @@ components:
           description: Browser-facing path where the uploaded asset will be served.
     Plan:
       type: object
-      required: [id, name, priceLabel, limits, features]
+      required: [id, name, priceLabel, limits, features, teamSeats]
       properties:
         id:
           type: string
@@ -2907,6 +3299,11 @@ components:
           type: array
           items:
             type: string
+        teamSeats:
+          type: integer
+          description: >-
+            Team add-on: default seat allotment (including the owner) for
+            workspaces on this plan. 0 means the team feature is not included.
 
     PlanCreateInput:
       type: object
@@ -2937,6 +3334,10 @@ components:
             type: string
             minLength: 1
             maxLength: 120
+        teamSeats:
+          type: integer
+          minimum: 0
+          description: Default team seat allotment. 0 disables the team add-on.
     PlanUpdateInput:
       type: object
       required: [name, priceLabel, limits, features]
@@ -2958,6 +3359,10 @@ components:
             type: string
             minLength: 1
             maxLength: 120
+        teamSeats:
+          type: integer
+          minimum: 0
+          description: Default team seat allotment. 0 disables the team add-on.
     AdminTenantCounts:
       type: object
       required: [content, brandKits, scheduledPosts, connectedAccounts]

@@ -16,6 +16,7 @@ import { CheckCircle2, Settings as SettingsIcon, Package, Sparkles } from "lucid
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { NotificationSettings } from "@/components/notification-settings";
+import { TeamSettings } from "@/components/team-settings";
 import { AppBrandingSettings } from "@/components/app-branding-settings";
 
 export function SettingsPage() {
@@ -76,6 +77,7 @@ export function SettingsPage() {
       <Tabs defaultValue="general" className="space-y-8">
         <TabsList>
           <TabsTrigger value="general">General</TabsTrigger>
+          <TabsTrigger value="team">Team</TabsTrigger>
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
           {me?.isSuperadmin && (
             <TabsTrigger value="branding">Branding</TabsTrigger>
@@ -182,6 +184,12 @@ export function SettingsPage() {
           </Card>
         </div>
       </div>
+        </TabsContent>
+
+        <TabsContent value="team">
+          <div className="max-w-2xl">
+            <TeamSettings />
+          </div>
         </TabsContent>
 
         <TabsContent value="notifications">

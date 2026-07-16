@@ -1,4 +1,11 @@
-import { pgTable, text, serial, timestamp, boolean } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  serial,
+  timestamp,
+  boolean,
+  integer,
+} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -14,6 +21,9 @@ export const tenantsTable = pgTable("tenants", {
     .notNull()
     .default(false),
   isSuperadmin: boolean("is_superadmin").notNull().default(false),
+  // Per-workspace team seat override granted by a superadmin (via an approved
+  // seat request). null = use the plan's default teamSeats allotment.
+  seatLimit: integer("seat_limit"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

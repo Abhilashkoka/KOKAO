@@ -13,4 +13,6 @@ export interface Plan {
   priceLabel: string;
   limits: PlanLimits;
   features: string[];
+  /** Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included. */
+  teamSeats: number;
 }

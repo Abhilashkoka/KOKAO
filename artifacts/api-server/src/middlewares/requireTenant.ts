@@ -1,7 +1,13 @@
 import type { Request, Response, NextFunction } from "express";
 import { getAuth } from "@clerk/express";
-import { db, tenantsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import {
+  db,
+  tenantsTable,
+  tenantMembersTable,
+  teamInvitesTable,
+} from "@workspace/db";
+import { and, eq, sql } from "drizzle-orm";
+import { getEffectiveSeatLimit, getSeatsUsed } from "../lib/team";
 import { fetchVerifiedEmail } from "../lib/clerkUser";
 import { isSuperadminEmail } from "../lib/superadmins";
 
@@ -98,22 +104,113 @@ export async function requireTenant(
         .where(eq(tenantsTable.clerkUserId, clerkUserId))
         .limit(1)
     )[0];
+    let memberRole: "owner" | "admin" | "member" = "owner";
 
     if (!tenant) {
-      // Conflict-safe provisioning: concurrent first requests for the same
-      // clerkUserId race here, so insert-on-conflict-do-nothing then reselect.
-      const email = await fetchVerifiedEmail(clerkUserId);
-      await db
-        .insert(tenantsTable)
-        .values({ clerkUserId, email, name: "My Workspace" })
-        .onConflictDoNothing();
-      tenant = (
+      // Not a workspace owner — maybe a team member of another workspace.
+      const membership = (
         await db
           .select()
-          .from(tenantsTable)
-          .where(eq(tenantsTable.clerkUserId, clerkUserId))
+          .from(tenantMembersTable)
+          .where(eq(tenantMembersTable.clerkUserId, clerkUserId))
           .limit(1)
       )[0];
+      if (membership) {
+        tenant = (
+          await db
+            .select()
+            .from(tenantsTable)
+            .where(eq(tenantsTable.id, membership.tenantId))
+            .limit(1)
+        )[0];
+        if (tenant) memberRole = membership.role === "admin" ? "admin" : "member";
+      }
+    }
+
+    if (!tenant) {
+      const email = await fetchVerifiedEmail(clerkUserId);
+
+      // First sign-in with a pending team invite matching the VERIFIED email:
+      // join that workspace instead of provisioning a personal one. Seats are
+      // re-checked at acceptance time in case the limit was lowered since the
+      // invite was sent.
+      if (email) {
+        const invite = (
+          await db
+            .select()
+            .from(teamInvitesTable)
+            .where(
+              and(
+                sql`lower(${teamInvitesTable.email}) = ${email.toLowerCase()}`,
+                eq(teamInvitesTable.status, "pending"),
+              ),
+            )
+            .orderBy(teamInvitesTable.createdAt)
+            .limit(1)
+        )[0];
+        if (invite) {
+          const inviteTenant = (
+            await db
+              .select()
+              .from(tenantsTable)
+              .where(eq(tenantsTable.id, invite.tenantId))
+              .limit(1)
+          )[0];
+          if (inviteTenant) {
+            const [limit, used] = await Promise.all([
+              getEffectiveSeatLimit(inviteTenant),
+              getSeatsUsed(inviteTenant.id),
+            ]);
+            // The pending invite itself already holds a seat, so acceptance
+            // never grows usage — only require the limit is still positive
+            // and usage is within it.
+            if (limit > 0 && used <= limit) {
+              await db
+                .insert(tenantMembersTable)
+                .values({
+                  tenantId: invite.tenantId,
+                  clerkUserId,
+                  email,
+                  role: invite.role === "admin" ? "admin" : "member",
+                })
+                .onConflictDoNothing();
+              const membership = (
+                await db
+                  .select()
+                  .from(tenantMembersTable)
+                  .where(eq(tenantMembersTable.clerkUserId, clerkUserId))
+                  .limit(1)
+              )[0];
+              if (membership && membership.tenantId === invite.tenantId) {
+                await db
+                  .update(teamInvitesTable)
+                  .set({ status: "accepted", acceptedAt: new Date() })
+                  .where(eq(teamInvitesTable.id, invite.id));
+                tenant = inviteTenant;
+                memberRole =
+                  membership.role === "admin" ? "admin" : "member";
+              }
+            }
+          }
+        }
+      }
+
+      if (!tenant) {
+        // Conflict-safe provisioning: concurrent first requests for the same
+        // clerkUserId race here, so insert-on-conflict-do-nothing then reselect.
+        await db
+          .insert(tenantsTable)
+          .values({ clerkUserId, email, name: "My Workspace" })
+          .onConflictDoNothing();
+        tenant = (
+          await db
+            .select()
+            .from(tenantsTable)
+            .where(eq(tenantsTable.clerkUserId, clerkUserId))
+            .limit(1)
+        )[0];
+        memberRole = "owner";
+      }
     }
 
     if (!tenant) {
@@ -121,8 +218,9 @@ export async function requireTenant(
       return;
     }
 
-    // Backfill email for tenants provisioned before we captured it.
-    if (!tenant.email) {
+    // Backfill email for tenants provisioned before we captured it. Owner
+    // only: a member's email must never overwrite the workspace owner's.
+    if (!tenant.email && memberRole === "owner") {
       const email = await fetchVerifiedEmail(clerkUserId);
       if (email) {
         const updated = (
@@ -139,10 +237,18 @@ export async function requireTenant(
     req.tenantId = tenant.id;
     req.clerkUserId = clerkUserId;
     req.tenantEmail = tenant.email ?? null;
-    // Granted-in-app flag (DB-backed), trusted directly by requireSuperadmin.
-    req.tenantIsSuperadmin = tenant.isSuperadmin;
-    // Effective hint for the UI (/me): granted in-app OR allowlisted by email.
-    req.isSuperadmin = tenant.isSuperadmin || isSuperadminEmail(tenant.email);
+    req.memberRole = memberRole;
+    // Superadmin status is a property of the OWNER's identity, never
+    // inherited by team members working inside the workspace.
+    if (memberRole === "owner") {
+      // Granted-in-app flag (DB-backed), trusted directly by requireSuperadmin.
+      req.tenantIsSuperadmin = tenant.isSuperadmin;
+      // Effective hint for the UI (/me): granted in-app OR allowlisted email.
+      req.isSuperadmin = tenant.isSuperadmin || isSuperadminEmail(tenant.email);
+    } else {
+      req.tenantIsSuperadmin = false;
+      req.isSuperadmin = false;
+    }
     next();
   } catch (error) {
     req.log.error({ err: error }, "Failed to resolve tenant");

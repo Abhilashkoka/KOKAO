@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { PlanLimits } from './planLimits';
+import type { TeamStatus } from './teamStatus';
 import type { Tenant } from './tenant';
 import type { Usage } from './usage';
 
@@ -19,4 +20,5 @@ export interface MeProfile {
   isOwner: boolean;
   /** Whether the tenant has finished (or skipped) brand onboarding. */
   brandOnboardingComplete: boolean;
+  team?: TeamStatus;
 }

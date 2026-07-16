@@ -8,6 +8,64 @@ import { isSuperadminEmail } from "./superadmins";
 
 export const SOCIAL_CONNECTION_FAILED = "social_connection_failed";
 export const PUBLISH_INTERRUPTED = "publish_interrupted";
+export const SEAT_REQUEST_DECIDED = "seat_request_decided";
+
+/**
+ * Tell a workspace that a superadmin decided their seat request. In-app
+ * (plus email when the tenant opted in / policy forces it). Best-effort —
+ * never throws, so a notification failure cannot fail the admin decision.
+ */
+export async function notifySeatRequestDecided(
+  tenantId: number,
+  outcome: { approved: boolean; grantedSeats: number | null },
+): Promise<void> {
+  try {
+    const effective = await getEffectiveSetting(tenantId, SEAT_REQUEST_DECIDED);
+    if (!effective.enabled) return;
+
+    const title = outcome.approved
+      ? "Your seat request was approved"
+      : "Your seat request was denied";
+    const message = outcome.approved
+      ? `Your workspace now has ${outcome.grantedSeats} team seats. Invite people from Settings > Team.`
+      : "A platform admin denied your request for more team seats. You can submit a new request from Settings > Team.";
+
+    await db.insert(notificationsTable).values({
+      tenantId,
+      type: SEAT_REQUEST_DECIDED,
+      platform: null,
+      title,
+      message,
+      linkUrl: "/settings",
+      inApp: effective.inApp,
+    });
+
+    if (effective.email) {
+      const tenant = (
+        await db
+          .select()
+          .from(tenantsTable)
+          .where(eq(tenantsTable.id, tenantId))
+          .limit(1)
+      )[0];
+      if (tenant) {
+        const email = await fetchVerifiedEmail(tenant.clerkUserId);
+        if (email) {
+          await sendEmail({
+            to: email,
+            subject: title,
+            text: message,
+          });
+        }
+      }
+    }
+  } catch (err) {
+    logger.error(
+      { err, tenantId },
+      "Failed to record seat-request-decided notification",
+    );
+  }
+}
 export const SWEEP_STALLED = "sweep_stalled";
 
 const PLATFORM_LABELS: Record<string, string> = {

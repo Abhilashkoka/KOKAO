@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { db, tenantsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { fetchVerifiedEmail } from "../lib/clerkUser";
 import { isSuperadminEmail } from "../lib/superadmins";
 
@@ -40,11 +40,25 @@ export async function requireSuperadmin(
     }
 
     // Self-heal the cached email so the /me hint and admin table stay accurate.
-    if (liveEmail && liveEmail !== req.tenantEmail) {
+    // Only when the request runs in the user's OWN tenant: a team member's
+    // req.tenantId points at someone else's workspace, and the cached email
+    // column belongs to that workspace's owner — never overwrite it with the
+    // member's identity. The clerkUserId condition makes this owner-only at
+    // the database level regardless of how the request context was resolved.
+    if (
+      liveEmail &&
+      liveEmail !== req.tenantEmail &&
+      req.memberRole === "owner"
+    ) {
       await db
         .update(tenantsTable)
         .set({ email: liveEmail })
-        .where(eq(tenantsTable.id, req.tenantId));
+        .where(
+          and(
+            eq(tenantsTable.id, req.tenantId),
+            eq(tenantsTable.clerkUserId, req.clerkUserId),
+          ),
+        );
       req.tenantEmail = liveEmail;
     }
 

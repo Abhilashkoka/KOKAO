@@ -19,8 +19,19 @@ import {
   AdminUpdateNotificationPoliciesBody,
   AdminUpdatePlanBody,
   AdminCreatePlanBody,
+  AdminDecideSeatRequestBody,
 } from "@workspace/api-zod";
-import { notificationPoliciesTable, planSettingsTable } from "@workspace/db";
+import {
+  notificationPoliciesTable,
+  planSettingsTable,
+  seatRequestsTable,
+} from "@workspace/db";
+import { notifySeatRequestDecided } from "../lib/notifications";
+import {
+  serializeSeatRequest,
+  getEffectiveSeatLimit,
+  getSeatsUsed,
+} from "../lib/team";
 import {
   DEFAULT_PLAN_IDS,
   FALLBACK_PLAN_ID,
@@ -407,11 +418,15 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
     return;
   }
 
-  const { name, priceLabel, limits, features } = parsed.data;
+  const { name, priceLabel, limits, features, teamSeats } = parsed.data;
   if (invalidLimits(limits)) {
     res
       .status(400)
       .json({ error: "Limits must be whole numbers (use -1 for unlimited)" });
+    return;
+  }
+  if (teamSeats !== undefined && !Number.isInteger(teamSeats)) {
+    res.status(400).json({ error: "Team seats must be a whole number" });
     return;
   }
 
@@ -419,6 +434,7 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
     id: planId,
     name: name.trim(),
     priceLabel: priceLabel.trim(),
+    teamSeats: teamSeats ?? previous.teamSeats,
     captions: limits.captions,
     images: limits.images,
     brandKits: limits.brandKits,
@@ -467,7 +483,11 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
     return;
   }
 
-  const { name, priceLabel, limits, features } = parsed.data;
+  const { name, priceLabel, limits, features, teamSeats } = parsed.data;
+  if (teamSeats !== undefined && !Number.isInteger(teamSeats)) {
+    res.status(400).json({ error: "Team seats must be a whole number" });
+    return;
+  }
   if (invalidLimits(limits)) {
     res
       .status(400)
@@ -508,6 +528,7 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
     id,
     name: name.trim(),
     priceLabel: priceLabel.trim(),
+    teamSeats: teamSeats ?? 0,
     captions: limits.captions,
     images: limits.images,
     brandKits: limits.brandKits,
@@ -580,6 +601,7 @@ router.delete("/admin/plans/:planId", async (req: Request, res: Response) => {
       id: planId,
       name: existing.name,
       priceLabel: existing.priceLabel,
+      teamSeats: existing.teamSeats,
       captions: existing.limits.captions,
       images: existing.limits.images,
       brandKits: existing.limits.brandKits,
@@ -968,6 +990,172 @@ router.put(
         };
       }),
     );
+  },
+);
+
+/**
+ * GET /admin/seat-requests
+ * All tenant seat requests, newest first, with workspace context.
+ */
+router.get("/admin/seat-requests", async (req: Request, res: Response) => {
+  const rows = await db
+    .select({
+      request: seatRequestsTable,
+      tenant: tenantsTable,
+    })
+    .from(seatRequestsTable)
+    .innerJoin(tenantsTable, eq(seatRequestsTable.tenantId, tenantsTable.id))
+    .orderBy(desc(seatRequestsTable.createdAt))
+    .limit(200);
+
+  // Effective limit and usage are computed per unique workspace (not per
+  // request row) so the same tenant with several requests costs one lookup.
+  const byTenant = new Map<number, { limit: number; used: number }>();
+  for (const r of rows) {
+    if (byTenant.has(r.tenant.id)) continue;
+    const [limit, used] = await Promise.all([
+      getEffectiveSeatLimit(r.tenant),
+      getSeatsUsed(r.tenant.id),
+    ]);
+    byTenant.set(r.tenant.id, { limit, used });
+  }
+
+  res.json(
+    rows.map((r) => {
+      const t = byTenant.get(r.tenant.id)!;
+      return {
+        ...serializeSeatRequest(r.request),
+        tenantId: r.request.tenantId,
+        tenantName: r.tenant.name,
+        tenantEmail: r.tenant.email ?? null,
+        tenantPlan: r.tenant.plan,
+        currentSeatLimit: t.limit,
+        seatsUsed: t.used,
+      };
+    }),
+  );
+});
+
+/**
+ * PATCH /admin/seat-requests/:id
+ * Approve (optionally with an adjusted seat count) or deny a pending seat
+ * request. Approval writes the granted count to tenants.seatLimit — the
+ * per-workspace override on top of the plan's default teamSeats. Audited
+ * best-effort; the tenant is notified via the notification framework.
+ */
+router.patch(
+  "/admin/seat-requests/:id",
+  async (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    const parsed = AdminDecideSeatRequestBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    if (
+      parsed.data.seats !== undefined &&
+      !Number.isInteger(parsed.data.seats)
+    ) {
+      res.status(400).json({ error: "Seats must be a whole number" });
+      return;
+    }
+
+    const existing = (
+      await db
+        .select()
+        .from(seatRequestsTable)
+        .where(eq(seatRequestsTable.id, id))
+        .limit(1)
+    )[0];
+    if (!existing) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    if (existing.status !== "pending") {
+      res.status(400).json({ error: "This request was already decided" });
+      return;
+    }
+
+    const approved = parsed.data.action === "approve";
+    const grantedSeats = approved
+      ? (parsed.data.seats ?? existing.requestedSeats)
+      : null;
+
+    const tenant = (
+      await db
+        .select()
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, existing.tenantId))
+        .limit(1)
+    )[0];
+    if (!tenant) {
+      res.status(404).json({ error: "Workspace not found" });
+      return;
+    }
+
+    if (approved) {
+      await db
+        .update(tenantsTable)
+        .set({ seatLimit: grantedSeats, updatedAt: new Date() })
+        .where(eq(tenantsTable.id, existing.tenantId));
+    }
+
+    const updated = (
+      await db
+        .update(seatRequestsTable)
+        .set({
+          status: approved ? "approved" : "denied",
+          grantedSeats,
+          decidedByEmail: req.tenantEmail,
+          decidedAt: new Date(),
+        })
+        .where(eq(seatRequestsTable.id, id))
+        .returning()
+    )[0];
+
+    try {
+      await recordAdminAction({
+        action: approved ? "seat_request_approve" : "seat_request_deny",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: existing.tenantId,
+        targetEmail: tenant.email ?? null,
+        oldValue: JSON.stringify({
+          requestedSeats: existing.requestedSeats,
+          previousSeatLimit: tenant.seatLimit ?? null,
+        }),
+        newValue: JSON.stringify({ grantedSeats }),
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write seat-request audit log");
+    }
+
+    await notifySeatRequestDecided(existing.tenantId, {
+      approved,
+      grantedSeats,
+    });
+
+    const decidedTenant = (
+      await db
+        .select()
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, existing.tenantId))
+        .limit(1)
+    )[0];
+    const [currentSeatLimit, seatsUsed] = await Promise.all([
+      getEffectiveSeatLimit(decidedTenant ?? tenant),
+      getSeatsUsed(existing.tenantId),
+    ]);
+
+    res.json({
+      ...serializeSeatRequest(updated!),
+      tenantId: existing.tenantId,
+      tenantName: tenant.name,
+      tenantEmail: tenant.email ?? null,
+      tenantPlan: tenant.plan,
+      currentSeatLimit,
+      seatsUsed,
+    });
   },
 );
 

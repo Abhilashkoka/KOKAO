@@ -25,4 +25,9 @@ export interface PlanUpdateInput {
      * @items.maxLength 120
      */
   features: string[];
+  /**
+     * Default team seat allotment. 0 disables the team add-on.
+     * @minimum 0
+     */
+  teamSeats?: number;
 }

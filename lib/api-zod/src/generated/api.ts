@@ -42,7 +42,12 @@ export const GetMeResponse = zod.object({
 }),
   "isSuperadmin": zod.boolean().describe('Whether the current user has cross-tenant superadmin access.'),
   "isOwner": zod.boolean().describe('Whether the current user is an allowlisted (root) owner. Only owners may grant or revoke the superadmin role for other tenants.'),
-  "brandOnboardingComplete": zod.boolean().describe('Whether the tenant has finished (or skipped) brand onboarding.')
+  "brandOnboardingComplete": zod.boolean().describe('Whether the tenant has finished (or skipped) brand onboarding.'),
+  "team": zod.object({
+  "enabled": zod.boolean().describe('Whether the team add-on is active for this workspace (the plan includes team seats or a superadmin granted a seat override).'),
+  "role": zod.enum(['owner', 'admin', 'member']).describe('The current user\'s role in this workspace.'),
+  "seatLimit": zod.number().describe('Effective seat limit (workspace override or plan default).')
+}).optional()
 })
 
 
@@ -83,7 +88,8 @@ export const ListPlansResponseItem = zod.object({
   "brandKits": zod.number().describe('Max brand kits. -1 means unlimited.'),
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
-  "features": zod.array(zod.string())
+  "features": zod.array(zod.string()),
+  "teamSeats": zod.number().describe('Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included.')
 })
 export const ListPlansResponse = zod.array(ListPlansResponseItem)
 
@@ -188,6 +194,255 @@ export const UpdateNotificationSettingsResponse = zod.object({
 
 
 /**
+ * @summary Get the workspace team overview (members, invites, seat requests)
+ */
+export const GetTeamResponse = zod.object({
+  "enabled": zod.boolean(),
+  "role": zod.enum(['owner', 'admin', 'member']),
+  "seatLimit": zod.number(),
+  "seatsUsed": zod.number().describe('Owner + members + pending invites.'),
+  "members": zod.array(zod.object({
+  "id": zod.number(),
+  "email": zod.string().nullable(),
+  "role": zod.enum(['owner', 'admin', 'member']),
+  "createdAt": zod.coerce.date()
+})),
+  "invites": zod.array(zod.object({
+  "id": zod.number(),
+  "email": zod.string(),
+  "role": zod.enum(['admin', 'member']),
+  "status": zod.enum(['pending', 'accepted', 'revoked']),
+  "createdAt": zod.coerce.date()
+})),
+  "seatRequests": zod.array(zod.object({
+  "id": zod.number(),
+  "requestedSeats": zod.number(),
+  "note": zod.string().nullable(),
+  "status": zod.enum(['pending', 'approved', 'denied']),
+  "grantedSeats": zod.number().nullable(),
+  "decidedAt": zod.coerce.date().nullish(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary Invite a user to this workspace by email (owner/admin only)
+ */
+export const createTeamInviteBodyEmailMax = 320;
+
+export const createTeamInviteBodyRoleDefault = `member`;
+
+export const CreateTeamInviteBody = zod.object({
+  "email": zod.string().email().max(createTeamInviteBodyEmailMax),
+  "role": zod.enum(['admin', 'member']).default(createTeamInviteBodyRoleDefault)
+})
+
+export const CreateTeamInviteResponse = zod.object({
+  "enabled": zod.boolean(),
+  "role": zod.enum(['owner', 'admin', 'member']),
+  "seatLimit": zod.number(),
+  "seatsUsed": zod.number().describe('Owner + members + pending invites.'),
+  "members": zod.array(zod.object({
+  "id": zod.number(),
+  "email": zod.string().nullable(),
+  "role": zod.enum(['owner', 'admin', 'member']),
+  "createdAt": zod.coerce.date()
+})),
+  "invites": zod.array(zod.object({
+  "id": zod.number(),
+  "email": zod.string(),
+  "role": zod.enum(['admin', 'member']),
+  "status": zod.enum(['pending', 'accepted', 'revoked']),
+  "createdAt": zod.coerce.date()
+})),
+  "seatRequests": zod.array(zod.object({
+  "id": zod.number(),
+  "requestedSeats": zod.number(),
+  "note": zod.string().nullable(),
+  "status": zod.enum(['pending', 'approved', 'denied']),
+  "grantedSeats": zod.number().nullable(),
+  "decidedAt": zod.coerce.date().nullish(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary Revoke a pending invite (owner/admin only)
+ */
+export const RevokeTeamInviteParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RevokeTeamInviteResponse = zod.object({
+  "enabled": zod.boolean(),
+  "role": zod.enum(['owner', 'admin', 'member']),
+  "seatLimit": zod.number(),
+  "seatsUsed": zod.number().describe('Owner + members + pending invites.'),
+  "members": zod.array(zod.object({
+  "id": zod.number(),
+  "email": zod.string().nullable(),
+  "role": zod.enum(['owner', 'admin', 'member']),
+  "createdAt": zod.coerce.date()
+})),
+  "invites": zod.array(zod.object({
+  "id": zod.number(),
+  "email": zod.string(),
+  "role": zod.enum(['admin', 'member']),
+  "status": zod.enum(['pending', 'accepted', 'revoked']),
+  "createdAt": zod.coerce.date()
+})),
+  "seatRequests": zod.array(zod.object({
+  "id": zod.number(),
+  "requestedSeats": zod.number(),
+  "note": zod.string().nullable(),
+  "status": zod.enum(['pending', 'approved', 'denied']),
+  "grantedSeats": zod.number().nullable(),
+  "decidedAt": zod.coerce.date().nullish(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary Remove a member from this workspace (owner/admin only)
+ */
+export const RemoveTeamMemberParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RemoveTeamMemberResponse = zod.object({
+  "enabled": zod.boolean(),
+  "role": zod.enum(['owner', 'admin', 'member']),
+  "seatLimit": zod.number(),
+  "seatsUsed": zod.number().describe('Owner + members + pending invites.'),
+  "members": zod.array(zod.object({
+  "id": zod.number(),
+  "email": zod.string().nullable(),
+  "role": zod.enum(['owner', 'admin', 'member']),
+  "createdAt": zod.coerce.date()
+})),
+  "invites": zod.array(zod.object({
+  "id": zod.number(),
+  "email": zod.string(),
+  "role": zod.enum(['admin', 'member']),
+  "status": zod.enum(['pending', 'accepted', 'revoked']),
+  "createdAt": zod.coerce.date()
+})),
+  "seatRequests": zod.array(zod.object({
+  "id": zod.number(),
+  "requestedSeats": zod.number(),
+  "note": zod.string().nullable(),
+  "status": zod.enum(['pending', 'approved', 'denied']),
+  "grantedSeats": zod.number().nullable(),
+  "decidedAt": zod.coerce.date().nullish(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary Request more team seats (owner/admin only; decided by a superadmin)
+ */
+export const createSeatRequestBodyRequestedSeatsMax = 1000;
+
+export const createSeatRequestBodyNoteMax = 1000;
+
+
+
+export const CreateSeatRequestBody = zod.object({
+  "requestedSeats": zod.number().min(1).max(createSeatRequestBodyRequestedSeatsMax),
+  "note": zod.string().max(createSeatRequestBodyNoteMax).optional()
+})
+
+export const CreateSeatRequestResponse = zod.object({
+  "enabled": zod.boolean(),
+  "role": zod.enum(['owner', 'admin', 'member']),
+  "seatLimit": zod.number(),
+  "seatsUsed": zod.number().describe('Owner + members + pending invites.'),
+  "members": zod.array(zod.object({
+  "id": zod.number(),
+  "email": zod.string().nullable(),
+  "role": zod.enum(['owner', 'admin', 'member']),
+  "createdAt": zod.coerce.date()
+})),
+  "invites": zod.array(zod.object({
+  "id": zod.number(),
+  "email": zod.string(),
+  "role": zod.enum(['admin', 'member']),
+  "status": zod.enum(['pending', 'accepted', 'revoked']),
+  "createdAt": zod.coerce.date()
+})),
+  "seatRequests": zod.array(zod.object({
+  "id": zod.number(),
+  "requestedSeats": zod.number(),
+  "note": zod.string().nullable(),
+  "status": zod.enum(['pending', 'approved', 'denied']),
+  "grantedSeats": zod.number().nullable(),
+  "decidedAt": zod.coerce.date().nullish(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary List team seat requests across all workspaces (superadmin only)
+ */
+export const AdminListSeatRequestsResponseItem = zod.object({
+  "id": zod.number(),
+  "tenantId": zod.number(),
+  "tenantName": zod.string(),
+  "tenantEmail": zod.string().nullable(),
+  "tenantPlan": zod.string(),
+  "currentSeatLimit": zod.number().describe('Effective seat limit for the workspace right now.'),
+  "seatsUsed": zod.number(),
+  "requestedSeats": zod.number(),
+  "note": zod.string().nullable(),
+  "status": zod.enum(['pending', 'approved', 'denied']),
+  "grantedSeats": zod.number().nullable(),
+  "decidedByEmail": zod.string().nullish(),
+  "decidedAt": zod.coerce.date().nullish(),
+  "createdAt": zod.coerce.date()
+})
+export const AdminListSeatRequestsResponse = zod.array(AdminListSeatRequestsResponseItem)
+
+
+/**
+ * @summary Approve or deny a seat request (superadmin only)
+ */
+export const AdminDecideSeatRequestParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const adminDecideSeatRequestBodySeatsMax = 1000;
+
+
+
+export const AdminDecideSeatRequestBody = zod.object({
+  "action": zod.enum(['approve', 'deny']),
+  "seats": zod.number().min(1).max(adminDecideSeatRequestBodySeatsMax).optional().describe('Seats to grant on approval. Defaults to the requested amount. Ignored when denying.')
+})
+
+export const AdminDecideSeatRequestResponse = zod.object({
+  "id": zod.number(),
+  "tenantId": zod.number(),
+  "tenantName": zod.string(),
+  "tenantEmail": zod.string().nullable(),
+  "tenantPlan": zod.string(),
+  "currentSeatLimit": zod.number().describe('Effective seat limit for the workspace right now.'),
+  "seatsUsed": zod.number(),
+  "requestedSeats": zod.number(),
+  "note": zod.string().nullable(),
+  "status": zod.enum(['pending', 'approved', 'denied']),
+  "grantedSeats": zod.number().nullable(),
+  "decidedByEmail": zod.string().nullish(),
+  "decidedAt": zod.coerce.date().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
  * @summary List all tenants with usage and resource counts (superadmin only)
  */
 export const AdminListTenantsResponseItem = zod.object({
@@ -267,6 +522,8 @@ export const adminCreatePlanBodyFeaturesItemMax = 120;
 
 export const adminCreatePlanBodyFeaturesMax = 12;
 
+export const adminCreatePlanBodyTeamSeatsMin = 0;
+
 
 
 export const AdminCreatePlanBody = zod.object({
@@ -279,7 +536,8 @@ export const AdminCreatePlanBody = zod.object({
   "brandKits": zod.number().describe('Max brand kits. -1 means unlimited.'),
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
-  "features": zod.array(zod.string().min(1).max(adminCreatePlanBodyFeaturesItemMax)).max(adminCreatePlanBodyFeaturesMax)
+  "features": zod.array(zod.string().min(1).max(adminCreatePlanBodyFeaturesItemMax)).max(adminCreatePlanBodyFeaturesMax),
+  "teamSeats": zod.number().min(adminCreatePlanBodyTeamSeatsMin).optional().describe('Default team seat allotment. 0 disables the team add-on.')
 })
 
 export const AdminCreatePlanResponseItem = zod.object({
@@ -292,7 +550,8 @@ export const AdminCreatePlanResponseItem = zod.object({
   "brandKits": zod.number().describe('Max brand kits. -1 means unlimited.'),
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
-  "features": zod.array(zod.string())
+  "features": zod.array(zod.string()),
+  "teamSeats": zod.number().describe('Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included.')
 })
 export const AdminCreatePlanResponse = zod.array(AdminCreatePlanResponseItem)
 
@@ -314,7 +573,8 @@ export const AdminDeletePlanResponseItem = zod.object({
   "brandKits": zod.number().describe('Max brand kits. -1 means unlimited.'),
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
-  "features": zod.array(zod.string())
+  "features": zod.array(zod.string()),
+  "teamSeats": zod.number().describe('Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included.')
 })
 export const AdminDeletePlanResponse = zod.array(AdminDeletePlanResponseItem)
 
@@ -334,6 +594,8 @@ export const adminUpdatePlanBodyFeaturesItemMax = 120;
 
 export const adminUpdatePlanBodyFeaturesMax = 12;
 
+export const adminUpdatePlanBodyTeamSeatsMin = 0;
+
 
 
 export const AdminUpdatePlanBody = zod.object({
@@ -345,7 +607,8 @@ export const AdminUpdatePlanBody = zod.object({
   "brandKits": zod.number().describe('Max brand kits. -1 means unlimited.'),
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
-  "features": zod.array(zod.string().min(1).max(adminUpdatePlanBodyFeaturesItemMax)).max(adminUpdatePlanBodyFeaturesMax)
+  "features": zod.array(zod.string().min(1).max(adminUpdatePlanBodyFeaturesItemMax)).max(adminUpdatePlanBodyFeaturesMax),
+  "teamSeats": zod.number().min(adminUpdatePlanBodyTeamSeatsMin).optional().describe('Default team seat allotment. 0 disables the team add-on.')
 })
 
 export const AdminUpdatePlanResponseItem = zod.object({
@@ -358,7 +621,8 @@ export const AdminUpdatePlanResponseItem = zod.object({
   "brandKits": zod.number().describe('Max brand kits. -1 means unlimited.'),
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
-  "features": zod.array(zod.string())
+  "features": zod.array(zod.string()),
+  "teamSeats": zod.number().describe('Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included.')
 })
 export const AdminUpdatePlanResponse = zod.array(AdminUpdatePlanResponseItem)
 

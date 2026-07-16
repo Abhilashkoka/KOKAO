@@ -25,6 +25,7 @@ import type {
   AdminAuditLogPage,
   AdminExportAuditLogsParams,
   AdminListAuditLogsParams,
+  AdminSeatRequest,
   AdminStats,
   AdminSweepRunResult,
   AdminTenant,
@@ -91,11 +92,15 @@ import type {
   ScheduleInput,
   ScheduleUpdate,
   ScheduledPost,
+  SeatRequestCreateInput,
+  SeatRequestDecisionInput,
   SendTestEmailInput,
   SendTestEmailResult,
   SocialCredentialStatus,
   SummarizeUrlRequest,
   SummarizeUrlResult,
+  TeamInviteCreateInput,
+  TeamOverview,
   Tenant,
   TenantSettings,
   ThreadsAppCredentialInput,
@@ -810,6 +815,511 @@ export const useUpdateNotificationSettings = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getUpdateNotificationSettingsMutationOptions(options));
+    }
+
+export const getGetTeamUrl = () => {
+
+
+
+
+  return `/api/team`
+}
+
+/**
+ * @summary Get the workspace team overview (members, invites, seat requests)
+ */
+export const getTeam = async ( options?: RequestInit): Promise<TeamOverview> => {
+
+  return customFetch<TeamOverview>(getGetTeamUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTeamQueryKey = () => {
+    return [
+    `/api/team`
+    ] as const;
+    }
+
+
+export const getGetTeamQueryOptions = <TData = Awaited<ReturnType<typeof getTeam>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTeam>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTeamQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTeam>>> = ({ signal }) => getTeam({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTeam>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTeamQueryResult = NonNullable<Awaited<ReturnType<typeof getTeam>>>
+export type GetTeamQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the workspace team overview (members, invites, seat requests)
+ */
+
+export function useGetTeam<TData = Awaited<ReturnType<typeof getTeam>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTeam>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTeamQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateTeamInviteUrl = () => {
+
+
+
+
+  return `/api/team/invites`
+}
+
+/**
+ * @summary Invite a user to this workspace by email (owner/admin only)
+ */
+export const createTeamInvite = async (teamInviteCreateInput: TeamInviteCreateInput, options?: RequestInit): Promise<TeamOverview> => {
+
+  return customFetch<TeamOverview>(getCreateTeamInviteUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(teamInviteCreateInput)
+  }
+);}
+
+
+
+
+export const getCreateTeamInviteMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createTeamInvite>>, TError,{data: BodyType<TeamInviteCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createTeamInvite>>, TError,{data: BodyType<TeamInviteCreateInput>}, TContext> => {
+
+const mutationKey = ['createTeamInvite'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createTeamInvite>>, {data: BodyType<TeamInviteCreateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createTeamInvite(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateTeamInviteMutationResult = NonNullable<Awaited<ReturnType<typeof createTeamInvite>>>
+    export type CreateTeamInviteMutationBody = BodyType<TeamInviteCreateInput>
+    export type CreateTeamInviteMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Invite a user to this workspace by email (owner/admin only)
+ */
+export const useCreateTeamInvite = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createTeamInvite>>, TError,{data: BodyType<TeamInviteCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createTeamInvite>>,
+        TError,
+        {data: BodyType<TeamInviteCreateInput>},
+        TContext
+      > => {
+      return useMutation(getCreateTeamInviteMutationOptions(options));
+    }
+
+export const getRevokeTeamInviteUrl = (id: number,) => {
+
+
+
+
+  return `/api/team/invites/${id}`
+}
+
+/**
+ * @summary Revoke a pending invite (owner/admin only)
+ */
+export const revokeTeamInvite = async (id: number, options?: RequestInit): Promise<TeamOverview> => {
+
+  return customFetch<TeamOverview>(getRevokeTeamInviteUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getRevokeTeamInviteMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeTeamInvite>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revokeTeamInvite>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['revokeTeamInvite'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revokeTeamInvite>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  revokeTeamInvite(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevokeTeamInviteMutationResult = NonNullable<Awaited<ReturnType<typeof revokeTeamInvite>>>
+
+    export type RevokeTeamInviteMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Revoke a pending invite (owner/admin only)
+ */
+export const useRevokeTeamInvite = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeTeamInvite>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof revokeTeamInvite>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRevokeTeamInviteMutationOptions(options));
+    }
+
+export const getRemoveTeamMemberUrl = (id: number,) => {
+
+
+
+
+  return `/api/team/members/${id}`
+}
+
+/**
+ * @summary Remove a member from this workspace (owner/admin only)
+ */
+export const removeTeamMember = async (id: number, options?: RequestInit): Promise<TeamOverview> => {
+
+  return customFetch<TeamOverview>(getRemoveTeamMemberUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getRemoveTeamMemberMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeTeamMember>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof removeTeamMember>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['removeTeamMember'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removeTeamMember>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  removeTeamMember(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RemoveTeamMemberMutationResult = NonNullable<Awaited<ReturnType<typeof removeTeamMember>>>
+
+    export type RemoveTeamMemberMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Remove a member from this workspace (owner/admin only)
+ */
+export const useRemoveTeamMember = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeTeamMember>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof removeTeamMember>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRemoveTeamMemberMutationOptions(options));
+    }
+
+export const getCreateSeatRequestUrl = () => {
+
+
+
+
+  return `/api/team/seat-requests`
+}
+
+/**
+ * @summary Request more team seats (owner/admin only; decided by a superadmin)
+ */
+export const createSeatRequest = async (seatRequestCreateInput: SeatRequestCreateInput, options?: RequestInit): Promise<TeamOverview> => {
+
+  return customFetch<TeamOverview>(getCreateSeatRequestUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(seatRequestCreateInput)
+  }
+);}
+
+
+
+
+export const getCreateSeatRequestMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSeatRequest>>, TError,{data: BodyType<SeatRequestCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createSeatRequest>>, TError,{data: BodyType<SeatRequestCreateInput>}, TContext> => {
+
+const mutationKey = ['createSeatRequest'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createSeatRequest>>, {data: BodyType<SeatRequestCreateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createSeatRequest(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateSeatRequestMutationResult = NonNullable<Awaited<ReturnType<typeof createSeatRequest>>>
+    export type CreateSeatRequestMutationBody = BodyType<SeatRequestCreateInput>
+    export type CreateSeatRequestMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Request more team seats (owner/admin only; decided by a superadmin)
+ */
+export const useCreateSeatRequest = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSeatRequest>>, TError,{data: BodyType<SeatRequestCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createSeatRequest>>,
+        TError,
+        {data: BodyType<SeatRequestCreateInput>},
+        TContext
+      > => {
+      return useMutation(getCreateSeatRequestMutationOptions(options));
+    }
+
+export const getAdminListSeatRequestsUrl = () => {
+
+
+
+
+  return `/api/admin/seat-requests`
+}
+
+/**
+ * @summary List team seat requests across all workspaces (superadmin only)
+ */
+export const adminListSeatRequests = async ( options?: RequestInit): Promise<AdminSeatRequest[]> => {
+
+  return customFetch<AdminSeatRequest[]>(getAdminListSeatRequestsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListSeatRequestsQueryKey = () => {
+    return [
+    `/api/admin/seat-requests`
+    ] as const;
+    }
+
+
+export const getAdminListSeatRequestsQueryOptions = <TData = Awaited<ReturnType<typeof adminListSeatRequests>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListSeatRequests>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListSeatRequestsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListSeatRequests>>> = ({ signal }) => adminListSeatRequests({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListSeatRequests>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListSeatRequestsQueryResult = NonNullable<Awaited<ReturnType<typeof adminListSeatRequests>>>
+export type AdminListSeatRequestsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List team seat requests across all workspaces (superadmin only)
+ */
+
+export function useAdminListSeatRequests<TData = Awaited<ReturnType<typeof adminListSeatRequests>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListSeatRequests>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListSeatRequestsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminDecideSeatRequestUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/seat-requests/${id}`
+}
+
+/**
+ * @summary Approve or deny a seat request (superadmin only)
+ */
+export const adminDecideSeatRequest = async (id: number,
+    seatRequestDecisionInput: SeatRequestDecisionInput, options?: RequestInit): Promise<AdminSeatRequest> => {
+
+  return customFetch<AdminSeatRequest>(getAdminDecideSeatRequestUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(seatRequestDecisionInput)
+  }
+);}
+
+
+
+
+export const getAdminDecideSeatRequestMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminDecideSeatRequest>>, TError,{id: number;data: BodyType<SeatRequestDecisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminDecideSeatRequest>>, TError,{id: number;data: BodyType<SeatRequestDecisionInput>}, TContext> => {
+
+const mutationKey = ['adminDecideSeatRequest'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminDecideSeatRequest>>, {id: number;data: BodyType<SeatRequestDecisionInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminDecideSeatRequest(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminDecideSeatRequestMutationResult = NonNullable<Awaited<ReturnType<typeof adminDecideSeatRequest>>>
+    export type AdminDecideSeatRequestMutationBody = BodyType<SeatRequestDecisionInput>
+    export type AdminDecideSeatRequestMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Approve or deny a seat request (superadmin only)
+ */
+export const useAdminDecideSeatRequest = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminDecideSeatRequest>>, TError,{id: number;data: BodyType<SeatRequestDecisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminDecideSeatRequest>>,
+        TError,
+        {id: number;data: BodyType<SeatRequestDecisionInput>},
+        TContext
+      > => {
+      return useMutation(getAdminDecideSeatRequestMutationOptions(options));
     }
 
 export const getAdminListTenantsUrl = () => {

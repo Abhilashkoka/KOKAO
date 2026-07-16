@@ -3,6 +3,7 @@ import healthRouter from "./health";
 import { publicStorageRouter, protectedStorageRouter } from "./storage";
 import plansRouter from "./plans";
 import meRouter from "./me";
+import teamRouter from "./team";
 import brandKitsRouter from "./brandKits";
 import brandPreferencesRouter from "./brandPreferences";
 import onboardingRouter from "./onboarding";
@@ -54,6 +55,7 @@ router.use("/social-credentials", sensitiveLimiter);
 
 router.use(protectedStorageRouter);
 router.use(meRouter);
+router.use(teamRouter);
 router.use(brandKitsRouter);
 router.use(brandPreferencesRouter);
 router.use(onboardingRouter);

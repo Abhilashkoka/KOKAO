@@ -8,6 +8,7 @@ declare global {
       tenantEmail: string | null;
       isSuperadmin: boolean;
       tenantIsSuperadmin: boolean;
+      memberRole: "owner" | "admin" | "member";
     }
   }
 }

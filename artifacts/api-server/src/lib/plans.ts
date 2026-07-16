@@ -14,6 +14,12 @@ export interface Plan {
   priceLabel: string;
   limits: PlanLimits;
   features: string[];
+  /**
+   * Team add-on: default seat allotment (including the owner) for workspaces
+   * on this plan. 0 = the team feature is not included. Superadmins can
+   * override per workspace via tenants.seatLimit (approved seat requests).
+   */
+  teamSeats: number;
 }
 
 export const DEFAULT_PLANS: Plan[] = [
@@ -22,6 +28,7 @@ export const DEFAULT_PLANS: Plan[] = [
     name: "Free",
     priceLabel: "$0 / mo",
     limits: { captions: 20, images: 10, brandKits: 1, scheduledPosts: 10 },
+    teamSeats: 0,
     features: [
       "20 AI captions / month",
       "10 AI images / month",
@@ -34,6 +41,7 @@ export const DEFAULT_PLANS: Plan[] = [
     name: "Pro",
     priceLabel: "$29 / mo",
     limits: { captions: 500, images: 200, brandKits: 10, scheduledPosts: 200 },
+    teamSeats: 0,
     features: [
       "500 AI captions / month",
       "200 AI images / month",
@@ -47,6 +55,7 @@ export const DEFAULT_PLANS: Plan[] = [
     name: "Business",
     priceLabel: "$99 / mo",
     limits: { captions: -1, images: -1, brandKits: -1, scheduledPosts: -1 },
+    teamSeats: 5,
     features: [
       "Unlimited AI captions",
       "Unlimited AI images",
@@ -132,6 +141,7 @@ function rowToPlan(r: typeof planSettingsTable.$inferSelect): Plan {
       scheduledPosts: r.scheduledPosts,
     },
     features: r.features,
+    teamSeats: r.teamSeats,
   };
 }
 

@@ -6,6 +6,8 @@ import { serializeTenant } from "../lib/serializers";
 import { getPlanLimits, listPlans } from "../lib/plans";
 import { getUsage } from "../lib/usage";
 import { isSuperadminEmail } from "../lib/superadmins";
+import { getEffectiveSeatLimit } from "../lib/team";
+import { requireWorkspaceAdmin } from "../middlewares/requireWorkspaceAdmin";
 
 const router: IRouter = Router();
 
@@ -22,6 +24,7 @@ router.get("/me", async (req: Request, res: Response) => {
     return;
   }
   const usage = await getUsage(req.tenantId);
+  const seatLimit = await getEffectiveSeatLimit(tenant);
   res.json({
     tenant: serializeTenant(tenant),
     usage: {
@@ -35,10 +38,17 @@ router.get("/me", async (req: Request, res: Response) => {
     // against the live verified email in the admin route.
     isOwner: isSuperadminEmail(tenant.email),
     brandOnboardingComplete: tenant.brandOnboardingComplete,
+    team: {
+      enabled: seatLimit > 0,
+      role: req.memberRole,
+      seatLimit,
+    },
   });
 });
 
-router.patch("/me/settings", async (req: Request, res: Response) => {
+// Workspace settings (name, plan, AI model) are owner/admin-only; plain
+// members read them via /me but cannot change them.
+router.patch("/me/settings", requireWorkspaceAdmin, async (req: Request, res: Response) => {
   const parsed = UpdateSettingsBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input" });
