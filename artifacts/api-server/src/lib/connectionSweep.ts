@@ -44,6 +44,46 @@ export const SWEEP_WATCHDOG_INTERVAL_MS = 5 * 60 * 1000;
 /** Minimum spacing between staleness checks triggered from request paths. */
 const WATCHDOG_MIN_CHECK_SPACING_MS = 5 * 60 * 1000;
 
+/** Hard cap on a single tenant+platform re-verify. Every outbound platform
+ * call already goes through the bounded platformFetch helper, so this is a
+ * belt-and-suspenders guard: even if a future code path forgets the helper, a
+ * hung check fails loudly after this cap instead of stalling the whole sweep. */
+export const SWEEP_CHECK_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.SWEEP_CHECK_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 30 * 1000;
+})();
+
+class SweepCheckTimeoutError extends Error {
+  constructor(platform: string) {
+    super(
+      `Re-verify for ${platform} exceeded ${Math.round(SWEEP_CHECK_TIMEOUT_MS / 1000)}s and was abandoned`,
+    );
+    this.name = "SweepCheckTimeoutError";
+  }
+}
+
+/** Race a re-verify against the sweep's hard per-check cap. */
+async function withSweepTimeout<T>(
+  platform: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      run(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new SweepCheckTimeoutError(platform)),
+          SWEEP_CHECK_TIMEOUT_MS,
+        );
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 const SWEEP_PLATFORMS = [
   "facebook",
   "instagram",
@@ -118,7 +158,7 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
       if (!platforms.has(platform)) continue;
       result.accountsChecked += 1;
       try {
-        await REVERIFIERS[platform](tenantId);
+        await withSweepTimeout(platform, () => REVERIFIERS[platform](tenantId));
       } catch (err) {
         logger.error(
           { err, tenantId, platform },

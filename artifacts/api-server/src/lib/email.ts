@@ -1,5 +1,6 @@
 import { logger } from "./logger";
 import { getEmailDeliveryState } from "./emailSettings";
+import { platformFetch } from "./platformFetch";
 
 /**
  * Transactional email via the Replit-managed SendGrid connector OR admin-entered
@@ -38,7 +39,7 @@ async function getConnectorConfig(): Promise<SendGridConfig | null> {
   if (!hostname || !token) return null;
 
   try {
-    const res = await fetch(
+    const res = await platformFetch(
       `https://${hostname}/api/v2/connection?include_secrets=true&connector_names=sendgrid`,
       { headers: { Accept: "application/json", X_REPLIT_TOKEN: token } },
     );
@@ -111,7 +112,7 @@ async function postToSendGrid(
   if (msg.html) content.push({ type: "text/html", value: msg.html });
 
   try {
-    const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
+    const res = await platformFetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${config.apiKey}`,

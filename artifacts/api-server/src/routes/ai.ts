@@ -181,6 +181,7 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
       method: "PUT",
       headers: { "Content-Type": "image/png" },
       body: new Uint8Array(buffer),
+      signal: AbortSignal.timeout(30_000),
     });
     if (!putRes.ok) {
       throw new Error(`Upload failed with status ${putRes.status}`);

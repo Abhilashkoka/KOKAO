@@ -801,7 +801,11 @@ router.post(
     let recentPosts: RecentThreadPost[] = [];
     const dedupeSinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
     try {
-      recentPosts = await fetchRecentThreadPosts(userId, accessToken, dedupeSinceMs);
+      recentPosts = await fetchRecentThreadPosts(
+        userId,
+        accessToken,
+        dedupeSinceMs,
+      );
     } catch (err) {
       req.log.warn(
         { err },
