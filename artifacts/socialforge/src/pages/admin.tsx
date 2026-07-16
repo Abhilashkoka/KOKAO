@@ -1727,16 +1727,32 @@ function PlansCard() {
                     </div>
                   ))}
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">
-                      Team seats (0 = team add-on off)
-                    </label>
-                    <Input
-                      value={draft.teamSeats}
-                      onChange={(e) =>
-                        setField(p.id, "teamSeats", e.target.value)
-                      }
-                      placeholder="e.g. 5"
-                    />
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium">
+                        Team members add-on
+                      </label>
+                      <Switch
+                        checked={Number(draft.teamSeats) > 0}
+                        onCheckedChange={(on) =>
+                          setField(p.id, "teamSeats", on ? "5" : "0")
+                        }
+                        aria-label="Toggle team members add-on"
+                      />
+                    </div>
+                    {Number(draft.teamSeats) > 0 && (
+                      <div className="space-y-1">
+                        <label className="text-xs text-muted-foreground">
+                          Seats included
+                        </label>
+                        <Input
+                          value={draft.teamSeats}
+                          onChange={(e) =>
+                            setField(p.id, "teamSeats", e.target.value)
+                          }
+                          placeholder="e.g. 5"
+                        />
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">
@@ -1822,19 +1838,38 @@ function PlansCard() {
                     </div>
                   ))}
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">
-                      Team seats (0 = team add-on off)
-                    </label>
-                    <Input
-                      value={newPlan.teamSeats}
-                      onChange={(e) =>
-                        setNewPlan((prev) => ({
-                          ...prev,
-                          teamSeats: e.target.value,
-                        }))
-                      }
-                      placeholder="e.g. 5"
-                    />
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium">
+                        Team members add-on
+                      </label>
+                      <Switch
+                        checked={Number(newPlan.teamSeats) > 0}
+                        onCheckedChange={(on) =>
+                          setNewPlan((prev) => ({
+                            ...prev,
+                            teamSeats: on ? "5" : "0",
+                          }))
+                        }
+                        aria-label="Toggle team members add-on"
+                      />
+                    </div>
+                    {Number(newPlan.teamSeats) > 0 && (
+                      <div className="space-y-1">
+                        <label className="text-xs text-muted-foreground">
+                          Seats included
+                        </label>
+                        <Input
+                          value={newPlan.teamSeats}
+                          onChange={(e) =>
+                            setNewPlan((prev) => ({
+                              ...prev,
+                              teamSeats: e.target.value,
+                            }))
+                          }
+                          placeholder="e.g. 5"
+                        />
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">
