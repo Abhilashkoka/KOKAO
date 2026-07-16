@@ -46,3 +46,5 @@ channel = "stable-25_05"
 
 [userenv.shared]
 SUPERADMIN_EMAILS = "abhilash.koka1@gmail.com"
+
+[userenv.development]

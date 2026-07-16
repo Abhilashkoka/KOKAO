@@ -11,7 +11,12 @@ import { platformFetch } from "./platformFetch";
 export { TWEET_MAX_LENGTH };
 
 /** v2 API base for tweet creation and the authenticated-user lookup. */
-export const TWITTER_API_BASE = "https://api.x.com";
+// Dev/test-only escape hatch so an e2e harness can point v2 API calls at a
+// local mock. Ignored in production, where the real endpoint is always used.
+export const TWITTER_API_BASE =
+  (process.env.NODE_ENV !== "production" &&
+    process.env.TWITTER_API_BASE_OVERRIDE) ||
+  "https://api.x.com";
 /** OAuth 2.0 authorization endpoint (PKCE authorization-code flow). */
 export const TWITTER_AUTH_URL = "https://twitter.com/i/oauth2/authorize";
 /** OAuth 2.0 token endpoint (code exchange + refresh). */

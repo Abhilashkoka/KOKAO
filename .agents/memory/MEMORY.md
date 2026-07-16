@@ -27,5 +27,6 @@
 - [Clerk Turnstile e2e bypass](clerk-turnstile-e2e-bypass.md) — sign-up CAPTCHA stalls all automation; bypass = testing token on FAPI requests + rewrite environment sitekey to Cloudflare's always-pass key.
 - [@types/react dedupe](types-react-dedupe.md) — duplicate @types/react in the hidden pnpm hoist breaks web typecheck; keep the workspace override pinned to the catalog range.
 - [Hoisted @types/react clash](hoisted-types-react-clash.md) — libs with bundled d.ts but no @types/react peer resolve the mobile-pinned 19.1.x; fix via packageExtensions, not overrides.
+- [Platform API e2e mocking](platform-api-e2e-mocking.md) — dev-only base-URL overrides + a workflow-hosted local mock let browser e2e complete real publish/resend flows; never host the mock in background bash.
 - [Platform fetch timeouts](platform-fetch-timeouts.md) — all outbound platform calls use the bounded-timeout platformFetch helper; timeouts are terminal, never retried.
 - [Expo web CORS](clerk-turnstile-e2e-bypass.md) — REPLIT_DOMAINS excludes the Expo dev domain; the API CORS allowlist must add REPLIT_EXPO_DEV_DOMAIN or mobile-web API reads fail.

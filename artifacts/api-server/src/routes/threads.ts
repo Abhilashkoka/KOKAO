@@ -29,7 +29,12 @@ const objectStorageService = new ObjectStorageService();
 const OAUTH_SCOPE = "threads_basic,threads_content_publish";
 const AUTH_BASE = "https://threads.net/oauth/authorize";
 const TOKEN_URL = "https://graph.threads.net/oauth/access_token";
-const GRAPH_BASE = "https://graph.threads.net/v1.0";
+// Dev/test-only escape hatch so an e2e harness can point Graph calls at a
+// local mock. Ignored in production, where the real endpoint is always used.
+const GRAPH_BASE =
+  (process.env.NODE_ENV !== "production" &&
+    process.env.THREADS_GRAPH_BASE_OVERRIDE) ||
+  "https://graph.threads.net/v1.0";
 const LONG_LIVED_URL = "https://graph.threads.net/access_token";
 
 /**
