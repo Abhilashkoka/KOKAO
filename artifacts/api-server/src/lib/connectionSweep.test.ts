@@ -40,6 +40,7 @@ import {
   sweepDeadConnections,
   recordSweepRun,
   triggerSweepNow,
+  isSweepRunning,
   checkSweepStaleness,
 } from "./connectionSweep";
 import {
@@ -625,16 +626,25 @@ describe("recordSweepRun", () => {
 });
 
 describe("triggerSweepNow", () => {
-  it("runs a sweep to completion and respects the overlap guard for a concurrent call", async () => {
-    const [first, second] = await Promise.all([
-      triggerSweepNow(),
-      triggerSweepNow(),
-    ]);
-    // Exactly one of the two concurrent triggers actually runs; the other is
-    // rejected by the overlap guard.
-    expect([first, second].filter(Boolean)).toHaveLength(1);
+  it("returns immediately, runs in the background, and respects the overlap guard", async () => {
+    // First trigger starts a background sweep synchronously.
+    const first = triggerSweepNow();
+    expect(first).toBe(true);
+    expect(isSweepRunning()).toBe(true);
+
+    // A second trigger while the sweep is in flight is rejected by the
+    // overlap guard without starting another run.
+    expect(triggerSweepNow()).toBe(false);
+
+    // Wait for the background sweep to finish.
+    await vi.waitFor(() => {
+      expect(isSweepRunning()).toBe(false);
+    });
 
     // Once the in-flight sweep finished, a new trigger runs again.
-    await expect(triggerSweepNow()).resolves.toBe(true);
+    expect(triggerSweepNow()).toBe(true);
+    await vi.waitFor(() => {
+      expect(isSweepRunning()).toBe(false);
+    });
   });
 });

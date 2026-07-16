@@ -7,6 +7,6 @@
  */
 
 export interface AdminSweepRunResult {
-  /** True when a sweep ran to completion; false when one was already running and the request was a no-op. */
+  /** True when a background sweep was started; false when one was already running and the request was a no-op. */
   started: boolean;
 }

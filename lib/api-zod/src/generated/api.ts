@@ -406,6 +406,7 @@ export const AdminGetStatsResponse = zod.object({
   "totalContent": zod.number(),
   "totalScheduledPosts": zod.number(),
   "totalConnectedAccounts": zod.number(),
+  "sweepRunning": zod.boolean().optional().describe('True while a dead-connection sweep is currently in flight in this server process. The admin dashboard polls stats while this is true so the Connection Sweep card refreshes when the run ends.'),
   "connectionSweep": zod.object({
   "lastRunAt": zod.coerce.date(),
   "durationMs": zod.number(),
@@ -420,7 +421,7 @@ export const AdminGetStatsResponse = zod.object({
  * @summary Trigger a connection sweep immediately (superadmin only)
  */
 export const AdminRunSweepResponse = zod.object({
-  "started": zod.boolean().describe('True when a sweep ran to completion; false when one was already running and the request was a no-op.')
+  "started": zod.boolean().describe('True when a background sweep was started; false when one was already running and the request was a no-op.')
 })
 
 

@@ -464,9 +464,10 @@ paths:
       responses:
         "200":
           description: >-
-            Sweep outcome. `started: true` means a full sweep ran to
-            completion; `started: false` means one was already in flight
-            (overlap guard) and no new sweep was started.
+            Sweep kickoff outcome. `started: true` means a sweep was started
+            in the background (poll /admin/stats for completion);
+            `started: false` means one was already in flight (overlap guard)
+            and no new sweep was started.
           content:
             application/json:
               schema:
@@ -3020,6 +3021,12 @@ components:
           type: integer
         totalConnectedAccounts:
           type: integer
+        sweepRunning:
+          type: boolean
+          description: >-
+            True while a dead-connection sweep is currently in flight in this
+            server process. The admin dashboard polls stats while this is
+            true so the Connection Sweep card refreshes when the run ends.
         connectionSweep:
           type: object
           nullable: true
@@ -3051,8 +3058,8 @@ components:
         started:
           type: boolean
           description: >-
-            True when a sweep ran to completion; false when one was already
-            running and the request was a no-op.
+            True when a background sweep was started; false when one was
+            already running and the request was a no-op.
     UpdateTenantPlanBody:
       type: object
       required: [plan]

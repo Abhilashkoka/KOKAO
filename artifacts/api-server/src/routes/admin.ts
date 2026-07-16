@@ -30,7 +30,11 @@ import {
 import { isSuperadminEmail } from "../lib/superadmins";
 import { fetchVerifiedEmail } from "../lib/clerkUser";
 import { currentPeriodStart } from "../lib/usage";
-import { triggerSweepNow, checkSweepStaleness } from "../lib/connectionSweep";
+import {
+  triggerSweepNow,
+  checkSweepStaleness,
+  isSweepRunning,
+} from "../lib/connectionSweep";
 import {
   NOTIFICATION_TYPES,
   NOTIFICATION_TYPE_SET,
@@ -182,6 +186,7 @@ router.get("/admin/stats", async (_req: Request, res: Response) => {
     totalContent: contentRow[0]?.count ?? 0,
     totalScheduledPosts: scheduleRow[0]?.count ?? 0,
     totalConnectedAccounts: accountRow[0]?.count ?? 0,
+    sweepRunning: isSweepRunning(),
     connectionSweep: sweepRow[0]
       ? {
           lastRunAt: sweepRow[0].lastRunAt.toISOString(),
@@ -196,13 +201,15 @@ router.get("/admin/stats", async (_req: Request, res: Response) => {
 
 /**
  * POST /admin/sweep/run
- * Trigger a connection sweep immediately (admin "Run now"). Respects the
- * in-process overlap guard: if a sweep is already in flight the request is a
- * no-op and returns started=false. Resolves after the sweep completes so the
- * dashboard can refetch fresh stats.
+ * Kick off a connection sweep immediately (admin "Run now"). The sweep runs
+ * in the background — this responds as soon as it is started, so a sweep
+ * that takes minutes never leaves the request (or the admin UI) hanging.
+ * Respects the in-process overlap guard: if a sweep is already in flight the
+ * request is a no-op and returns started=false. The dashboard polls
+ * /admin/stats (which reports sweepRunning) until the run completes.
  */
-router.post("/admin/sweep/run", async (_req: Request, res: Response) => {
-  const started = await triggerSweepNow();
+router.post("/admin/sweep/run", (_req: Request, res: Response) => {
+  const started = triggerSweepNow();
   res.json({ started });
 });
 

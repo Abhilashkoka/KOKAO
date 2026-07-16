@@ -31,7 +31,8 @@ vi.mock("@clerk/express", async () => {
 // trigger: this file tests the route's auth gating + response shape, while
 // the sweep logic itself is covered by connectionSweep.test.ts.
 vi.mock("../lib/connectionSweep", () => ({
-  triggerSweepNow: vi.fn(async () => true),
+  triggerSweepNow: vi.fn(() => true),
+  isSweepRunning: vi.fn(() => false),
   // /admin/stats fires this watchdog check fire-and-forget; stub it so the
   // stats route never touches the real sweep-status/notification paths here.
   checkSweepStaleness: vi.fn(async () => undefined),

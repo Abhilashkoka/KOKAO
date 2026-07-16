@@ -284,14 +284,24 @@ async function runSweepOnce(): Promise<boolean> {
   return true;
 }
 
+/** Whether a sweep is currently in flight (exposed for admin-dashboard polling). */
+export function isSweepRunning(): boolean {
+  return sweepRunning;
+}
+
 /**
- * Run a sweep immediately, on demand (admin "Run now"). Respects the same
- * overlap guard as the periodic timer: if a sweep is already in flight this
- * returns false without starting another. Resolves after the sweep completes
- * (and its outcome is persisted), so callers can refetch stats right away.
+ * Kick off a sweep immediately, on demand (admin "Run now"). Respects the
+ * same overlap guard as the periodic timer: if a sweep is already in flight
+ * this returns false without starting another. The sweep runs in the
+ * BACKGROUND — this returns as soon as the run is started (sweepRunning is
+ * set synchronously before the first await, so the overlap guard and
+ * isSweepRunning() are race-free), letting the HTTP handler respond instantly
+ * while the dashboard polls stats/isSweepRunning for completion.
  */
-export async function triggerSweepNow(): Promise<boolean> {
-  return runSweepOnce();
+export function triggerSweepNow(): boolean {
+  if (sweepRunning) return false;
+  void runSweepOnce();
+  return true;
 }
 
 /**

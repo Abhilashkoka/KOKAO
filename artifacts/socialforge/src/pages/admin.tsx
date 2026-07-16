@@ -2076,7 +2076,15 @@ export function AdminPage() {
     data: stats,
     isLoading: statsLoading,
     error: statsError,
-  } = useAdminGetStats();
+  } = useAdminGetStats({
+    query: {
+      queryKey: getAdminGetStatsQueryKey(),
+      // While a sweep is in flight the server reports sweepRunning=true;
+      // poll so the Connection Sweep card refreshes as soon as it finishes.
+      refetchInterval: (query) =>
+        query.state.data?.sweepRunning ? 3000 : false,
+    },
+  });
   const { data: planCatalog } = useListPlans();
   const updatePlan = useAdminUpdateTenantPlan();
   const updateSuperadmin = useAdminUpdateTenantSuperadmin();
@@ -2090,8 +2098,9 @@ export function AdminPage() {
         });
         if (result.started) {
           toast({
-            title: "Sweep completed",
-            description: "All social connections were re-checked.",
+            title: "Sweep started",
+            description:
+              "Re-checking all social connections in the background. Results will refresh here when it finishes.",
           });
         } else {
           toast({
@@ -2261,10 +2270,10 @@ export function AdminPage() {
               variant="outline"
               size="sm"
               onClick={handleRunSweep}
-              disabled={runSweep.isPending}
+              disabled={runSweep.isPending || stats?.sweepRunning === true}
               data-testid="button-run-sweep"
             >
-              {runSweep.isPending ? (
+              {runSweep.isPending || stats?.sweepRunning ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Running...
@@ -2274,7 +2283,11 @@ export function AdminPage() {
               )}
             </Button>
           {!statsLoading &&
-            (stats?.connectionSweep ? (
+            (stats?.sweepRunning ? (
+              <Badge variant="secondary" data-testid="badge-sweep-running">
+                Running
+              </Badge>
+            ) : stats?.connectionSweep ? (
               isSweepStale(stats.connectionSweep.lastRunAt) ? (
                 <Badge
                   variant="destructive"
