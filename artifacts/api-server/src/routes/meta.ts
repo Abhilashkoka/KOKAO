@@ -98,6 +98,22 @@ type GraphError = {
 };
 
 /**
+ * Build the text published to Facebook/Instagram from a content item: the
+ * title on its own line, then the caption. When the caption already starts
+ * with the title (or one of them is empty) no duplication happens.
+ */
+export function buildPostText(
+  title: string | null | undefined,
+  caption: string | null | undefined,
+): string {
+  const t = title?.trim() ?? "";
+  const c = caption?.trim() ?? "";
+  if (!c) return t;
+  if (!t || c.toLowerCase().startsWith(t.toLowerCase())) return c;
+  return `${t}\n\n${c}`;
+}
+
+/**
  * Decide whether a failed Graph API response is a transient hiccup worth
  * retrying. Definitive errors (bad token, invalid params, permissions) are NOT
  * retried — retrying them would just fail slower.
@@ -687,7 +703,7 @@ router.post(
     }
 
     const { pageId, pageAccessToken } = fb.creds;
-    const message = item.caption?.trim() || item.title;
+    const message = buildPostText(item.title, item.caption);
 
     // Anchor for the duplicate-post probe: only posts created at/after this
     // moment can be a result of THIS publish request. A small backward buffer
@@ -830,7 +846,7 @@ router.post(
 
     const pageToken = fb.creds.pageAccessToken;
     const igUserId = ig.creds.igUserId;
-    const caption = item.caption?.trim() || item.title;
+    const caption = buildPostText(item.title, item.caption);
     const imagePath = item.imagePath;
 
     // Instagram fetches the image asynchronously, so the container can stay
