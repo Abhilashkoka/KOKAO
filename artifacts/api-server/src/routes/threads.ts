@@ -798,8 +798,8 @@ router.post(
     // Best-effort dedupe: if a previous resend attempt actually posted a
     // missing piece but the response was lost, reuse it instead of
     // double-posting.
-    let recentPosts: RecentThreadPost[] = [];
     const dedupeSinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
+    let recentPosts: RecentThreadPost[] = [];
     try {
       recentPosts = await fetchRecentThreadPosts(
         userId,
