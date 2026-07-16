@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -10,8 +10,12 @@ import {
   useSummarizeUrl,
   useResearchTopic,
   useCreateContent,
+  useUpdateContent,
+  useDeleteContent,
   useListBrandKits,
+  useGetMe,
   getListContentQueryKey,
+  getGetMeQueryKey,
   type BrandKit,
   type CampaignPost,
   type ResearchResult,
@@ -26,7 +30,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useToast } from "@/hooks/use-toast";
-import { Wand2, Image as ImageIcon, Save, Loader2, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw } from "lucide-react";
+import { Wand2, Image as ImageIcon, Save, Loader2, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { CampaignPostCard, type GeneratedImage } from "@/components/campaign-post-card";
 import {
@@ -173,6 +177,87 @@ export function StudioPage() {
   const summarizeUrl = useSummarizeUrl();
   const researchTopic = useResearchTopic();
   const createContent = useCreateContent();
+  const updateContent = useUpdateContent();
+  const deleteContent = useDeleteContent();
+  const { data: me } = useGetMe();
+
+  // Auto-saved draft: every generated caption/image is persisted immediately
+  // as a library draft; "Save to Library" accepts it, "Discard" deletes it.
+  const [draftId, setDraftId] = useState<number | null>(null);
+  const draftIdRef = useRef<number | null>(null);
+  const setDraft = (id: number | null) => {
+    draftIdRef.current = id;
+    setDraftId(id);
+  };
+
+  const refreshQuota = () => {
+    queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+  };
+
+  const buildDraftData = (
+    caption: { caption: string } | null,
+    image: { imagePath: string } | null,
+  ) => {
+    const values = form.getValues();
+    return {
+      title: values.prompt.trim().slice(0, 30) + (values.prompt.trim().length > 30 ? "..." : ""),
+      caption: caption?.caption || undefined,
+      imagePath: image?.imagePath || undefined,
+      imagePrompt: image ? values.prompt : undefined,
+      platform: values.platform,
+      status: "draft" as const,
+      brandKitId: values.brandKitId || undefined,
+    };
+  };
+
+  const upsertDraft = (
+    caption: { caption: string } | null,
+    image: { imagePath: string } | null,
+  ) => {
+    const data = buildDraftData(caption, image);
+    const id = draftIdRef.current;
+    if (id) {
+      updateContent.mutate(
+        { id, data },
+        {
+          onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+          },
+          onError: (err: any) => {
+            const status = err?.status ?? err?.response?.status;
+            if (status === 404) {
+              // Draft was deleted elsewhere; recreate it.
+              setDraft(null);
+              createContent.mutate(
+                { data },
+                {
+                  onSuccess: (item) => {
+                    setDraft(item.id);
+                    queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+                  },
+                },
+              );
+            }
+            // Other errors: keep the existing draft id — the user can still
+            // save manually, and recreating here could duplicate the draft.
+          },
+        },
+      );
+    } else {
+      createContent.mutate(
+        { data },
+        {
+          onSuccess: (item) => {
+            setDraft(item.id);
+            queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+          },
+          onError: () => {
+            // Auto-save is best-effort; the user can still save manually.
+          },
+        },
+      );
+    }
+  };
 
   const form = useForm<z.infer<typeof schema>>({
     resolver: zodResolver(schema),
@@ -280,7 +365,9 @@ export function StudioPage() {
           setCampaignPosts(null);
           setCaptionResult(res);
           setCaptionPlatform(data.platform ?? null);
-          toast({ title: "Caption generated!" });
+          refreshQuota();
+          upsertDraft(res, imageResult);
+          toast({ title: "Caption generated!", description: "Auto-saved to your library as a draft." });
         },
         onError: handleError,
       },
@@ -296,7 +383,9 @@ export function StudioPage() {
         onSuccess: (res) => {
           setCampaignPosts(null);
           setImageResult(res);
-          toast({ title: "Image generated!" });
+          refreshQuota();
+          upsertDraft(captionResult, res);
+          toast({ title: "Image generated!", description: "Auto-saved to your library as a draft." });
         },
         onError: handleError,
       },
@@ -325,6 +414,8 @@ export function StudioPage() {
           setCampaignImages({});
           setPendingCampaignImage(null);
           setCampaignPosts(res.posts);
+          setDraft(null);
+          refreshQuota();
           toast({ title: "Campaign generated!", description: `${res.posts.length} platform variants ready.` });
         },
         onError: handleError,
@@ -360,30 +451,47 @@ export function StudioPage() {
       return;
     }
 
-    const values = form.getValues();
-    createContent.mutate(
-      {
-        data: {
-          title: values.prompt.slice(0, 30) + "...",
-          caption: captionResult?.caption || undefined,
-          imagePath: imageResult?.imagePath || undefined,
-          imagePrompt: imageResult ? values.prompt : undefined,
-          platform: values.platform,
-          status: "draft",
-          brandKitId: values.brandKitId || undefined,
+    const data = buildDraftData(captionResult, imageResult);
+    const onSaved = () => {
+      queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+      setDraft(null);
+      toast({ title: "Saved to library!" });
+      navigate("/library");
+    };
+    const onSaveError = (err: unknown) => {
+      toast({ title: "Failed to save", description: (err as any).message, variant: "destructive" });
+    };
+
+    if (draftId) {
+      updateContent.mutate(
+        { id: draftId, data },
+        { onSuccess: onSaved, onError: onSaveError },
+      );
+    } else {
+      createContent.mutate({ data }, { onSuccess: onSaved, onError: onSaveError });
+    }
+  };
+
+  const handleDiscard = () => {
+    const finish = () => {
+      setDraft(null);
+      setCaptionResult(null);
+      setCaptionPlatform(null);
+      setImageResult(null);
+      queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+      toast({ title: "Discarded", description: "The draft was removed from your library." });
+    };
+    if (draftId) {
+      deleteContent.mutate(
+        { id: draftId },
+        {
+          onSuccess: finish,
+          onError: finish, // already gone — just clear locally
         },
-      },
-      {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
-          toast({ title: "Saved to library!" });
-          navigate("/library");
-        },
-        onError: (err) => {
-          toast({ title: "Failed to save", description: (err as any).message, variant: "destructive" });
-        },
-      },
-    );
+      );
+    } else {
+      finish();
+    }
   };
 
   const isPending =
@@ -391,7 +499,14 @@ export function StudioPage() {
     generateImage.isPending ||
     generateCampaign.isPending ||
     researchTopic.isPending ||
-    createContent.isPending;
+    createContent.isPending ||
+    updateContent.isPending ||
+    deleteContent.isPending;
+
+  const captionsLeft =
+    me && me.limits.captions !== -1 ? Math.max(0, me.limits.captions - me.usage.captions) : null;
+  const imagesLeft =
+    me && me.limits.images !== -1 ? Math.max(0, me.limits.images - me.usage.images) : null;
 
   const selectedBrandKitId = form.watch("brandKitId") || undefined;
   const selectedBrandKit = selectedBrandKitId
@@ -403,11 +518,60 @@ export function StudioPage() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-6xl mx-auto">
-      <div>
-        <h1 className="text-3xl font-extrabold tracking-tight">AI Content Studio</h1>
-        <p className="text-muted-foreground text-lg mt-1">
-          Brainstorm, research, and generate on-brand content across every platform.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight">AI Content Studio</h1>
+          <p className="text-muted-foreground text-lg mt-1">
+            Brainstorm, research, and generate on-brand content across every platform.
+          </p>
+        </div>
+        {me && (
+          <div
+            className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-sm"
+            data-testid="quota-countdown"
+          >
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider mr-1">
+              This month
+            </span>
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${
+                captionsLeft === 0 ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+              }`}
+              data-testid="quota-captions"
+            >
+              <Wand2 className="h-3.5 w-3.5" />
+              {captionsLeft === null ? (
+                <>
+                  <InfinityIcon className="h-3.5 w-3.5" /> captions
+                </>
+              ) : (
+                `${captionsLeft} caption${captionsLeft === 1 ? "" : "s"} left`
+              )}
+            </span>
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${
+                imagesLeft === 0 ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+              }`}
+              data-testid="quota-images"
+            >
+              <ImageIcon className="h-3.5 w-3.5" />
+              {imagesLeft === null ? (
+                <>
+                  <InfinityIcon className="h-3.5 w-3.5" /> images
+                </>
+              ) : (
+                `${imagesLeft} image${imagesLeft === 1 ? "" : "s"} left`
+              )}
+            </span>
+            <span
+              className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground"
+              data-testid="quota-helpers"
+            >
+              <Lightbulb className="h-3.5 w-3.5" />
+              Ideas, research &amp; briefs: unlimited
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -827,17 +991,37 @@ export function StudioPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle>Results</CardTitle>
-                    <CardDescription>Review and save your generated content.</CardDescription>
+                    <CardDescription>
+                      {hasSingleResult
+                        ? "Auto-saved as a draft. Keep it or discard it."
+                        : "Review and save your generated content."}
+                    </CardDescription>
                   </div>
                   {hasSingleResult && (
-                    <Button onClick={handleSave} disabled={isPending} size="sm">
-                      {createContent.isPending ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Save className="mr-2 h-4 w-4" />
-                      )}
-                      Save to Library
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        onClick={handleDiscard}
+                        disabled={isPending}
+                        size="sm"
+                        variant="outline"
+                        data-testid="button-discard-draft"
+                      >
+                        {deleteContent.isPending ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="mr-2 h-4 w-4" />
+                        )}
+                        Discard
+                      </Button>
+                      <Button onClick={handleSave} disabled={isPending} size="sm" data-testid="button-save-draft">
+                        {createContent.isPending || updateContent.isPending ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Save className="mr-2 h-4 w-4" />
+                        )}
+                        Save to Library
+                      </Button>
+                    </div>
                   )}
                 </div>
               </CardHeader>

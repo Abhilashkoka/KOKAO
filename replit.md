@@ -59,7 +59,7 @@ KOKAO (internal codename SocialForge; code packages keep the `@workspace/socialf
 
 ## Product
 
-- AI content studio: generate captions and images from a prompt, optionally tied to a brand kit. Also: topic ideation (niche -> 5 ideas), article-URL -> brief (fetch + summarize to {title, summary}), and multi-platform campaign generation (one brief -> per-platform caption + hashtags + image prompt).
+- AI content studio: generate captions and images from a prompt, optionally tied to a brand kit. Single-result generations auto-save to the library as a draft (studio tracks the draft id and updates it in place; "Save to Library" accepts, "Discard" deletes; on update failure only a 404 triggers re-create to avoid duplicate drafts). A header strip shows live captions/images remaining this month (the `me` query is invalidated after each metered generation); ideas/research/briefs are unmetered. Also: topic ideation (niche -> 5 ideas), article-URL -> brief (fetch + summarize to {title, summary}), and multi-platform campaign generation (one brief -> per-platform caption + hashtags + image prompt).
 - Content library: save, edit, delete content items (draft/scheduled/published).
 - Brand kits: multiple brands per tenant with a versioned-JSON payload (identity, logos, colors, typography, voice, visual style, layout tokens, channel rules, brand controls) as the source of truth. One default brand; editing creates a new activated version; best-effort AI draft from URL/notes; skippable first-login onboarding wizard.
 - Scheduling: plan posts on a calendar. IMPORTANT: this RECORDS scheduled posts only — there is NO executor/cron that publishes them at the scheduled time. Publishing is manual from the Content Library.
