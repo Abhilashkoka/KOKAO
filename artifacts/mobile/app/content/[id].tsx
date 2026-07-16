@@ -11,11 +11,25 @@ import {
   useDeleteContent,
   usePublishContentToFacebook,
   usePublishContentToInstagram,
+  usePublishContentToLinkedin,
+  usePublishContentToTwitter,
+  usePublishContentToThreads,
   useGetFacebookCredentials,
   useGetInstagramCredentials,
+  useGetLinkedinStatus,
+  useGetTwitterStatus,
+  useGetThreadsStatus,
   getListContentQueryKey,
   getGetContentQueryKey,
 } from "@workspace/api-client-react";
+import {
+  TWEET_MAX_LENGTH,
+  THREADS_MAX_LENGTH,
+  splitForLinkedin,
+  splitIntoTweets,
+  chunkOnWhitespace,
+  isOverLinkedinLimit,
+} from "@workspace/social-limits";
 
 import { ContentImage } from "@/components/ContentImage";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
@@ -49,8 +63,14 @@ export default function ContentDetailScreen() {
 
   const publishFacebook = usePublishContentToFacebook();
   const publishInstagram = usePublishContentToInstagram();
+  const publishLinkedin = usePublishContentToLinkedin();
+  const publishTwitter = usePublishContentToTwitter();
+  const publishThreads = usePublishContentToThreads();
   const { data: fbCreds } = useGetFacebookCredentials();
   const { data: igCreds } = useGetInstagramCredentials();
+  const { data: liStatus } = useGetLinkedinStatus();
+  const { data: twStatus } = useGetTwitterStatus();
+  const { data: thStatus } = useGetThreadsStatus();
 
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
@@ -110,6 +130,46 @@ export default function ContentDetailScreen() {
   const igReady = igCreds?.verifyStatus === "verified";
   const fbBroken = !!fbCreds?.saved && fbCreds?.verifyStatus === "failed";
   const igBroken = !!igCreds?.saved && igCreds?.verifyStatus === "failed";
+  const liReady = !!liStatus?.connected && !liStatus?.expired;
+  const twReady = !!twStatus?.connected && !twStatus?.expired;
+  const thReady = !!thStatus?.connected && !thStatus?.expired;
+  const liExpired = !!liStatus?.expired;
+  const twExpired = !!twStatus?.expired;
+  const thExpired = !!thStatus?.expired;
+
+  const anyPublishPending =
+    publishFacebook.isPending ||
+    publishInstagram.isPending ||
+    publishLinkedin.isPending ||
+    publishTwitter.isPending ||
+    publishThreads.isPending;
+
+  const captionText = caption.trim();
+  const liSplit = splitForLinkedin(captionText);
+  const tweetChunks = splitIntoTweets(captionText);
+  const threadsChunks = chunkOnWhitespace(captionText, THREADS_MAX_LENGTH);
+  const splitWarnings: string[] = [];
+  if (liReady && isOverLinkedinLimit(captionText)) {
+    splitWarnings.push(
+      `LinkedIn: this caption is over the limit, so the rest will be added as ${liSplit.comments.length} comment(s).`,
+    );
+  }
+  if (twReady && captionText.length > TWEET_MAX_LENGTH) {
+    splitWarnings.push(
+      `X: this caption is over the ${TWEET_MAX_LENGTH}-character limit, so it will post as a thread of ${tweetChunks.length} tweets.`,
+    );
+  }
+  if (thReady && captionText.length > THREADS_MAX_LENGTH) {
+    splitWarnings.push(
+      `Threads: this caption is over the ${THREADS_MAX_LENGTH}-character limit, so it will post as a chain of ${threadsChunks.length} connected posts.`,
+    );
+  }
+
+  const expiredNames = [
+    liExpired ? "LinkedIn" : null,
+    twExpired ? "X" : null,
+    thExpired ? "Threads" : null,
+  ].filter((n): n is string => n !== null);
 
   const invalidateContent = () => {
     queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
@@ -185,6 +245,101 @@ export default function ContentDetailScreen() {
             apiErrorText(
               err,
               "Could not retry the Instagram publish. Check your Instagram connection on the web app.",
+            ),
+          );
+        },
+      },
+    );
+  };
+
+  const handlePublishLinkedin = () => {
+    haptic();
+    setPublishMsg(null);
+    setPublishErr(null);
+    publishLinkedin.mutate(
+      { id: contentId },
+      {
+        onSuccess: (res) => {
+          if (res?.commentWarning) {
+            setPublishMsg(null);
+            setPublishErr(
+              `Published to LinkedIn, but some comments failed. ${res.commentWarning} You can resend the missing comments from the web library.`,
+            );
+          } else {
+            const extra =
+              res?.commentsPosted && res.commentsPosted > 0
+                ? ` The rest of your caption was added as ${res.commentsPosted} comment(s).`
+                : "";
+            setPublishMsg(`Published to LinkedIn. Your post is live.${extra}`);
+          }
+          invalidateContent();
+        },
+        onError: (err) => {
+          setPublishErr(
+            apiErrorText(
+              err,
+              "Could not publish to LinkedIn. Check your LinkedIn connection on the web app.",
+            ),
+          );
+        },
+      },
+    );
+  };
+
+  const handlePublishTwitter = () => {
+    haptic();
+    setPublishMsg(null);
+    setPublishErr(null);
+    publishTwitter.mutate(
+      { id: contentId },
+      {
+        onSuccess: (res) => {
+          const extra =
+            res?.tweetCount && res.tweetCount > 1
+              ? ` Your caption was posted as a thread of ${res.tweetCount} tweets.`
+              : "";
+          setPublishMsg(`Published to X. Your post is live.${extra}`);
+          invalidateContent();
+        },
+        onError: (err) => {
+          setPublishErr(
+            apiErrorText(
+              err,
+              "Could not publish to X. Check your X connection on the web app.",
+            ),
+          );
+        },
+      },
+    );
+  };
+
+  const handlePublishThreads = () => {
+    haptic();
+    setPublishMsg(null);
+    setPublishErr(null);
+    publishThreads.mutate(
+      { id: contentId },
+      {
+        onSuccess: (res) => {
+          if (res?.publishWarning) {
+            setPublishMsg(null);
+            setPublishErr(
+              `Published to Threads, but some follow-up posts failed. ${res.publishWarning}`,
+            );
+          } else {
+            const extra =
+              res?.postsPublished && res.postsPublished > 1
+                ? ` Your caption was posted as a chain of ${res.postsPublished} connected posts.`
+                : "";
+            setPublishMsg(`Published to Threads. Your post is live.${extra}`);
+          }
+          invalidateContent();
+        },
+        onError: (err) => {
+          setPublishErr(
+            apiErrorText(
+              err,
+              "Could not publish to Threads. Check your Threads connection on the web app.",
             ),
           );
         },
@@ -337,7 +492,7 @@ export default function ContentDetailScreen() {
                   variant="secondary"
                   onPress={handlePublishFacebook}
                   loading={publishFacebook.isPending}
-                  disabled={publishInstagram.isPending}
+                  disabled={anyPublishPending && !publishFacebook.isPending}
                   style={{ flex: 1 }}
                 />
               ) : null}
@@ -348,7 +503,47 @@ export default function ContentDetailScreen() {
                   variant="secondary"
                   onPress={handlePublishInstagram}
                   loading={publishInstagram.isPending}
-                  disabled={publishFacebook.isPending || !data.imagePath}
+                  disabled={
+                    (anyPublishPending && !publishInstagram.isPending) ||
+                    !data.imagePath
+                  }
+                  style={{ flex: 1 }}
+                />
+              ) : null}
+            </View>
+          ) : null}
+          {liReady || twReady || thReady ? (
+            <View style={[styles.publishRow, fbReady || igReady ? { marginTop: 10 } : null]}>
+              {liReady ? (
+                <Button
+                  title="LinkedIn"
+                  icon="linkedin"
+                  variant="secondary"
+                  onPress={handlePublishLinkedin}
+                  loading={publishLinkedin.isPending}
+                  disabled={anyPublishPending && !publishLinkedin.isPending}
+                  style={{ flex: 1 }}
+                />
+              ) : null}
+              {twReady ? (
+                <Button
+                  title="X"
+                  icon="twitter"
+                  variant="secondary"
+                  onPress={handlePublishTwitter}
+                  loading={publishTwitter.isPending}
+                  disabled={anyPublishPending && !publishTwitter.isPending}
+                  style={{ flex: 1 }}
+                />
+              ) : null}
+              {thReady ? (
+                <Button
+                  title="Threads"
+                  icon="at-sign"
+                  variant="secondary"
+                  onPress={handlePublishThreads}
+                  loading={publishThreads.isPending}
+                  disabled={anyPublishPending && !publishThreads.isPending}
                   style={{ flex: 1 }}
                 />
               ) : null}
@@ -360,6 +555,11 @@ export default function ContentDetailScreen() {
               first.
             </Text>
           ) : null}
+          {splitWarnings.map((w) => (
+            <Text key={w} style={styles.publishHint}>
+              {w} Your full message is preserved.
+            </Text>
+          ))}
           {fbBroken || igBroken ? (
             <View style={styles.brokenBox}>
               <Feather name="alert-triangle" size={14} color={c.destructive} />
@@ -372,9 +572,24 @@ export default function ContentDetailScreen() {
               </Text>
             </View>
           ) : null}
-          {!fbReady && !igReady && !fbBroken && !igBroken ? (
+          {expiredNames.length > 0 ? (
+            <View style={styles.brokenBox}>
+              <Feather name="alert-triangle" size={14} color={c.destructive} />
+              <Text style={styles.brokenText}>
+                {`Your ${expiredNames.join(" and ")} connection${expiredNames.length > 1 ? "s" : ""} expired. Reconnect ${expiredNames.length > 1 ? "them" : "it"} from KOKAO on the web.`}
+              </Text>
+            </View>
+          ) : null}
+          {!fbReady &&
+          !igReady &&
+          !liReady &&
+          !twReady &&
+          !thReady &&
+          !fbBroken &&
+          !igBroken &&
+          expiredNames.length === 0 ? (
             <Text style={styles.publishHint}>
-              No verified accounts to publish to. Connect Facebook or Instagram
+              No verified accounts to publish to. Connect your social accounts
               from KOKAO on the web.
             </Text>
           ) : null}
