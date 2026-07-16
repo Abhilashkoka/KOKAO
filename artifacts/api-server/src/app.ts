@@ -12,24 +12,16 @@ import {
 import { globalLimiter } from "./middlewares/rateLimit";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { buildAllowedOrigins } from "./lib/corsOrigins";
 
 /**
  * Origins allowed to make credentialed (cookie-authed) cross-origin requests.
- * Built from REPLIT_DOMAINS (comma-separated hostnames, no scheme). Requests
- * with no Origin header (same-origin navigations, curl, server-to-server) are
- * always allowed; any other origin is rejected rather than blindly reflected.
+ * Built from REPLIT_DOMAINS + REPLIT_EXPO_DEV_DOMAIN (see lib/corsOrigins.ts).
+ * Requests with no Origin header (same-origin navigations, curl,
+ * server-to-server) are always allowed; any other origin is rejected rather
+ * than blindly reflected.
  */
-const allowedOrigins = new Set(
-  [
-    ...(process.env.REPLIT_DOMAINS ?? "").split(","),
-    // The Expo dev server (mobile app on web) runs on its own domain and
-    // calls the API cross-origin with a bearer token.
-    process.env.REPLIT_EXPO_DEV_DOMAIN ?? "",
-  ]
-    .map((d) => d.trim())
-    .filter(Boolean)
-    .map((d) => `https://${d}`),
-);
+const allowedOrigins = buildAllowedOrigins();
 
 const app: Express = express();
 
