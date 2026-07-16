@@ -29,19 +29,35 @@ const PLATFORM_LABELS: Record<string, string> = {
   facebook: "Facebook",
 };
 
+const PLATFORM_RATIOS: Record<string, { ratio: string; note: string }> = {
+  instagram: { ratio: "1 / 1", note: "square 1:1" },
+  facebook: { ratio: "1.91 / 1", note: "landscape 1.91:1" },
+  linkedin: { ratio: "1.91 / 1", note: "landscape 1.91:1" },
+  twitter: { ratio: "16 / 9", note: "landscape 16:9" },
+  threads: { ratio: "1 / 1", note: "square 1:1" },
+};
+
+export interface GeneratedImage {
+  imagePath: string;
+  b64Json: string;
+}
+
 interface CampaignPostCardProps {
   post: CampaignPost;
   brandKitId?: number;
   brief: string;
+  image?: GeneratedImage | null;
+  onImageGenerated?: (platform: string, image: GeneratedImage) => void;
 }
 
-export function CampaignPostCard({ post, brandKitId, brief }: CampaignPostCardProps) {
+export function CampaignPostCard({ post, brandKitId, brief, image: controlledImage, onImageGenerated }: CampaignPostCardProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const generateImage = useGenerateImage();
   const createContent = useCreateContent();
 
-  const [image, setImage] = useState<{ imagePath: string; b64Json: string } | null>(null);
+  const [localImage, setLocalImage] = useState<GeneratedImage | null>(null);
+  const image = controlledImage !== undefined ? controlledImage : localImage;
   const [saved, setSaved] = useState(false);
 
   const handleError = (error: any) => {
@@ -61,7 +77,11 @@ export function CampaignPostCard({ post, brandKitId, brief }: CampaignPostCardPr
       { data: { prompt: post.imagePrompt || post.caption, brandKitId: brandKitId || undefined } },
       {
         onSuccess: (res) => {
-          setImage(res);
+          if (onImageGenerated) {
+            onImageGenerated(post.platform, res);
+          } else {
+            setLocalImage(res);
+          }
           toast({ title: `Image generated for ${PLATFORM_LABELS[post.platform] ?? post.platform}` });
         },
         onError: handleError,
@@ -128,11 +148,21 @@ export function CampaignPostCard({ post, brandKitId, brief }: CampaignPostCardPr
       </CardHeader>
       <CardContent className="p-4 space-y-4">
         {image && (
-          <img
-            src={`data:image/png;base64,${image.b64Json}`}
-            alt={`Generated for ${post.platform}`}
-            className="max-h-[280px] w-full rounded-lg border border-border object-contain bg-muted/30"
-          />
+          <div className="space-y-1">
+            <div
+              className="w-full max-w-[420px] overflow-hidden rounded-lg border border-border bg-muted/30"
+              style={{ aspectRatio: PLATFORM_RATIOS[post.platform]?.ratio ?? "1 / 1" }}
+            >
+              <img
+                src={`data:image/png;base64,${image.b64Json}`}
+                alt={`Generated for ${post.platform}`}
+                className="h-full w-full object-cover"
+              />
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Shown cropped to {PLATFORM_LABELS[post.platform] ?? post.platform}'s recommended shape ({PLATFORM_RATIOS[post.platform]?.note ?? "1:1"}).
+            </p>
+          </div>
         )}
         <p className="whitespace-pre-wrap text-sm">{post.caption}</p>
         {post.platform === "twitter" && (() => {

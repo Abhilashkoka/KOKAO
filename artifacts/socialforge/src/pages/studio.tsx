@@ -28,7 +28,17 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useToast } from "@/hooks/use-toast";
 import { Wand2, Image as ImageIcon, Save, Loader2, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
-import { CampaignPostCard } from "@/components/campaign-post-card";
+import { CampaignPostCard, type GeneratedImage } from "@/components/campaign-post-card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   TWEET_MAX_LENGTH,
   isOverTweetLimit,
@@ -95,6 +105,42 @@ const CAMPAIGN_PLATFORMS = [
   { value: "twitter", label: "Twitter / X" },
 ];
 
+const PLATFORM_FITS = [
+  { label: "Instagram", ratio: "1 / 1", note: "Square 1:1" },
+  { label: "Facebook", ratio: "1.91 / 1", note: "Landscape 1.91:1" },
+  { label: "LinkedIn", ratio: "1.91 / 1", note: "Landscape 1.91:1" },
+  { label: "X", ratio: "16 / 9", note: "Landscape 16:9" },
+  { label: "Threads", ratio: "1 / 1", note: "Square 1:1" },
+] as const;
+
+function PlatformFitPreview({ src }: { src: string }) {
+  return (
+    <div className="space-y-2" data-testid="platform-fit-preview">
+      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+        How it fits each platform
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {PLATFORM_FITS.map((p) => (
+          <div key={p.label} className="space-y-1">
+            <div
+              className="w-full overflow-hidden rounded-md border border-border bg-muted/30"
+              style={{ aspectRatio: p.ratio }}
+            >
+              <img src={src} alt={`${p.label} preview`} className="h-full w-full object-cover" />
+            </div>
+            <p className="text-[11px] leading-tight text-muted-foreground">
+              <span className="font-medium text-foreground">{p.label}</span> · {p.note}
+            </p>
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        The same image is automatically cropped to each platform's recommended shape when displayed.
+      </p>
+    </div>
+  );
+}
+
 export function StudioPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -103,6 +149,8 @@ export function StudioPage() {
   const [captionTweak, setCaptionTweak] = useState<string | null>(null);
   const [imageResult, setImageResult] = useState<{ imagePath: string; b64Json: string } | null>(null);
   const [campaignPosts, setCampaignPosts] = useState<CampaignPost[] | null>(null);
+  const [campaignImages, setCampaignImages] = useState<Record<string, GeneratedImage>>({});
+  const [pendingCampaignImage, setPendingCampaignImage] = useState<{ platform: string; image: GeneratedImage } | null>(null);
 
   const [niche, setNiche] = useState("");
   const [topicIdeas, setTopicIdeas] = useState<string[]>([]);
@@ -274,12 +322,36 @@ export function StudioPage() {
           setCaptionResult(null);
           setCaptionPlatform(null);
           setImageResult(null);
+          setCampaignImages({});
+          setPendingCampaignImage(null);
           setCampaignPosts(res.posts);
           toast({ title: "Campaign generated!", description: `${res.posts.length} platform variants ready.` });
         },
         onError: handleError,
       },
     );
+  };
+
+  const handleCampaignImageGenerated = (platform: string, image: GeneratedImage) => {
+    if ((campaignPosts?.length ?? 0) <= 1) {
+      setCampaignImages((prev) => ({ ...prev, [platform]: image }));
+      return;
+    }
+    setPendingCampaignImage({ platform, image });
+  };
+
+  const applyPendingImage = (allPlatforms: boolean) => {
+    if (!pendingCampaignImage) return;
+    const { platform, image } = pendingCampaignImage;
+    if (allPlatforms && campaignPosts) {
+      const next: Record<string, GeneratedImage> = {};
+      for (const post of campaignPosts) next[post.platform] = image;
+      setCampaignImages(next);
+      toast({ title: "Image applied to all platforms" });
+    } else {
+      setCampaignImages((prev) => ({ ...prev, [platform]: image }));
+    }
+    setPendingCampaignImage(null);
   };
 
   const handleSave = () => {
@@ -744,6 +816,8 @@ export function StudioPage() {
                   post={post}
                   brandKitId={selectedBrandKitId}
                   brief={currentPrompt}
+                  image={campaignImages[post.platform] ?? null}
+                  onImageGenerated={handleCampaignImageGenerated}
                 />
               ))}
             </div>
@@ -776,12 +850,15 @@ export function StudioPage() {
                 ) : (
                   <div className="flex flex-col h-full divide-y">
                     {imageResult && (
-                      <div className="p-6 flex items-center justify-center bg-card">
-                        <img
-                          src={`data:image/png;base64,${imageResult.b64Json}`}
-                          alt="Generated"
-                          className="max-h-[400px] rounded-lg shadow-lg border border-border object-contain"
-                        />
+                      <div className="p-6 bg-card space-y-5">
+                        <div className="flex items-center justify-center">
+                          <img
+                            src={`data:image/png;base64,${imageResult.b64Json}`}
+                            alt="Generated"
+                            className="max-h-[400px] rounded-lg shadow-lg border border-border object-contain"
+                          />
+                        </div>
+                        <PlatformFitPreview src={`data:image/png;base64,${imageResult.b64Json}`} />
                       </div>
                     )}
                     {captionResult && (
@@ -866,6 +943,41 @@ export function StudioPage() {
           )}
         </div>
       </div>
+
+      <AlertDialog
+        open={!!pendingCampaignImage}
+        onOpenChange={(open) => {
+          if (!open) applyPendingImage(false);
+        }}
+      >
+        <AlertDialogContent className="sm:max-w-[440px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Use this image for all platforms?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your campaign content is consistent across platforms. Using the same image everywhere keeps the campaign visually consistent. You can also keep it only for{" "}
+              {pendingCampaignImage
+                ? (CAMPAIGN_PLATFORMS.find((p) => p.value === pendingCampaignImage.platform)?.label ?? pendingCampaignImage.platform)
+                : "this platform"}
+              .
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {pendingCampaignImage && (
+            <img
+              src={`data:image/png;base64,${pendingCampaignImage.image.b64Json}`}
+              alt="New image"
+              className="w-full max-h-[220px] rounded-md border object-contain bg-muted/30"
+            />
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => applyPendingImage(false)} data-testid="button-image-this-platform">
+              Only this platform
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={() => applyPendingImage(true)} data-testid="button-image-all-platforms">
+              Use for all platforms
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
