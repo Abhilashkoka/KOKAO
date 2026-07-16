@@ -26,6 +26,15 @@ const state = vi.hoisted(() => ({
   content: [] as Row[],
 }));
 
+// The pre-publish re-verify fires a breakage notification when a
+// previously-good token turns out dead; that path touches tables the fake db
+// does not model, so stub it out (the notification itself is covered by the
+// socialReverify/notifications tests).
+vi.mock("../lib/notifications", () => ({
+  notifySocialConnectionFailed: vi.fn(async () => {}),
+  resolveSocialConnectionNotifications: vi.fn(async () => {}),
+}));
+
 vi.mock("../lib/objectStorage", () => ({
   ObjectStorageService: class {
     async getObjectEntityFile() {
@@ -433,6 +442,110 @@ describe("LinkedIn publish", () => {
     expect(state.content[0].failureReason).toContain("LinkedIn rejected the post");
     // The post was never attempted after the init failure.
     expect(fetchCalls.some((c) => c.url.endsWith("/rest/posts"))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A dead LinkedIn token (expired by timestamp or revoked upstream) must block
+// the publish with the clear 400 "reconnect" message — never a confusing raw
+// LinkedIn platform error — and the item must stay unpublished. Mirrors the
+// "Threads publish inline token refresh" pinning tests.
+// ---------------------------------------------------------------------------
+describe("LinkedIn publish with a dead token", () => {
+  it("returns the clear 400 reconnect error for a timestamp-expired token, with no LinkedIn write traffic", async () => {
+    seedConnectedAccount({
+      tokenExpiresAt: new Date(Date.now() - 60 * 60 * 1000),
+      verifyStatus: "verified",
+      verifiedAt: new Date(),
+    });
+    seedContentItem();
+    // Any LinkedIn API traffic would "succeed" — the block must come from the
+    // expiry check, not from a platform error response.
+    fetchHandler = () =>
+      makeRes({ status: 201, headers: { "x-restli-id": "urn:li:share:bad" } });
+
+    const res = await drive("POST", "/content/1/publish-linkedin");
+
+    // The clear reconnect message — not a raw LinkedIn API error.
+    expect(res.status).toBe(400);
+    expect(res.json.error).toMatch(/reconnect/i);
+    expect(res.json.error).not.toMatch(/LinkedIn API error/i);
+
+    // Nothing was posted on the dead token: no probe, no post, no comments.
+    expect(
+      fetchCalls.filter((c) => c.url.includes("/rest/posts")).length,
+    ).toBe(0);
+
+    // The item stays unpublished with no postId.
+    expect(state.content[0].status).not.toBe("published");
+    expect(state.content[0].postId ?? null).toBeNull();
+
+    // The row was flipped so the Accounts page shows the reconnect prompt.
+    expect(state.accounts[0].verifyStatus).toBe("failed");
+  });
+
+  it("returns the clear 400 reconnect error when LinkedIn rejects the stored token (401), with no post creation", async () => {
+    // No timestamp expiry — the token only turns out dead when LinkedIn
+    // rejects it during the forced pre-publish re-verify.
+    seedConnectedAccount({
+      tokenExpiresAt: null,
+      verifyStatus: "verified",
+      verifiedAt: new Date(),
+    });
+    seedContentItem();
+    fetchHandler = (call) => {
+      if (call.url.includes("/userinfo")) {
+        return makeRes({ status: 401, json: { message: "Invalid access token" } });
+      }
+      return makeRes({
+        status: 201,
+        headers: { "x-restli-id": "urn:li:share:bad" },
+      });
+    };
+
+    const res = await drive("POST", "/content/1/publish-linkedin");
+
+    expect(res.status).toBe(400);
+    expect(res.json.error).toMatch(/reconnect/i);
+    // The raw platform message never leaks to the user.
+    expect(res.json.error).not.toContain("Invalid access token");
+
+    // The re-verify hit userinfo, but nothing was posted on the dead token.
+    expect(fetchCalls.some((c) => c.url.includes("/userinfo"))).toBe(true);
+    expect(
+      fetchCalls.filter((c) => c.url.includes("/rest/posts")).length,
+    ).toBe(0);
+
+    expect(state.content[0].status).not.toBe("published");
+    expect(state.content[0].postId ?? null).toBeNull();
+    expect(state.accounts[0].verifyStatus).toBe("failed");
+  });
+
+  it("still publishes normally when the forced pre-publish re-verify confirms the token (regression guard)", async () => {
+    seedConnectedAccount({ verifyStatus: "verified", verifiedAt: new Date() });
+    seedContentItem();
+    fetchHandler = (call) => {
+      if (call.url.includes("/userinfo")) {
+        return makeRes({ json: { sub: "member123", name: "Jane Member" } });
+      }
+      if (call.method === "GET" && call.url.includes("/rest/posts?")) {
+        return makeRes({ json: { elements: [] } });
+      }
+      if (call.method === "POST" && call.url.endsWith("/rest/posts")) {
+        return makeRes({
+          status: 201,
+          headers: { "x-restli-id": "urn:li:share:ok" },
+        });
+      }
+      return makeRes();
+    };
+
+    const res = await drive("POST", "/content/1/publish-linkedin");
+
+    expect(res.status).toBe(200);
+    expect(res.json.postId).toBe("urn:li:share:ok");
+    expect(state.content[0].status).toBe("published");
+    expect(state.accounts[0].verifyStatus).toBe("verified");
   });
 });
 
