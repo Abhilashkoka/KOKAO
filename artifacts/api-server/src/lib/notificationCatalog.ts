@@ -31,6 +31,12 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
       "A request for more team seats was approved or denied by a platform admin.",
   },
   {
+    type: "seat_request_submitted",
+    label: "New seat requests (platform admins)",
+    description:
+      "A workspace submitted a request for more team seats and is waiting for a decision. Only platform admins receive this.",
+  },
+  {
     type: "publish_interrupted",
     label: "Interrupted publishes",
     description:

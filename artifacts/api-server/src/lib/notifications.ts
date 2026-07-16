@@ -9,6 +9,7 @@ import { isSuperadminEmail } from "./superadmins";
 export const SOCIAL_CONNECTION_FAILED = "social_connection_failed";
 export const PUBLISH_INTERRUPTED = "publish_interrupted";
 export const SEAT_REQUEST_DECIDED = "seat_request_decided";
+export const SEAT_REQUEST_SUBMITTED = "seat_request_submitted";
 
 /**
  * Tell a workspace that a superadmin decided their seat request. In-app
@@ -67,6 +68,90 @@ export async function notifySeatRequestDecided(
   }
 }
 export const SWEEP_STALLED = "sweep_stalled";
+
+/**
+ * Alert every platform admin (superadmin) that a workspace has submitted a
+ * new seat request awaiting a decision. Recipients are tenants with the
+ * grantable `isSuperadmin` DB flag OR whose cached email is on the
+ * SUPERADMIN_EMAILS allowlist (routing hint only — the notification grants
+ * nothing). Each recipient's own effective notification settings for
+ * `seat_request_submitted` decide the channels (in-app / email), so admins
+ * can tune or disable it like any other catalog type. Best-effort — never
+ * throws, so a notification failure cannot fail the seat request itself.
+ */
+export async function notifySeatRequestSubmitted(details: {
+  requestingTenantId: number;
+  requestingTenantName: string;
+  requestedSeats: number;
+  note: string | null;
+}): Promise<void> {
+  try {
+    const candidates = await db
+      .select({
+        id: tenantsTable.id,
+        clerkUserId: tenantsTable.clerkUserId,
+        email: tenantsTable.email,
+        isSuperadmin: tenantsTable.isSuperadmin,
+      })
+      .from(tenantsTable)
+      .where(
+        or(eq(tenantsTable.isSuperadmin, true), isNotNull(tenantsTable.email)),
+      );
+    const recipients = candidates.filter(
+      (t) => t.isSuperadmin || isSuperadminEmail(t.email),
+    );
+    if (recipients.length === 0) return;
+
+    const title = "New seat request awaiting review";
+    const noteText = details.note ? ` Note: "${details.note}"` : "";
+    const message =
+      `Workspace "${details.requestingTenantName}" requested ` +
+      `${details.requestedSeats} team seats.${noteText} ` +
+      `Review it on the admin dashboard.`;
+
+    for (const recipient of recipients) {
+      try {
+        const effective = await getEffectiveSetting(
+          recipient.id,
+          SEAT_REQUEST_SUBMITTED,
+        );
+        if (!effective.enabled) continue;
+
+        await db.insert(notificationsTable).values({
+          tenantId: recipient.id,
+          type: SEAT_REQUEST_SUBMITTED,
+          platform: null,
+          title,
+          message,
+          linkUrl: "/admin",
+          inApp: effective.inApp,
+        });
+
+        if (effective.email) {
+          const email = await fetchVerifiedEmail(recipient.clerkUserId);
+          if (email) {
+            await sendEmail({
+              to: email,
+              subject: title,
+              text: message,
+              html: `<p>${escapeHtml(message)}</p>`,
+            });
+          }
+        }
+      } catch (err) {
+        logger.error(
+          { err, recipientTenantId: recipient.id },
+          "Failed to notify a superadmin about a seat request",
+        );
+      }
+    }
+  } catch (err) {
+    logger.error(
+      { err, requestingTenantId: details.requestingTenantId },
+      "Failed to record seat-request-submitted notifications",
+    );
+  }
+}
 
 const PLATFORM_LABELS: Record<string, string> = {
   facebook: "Facebook Page",

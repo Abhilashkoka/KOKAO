@@ -14,6 +14,7 @@ import {
   getEffectiveSeatLimit,
   getSeatsUsed,
 } from "../lib/team";
+import { notifySeatRequestSubmitted } from "../lib/notifications";
 
 const router: IRouter = Router();
 
@@ -207,11 +208,32 @@ router.post("/team/seat-requests", async (req: Request, res: Response) => {
     return;
   }
 
+  const note = parsed.data.note?.trim() || null;
   await db.insert(seatRequestsTable).values({
     tenantId: req.tenantId,
     requestedSeats: parsed.data.requestedSeats,
-    note: parsed.data.note?.trim() || null,
+    note,
   });
+
+  // Best-effort heads-up to platform admins; fully detached from the
+  // response path so neither the name lookup nor the dispatch can fail
+  // the already-created seat request.
+  const requestedSeats = parsed.data.requestedSeats;
+  const requestingTenantId = req.tenantId;
+  void (async () => {
+    let name: string | undefined;
+    try {
+      name = (await loadTenant(requestingTenantId))?.name;
+    } catch {
+      // fall back to the id-based label below
+    }
+    await notifySeatRequestSubmitted({
+      requestingTenantId,
+      requestingTenantName: name ?? `Tenant #${requestingTenantId}`,
+      requestedSeats,
+      note,
+    });
+  })();
 
   res.json(await buildTeamOverview(req.tenantId, req.memberRole));
 });
