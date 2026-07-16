@@ -6,11 +6,8 @@ import {
   usePublishContentToFacebook,
   usePublishContentToInstagram,
   usePublishContentToLinkedin,
-  useResendLinkedinComments,
   usePublishContentToTwitter,
-  useResendTwitterPosts,
   usePublishContentToThreads,
-  useResendThreadsPosts,
   useGetThreadsStatus,
   useGetFacebookCredentials,
   useGetInstagramCredentials,
@@ -35,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, splitForLinkedin, chunkOnWhitespace, splitIntoTweets, THREADS_MAX_LENGTH } from "@workspace/social-limits";
 import { mutateWithRestartRetry } from "@/lib/restartRetry";
+import { PendingPostsWarnings, usePendingResendActions } from "@/components/pending-posts-warning";
 
 const PLATFORM_NAMES: Record<string, string> = {
   instagram: "Instagram",
@@ -82,136 +80,20 @@ export function LibraryPage() {
 
   const [linkedinItem, setLinkedinItem] = useState<any | null>(null);
   const publishLinkedin = usePublishContentToLinkedin();
-  const resendLinkedinComments = useResendLinkedinComments();
-  const [resendingId, setResendingId] = useState<number | null>(null);
-
-  // Resend only the LinkedIn follow-up comments that failed during a
-  // publish; the server keeps the original "(i/n)" numbering.
-  const handleResendLinkedinComments = (itemId: number) => {
-    setResendingId(itemId);
-    resendLinkedinComments.mutate(
-      { id: itemId },
-      {
-        onSuccess: (res) => {
-          if (res?.commentWarning) {
-            toast({
-              title: "Some comments are still missing",
-              description: res.commentWarning,
-              variant: "destructive",
-              action: viewPostAction(res?.permalink),
-            });
-          } else {
-            toast({
-              title: "Comments resent",
-              description: `All ${res?.commentsTotal ?? ""} follow-up comment(s) are now posted on LinkedIn.`,
-              action: viewPostAction(res?.permalink),
-            });
-          }
-          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
-        },
-        onError: (err: any) => {
-          toast({
-            title: "Resend failed",
-            description:
-              err?.response?.data?.error ||
-              "Could not resend the LinkedIn comments. Try again.",
-            variant: "destructive",
-          });
-        },
-        onSettled: () => {
-          setResendingId(null);
-        },
-      },
-    );
-  };
 
   const [twitterItem, setTwitterItem] = useState<any | null>(null);
   const publishTwitter = usePublishContentToTwitter();
-  const resendTwitterPosts = useResendTwitterPosts();
-  const [resendingTwitterId, setResendingTwitterId] = useState<number | null>(null);
 
   const [threadsItem, setThreadsItem] = useState<any | null>(null);
   const publishThreads = usePublishContentToThreads();
-  const resendThreadsPosts = useResendThreadsPosts();
-  const [resendingThreadsId, setResendingThreadsId] = useState<number | null>(null);
 
-  // Resend only the thread pieces that failed during a Threads/X publish;
-  // the server chains them onto the last successfully posted piece.
-  const handleResendThreadsPosts = (itemId: number) => {
-    setResendingThreadsId(itemId);
-    resendThreadsPosts.mutate(
-      { id: itemId },
-      {
-        onSuccess: (res) => {
-          if (res?.publishWarning) {
-            toast({
-              title: "Some posts are still missing",
-              description: res.publishWarning,
-              variant: "destructive",
-              action: viewPostAction(res?.permalink),
-            });
-          } else {
-            toast({
-              title: "Thread completed",
-              description: `All ${res?.postsTotal ?? ""} post(s) of the thread are now live on Threads.`,
-              action: viewPostAction(res?.permalink),
-            });
-          }
-          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
-        },
-        onError: (err: any) => {
-          toast({
-            title: "Resend failed",
-            description:
-              err?.response?.data?.error ||
-              "Could not resend the missing Threads posts. Try again.",
-            variant: "destructive",
-          });
-        },
-        onSettled: () => {
-          setResendingThreadsId(null);
-        },
-      },
-    );
-  };
-
-  const handleResendTwitterPosts = (itemId: number) => {
-    setResendingTwitterId(itemId);
-    resendTwitterPosts.mutate(
-      { id: itemId },
-      {
-        onSuccess: (res) => {
-          if (res?.publishWarning) {
-            toast({
-              title: "Some posts are still missing",
-              description: res.publishWarning,
-              variant: "destructive",
-              action: viewPostAction(res?.permalink),
-            });
-          } else {
-            toast({
-              title: "Thread completed",
-              description: `All ${res?.postsTotal ?? ""} post(s) of the thread are now live on X.`,
-              action: viewPostAction(res?.permalink),
-            });
-          }
-          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
-        },
-        onError: (err: any) => {
-          toast({
-            title: "Resend failed",
-            description:
-              err?.response?.data?.error ||
-              "Could not resend the missing X posts. Try again.",
-            variant: "destructive",
-          });
-        },
-        onSettled: () => {
-          setResendingTwitterId(null);
-        },
-      },
-    );
-  };
+  // Shared resend actions for incomplete chains, used by the post-publish
+  // warning toasts below (the cards/dialog render PendingPostsWarnings).
+  const {
+    handleResendLinkedinComments,
+    handleResendThreadsPosts,
+    handleResendTwitterPosts,
+  } = usePendingResendActions();
 
   const { data: fbCreds } = useGetFacebookCredentials();
   const { data: igCreds } = useGetInstagramCredentials();
@@ -672,71 +554,7 @@ export function LibraryPage() {
                   </div>
                 )}
 
-                {(item.linkedinCommentsPending ?? 0) > 0 && (
-                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-400 mb-4 space-y-2" data-testid={`text-linkedin-comments-pending-${item.id}`}>
-                    <div className="flex items-start gap-2">
-                      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                      <span>
-                        {item.linkedinCommentsPending} LinkedIn follow-up comment{item.linkedinCommentsPending === 1 ? "" : "s"} with the rest of the caption {item.linkedinCommentsPending === 1 ? "is" : "are"} still missing from the published post.
-                      </span>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-2 text-xs"
-                      disabled={resendingId === item.id}
-                      onClick={() => handleResendLinkedinComments(item.id)}
-                      data-testid={`button-resend-linkedin-comments-${item.id}`}
-                    >
-                      <RotateCw className={`h-3 w-3 mr-1 ${resendingId === item.id ? 'animate-spin' : ''}`} />
-                      {resendingId === item.id ? "Resending..." : "Resend comments"}
-                    </Button>
-                  </div>
-                )}
-
-                {(item.threadsPostsPending ?? 0) > 0 && (
-                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-400 mb-4 space-y-2" data-testid={`text-threads-posts-pending-${item.id}`}>
-                    <div className="flex items-start gap-2">
-                      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                      <span>
-                        {item.threadsPostsPending} Threads follow-up post{item.threadsPostsPending === 1 ? "" : "s"} with the rest of the caption {item.threadsPostsPending === 1 ? "is" : "are"} still missing from the published thread.
-                      </span>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-2 text-xs"
-                      disabled={resendingThreadsId === item.id}
-                      onClick={() => handleResendThreadsPosts(item.id)}
-                      data-testid={`button-resend-threads-posts-${item.id}`}
-                    >
-                      <RotateCw className={`h-3 w-3 mr-1 ${resendingThreadsId === item.id ? 'animate-spin' : ''}`} />
-                      {resendingThreadsId === item.id ? "Resending..." : "Resend posts"}
-                    </Button>
-                  </div>
-                )}
-
-                {(item.twitterPostsPending ?? 0) > 0 && (
-                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-400 mb-4 space-y-2" data-testid={`text-twitter-posts-pending-${item.id}`}>
-                    <div className="flex items-start gap-2">
-                      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                      <span>
-                        {item.twitterPostsPending} X follow-up post{item.twitterPostsPending === 1 ? "" : "s"} with the rest of the caption {item.twitterPostsPending === 1 ? "is" : "are"} still missing from the published thread.
-                      </span>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-2 text-xs"
-                      disabled={resendingTwitterId === item.id}
-                      onClick={() => handleResendTwitterPosts(item.id)}
-                      data-testid={`button-resend-twitter-posts-${item.id}`}
-                    >
-                      <RotateCw className={`h-3 w-3 mr-1 ${resendingTwitterId === item.id ? 'animate-spin' : ''}`} />
-                      {resendingTwitterId === item.id ? "Resending..." : "Resend posts"}
-                    </Button>
-                  </div>
-                )}
+                <PendingPostsWarnings item={item} />
 
                 {item.status === 'failed' && item.failureReason && (
                   <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-2.5 text-xs text-destructive mb-4" data-testid={`text-failure-reason-${item.id}`}>
@@ -842,6 +660,12 @@ export function LibraryPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            {editItem && (
+              <PendingPostsWarnings
+                item={content?.find((c) => c.id === editItem.id) ?? editItem}
+                idPrefix="edit-"
+              />
+            )}
             <div className="space-y-2">
               <label className="text-sm font-medium">Platform</label>
               <Select value={editPlatform} onValueChange={setEditPlatform}>

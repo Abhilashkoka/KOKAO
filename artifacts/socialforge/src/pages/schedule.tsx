@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
+import { PendingPostsWarnings } from "@/components/pending-posts-warning";
 
 export function SchedulePage() {
   const { data: schedules, isLoading: sLoading } = useListSchedules();
@@ -132,7 +133,7 @@ export function SchedulePage() {
                         <CalendarIcon className="h-6 w-6 text-muted-foreground/50" />
                       </div>
                     )}
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <h4 className="font-bold text-lg truncate">{contentItem?.title || 'Unknown Post'}</h4>
                       <div className="flex items-center gap-3 mt-1">
                         <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground uppercase tracking-wider">{post.platform}</span>
@@ -140,6 +141,11 @@ export function SchedulePage() {
                           {isPast ? <><CheckCircle2 className="h-3 w-3"/> Published</> : "Pending"}
                         </span>
                       </div>
+                      {contentItem && (
+                        <div className="mt-3 [&>div]:mb-0 space-y-2">
+                          <PendingPostsWarnings item={contentItem} idPrefix="schedule-" />
+                        </div>
+                      )}
                     </div>
                   </div>
                   
