@@ -164,6 +164,34 @@ export default function ContentDetailScreen() {
     );
   };
 
+  // One-click retry for a failed Instagram publish. Re-uses the same publish
+  // endpoint, which flips the item back to "publishing"; the screen's polling
+  // then picks up the new state.
+  const handleRetryInstagram = () => {
+    haptic();
+    setPublishMsg(null);
+    setPublishErr(null);
+    publishInstagram.mutate(
+      { id: contentId },
+      {
+        onSuccess: () => {
+          setPublishMsg(
+            "Retrying publish. Instagram is processing your image again — this will update to Published once it's live.",
+          );
+          invalidateContent();
+        },
+        onError: (err) => {
+          setPublishErr(
+            apiErrorText(
+              err,
+              "Could not retry the Instagram publish. Check your Instagram connection on the web app.",
+            ),
+          );
+        },
+      },
+    );
+  };
+
   const handleDelete = () => {
     haptic();
     setErrMsg(null);
@@ -267,6 +295,37 @@ export default function ContentDetailScreen() {
             it&apos;s live.
           </Text>
         </Card>
+      ) : data.status === "failed" ? (
+        <>
+          <View style={styles.brokenBox}>
+            <Feather name="alert-triangle" size={14} color={c.destructive} />
+            <Text style={styles.brokenText}>
+              {data.failureReason
+                ? `The Instagram publish failed: ${data.failureReason}`
+                : "The Instagram publish failed."}
+            </Text>
+          </View>
+          <Button
+            title="Retry Instagram publish"
+            icon="refresh-cw"
+            onPress={handleRetryInstagram}
+            loading={publishInstagram.isPending}
+            disabled={!data.imagePath}
+            style={{ marginTop: 10 }}
+          />
+          {!data.imagePath ? (
+            <Text style={styles.publishHint}>
+              Instagram needs an image. Generate one for this post in the
+              Studio first.
+            </Text>
+          ) : null}
+          {igBroken ? (
+            <Text style={styles.publishHint}>
+              Your Instagram connection stopped working. Reconnect it from
+              KOKAO on the web before retrying.
+            </Text>
+          ) : null}
+        </>
       ) : (
         <>
           {fbReady || igReady ? (
