@@ -396,9 +396,31 @@ export interface AdminTenant {
   isSuperadmin: boolean;
   /** Built-in/env allowlisted superadmin. Locked: cannot be revoked in-app. */
   isAllowlisted: boolean;
+  /**
+     * Per-tenant design-skill override. null = follow the global switch.
+     * @nullable
+     */
+  designSkillEnabled?: boolean | null;
   createdAt: string;
   counts?: AdminTenantCounts;
   usage?: Usage;
+}
+
+export interface DesignSkillSettings {
+  /** Global switch for the canvas-design image prompt skill. */
+  enabled: boolean;
+}
+
+export interface UpdateDesignSkillBody {
+  enabled: boolean;
+}
+
+export interface UpdateTenantDesignSkillBody {
+  /**
+     * true/false forces on/off for this user; null follows the global switch.
+     * @nullable
+     */
+  enabled: boolean | null;
 }
 
 export type AdminStatsTenantsByPlan = {[key: string]: number};

@@ -4,6 +4,10 @@ import {
   useAdminGetStats,
   useAdminUpdateTenantPlan,
   useAdminUpdateTenantSuperadmin,
+  useAdminUpdateTenantDesignSkill,
+  useAdminGetDesignSkill,
+  useAdminUpdateDesignSkill,
+  getAdminGetDesignSkillQueryKey,
   useAdminGetMetaCredentials,
   useAdminSaveMetaCredentials,
   useAdminGetTwitterCredentials,
@@ -1473,6 +1477,69 @@ function SeatRequestsCard() {
   );
 }
 
+function DesignSkillCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: settings, isLoading } = useAdminGetDesignSkill();
+  const updateSettings = useAdminUpdateDesignSkill();
+
+  const handleToggle = (enabled: boolean) => {
+    updateSettings.mutate(
+      { data: { enabled } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetDesignSkillQueryKey(),
+          });
+          queryClient.invalidateQueries({
+            queryKey: getAdminListAuditLogsQueryKey(),
+          });
+          toast({
+            title: enabled ? "Design skill enabled" : "Design skill disabled",
+            description: enabled
+              ? "AI image prompts now go through the design skill for all users without an override."
+              : "Users without an override now get plain image prompts.",
+          });
+        },
+        onError: () => {
+          toast({
+            title: "Update failed",
+            description: "Could not change the design skill setting.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card data-testid="card-design-skill">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <div>
+          <CardTitle>Design Skill</CardTitle>
+          <CardDescription>
+            When on, AI image generation first runs each prompt through a
+            professional design pass (composition, typography, color) before
+            creating the image. Brand kits are woven in automatically. You can
+            override this per workspace in the tenants table below.
+          </CardDescription>
+        </div>
+        {isLoading ? (
+          <Skeleton className="h-6 w-11" />
+        ) : (
+          <Switch
+            checked={settings?.enabled ?? true}
+            disabled={updateSettings.isPending}
+            onCheckedChange={handleToggle}
+            aria-label="Toggle the design skill for all users"
+            data-testid="switch-design-skill-global"
+          />
+        )}
+      </CardHeader>
+    </Card>
+  );
+}
+
 function PlansCard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -2350,7 +2417,41 @@ export function AdminPage() {
   const { data: planCatalog } = useListPlans();
   const updatePlan = useAdminUpdateTenantPlan();
   const updateSuperadmin = useAdminUpdateTenantSuperadmin();
+  const updateTenantDesignSkill = useAdminUpdateTenantDesignSkill();
   const runSweep = useAdminRunSweep();
+
+  const handleDesignSkillChange = (tenantId: number, value: string) => {
+    const enabled = value === "default" ? null : value === "on";
+    updateTenantDesignSkill.mutate(
+      { id: tenantId, data: { enabled } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminListTenantsQueryKey(),
+          });
+          queryClient.invalidateQueries({
+            queryKey: getAdminListAuditLogsQueryKey(),
+          });
+          toast({
+            title: "Design skill updated",
+            description:
+              enabled === null
+                ? "This workspace now follows the global setting."
+                : enabled
+                  ? "Design skill forced on for this workspace."
+                  : "Design skill forced off for this workspace.",
+          });
+        },
+        onError: () => {
+          toast({
+            title: "Update failed",
+            description: "Could not change the design skill override.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
 
   const handleRunSweep = () => {
     runSweep.mutate(undefined, {
@@ -2625,6 +2726,7 @@ export function AdminPage() {
       </Card>
 
       <SeatRequestsCard />
+      <DesignSkillCard />
       <PlansCard />
       <MetaCredentialsCard />
       <TwitterCredentialsCard />
@@ -2662,6 +2764,7 @@ export function AdminPage() {
                     <TableHead className="text-right">Brand Kits</TableHead>
                     <TableHead className="text-right">Accounts</TableHead>
                     <TableHead>Plan</TableHead>
+                    <TableHead>Design Skill</TableHead>
                     <TableHead>Superadmin</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -2715,6 +2818,33 @@ export function AdminPage() {
                                 {p.name}
                               </SelectItem>
                             ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>
+                        <Select
+                          value={
+                            t.designSkillEnabled === true
+                              ? "on"
+                              : t.designSkillEnabled === false
+                                ? "off"
+                                : "default"
+                          }
+                          onValueChange={(value) =>
+                            handleDesignSkillChange(t.id, value)
+                          }
+                          disabled={updateTenantDesignSkill.isPending}
+                        >
+                          <SelectTrigger
+                            className="w-28"
+                            data-testid={`select-design-skill-${t.id}`}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="default">Default</SelectItem>
+                            <SelectItem value="on">On</SelectItem>
+                            <SelectItem value="off">Off</SelectItem>
                           </SelectContent>
                         </Select>
                       </TableCell>

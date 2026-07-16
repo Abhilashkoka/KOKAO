@@ -54,6 +54,7 @@ import type {
   ContentInput,
   ContentItem,
   ContentUpdate,
+  DesignSkillSettings,
   EmailSettingsInput,
   EmailSettingsStatus,
   ErrorEnvelope,
@@ -114,7 +115,9 @@ import type {
   TwitterAppCredentialStatus,
   TwitterAuthUrlResult,
   TwitterStatus,
+  UpdateDesignSkillBody,
   UpdateNotificationPoliciesBody,
+  UpdateTenantDesignSkillBody,
   UpdateTenantPlanBody,
   UpdateTenantSuperadminBody,
   UploadUrlRequest,
@@ -1821,6 +1824,224 @@ export const useAdminUpdateTenantSuperadmin = <TError = ErrorType<ErrorEnvelope>
         TContext
       > => {
       return useMutation(getAdminUpdateTenantSuperadminMutationOptions(options));
+    }
+
+export const getAdminUpdateTenantDesignSkillUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/tenants/${id}/design-skill`
+}
+
+/**
+ * @summary Set or clear a tenant's design-skill override (superadmin only)
+ */
+export const adminUpdateTenantDesignSkill = async (id: number,
+    updateTenantDesignSkillBody: UpdateTenantDesignSkillBody, options?: RequestInit): Promise<AdminTenant> => {
+
+  return customFetch<AdminTenant>(getAdminUpdateTenantDesignSkillUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateTenantDesignSkillBody)
+  }
+);}
+
+
+
+
+export const getAdminUpdateTenantDesignSkillMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateTenantDesignSkill>>, TError,{id: number;data: BodyType<UpdateTenantDesignSkillBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateTenantDesignSkill>>, TError,{id: number;data: BodyType<UpdateTenantDesignSkillBody>}, TContext> => {
+
+const mutationKey = ['adminUpdateTenantDesignSkill'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateTenantDesignSkill>>, {id: number;data: BodyType<UpdateTenantDesignSkillBody>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminUpdateTenantDesignSkill(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateTenantDesignSkillMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateTenantDesignSkill>>>
+    export type AdminUpdateTenantDesignSkillMutationBody = BodyType<UpdateTenantDesignSkillBody>
+    export type AdminUpdateTenantDesignSkillMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Set or clear a tenant's design-skill override (superadmin only)
+ */
+export const useAdminUpdateTenantDesignSkill = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateTenantDesignSkill>>, TError,{id: number;data: BodyType<UpdateTenantDesignSkillBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateTenantDesignSkill>>,
+        TError,
+        {id: number;data: BodyType<UpdateTenantDesignSkillBody>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateTenantDesignSkillMutationOptions(options));
+    }
+
+export const getAdminGetDesignSkillUrl = () => {
+
+
+
+
+  return `/api/admin/design-skill`
+}
+
+/**
+ * @summary Get the global design-skill switch (superadmin only)
+ */
+export const adminGetDesignSkill = async ( options?: RequestInit): Promise<DesignSkillSettings> => {
+
+  return customFetch<DesignSkillSettings>(getAdminGetDesignSkillUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetDesignSkillQueryKey = () => {
+    return [
+    `/api/admin/design-skill`
+    ] as const;
+    }
+
+
+export const getAdminGetDesignSkillQueryOptions = <TData = Awaited<ReturnType<typeof adminGetDesignSkill>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetDesignSkill>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetDesignSkillQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetDesignSkill>>> = ({ signal }) => adminGetDesignSkill({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetDesignSkill>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetDesignSkillQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetDesignSkill>>>
+export type AdminGetDesignSkillQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the global design-skill switch (superadmin only)
+ */
+
+export function useAdminGetDesignSkill<TData = Awaited<ReturnType<typeof adminGetDesignSkill>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetDesignSkill>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetDesignSkillQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateDesignSkillUrl = () => {
+
+
+
+
+  return `/api/admin/design-skill`
+}
+
+/**
+ * @summary Enable or disable the design skill for all users (superadmin only)
+ */
+export const adminUpdateDesignSkill = async (updateDesignSkillBody: UpdateDesignSkillBody, options?: RequestInit): Promise<DesignSkillSettings> => {
+
+  return customFetch<DesignSkillSettings>(getAdminUpdateDesignSkillUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateDesignSkillBody)
+  }
+);}
+
+
+
+
+export const getAdminUpdateDesignSkillMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateDesignSkill>>, TError,{data: BodyType<UpdateDesignSkillBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateDesignSkill>>, TError,{data: BodyType<UpdateDesignSkillBody>}, TContext> => {
+
+const mutationKey = ['adminUpdateDesignSkill'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateDesignSkill>>, {data: BodyType<UpdateDesignSkillBody>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateDesignSkill(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateDesignSkillMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateDesignSkill>>>
+    export type AdminUpdateDesignSkillMutationBody = BodyType<UpdateDesignSkillBody>
+    export type AdminUpdateDesignSkillMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Enable or disable the design skill for all users (superadmin only)
+ */
+export const useAdminUpdateDesignSkill = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateDesignSkill>>, TError,{data: BodyType<UpdateDesignSkillBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateDesignSkill>>,
+        TError,
+        {data: BodyType<UpdateDesignSkillBody>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateDesignSkillMutationOptions(options));
     }
 
 export const getAdminGetStatsUrl = () => {

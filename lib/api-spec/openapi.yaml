@@ -670,6 +670,95 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/tenants/{id}/design-skill:
+    patch:
+      operationId: adminUpdateTenantDesignSkill
+      tags: [admin]
+      summary: Set or clear a tenant's design-skill override (superadmin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTenantDesignSkillBody"
+      responses:
+        "200":
+          description: Updated tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminTenant"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/design-skill:
+    get:
+      operationId: adminGetDesignSkill
+      tags: [admin]
+      summary: Get the global design-skill switch (superadmin only)
+      responses:
+        "200":
+          description: Design skill settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DesignSkillSettings"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminUpdateDesignSkill
+      tags: [admin]
+      summary: Enable or disable the design skill for all users (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDesignSkillBody"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DesignSkillSettings"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/stats:
     get:
       operationId: adminGetStats
@@ -3441,6 +3530,11 @@ components:
           description: >-
             Built-in/env allowlisted superadmin. Locked: cannot be revoked
             in-app.
+        designSkillEnabled:
+          type: ["boolean", "null"]
+          description: >-
+            Per-tenant design-skill override. null = follow the global
+            switch.
         createdAt:
           type: string
           format: date-time
@@ -3448,6 +3542,26 @@ components:
           $ref: "#/components/schemas/AdminTenantCounts"
         usage:
           $ref: "#/components/schemas/Usage"
+    DesignSkillSettings:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+          description: Global switch for the canvas-design image prompt skill.
+    UpdateDesignSkillBody:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+    UpdateTenantDesignSkillBody:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: ["boolean", "null"]
+          description: true/false forces on/off for this user; null follows the global switch.
     AdminStats:
       type: object
       required:

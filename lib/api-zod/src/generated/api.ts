@@ -464,6 +464,7 @@ export const AdminListTenantsResponseItem = zod.object({
   "aiModel": zod.string(),
   "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
   "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
+  "designSkillEnabled": zod.boolean().nullish().describe('Per-tenant design-skill override. null = follow the global switch.'),
   "createdAt": zod.coerce.date(),
   "counts": zod.object({
   "content": zod.number(),
@@ -503,6 +504,7 @@ export const AdminUpdateTenantPlanResponse = zod.object({
   "aiModel": zod.string(),
   "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
   "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
+  "designSkillEnabled": zod.boolean().nullish().describe('Per-tenant design-skill override. null = follow the global switch.'),
   "createdAt": zod.coerce.date(),
   "counts": zod.object({
   "content": zod.number(),
@@ -657,6 +659,7 @@ export const AdminUpdateTenantSuperadminResponse = zod.object({
   "aiModel": zod.string(),
   "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
   "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
+  "designSkillEnabled": zod.boolean().nullish().describe('Per-tenant design-skill override. null = follow the global switch.'),
   "createdAt": zod.coerce.date(),
   "counts": zod.object({
   "content": zod.number(),
@@ -669,6 +672,61 @@ export const AdminUpdateTenantSuperadminResponse = zod.object({
   "images": zod.number(),
   "periodStart": zod.coerce.date()
 }).optional()
+})
+
+
+/**
+ * @summary Set or clear a tenant's design-skill override (superadmin only)
+ */
+export const AdminUpdateTenantDesignSkillParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AdminUpdateTenantDesignSkillBody = zod.object({
+  "enabled": zod.boolean().nullable().describe('true\/false forces on\/off for this user; null follows the global switch.')
+})
+
+export const AdminUpdateTenantDesignSkillResponse = zod.object({
+  "id": zod.number(),
+  "email": zod.string().nullable(),
+  "name": zod.string(),
+  "plan": zod.string(),
+  "aiModel": zod.string(),
+  "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
+  "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
+  "designSkillEnabled": zod.boolean().nullish().describe('Per-tenant design-skill override. null = follow the global switch.'),
+  "createdAt": zod.coerce.date(),
+  "counts": zod.object({
+  "content": zod.number(),
+  "brandKits": zod.number(),
+  "scheduledPosts": zod.number(),
+  "connectedAccounts": zod.number()
+}).optional(),
+  "usage": zod.object({
+  "captions": zod.number(),
+  "images": zod.number(),
+  "periodStart": zod.coerce.date()
+}).optional()
+})
+
+
+/**
+ * @summary Get the global design-skill switch (superadmin only)
+ */
+export const AdminGetDesignSkillResponse = zod.object({
+  "enabled": zod.boolean().describe('Global switch for the canvas-design image prompt skill.')
+})
+
+
+/**
+ * @summary Enable or disable the design skill for all users (superadmin only)
+ */
+export const AdminUpdateDesignSkillBody = zod.object({
+  "enabled": zod.boolean()
+})
+
+export const AdminUpdateDesignSkillResponse = zod.object({
+  "enabled": zod.boolean().describe('Global switch for the canvas-design image prompt skill.')
 })
 
 

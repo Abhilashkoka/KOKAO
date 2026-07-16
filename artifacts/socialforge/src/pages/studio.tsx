@@ -377,6 +377,15 @@ export function StudioPage() {
   const onGenerateCaption = (data: z.infer<typeof schema>) => runGenerateCaption(data, null);
 
   const onGenerateImage = (data: z.infer<typeof schema>) => {
+    if ((brandKits?.length ?? 0) > 1 && !data.brandKitId) {
+      toast({
+        title: "Pick a brand kit",
+        description:
+          "You have more than one brand kit. Choose which brand this image is for, or the design won't know which brand to follow.",
+        variant: "destructive",
+      });
+      return;
+    }
     generateImage.mutate(
       { data: { prompt: data.prompt, size: data.size as any, brandKitId: data.brandKitId || undefined } },
       {

@@ -19,6 +19,11 @@ export interface AdminTenant {
   isSuperadmin: boolean;
   /** Built-in/env allowlisted superadmin. Locked: cannot be revoked in-app. */
   isAllowlisted: boolean;
+  /**
+     * Per-tenant design-skill override. null = follow the global switch.
+     * @nullable
+     */
+  designSkillEnabled?: boolean | null;
   createdAt: Date;
   counts?: AdminTenantCounts;
   usage?: Usage;

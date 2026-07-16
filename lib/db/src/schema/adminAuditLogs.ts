@@ -23,6 +23,8 @@ import { z } from "zod/v4";
  *                          (platform-wide; values are the brand fields).
  *  - "email_settings_change": email delivery settings were changed
  *                          (platform-wide; API key appears only masked).
+ *  - "design_skill_change": the canvas-design image skill was toggled
+ *                          (global when target is null, else per-tenant).
  */
 export const adminAuditLogsTable = pgTable("admin_audit_logs", {
   id: serial("id").primaryKey(),

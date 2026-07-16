@@ -24,6 +24,9 @@ export const tenantsTable = pgTable("tenants", {
   // Per-workspace team seat override granted by a superadmin (via an approved
   // seat request). null = use the plan's default teamSeats allotment.
   seatLimit: integer("seat_limit"),
+  // Per-tenant override for the canvas-design image prompt skill.
+  // null = follow the global design_skill_settings switch.
+  designSkillEnabled: boolean("design_skill_enabled"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

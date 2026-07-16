@@ -11,6 +11,7 @@ export type AdminAuditAction =
   | "credential_change"
   | "app_brand_change"
   | "email_settings_change"
+  | "design_skill_change"
   | "email_test_send"
   | "sweep_run"
   | "seat_request_approve"

@@ -14,6 +14,7 @@ import { ObjectStorageService } from "../lib/objectStorage";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage, recordUsage } from "../lib/usage";
 import { loadActivePayload } from "../lib/brandKit/service";
+import { isDesignSkillEnabledFor, buildDesignedImagePrompt } from "../lib/designSkill";
 import {
   safeFetch,
   readCappedText,
@@ -164,6 +165,8 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
   const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
   const size = parsed.data.size ?? "1024x1024";
 
+  // Base prompt (also the fallback if the design skill is off or fails):
+  // the user's brief plus lightweight brand hints.
   let prompt = parsed.data.prompt;
   if (brand) {
     const palette = colorHint(brand);
@@ -171,6 +174,25 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
     if (palette) prompt += `. Brand palette: ${palette}.`;
     if (imagery) prompt += ` Imagery style: ${imagery}.`;
     prompt += ` Cohesive with a ${voiceHint(brand)} brand aesthetic.`;
+  }
+
+  // Canvas-design skill: when enabled, a text-model pass first writes a design
+  // philosophy and compiles it into an art-directed prompt (brand elements are
+  // mandatory input when a brand kit applies). Fails soft to the base prompt.
+  if (await isDesignSkillEnabledFor(tenant)) {
+    const designed = await buildDesignedImagePrompt({
+      model: tenant.aiModel,
+      userPrompt: parsed.data.prompt,
+      brand,
+      fallbackPrompt: prompt,
+    });
+    prompt = designed.imagePrompt;
+    if (designed.enriched) {
+      req.log.info(
+        { philosophy: designed.philosophy },
+        "Design skill enriched image prompt",
+      );
+    }
   }
 
   try {

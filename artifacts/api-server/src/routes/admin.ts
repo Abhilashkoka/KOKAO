@@ -16,6 +16,8 @@ import { recordAdminAction } from "../lib/adminAudit";
 import {
   AdminUpdateTenantPlanBody,
   AdminUpdateTenantSuperadminBody,
+  AdminUpdateTenantDesignSkillBody,
+  AdminUpdateDesignSkillBody,
   AdminUpdateNotificationPoliciesBody,
   AdminUpdatePlanBody,
   AdminCreatePlanBody,
@@ -39,6 +41,11 @@ import {
   invalidatePlanCache,
 } from "../lib/plans";
 import { isSuperadminEmail } from "../lib/superadmins";
+import {
+  getGlobalDesignSkillEnabled,
+  loadDesignSkillRow,
+} from "../lib/designSkill";
+import { designSkillSettingsTable } from "@workspace/db";
 import { fetchVerifiedEmail } from "../lib/clerkUser";
 import { currentPeriodStart } from "../lib/usage";
 import {
@@ -78,6 +85,7 @@ function serializeAdminTenant(t: Tenant) {
     // Effective: granted in-app OR allowlisted by email.
     isSuperadmin: t.isSuperadmin || isAllowlisted,
     isAllowlisted,
+    designSkillEnabled: t.designSkillEnabled ?? null,
     createdAt: t.createdAt.toISOString(),
   };
 }
@@ -379,6 +387,109 @@ router.patch(
     res.json(serializeAdminTenant(updated));
   },
 );
+
+/**
+ * PATCH /admin/tenants/:id/design-skill
+ * Set (true/false) or clear (null) a tenant's design-skill override.
+ */
+router.patch(
+  "/admin/tenants/:id/design-skill",
+  async (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    const parsed = AdminUpdateTenantDesignSkillBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+
+    const previous = (
+      await db.select().from(tenantsTable).where(eq(tenantsTable.id, id))
+    )[0];
+    if (!previous) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+
+    const updated = (
+      await db
+        .update(tenantsTable)
+        .set({ designSkillEnabled: parsed.data.enabled, updatedAt: new Date() })
+        .where(eq(tenantsTable.id, id))
+        .returning()
+    )[0];
+    if (!updated) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+
+    if (previous.designSkillEnabled !== updated.designSkillEnabled) {
+      try {
+        await recordAdminAction({
+          action: "design_skill_change",
+          actorTenantId: req.tenantId,
+          actorEmail: req.tenantEmail,
+          targetTenantId: updated.id,
+          targetEmail: updated.email ?? null,
+          oldValue: String(previous.designSkillEnabled),
+          newValue: String(updated.designSkillEnabled),
+        });
+      } catch (error) {
+        req.log.error({ err: error }, "Failed to write design-skill audit log");
+      }
+    }
+
+    res.json(serializeAdminTenant(updated));
+  },
+);
+
+/**
+ * GET /admin/design-skill
+ * The global switch for the canvas-design image prompt skill.
+ */
+router.get("/admin/design-skill", async (_req: Request, res: Response) => {
+  res.json({ enabled: await getGlobalDesignSkillEnabled() });
+});
+
+/**
+ * PUT /admin/design-skill
+ * Enable or disable the design skill platform-wide (tenant overrides still win).
+ */
+router.put("/admin/design-skill", async (req: Request, res: Response) => {
+  const parsed = AdminUpdateDesignSkillBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+
+  const before = await getGlobalDesignSkillEnabled();
+  const row = await loadDesignSkillRow();
+  if (row) {
+    await db
+      .update(designSkillSettingsTable)
+      .set({ enabled: parsed.data.enabled })
+      .where(eq(designSkillSettingsTable.id, row.id));
+  } else {
+    await db.insert(designSkillSettingsTable).values({ enabled: parsed.data.enabled });
+  }
+
+  if (before !== parsed.data.enabled) {
+    try {
+      await recordAdminAction({
+        action: "design_skill_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: String(before),
+        newValue: String(parsed.data.enabled),
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write design-skill audit log");
+    }
+  }
+
+  res.json({ enabled: parsed.data.enabled });
+});
 
 const invalidLimit = (n: number) =>
   !Number.isInteger(n) || (n < 0 && n !== -1);
