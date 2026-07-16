@@ -5,6 +5,7 @@ import metaRouter from "../routes/meta";
 import linkedinRouter, { linkedinCallbackRouter } from "../routes/linkedin";
 import twitterRouter, { twitterCallbackRouter } from "../routes/twitter";
 import threadsRouter, { threadsCallbackRouter } from "../routes/threads";
+import youtubeRouter, { youtubeCallbackRouter } from "../routes/youtube";
 import adminRouter from "../routes/admin";
 import emailSettingsRouter from "../routes/emailSettings";
 import { protectedAppBrandRouter } from "../routes/appBrand";
@@ -44,6 +45,7 @@ export function createTestApp(): Express {
     linkedinCallbackRouter,
     twitterCallbackRouter,
     threadsCallbackRouter,
+    youtubeCallbackRouter,
   );
   app.use(
     "/api",
@@ -53,6 +55,7 @@ export function createTestApp(): Express {
     linkedinRouter,
     twitterRouter,
     threadsRouter,
+    youtubeRouter,
     notificationsRouter,
     notificationSettingsRouter,
   );

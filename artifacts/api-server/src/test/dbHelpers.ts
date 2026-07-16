@@ -174,6 +174,41 @@ export async function insertLinkedinAccount(
   });
 }
 
+export async function insertYoutubeAccount(
+  tenantId: number,
+  opts: {
+    accessToken?: string | null;
+    refreshToken?: string | null;
+    providerUserId?: string | null;
+    tokenExpiresAt?: Date | null;
+    status?: string;
+    accountName?: string;
+    verifyStatus?: string | null;
+    verifyError?: string | null;
+    verifiedAt?: Date | null;
+  } = {},
+): Promise<void> {
+  const refreshToken =
+    opts.refreshToken === undefined ? "yt_refresh_secret" : opts.refreshToken;
+  await db.insert(connectedAccountsTable).values({
+    tenantId,
+    platform: "youtube",
+    accountName: opts.accountName ?? "Test Channel",
+    status: opts.status ?? "connected",
+    accessToken:
+      opts.accessToken === undefined ? "yt_tok_secret" : opts.accessToken,
+    providerUserId:
+      opts.providerUserId === undefined ? "yt_channel_123" : opts.providerUserId,
+    tokenExpiresAt: opts.tokenExpiresAt ?? null,
+    encryptedCredentials: refreshToken
+      ? encryptJson({ refreshToken })
+      : null,
+    verifyStatus: opts.verifyStatus ?? "verified",
+    verifyError: opts.verifyError ?? null,
+    verifiedAt: opts.verifiedAt ?? new Date(),
+  });
+}
+
 export async function insertThreadsAccount(
   tenantId: number,
   opts: {
