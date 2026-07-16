@@ -49,6 +49,7 @@ export function StudioPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [captionResult, setCaptionResult] = useState<{ caption: string; hashtags: string[] } | null>(null);
+  const [captionPlatform, setCaptionPlatform] = useState<string | null>(null);
   const [imageResult, setImageResult] = useState<{ imagePath: string; b64Json: string } | null>(null);
   const [campaignPosts, setCampaignPosts] = useState<CampaignPost[] | null>(null);
 
@@ -168,6 +169,7 @@ export function StudioPage() {
         onSuccess: (res) => {
           setCampaignPosts(null);
           setCaptionResult(res);
+          setCaptionPlatform(data.platform ?? null);
           toast({ title: "Caption generated!" });
         },
         onError: handleError,
@@ -206,6 +208,7 @@ export function StudioPage() {
       {
         onSuccess: (res) => {
           setCaptionResult(null);
+          setCaptionPlatform(null);
           setImageResult(null);
           setCampaignPosts(res.posts);
           toast({ title: "Campaign generated!", description: `${res.posts.length} platform variants ready.` });
@@ -707,13 +710,13 @@ export function StudioPage() {
                           Caption
                         </h4>
                         <p className="whitespace-pre-wrap text-lg">{captionResult.caption}</p>
-                        {(() => {
+                        {captionPlatform === "twitter" && (() => {
                           const tweetText = (captionResult.caption ?? "").trim();
                           const overLimit = isOverTweetLimit(tweetText);
                           return (
                             <p className={`mt-3 text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
                               {tweetText.length} / {TWEET_MAX_LENGTH} characters for X
-                              {overLimit && ` \u2014 ${tweetOverBy(tweetText)} over; will post as a thread of ${splitIntoTweets(tweetText).length} tweets on X (other platforms allow more)`}
+                              {overLimit && ` \u2014 ${tweetOverBy(tweetText)} over; will post as a thread of ${splitIntoTweets(tweetText).length} tweets on X`}
                             </p>
                           );
                         })()}

@@ -691,13 +691,13 @@ export function LibraryPage() {
                 onChange={e => setEditCaption(e.target.value)} 
                 className="min-h-[150px]"
               />
-              {(() => {
+              {editItem?.platform === "twitter" && (() => {
                 const tweetText = ((editCaption?.trim() || editTitle) ?? "").trim();
                 const overLimit = isOverTweetLimit(tweetText);
                 return (
                   <p className={`text-xs ${overLimit ? "font-medium" : ""} text-muted-foreground`}>
                     {tweetText.length} / {TWEET_MAX_LENGTH} characters for X
-                    {overLimit && ` \u2014 ${tweetOverBy(tweetText)} over; will post as a thread on X (other platforms allow more)`}
+                    {overLimit && ` \u2014 ${tweetOverBy(tweetText)} over; will post as a thread on X`}
                   </p>
                 );
               })()}
