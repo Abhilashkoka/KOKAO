@@ -539,7 +539,7 @@ importers:
         version: 1.4.2(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       lucide-react:
         specifier: 'catalog:'
-        version: 0.545.0(@types/react@19.2.17)(react@19.1.0)
+        version: 0.545.0(@types/react@19.1.17)(react@19.1.0)
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
@@ -548,7 +548,7 @@ importers:
         version: 19.1.0
       react-day-picker:
         specifier: ^9.14.0
-        version: 9.14.0(@types/react@19.2.17)(react@19.1.0)
+        version: 9.14.0(@types/react@19.1.17)(react@19.1.0)
       react-dom:
         specifier: 'catalog:'
         version: 19.1.0(react@19.1.0)
@@ -764,7 +764,7 @@ importers:
         version: 29.1.1(@noble/hashes@1.8.0)
       lucide-react:
         specifier: 'catalog:'
-        version: 0.545.0(@types/react@19.2.17)(react@19.1.0)
+        version: 0.545.0(@types/react@19.1.17)(react@19.1.0)
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
@@ -773,7 +773,7 @@ importers:
         version: 19.1.0
       react-day-picker:
         specifier: ^9.11.1
-        version: 9.14.0(@types/react@19.2.17)(react@19.1.0)
+        version: 9.14.0(@types/react@19.1.17)(react@19.1.0)
       react-dom:
         specifier: 'catalog:'
         version: 19.1.0(react@19.1.0)
@@ -5606,7 +5606,7 @@ packages:
   lucide-react@0.545.0:
     resolution: {integrity: sha512-7r1/yUuflQDSt4f1bpn5ZAocyIxcTyVyBBChSVtBKn5M+392cPmI5YJMWOJKk/HUWGm5wg83chlAZtCcGbEZtw==}
     peerDependencies:
-      '@types/react': '*'
+      '@types/react': ~19.1.10
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
     peerDependenciesMeta:
       '@types/react':
@@ -6412,7 +6412,7 @@ packages:
     resolution: {integrity: sha512-tBaoDWjPwe0M5pGrum4H0SR6Lyk+BO9oHnp9JbKpGKW2mlraNPgP9BMfsg5pWpwrssARmeqk7YBl2oXutZTaHA==}
     engines: {node: '>=18'}
     peerDependencies:
-      '@types/react': '*'
+      '@types/react': ~19.1.10
       react: '>=16.8.0'
     peerDependenciesMeta:
       '@types/react':
@@ -13209,11 +13209,11 @@ snapshots:
     dependencies:
       yallist: 3.1.1
 
-  lucide-react@0.545.0(@types/react@19.2.17)(react@19.1.0):
+  lucide-react@0.545.0(@types/react@19.1.17)(react@19.1.0):
     dependencies:
       react: 19.1.0
     optionalDependencies:
-      '@types/react': 19.2.17
+      '@types/react': 19.1.17
 
   lunr@2.3.9: {}
 
@@ -14201,7 +14201,7 @@ snapshots:
       minimist: 1.2.8
       strip-json-comments: 2.0.1
 
-  react-day-picker@9.14.0(@types/react@19.2.17)(react@19.1.0):
+  react-day-picker@9.14.0(@types/react@19.1.17)(react@19.1.0):
     dependencies:
       '@date-fns/tz': 1.5.0
       '@tabby_ai/hijri-converter': 1.0.5
@@ -14209,7 +14209,7 @@ snapshots:
       date-fns-jalali: 4.1.0-0
       react: 19.1.0
     optionalDependencies:
-      '@types/react': 19.2.17
+      '@types/react': 19.1.17
 
   react-devtools-core@6.1.5:
     dependencies:
