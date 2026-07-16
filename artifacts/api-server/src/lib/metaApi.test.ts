@@ -97,6 +97,8 @@ describe("testFacebookCredentials scope check", () => {
         },
       }),
     );
+    // Long-lived exchange fails -> fall back to the original user token.
+    fetchMock.mockResolvedValueOnce(jsonResponse(400, { error: { message: "nope" } }));
     fetchMock.mockResolvedValueOnce(
       jsonResponse(200, { access_token: "real-page-token" }),
     );
@@ -124,7 +126,7 @@ describe("testFacebookCredentials scope check", () => {
     expect(res.error).toContain("Page access token");
   });
 
-  it("keeps a PAGE token as-is with no correctedCredentials", async () => {
+  it("keeps a PAGE token as-is when the long-lived exchange fails", async () => {
     mockPageRead();
     fetchMock.mockResolvedValueOnce(
       jsonResponse(200, {
@@ -134,10 +136,78 @@ describe("testFacebookCredentials scope check", () => {
         },
       }),
     );
+    // fb_exchange_token attempt fails -> keep the original token.
+    fetchMock.mockResolvedValueOnce(jsonResponse(400, { error: { message: "nope" } }));
+    const res = await testFacebookCredentials(CREDS);
+    expect(res.ok).toBe(true);
+    expect(res.correctedCredentials).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("upgrades a PAGE token to a long-lived token via fb_exchange_token", async () => {
+    mockPageRead();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        data: {
+          type: "PAGE",
+          scopes: ["pages_read_engagement", "pages_manage_posts"],
+        },
+      }),
+    );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { access_token: "long-lived-page-token" }),
+    );
+    const res = await testFacebookCredentials(CREDS);
+    expect(res.ok).toBe(true);
+    expect(res.correctedCredentials).toEqual({
+      pageId: "page-1",
+      pageAccessToken: "long-lived-page-token",
+    });
+    // The exchange call carries the token in the POST body, never the URL.
+    const exchangeCall = fetchMock.mock.calls[2];
+    expect(String(exchangeCall[0])).not.toContain("page-token");
+    const body = (exchangeCall[1] as { body: URLSearchParams }).body;
+    expect(body.get("grant_type")).toBe("fb_exchange_token");
+    expect(body.get("fb_exchange_token")).toBe("page-token");
+  });
+
+  it("does not rewrite credentials when the token type is unknown", async () => {
+    mockPageRead();
+    // debug_token fails -> type null. No exchange should be attempted.
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, {}));
     const res = await testFacebookCredentials(CREDS);
     expect(res.ok).toBe(true);
     expect(res.correctedCredentials).toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("upgrades a USER token to long-lived before exchanging for the Page token", async () => {
+    mockPageRead();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        data: {
+          type: "USER",
+          scopes: ["pages_read_engagement", "pages_manage_posts"],
+        },
+      }),
+    );
+    // fb_exchange_token succeeds with a long-lived user token.
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { access_token: "long-lived-user-token" }),
+    );
+    // Page token exchange uses the long-lived user token.
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { access_token: "real-page-token" }),
+    );
+    const res = await testFacebookCredentials(CREDS);
+    expect(res.ok).toBe(true);
+    expect(res.correctedCredentials).toEqual({
+      pageId: "page-1",
+      pageAccessToken: "real-page-token",
+    });
+    const pageExchangeCall = fetchMock.mock.calls[3];
+    const headers = (pageExchangeCall[1] as { headers: Record<string, string> }).headers;
+    expect(headers.Authorization).toBe("Bearer long-lived-user-token");
   });
 
   it("never puts the page token in a URL", async () => {

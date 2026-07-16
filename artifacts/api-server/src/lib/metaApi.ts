@@ -159,6 +159,37 @@ async function inspectToken(token: string): Promise<TokenInspection> {
 }
 
 /**
+ * Exchange a short-lived token for a long-lived one via
+ * grant_type=fb_exchange_token (requires the app credentials). Long-lived
+ * Page tokens generally never expire; long-lived user tokens last ~60 days.
+ * Best-effort: returns null when the exchange is not possible so callers can
+ * keep using the original (still valid) token.
+ */
+async function exchangeForLongLivedToken(token: string): Promise<string | null> {
+  try {
+    const app = await getMetaAppCredentials();
+    if (!app) return null;
+    // Secrets go in the POST body (never the URL) so they can't leak into
+    // upstream/proxy access logs.
+    const body = new URLSearchParams({
+      grant_type: "fb_exchange_token",
+      client_id: app.appId,
+      client_secret: app.appSecret,
+      fb_exchange_token: token,
+    });
+    const res = await platformFetch(`${GRAPH_ROOT}/oauth/access_token`, {
+      method: "POST",
+      body,
+    });
+    const json = (await res.json()) as { access_token?: string } & GraphError;
+    if (!res.ok || !json.access_token) return null;
+    return json.access_token;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Exchange a USER access token for the Page's own access token via
  * GET /<pageId>?fields=access_token (works when the user is a Page admin with
  * pages_show_list). Returns null when the exchange is not possible.
@@ -217,10 +248,15 @@ export async function testFacebookCredentials(
     }
     if (inspection.type && inspection.type !== "PAGE") {
       // A USER token can read the Page but can NOT publish to it; Facebook
-      // requires the Page's own token. Try to exchange automatically.
+      // requires the Page's own token. First upgrade the user token to a
+      // long-lived one (so the derived Page token never expires), then
+      // exchange it for the Page token automatically.
+      const longLivedUserToken = await exchangeForLongLivedToken(
+        creds.pageAccessToken,
+      );
       const pageToken = await exchangeForPageToken(
         creds.pageId,
-        creds.pageAccessToken,
+        longLivedUserToken ?? creds.pageAccessToken,
       );
       if (!pageToken) {
         return {
@@ -236,6 +272,20 @@ export async function testFacebookCredentials(
         accountName: json.name || "Facebook Page",
         correctedCredentials: { pageId: creds.pageId, pageAccessToken: pageToken },
       };
+    }
+    // A confirmed Page token: still try to upgrade it to a long-lived token
+    // so it doesn't expire after a couple of hours. When the token type is
+    // unknown (debug call unavailable), leave the stored credentials as-is —
+    // never rewrite under uncertainty.
+    if (inspection.type === "PAGE") {
+      const longLived = await exchangeForLongLivedToken(creds.pageAccessToken);
+      if (longLived && longLived !== creds.pageAccessToken) {
+        return {
+          ok: true,
+          accountName: json.name || "Facebook Page",
+          correctedCredentials: { pageId: creds.pageId, pageAccessToken: longLived },
+        };
+      }
     }
     return { ok: true, accountName: json.name || "Facebook Page" };
   } catch (error) {
