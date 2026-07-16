@@ -56,6 +56,7 @@ import {
 } from "../test/dbHelpers";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { splitIntoTweets, TWEET_MAX_LENGTH } from "../lib/twitterApi";
+import { TWITTER_DEDUPE_PROBE } from "./twitter";
 
 const app = createTestApp();
 
@@ -1510,7 +1511,16 @@ type RecentTweetFixture = { id: string; text: string; created_at: string };
  */
 function mockXApiWithRecent(
   calls: MockCall[],
-  opts: { recent?: RecentTweetFixture[]; recentStatus?: number } = {},
+  opts: {
+    recent?: RecentTweetFixture[];
+    recentStatus?: number;
+    /**
+     * When set, the probe serves these pages in order, chaining them via
+     * `meta.next_token` (the token is the next page's index). Overrides
+     * `recent`.
+     */
+    recentPages?: RecentTweetFixture[][];
+  } = {},
 ) {
   let tweetSeq = 0;
   return vi
@@ -1532,6 +1542,16 @@ function mockXApiWithRecent(
         if (url.includes("/2/users/") && url.includes("/tweets")) {
           if (opts.recentStatus && opts.recentStatus >= 400) {
             return json({ title: "boom" }, opts.recentStatus);
+          }
+          if (opts.recentPages) {
+            const token = new URL(url).searchParams.get("pagination_token");
+            const pageIdx = token ? Number(token) : 0;
+            const page = opts.recentPages[pageIdx] ?? [];
+            const hasNext = pageIdx + 1 < opts.recentPages.length;
+            return json({
+              data: page,
+              meta: hasNext ? { next_token: String(pageIdx + 1) } : {},
+            });
           }
           return json({ data: opts.recent ?? [] });
         }
@@ -1789,6 +1809,113 @@ describe("X (Twitter) publish duplicate-post guard", () => {
       expect(item.status).toBe("published");
       expect(item.postId).toBe("TWEET_1");
     } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("finds a landed tweet beyond the first probe page (busy account)", async () => {
+    // A busy account posted other tweets in the same window, pushing the
+    // landed tweet past page 1. The probe must paginate and still find it.
+    const now = Date.now();
+    const filler = (i: number): RecentTweetFixture => ({
+      id: `FILLER_${i}`,
+      text: `unrelated post ${i}`,
+      created_at: new Date(now - i * 1000).toISOString(),
+    });
+    const calls: MockCall[] = [];
+    mockXApiWithRecent(calls, {
+      recentPages: [
+        Array.from({ length: 10 }, (_, i) => filler(i)),
+        Array.from({ length: 10 }, (_, i) => filler(10 + i)),
+        [
+          {
+            id: "EXISTING_DEEP",
+            text: "hello world",
+            created_at: new Date(now - 60_000).toISOString(),
+          },
+        ],
+      ],
+    });
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      const itemId = await insertContentItem(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-twitter`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("EXISTING_DEEP");
+      // The landed tweet was found on page 3 — no duplicate was posted.
+      expect(tweetCreateCalls(calls).length).toBe(0);
+
+      const probeCalls = calls.filter(
+        (c) => c.url.includes("/2/users/") && c.url.includes("/tweets"),
+      );
+      expect(probeCalls.length).toBe(3);
+      // The window is bounded server-side so a landed tweet cannot scroll
+      // out of the probed range.
+      expect(probeCalls[0].url).toContain("start_time=");
+      expect(probeCalls[1].url).toContain("pagination_token=1");
+      expect(probeCalls[2].url).toContain("pagination_token=2");
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("EXISTING_DEEP");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("stops paginating at the maxPages cap and publishes normally", async () => {
+    const now = Date.now();
+    const filler = (i: number): RecentTweetFixture => ({
+      id: `FILLER_${i}`,
+      text: `unrelated post ${i}`,
+      created_at: new Date(now - i * 1000).toISOString(),
+    });
+    const savedMaxPages = TWITTER_DEDUPE_PROBE.maxPages;
+    TWITTER_DEDUPE_PROBE.maxPages = 2;
+    const calls: MockCall[] = [];
+    // The matching tweet sits on page 3, past the cap — the probe must give
+    // up (bounded work) and the publish proceeds as a fresh post.
+    mockXApiWithRecent(calls, {
+      recentPages: [
+        [filler(0)],
+        [filler(1)],
+        [
+          {
+            id: "BEYOND_CAP",
+            text: "hello world",
+            created_at: new Date(now - 60_000).toISOString(),
+          },
+        ],
+      ],
+    });
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      const itemId = await insertContentItem(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-twitter`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("TWEET_1");
+      expect(tweetCreateCalls(calls).length).toBe(1);
+
+      const probeCalls = calls.filter(
+        (c) => c.url.includes("/2/users/") && c.url.includes("/tweets"),
+      );
+      expect(probeCalls.length).toBe(2);
+    } finally {
+      TWITTER_DEDUPE_PROBE.maxPages = savedMaxPages;
       await deleteTenant(tenant.tenantId);
     }
   });

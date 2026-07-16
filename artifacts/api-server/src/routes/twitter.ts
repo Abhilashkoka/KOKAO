@@ -306,30 +306,61 @@ const PUBLISH_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
 type RecentTweet = { id: string; text: string; createdAtMs: number };
 
 /**
- * Fetch the account's most recent tweets so a (re-)publish can detect that a
- * previous attempt actually landed despite a lost/transient-looking response.
- * The X API has no idempotency key for tweet creation, so probing recent
- * posts is the only way to avoid double-posting on retry. Best-effort: any
- * failure is treated as "no recent posts" by the caller.
+ * Pagination bounds for the duplicate-post probe. The probe filters
+ * server-side with the X API's `start_time` param, so on a quiet account one
+ * page is plenty — but a busy account (or one posting from several tools at
+ * once) can push a just-landed tweet past a single page, so the probe follows
+ * `meta.next_token` up to `maxPages`. Exported (and mutable) so tests can
+ * exercise the pagination without huge fixtures.
+ */
+export const TWITTER_DEDUPE_PROBE = {
+  pageSize: 100,
+  maxPages: 5,
+};
+
+/**
+ * Fetch the account's recent tweets (created at/after `sinceMs`) so a
+ * (re-)publish can detect that a previous attempt actually landed despite a
+ * lost/transient-looking response. The X API has no idempotency key for tweet
+ * creation, so probing recent posts is the only way to avoid double-posting
+ * on retry. The window is bounded server-side via `start_time` and the probe
+ * paginates (see TWITTER_DEDUPE_PROBE) so a landed tweet on a busy account
+ * cannot scroll past the probed window. Best-effort: any failure is treated
+ * as "no recent posts" by the caller.
  */
 async function fetchRecentTweets(
   userId: string,
   accessToken: string,
+  sinceMs: number,
 ): Promise<RecentTweet[]> {
-  const res = await platformFetch(
-    `${TWITTER_API_BASE}/2/users/${encodeURIComponent(userId)}/tweets?max_results=10&tweet.fields=created_at`,
-    { headers: { Authorization: `Bearer ${accessToken}` } },
-  );
-  const json = (await res.json()) as {
-    data?: Array<{ id?: string; text?: string; created_at?: string }>;
-  };
-  if (!res.ok || !Array.isArray(json.data)) return [];
+  const baseUrl =
+    `${TWITTER_API_BASE}/2/users/${encodeURIComponent(userId)}/tweets` +
+    `?max_results=${TWITTER_DEDUPE_PROBE.pageSize}&tweet.fields=created_at` +
+    `&start_time=${encodeURIComponent(new Date(sinceMs).toISOString())}`;
   const out: RecentTweet[] = [];
-  for (const t of json.data) {
-    if (!t.id || typeof t.text !== "string") continue;
-    const createdAtMs = t.created_at ? Date.parse(t.created_at) : NaN;
-    if (Number.isNaN(createdAtMs)) continue;
-    out.push({ id: t.id, text: t.text, createdAtMs });
+  let nextToken: string | undefined;
+  for (let page = 0; page < TWITTER_DEDUPE_PROBE.maxPages; page++) {
+    const url = nextToken
+      ? `${baseUrl}&pagination_token=${encodeURIComponent(nextToken)}`
+      : baseUrl;
+    const res = await platformFetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const json = (await res.json()) as {
+      data?: Array<{ id?: string; text?: string; created_at?: string }>;
+      meta?: { next_token?: string };
+    };
+    if (!res.ok || !Array.isArray(json.data)) break;
+    for (const t of json.data) {
+      if (!t.id || typeof t.text !== "string") continue;
+      const createdAtMs = t.created_at ? Date.parse(t.created_at) : NaN;
+      if (Number.isNaN(createdAtMs)) continue;
+      out.push({ id: t.id, text: t.text, createdAtMs });
+    }
+    nextToken = json.meta?.next_token;
+    // No next page (or an empty page) means the start_time window is
+    // exhausted.
+    if (!nextToken || json.data.length === 0) break;
   }
   return out;
 }
@@ -443,6 +474,7 @@ router.post(
     // same content twice. Before (re-)posting, probe the account's recent
     // tweets and short-circuit any chunk that already landed within the
     // dedupe window. Best-effort: probe failure means no short-circuit.
+    const dedupeSinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
     let recentPosts: RecentTweet[] = [];
     const account = await getTwitterAccount(req.tenantId);
     if (account?.providerUserId) {
@@ -450,6 +482,7 @@ router.post(
         recentPosts = await fetchRecentTweets(
           account.providerUserId,
           accessToken,
+          dedupeSinceMs,
         );
       } catch (err) {
         req.log.warn(
@@ -458,7 +491,6 @@ router.post(
         );
       }
     }
-    const dedupeSinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
 
     try {
       let mediaId: string | null = null;

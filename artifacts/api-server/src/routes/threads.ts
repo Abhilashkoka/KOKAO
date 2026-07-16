@@ -401,30 +401,54 @@ const PUBLISH_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
 type RecentThreadPost = { id: string; text: string; createdAtMs: number };
 
 /**
- * Fetch the account's most recent Threads posts so a (re-)publish can detect
- * that a previous attempt actually landed despite a lost/transient-looking
- * response. Threads has no idempotency key for publishing, and long captions
- * publish as multi-post reply chains, so a blind retry can duplicate several
- * posts at once. Best-effort: any failure is treated as "no recent posts" by
- * the caller. The limit covers a full reply chain from a prior attempt.
+ * Pagination bounds for the duplicate-post probe. The probe filters
+ * server-side with Graph's `since` param, so on a quiet account one page is
+ * plenty — but a busy account (or one posting from several tools at once) can
+ * push a just-landed post past a single page, so the probe follows
+ * `paging.next` links up to `maxPages`. Exported (and mutable) so tests can
+ * exercise the pagination without huge fixtures.
+ */
+export const THREADS_DEDUPE_PROBE = {
+  pageSize: 25,
+  maxPages: 5,
+};
+
+/**
+ * Fetch the account's recent Threads posts (created at/after `sinceMs`) so a
+ * (re-)publish can detect that a previous attempt actually landed despite a
+ * lost/transient-looking response. Threads has no idempotency key for
+ * publishing, and long captions publish as multi-post reply chains, so a
+ * blind retry can duplicate several posts at once. The window is bounded
+ * server-side via Graph's `since` param and the probe paginates (see
+ * THREADS_DEDUPE_PROBE) so a landed post on a busy account cannot scroll past
+ * the probed window. Best-effort: any failure is treated as "no recent
+ * posts" by the caller.
  */
 async function fetchRecentThreadPosts(
   userId: string,
   accessToken: string,
+  sinceMs: number,
 ): Promise<RecentThreadPost[]> {
-  const res = await platformFetch(
-    `${GRAPH_BASE}/${encodeURIComponent(userId)}/threads?fields=id,text,timestamp&limit=25&access_token=${encodeURIComponent(accessToken)}`,
-  );
-  const json = (await res.json()) as {
-    data?: Array<{ id?: string; text?: string; timestamp?: string }>;
-  };
-  if (!res.ok || !Array.isArray(json.data)) return [];
+  const sinceSec = Math.floor(sinceMs / 1000);
   const out: RecentThreadPost[] = [];
-  for (const p of json.data) {
-    if (!p.id || typeof p.text !== "string") continue;
-    const createdAtMs = p.timestamp ? Date.parse(p.timestamp) : NaN;
-    if (Number.isNaN(createdAtMs)) continue;
-    out.push({ id: p.id, text: p.text, createdAtMs });
+  let url: string | undefined =
+    `${GRAPH_BASE}/${encodeURIComponent(userId)}/threads?fields=id,text,timestamp&limit=${THREADS_DEDUPE_PROBE.pageSize}&since=${sinceSec}&access_token=${encodeURIComponent(accessToken)}`;
+  for (let page = 0; page < THREADS_DEDUPE_PROBE.maxPages && url; page++) {
+    const res = await platformFetch(url);
+    const json = (await res.json()) as {
+      data?: Array<{ id?: string; text?: string; timestamp?: string }>;
+      paging?: { next?: string };
+    };
+    if (!res.ok || !Array.isArray(json.data)) break;
+    for (const p of json.data) {
+      if (!p.id || typeof p.text !== "string") continue;
+      const createdAtMs = p.timestamp ? Date.parse(p.timestamp) : NaN;
+      if (Number.isNaN(createdAtMs)) continue;
+      out.push({ id: p.id, text: p.text, createdAtMs });
+    }
+    // An empty page means the `since` window is exhausted.
+    if (json.data.length === 0) break;
+    url = json.paging?.next;
   }
   return out;
 }
@@ -564,16 +588,20 @@ router.post(
     // chain. Before (re-)posting, probe the account's recent posts and
     // short-circuit any chunk that already landed within the dedupe window.
     // Best-effort: probe failure means no short-circuit.
+    const dedupeSinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
     let recentPosts: RecentThreadPost[] = [];
     try {
-      recentPosts = await fetchRecentThreadPosts(userId, accessToken);
+      recentPosts = await fetchRecentThreadPosts(
+        userId,
+        accessToken,
+        dedupeSinceMs,
+      );
     } catch (err) {
       req.log.warn(
         { err },
         "Threads duplicate-post probe failed; proceeding without dedupe",
       );
     }
-    const dedupeSinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
 
     try {
       let firstPostId: string | null = null;

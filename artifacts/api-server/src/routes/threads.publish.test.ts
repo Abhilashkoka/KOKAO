@@ -50,6 +50,7 @@ import {
   restoreAppCredentialRow,
 } from "../test/dbHelpers";
 import { ObjectStorageService } from "../lib/objectStorage";
+import { THREADS_DEDUPE_PROBE } from "./threads";
 
 const app = createTestApp();
 
@@ -100,6 +101,12 @@ type RecentPost = { id: string; text: string; timestamp: string };
 function mockThreadsApi(opts: {
   recentPosts?: RecentPost[];
   recentPostsStatus?: number;
+  /**
+   * When set, the probe serves these pages in order, chaining them via
+   * `paging.next` links (the link carries the next page's index). Overrides
+   * `recentPosts`.
+   */
+  recentPostsPages?: RecentPost[][];
 }): MockCall[] {
   const calls: MockCall[] = [];
   let containerSeq = 0;
@@ -121,6 +128,20 @@ function mockThreadsApi(opts: {
       ) {
         if (opts.recentPostsStatus && opts.recentPostsStatus >= 400) {
           return json({ error: { message: "boom" } }, opts.recentPostsStatus);
+        }
+        if (opts.recentPostsPages) {
+          const pageParam = new URL(url).searchParams.get("probe_page");
+          const pageIdx = pageParam ? Number(pageParam) : 0;
+          const page = opts.recentPostsPages[pageIdx] ?? [];
+          const hasNext = pageIdx + 1 < opts.recentPostsPages.length;
+          return json({
+            data: page,
+            paging: hasNext
+              ? {
+                  next: `${GRAPH_BASE}/${TH_USER_ID}/threads?fields=id,text,timestamp&probe_page=${pageIdx + 1}`,
+                }
+              : {},
+          });
         }
         return json({ data: opts.recentPosts ?? [] });
       }
@@ -392,6 +413,119 @@ describe("Threads publish duplicate-post guard", () => {
       expect(item.status).not.toBe("published");
       expect(item.postId ?? null).toBeNull();
     } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("finds a landed post beyond the first probe page (busy account)", async () => {
+    // A busy account posted other things in the same window, pushing the
+    // landed post past page 1. The probe must paginate and still find it.
+    const caption = "hello world";
+    const now = Date.now();
+    const filler = (i: number): RecentPost => ({
+      id: `FILLER_${i}`,
+      text: `unrelated post ${i}`,
+      timestamp: new Date(now - i * 1000).toISOString(),
+    });
+    const calls = mockThreadsApi({
+      recentPostsPages: [
+        Array.from({ length: 10 }, (_, i) => filler(i)),
+        Array.from({ length: 10 }, (_, i) => filler(10 + i)),
+        [
+          {
+            id: "EXISTING_DEEP",
+            text: caption,
+            timestamp: new Date(now - 60_000).toISOString(),
+          },
+        ],
+      ],
+    });
+
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: TH_USER_ID,
+      });
+      const itemId = await insertContentItem(tenant.tenantId, { caption });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-threads`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("EXISTING_DEEP");
+      // The landed post was found on page 3 — no duplicate was posted.
+      expect(publishPosts(calls).length).toBe(0);
+
+      const probeCalls = calls.filter(
+        (c) => c.method === "GET" && c.url.includes("/threads?"),
+      );
+      expect(probeCalls.length).toBe(3);
+      // The window is bounded server-side so a landed post cannot scroll
+      // out of the probed range.
+      expect(probeCalls[0].url).toContain("since=");
+      expect(probeCalls[1].url).toContain("probe_page=1");
+      expect(probeCalls[2].url).toContain("probe_page=2");
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("EXISTING_DEEP");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("stops paginating at the maxPages cap and publishes normally", async () => {
+    const caption = "hello world";
+    const now = Date.now();
+    const filler = (i: number): RecentPost => ({
+      id: `FILLER_${i}`,
+      text: `unrelated post ${i}`,
+      timestamp: new Date(now - i * 1000).toISOString(),
+    });
+    const savedMaxPages = THREADS_DEDUPE_PROBE.maxPages;
+    THREADS_DEDUPE_PROBE.maxPages = 2;
+    // The matching post sits on page 3, past the cap — the probe must give
+    // up (bounded work) and the publish proceeds as a fresh post.
+    const calls = mockThreadsApi({
+      recentPostsPages: [
+        [filler(0)],
+        [filler(1)],
+        [
+          {
+            id: "BEYOND_CAP",
+            text: caption,
+            timestamp: new Date(now - 60_000).toISOString(),
+          },
+        ],
+      ],
+    });
+
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: TH_USER_ID,
+      });
+      const itemId = await insertContentItem(tenant.tenantId, { caption });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-threads`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("POST_1");
+      expect(publishPosts(calls).length).toBe(1);
+
+      const probeCalls = calls.filter(
+        (c) => c.method === "GET" && c.url.includes("/threads?"),
+      );
+      expect(probeCalls.length).toBe(2);
+    } finally {
+      THREADS_DEDUPE_PROBE.maxPages = savedMaxPages;
       await deleteTenant(tenant.tenantId);
     }
   });
