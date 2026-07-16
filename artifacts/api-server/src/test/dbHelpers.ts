@@ -476,8 +476,8 @@ export async function restoreEmailSettings(
 }
 
 // ---------------------------------------------------------------------------
-// App branding (singleton row, id=1). Snapshot/restore so tests never destroy
-// real dev configuration.
+// App branding settings (singleton row, id=1). Snapshot/restore so tests never
+// destroy real white-label configuration.
 // ---------------------------------------------------------------------------
 
 export async function snapshotAppBrand(): Promise<AppBrandSettings | null> {
@@ -493,6 +493,16 @@ export async function snapshotAppBrand(): Promise<AppBrandSettings | null> {
 
 export async function clearAppBrand(): Promise<void> {
   await db.delete(appBrandSettingsTable);
+}
+
+export async function getAppBrandRow(): Promise<AppBrandSettings | undefined> {
+  return (
+    await db
+      .select()
+      .from(appBrandSettingsTable)
+      .where(eq(appBrandSettingsTable.id, 1))
+      .limit(1)
+  )[0];
 }
 
 export async function restoreAppBrand(

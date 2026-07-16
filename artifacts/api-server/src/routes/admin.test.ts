@@ -49,6 +49,9 @@ import {
   restoreNotificationPolicy,
   setTenantSuperadmin,
   getPlanSettingsRow,
+  snapshotAppBrand,
+  restoreAppBrand,
+  getAppBrandRow,
 } from "../test/dbHelpers";
 
 // This is baked into the permanent allowlist in lib/superadmins.ts, so an actor
@@ -1237,6 +1240,54 @@ describe("revoking the superadmin DB flag instantly locks out every platform-wid
       );
       expect(revokedExport.status).toBe(403);
     } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("app branding (PUT /app-brand, POST /app-brand/upload-url): access while granted, 403 + no settings change after revoke", async () => {
+    const snapshot = await snapshotAppBrand();
+    const tenant = await createTenant({
+      email: `revoked-${randomUUID()}@example.com`,
+    });
+    const grantedName = `Granted Brand ${randomUUID().slice(0, 8)}`;
+    try {
+      actAs(tenant.clerkUserId, tenant.email);
+
+      // Not yet a superadmin: both branding writes are rejected at the gate.
+      const beforePut = await request(app)
+        .put("/api/app-brand")
+        .send({ appName: "Should Not Land" });
+      expect(beforePut.status).toBe(403);
+      const beforeUpload = await request(app)
+        .post("/api/app-brand/upload-url")
+        .send({});
+      expect(beforeUpload.status).toBe(403);
+
+      // Granted: the branding write lands (proof of access).
+      await setTenantSuperadmin(tenant.tenantId, true);
+      const granted = await request(app)
+        .put("/api/app-brand")
+        .send({ appName: grantedName });
+      expect(granted.status).toBe(200);
+      expect(granted.body.appName).toBe(grantedName);
+      expect((await getAppBrandRow())?.appName).toBe(grantedName);
+
+      // Revoked: the very next branding write is rejected — the flag is read
+      // fresh each request — and the stored settings row is untouched.
+      await setTenantSuperadmin(tenant.tenantId, false);
+      const revokedPut = await request(app)
+        .put("/api/app-brand")
+        .send({ appName: "Demoted Rebrand Attempt" });
+      expect(revokedPut.status).toBe(403);
+      expect((await getAppBrandRow())?.appName).toBe(grantedName);
+
+      // The upload-URL minting surface is locked out too.
+      const revokedUpload = await request(app)
+        .post("/api/app-brand/upload-url")
+        .send({});
+      expect(revokedUpload.status).toBe(403);
+    } finally {
+      await restoreAppBrand(snapshot);
       await deleteTenant(tenant.tenantId);
     }
   });

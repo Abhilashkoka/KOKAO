@@ -134,10 +134,15 @@ describe("superadmin gate on /admin/email-settings", () => {
       const before = await request(app).get("/api/admin/email-settings");
       expect(before.status).toBe(403);
 
-      // Grant the DB flag; access works immediately.
+      // Grant the DB flag; access works immediately — including writes.
       await setTenantSuperadmin(tenant.tenantId, true);
       const granted = await request(app).get("/api/admin/email-settings");
       expect(granted.status).toBe(200);
+      const grantedPut = await request(app)
+        .put("/api/admin/email-settings")
+        .send({ sendingEnabled: true });
+      expect(grantedPut.status).toBe(200);
+      expect((await getEmailSettingsRow())?.sendingEnabled).toBe(true);
 
       // Revoke: the gate reads the flag fresh each request, so the very
       // next request must be rejected — no caching window.
@@ -145,12 +150,13 @@ describe("superadmin gate on /admin/email-settings", () => {
       const revoked = await request(app).get("/api/admin/email-settings");
       expect(revoked.status).toBe(403);
 
-      // Writes are locked out too.
+      // A demoted admin cannot flip the pause switch: the write is rejected
+      // and the stored setting is untouched.
       const put = await request(app)
         .put("/api/admin/email-settings")
-        .send({ sendingEnabled: true });
+        .send({ sendingEnabled: false });
       expect(put.status).toBe(403);
-      expect(await getEmailSettingsRow()).toBeUndefined();
+      expect((await getEmailSettingsRow())?.sendingEnabled).toBe(true);
     } finally {
       await deleteTenant(tenant.tenantId);
     }
