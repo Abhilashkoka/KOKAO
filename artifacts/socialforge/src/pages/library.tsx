@@ -757,20 +757,23 @@ export function LibraryPage() {
                   ] as const)
                     .slice()
                     .sort((a, b) => (a.key === item.platform ? -1 : b.key === item.platform ? 1 : 0))
-                    .map(({ key, label, Icon, ready, open, title }) => (
-                      <Button
-                        key={key}
-                        size="sm"
-                        variant={key === item.platform ? "default" : "outline"}
-                        className="h-7 px-2 text-xs"
-                        disabled={!ready}
-                        onClick={open}
-                        title={title}
-                        data-testid={`button-publish-${key}-${item.id}`}
-                      >
-                        <Icon className="h-3 w-3 mr-1" /> {label}
-                      </Button>
-                    ))}
+                    .map(({ key, label, Icon, ready, open, title }) => {
+                      const alreadyPublished = !!item.publishedPlatforms?.[key];
+                      return (
+                        <Button
+                          key={key}
+                          size="sm"
+                          variant={alreadyPublished ? "default" : "outline"}
+                          className="h-7 px-2 text-xs"
+                          disabled={!ready}
+                          onClick={open}
+                          title={alreadyPublished && ready ? `Republish to ${label}` : title}
+                          data-testid={`button-publish-${key}-${item.id}`}
+                        >
+                          <Icon className="h-3 w-3 mr-1" /> {alreadyPublished ? `Republish ${label}` : label}
+                        </Button>
+                      );
+                    })}
                 </div>
                 <div className="flex justify-end items-center gap-2">
                   {item.status === 'failed' && (
