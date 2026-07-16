@@ -718,9 +718,33 @@ export function LibraryPage() {
                 )}
               </CardContent>
               
-              <CardFooter className="p-4 pt-0 bg-card flex justify-between items-center gap-2 text-xs text-muted-foreground">
-                <span className="capitalize font-medium px-2 py-1 bg-muted rounded-md">{item.platform}</span>
-                <div className="flex items-center gap-2">
+              <CardFooter className="p-4 pt-0 bg-card flex flex-col items-stretch gap-2 text-xs text-muted-foreground">
+                <div className="flex flex-wrap gap-1.5">
+                  {([
+                    { key: "facebook", label: "Facebook", Icon: Facebook, ready: fbReady, open: () => setPublishItem(item), title: fbReady ? "Publish to Facebook" : "Connect and verify your Facebook Page on the Accounts page first." },
+                    { key: "instagram", label: "Instagram", Icon: Instagram, ready: igReady && item.status !== "publishing", open: () => setInstagramItem(item), title: !igReady ? "Connect and verify your Instagram account on the Accounts page first." : item.status === "publishing" ? "This post is currently publishing to Instagram." : "Publish to Instagram" },
+                    { key: "twitter", label: "X", Icon: Twitter, ready: twReady, open: () => setTwitterItem(item), title: twReady ? "Publish to X" : "Connect your X account on the Accounts page first." },
+                    { key: "linkedin", label: "LinkedIn", Icon: Linkedin, ready: liReady, open: () => setLinkedinItem(item), title: liReady ? "Publish to LinkedIn" : "Connect your LinkedIn account on the Accounts page first." },
+                    { key: "threads", label: "Threads", Icon: AtSign, ready: thReady, open: () => setThreadsItem(item), title: thReady ? "Publish to Threads" : "Connect your Threads profile on the Accounts page first." },
+                  ] as const)
+                    .slice()
+                    .sort((a, b) => (a.key === item.platform ? -1 : b.key === item.platform ? 1 : 0))
+                    .map(({ key, label, Icon, ready, open, title }) => (
+                      <Button
+                        key={key}
+                        size="sm"
+                        variant={key === item.platform ? "default" : "outline"}
+                        className="h-7 px-2 text-xs"
+                        disabled={!ready}
+                        onClick={open}
+                        title={title}
+                        data-testid={`button-publish-${key}-${item.id}`}
+                      >
+                        <Icon className="h-3 w-3 mr-1" /> {label}
+                      </Button>
+                    ))}
+                </div>
+                <div className="flex justify-end items-center gap-2">
                   {item.status === 'failed' && (
                     <Button
                       size="sm"
