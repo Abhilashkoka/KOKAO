@@ -884,6 +884,22 @@ export interface ResendLinkedinCommentsResult {
   commentWarning?: string | null;
 }
 
+export interface ResendChainPostsResult {
+  /** Total chain posts now published across all attempts. */
+  postsPublished: number;
+  /** How many posts the caption's thread required. */
+  postsTotal: number;
+  /** Posts still missing after this attempt (0 = complete). */
+  postsRemaining: number;
+  /** @nullable */
+  permalink?: string | null;
+  /**
+     * Present when some posts still could not be published.
+     * @nullable
+     */
+  publishWarning?: string | null;
+}
+
 export interface Notification {
   id: number;
   type: string;
@@ -1045,6 +1061,11 @@ export interface PublishTwitterResult {
   permalink?: string | null;
   /** Number of tweets posted. Greater than 1 when a long caption was split into a reply-chained thread. */
   tweetCount?: number;
+  /**
+     * Present when the first tweet published but some follow-up tweets with the rest of the caption could not be posted.
+     * @nullable
+     */
+  publishWarning?: string | null;
 }
 
 export interface ContentItem {
@@ -1069,6 +1090,10 @@ export interface ContentItem {
   permalink?: string | null;
   /** How many LinkedIn follow-up comments from the last publish are still missing (0 when none). When > 0 the client can offer a "resend remaining comments" action. */
   linkedinCommentsPending?: number;
+  /** How many Threads reply-chain posts from the last publish are still missing (0 when none). When > 0 the client can offer a "resend missing posts" action. */
+  threadsPostsPending?: number;
+  /** How many X thread posts from the last publish are still missing (0 when none). When > 0 the client can offer a "resend missing posts" action. */
+  twitterPostsPending?: number;
   /** @nullable */
   brandKitId?: number | null;
   createdAt: string;

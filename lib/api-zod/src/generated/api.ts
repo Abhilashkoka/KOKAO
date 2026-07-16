@@ -3142,6 +3142,8 @@ export const ListContentResponseItem = zod.object({
   "postId": zod.string().nullish(),
   "permalink": zod.string().nullish(),
   "linkedinCommentsPending": zod.number().optional().describe('How many LinkedIn follow-up comments from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend remaining comments\" action.'),
+  "threadsPostsPending": zod.number().optional().describe('How many Threads reply-chain posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
+  "twitterPostsPending": zod.number().optional().describe('How many X thread posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
   "brandKitId": zod.number().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -3179,6 +3181,8 @@ export const CreateContentResponse = zod.object({
   "postId": zod.string().nullish(),
   "permalink": zod.string().nullish(),
   "linkedinCommentsPending": zod.number().optional().describe('How many LinkedIn follow-up comments from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend remaining comments\" action.'),
+  "threadsPostsPending": zod.number().optional().describe('How many Threads reply-chain posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
+  "twitterPostsPending": zod.number().optional().describe('How many X thread posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
   "brandKitId": zod.number().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -3205,6 +3209,8 @@ export const GetContentResponse = zod.object({
   "postId": zod.string().nullish(),
   "permalink": zod.string().nullish(),
   "linkedinCommentsPending": zod.number().optional().describe('How many LinkedIn follow-up comments from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend remaining comments\" action.'),
+  "threadsPostsPending": zod.number().optional().describe('How many Threads reply-chain posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
+  "twitterPostsPending": zod.number().optional().describe('How many X thread posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
   "brandKitId": zod.number().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -3245,6 +3251,8 @@ export const UpdateContentResponse = zod.object({
   "postId": zod.string().nullish(),
   "permalink": zod.string().nullish(),
   "linkedinCommentsPending": zod.number().optional().describe('How many LinkedIn follow-up comments from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend remaining comments\" action.'),
+  "threadsPostsPending": zod.number().optional().describe('How many Threads reply-chain posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
+  "twitterPostsPending": zod.number().optional().describe('How many X thread posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
   "brandKitId": zod.number().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -3848,6 +3856,40 @@ export const ResendLinkedinCommentsResponse = zod.object({
 
 
 /**
+ * Posts only the reply-chain pieces that are still missing from an earlier Threads publish, chained onto the last successfully posted reply so the thread stays connected and keeps its original order. Available only while the content item has an incomplete reply chain recorded.
+ * @summary Resend the Threads follow-up posts that failed during a publish
+ */
+export const ResendThreadsPostsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ResendThreadsPostsResponse = zod.object({
+  "postsPublished": zod.number().describe('Total chain posts now published across all attempts.'),
+  "postsTotal": zod.number().describe('How many posts the caption\'s thread required.'),
+  "postsRemaining": zod.number().describe('Posts still missing after this attempt (0 = complete).'),
+  "permalink": zod.string().nullish(),
+  "publishWarning": zod.string().nullish().describe('Present when some posts still could not be published.')
+})
+
+
+/**
+ * Posts only the thread pieces that are still missing from an earlier X publish, chained onto the last successfully posted tweet so the thread stays connected and keeps its original order. Available only while the content item has an incomplete thread recorded.
+ * @summary Resend the X thread posts that failed during a publish
+ */
+export const ResendTwitterPostsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ResendTwitterPostsResponse = zod.object({
+  "postsPublished": zod.number().describe('Total chain posts now published across all attempts.'),
+  "postsTotal": zod.number().describe('How many posts the caption\'s thread required.'),
+  "postsRemaining": zod.number().describe('Posts still missing after this attempt (0 = complete).'),
+  "permalink": zod.string().nullish(),
+  "publishWarning": zod.string().nullish().describe('Present when some posts still could not be published.')
+})
+
+
+/**
  * @summary List the current tenant's unread notifications
  */
 export const ListNotificationsResponseItem = zod.object({
@@ -4162,7 +4204,8 @@ export const PublishContentToTwitterParams = zod.object({
 export const PublishContentToTwitterResponse = zod.object({
   "postId": zod.string(),
   "permalink": zod.string().nullish(),
-  "tweetCount": zod.number().optional().describe('Number of tweets posted. Greater than 1 when a long caption was split into a reply-chained thread.\n')
+  "tweetCount": zod.number().optional().describe('Number of tweets posted. Greater than 1 when a long caption was split into a reply-chained thread.\n'),
+  "publishWarning": zod.string().nullish().describe('Present when the first tweet published but some follow-up tweets with the rest of the caption could not be posted.')
 })
 
 

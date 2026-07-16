@@ -2046,6 +2046,79 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /content/{id}/resend-threads-posts:
+    post:
+      operationId: resendThreadsPosts
+      tags: [threads]
+      summary: Resend the Threads follow-up posts that failed during a publish
+      description: >-
+        Posts only the reply-chain pieces that are still missing from an
+        earlier Threads publish, chained onto the last successfully posted
+        reply so the thread stays connected and keeps its original order.
+        Available only while the content item has an incomplete reply chain
+        recorded.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Resend attempt finished (fully or partially)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResendChainPostsResult"
+        "400":
+          description: Nothing to resend or Threads not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /content/{id}/resend-twitter-posts:
+    post:
+      operationId: resendTwitterPosts
+      tags: [twitter]
+      summary: Resend the X thread posts that failed during a publish
+      description: >-
+        Posts only the thread pieces that are still missing from an earlier
+        X publish, chained onto the last successfully posted tweet so the
+        thread stays connected and keeps its original order. Available only
+        while the content item has an incomplete thread recorded.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Resend attempt finished (fully or partially)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResendChainPostsResult"
+        "400":
+          description: Nothing to resend or X not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /notifications:
     get:
       operationId: listNotifications
@@ -3732,6 +3805,24 @@ components:
         commentWarning:
           type: ["string", "null"]
           description: Present when some comments still could not be posted.
+    ResendChainPostsResult:
+      type: object
+      required: [postsPublished, postsTotal, postsRemaining]
+      properties:
+        postsPublished:
+          type: integer
+          description: Total chain posts now published across all attempts.
+        postsTotal:
+          type: integer
+          description: How many posts the caption's thread required.
+        postsRemaining:
+          type: integer
+          description: Posts still missing after this attempt (0 = complete).
+        permalink:
+          type: ["string", "null"]
+        publishWarning:
+          type: ["string", "null"]
+          description: Present when some posts still could not be published.
     Notification:
       type: object
       required: [id, type, title, message, createdAt]
@@ -3967,6 +4058,11 @@ components:
           description: >
             Number of tweets posted. Greater than 1 when a long caption was
             split into a reply-chained thread.
+        publishWarning:
+          type: ["string", "null"]
+          description: >-
+            Present when the first tweet published but some follow-up tweets
+            with the rest of the caption could not be posted.
     ContentItem:
       type: object
       required:
@@ -4012,6 +4108,18 @@ components:
             How many LinkedIn follow-up comments from the last publish are
             still missing (0 when none). When > 0 the client can offer a
             "resend remaining comments" action.
+        threadsPostsPending:
+          type: integer
+          description: >-
+            How many Threads reply-chain posts from the last publish are
+            still missing (0 when none). When > 0 the client can offer a
+            "resend missing posts" action.
+        twitterPostsPending:
+          type: integer
+          description: >-
+            How many X thread posts from the last publish are still missing
+            (0 when none). When > 0 the client can offer a "resend missing
+            posts" action.
         brandKitId:
           type: ["integer", "null"]
         createdAt:

@@ -83,6 +83,7 @@ import type {
   PublishTwitterResult,
   ResearchRequest,
   ResearchResult,
+  ResendChainPostsResult,
   ResendLinkedinCommentsResult,
   ResolveSelectionInput,
   ResolveSelectionResult,
@@ -5819,6 +5820,148 @@ export const useResendLinkedinComments = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getResendLinkedinCommentsMutationOptions(options));
+    }
+
+export const getResendThreadsPostsUrl = (id: number,) => {
+
+
+
+
+  return `/api/content/${id}/resend-threads-posts`
+}
+
+/**
+ * Posts only the reply-chain pieces that are still missing from an earlier Threads publish, chained onto the last successfully posted reply so the thread stays connected and keeps its original order. Available only while the content item has an incomplete reply chain recorded.
+ * @summary Resend the Threads follow-up posts that failed during a publish
+ */
+export const resendThreadsPosts = async (id: number, options?: RequestInit): Promise<ResendChainPostsResult> => {
+
+  return customFetch<ResendChainPostsResult>(getResendThreadsPostsUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getResendThreadsPostsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resendThreadsPosts>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resendThreadsPosts>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['resendThreadsPosts'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resendThreadsPosts>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  resendThreadsPosts(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResendThreadsPostsMutationResult = NonNullable<Awaited<ReturnType<typeof resendThreadsPosts>>>
+
+    export type ResendThreadsPostsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Resend the Threads follow-up posts that failed during a publish
+ */
+export const useResendThreadsPosts = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resendThreadsPosts>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof resendThreadsPosts>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getResendThreadsPostsMutationOptions(options));
+    }
+
+export const getResendTwitterPostsUrl = (id: number,) => {
+
+
+
+
+  return `/api/content/${id}/resend-twitter-posts`
+}
+
+/**
+ * Posts only the thread pieces that are still missing from an earlier X publish, chained onto the last successfully posted tweet so the thread stays connected and keeps its original order. Available only while the content item has an incomplete thread recorded.
+ * @summary Resend the X thread posts that failed during a publish
+ */
+export const resendTwitterPosts = async (id: number, options?: RequestInit): Promise<ResendChainPostsResult> => {
+
+  return customFetch<ResendChainPostsResult>(getResendTwitterPostsUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getResendTwitterPostsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resendTwitterPosts>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resendTwitterPosts>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['resendTwitterPosts'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resendTwitterPosts>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  resendTwitterPosts(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResendTwitterPostsMutationResult = NonNullable<Awaited<ReturnType<typeof resendTwitterPosts>>>
+
+    export type ResendTwitterPostsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Resend the X thread posts that failed during a publish
+ */
+export const useResendTwitterPosts = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resendTwitterPosts>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof resendTwitterPosts>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getResendTwitterPostsMutationOptions(options));
     }
 
 export const getListNotificationsUrl = () => {

@@ -21,6 +21,19 @@ export interface LinkedinCommentState {
   postedCount: number;
 }
 
+/**
+ * Snapshot of a reply-chained thread (Threads or X) that did not fully post.
+ * The exact chunk texts are stored so a later caption edit cannot change what
+ * a resend posts; postedCount marks how many leading posts already succeeded,
+ * and lastPostedId is the reply-to anchor for the next missing post.
+ */
+export interface ThreadChainState {
+  firstPostId: string;
+  lastPostedId: string;
+  posts: string[];
+  postedCount: number;
+}
+
 export const contentItemsTable = pgTable("content_items", {
   id: serial("id").primaryKey(),
   tenantId: integer("tenant_id").notNull(),
@@ -43,6 +56,12 @@ export const contentItemsTable = pgTable("content_items", {
   // Present only while a LinkedIn overflow-comment sequence is incomplete;
   // cleared when all comments are posted (or a fresh publish starts over).
   linkedinCommentState: jsonb("linkedin_comment_state").$type<LinkedinCommentState>(),
+  // Present only while a Threads reply-chain is incomplete; cleared when all
+  // posts are published (or a fresh publish starts over).
+  threadsChainState: jsonb("threads_chain_state").$type<ThreadChainState>(),
+  // Present only while an X thread is incomplete; cleared when all posts are
+  // published (or a fresh publish starts over).
+  twitterChainState: jsonb("twitter_chain_state").$type<ThreadChainState>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
@@ -54,6 +73,8 @@ export const insertContentItemSchema = createInsertSchema(contentItemsTable).omi
   id: true,
   tenantId: true,
   linkedinCommentState: true,
+  threadsChainState: true,
+  twitterChainState: true,
   createdAt: true,
   updatedAt: true,
 });

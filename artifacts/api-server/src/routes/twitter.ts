@@ -400,28 +400,6 @@ async function postTweet(opts: {
   return tweetJson.data.id;
 }
 
-async function markPublished(
-  id: number,
-  tenantId: number,
-  meta?: { postId?: string | null; permalink?: string | null },
-) {
-  await db
-    .update(contentItemsTable)
-    .set({
-      status: "published",
-      failureReason: null,
-      postId: meta?.postId || null,
-      permalink: meta?.permalink || null,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(contentItemsTable.id, id),
-        eq(contentItemsTable.tenantId, tenantId),
-      ),
-    );
-}
-
 /**
  * POST /content/:id/publish-twitter
  * Publish a content item to the tenant's connected X account using their stored
@@ -508,33 +486,50 @@ router.post(
 
       let firstPostId: string | null = null;
       let replyToId: string | null = null;
+      let publishWarning: string | null = null;
+      // Set when a follow-up tweet fails mid-thread: how many leading tweets
+      // made it, so a resend can pick up from there.
+      let chainPostedCount: number | null = null;
 
       for (let i = 0; i < tweets.length; i++) {
-        const existingId =
-          i === 0
-            ? existingFirstId
-            : takeMatchingRecentPost(recentPosts, tweets[i], dedupeSinceMs);
-        let postId: string;
-        if (existingId) {
-          req.log.warn(
-            { existingId, index: i },
-            "X publish: this part of the content already landed recently; reusing the existing post instead of re-posting",
-          );
-          postId = existingId;
-        } else {
-          // The attached image goes on the first tweet only.
-          const attachMedia = i === 0 ? mediaId : null;
-          postId = await postTweet({
-            text: tweets[i],
-            mediaId: attachMedia,
-            replyToId,
-            accessToken,
-          });
+        try {
+          const existingId =
+            i === 0
+              ? existingFirstId
+              : takeMatchingRecentPost(recentPosts, tweets[i], dedupeSinceMs);
+          let postId: string;
+          if (existingId) {
+            req.log.warn(
+              { existingId, index: i },
+              "X publish: this part of the content already landed recently; reusing the existing post instead of re-posting",
+            );
+            postId = existingId;
+          } else {
+            // The attached image goes on the first tweet only.
+            const attachMedia = i === 0 ? mediaId : null;
+            postId = await postTweet({
+              text: tweets[i],
+              mediaId: attachMedia,
+              replyToId,
+              accessToken,
+            });
+          }
+          if (i === 0) {
+            firstPostId = postId;
+          }
+          replyToId = postId;
+        } catch (tweetError) {
+          // The first tweet failing means nothing was posted — that is a
+          // real publish failure. A follow-up failing leaves the thread
+          // incomplete: keep the item published, surface a warning, and
+          // record what is missing so it can be resent.
+          if (i === 0) throw tweetError;
+          req.log.error({ err: tweetError, index: i }, "X follow-up tweet failed");
+          const remaining = tweets.length - i;
+          publishWarning = `The post was published, but ${remaining} of ${tweets.length - 1} follow-up tweet${remaining === 1 ? "" : "s"} with the rest of the caption could not be posted.`;
+          chainPostedCount = i;
+          break;
         }
-        if (i === 0) {
-          firstPostId = postId;
-        }
-        replyToId = postId;
       }
 
       const handle = accountName.startsWith("@")
@@ -543,8 +538,41 @@ router.post(
       const permalink = firstPostId
         ? `https://x.com/${encodeURIComponent(handle)}/status/${firstPostId}`
         : null;
-      await markPublished(id, req.tenantId, { postId: firstPostId, permalink });
-      res.json({ postId: firstPostId, permalink, tweetCount: tweets.length });
+      await db
+        .update(contentItemsTable)
+        .set({
+          status: "published",
+          failureReason: null,
+          postId: firstPostId,
+          permalink,
+          // Persist which thread posts made it (with the exact texts, so a
+          // later caption edit can't change what a resend posts) whenever the
+          // thread is incomplete; the resend endpoint picks up from
+          // postedCount, replying to lastPostedId. A complete publish starts
+          // fresh, clearing any stale state from an earlier attempt.
+          twitterChainState:
+            chainPostedCount !== null && firstPostId && replyToId
+              ? {
+                  firstPostId,
+                  lastPostedId: replyToId,
+                  posts: tweets,
+                  postedCount: chainPostedCount,
+                }
+              : null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(contentItemsTable.id, id),
+            eq(contentItemsTable.tenantId, req.tenantId),
+          ),
+        );
+      res.json({
+        postId: firstPostId,
+        permalink,
+        tweetCount: tweets.length,
+        ...(publishWarning ? { publishWarning } : {}),
+      });
     } catch (error) {
       req.log.error({ err: error }, "X publish failed");
       const reason =
@@ -572,6 +600,127 @@ router.post(
       }
       res.status(502).json({ error: reason });
     }
+  },
+);
+
+/**
+ * Resend the thread posts that failed during an earlier publish. Posts only
+ * the missing pieces (from the persisted snapshot, so a later caption edit
+ * cannot change what goes out), chained onto the last successfully posted
+ * tweet, and clears the state once the thread is complete.
+ */
+router.post(
+  "/content/:id/resend-twitter-posts",
+  async (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    const item = await loadContentItem(id, req.tenantId);
+    if (!item) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+
+    const state = item.twitterChainState;
+    if (!state || state.postedCount >= state.posts.length) {
+      res.status(400).json({
+        error: "There are no missing X follow-up posts to resend.",
+      });
+      return;
+    }
+
+    const app = await getTwitterAppCredentials();
+    if (!app) {
+      res.status(400).json({
+        error:
+          "X app credentials have not been configured by an administrator yet.",
+      });
+      return;
+    }
+    const tokenResult = await ensureFreshTwitterToken(req.tenantId, app);
+    if (!tokenResult.ok) {
+      res.status(400).json({ error: tokenResult.message });
+      return;
+    }
+    const { accessToken } = tokenResult;
+
+    // Best-effort dedupe: if a previous resend attempt actually posted a
+    // missing piece but the response was lost, reuse it instead of
+    // double-posting.
+    let recentPosts: RecentTweet[] = [];
+    const account = await getTwitterAccount(req.tenantId);
+    if (account?.providerUserId) {
+      try {
+        recentPosts = await fetchRecentTweets(
+          account.providerUserId,
+          accessToken,
+        );
+      } catch (err) {
+        req.log.warn(
+          { err },
+          "X duplicate-post probe failed; proceeding without dedupe",
+        );
+      }
+    }
+    const dedupeSinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
+
+    let postedCount = state.postedCount;
+    let replyToId = state.lastPostedId;
+    let publishWarning: string | null = null;
+    for (let i = postedCount; i < state.posts.length; i++) {
+      const text = state.posts[i]!;
+      try {
+        const existingId = takeMatchingRecentPost(
+          recentPosts,
+          text,
+          dedupeSinceMs,
+        );
+        let postId: string;
+        if (existingId) {
+          req.log.warn(
+            { existingId, index: i },
+            "X resend: this part of the thread already landed recently; reusing the existing post instead of re-posting",
+          );
+          postId = existingId;
+        } else {
+          postId = await postTweet({
+            text,
+            mediaId: null,
+            replyToId,
+            accessToken,
+          });
+        }
+        replyToId = postId;
+        postedCount += 1;
+      } catch (tweetError) {
+        req.log.error({ err: tweetError, index: i }, "X thread resend failed");
+        const remaining = state.posts.length - postedCount;
+        publishWarning = `${remaining} of ${state.posts.length} thread post(s) still could not be published. You can try resending again.`;
+        break;
+      }
+    }
+
+    const complete = postedCount >= state.posts.length;
+    await db
+      .update(contentItemsTable)
+      .set({
+        twitterChainState: complete
+          ? null
+          : { ...state, postedCount, lastPostedId: replyToId },
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(contentItemsTable.id, id),
+          eq(contentItemsTable.tenantId, req.tenantId),
+        ),
+      );
+
+    res.json({
+      postsPublished: postedCount,
+      postsTotal: state.posts.length,
+      postsRemaining: state.posts.length - postedCount,
+      permalink: item.permalink ?? null,
+      ...(publishWarning ? { publishWarning } : {}),
+    });
   },
 );
 

@@ -8,7 +8,9 @@ import {
   usePublishContentToLinkedin,
   useResendLinkedinComments,
   usePublishContentToTwitter,
+  useResendTwitterPosts,
   usePublishContentToThreads,
+  useResendThreadsPosts,
   useGetThreadsStatus,
   useGetFacebookCredentials,
   useGetInstagramCredentials,
@@ -106,9 +108,91 @@ export function LibraryPage() {
 
   const [twitterItem, setTwitterItem] = useState<any | null>(null);
   const publishTwitter = usePublishContentToTwitter();
+  const resendTwitterPosts = useResendTwitterPosts();
+  const [resendingTwitterId, setResendingTwitterId] = useState<number | null>(null);
 
   const [threadsItem, setThreadsItem] = useState<any | null>(null);
   const publishThreads = usePublishContentToThreads();
+  const resendThreadsPosts = useResendThreadsPosts();
+  const [resendingThreadsId, setResendingThreadsId] = useState<number | null>(null);
+
+  // Resend only the thread pieces that failed during a Threads/X publish;
+  // the server chains them onto the last successfully posted piece.
+  const handleResendThreadsPosts = (itemId: number) => {
+    setResendingThreadsId(itemId);
+    resendThreadsPosts.mutate(
+      { id: itemId },
+      {
+        onSuccess: (res) => {
+          if (res?.publishWarning) {
+            toast({
+              title: "Some posts are still missing",
+              description: res.publishWarning,
+              variant: "destructive",
+              action: viewPostAction(res?.permalink),
+            });
+          } else {
+            toast({
+              title: "Thread completed",
+              description: `All ${res?.postsTotal ?? ""} post(s) of the thread are now live on Threads.`,
+              action: viewPostAction(res?.permalink),
+            });
+          }
+          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+        },
+        onError: (err: any) => {
+          toast({
+            title: "Resend failed",
+            description:
+              err?.response?.data?.error ||
+              "Could not resend the missing Threads posts. Try again.",
+            variant: "destructive",
+          });
+        },
+        onSettled: () => {
+          setResendingThreadsId(null);
+        },
+      },
+    );
+  };
+
+  const handleResendTwitterPosts = (itemId: number) => {
+    setResendingTwitterId(itemId);
+    resendTwitterPosts.mutate(
+      { id: itemId },
+      {
+        onSuccess: (res) => {
+          if (res?.publishWarning) {
+            toast({
+              title: "Some posts are still missing",
+              description: res.publishWarning,
+              variant: "destructive",
+              action: viewPostAction(res?.permalink),
+            });
+          } else {
+            toast({
+              title: "Thread completed",
+              description: `All ${res?.postsTotal ?? ""} post(s) of the thread are now live on X.`,
+              action: viewPostAction(res?.permalink),
+            });
+          }
+          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+        },
+        onError: (err: any) => {
+          toast({
+            title: "Resend failed",
+            description:
+              err?.response?.data?.error ||
+              "Could not resend the missing X posts. Try again.",
+            variant: "destructive",
+          });
+        },
+        onSettled: () => {
+          setResendingTwitterId(null);
+        },
+      },
+    );
+  };
 
   const { data: fbCreds } = useGetFacebookCredentials();
   const { data: igCreds } = useGetInstagramCredentials();
@@ -286,10 +370,27 @@ export function LibraryPage() {
     if (!twitterItem) return;
     mutateWithRestartRetry(publishTwitter, { id: twitterItem.id }, {
       onSuccess: (res) => {
-        toast({
-          title: "Published to X",
-          description: res?.permalink ? "Your post is live on X." : undefined,
-        });
+        if (res?.publishWarning) {
+          const itemId = twitterItem.id;
+          toast({
+            title: "Published, but some follow-up posts failed",
+            description: `${res.publishWarning} You can resend the missing posts from this card in the library.`,
+            variant: "destructive",
+            action: (
+              <ToastAction
+                altText="Resend posts"
+                onClick={() => handleResendTwitterPosts(itemId)}
+              >
+                Resend posts
+              </ToastAction>
+            ),
+          });
+        } else {
+          toast({
+            title: "Published to X",
+            description: res?.permalink ? "Your post is live on X." : undefined,
+          });
+        }
         queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
         setTwitterItem(null);
       },
@@ -313,11 +414,19 @@ export function LibraryPage() {
     mutateWithRestartRetry(publishThreads, { id: threadsItem.id }, {
         onSuccess: (res) => {
           if (res?.publishWarning) {
+            const itemId = threadsItem.id;
             toast({
               title: "Published, but some follow-up posts failed",
-              description: res.publishWarning,
+              description: `${res.publishWarning} You can resend the missing posts from this card in the library.`,
               variant: "destructive",
-              action: viewPostAction(res?.permalink),
+              action: (
+                <ToastAction
+                  altText="Resend posts"
+                  onClick={() => handleResendThreadsPosts(itemId)}
+                >
+                  Resend posts
+                </ToastAction>
+              ),
             });
           } else {
             const extra =
@@ -467,6 +576,50 @@ export function LibraryPage() {
                     >
                       <RotateCw className={`h-3 w-3 mr-1 ${resendingId === item.id ? 'animate-spin' : ''}`} />
                       {resendingId === item.id ? "Resending..." : "Resend comments"}
+                    </Button>
+                  </div>
+                )}
+
+                {(item.threadsPostsPending ?? 0) > 0 && (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-400 mb-4 space-y-2" data-testid={`text-threads-posts-pending-${item.id}`}>
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <span>
+                        {item.threadsPostsPending} Threads follow-up post{item.threadsPostsPending === 1 ? "" : "s"} with the rest of the caption {item.threadsPostsPending === 1 ? "is" : "are"} still missing from the published thread.
+                      </span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      disabled={resendingThreadsId === item.id}
+                      onClick={() => handleResendThreadsPosts(item.id)}
+                      data-testid={`button-resend-threads-posts-${item.id}`}
+                    >
+                      <RotateCw className={`h-3 w-3 mr-1 ${resendingThreadsId === item.id ? 'animate-spin' : ''}`} />
+                      {resendingThreadsId === item.id ? "Resending..." : "Resend posts"}
+                    </Button>
+                  </div>
+                )}
+
+                {(item.twitterPostsPending ?? 0) > 0 && (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-400 mb-4 space-y-2" data-testid={`text-twitter-posts-pending-${item.id}`}>
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <span>
+                        {item.twitterPostsPending} X follow-up post{item.twitterPostsPending === 1 ? "" : "s"} with the rest of the caption {item.twitterPostsPending === 1 ? "is" : "are"} still missing from the published thread.
+                      </span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      disabled={resendingTwitterId === item.id}
+                      onClick={() => handleResendTwitterPosts(item.id)}
+                      data-testid={`button-resend-twitter-posts-${item.id}`}
+                    >
+                      <RotateCw className={`h-3 w-3 mr-1 ${resendingTwitterId === item.id ? 'animate-spin' : ''}`} />
+                      {resendingTwitterId === item.id ? "Resending..." : "Resend posts"}
                     </Button>
                   </div>
                 )}

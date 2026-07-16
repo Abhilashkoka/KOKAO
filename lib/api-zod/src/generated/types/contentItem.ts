@@ -28,6 +28,10 @@ export interface ContentItem {
   permalink?: string | null;
   /** How many LinkedIn follow-up comments from the last publish are still missing (0 when none). When > 0 the client can offer a "resend remaining comments" action. */
   linkedinCommentsPending?: number;
+  /** How many Threads reply-chain posts from the last publish are still missing (0 when none). When > 0 the client can offer a "resend missing posts" action. */
+  threadsPostsPending?: number;
+  /** How many X thread posts from the last publish are still missing (0 when none). When > 0 the client can offer a "resend missing posts" action. */
+  twitterPostsPending?: number;
   /** @nullable */
   brandKitId?: number | null;
   createdAt: Date;

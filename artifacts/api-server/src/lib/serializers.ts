@@ -36,6 +36,18 @@ export function serializeContent(c: ContentItem) {
             c.linkedinCommentState.postedCount,
         )
       : 0,
+    threadsPostsPending: c.threadsChainState
+      ? Math.max(
+          0,
+          c.threadsChainState.posts.length - c.threadsChainState.postedCount,
+        )
+      : 0,
+    twitterPostsPending: c.twitterChainState
+      ? Math.max(
+          0,
+          c.twitterChainState.posts.length - c.twitterChainState.postedCount,
+        )
+      : 0,
     brandKitId: c.brandKitId ?? null,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),

@@ -12,4 +12,9 @@ export interface PublishTwitterResult {
   permalink?: string | null;
   /** Number of tweets posted. Greater than 1 when a long caption was split into a reply-chained thread. */
   tweetCount?: number;
+  /**
+     * Present when the first tweet published but some follow-up tweets with the rest of the caption could not be posted.
+     * @nullable
+     */
+  publishWarning?: string | null;
 }

@@ -13,6 +13,7 @@
 - [Email delivery & pause](email-delivery-and-pause.md) — two independent fail-closed gates (notification policy default email:false + app-level pause switch default paused); test seeding rules.
 - [IG publish retry](ig-publish-retry.md) — bounded auto-retry of transient IG publish failures (5xx/429/still-processing retry; 4xx/bad-image fail fast); IG_PUBLISH_RETRY config.
 - [Threads/X/LinkedIn publish dedupe](threads-x-publish-dedupe.md) — no idempotency key; every publish probes recent posts up-front and reuses any exact-text match within 10 min.
+- [Chain resend](chain-resend.md) — mid-chain publish failure persists a resumable snapshot (exact texts + lastPostedId); resend endpoint posts only the missing pieces with dedupe.
 - [FB publish dedupe](fb-publish-dedupe.md) — no Graph idempotency key; before retrying a transient FB publish failure, probe recent Page posts and short-circuit if the write already landed.
 - [Admin audit trail](admin-audit-trail.md) — append-only admin_audit_logs records plan/superadmin changes; recordAdminAction is best-effort (never fail the primary action).
 - [SocialForge frontend tests](socialforge-frontend-tests.md) — vitest+RTL+jsdom harness for the web artifact; standalone vitest.config, mock @workspace/api-client-react, scope by .flex-1.

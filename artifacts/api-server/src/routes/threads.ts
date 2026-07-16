@@ -634,6 +634,9 @@ router.post(
       let replyToId: string | null = null;
       let postsPublished = 0;
       let publishWarning: string | null = null;
+      // Set when a follow-up reply fails mid-chain: how many leading posts
+      // made it, so a resend can pick up from there.
+      let chainPostedCount: number | null = null;
 
       // If the first post already landed, its image went with it — skip
       // minting a signed URL entirely.
@@ -686,6 +689,7 @@ router.post(
           );
           const remaining = chunks.length - index;
           publishWarning = `The post was published, but ${remaining} of ${chunks.length - 1} follow-up repl${remaining === 1 ? "y" : "ies"} with the rest of the caption could not be posted.`;
+          chainPostedCount = index;
           break;
         }
       }
@@ -701,6 +705,20 @@ router.post(
           failureReason: null,
           postId: firstPostId,
           permalink,
+          // Persist which chain posts made it (with the exact texts, so a
+          // later caption edit can't change what a resend posts) whenever the
+          // chain is incomplete; the resend endpoint picks up from
+          // postedCount, replying to lastPostedId. A complete publish starts
+          // fresh, clearing any stale state from an earlier attempt.
+          threadsChainState:
+            chainPostedCount !== null && firstPostId && replyToId
+              ? {
+                  firstPostId,
+                  lastPostedId: replyToId,
+                  posts: chunks,
+                  postedCount: chainPostedCount,
+                }
+              : null,
           updatedAt: new Date(),
         })
         .where(
@@ -744,6 +762,145 @@ router.post(
       }
       res.status(502).json({ error: reason });
     }
+  },
+);
+
+/**
+ * Resend the reply-chain posts that failed during an earlier publish. Posts
+ * only the missing pieces (from the persisted snapshot, so a later caption
+ * edit cannot change what goes out), chained onto the last successfully
+ * posted reply, and clears the state once the chain is complete.
+ */
+router.post(
+  "/content/:id/resend-threads-posts",
+  async (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    const item = (
+      await db
+        .select()
+        .from(contentItemsTable)
+        .where(
+          and(
+            eq(contentItemsTable.id, id),
+            eq(contentItemsTable.tenantId, req.tenantId),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (!item) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+
+    const state = item.threadsChainState;
+    if (!state || state.postedCount >= state.posts.length) {
+      res.status(400).json({
+        error: "There are no missing Threads follow-up posts to resend.",
+      });
+      return;
+    }
+
+    let account = await getThreadsAccount(req.tenantId);
+    if (account?.accessToken && account.verifyStatus !== "failed") {
+      account = await maybeRefreshToken(req.tenantId, account);
+    }
+    const tokenValid =
+      !!account?.accessToken &&
+      account.verifyStatus !== "failed" &&
+      (account.tokenExpiresAt === null ||
+        account.tokenExpiresAt.getTime() > Date.now());
+    if (!account || !tokenValid || !account.providerUserId) {
+      res.status(400).json({
+        error:
+          "Threads is not connected or its access is no longer valid. Reconnect your Threads account on the Accounts page and try again.",
+      });
+      return;
+    }
+
+    const accessToken = account.accessToken!;
+    const userId = account.providerUserId;
+
+    // Best-effort dedupe: if a previous resend attempt actually posted a
+    // missing piece but the response was lost, reuse it instead of
+    // double-posting.
+    let recentPosts: RecentThreadPost[] = [];
+    try {
+      recentPosts = await fetchRecentThreadPosts(userId, accessToken);
+    } catch (err) {
+      req.log.warn(
+        { err },
+        "Threads duplicate-post probe failed; proceeding without dedupe",
+      );
+    }
+    const dedupeSinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
+
+    let postedCount = state.postedCount;
+    let replyToId = state.lastPostedId;
+    let publishWarning: string | null = null;
+    for (let i = postedCount; i < state.posts.length; i++) {
+      const text = state.posts[i]!;
+      try {
+        const existingId = takeMatchingRecentPost(
+          recentPosts,
+          text,
+          dedupeSinceMs,
+        );
+        let postId: string;
+        if (existingId) {
+          req.log.warn(
+            { existingId, index: i },
+            "Threads resend: this part of the chain already landed recently; reusing the existing post instead of re-posting",
+          );
+          postId = existingId;
+        } else {
+          postId = await publishOneThread({
+            userId,
+            accessToken,
+            text,
+            imageUrl: null,
+            replyToId,
+          });
+        }
+        replyToId = postId;
+        postedCount += 1;
+      } catch (chunkError) {
+        req.log.error(
+          { err: chunkError, index: i },
+          "Threads chain resend failed",
+        );
+        const remaining = state.posts.length - postedCount;
+        publishWarning = `${remaining} of ${state.posts.length} thread post(s) still could not be published. You can try resending again.`;
+        break;
+      }
+    }
+
+    const complete = postedCount >= state.posts.length;
+    await db
+      .update(contentItemsTable)
+      .set({
+        threadsChainState: complete
+          ? null
+          : { ...state, postedCount, lastPostedId: replyToId },
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(contentItemsTable.id, id),
+          eq(contentItemsTable.tenantId, req.tenantId),
+        ),
+      );
+
+    res.json({
+      postsPublished: postedCount,
+      postsTotal: state.posts.length,
+      postsRemaining: state.posts.length - postedCount,
+      permalink:
+        item.permalink ??
+        (account.accountName?.startsWith("@")
+          ? `https://www.threads.net/${account.accountName}`
+          : null),
+      ...(publishWarning ? { publishWarning } : {}),
+    });
   },
 );
 
