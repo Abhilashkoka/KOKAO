@@ -51,6 +51,12 @@ const CAPTION_TWEAKS = [
   { label: "More formal", instruction: "Make the caption more formal and professional." },
 ] as const;
 
+const IMAGE_TWEAKS = [
+  { label: "Brighter", instruction: "Make the image brighter with more light and airy tones." },
+  { label: "Minimal", instruction: "Make the image more minimal, clean, and uncluttered." },
+  { label: "More vibrant", instruction: "Make the image more vibrant with bold, saturated colors." },
+] as const;
+
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
 function kitSwatches(kit: BrandKit, max = 4): string[] {
@@ -157,6 +163,7 @@ export default function StudioScreen() {
   const [captionTweak, setCaptionTweak] = useState<string | null>(null);
   const [hashtags, setHashtags] = useState<string[]>([]);
   const [imageB64, setImageB64] = useState<string | null>(null);
+  const [imageTweak, setImageTweak] = useState<string | null>(null);
   const [imagePath, setImagePath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [quotaHit, setQuotaHit] = useState(false);
@@ -229,15 +236,17 @@ export default function StudioScreen() {
 
   const handleGenerateCaption = () => runGenerateCaption(null);
 
-  const handleGenerateImage = () => {
+  const runGenerateImage = (tweak?: string | null) => {
     if (!prompt.trim()) return;
     haptic();
     setError(null);
     setQuotaHit(false);
     setSaved(false);
     setAttachedTitle(null);
+    setImageTweak(tweak ?? null);
+    const tweakInstruction = tweak ? ` ${IMAGE_TWEAKS.find((t) => t.label === tweak)?.instruction ?? ""}` : "";
     genImage.mutate(
-      { data: { prompt: prompt.trim(), size: imageSize, brandKitId } },
+      { data: { prompt: `${prompt.trim()}${tweakInstruction}`, size: imageSize, brandKitId } },
       {
         onSuccess: (res) => {
           setImageB64(res.b64Json);
@@ -247,6 +256,8 @@ export default function StudioScreen() {
       },
     );
   };
+
+  const handleGenerateImage = () => runGenerateImage(null);
 
   const handleSave = () => {
     if (!caption && !imagePath) return;
@@ -518,6 +529,16 @@ export default function StudioScreen() {
               style={[styles.image, { aspectRatio }]}
               contentFit="cover"
             />
+            <View style={styles.chipRow2}>
+              {IMAGE_TWEAKS.map((t) => (
+                <Chip
+                  key={t.label}
+                  label={t.label}
+                  selected={imageTweak === t.label}
+                  onPress={() => runGenerateImage(t.label)}
+                />
+              ))}
+            </View>
             <View style={styles.imageActions}>
               <Button
                 title="Regenerate"
