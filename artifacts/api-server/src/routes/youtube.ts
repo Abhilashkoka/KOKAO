@@ -1,10 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import {
-  db,
-  connectedAccountsTable,
-  appCredentialsTable,
-  type YoutubeAppCredentials,
-} from "@workspace/db";
+import { db, connectedAccountsTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { decryptJson, encryptJson } from "../lib/secretCrypto";
 import {
@@ -13,7 +8,10 @@ import {
   randomNonce,
 } from "../lib/oauthState";
 import { resolveSocialConnectionNotifications } from "../lib/notifications";
-import { ensureFreshYoutubeAccessToken } from "../lib/socialReverify";
+import {
+  ensureFreshYoutubeAccessToken,
+  getYoutubeAppCredentials,
+} from "../lib/socialReverify";
 import { platformFetch } from "../lib/platformFetch";
 
 const router: IRouter = Router();
@@ -25,35 +23,11 @@ const CHANNELS_URL =
   "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true";
 
 /**
- * App-level Google OAuth credentials for the YouTube connect flow. The
- * superadmin-managed database row (saved from the admin page, encrypted at
- * rest) wins; the GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET env vars remain a
- * fallback for env-based setups. Returns null when neither source is usable.
+ * App-level Google OAuth credentials for the YouTube connect flow, resolved
+ * via the SHARED helper in lib/socialReverify.ts so the Accounts page and the
+ * background sweep can never drift.
  */
-async function getCredentials(): Promise<{
-  clientId: string;
-  clientSecret: string;
-} | null> {
-  try {
-    const row = (
-      await db
-        .select()
-        .from(appCredentialsTable)
-        .where(eq(appCredentialsTable.provider, "youtube"))
-        .limit(1)
-    )[0];
-    if (row) {
-      const creds = decryptJson<YoutubeAppCredentials>(row.encryptedCredentials);
-      if (creds.clientId && creds.clientSecret) return creds;
-    }
-  } catch {
-    // Fall through to the env fallback on read/decrypt failure.
-  }
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  if (!clientId || !clientSecret) return null;
-  return { clientId, clientSecret };
-}
+const getCredentials = getYoutubeAppCredentials;
 
 function redirectUri(req: Request): string {
   const proto =

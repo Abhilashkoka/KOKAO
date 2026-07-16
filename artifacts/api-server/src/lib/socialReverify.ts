@@ -518,12 +518,13 @@ const YOUTUBE_TOKEN_INVALID_MESSAGE =
   "Your YouTube access is no longer valid. Reconnect YouTube to restore the connection.";
 
 /**
- * App-level Google OAuth credentials, resolved the same way as
- * routes/youtube.ts: the superadmin-managed database row wins, with the
- * GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET env vars as a fallback for env-based
- * setups. Returns null when neither source is usable.
+ * SHARED app-level Google OAuth credential resolution, used by BOTH the
+ * Accounts-page routes (routes/youtube.ts) and the background sweep so the
+ * two paths can never drift: the superadmin-managed database row wins, with
+ * the GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET env vars as a fallback for
+ * env-based setups. Returns null when neither source is usable.
  */
-async function getYoutubeAppCredentials(): Promise<{
+export async function getYoutubeAppCredentials(): Promise<{
   clientId: string;
   clientSecret: string;
 } | null> {
