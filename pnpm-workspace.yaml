@@ -73,6 +73,26 @@ onlyBuiltDependencies:
   - msw
   - unrs-resolver
 
+packageExtensions:
+  # react-day-picker's .d.ts files import React types but the package does not
+  # declare @types/react as a peer, so tsc falls back to the hoisted copy in
+  # node_modules/.pnpm/node_modules (pinned to 19.1.x by the mobile app),
+  # clashing with the web app's catalog @types/react. Declaring the optional
+  # peer makes pnpm link each consumer's own @types/react into its tree.
+  react-day-picker:
+    peerDependencies:
+      '@types/react': '*'
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+  # lucide-react has the same problem (bundled .d.ts, no @types/react peer).
+  lucide-react:
+    peerDependencies:
+      '@types/react': '*'
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+
 overrides:
   # replit uses linux-x64 only, we can exclude all other platforms
   "esbuild>@esbuild/darwin-arm64": "-"
