@@ -40,6 +40,7 @@ import {
   sweepDeadConnections,
   recordSweepRun,
   triggerSweepNow,
+  checkSweepStaleness,
 } from "./connectionSweep";
 import {
   createTenant,
@@ -498,6 +499,98 @@ describe("sweepDeadConnections", () => {
     } finally {
       await deleteTenant(broken.tenantId);
       await deleteTenant(healthy.tenantId);
+    }
+  });
+});
+
+describe("checkSweepStaleness", () => {
+  it("alerts a superadmin tenant once (deduped) when the last run is stale, and not a regular tenant", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const regular = await createTenant();
+    try {
+      // Seed a last run well past the 35-minute threshold.
+      await recordSweepRun(new Date(Date.now() - 60 * 60 * 1000), 500, {
+        accountsChecked: 0,
+        errorCount: 0,
+        lastError: null,
+      });
+
+      await checkSweepStaleness(true);
+      await checkSweepStaleness(true);
+
+      const adminNotifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_stalled",
+      );
+      expect(adminNotifs).toHaveLength(1);
+      expect(adminNotifs[0]!.readAt).toBeNull();
+      expect(adminNotifs[0]!.linkUrl).toBe("/admin");
+
+      const regularNotifs = (await getNotifications(regular.tenantId)).filter(
+        (n) => n.type === "sweep_stalled",
+      );
+      expect(regularNotifs).toHaveLength(0);
+    } finally {
+      await deleteTenant(admin.tenantId);
+      await deleteTenant(regular.tenantId);
+    }
+  });
+
+  it("does not alert when the last run is fresh", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      await recordSweepRun(new Date(), 500, {
+        accountsChecked: 0,
+        errorCount: 0,
+        lastError: null,
+      });
+
+      await checkSweepStaleness(true);
+
+      const notifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_stalled",
+      );
+      expect(notifs).toHaveLength(0);
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
+  it("a completed sweep run resolves the stalled alert and re-arms the dedupe", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      await recordSweepRun(new Date(Date.now() - 60 * 60 * 1000), 500, {
+        accountsChecked: 0,
+        errorCount: 0,
+        lastError: null,
+      });
+      await checkSweepStaleness(true);
+
+      // The sweep recovers: recording a fresh run marks the alert read.
+      await recordSweepRun(new Date(), 500, {
+        accountsChecked: 0,
+        errorCount: 0,
+        lastError: null,
+      });
+      const afterRecovery = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_stalled",
+      );
+      expect(afterRecovery).toHaveLength(1);
+      expect(afterRecovery[0]!.readAt).not.toBeNull();
+
+      // A future stall produces a fresh alert (dedupe re-armed).
+      await recordSweepRun(new Date(Date.now() - 60 * 60 * 1000), 500, {
+        accountsChecked: 0,
+        errorCount: 0,
+        lastError: null,
+      });
+      await checkSweepStaleness(true);
+      const afterSecondStall = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_stalled",
+      );
+      expect(afterSecondStall).toHaveLength(2);
+      expect(afterSecondStall.filter((n) => n.readAt === null)).toHaveLength(1);
+    } finally {
+      await deleteTenant(admin.tenantId);
     }
   });
 });

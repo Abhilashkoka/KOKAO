@@ -12,8 +12,12 @@
  * transition. An already-known breakage produces no duplicate spam.
  */
 import { db, connectedAccountsTable, sweepStatusTable } from "@workspace/db";
-import { inArray, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { logger } from "./logger";
+import {
+  notifySweepStalled,
+  resolveSweepStalledNotifications,
+} from "./notifications";
 import {
   reverifyFacebook,
   reverifyInstagram,
@@ -29,6 +33,16 @@ export const CONNECTION_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
 
 /** Delay before the first sweep after boot, so startup traffic settles. */
 export const CONNECTION_SWEEP_INITIAL_DELAY_MS = 60 * 1000;
+
+/** A recorded run older than this means the sweep has stalled (interval is
+ * 15 min, so 35 min = two missed cycles plus slack). */
+export const SWEEP_STALE_THRESHOLD_MS = 35 * 60 * 1000;
+
+/** How often the independent watchdog timer checks for staleness. */
+export const SWEEP_WATCHDOG_INTERVAL_MS = 5 * 60 * 1000;
+
+/** Minimum spacing between staleness checks triggered from request paths. */
+const WATCHDOG_MIN_CHECK_SPACING_MS = 5 * 60 * 1000;
 
 const SWEEP_PLATFORMS = [
   "facebook",
@@ -154,10 +168,54 @@ export async function recordSweepRun(
   } catch (err) {
     logger.error({ err }, "Failed to record connection sweep status");
   }
+  // The sweep just completed a run, so any outstanding "sweep stalled" alert
+  // is resolved — clearing it also re-arms the dedupe for a future stall.
+  await resolveSweepStalledNotifications();
+}
+
+let lastStalenessCheckAt = 0;
+
+/**
+ * Check whether the sweep's last recorded run is older than the stale
+ * threshold, and if so alert all superadmins (deduped in-app notification +
+ * best-effort email). Safe to call from any request path: checks are
+ * self-throttled to one every WATCHDOG_MIN_CHECK_SPACING_MS unless `force`
+ * is set (tests). A missing sweep_status row (fresh install that has never
+ * completed a run) does not alert. Never throws.
+ */
+export async function checkSweepStaleness(force = false): Promise<void> {
+  const now = Date.now();
+  if (!force && now - lastStalenessCheckAt < WATCHDOG_MIN_CHECK_SPACING_MS) {
+    return;
+  }
+  lastStalenessCheckAt = now;
+  try {
+    const [row] = await db
+      .select({ lastRunAt: sweepStatusTable.lastRunAt })
+      .from(sweepStatusTable)
+      .where(eq(sweepStatusTable.id, 1))
+      .limit(1);
+    if (!row) return; // Never ran (fresh install) — nothing to compare against.
+
+    const age = now - row.lastRunAt.getTime();
+    if (age <= SWEEP_STALE_THRESHOLD_MS) return;
+
+    logger.warn(
+      { lastRunAt: row.lastRunAt.toISOString(), ageMs: age },
+      "Connection sweep appears stalled; alerting superadmins",
+    );
+    await notifySweepStalled(
+      row.lastRunAt,
+      Math.round(SWEEP_STALE_THRESHOLD_MS / 60000),
+    );
+  } catch (err) {
+    logger.error({ err }, "Sweep staleness check failed");
+  }
 }
 
 let sweepTimer: NodeJS.Timeout | null = null;
 let initialTimer: NodeJS.Timeout | null = null;
+let watchdogTimer: NodeJS.Timeout | null = null;
 let sweepRunning = false;
 
 async function runSweepOnce(): Promise<boolean> {
@@ -212,6 +270,16 @@ export function startConnectionSweep(): void {
     sweepTimer.unref();
   }, CONNECTION_SWEEP_INITIAL_DELAY_MS);
   initialTimer.unref();
+
+  // Independent watchdog: alerts superadmins if the recorded last run goes
+  // stale. Deliberately a SEPARATE timer from the sweep interval so a hung
+  // sweep (e.g. sweepRunning stuck true on a wedged promise) still gets
+  // reported. Admin request paths also trigger the same throttled check, so
+  // staleness surfaces even if this process's timers were all lost.
+  watchdogTimer = setInterval(() => {
+    void checkSweepStaleness();
+  }, SWEEP_WATCHDOG_INTERVAL_MS);
+  watchdogTimer.unref();
 }
 
 /** Stop the periodic sweep (graceful shutdown / tests). */
@@ -223,5 +291,9 @@ export function stopConnectionSweep(): void {
   if (sweepTimer) {
     clearInterval(sweepTimer);
     sweepTimer = null;
+  }
+  if (watchdogTimer) {
+    clearInterval(watchdogTimer);
+    watchdogTimer = null;
   }
 }

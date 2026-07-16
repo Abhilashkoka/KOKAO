@@ -32,6 +32,9 @@ vi.mock("@clerk/express", async () => {
 // the sweep logic itself is covered by connectionSweep.test.ts.
 vi.mock("../lib/connectionSweep", () => ({
   triggerSweepNow: vi.fn(async () => true),
+  // /admin/stats fires this watchdog check fire-and-forget; stub it so the
+  // stats route never touches the real sweep-status/notification paths here.
+  checkSweepStaleness: vi.fn(async () => undefined),
 }));
 
 import { pool } from "@workspace/db";

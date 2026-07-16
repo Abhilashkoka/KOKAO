@@ -30,7 +30,7 @@ import {
 import { isSuperadminEmail } from "../lib/superadmins";
 import { fetchVerifiedEmail } from "../lib/clerkUser";
 import { currentPeriodStart } from "../lib/usage";
-import { triggerSweepNow } from "../lib/connectionSweep";
+import { triggerSweepNow, checkSweepStaleness } from "../lib/connectionSweep";
 import {
   NOTIFICATION_TYPES,
   NOTIFICATION_TYPE_SET,
@@ -145,6 +145,10 @@ router.get("/admin/tenants", async (_req: Request, res: Response) => {
  * Platform-wide aggregate stats.
  */
 router.get("/admin/stats", async (_req: Request, res: Response) => {
+  // Piggyback the sweep-staleness watchdog on admin traffic (self-throttled,
+  // fire-and-forget) so a stalled sweep is reported even if this process's
+  // background timers were never started or died.
+  void checkSweepStaleness();
   const [tenantRows, contentRow, scheduleRow, accountRow, sweepRow] = await Promise.all([
     db
       .select({ plan: tenantsTable.plan, count: sql<number>`count(*)::int` })

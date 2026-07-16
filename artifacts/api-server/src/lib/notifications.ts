@@ -1,12 +1,14 @@
 import { db, notificationsTable, tenantsTable } from "@workspace/db";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, or } from "drizzle-orm";
 import { logger } from "./logger";
 import { fetchVerifiedEmail } from "./clerkUser";
 import { sendEmail } from "./email";
 import { getEffectiveSetting } from "./notificationSettings";
+import { isSuperadminEmail } from "./superadmins";
 
 export const SOCIAL_CONNECTION_FAILED = "social_connection_failed";
 export const PUBLISH_INTERRUPTED = "publish_interrupted";
+export const SWEEP_STALLED = "sweep_stalled";
 
 const PLATFORM_LABELS: Record<string, string> = {
   facebook: "Facebook Page",
@@ -169,6 +171,123 @@ export async function notifyPublishInterrupted(
       { err, tenantId },
       "Failed to record publish-interrupted notification",
     );
+  }
+}
+
+/**
+ * Alert every superadmin that the background connection sweep has stopped
+ * running (its last recorded run is older than the stale threshold). This is
+ * an operational alert for platform admins, NOT a tenant-facing notification,
+ * so it deliberately bypasses the tenant notification-preference catalog:
+ * it is always recorded in-app and best-effort emailed to each superadmin's
+ * verified address.
+ *
+ * Recipients are tenants with the grantable `isSuperadmin` DB flag OR whose
+ * cached email is on the SUPERADMIN_EMAILS allowlist (the cached email is a
+ * routing hint here, not an authorization boundary — the notification grants
+ * nothing). Deduped per recipient on an existing UNREAD sweep_stalled row, so
+ * repeated staleness checks never stack banners or re-email; the dedupe
+ * re-arms when the sweep recovers (see resolveSweepStalledNotifications).
+ * Never throws.
+ */
+export async function notifySweepStalled(
+  lastRunAt: Date | null,
+  thresholdMinutes: number,
+): Promise<void> {
+  try {
+    // Recipients: the grantable DB flag OR a cached email on the env
+    // allowlist. Fetch flagged rows plus any rows with an email (the
+    // allowlist match happens in JS since it lives in process env).
+    const candidates = await db
+      .select({
+        id: tenantsTable.id,
+        clerkUserId: tenantsTable.clerkUserId,
+        email: tenantsTable.email,
+        isSuperadmin: tenantsTable.isSuperadmin,
+      })
+      .from(tenantsTable)
+      .where(
+        or(eq(tenantsTable.isSuperadmin, true), isNotNull(tenantsTable.email)),
+      );
+    const recipients = candidates.filter(
+      (t) => t.isSuperadmin || isSuperadminEmail(t.email),
+    );
+    if (recipients.length === 0) return;
+
+    const lastRunText = lastRunAt
+      ? `Its last recorded run was at ${lastRunAt.toISOString()}.`
+      : "It has no recorded run yet.";
+    const message =
+      `The background connection safety check has not completed a run in over ` +
+      `${thresholdMinutes} minutes. ${lastRunText} Expired social connections ` +
+      `will not be detected until it recovers. Check the server logs and ` +
+      `restart the API server if needed.`;
+
+    for (const tenant of recipients) {
+      const existing = await db
+        .select({ id: notificationsTable.id })
+        .from(notificationsTable)
+        .where(
+          and(
+            eq(notificationsTable.tenantId, tenant.id),
+            eq(notificationsTable.type, SWEEP_STALLED),
+            isNull(notificationsTable.readAt),
+          ),
+        )
+        .limit(1);
+      if (existing.length > 0) continue;
+
+      await db.insert(notificationsTable).values({
+        tenantId: tenant.id,
+        type: SWEEP_STALLED,
+        platform: null,
+        title: "Background safety check stalled",
+        message,
+        linkUrl: "/admin",
+        inApp: true,
+      });
+
+      // Fresh alert only (past the dedupe guard) -> best-effort email.
+      try {
+        const email = await fetchVerifiedEmail(tenant.clerkUserId);
+        if (email) {
+          await sendEmail({
+            to: email,
+            subject: "Background safety check stalled",
+            text: message,
+            html: `<p>${escapeHtml(message)}</p>`,
+          });
+        }
+      } catch (err) {
+        logger.error(
+          { err, tenantId: tenant.id },
+          "Failed to email sweep-stalled alert",
+        );
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "Failed to record sweep-stalled notifications");
+  }
+}
+
+/**
+ * Mark every unread sweep_stalled notification read once the sweep completes
+ * a run again. This both clears the banner and re-arms the dedupe so a future
+ * stall produces a fresh alert. Never throws.
+ */
+export async function resolveSweepStalledNotifications(): Promise<void> {
+  try {
+    await db
+      .update(notificationsTable)
+      .set({ readAt: new Date() })
+      .where(
+        and(
+          eq(notificationsTable.type, SWEEP_STALLED),
+          isNull(notificationsTable.readAt),
+        ),
+      );
+  } catch (err) {
+    logger.error({ err }, "Failed to resolve sweep-stalled notifications");
   }
 }
 
