@@ -12,6 +12,7 @@ import {
   useCreateContent,
   useListBrandKits,
   getListContentQueryKey,
+  type BrandKit,
   type CampaignPost,
   type ResearchResult,
 } from "@workspace/api-client-react";
@@ -37,6 +38,39 @@ const schema = z.object({
   tone: z.string().optional(),
   size: z.enum(["1024x1024", "1536x1024", "1024x1536"]).optional(),
 });
+
+const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+function kitSwatches(kit: BrandKit, max = 4): string[] {
+  const palette = kit.activeVersion?.payload?.colors;
+  if (!palette) return [];
+  const out: string[] = [];
+  for (const group of [palette.primary, palette.secondary, palette.neutral]) {
+    for (const color of group ?? []) {
+      const hex = color.hex?.trim();
+      if (hex && HEX_RE.test(hex) && !out.includes(hex.toLowerCase())) {
+        out.push(hex.toLowerCase());
+        if (out.length >= max) return out;
+      }
+    }
+  }
+  return out;
+}
+
+function SwatchStrip({ hexes, size = 12 }: { hexes: string[]; size?: number }) {
+  if (hexes.length === 0) return null;
+  return (
+    <span className="inline-flex items-center gap-[3px]" data-testid="swatch-strip">
+      {hexes.map((hex, i) => (
+        <span
+          key={`${hex}-${i}`}
+          className="inline-block rounded-full border border-black/20"
+          style={{ width: size, height: size, backgroundColor: hex }}
+        />
+      ))}
+    </span>
+  );
+}
 
 const CAMPAIGN_PLATFORMS = [
   { value: "instagram", label: "Instagram" },
@@ -258,6 +292,10 @@ export function StudioPage() {
     createContent.isPending;
 
   const selectedBrandKitId = form.watch("brandKitId") || undefined;
+  const selectedBrandKit = selectedBrandKitId
+    ? brandKits?.find((bk) => bk.id === selectedBrandKitId)
+    : undefined;
+  const selectedSwatches = selectedBrandKit ? kitSwatches(selectedBrandKit, 6) : [];
   const currentPrompt = form.watch("prompt");
   const hasSingleResult = captionResult || imageResult;
 
@@ -543,7 +581,10 @@ export function StudioPage() {
                               <SelectItem value="none">None</SelectItem>
                               {brandKits?.map((bk) => (
                                 <SelectItem key={bk.id} value={bk.id.toString()}>
-                                  {bk.name}
+                                  <span className="flex items-center gap-2">
+                                    {bk.name}
+                                    <SwatchStrip hexes={kitSwatches(bk)} size={10} />
+                                  </span>
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -599,6 +640,15 @@ export function StudioPage() {
                   </div>
 
                   <div className="pt-2 flex flex-col gap-3">
+                    {selectedBrandKit && selectedSwatches.length > 0 && (
+                      <div
+                        className="flex items-center gap-2 text-xs text-muted-foreground"
+                        data-testid="active-brand-palette"
+                      >
+                        <span>Generating for {selectedBrandKit.name}</span>
+                        <SwatchStrip hexes={selectedSwatches} size={14} />
+                      </div>
+                    )}
                     <Button
                       type="button"
                       onClick={form.handleSubmit(onGenerateCampaign)}
