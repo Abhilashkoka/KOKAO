@@ -14,6 +14,11 @@ import { enqueueBackgroundJob, isShuttingDown } from "../lib/backgroundJobs";
 import { trackSyncPublish } from "../middlewares/trackSyncPublish";
 import { logger } from "../lib/logger";
 import { platformFetch, PlatformTimeoutError } from "../lib/platformFetch";
+import {
+  getImageDimensions,
+  dimensionsCompatible,
+  type ImageDimensions,
+} from "../lib/imageDimensions";
 
 const router: IRouter = Router();
 
@@ -190,6 +195,10 @@ async function postToGraphWithRetry<T extends { error?: GraphError }>(
 export const DEDUPE_PROBE = {
   pageSize: 25,
   maxPages: 5,
+  // Caption-less IG probes must download candidate images to compare
+  // dimensions; cap those downloads so a busy account can't turn one probe
+  // into dozens of image fetches.
+  maxImageFetches: 5,
 };
 
 type ProbePage<T> = {
@@ -209,7 +218,7 @@ type ProbePage<T> = {
 async function probeGraphPages<T>(
   firstUrl: string,
   accessToken: string,
-  match: (item: T) => string | null,
+  match: (item: T) => string | null | Promise<string | null>,
 ): Promise<string | null> {
   let url: string | undefined = firstUrl;
   for (let page = 0; page < DEDUPE_PROBE.maxPages && url; page++) {
@@ -219,7 +228,7 @@ async function probeGraphPages<T>(
     const json = (await res.json()) as ProbePage<T>;
     if (!res.ok || json.error || !Array.isArray(json.data)) return null;
     for (const item of json.data) {
-      const id = match(item);
+      const id = await match(item);
       if (id) return id;
     }
     // An empty page means the `since` window is exhausted.
@@ -233,9 +242,16 @@ async function probeGraphPages<T>(
  * Look for a post that the current publish attempt already created on the
  * Page: one created at/after `since` whose `message` exactly matches what we
  * sent. When the publish had NO caption (blank message), a landed post also
- * has no `message`, so the probe instead matches any caption-less post
- * created at/after `since` — otherwise a retried caption-less image publish
- * after a "committed but response lost" failure would still duplicate.
+ * has no `message`, so the probe matches caption-less posts created at/after
+ * `since` — otherwise a retried caption-less image publish after a
+ * "committed but response lost" failure would still duplicate. But "any
+ * blank post" alone could be someone ELSE's concurrent caption-less post
+ * (another tool posting to the same Page), which would wrongly short-circuit
+ * the retry — so when `expectedImage` is available the probe additionally
+ * requires the candidate's photo attachment to have compatible pixel
+ * dimensions (see dimensionsCompatible: exact, or a same-aspect downscaled
+ * rendition). Without `expectedImage` (unparseable image) it degrades to the
+ * weaker blank-match rather than risking a duplicate.
  * The window is bounded server-side via Graph's `since` param and the probe
  * paginates (see DEDUPE_PROBE) so a landed post on a busy Page cannot scroll
  * past the probed window. Used as the duplicate-post probe after a transient
@@ -247,14 +263,23 @@ async function findRecentMatchingPagePost(
   pageAccessToken: string,
   message: string,
   since: Date,
+  expectedImage: ImageDimensions | null = null,
 ): Promise<string | null> {
   const sinceSec = Math.floor(since.getTime() / 1000);
+  // Only caption-less probes need the attachment media (image dimensions).
+  const wantAttachments = !message ? expectedImage : null;
+  const fields = wantAttachments
+    ? "id,message,created_time,attachments{media}"
+    : "id,message,created_time";
   return probeGraphPages<{
     id?: string;
     message?: string;
     created_time?: string;
+    attachments?: {
+      data?: Array<{ media?: { image?: { width?: number; height?: number } } }>;
+    };
   }>(
-    `${GRAPH_BASE}/${encodeURIComponent(pageId)}/posts?fields=id,message,created_time&limit=${DEDUPE_PROBE.pageSize}&since=${sinceSec}`,
+    `${GRAPH_BASE}/${encodeURIComponent(pageId)}/posts?fields=${fields}&limit=${DEDUPE_PROBE.pageSize}&since=${sinceSec}`,
     pageAccessToken,
     (post) => {
       if (!post.id) return null;
@@ -262,6 +287,22 @@ async function findRecentMatchingPagePost(
       // text. Graph omits `message` entirely on caption-less photo posts.
       const matches = message ? post.message === message : !post.message;
       if (!matches) return null;
+      if (wantAttachments) {
+        // Stronger identity for caption-less publishes: the candidate's photo
+        // must plausibly be OUR image, not just any blank post.
+        const img = post.attachments?.data?.[0]?.media?.image;
+        if (
+          !img ||
+          typeof img.width !== "number" ||
+          typeof img.height !== "number" ||
+          !dimensionsCompatible(wantAttachments, {
+            width: img.width,
+            height: img.height,
+          })
+        ) {
+          return null;
+        }
+      }
       // Belt-and-braces: re-check the timestamp locally even though the
       // request already filtered with `since` server-side.
       const created = post.created_time ? Date.parse(post.created_time) : NaN;
@@ -279,9 +320,19 @@ async function findRecentMatchingPagePost(
  * create -> poll -> publish flow — `media_publish` can commit the post and
  * then lose the response, and re-running the whole flow would publish the
  * same image twice. When the publish had NO caption, a landed media item also
- * has no `caption`, so the probe matches any caption-less media created
- * at/after `since` instead of skipping (which would let a retry duplicate a
- * caption-less image post). The window is bounded server-side via Graph's
+ * has no `caption`, so the probe matches caption-less media created at/after
+ * `since` instead of skipping (which would let a retry duplicate a
+ * caption-less image post). But "any blank media" alone could be someone
+ * ELSE's concurrent caption-less post (another tool posting to the same
+ * account), which would wrongly short-circuit the retry — so when
+ * `expectedImage` is available the probe additionally downloads the
+ * candidate's `media_url` (a public CDN URL, no token) and requires its pixel
+ * dimensions to be compatible with the uploaded image (exact, or a
+ * same-aspect downscaled rendition — Instagram recompresses/resizes). Those
+ * downloads are capped at DEDUPE_PROBE.maxImageFetches per probe; when the
+ * cap is hit, or without `expectedImage` (unparseable image), a blank
+ * candidate is only accepted via the weaker blank-match when NO image signal
+ * was ever available — otherwise it is skipped. The window is bounded server-side via Graph's
  * `since` param and the probe paginates (see DEDUPE_PROBE) so a landed post
  * on a busy account cannot scroll past the probed window. Returns the
  * matching media id, or null. The Page token rides in the Authorization
@@ -292,16 +343,24 @@ async function findRecentMatchingInstagramMedia(
   pageToken: string,
   caption: string,
   since: Date,
+  expectedImage: ImageDimensions | null = null,
 ): Promise<string | null> {
   const sinceSec = Math.floor(since.getTime() / 1000);
+  // Only caption-less probes need the media_url (image dimension check).
+  const wantImageCheck = !caption ? expectedImage : null;
+  const fields = wantImageCheck
+    ? "id,caption,timestamp,media_url"
+    : "id,caption,timestamp";
+  let imageFetches = 0;
   return probeGraphPages<{
     id?: string;
     caption?: string;
     timestamp?: string;
+    media_url?: string;
   }>(
-    `${GRAPH_BASE}/${encodeURIComponent(igUserId)}/media?fields=id,caption,timestamp&limit=${DEDUPE_PROBE.pageSize}&since=${sinceSec}`,
+    `${GRAPH_BASE}/${encodeURIComponent(igUserId)}/media?fields=${fields}&limit=${DEDUPE_PROBE.pageSize}&since=${sinceSec}`,
     pageToken,
-    (media) => {
+    async (media) => {
       if (!media.id) return null;
       // Blank publishes match blank media; non-blank publishes need the exact
       // caption. Graph omits `caption` entirely on caption-less media.
@@ -310,9 +369,30 @@ async function findRecentMatchingInstagramMedia(
       // Belt-and-braces: re-check the timestamp locally even though the
       // request already filtered with `since` server-side.
       const created = media.timestamp ? Date.parse(media.timestamp) : NaN;
-      return !Number.isNaN(created) && created >= since.getTime()
-        ? media.id
-        : null;
+      if (Number.isNaN(created) || created < since.getTime()) return null;
+      if (wantImageCheck) {
+        // Stronger identity for caption-less publishes: the candidate's
+        // image must plausibly be OUR image, not just any blank post. A
+        // candidate that can't be verified (no media_url, download failure,
+        // unparseable image, or fetch cap reached) is SKIPPED — wrongly
+        // matching someone else's post would mean the user's post never
+        // lands, which is worse than a rare duplicate.
+        if (!media.media_url) return null;
+        if (imageFetches >= DEDUPE_PROBE.maxImageFetches) return null;
+        imageFetches++;
+        try {
+          const res = await platformFetch(media.media_url);
+          if (!res.ok) return null;
+          const bytes = new Uint8Array(await res.arrayBuffer());
+          const dims = getImageDimensions(bytes);
+          if (!dims || !dimensionsCompatible(wantImageCheck, dims)) {
+            return null;
+          }
+        } catch {
+          return null;
+        }
+      }
+      return media.id;
     },
   );
 }
@@ -550,8 +630,36 @@ async function fetchInstagramPermalink(
 async function runInstagramPublish(
   params: InstagramPublishParams,
 ): Promise<void> {
-  const { id, tenantId, igUserId, pageToken, caption } = params;
+  const { id, tenantId, igUserId, pageToken, imagePath, caption } = params;
   let delay = IG_PUBLISH_RETRY.initialDelayMs;
+
+  // For caption-less publishes the duplicate-post probe cannot match by text,
+  // so it needs the uploaded image's dimensions as an identity signal.
+  // Computed lazily (only when a probe actually runs) and cached across
+  // retries. Best-effort: null means "no signal available".
+  let expectedImage: ImageDimensions | null | undefined;
+  const getExpectedImage = async (): Promise<ImageDimensions | null> => {
+    if (expectedImage !== undefined) return expectedImage;
+    if (caption) {
+      expectedImage = null;
+      return expectedImage;
+    }
+    try {
+      const file = await objectStorageService.getObjectEntityFile(
+        imagePath,
+        tenantId,
+      );
+      const [buffer] = await file.download();
+      expectedImage = getImageDimensions(new Uint8Array(buffer));
+    } catch (err) {
+      logger.warn(
+        { err, contentItemId: id, tenantId },
+        "Could not read the stored image for the Instagram duplicate-post probe",
+      );
+      expectedImage = null;
+    }
+    return expectedImage;
+  };
 
   // Anchor for the duplicate-post probe: only IG posts created at/after this
   // moment can be a result of THIS publish job. A small backward buffer
@@ -589,6 +697,7 @@ async function runInstagramPublish(
             pageToken,
             caption,
             publishStartedAt,
+            await getExpectedImage(),
           );
           if (existingId) {
             logger.warn(
@@ -694,12 +803,17 @@ router.post(
     // moment can be a result of THIS publish request. A small backward buffer
     // absorbs clock skew between us and Meta.
     const publishStartedAt = new Date(Date.now() - 60_000);
+    // For caption-less publishes the probe cannot match by text, so it needs
+    // the uploaded image's dimensions as an identity signal (set below, once
+    // the image bytes are in hand).
+    let expectedImage: ImageDimensions | null = null;
     const checkAlreadyPosted = () =>
       findRecentMatchingPagePost(
         pageId,
         pageAccessToken,
         message,
         publishStartedAt,
+        expectedImage,
       );
 
     try {
@@ -711,6 +825,9 @@ router.post(
           req.tenantId,
         );
         const [buffer] = await file.download();
+        if (!message) {
+          expectedImage = getImageDimensions(new Uint8Array(buffer));
+        }
 
         // Rebuild the multipart body per attempt: a FormData/Blob body is
         // consumed once per fetch, so the retry helper needs a fresh one.

@@ -79,6 +79,21 @@ const app = createTestApp();
 const mockFb = vi.mocked(testFacebookCredentials);
 const mockIg = vi.mocked(testInstagramCredentials);
 
+/**
+ * Build a minimal-but-valid PNG header carrying real pixel dimensions, for
+ * tests exercising the caption-less duplicate-post probes (they parse the
+ * stored image's dimensions as an identity signal).
+ */
+function pngBytes(width: number, height: number): Buffer {
+  const b = Buffer.alloc(24);
+  b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  b.writeUInt32BE(13, 8);
+  b.write("IHDR", 12, "ascii");
+  b.writeUInt32BE(width, 16);
+  b.writeUInt32BE(height, 20);
+  return b;
+}
+
 beforeEach(() => {
   resetAuthState();
   // Default the forced pre-publish re-verification to "still valid" so it does
@@ -540,7 +555,14 @@ describe("Facebook publish transient-error retry", () => {
    */
   function mockGraphWriteThenLoseResponse(
     calls: string[],
-    existingPost: { id: string; message?: string; created_time: string },
+    existingPost: {
+      id: string;
+      message?: string;
+      created_time: string;
+      attachments?: {
+        data: Array<{ media?: { image?: { width: number; height: number } } }>;
+      };
+    },
   ) {
     let photoAttempts = 0;
     return vi
@@ -679,6 +701,86 @@ describe("Facebook publish transient-error retry", () => {
       );
 
       expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("POST_DUPLICATE");
+      expect(calls.filter((u) => u.includes("/photos")).length).toBe(2);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("caption-less probe matches the landed post by photo dimensions", async () => {
+    const calls: string[] = [];
+    // Landed blank post whose photo attachment matches our uploaded image's
+    // dimensions (1024x512) — this IS our post, so no second write.
+    mockGraphWriteThenLoseResponse(calls, {
+      id: "POST_BLANK_OURS",
+      created_time: new Date().toISOString(),
+      attachments: {
+        data: [{ media: { image: { width: 1024, height: 512 } } }],
+      },
+    });
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getObjectEntityFile",
+    ).mockResolvedValue({
+      download: async () => [pngBytes(1024, 512)],
+    } as never);
+
+    const { tenant, itemId } = await setupVerifiedFbTenant({
+      caption: "",
+      title: "",
+    });
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-facebook`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.postId).toBe("POST_BLANK_OURS");
+      // Exactly ONE write — no duplicate.
+      expect(calls.filter((u) => u.includes("/photos")).length).toBe(1);
+      // The caption-less probe asked for the attachment media.
+      expect(
+        calls.some(
+          (u) => u.includes("/PAGE_OK/posts") && u.includes("attachments"),
+        ),
+      ).toBe(true);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("caption-less probe does NOT match a concurrent blank post with a different image", async () => {
+    const calls: string[] = [];
+    // A concurrent caption-less post from ANOTHER tool: also blank, also
+    // recent, but its photo has different dimensions — not our post, so the
+    // retry must proceed (short-circuiting here would mean the user's post
+    // never lands).
+    mockGraphWriteThenLoseResponse(calls, {
+      id: "POST_BLANK_SOMEONE_ELSES",
+      created_time: new Date().toISOString(),
+      attachments: {
+        data: [{ media: { image: { width: 640, height: 480 } } }],
+      },
+    });
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getObjectEntityFile",
+    ).mockResolvedValue({
+      download: async () => [pngBytes(1024, 512)],
+    } as never);
+
+    const { tenant, itemId } = await setupVerifiedFbTenant({
+      caption: "",
+      title: "",
+    });
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-facebook`,
+      );
+
+      expect(res.status).toBe(200);
+      // The probe rejected the stranger's post, so the retry ran.
       expect(res.body.postId).toBe("POST_DUPLICATE");
       expect(calls.filter((u) => u.includes("/photos")).length).toBe(2);
     } finally {
@@ -1386,7 +1488,14 @@ describe("Instagram publish retry", () => {
    */
   function mockGraphIgPublishThenLoseResponse(
     calls: string[],
-    existingMedia: { id: string; caption?: string; timestamp: string } | null,
+    existingMedia: {
+      id: string;
+      caption?: string;
+      timestamp: string;
+      media_url?: string;
+    } | null,
+    // Binary image responses for candidate media_url downloads, keyed by URL.
+    images: Record<string, Uint8Array> = {},
   ) {
     let publishAttempts = 0;
     return vi
@@ -1400,6 +1509,12 @@ describe("Instagram publish retry", () => {
             headers: { "content-type": "application/json" },
           });
 
+        if (images[url]) {
+          return new Response(new Uint8Array(images[url]), {
+            status: 200,
+            headers: { "content-type": "image/png" },
+          });
+        }
         if (url.includes("/media_publish")) {
           publishAttempts += 1;
           if (publishAttempts === 1) {
@@ -1479,6 +1594,14 @@ describe("Instagram publish retry", () => {
       ObjectStorageService.prototype,
       "getSignedDownloadURL",
     ).mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
+    // Unparseable stored image -> no dimension signal -> the probe degrades
+    // to the weaker blank-match rather than risking a duplicate.
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getObjectEntityFile",
+    ).mockResolvedValue({
+      download: async () => [Buffer.from("fake-image-bytes")],
+    } as never);
 
     // Blank caption AND blank title -> the publish sends an empty caption.
     const { tenant, itemId } = await setupVerifiedTenant({
@@ -1613,6 +1736,12 @@ describe("Instagram publish retry", () => {
       ObjectStorageService.prototype,
       "getSignedDownloadURL",
     ).mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getObjectEntityFile",
+    ).mockResolvedValue({
+      download: async () => [Buffer.from("fake-image-bytes")],
+    } as never);
 
     const { tenant, itemId } = await setupVerifiedTenant({
       caption: "",
@@ -1626,6 +1755,111 @@ describe("Instagram publish retry", () => {
       await waitForPendingJobs();
 
       // The failed publish + the successful retry.
+      expect(calls.filter((u) => u.includes("/media_publish")).length).toBe(2);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("IG_DUPLICATE");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("caption-less IG probe matches the landed media by image dimensions", async () => {
+    const calls: string[] = [];
+    // The landed blank media's media_url serves an image with the SAME
+    // dimensions as our stored image — this IS our post, so no second publish.
+    mockGraphIgPublishThenLoseResponse(
+      calls,
+      {
+        id: "IG_BLANK_OURS",
+        timestamp: new Date().toISOString(),
+        media_url: "https://cdn.example.com/landed.png",
+      },
+      { "https://cdn.example.com/landed.png": pngBytes(1024, 512) },
+    );
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getSignedDownloadURL",
+    ).mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getObjectEntityFile",
+    ).mockResolvedValue({
+      download: async () => [pngBytes(1024, 512)],
+    } as never);
+
+    const { tenant, itemId } = await setupVerifiedTenant({
+      caption: "",
+      title: "",
+    });
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-instagram`,
+      );
+      expect(res.status).toBe(202);
+      await waitForPendingJobs();
+
+      // Exactly ONE publish write — no duplicate.
+      expect(calls.filter((u) => u.includes("/media_publish")).length).toBe(1);
+      expect(calls.filter((u) => u.endsWith("/IG_OK/media")).length).toBe(1);
+      // The caption-less probe asked for media_url and downloaded the
+      // candidate image to verify it.
+      expect(
+        calls.some((u) =>
+          u.includes("/media?fields=id,caption,timestamp,media_url"),
+        ),
+      ).toBe(true);
+      expect(calls.some((u) => u === "https://cdn.example.com/landed.png")).toBe(
+        true,
+      );
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+      expect(item.postId).toBe("IG_BLANK_OURS");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("caption-less IG probe does NOT match a concurrent blank post with a different image", async () => {
+    const calls: string[] = [];
+    // A concurrent caption-less post from ANOTHER tool: also blank, also
+    // recent, but its image has different dimensions — not our post, so the
+    // retry must proceed (short-circuiting here would mean the user's post
+    // never lands).
+    mockGraphIgPublishThenLoseResponse(
+      calls,
+      {
+        id: "IG_BLANK_SOMEONE_ELSES",
+        timestamp: new Date().toISOString(),
+        media_url: "https://cdn.example.com/other.png",
+      },
+      { "https://cdn.example.com/other.png": pngBytes(640, 480) },
+    );
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getSignedDownloadURL",
+    ).mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getObjectEntityFile",
+    ).mockResolvedValue({
+      download: async () => [pngBytes(1024, 512)],
+    } as never);
+
+    const { tenant, itemId } = await setupVerifiedTenant({
+      caption: "",
+      title: "",
+    });
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-instagram`,
+      );
+      expect(res.status).toBe(202);
+      await waitForPendingJobs();
+
+      // The probe rejected the stranger's post, so the retry ran.
       expect(calls.filter((u) => u.includes("/media_publish")).length).toBe(2);
 
       const item = await getContentItem(itemId, tenant.tenantId);
