@@ -119,6 +119,74 @@ function mockLinkedinApi(): MockCall[] {
   return calls;
 }
 
+/**
+ * Route the callback's LinkedIn round-trips to configurable failures so the
+ * error branches run without the network.
+ */
+function mockLinkedinApiFailing(opts: {
+  tokenStatus?: number;
+  userinfoStatus?: number;
+}): MockCall[] {
+  const calls: MockCall[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(
+    async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      calls.push({ url, body: init?.body });
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+
+      if (url.startsWith("https://www.linkedin.com/oauth/v2/accessToken")) {
+        if (opts.tokenStatus && opts.tokenStatus >= 400) {
+          return json(
+            { error: "invalid_grant", error_description: "Code expired" },
+            opts.tokenStatus,
+          );
+        }
+        return json({
+          access_token: LI_NEW_ACCESS_TOKEN,
+          expires_in: 60 * 24 * 60 * 60,
+        });
+      }
+      if (url.startsWith("https://api.linkedin.com/v2/userinfo")) {
+        if (opts.userinfoStatus && opts.userinfoStatus >= 400) {
+          return json({ message: "Invalid access token" }, opts.userinfoStatus);
+        }
+        return json({ sub: LI_NEW_PERSON_ID, name: LI_NEW_NAME });
+      }
+      return json({});
+    },
+  );
+  return calls;
+}
+
+/** Seed a pre-existing (dead) LinkedIn row and return its full snapshot. */
+async function seedExistingRow(tenantId: number) {
+  await insertLinkedinAccount(tenantId, {
+    accessToken: LI_STALE_TOKEN,
+    providerUserId: "li_person_old",
+    tokenExpiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+    status: "error",
+    accountName: "Old Person",
+    verifyStatus: "failed",
+    verifyError:
+      "Your LinkedIn access is no longer valid. Reconnect LinkedIn to keep publishing.",
+  });
+  return getConnectedAccount(tenantId, "linkedin");
+}
+
+/** Mint a real signed state for the tenant via the authorize-URL endpoint. */
+async function mintState(clerkUserId: string): Promise<string> {
+  actAs(clerkUserId);
+  const urlRes = await request(app).get("/api/linkedin/auth/url");
+  expect(urlRes.status).toBe(200);
+  const state = new URL(urlRes.body.url).searchParams.get("state")!;
+  expect(state).toBeTruthy();
+  return state;
+}
+
 describe("LinkedIn connect: GET /linkedin/auth/callback (reconnect over a dead row)", () => {
   it("reactivates a dead connection in place on reconnect (UPDATE, not a second row)", async () => {
     const calls = mockLinkedinApi();
@@ -193,6 +261,167 @@ describe("LinkedIn connect: GET /linkedin/auth/callback (reconnect over a dead r
       expect(row.verifiedAt!.getTime()).toBeGreaterThan(
         deadRow.verifiedAt!.getTime(),
       );
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("LinkedIn connect callback error paths leave the stored row untouched", () => {
+  it("redirects with reason=token_exchange and does not modify the row when the token exchange fails", async () => {
+    const calls = mockLinkedinApiFailing({ tokenStatus: 400 });
+    const tenant = await createTenant();
+    try {
+      const before = await seedExistingRow(tenant.tenantId);
+      const state = await mintState(tenant.clerkUserId);
+
+      const res = await request(app)
+        .get("/api/linkedin/auth/callback")
+        .query({ code: "AUTH_CODE", state });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?linkedin=error&reason=token_exchange",
+      );
+
+      // The token endpoint was hit, but userinfo never was.
+      expect(
+        calls.some((c) =>
+          c.url.startsWith("https://www.linkedin.com/oauth/v2/accessToken"),
+        ),
+      ).toBe(true);
+      expect(
+        calls.some((c) =>
+          c.url.startsWith("https://api.linkedin.com/v2/userinfo"),
+        ),
+      ).toBe(false);
+
+      const after = await getConnectedAccount(tenant.tenantId, "linkedin");
+      expect(after).toEqual(before);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with reason=userinfo and does not modify the row when userinfo fails after a successful token exchange", async () => {
+    const calls = mockLinkedinApiFailing({ userinfoStatus: 401 });
+    const tenant = await createTenant();
+    try {
+      const before = await seedExistingRow(tenant.tenantId);
+      const state = await mintState(tenant.clerkUserId);
+
+      const res = await request(app)
+        .get("/api/linkedin/auth/callback")
+        .query({ code: "AUTH_CODE", state });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?linkedin=error&reason=userinfo",
+      );
+
+      // Both round-trips happened; the failure came from userinfo.
+      expect(
+        calls.some((c) =>
+          c.url.startsWith("https://www.linkedin.com/oauth/v2/accessToken"),
+        ),
+      ).toBe(true);
+      expect(
+        calls.some((c) =>
+          c.url.startsWith("https://api.linkedin.com/v2/userinfo"),
+        ),
+      ).toBe(true);
+
+      // Crucially, the fresh access token from the successful exchange was NOT
+      // partially written before the userinfo failure.
+      const after = await getConnectedAccount(tenant.tenantId, "linkedin");
+      expect(after).toEqual(before);
+      expect(after.accessToken).toBe(LI_STALE_TOKEN);
+      expect(after.accessToken).not.toBe(LI_NEW_ACCESS_TOKEN);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with reason=invalid_state and never calls LinkedIn when the state is tampered", async () => {
+    const calls = mockLinkedinApiFailing({});
+    const tenant = await createTenant();
+    try {
+      const before = await seedExistingRow(tenant.tenantId);
+      const state = await mintState(tenant.clerkUserId);
+      const tampered = `${state.slice(0, -4)}0000`;
+
+      const res = await request(app)
+        .get("/api/linkedin/auth/callback")
+        .query({ code: "AUTH_CODE", state: tampered });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?linkedin=error&reason=invalid_state",
+      );
+      expect(calls.length).toBe(0);
+
+      const after = await getConnectedAccount(tenant.tenantId, "linkedin");
+      expect(after).toEqual(before);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with reason=invalid_state and never calls LinkedIn when the state is missing", async () => {
+    const calls = mockLinkedinApiFailing({});
+    const tenant = await createTenant();
+    try {
+      const before = await seedExistingRow(tenant.tenantId);
+
+      const res = await request(app)
+        .get("/api/linkedin/auth/callback")
+        .query({ code: "AUTH_CODE" });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?linkedin=error&reason=invalid_state",
+      );
+      expect(calls.length).toBe(0);
+
+      const after = await getConnectedAccount(tenant.tenantId, "linkedin");
+      expect(after).toEqual(before);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with reason=invalid_state and never calls LinkedIn when the state has expired", async () => {
+    const calls = mockLinkedinApiFailing({});
+    const tenant = await createTenant();
+    try {
+      const before = await seedExistingRow(tenant.tenantId);
+
+      // Mint the state while the clock is shifted far into the past so the
+      // signed TTL has already lapsed by the time the callback verifies it.
+      vi.useFakeTimers();
+      let state: string;
+      try {
+        vi.setSystemTime(Date.now() - 24 * 60 * 60 * 1000);
+        actAs(tenant.clerkUserId);
+        const urlRes = await request(app).get("/api/linkedin/auth/url");
+        expect(urlRes.status).toBe(200);
+        state = new URL(urlRes.body.url).searchParams.get("state")!;
+      } finally {
+        vi.useRealTimers();
+      }
+
+      const res = await request(app)
+        .get("/api/linkedin/auth/callback")
+        .query({ code: "AUTH_CODE", state });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?linkedin=error&reason=invalid_state",
+      );
+      expect(calls.length).toBe(0);
+
+      const after = await getConnectedAccount(tenant.tenantId, "linkedin");
+      expect(after).toEqual(before);
     } finally {
       await deleteTenant(tenant.tenantId);
     }
