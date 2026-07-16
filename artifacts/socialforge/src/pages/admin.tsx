@@ -1745,6 +1745,7 @@ function formatAuditValue(action: string, value: string | null): string {
 const AUDIT_PAGE_SIZE = 50;
 
 export function AuditLogCard() {
+  const { toast } = useToast();
   const [actionFilter, setActionFilter] = useState("all");
   const [actorInput, setActorInput] = useState("");
   const [targetInput, setTargetInput] = useState("");
@@ -1805,8 +1806,11 @@ export function AuditLogCard() {
   // Streams the export straight to disk via a browser-native download
   // (anchor navigation + server Content-Disposition) instead of buffering
   // the whole CSV into an in-memory Blob, which could freeze the tab for
-  // very large audit histories.
-  const downloadCsv = () => {
+  // very large audit histories. A HEAD preflight validates auth and filters
+  // first so a rejected request surfaces as a toast instead of the browser
+  // saving a JSON error body as a .csv file.
+  const [exporting, setExporting] = useState(false);
+  const downloadCsv = async () => {
     const search = new URLSearchParams();
     if (applied.action) search.set("action", applied.action);
     if (applied.actor) search.set("actor", applied.actor);
@@ -1814,8 +1818,40 @@ export function AuditLogCard() {
     if (applied.from) search.set("from", applied.from);
     if (applied.to) search.set("to", applied.to);
     const qs = search.toString();
+    const url = `/api/admin/audit-logs/export${qs ? `?${qs}` : ""}`;
+
+    setExporting(true);
+    try {
+      const preflight = await fetch(url, {
+        method: "HEAD",
+        credentials: "include",
+      });
+      if (!preflight.ok) {
+        toast({
+          title: "Export failed",
+          description:
+            preflight.status === 401 || preflight.status === 403
+              ? "You no longer have access to the audit log. Try signing in again."
+              : preflight.status === 400
+                ? "The current filters are invalid. Adjust them and try again."
+                : `The server rejected the export (error ${preflight.status}). Try again.`,
+          variant: "destructive",
+        });
+        return;
+      }
+    } catch {
+      toast({
+        title: "Export failed",
+        description: "Could not reach the server. Check your connection and try again.",
+        variant: "destructive",
+      });
+      return;
+    } finally {
+      setExporting(false);
+    }
+
     const link = document.createElement("a");
-    link.href = `/api/admin/audit-logs/export${qs ? `?${qs}` : ""}`;
+    link.href = url;
     link.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
@@ -1910,7 +1946,7 @@ export function AuditLogCard() {
             size="sm"
             variant="outline"
             onClick={downloadCsv}
-            disabled={total === 0}
+            disabled={total === 0 || exporting}
             data-testid="button-audit-export"
           >
             Download CSV

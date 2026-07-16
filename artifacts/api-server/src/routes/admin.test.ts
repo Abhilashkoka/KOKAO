@@ -813,6 +813,37 @@ describe("Audit trail — privileged actions are recorded", () => {
     }
   });
 
+  it("validates the export preflight via HEAD /admin/audit-logs/export", async () => {
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    const outsider = await createTenant({
+      email: `outsider-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+
+      // Valid filters: 204 with no body.
+      const ok = await request(app).head("/api/admin/audit-logs/export");
+      expect(ok.status).toBe(204);
+
+      // Invalid filters are rejected just like the GET.
+      const bad = await request(app).head(
+        "/api/admin/audit-logs/export?action=bogus",
+      );
+      expect(bad.status).toBe(400);
+
+      // Non-superadmins are rejected by the /admin gate.
+      actAs(outsider.clerkUserId, outsider.email);
+      const denied = await request(app).head("/api/admin/audit-logs/export");
+      expect(denied.status).toBe(403);
+    } finally {
+      await deleteTenant(actor.tenantId);
+      await deleteTenant(outsider.tenantId);
+    }
+  });
+
   it("neutralizes spreadsheet formula injection in exported CSV cells", async () => {
     const actor = await createTenant({
       isSuperadmin: true,

@@ -749,6 +749,23 @@ function csvCell(value: string | number | null): string {
 
 const AUDIT_EXPORT_BATCH = 500;
 
+/**
+ * HEAD /admin/audit-logs/export
+ * Preflight for the CSV export: runs the same auth (router-level
+ * requireSuperadmin) and filter validation as the GET, but sends no body.
+ * The frontend calls this before triggering the browser-native anchor
+ * download so a 401/403/400 surfaces as an in-app toast instead of the
+ * browser saving a JSON error body as a .csv file.
+ */
+router.head("/admin/audit-logs/export", (req: Request, res: Response) => {
+  const parsed = buildAuditLogWhere(req.query as Record<string, unknown>);
+  if (!parsed.ok) {
+    res.status(400).end();
+    return;
+  }
+  res.status(204).end();
+});
+
 router.get(
   "/admin/audit-logs/export",
   async (req: Request, res: Response) => {
