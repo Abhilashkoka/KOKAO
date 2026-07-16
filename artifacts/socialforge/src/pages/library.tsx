@@ -30,6 +30,7 @@ import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, splitForLinkedin, chunkOnWhitespace, splitIntoTweets, THREADS_MAX_LENGTH } from "@workspace/social-limits";
@@ -66,6 +67,7 @@ export function LibraryPage() {
   const [editCaption, setEditCaption] = useState("");
   const [editPlatform, setEditPlatform] = useState("instagram");
   const [editImagePath, setEditImagePath] = useState<string | null>(null);
+  const [confirmReplaceOpen, setConfirmReplaceOpen] = useState(false);
   const [editImagePrompt, setEditImagePrompt] = useState<string | null>(null);
   const [editImageB64, setEditImageB64] = useState<string | null>(null);
   const generateCaption = useGenerateCaption();
@@ -519,6 +521,14 @@ export function LibraryPage() {
     });
   };
 
+  const handleRegenerateClick = () => {
+    if (editImagePath) {
+      setConfirmReplaceOpen(true);
+      return;
+    }
+    doRegenerateImage();
+  };
+
   const aiErrorToast = (title: string) => (err: any) => {
     const quota = err?.response?.status === 402 || err?.status === 402;
     toast({
@@ -555,7 +565,7 @@ export function LibraryPage() {
     );
   };
 
-  const handleRegenerateImage = () => {
+  const doRegenerateImage = () => {
     const prompt = (editCaption?.trim() || editTitle || editImagePrompt?.trim() || "").trim();
     if (!prompt) {
       toast({ title: "Nothing to generate from", description: "Add a caption or title first so the image has a subject.", variant: "destructive" });
@@ -896,7 +906,7 @@ export function LibraryPage() {
                     size="sm"
                     variant="outline"
                     className="h-7 px-2 text-xs"
-                    onClick={handleRegenerateImage}
+                    onClick={handleRegenerateClick}
                     disabled={generateImage.isPending}
                   >
                     {generateImage.isPending ? (
@@ -942,6 +952,30 @@ export function LibraryPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={confirmReplaceOpen} onOpenChange={setConfirmReplaceOpen}>
+        <AlertDialogContent className="sm:max-w-[420px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Replace the current image?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {editItem?.title ? `"${editItem.title}" already has an image.` : "This post already has an image."} Generating a new one will replace it once you save, and the current image cannot be restored.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {editImagePath && (
+            <img
+              src={editImageB64 ? `data:image/png;base64,${editImageB64}` : `/api/storage${editImagePath}`}
+              alt="Current image"
+              className="w-full max-h-[180px] rounded-md border object-contain bg-muted/30"
+            />
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep current image</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setConfirmReplaceOpen(false); doRegenerateImage(); }}>
+              Replace image
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={!!publishItem} onOpenChange={(open) => !open && setPublishItem(null)}>
         <DialogContent className="sm:max-w-[460px]">

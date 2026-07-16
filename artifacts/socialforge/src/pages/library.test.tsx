@@ -46,6 +46,7 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 }
 
 const publishInstagramMutate = vi.fn();
+const generateImageMutate = vi.fn();
 
 const mockState: {
   content: any[];
@@ -77,7 +78,7 @@ vi.mock("@workspace/api-client-react", () => {
     usePublishContentToThreads: mutation,
     useResendThreadsPosts: mutation,
     useGenerateCaption: mutation,
-    useGenerateImage: mutation,
+    useGenerateImage: () => ({ mutate: generateImageMutate, isPending: false }),
     useGetFacebookCredentials: () => ({ data: { verifyStatus: "verified" } }),
     useGetInstagramCredentials: () => ({ data: mockState.igCreds }),
     useGetTwitterStatus: () => ({ data: { connected: true, accountName: "tester" } }),
@@ -155,6 +156,7 @@ async function openMenuAndClick(itemLabel: RegExp) {
 beforeEach(() => {
   cleanup();
   publishInstagramMutate.mockReset();
+  generateImageMutate.mockReset();
   mockState.content = [];
   mockState.igCreds = { verifyStatus: "verified" };
 });
@@ -264,6 +266,53 @@ describe("Library publish-to-X dialog preview", () => {
       within(dialog).getByText(`${caption.length} characters \u00b7 2 tweets`, { exact: false }),
     ).toBeTruthy();
     expect(within(dialog).getByText(/posted as a thread of 2 tweets/i)).toBeTruthy();
+  });
+});
+
+describe("Library edit dialog replace-image confirmation", () => {
+  it("asks for confirmation (with a preview) before regenerating over an existing image", async () => {
+    mockState.content = [failedItem({ status: "draft" })];
+    renderPage();
+    await openMenuAndClick(/edit/i);
+
+    const editDialog = await screen.findByRole("dialog");
+    const regen = within(editDialog).getByRole("button", { name: /regenerate/i });
+    fireEvent.click(regen);
+
+    // No generation yet — the confirm dialog opens first.
+    expect(generateImageMutate).not.toHaveBeenCalled();
+    const confirm = await screen.findByRole("alertdialog");
+    expect(within(confirm).getByText(/already has an image/i)).toBeTruthy();
+    expect(within(confirm).getByAltText(/current image/i)).toBeTruthy();
+
+    fireEvent.click(within(confirm).getByRole("button", { name: /replace image/i }));
+    expect(generateImageMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancelling keeps the current image and does not generate", async () => {
+    mockState.content = [failedItem({ status: "draft" })];
+    renderPage();
+    await openMenuAndClick(/edit/i);
+
+    const editDialog = await screen.findByRole("dialog");
+    fireEvent.click(within(editDialog).getByRole("button", { name: /regenerate/i }));
+    const confirm = await screen.findByRole("alertdialog");
+    fireEvent.click(within(confirm).getByRole("button", { name: /keep current image/i }));
+
+    expect(generateImageMutate).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  });
+
+  it("generates immediately with no confirmation when the post has no image", async () => {
+    mockState.content = [failedItem({ status: "draft", imagePath: null })];
+    renderPage();
+    await openMenuAndClick(/edit/i);
+
+    const editDialog = await screen.findByRole("dialog");
+    fireEvent.click(within(editDialog).getByRole("button", { name: /generate image/i }));
+
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(generateImageMutate).toHaveBeenCalledTimes(1);
   });
 });
 
