@@ -658,6 +658,20 @@ export function LibraryPage() {
                   <p className="text-muted-foreground text-sm line-clamp-3 mb-4">{item.caption}</p>
                 )}
 
+                {(Object.keys(item.publishedPlatforms ?? {}).length > 0 || item.status === 'published') && (
+                  <div className="flex flex-wrap items-center gap-1.5 mb-4" data-testid={`published-platforms-${item.id}`}>
+                    <span className="text-xs text-muted-foreground">Published to:</span>
+                    {(Object.keys(item.publishedPlatforms ?? {}).length > 0
+                      ? Object.keys(item.publishedPlatforms ?? {})
+                      : item.platform ? [item.platform] : []
+                    ).map(p => (
+                      <span key={p} className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium capitalize">
+                        {p === "twitter" ? "X" : p}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 {(item.linkedinCommentsPending ?? 0) > 0 && (
                   <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-400 mb-4 space-y-2" data-testid={`text-linkedin-comments-pending-${item.id}`}>
                     <div className="flex items-start gap-2">
