@@ -18,8 +18,35 @@ export default function SignInScreen() {
 
   const [emailAddress, setEmailAddress] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [verifyingCode, setVerifyingCode] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
+
+  const finalizeIfComplete = async () => {
+    if (signIn.status === "complete") {
+      await signIn.finalize({
+        navigate: () => {
+          router.replace("/(tabs)");
+        },
+      });
+      return true;
+    }
+    return false;
+  };
+
+  const startEmailCodeFallback = async () => {
+    const { error } = await signIn.emailCode.sendCode();
+    if (error) {
+      setFormError(
+        error.message ||
+          "Additional verification is required, but we couldn't send a code. Please sign in on the web app.",
+      );
+      return;
+    }
+    setCode("");
+    setVerifyingCode(true);
+  };
 
   const handleSubmit = async () => {
     setFormError(null);
@@ -29,13 +56,29 @@ export default function SignInScreen() {
       return;
     }
 
-    if (signIn.status === "complete") {
-      await signIn.finalize({
-        navigate: () => {
-          router.replace("/(tabs)");
-        },
-      });
-    } else {
+    if (await finalizeIfComplete()) {
+      return;
+    }
+
+    const status = signIn.status as string;
+    if (status === "needs_client_trust" || status === "needs_first_factor") {
+      // New devices can require an extra verification step. Fall back to an
+      // emailed one-time code so the user isn't dead-ended.
+      await startEmailCodeFallback();
+      return;
+    }
+
+    setFormError("Additional verification is required. Please sign in on the web app.");
+  };
+
+  const handleVerifyCode = async () => {
+    setFormError(null);
+    const { error } = await signIn.emailCode.verifyCode({ code });
+    if (error) {
+      setFormError(error.message || "That code didn't work. Check it and try again.");
+      return;
+    }
+    if (!(await finalizeIfComplete())) {
       setFormError("Additional verification is required. Please sign in on the web app.");
     }
   };
@@ -51,48 +94,97 @@ export default function SignInScreen() {
       <View style={styles.logoBox}>
         <Feather name="zap" size={26} color="#ffffff" />
       </View>
-      <Text style={styles.title}>Welcome back</Text>
-      <Text style={styles.subtitle}>Sign in to your KOKAO workspace</Text>
 
-      <Label>Email address</Label>
-      <Input
-        autoCapitalize="none"
-        autoComplete="email"
-        keyboardType="email-address"
-        value={emailAddress}
-        placeholder="you@example.com"
-        onChangeText={setEmailAddress}
-      />
-      {errors.fields.identifier ? (
-        <Text style={styles.error}>{errors.fields.identifier.message}</Text>
-      ) : null}
+      {verifyingCode ? (
+        <>
+          <Text style={styles.title}>Check your email</Text>
+          <Text style={styles.subtitle}>
+            To finish signing in on this device, enter the code we sent to {emailAddress}
+          </Text>
 
-      <Label>Password</Label>
-      <Input
-        value={password}
-        placeholder="Your password"
-        secureTextEntry
-        onChangeText={setPassword}
-      />
-      {errors.fields.password ? (
-        <Text style={styles.error}>{errors.fields.password.message}</Text>
-      ) : null}
-      {formError ? <Text style={styles.error}>{formError}</Text> : null}
+          <Label>Verification code</Label>
+          <Input
+            value={code}
+            placeholder="Enter the 6-digit code"
+            keyboardType="numeric"
+            onChangeText={setCode}
+          />
+          {errors.fields.code ? (
+            <Text style={styles.error}>{errors.fields.code.message}</Text>
+          ) : null}
+          {formError ? <Text style={styles.error}>{formError}</Text> : null}
 
-      <Button
-        title="Sign in"
-        onPress={handleSubmit}
-        loading={fetchStatus === "fetching"}
-        disabled={!emailAddress || !password}
-        style={{ marginTop: 22 }}
-      />
+          <Button
+            title="Verify"
+            onPress={handleVerifyCode}
+            loading={fetchStatus === "fetching"}
+            disabled={!code}
+            style={{ marginTop: 22 }}
+          />
+          <Button
+            title="Resend code"
+            variant="secondary"
+            onPress={() => signIn.emailCode.sendCode()}
+            style={{ marginTop: 10 }}
+          />
+          <Button
+            title="Back to sign in"
+            variant="secondary"
+            onPress={() => {
+              setVerifyingCode(false);
+              setFormError(null);
+            }}
+            style={{ marginTop: 10 }}
+          />
+        </>
+      ) : (
+        <>
+          <Text style={styles.title}>Welcome back</Text>
+          <Text style={styles.subtitle}>Sign in to your KOKAO workspace</Text>
 
-      <View style={styles.linkRow}>
-        <Text style={styles.linkText}>New to KOKAO? </Text>
-        <Link href="/(auth)/sign-up">
-          <Text style={styles.link}>Create an account</Text>
-        </Link>
-      </View>
+          <Label>Email address</Label>
+          <Input
+            autoCapitalize="none"
+            autoComplete="email"
+            keyboardType="email-address"
+            value={emailAddress}
+            placeholder="you@example.com"
+            onChangeText={setEmailAddress}
+          />
+          {errors.fields.identifier ? (
+            <Text style={styles.error}>{errors.fields.identifier.message}</Text>
+          ) : null}
+
+          <Label>Password</Label>
+          <Input
+            value={password}
+            placeholder="Your password"
+            secureTextEntry
+            onChangeText={setPassword}
+          />
+          {errors.fields.password ? (
+            <Text style={styles.error}>{errors.fields.password.message}</Text>
+          ) : null}
+          {formError ? <Text style={styles.error}>{formError}</Text> : null}
+
+          <Button
+            title="Sign in"
+            onPress={handleSubmit}
+            loading={fetchStatus === "fetching"}
+            disabled={!emailAddress || !password}
+            style={{ marginTop: 22 }}
+          />
+
+          <View style={styles.linkRow}>
+            <Text style={styles.linkText}>New to KOKAO? </Text>
+            <Link href="/(auth)/sign-up">
+              <Text style={styles.link}>Create an account</Text>
+            </Link>
+          </View>
+        </>
+      )}
+
+      <View nativeID="clerk-captcha" />
     </KeyboardAwareScrollViewCompat>
   );
 }
