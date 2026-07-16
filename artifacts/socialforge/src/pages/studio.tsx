@@ -26,7 +26,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useToast } from "@/hooks/use-toast";
-import { Wand2, Image as ImageIcon, Save, Loader2, Lightbulb, Link2, Layers, Globe, ExternalLink } from "lucide-react";
+import { Wand2, Image as ImageIcon, Save, Loader2, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { CampaignPostCard } from "@/components/campaign-post-card";
 import {
@@ -48,6 +48,12 @@ const schema = z.object({
   tone: z.string().optional(),
   size: z.enum(["1024x1024", "1536x1024", "1024x1536"]).optional(),
 });
+
+const CAPTION_TWEAKS = [
+  { label: "Shorter", instruction: "Make the caption shorter and more concise." },
+  { label: "Punchier", instruction: "Make the caption punchier and more attention-grabbing." },
+  { label: "More formal", instruction: "Make the caption more formal and professional." },
+] as const;
 
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
@@ -94,6 +100,7 @@ export function StudioPage() {
   const queryClient = useQueryClient();
   const [captionResult, setCaptionResult] = useState<{ caption: string; hashtags: string[] } | null>(null);
   const [captionPlatform, setCaptionPlatform] = useState<string | null>(null);
+  const [captionTweak, setCaptionTweak] = useState<string | null>(null);
   const [imageResult, setImageResult] = useState<{ imagePath: string; b64Json: string } | null>(null);
   const [campaignPosts, setCampaignPosts] = useState<CampaignPost[] | null>(null);
 
@@ -206,9 +213,20 @@ export function StudioPage() {
     toast({ title: "Research added to brief" });
   };
 
-  const onGenerateCaption = (data: z.infer<typeof schema>) => {
+  const runGenerateCaption = (data: z.infer<typeof schema>, tweak: string | null) => {
+    setCaptionTweak(tweak);
+    const tweakInstruction = tweak
+      ? ` ${CAPTION_TWEAKS.find((t) => t.label === tweak)?.instruction ?? ""}`
+      : "";
     generateCaption.mutate(
-      { data: { prompt: data.prompt, platform: data.platform, brandKitId: data.brandKitId || undefined, tone: data.tone } },
+      {
+        data: {
+          prompt: `${data.prompt.trim()}${tweakInstruction}`,
+          platform: data.platform,
+          brandKitId: data.brandKitId || undefined,
+          tone: data.tone,
+        },
+      },
       {
         onSuccess: (res) => {
           setCampaignPosts(null);
@@ -220,6 +238,8 @@ export function StudioPage() {
       },
     );
   };
+
+  const onGenerateCaption = (data: z.infer<typeof schema>) => runGenerateCaption(data, null);
 
   const onGenerateImage = (data: z.infer<typeof schema>) => {
     generateImage.mutate(
@@ -806,6 +826,37 @@ export function StudioPage() {
                             ))}
                           </div>
                         )}
+                        <div className="mt-6 flex flex-wrap items-center gap-2">
+                          {CAPTION_TWEAKS.map((t) => (
+                            <Button
+                              key={t.label}
+                              type="button"
+                              size="sm"
+                              variant={captionTweak === t.label ? "default" : "outline"}
+                              className="rounded-full"
+                              disabled={isPending}
+                              onClick={form.handleSubmit((data) => runGenerateCaption(data, t.label))}
+                              data-testid={`button-tweak-${t.label.toLowerCase().replace(/\s+/g, "-")}`}
+                            >
+                              {t.label}
+                            </Button>
+                          ))}
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={isPending}
+                            onClick={form.handleSubmit((data) => runGenerateCaption(data, null))}
+                            data-testid="button-regenerate-caption"
+                          >
+                            {generateCaption.isPending ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <RefreshCw className="mr-2 h-4 w-4" />
+                            )}
+                            Regenerate
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </div>

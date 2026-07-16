@@ -40,7 +40,10 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   };
 }
 
-const mockState: { caption: string } = { caption: "" };
+const mockState: { caption: string; lastCaptionVars: any } = {
+  caption: "",
+  lastCaptionVars: null,
+};
 
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
@@ -55,8 +58,10 @@ vi.mock("@workspace/api-client-react", () => {
   return {
     useGenerateCaption: () => ({
       isPending: false,
-      mutate: (_vars: unknown, opts: any) =>
-        opts?.onSuccess?.({ caption: mockState.caption, hashtags: [] }),
+      mutate: (vars: unknown, opts: any) => {
+        mockState.lastCaptionVars = vars;
+        opts?.onSuccess?.({ caption: mockState.caption, hashtags: [] });
+      },
     }),
     useGenerateImage: idleMutation,
     useGenerateCampaign: idleMutation,
@@ -96,7 +101,10 @@ async function generateCaption(caption: string, platform: "twitter" | "instagram
   await waitFor(() => expect(screen.getByText(caption)).toBeTruthy());
 }
 
-beforeEach(() => cleanup());
+beforeEach(() => {
+  mockState.lastCaptionVars = null;
+  cleanup();
+});
 
 describe("Studio caption X character warning", () => {
   it("shows count without warning for an under-limit caption", async () => {
@@ -197,6 +205,40 @@ describe("Studio caption LinkedIn character warning", () => {
     );
     expect(warning.textContent).toContain(
       `the rest will be posted as ${commentCount} follow-up comment${commentCount === 1 ? "" : "s"} on LinkedIn`,
+    );
+  });
+});
+
+describe("Studio caption regenerate and tweak chips", () => {
+  it("shows tweak chips and a Regenerate button after a caption is generated", async () => {
+    await generateCaption("A caption to tweak.", "instagram");
+    expect(screen.getByTestId("button-tweak-shorter")).toBeTruthy();
+    expect(screen.getByTestId("button-tweak-punchier")).toBeTruthy();
+    expect(screen.getByTestId("button-tweak-more-formal")).toBeTruthy();
+    expect(screen.getByTestId("button-regenerate-caption")).toBeTruthy();
+  });
+
+  it("appends the tweak instruction to the prompt when a chip is clicked", async () => {
+    await generateCaption("A caption to tweak.", "instagram");
+    const basePrompt = mockState.lastCaptionVars.data.prompt;
+    fireEvent.click(screen.getByTestId("button-tweak-shorter"));
+    await waitFor(() =>
+      expect(mockState.lastCaptionVars.data.prompt).toBe(
+        `${basePrompt} Make the caption shorter and more concise.`,
+      ),
+    );
+  });
+
+  it("regenerate resends the original prompt without any tweak instruction", async () => {
+    await generateCaption("A caption to tweak.", "instagram");
+    const basePrompt = mockState.lastCaptionVars.data.prompt;
+    fireEvent.click(screen.getByTestId("button-tweak-punchier"));
+    await waitFor(() =>
+      expect(mockState.lastCaptionVars.data.prompt).toContain("punchier"),
+    );
+    fireEvent.click(screen.getByTestId("button-regenerate-caption"));
+    await waitFor(() =>
+      expect(mockState.lastCaptionVars.data.prompt).toBe(basePrompt),
     );
   });
 });
