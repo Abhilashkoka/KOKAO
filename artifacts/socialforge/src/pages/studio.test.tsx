@@ -69,8 +69,17 @@ vi.mock("@workspace/api-client-react", () => {
     useSummarizeUrl: idleMutation,
     useResearchTopic: idleMutation,
     useCreateContent: idleMutation,
+    useUpdateContent: idleMutation,
+    useDeleteContent: idleMutation,
+    useGetMe: () => ({
+      data: {
+        usage: { captions: 2, images: 1 },
+        limits: { captions: 10, images: 5 },
+      },
+    }),
     useListBrandKits: () => ({ data: [] }),
     getListContentQueryKey: () => ["content"],
+    getGetMeQueryKey: () => ["me"],
   };
 });
 
