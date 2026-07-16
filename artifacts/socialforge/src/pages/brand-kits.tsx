@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  useRequestUploadUrl,
   useListBrandKits,
   useCreateBrandKit,
   useUpdateBrandKit,
@@ -42,6 +43,7 @@ import {
   Pencil,
   Wand2,
   Loader2,
+  Upload,
   X,
 } from "lucide-react";
 
@@ -194,8 +196,11 @@ export function BrandKitsPage() {
   const setDefaultBrandKit = useSetDefaultBrandKit();
   const createVersion = useCreateBrandKitVersion();
   const draftBrandKit = useDraftBrandKit();
+  const requestUploadUrl = useRequestUploadUrl();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const logoFileRef = useRef<HTMLInputElement>(null);
+  const [logoUploading, setLogoUploading] = useState(false);
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: getListBrandKitsQueryKey() });
@@ -515,6 +520,58 @@ export function BrandKitsPage() {
 
   const patchDraft = (fn: (p: BrandKitPayload) => BrandKitPayload) => {
     setDraft((prev) => (prev ? fn(prev) : prev));
+  };
+
+  const handleLogoUpload = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast({
+        title: "Not an image",
+        description: "Please pick an image file (PNG, JPG, SVG, or WebP).",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Logo images must be under 5 MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setLogoUploading(true);
+    try {
+      const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
+        data: { name: file.name, size: file.size, contentType: file.type },
+      });
+      const put = await fetch(uploadURL, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type },
+      });
+      if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+      const servedUrl = `/api/storage${objectPath}`;
+      patchDraft((p) => ({
+        ...p,
+        logos: {
+          ...p.logos,
+          primary: { url: servedUrl, type: "uploaded" },
+        },
+      }));
+      toast({
+        title: "Logo uploaded",
+        description: "Save the brand to keep this logo.",
+      });
+    } catch (err) {
+      toast({
+        title: "Upload failed",
+        description: err instanceof Error ? err.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLogoUploading(false);
+      if (logoFileRef.current) logoFileRef.current.value = "";
+    }
   };
 
   return (
@@ -883,7 +940,36 @@ export function BrandKitsPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Logo URL</label>
+                    <label className="text-sm font-medium">Logo</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        ref={logoFileRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) void handleLogoUpload(file);
+                        }}
+                        data-testid="input-logo-file"
+                      />
+                      <Button
+                        variant="secondary"
+                        onClick={() => logoFileRef.current?.click()}
+                        disabled={logoUploading}
+                        data-testid="button-upload-logo"
+                      >
+                        {logoUploading ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Upload className="h-4 w-4 mr-2" />
+                        )}
+                        Upload
+                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        PNG, JPG, SVG, or WebP — up to 5 MB.
+                      </span>
+                    </div>
                     <div className="flex items-center gap-2">
                       {brandLogoUrl(draft) && (
                         <img
@@ -1055,12 +1141,14 @@ export function BrandKitsPage() {
             </Tabs>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={closeEdit}>
+            <Button variant="outline" onClick={closeEdit} disabled={logoUploading}>
               Cancel
             </Button>
             <Button
               onClick={handleSaveEdit}
-              disabled={createVersion.isPending || updateBrandKit.isPending}
+              disabled={
+                logoUploading || createVersion.isPending || updateBrandKit.isPending
+              }
             >
               {createVersion.isPending || updateBrandKit.isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
