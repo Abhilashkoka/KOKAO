@@ -6,6 +6,11 @@ import {
   isOverTweetLimit,
   tweetOverBy,
   splitIntoTweets,
+  THREADS_MAX_LENGTH,
+  chunkOnWhitespace,
+  LINKEDIN_MAX_LENGTH,
+  isOverLinkedinLimit,
+  splitForLinkedin,
 } from "@workspace/social-limits";
 
 /**
@@ -87,5 +92,70 @@ describe("CampaignPostCard X character warning", () => {
   it("renders no X warning for non-twitter platforms", () => {
     renderCard("linkedin", "a".repeat(TWEET_MAX_LENGTH + 50));
     expect(screen.queryByText(/characters for X/i)).toBeNull();
+  });
+});
+
+describe("CampaignPostCard Threads character warning", () => {
+  it("shows count without warning for an under-limit threads caption", () => {
+    const caption = "Short caption under the Threads limit.";
+    renderCard("threads", caption);
+    expect(
+      screen.getByText(`${caption.length} / ${THREADS_MAX_LENGTH} characters for Threads`, {
+        exact: false,
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/over; will post as a chain/i)).toBeNull();
+  });
+
+  it("warns with the shared helper's chunk count for an over-limit threads caption", () => {
+    const caption = "t".repeat(THREADS_MAX_LENGTH + 40);
+    const chunks = chunkOnWhitespace(caption, THREADS_MAX_LENGTH);
+    expect(chunks.length).toBeGreaterThan(1);
+    renderCard("threads", caption);
+    const warning = screen.getByText(
+      `${caption.length} / ${THREADS_MAX_LENGTH} characters for Threads`,
+      { exact: false },
+    );
+    expect(warning.textContent).toContain(
+      `will post as a chain of ${chunks.length} connected posts on Threads`,
+    );
+  });
+
+  it("renders no Threads warning for other platforms", () => {
+    renderCard("twitter", "t".repeat(THREADS_MAX_LENGTH + 40));
+    expect(screen.queryByText(/characters for Threads/i)).toBeNull();
+  });
+});
+
+describe("CampaignPostCard LinkedIn character warning", () => {
+  it("shows count without warning for an under-limit linkedin caption", () => {
+    const caption = "Short caption under the LinkedIn limit.";
+    expect(isOverLinkedinLimit(caption)).toBe(false);
+    renderCard("linkedin", caption);
+    expect(
+      screen.getByText(`${caption.length} / ${LINKEDIN_MAX_LENGTH} characters for LinkedIn`, {
+        exact: false,
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/follow-up comment/i)).toBeNull();
+  });
+
+  it("warns with the shared helper's comment count for an over-limit linkedin caption", () => {
+    const caption = "l".repeat(LINKEDIN_MAX_LENGTH + 100);
+    expect(isOverLinkedinLimit(caption)).toBe(true);
+    const commentCount = splitForLinkedin(caption).comments.length;
+    renderCard("linkedin", caption);
+    const warning = screen.getByText(
+      `${caption.length} / ${LINKEDIN_MAX_LENGTH} characters for LinkedIn`,
+      { exact: false },
+    );
+    expect(warning.textContent).toContain(
+      `the rest will be posted as ${commentCount} follow-up comment${commentCount === 1 ? "" : "s"} on LinkedIn`,
+    );
+  });
+
+  it("renders no LinkedIn warning for other platforms", () => {
+    renderCard("twitter", "l".repeat(LINKEDIN_MAX_LENGTH + 100));
+    expect(screen.queryByText(/characters for LinkedIn/i)).toBeNull();
   });
 });

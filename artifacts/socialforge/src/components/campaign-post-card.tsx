@@ -10,7 +10,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Image as ImageIcon, Save, Loader2, Check } from "lucide-react";
-import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, splitIntoTweets } from "@workspace/social-limits";
+import {
+  TWEET_MAX_LENGTH,
+  isOverTweetLimit,
+  tweetOverBy,
+  splitIntoTweets,
+  THREADS_MAX_LENGTH,
+  chunkOnWhitespace,
+  LINKEDIN_MAX_LENGTH,
+  isOverLinkedinLimit,
+  splitForLinkedin,
+} from "@workspace/social-limits";
 
 const PLATFORM_LABELS: Record<string, string> = {
   instagram: "Instagram",
@@ -132,6 +142,28 @@ export function CampaignPostCard({ post, brandKitId, brief }: CampaignPostCardPr
             <p className={`text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
               {tweetText.length} / {TWEET_MAX_LENGTH} characters for X
               {overLimit && ` \u2014 ${tweetOverBy(tweetText)} over; will post as a thread of ${splitIntoTweets(tweetText).length} tweets on X (other platforms allow more)`}
+            </p>
+          );
+        })()}
+        {post.platform === "threads" && (() => {
+          const thText = (post.caption ?? "").trim();
+          const overLimit = thText.length > THREADS_MAX_LENGTH;
+          const chunks = overLimit ? chunkOnWhitespace(thText, THREADS_MAX_LENGTH) : [];
+          return (
+            <p className={`text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+              {thText.length} / {THREADS_MAX_LENGTH} characters for Threads
+              {overLimit && ` \u2014 over; will post as a chain of ${chunks.length} connected posts on Threads`}
+            </p>
+          );
+        })()}
+        {post.platform === "linkedin" && (() => {
+          const liText = (post.caption ?? "").trim();
+          const overLimit = isOverLinkedinLimit(liText);
+          const commentCount = overLimit ? splitForLinkedin(liText).comments.length : 0;
+          return (
+            <p className={`text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+              {liText.length} / {LINKEDIN_MAX_LENGTH} characters for LinkedIn
+              {overLimit && ` \u2014 over; the rest will be posted as ${commentCount} follow-up comment${commentCount === 1 ? "" : "s"} on LinkedIn`}
             </p>
           );
         })()}

@@ -7,6 +7,11 @@ import {
   isOverTweetLimit,
   tweetOverBy,
   splitIntoTweets,
+  THREADS_MAX_LENGTH,
+  chunkOnWhitespace,
+  LINKEDIN_MAX_LENGTH,
+  isOverLinkedinLimit,
+  splitForLinkedin,
 } from "@workspace/social-limits";
 
 /**
@@ -138,5 +143,60 @@ describe("Studio caption X character warning", () => {
     expect(isOverTweetLimit(caption)).toBe(true);
     await generateCaption(caption, "instagram");
     expect(screen.queryByText(/characters for X/i)).toBeNull();
+  });
+});
+
+describe("Studio caption Threads character warning", () => {
+  it("shows count without warning for an under-limit caption", async () => {
+    const caption = "A perfectly fine short caption for Threads.";
+    await generateCaption(caption);
+    expect(
+      screen.getByText(`${caption.length} / ${THREADS_MAX_LENGTH} characters for Threads`, {
+        exact: false,
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/over; will post as a chain/i)).toBeNull();
+  });
+
+  it("warns with the shared helper's chunk count when over the Threads limit", async () => {
+    const caption = "t".repeat(THREADS_MAX_LENGTH + 60);
+    const chunks = chunkOnWhitespace(caption, THREADS_MAX_LENGTH);
+    expect(chunks.length).toBeGreaterThan(1);
+    await generateCaption(caption);
+    const warning = screen.getByText(
+      `${caption.length} / ${THREADS_MAX_LENGTH} characters for Threads`,
+      { exact: false },
+    );
+    expect(warning.textContent).toContain(
+      `will post as a chain of ${chunks.length} connected posts on Threads`,
+    );
+  });
+});
+
+describe("Studio caption LinkedIn character warning", () => {
+  it("shows count without warning for an under-limit caption", async () => {
+    const caption = "A perfectly fine short caption for LinkedIn.";
+    expect(isOverLinkedinLimit(caption)).toBe(false);
+    await generateCaption(caption);
+    expect(
+      screen.getByText(`${caption.length} / ${LINKEDIN_MAX_LENGTH} characters for LinkedIn`, {
+        exact: false,
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/follow-up comment/i)).toBeNull();
+  });
+
+  it("warns with the shared helper's comment count when over the LinkedIn limit", async () => {
+    const caption = "l".repeat(LINKEDIN_MAX_LENGTH + 200);
+    expect(isOverLinkedinLimit(caption)).toBe(true);
+    const commentCount = splitForLinkedin(caption).comments.length;
+    await generateCaption(caption);
+    const warning = screen.getByText(
+      `${caption.length} / ${LINKEDIN_MAX_LENGTH} characters for LinkedIn`,
+      { exact: false },
+    );
+    expect(warning.textContent).toContain(
+      `the rest will be posted as ${commentCount} follow-up comment${commentCount === 1 ? "" : "s"} on LinkedIn`,
+    );
   });
 });

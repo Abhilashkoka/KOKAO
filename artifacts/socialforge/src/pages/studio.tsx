@@ -29,7 +29,17 @@ import { useToast } from "@/hooks/use-toast";
 import { Wand2, Image as ImageIcon, Save, Loader2, Lightbulb, Link2, Layers, Globe, ExternalLink } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { CampaignPostCard } from "@/components/campaign-post-card";
-import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, splitIntoTweets } from "@workspace/social-limits";
+import {
+  TWEET_MAX_LENGTH,
+  isOverTweetLimit,
+  tweetOverBy,
+  splitIntoTweets,
+  THREADS_MAX_LENGTH,
+  chunkOnWhitespace,
+  LINKEDIN_MAX_LENGTH,
+  isOverLinkedinLimit,
+  splitForLinkedin,
+} from "@workspace/social-limits";
 
 const schema = z.object({
   prompt: z.string().min(3, "Prompt must be at least 3 characters"),
@@ -763,11 +773,25 @@ export function StudioPage() {
                         {captionPlatform === "twitter" && (() => {
                           const tweetText = (captionResult.caption ?? "").trim();
                           const overLimit = isOverTweetLimit(tweetText);
+                          const overThreads = tweetText.length > THREADS_MAX_LENGTH;
+                          const threadsChunks = overThreads ? chunkOnWhitespace(tweetText, THREADS_MAX_LENGTH) : [];
+                          const overLinkedin = isOverLinkedinLimit(tweetText);
+                          const liComments = overLinkedin ? splitForLinkedin(tweetText).comments.length : 0;
                           return (
-                            <p className={`mt-3 text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
-                              {tweetText.length} / {TWEET_MAX_LENGTH} characters for X
-                              {overLimit && ` \u2014 ${tweetOverBy(tweetText)} over; will post as a thread of ${splitIntoTweets(tweetText).length} tweets on X`}
-                            </p>
+                            <div className="mt-3 space-y-1">
+                              <p className={`text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                                {tweetText.length} / {TWEET_MAX_LENGTH} characters for X
+                                {overLimit && ` \u2014 ${tweetOverBy(tweetText)} over; will post as a thread of ${splitIntoTweets(tweetText).length} tweets on X`}
+                              </p>
+                              <p className={`text-xs ${overThreads ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                                {tweetText.length} / {THREADS_MAX_LENGTH} characters for Threads
+                                {overThreads && ` \u2014 over; will post as a chain of ${threadsChunks.length} connected posts on Threads`}
+                              </p>
+                              <p className={`text-xs ${overLinkedin ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                                {tweetText.length} / {LINKEDIN_MAX_LENGTH} characters for LinkedIn
+                                {overLinkedin && ` \u2014 over; the rest will be posted as ${liComments} follow-up comment${liComments === 1 ? "" : "s"} on LinkedIn`}
+                              </p>
+                            </div>
                           );
                         })()}
                         {captionResult.hashtags.length > 0 && (
