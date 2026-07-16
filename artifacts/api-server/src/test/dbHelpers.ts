@@ -17,7 +17,7 @@ import {
   type EmailSettings,
 } from "@workspace/db";
 import type { EmailPolicy } from "../lib/notificationCatalog";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, gte, or } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { encryptJson } from "../lib/secretCrypto";
 
@@ -108,6 +108,27 @@ export async function getNotifications(tenantId: number) {
     .select()
     .from(notificationsTable)
     .where(eq(notificationsTable.tenantId, tenantId));
+}
+
+/**
+ * Delete every notification of a given type created at or after `since`.
+ * Needed because some notifications (e.g. seat_request_submitted) fan out to
+ * PRE-EXISTING superadmin tenants in the dev DB, which per-tenant cleanup in
+ * deleteTenant never touches — without this, test runs leave unread
+ * notifications on the real admin account.
+ */
+export async function purgeNotificationsByTypeSince(
+  type: string,
+  since: Date,
+): Promise<void> {
+  await db
+    .delete(notificationsTable)
+    .where(
+      and(
+        eq(notificationsTable.type, type),
+        gte(notificationsTable.createdAt, since),
+      ),
+    );
 }
 
 /** Seed an UNREAD social_connection_failed notification for a platform. */

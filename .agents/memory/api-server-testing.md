@@ -33,3 +33,5 @@ description: Durable decisions for writing tests in artifacts/api-server.
 
 ## Public OAuth callback routers in testApp
 `createTestApp()` must mount the PUBLIC callback routers (`linkedinCallbackRouter`, `twitterCallbackRouter`) before `requireTenant`, mirroring routes/index.ts — otherwise callback tests 404. On the public callback, tenant identity comes ONLY from the HMAC-signed state; do not write tests expecting session-vs-state tenant mismatch to be rejected (a validly-signed state for tenant B lands the connection on tenant B regardless of session).
+
+- Notifications that fan out to ALL superadmin tenants (e.g. seat_request_submitted) hit REAL pre-existing admin tenants in the dev DB; per-tenant cleanup misses them. Suites triggering fan-out must purge by type+timestamp in afterAll (helper: purgeNotificationsByTypeSince in test/dbHelpers.ts), or test runs leave unread popups on the real admin account.

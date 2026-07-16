@@ -31,18 +31,25 @@ import {
   snapshotNotificationPolicy,
   clearNotificationPolicy,
   restoreNotificationPolicy,
+  purgeNotificationsByTypeSince,
 } from "../test/dbHelpers";
 
 const mockFetchEmail = vi.mocked(fetchVerifiedEmail);
 const mockSendEmail = vi.mocked(sendEmail);
 
 let policySnapshot: Awaited<ReturnType<typeof snapshotNotificationPolicy>>;
+let suiteStart: Date;
 
 beforeAll(async () => {
+  suiteStart = new Date();
   policySnapshot = await snapshotNotificationPolicy(SEAT_REQUEST_SUBMITTED);
 });
 
 afterAll(async () => {
+  // These notifications fan out to ALL superadmin tenants, including real
+  // pre-existing ones in the dev DB — purge what this suite created so test
+  // runs don't leave unread notifications on the real admin account.
+  await purgeNotificationsByTypeSince(SEAT_REQUEST_SUBMITTED, suiteStart);
   await restoreNotificationPolicy(SEAT_REQUEST_SUBMITTED, policySnapshot);
   await pool.end();
 });
