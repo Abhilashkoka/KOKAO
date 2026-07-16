@@ -16,6 +16,8 @@ import {
   useGetInstagramCredentials,
   useGetTwitterStatus,
   useGetLinkedinStatus,
+  useGenerateCaption,
+  useGenerateImage,
   getListContentQueryKey
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -24,13 +26,22 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
-import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, Twitter, ExternalLink, AtSign, AlertCircle, RotateCw } from "lucide-react";
+import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, Twitter, ExternalLink, AtSign, AlertCircle, RotateCw, Wand2, Image as ImageIcon, Loader2, X } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, splitForLinkedin, chunkOnWhitespace, splitIntoTweets, THREADS_MAX_LENGTH } from "@workspace/social-limits";
 import { mutateWithRestartRetry } from "@/lib/restartRetry";
+
+const PLATFORM_NAMES: Record<string, string> = {
+  instagram: "Instagram",
+  facebook: "Facebook",
+  twitter: "X (Twitter)",
+  linkedin: "LinkedIn",
+  threads: "Threads",
+};
 
 export function LibraryPage() {
   const { data: content, isLoading } = useListContent({
@@ -53,6 +64,12 @@ export function LibraryPage() {
   const [editItem, setEditItem] = useState<any | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editCaption, setEditCaption] = useState("");
+  const [editPlatform, setEditPlatform] = useState("instagram");
+  const [editImagePath, setEditImagePath] = useState<string | null>(null);
+  const [editImagePrompt, setEditImagePrompt] = useState<string | null>(null);
+  const [editImageB64, setEditImageB64] = useState<string | null>(null);
+  const generateCaption = useGenerateCaption();
+  const generateImage = useGenerateImage();
 
   const [publishItem, setPublishItem] = useState<any | null>(null);
   const publishContent = usePublishContentToFacebook();
@@ -473,20 +490,89 @@ export function LibraryPage() {
     setEditItem(item);
     setEditTitle(item.title);
     setEditCaption(item.caption || "");
+    setEditPlatform(item.platform || "instagram");
+    setEditImagePath(item.imagePath ?? null);
+    setEditImagePrompt(item.imagePrompt ?? null);
+    setEditImageB64(null);
   };
 
   const handleUpdate = () => {
     if (!editItem) return;
     updateContent.mutate({
       id: editItem.id,
-      data: { title: editTitle, caption: editCaption }
+      data: {
+        title: editTitle,
+        caption: editCaption,
+        platform: editPlatform,
+        imagePath: editImagePath,
+        imagePrompt: editImagePrompt,
+      }
     }, {
       onSuccess: () => {
         toast({ title: "Content updated" });
         queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
         setEditItem(null);
+      },
+      onError: (err: any) => {
+        toast({ title: "Failed to save", description: err?.message, variant: "destructive" });
       }
     });
+  };
+
+  const aiErrorToast = (title: string) => (err: any) => {
+    const quota = err?.response?.status === 402 || err?.status === 402;
+    toast({
+      title,
+      description: quota
+        ? "You've reached your plan's monthly AI limit. Upgrade your plan to keep generating."
+        : err?.message || "Please try again.",
+      variant: "destructive",
+    });
+  };
+
+  const handleRewriteCaption = () => {
+    const base = (editCaption?.trim() || editTitle || "").trim();
+    if (!base) {
+      toast({ title: "Nothing to rewrite", description: "Add some caption text first.", variant: "destructive" });
+      return;
+    }
+    generateCaption.mutate(
+      {
+        data: {
+          prompt: `Rewrite and adapt the following social media caption so it fits the conventions, tone, and length requirements of ${PLATFORM_NAMES[editPlatform] ?? editPlatform}. Keep the core message. Original caption:\n\n${base}`,
+          platform: editPlatform,
+          brandKitId: editItem?.brandKitId ?? undefined,
+        },
+      },
+      {
+        onSuccess: (res) => {
+          const tags = res.hashtags?.length ? `\n\n${res.hashtags.map((t: string) => (t.startsWith("#") ? t : `#${t}`)).join(" ")}` : "";
+          setEditCaption(`${res.caption}${tags}`);
+          toast({ title: `Caption adapted for ${PLATFORM_NAMES[editPlatform] ?? editPlatform}` });
+        },
+        onError: aiErrorToast("Could not rewrite the caption"),
+      },
+    );
+  };
+
+  const handleRegenerateImage = () => {
+    const prompt = (editCaption?.trim() || editTitle || editImagePrompt?.trim() || "").trim();
+    if (!prompt) {
+      toast({ title: "Nothing to generate from", description: "Add a caption or title first so the image has a subject.", variant: "destructive" });
+      return;
+    }
+    generateImage.mutate(
+      { data: { prompt, brandKitId: editItem?.brandKitId ?? undefined } },
+      {
+        onSuccess: (res) => {
+          setEditImagePath(res.imagePath);
+          setEditImagePrompt(prompt);
+          setEditImageB64(res.b64Json);
+          toast({ title: editImagePath ? "Image regenerated" : "Image generated", description: "Click Save Changes to keep it." });
+        },
+        onError: aiErrorToast("Could not generate the image"),
+      },
+    );
   };
 
   if (isLoading) {
@@ -675,23 +761,58 @@ export function LibraryPage() {
       )}
 
       <Dialog open={!!editItem} onOpenChange={(open) => !open && setEditItem(null)}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Content</DialogTitle>
+            <DialogDescription>
+              Adjust the text and image, or let AI adapt them to the selected platform.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Platform</label>
+              <Select value={editPlatform} onValueChange={setEditPlatform}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Platform" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="instagram">Instagram</SelectItem>
+                  <SelectItem value="facebook">Facebook</SelectItem>
+                  <SelectItem value="twitter">X (Twitter)</SelectItem>
+                  <SelectItem value="linkedin">LinkedIn</SelectItem>
+                  <SelectItem value="threads">Threads</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Title</label>
               <Input value={editTitle} onChange={e => setEditTitle(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Caption</label>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Caption</label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-xs"
+                  onClick={handleRewriteCaption}
+                  disabled={generateCaption.isPending}
+                >
+                  {generateCaption.isPending ? (
+                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                  ) : (
+                    <Wand2 className="h-3 w-3 mr-1" />
+                  )}
+                  {generateCaption.isPending ? "Adapting..." : `Adapt for ${PLATFORM_NAMES[editPlatform] ?? editPlatform}`}
+                </Button>
+              </div>
               <Textarea 
                 value={editCaption} 
                 onChange={e => setEditCaption(e.target.value)} 
                 className="min-h-[150px]"
               />
-              {editItem?.platform === "twitter" && (() => {
+              {editPlatform === "twitter" && (() => {
                 const tweetText = ((editCaption?.trim() || editTitle) ?? "").trim();
                 const overLimit = isOverTweetLimit(tweetText);
                 return (
@@ -701,11 +822,81 @@ export function LibraryPage() {
                   </p>
                 );
               })()}
+              {editPlatform === "linkedin" && (() => {
+                const liText = ((editCaption?.trim() || editTitle) ?? "").trim();
+                const overLimit = isOverLinkedinLimit(liText);
+                const commentCount = overLimit ? splitForLinkedin(liText).comments.length : 0;
+                return (
+                  <p className={`text-xs ${overLimit ? "font-medium" : ""} text-muted-foreground`}>
+                    {liText.length} / {LINKEDIN_MAX_LENGTH} characters for LinkedIn
+                    {overLimit && ` \u2014 the rest will post as ${commentCount} follow-up comment${commentCount === 1 ? "" : "s"}`}
+                  </p>
+                );
+              })()}
+              {editPlatform === "threads" && (() => {
+                const thText = ((editCaption?.trim() || editTitle) ?? "").trim();
+                const overLimit = thText.length > THREADS_MAX_LENGTH;
+                const chunkCount = overLimit ? chunkOnWhitespace(thText, THREADS_MAX_LENGTH).length : 0;
+                return (
+                  <p className={`text-xs ${overLimit ? "font-medium" : ""} text-muted-foreground`}>
+                    {thText.length} / {THREADS_MAX_LENGTH} characters for Threads
+                    {overLimit && ` \u2014 will post as a chain of ${chunkCount} connected posts`}
+                  </p>
+                );
+              })()}
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Image</label>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-xs"
+                    onClick={handleRegenerateImage}
+                    disabled={generateImage.isPending}
+                  >
+                    {generateImage.isPending ? (
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    ) : (
+                      <ImageIcon className="h-3 w-3 mr-1" />
+                    )}
+                    {generateImage.isPending ? "Generating..." : editImagePath ? "Regenerate" : "Generate image"}
+                  </Button>
+                  {editImagePath && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => { setEditImagePath(null); setEditImageB64(null); setEditImagePrompt(null); }}
+                      disabled={generateImage.isPending}
+                    >
+                      <X className="h-3 w-3 mr-1" /> Remove
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {editImagePath ? (
+                <img
+                  src={editImageB64 ? `data:image/png;base64,${editImageB64}` : `/api/storage${editImagePath}`}
+                  alt="Content"
+                  className="w-full max-h-[260px] rounded-md border object-contain bg-muted/30"
+                />
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  No image attached.
+                  {editPlatform === "instagram" && " Instagram posts require an image before you can publish."}
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditItem(null)}>Cancel</Button>
-            <Button onClick={handleUpdate} disabled={updateContent.isPending}>Save Changes</Button>
+            <Button onClick={handleUpdate} disabled={updateContent.isPending || generateImage.isPending}>
+              {updateContent.isPending ? "Saving..." : "Save Changes"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

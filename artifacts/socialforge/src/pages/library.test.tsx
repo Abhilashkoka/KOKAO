@@ -76,6 +76,8 @@ vi.mock("@workspace/api-client-react", () => {
     useResendTwitterPosts: mutation,
     usePublishContentToThreads: mutation,
     useResendThreadsPosts: mutation,
+    useGenerateCaption: mutation,
+    useGenerateImage: mutation,
     useGetFacebookCredentials: () => ({ data: { verifyStatus: "verified" } }),
     useGetInstagramCredentials: () => ({ data: mockState.igCreds }),
     useGetTwitterStatus: () => ({ data: { connected: true, accountName: "tester" } }),
