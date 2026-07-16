@@ -189,11 +189,13 @@ export default function ContentDetailScreen() {
     queryClient.invalidateQueries({ queryKey: getGetContentQueryKey(contentId) });
   };
 
-  // Shown while the automatic one-shot retry (server-restart 503) is pending.
-  const restartRetryingMsg = (platform: string) =>
-    `The server is restarting. Retrying the ${platform} publish automatically in a few seconds...`;
-  const restartRetryFailedPrefix =
-    "The automatic retry after the server restart also failed. ";
+  // Shown while the automatic one-shot retry (server-restart 503 or a
+  // network blip) is pending. Server-side dedupe makes the retry safe.
+  const restartRetryingMsg = (platform: string, reason: "restart" | "network" = "restart") =>
+    reason === "network"
+      ? `The connection blinked. Retrying the ${platform} publish automatically in a few seconds...`
+      : `The server is restarting. Retrying the ${platform} publish automatically in a few seconds...`;
+  const restartRetryFailedPrefix = "The automatic retry also failed. ";
 
   const publishErrText = (
     err: unknown,
@@ -215,7 +217,7 @@ export default function ContentDetailScreen() {
         setPublishedLink(res?.permalink ?? null);
         invalidateContent();
       },
-      onRetrying: () => setPublishMsg(restartRetryingMsg("Facebook")),
+      onRetrying: (reason) => setPublishMsg(restartRetryingMsg("Facebook", reason)),
       onError: (err, { retried }) => {
         setPublishErr(
           publishErrText(
@@ -240,7 +242,7 @@ export default function ContentDetailScreen() {
         );
         invalidateContent();
       },
-      onRetrying: () => setPublishMsg(restartRetryingMsg("Instagram")),
+      onRetrying: (reason) => setPublishMsg(restartRetryingMsg("Instagram", reason)),
       onError: (err, { retried }) => {
         setPublishErr(
           publishErrText(
@@ -268,7 +270,7 @@ export default function ContentDetailScreen() {
         );
         invalidateContent();
       },
-      onRetrying: () => setPublishMsg(restartRetryingMsg("Instagram")),
+      onRetrying: (reason) => setPublishMsg(restartRetryingMsg("Instagram", reason)),
       onError: (err, { retried }) => {
         setPublishErr(
           publishErrText(
@@ -303,7 +305,7 @@ export default function ContentDetailScreen() {
         setPublishedLink(res?.permalink ?? null);
         invalidateContent();
       },
-      onRetrying: () => setPublishMsg(restartRetryingMsg("LinkedIn")),
+      onRetrying: (reason) => setPublishMsg(restartRetryingMsg("LinkedIn", reason)),
       onError: (err, { retried }) => {
         setPublishErr(
           publishErrText(
@@ -331,7 +333,7 @@ export default function ContentDetailScreen() {
         setPublishedLink(res?.permalink ?? null);
         invalidateContent();
       },
-      onRetrying: () => setPublishMsg(restartRetryingMsg("X")),
+      onRetrying: (reason) => setPublishMsg(restartRetryingMsg("X", reason)),
       onError: (err, { retried }) => {
         setPublishErr(
           publishErrText(
@@ -366,7 +368,7 @@ export default function ContentDetailScreen() {
         setPublishedLink(res?.permalink ?? null);
         invalidateContent();
       },
-      onRetrying: () => setPublishMsg(restartRetryingMsg("Threads")),
+      onRetrying: (reason) => setPublishMsg(restartRetryingMsg("Threads", reason)),
       onError: (err, { retried }) => {
         setPublishErr(
           publishErrText(

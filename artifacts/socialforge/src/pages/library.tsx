@@ -235,13 +235,17 @@ export function LibraryPage() {
         )
       : undefined;
 
-  // Shown when a publish is rejected because the server is restarting and we
-  // are about to retry it automatically (the restart 503 is issued BEFORE any
-  // platform write, so the retry cannot create a duplicate post).
-  const restartRetryToast = (platform: string) =>
+  // Shown when a publish fails transiently (restart 503 or a network blip)
+  // and we are about to retry it automatically. The restart 503 is issued
+  // BEFORE any platform write, and every publish route dedupes server-side,
+  // so the retry cannot create a duplicate post.
+  const restartRetryToast = (platform: string, reason: "restart" | "network" = "restart") =>
     toast({
-      title: "Server is restarting",
-      description: `Nothing was posted yet. Retrying your ${platform} publish automatically in a moment...`,
+      title: reason === "network" ? "Connection hiccup" : "Server is restarting",
+      description:
+        reason === "network"
+          ? `The request didn't go through. Retrying your ${platform} publish automatically in a moment...`
+          : `Nothing was posted yet. Retrying your ${platform} publish automatically in a moment...`,
     });
 
   const publishErrorDescription = (err: any, fallback: string, retried: boolean) => {
@@ -262,7 +266,7 @@ export function LibraryPage() {
         queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
         setPublishItem(null);
       },
-      onRetrying: () => restartRetryToast("Facebook"),
+      onRetrying: (reason) => restartRetryToast("Facebook", reason),
       onError: (err: any, { retried }) => {
         toast({
           title: "Publish failed",
@@ -289,7 +293,7 @@ export function LibraryPage() {
         queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
         setInstagramItem(null);
       },
-      onRetrying: () => restartRetryToast("Instagram"),
+      onRetrying: (reason) => restartRetryToast("Instagram", reason),
       onError: (err: any, { retried }) => {
         toast({
           title: "Publish failed",
@@ -319,7 +323,7 @@ export function LibraryPage() {
         queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
         setRetryingId(null);
       },
-      onRetrying: () => restartRetryToast("Instagram"),
+      onRetrying: (reason) => restartRetryToast("Instagram", reason),
       onError: (err: any, { retried }) => {
         toast({
           title: "Retry failed",
@@ -370,7 +374,7 @@ export function LibraryPage() {
           queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
           setLinkedinItem(null);
         },
-        onRetrying: () => restartRetryToast("LinkedIn"),
+        onRetrying: (reason) => restartRetryToast("LinkedIn", reason),
         onError: (err: any, { retried }) => {
           toast({
             title: "Publish failed",
@@ -413,7 +417,7 @@ export function LibraryPage() {
         queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
         setTwitterItem(null);
       },
-      onRetrying: () => restartRetryToast("X"),
+      onRetrying: (reason) => restartRetryToast("X", reason),
       onError: (err: any, { retried }) => {
         toast({
           title: "Publish failed",
@@ -463,7 +467,7 @@ export function LibraryPage() {
           queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
           setThreadsItem(null);
         },
-        onRetrying: () => restartRetryToast("Threads"),
+        onRetrying: (reason) => restartRetryToast("Threads", reason),
         onError: (err: any, { retried }) => {
           toast({
             title: "Publish failed",

@@ -7,6 +7,8 @@
 export {
   RESTART_RETRY_DELAY_MS,
   isRestartRejection,
+  isNetworkFailure,
+  transientRetryReason,
   mutateWithRestartRetry,
 } from "@workspace/api-client-react";
-export type { RestartRetryCallbacks } from "@workspace/api-client-react";
+export type { RestartRetryCallbacks, RetryReason } from "@workspace/api-client-react";

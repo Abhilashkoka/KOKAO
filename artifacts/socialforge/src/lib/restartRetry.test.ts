@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   isRestartRejection,
+  isNetworkFailure,
   mutateWithRestartRetry,
   RESTART_RETRY_DELAY_MS,
 } from "./restartRetry";
@@ -40,6 +41,24 @@ describe("isRestartRejection", () => {
     expect(isRestartRejection({ status: 503 })).toBe(false);
     expect(isRestartRejection(new Error("network"))).toBe(false);
     expect(isRestartRejection(null)).toBe(false);
+  });
+});
+
+describe("isNetworkFailure", () => {
+  it("matches a fetch-style TypeError with no HTTP status", () => {
+    expect(isNetworkFailure(new TypeError("Failed to fetch"))).toBe(true);
+    expect(isNetworkFailure(new TypeError("Network request failed"))).toBe(true);
+  });
+
+  it("rejects errors that carry an HTTP status, aborts, and non-errors", () => {
+    const apiError = Object.assign(new Error("HTTP 500"), { status: 500 });
+    expect(isNetworkFailure(apiError)).toBe(false);
+    const abort = new Error("aborted");
+    abort.name = "AbortError";
+    expect(isNetworkFailure(abort)).toBe(false);
+    expect(isNetworkFailure(new Error("plain"))).toBe(false);
+    expect(isNetworkFailure({ status: 503 })).toBe(false);
+    expect(isNetworkFailure(null)).toBe(false);
   });
 });
 
@@ -92,6 +111,40 @@ describe("mutateWithRestartRetry", () => {
     vi.advanceTimersByTime(RESTART_RETRY_DELAY_MS * 2);
     expect(mutateAlwaysRestarting).toHaveBeenCalledTimes(2);
     expect(onError).toHaveBeenCalledWith(restartError, { retried: true });
+  });
+
+  it("retries once on a network-class failure and reports reason 'network'", () => {
+    let attempt = 0;
+    const mutate = vi.fn((_vars: any, cbs: any) => {
+      attempt += 1;
+      if (attempt === 1) cbs.onError(new TypeError("Network request failed"));
+      else cbs.onSuccess({ ok: true });
+    });
+    const onSuccess = vi.fn();
+    const onError = vi.fn();
+    const onRetrying = vi.fn();
+
+    mutateWithRestartRetry({ mutate }, { id: 6 }, { onSuccess, onError, onRetrying });
+
+    expect(onRetrying).toHaveBeenCalledWith("network");
+    vi.advanceTimersByTime(RESTART_RETRY_DELAY_MS);
+    expect(mutate).toHaveBeenCalledTimes(2);
+    expect(onSuccess).toHaveBeenCalledWith({ ok: true });
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("does not retry a second time when the network keeps failing", () => {
+    const mutate = vi.fn((_vars: any, cbs: any) =>
+      cbs.onError(new TypeError("Failed to fetch")),
+    );
+    const onError = vi.fn();
+
+    mutateWithRestartRetry({ mutate }, { id: 7 }, { onSuccess: vi.fn(), onError });
+    vi.advanceTimersByTime(RESTART_RETRY_DELAY_MS * 2);
+
+    expect(mutate).toHaveBeenCalledTimes(2);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0]![1]).toEqual({ retried: true });
   });
 
   it("passes non-restart errors straight through without retrying", () => {

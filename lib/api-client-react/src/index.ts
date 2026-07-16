@@ -5,6 +5,8 @@ export type { AuthTokenGetter } from "./custom-fetch";
 export {
   RESTART_RETRY_DELAY_MS,
   isRestartRejection,
+  isNetworkFailure,
+  transientRetryReason,
   mutateWithRestartRetry,
 } from "./restart-retry";
-export type { RestartRetryCallbacks } from "./restart-retry";
+export type { RestartRetryCallbacks, RetryReason } from "./restart-retry";
