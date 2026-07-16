@@ -678,12 +678,14 @@ router.post(
     // missing piece but the response was lost, reuse it instead of
     // double-posting.
     let recentPosts: RecentTweet[] = [];
+    const dedupeSinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
     const account = await getTwitterAccount(req.tenantId);
     if (account?.providerUserId) {
       try {
         recentPosts = await fetchRecentTweets(
           account.providerUserId,
           accessToken,
+          dedupeSinceMs,
         );
       } catch (err) {
         req.log.warn(
@@ -692,7 +694,6 @@ router.post(
         );
       }
     }
-    const dedupeSinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
 
     let postedCount = state.postedCount;
     let replyToId = state.lastPostedId;

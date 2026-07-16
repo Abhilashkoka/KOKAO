@@ -10,7 +10,7 @@ Two credential layers, both encrypted at rest with AES-256-GCM (`lib/secretCrypt
 - App-level (superadmin only): Meta App ID + App Secret in `app_credentials` (provider unique = "meta"). Managed via `/admin/platform-credentials/meta` GET/PUT with INLINE `requireSuperadmin` (credentials.ts is mounted as a plain router after `requireTenant`, so it does not inherit admin.ts's `/admin` gate).
 - Tenant-level: Facebook Page (pageId + pageAccessToken) and Instagram (igUserId) stored in that tenant's `connected_accounts.encryptedCredentials`. Managed via `/social-credentials/{facebook,instagram}` GET/PUT.
 
-Save auto-tests immediately and persists `verifyStatus`/`verifyError`. Responses are ALWAYS masked (`maskSecret`) — plaintext secrets never leave the server and are never logged.
+Save auto-tests immediately and persists `verifyStatus`/`verifyError`. The Facebook test checks BOTH read access (Page fetch) and publish permission: it inspects the token via Graph `/debug_token` (POST body, app access token `appId|appSecret` in the Authorization header) and rejects tokens missing `pages_read_engagement`/`pages_manage_posts` — a read-only token used to pass save then fail at publish with Graph error #200. The scope check is best-effort: it never blocks the save when app creds are absent or the debug call itself fails. Responses are ALWAYS masked (`maskSecret`) — plaintext secrets never leave the server and are never logged.
 
 **Secrets must never appear in a URL** (they leak into upstream/proxy access logs). Meta calls therefore pass tokens via the `Authorization: Bearer <token>` header for GET reads, and via the POST body for the OAuth app-token check. This was a code-review finding — keep it that way for any new Meta call.
 

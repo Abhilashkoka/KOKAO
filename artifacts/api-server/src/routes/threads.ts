@@ -798,15 +798,15 @@ router.post(
     // missing piece but the response was lost, reuse it instead of
     // double-posting.
     let recentPosts: RecentThreadPost[] = [];
+    const dedupeSinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
     try {
-      recentPosts = await fetchRecentThreadPosts(userId, accessToken);
+      recentPosts = await fetchRecentThreadPosts(userId, accessToken, dedupeSinceMs);
     } catch (err) {
       req.log.warn(
         { err },
         "Threads duplicate-post probe failed; proceeding without dedupe",
       );
     }
-    const dedupeSinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
 
     let postedCount = state.postedCount;
     let replyToId = state.lastPostedId;
