@@ -38,6 +38,7 @@ vi.mock("../lib/connectionSweep", () => ({
 }));
 
 import { pool } from "@workspace/db";
+import { triggerSweepNow } from "../lib/connectionSweep";
 import { createAdminTestApp } from "../test/testApp";
 import { resetAuthState, actAs } from "../test/authState";
 import {
@@ -365,6 +366,36 @@ describe("POST /admin/sweep/run — on-demand sweep stays admin-only", () => {
       const res = await request(app).post("/api/admin/sweep/run");
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ started: true });
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
+  it("locks a revoked superadmin out on the very next request, with NO sweep triggered", async () => {
+    const actor = await createTenant({
+      email: `revoked-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+      vi.mocked(triggerSweepNow).mockClear();
+
+      // Not yet a superadmin: denied, sweep untouched.
+      const before = await request(app).post("/api/admin/sweep/run");
+      expect(before.status).toBe(403);
+      expect(vi.mocked(triggerSweepNow)).not.toHaveBeenCalled();
+
+      // Grant the DB flag; the very next request can trigger a sweep.
+      await setTenantSuperadmin(actor.tenantId, true);
+      const granted = await request(app).post("/api/admin/sweep/run");
+      expect(granted.status).toBe(200);
+      expect(vi.mocked(triggerSweepNow)).toHaveBeenCalledTimes(1);
+
+      // Revoke: the gate reads the flag fresh each request, so the very next
+      // request is rejected AND the sweep is never invoked (no side effect).
+      await setTenantSuperadmin(actor.tenantId, false);
+      const revoked = await request(app).post("/api/admin/sweep/run");
+      expect(revoked.status).toBe(403);
+      expect(vi.mocked(triggerSweepNow)).toHaveBeenCalledTimes(1);
     } finally {
       await deleteTenant(actor.tenantId);
     }

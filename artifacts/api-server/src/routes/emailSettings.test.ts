@@ -419,6 +419,55 @@ describe("POST /admin/email-settings/test", () => {
     }
   });
 
+  it("locks a revoked superadmin out of test sends on the very next request, with NO email sent", async () => {
+    const tenant = await createTenant();
+    try {
+      actAs(tenant.clerkUserId, "revoked-test@example.com");
+
+      // Not yet a superadmin: denied, nothing sent.
+      const before = await request(app)
+        .post("/api/admin/email-settings/test")
+        .send({ to: "someone@example.com" });
+      expect(before.status).toBe(403);
+      expect(sendgridCalls.length).toBe(0);
+
+      // Grant the DB flag and configure credentials: the test send works.
+      await setTenantSuperadmin(tenant.tenantId, true);
+      const save = await request(app).put("/api/admin/email-settings").send({
+        sendingEnabled: false,
+        fromEmail: "alerts@socialforge.test",
+        apiKey: "SG.revoke-test-key-7777",
+      });
+      expect(save.status).toBe(200);
+      const granted = await request(app)
+        .post("/api/admin/email-settings/test")
+        .send({ to: "someone@example.com" });
+      expect(granted.status).toBe(200);
+      expect(granted.body.ok).toBe(true);
+      expect(sendgridCalls.length).toBe(1);
+      const rowAfterGrant = await getEmailSettingsRow();
+      expect(rowAfterGrant?.lastTestStatus).toBe("verified");
+      const testedAtAfterGrant = rowAfterGrant?.lastTestedAt?.toISOString();
+
+      // Revoke: the gate reads the flag fresh each request, so the very next
+      // test-send attempt is rejected — no outbound email, and the stored
+      // test outcome is untouched.
+      await setTenantSuperadmin(tenant.tenantId, false);
+      const revoked = await request(app)
+        .post("/api/admin/email-settings/test")
+        .send({ to: "someone@example.com" });
+      expect(revoked.status).toBe(403);
+      expect(sendgridCalls.length).toBe(1);
+      const rowAfterRevoke = await getEmailSettingsRow();
+      expect(rowAfterRevoke?.lastTestStatus).toBe("verified");
+      expect(rowAfterRevoke?.lastTestedAt?.toISOString()).toBe(
+        testedAtAfterGrant,
+      );
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("rejects a missing/invalid recipient with 400 and sends nothing", async () => {
     const admin = await createTenant({ isSuperadmin: true });
     try {
