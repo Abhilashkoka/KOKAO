@@ -73,7 +73,9 @@ vi.mock("@workspace/db", async (importOriginal) => {
 });
 
 // Imported after the mocks so the router picks up the fakes.
-const { default: linkedinRouter } = await import("./linkedin");
+const { default: linkedinRouter, LINKEDIN_DEDUPE_PROBE } = await import(
+  "./linkedin"
+);
 
 interface FetchCall {
   url: string;
@@ -580,6 +582,187 @@ describe("LinkedIn publish dedupe (retry after committed-but-lost response)", ()
     expect(res.status).toBe(200);
     expect(res.json.postId).toBe("urn:li:share:fresh");
     expect(state.content[0].status).toBe("published");
+  });
+
+  it("paginates past the first page and still finds the landed post on a busy account", async () => {
+    seedConnectedAccount();
+    seedContentItem({ caption: CAPTION });
+
+    const savedPageSize = LINKEDIN_DEDUPE_PROBE.pageSize;
+    LINKEDIN_DEDUPE_PROBE.pageSize = 3;
+    try {
+      // Page 1: three unrelated but recent posts (full page, all in window).
+      // Page 2: the landed post.
+      const filler = (i: number) => ({
+        id: `urn:li:share:other${i}`,
+        commentary: `unrelated ${i}`,
+        createdAt: Date.now() - 20 * 1000,
+      });
+      fetchHandler = (call) => {
+        if (call.method === "GET" && call.url.includes("/rest/posts?")) {
+          const start = Number(
+            new URL(call.url).searchParams.get("start") ?? "0",
+          );
+          return makeRes({
+            json: {
+              elements:
+                start === 0
+                  ? [filler(1), filler(2), filler(3)]
+                  : [
+                      {
+                        id: "urn:li:share:landed",
+                        commentary: ESCAPED,
+                        createdAt: Date.now() - 30 * 1000,
+                      },
+                    ],
+            },
+          });
+        }
+        if (call.method === "POST" && call.url.endsWith("/rest/posts")) {
+          return makeRes({
+            status: 201,
+            headers: { "x-restli-id": "urn:li:share:dupe" },
+          });
+        }
+        return makeRes();
+      };
+
+      const res = await drive("POST", "/content/1/publish-linkedin");
+
+      expect(res.status).toBe(200);
+      expect(res.json.postId).toBe("urn:li:share:landed");
+      // Two probe pages were fetched (start=0 then start=3), and no new post
+      // was created.
+      const probes = fetchCalls.filter(
+        (c) => c.method === "GET" && c.url.includes("/rest/posts?"),
+      );
+      expect(probes.length).toBe(2);
+      expect(probes[1].url).toContain("start=3");
+      expect(
+        fetchCalls.filter(
+          (c) => c.method === "POST" && c.url.endsWith("/rest/posts"),
+        ).length,
+      ).toBe(0);
+    } finally {
+      LINKEDIN_DEDUPE_PROBE.pageSize = savedPageSize;
+    }
+  });
+
+  it("stops paginating at the maxPages cap and publishes normally", async () => {
+    seedConnectedAccount();
+    seedContentItem({ caption: CAPTION });
+
+    const savedPageSize = LINKEDIN_DEDUPE_PROBE.pageSize;
+    const savedMaxPages = LINKEDIN_DEDUPE_PROBE.maxPages;
+    LINKEDIN_DEDUPE_PROBE.pageSize = 2;
+    LINKEDIN_DEDUPE_PROBE.maxPages = 2;
+    try {
+      // Every page is full of recent unrelated posts — the probe must give up
+      // at the cap instead of paging forever.
+      let probeCount = 0;
+      fetchHandler = (call) => {
+        if (call.method === "GET" && call.url.includes("/rest/posts?")) {
+          probeCount++;
+          return makeRes({
+            json: {
+              elements: [
+                {
+                  id: `urn:li:share:f${probeCount}a`,
+                  commentary: `filler ${probeCount}a`,
+                  createdAt: Date.now() - 10 * 1000,
+                },
+                {
+                  id: `urn:li:share:f${probeCount}b`,
+                  commentary: `filler ${probeCount}b`,
+                  createdAt: Date.now() - 10 * 1000,
+                },
+              ],
+            },
+          });
+        }
+        if (call.method === "POST" && call.url.endsWith("/rest/posts")) {
+          return makeRes({
+            status: 201,
+            headers: { "x-restli-id": "urn:li:share:fresh" },
+          });
+        }
+        return makeRes();
+      };
+
+      const res = await drive("POST", "/content/1/publish-linkedin");
+
+      expect(res.status).toBe(200);
+      expect(res.json.postId).toBe("urn:li:share:fresh");
+      expect(probeCount).toBe(2);
+    } finally {
+      LINKEDIN_DEDUPE_PROBE.pageSize = savedPageSize;
+      LINKEDIN_DEDUPE_PROBE.maxPages = savedMaxPages;
+    }
+  });
+
+  it("keeps paginating past a page of old-but-recently-edited posts (LAST_MODIFIED ordering)", async () => {
+    seedConnectedAccount();
+    seedContentItem({ caption: CAPTION });
+
+    const savedPageSize = LINKEDIN_DEDUPE_PROBE.pageSize;
+    LINKEDIN_DEDUPE_PROBE.pageSize = 2;
+    try {
+      // The API sorts by LAST_MODIFIED: page 1 is full of OLD posts (ancient
+      // createdAt) that were just edited, while the freshly created landed
+      // post sits on page 2. The probe must not stop at the stale-looking
+      // first page.
+      fetchHandler = (call) => {
+        if (call.method === "GET" && call.url.includes("/rest/posts?")) {
+          const start = Number(
+            new URL(call.url).searchParams.get("start") ?? "0",
+          );
+          return makeRes({
+            json: {
+              elements:
+                start === 0
+                  ? [
+                      {
+                        id: "urn:li:share:oldA",
+                        commentary: "ancient a",
+                        createdAt: Date.now() - 60 * 60 * 1000,
+                      },
+                      {
+                        id: "urn:li:share:oldB",
+                        commentary: "ancient b",
+                        createdAt: Date.now() - 60 * 60 * 1000,
+                      },
+                    ]
+                  : [
+                      {
+                        id: "urn:li:share:landed",
+                        commentary: ESCAPED,
+                        createdAt: Date.now() - 30 * 1000,
+                      },
+                    ],
+            },
+          });
+        }
+        if (call.method === "POST" && call.url.endsWith("/rest/posts")) {
+          return makeRes({
+            status: 201,
+            headers: { "x-restli-id": "urn:li:share:dupe" },
+          });
+        }
+        return makeRes();
+      };
+
+      const res = await drive("POST", "/content/1/publish-linkedin");
+
+      expect(res.status).toBe(200);
+      expect(res.json.postId).toBe("urn:li:share:landed");
+      expect(
+        fetchCalls.filter(
+          (c) => c.method === "POST" && c.url.endsWith("/rest/posts"),
+        ).length,
+      ).toBe(0);
+    } finally {
+      LINKEDIN_DEDUPE_PROBE.pageSize = savedPageSize;
+    }
   });
 
   it("posts overflow comments after a dedupe hit when the failed attempt never got to them", async () => {

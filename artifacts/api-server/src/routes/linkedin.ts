@@ -166,33 +166,65 @@ type RecentLinkedinPost = {
 };
 
 /**
+ * Pagination bounds for the duplicate-post probe. LinkedIn's Posts API has no
+ * server-side time filter, so on a busy account (or one posting from several
+ * tools at once) a just-landed post can scroll past a single small page. The
+ * probe pages through `start`/`count` offsets up to `maxPages` so the full
+ * dedupe window stays covered with a sane cap. Exported (and mutable) so
+ * tests can exercise the pagination without huge fixtures.
+ */
+export const LINKEDIN_DEDUPE_PROBE = {
+  pageSize: 50,
+  maxPages: 5,
+};
+
+/**
  * Fetch the member's most recent posts so a (re-)publish can detect that a
  * previous attempt actually landed despite a lost/transient-looking response.
  * LinkedIn's Posts API has no idempotency key for post creation, so probing
- * recent posts is the only way to avoid double-posting on retry.
- * Best-effort: any failure is treated as "no recent posts" by the caller.
+ * recent posts is the only way to avoid double-posting on retry. The probe
+ * paginates (see LINKEDIN_DEDUPE_PROBE) so a landed post on a high-volume
+ * account cannot scroll past the probed window; the `maxPages`/`pageSize` cap
+ * is the sole bound because the API sorts by LAST_MODIFIED, not createdAt —
+ * a page full of old-but-recently-edited posts says nothing about whether a
+ * freshly created post sits on a later page, so no time-based early stop is
+ * safe. Best-effort: any failure is treated as "no recent posts" by the
+ * caller.
  */
 async function fetchRecentLinkedinPosts(
   author: string,
   baseHeaders: Record<string, string>,
 ): Promise<RecentLinkedinPost[]> {
-  const res = await platformFetch(
-    `${REST_BASE}/posts?author=${encodeURIComponent(author)}&q=author&count=10&sortBy=LAST_MODIFIED`,
-    { headers: baseHeaders },
-  );
-  const json = (await res.json()) as {
-    elements?: Array<{
-      id?: string;
-      commentary?: string;
-      createdAt?: number;
-    }>;
-  };
-  if (!res.ok || !Array.isArray(json.elements)) return [];
   const out: RecentLinkedinPost[] = [];
-  for (const p of json.elements) {
-    if (!p.id || typeof p.commentary !== "string") continue;
-    if (typeof p.createdAt !== "number") continue;
-    out.push({ id: p.id, commentary: p.commentary, createdAtMs: p.createdAt });
+  for (let page = 0; page < LINKEDIN_DEDUPE_PROBE.maxPages; page++) {
+    const start = page * LINKEDIN_DEDUPE_PROBE.pageSize;
+    const res = await platformFetch(
+      `${REST_BASE}/posts?author=${encodeURIComponent(author)}&q=author` +
+        `&count=${LINKEDIN_DEDUPE_PROBE.pageSize}&start=${start}` +
+        `&sortBy=LAST_MODIFIED`,
+      { headers: baseHeaders },
+    );
+    const json = (await res.json()) as {
+      elements?: Array<{
+        id?: string;
+        commentary?: string;
+        createdAt?: number;
+      }>;
+    };
+    if (!res.ok || !Array.isArray(json.elements)) break;
+    for (const p of json.elements) {
+      if (!p.id || typeof p.commentary !== "string") continue;
+      if (typeof p.createdAt !== "number") continue;
+      out.push({
+        id: p.id,
+        commentary: p.commentary,
+        createdAtMs: p.createdAt,
+      });
+    }
+    // A short page means the account has no more posts. No time-based early
+    // stop: LAST_MODIFIED ordering means old-but-recently-edited posts can
+    // fill an earlier page than a freshly created one.
+    if (json.elements.length < LINKEDIN_DEDUPE_PROBE.pageSize) break;
   }
   return out;
 }
