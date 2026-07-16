@@ -123,6 +123,34 @@ async function postLinkedinComment(
 }
 
 /**
+ * List the texts of the comments that already exist on a LinkedIn post via the
+ * socialActions Comments API. Used by the resend flow to detect comments that
+ * actually landed even though the original response was lost, so a resend
+ * never posts the same comment twice. Best-effort: callers treat a thrown
+ * error as "unknown" and fall back to the persisted postedCount.
+ */
+async function fetchExistingCommentTexts(
+  postUrn: string,
+  baseHeaders: Record<string, string>,
+): Promise<Set<string>> {
+  const res = await platformFetch(
+    `${REST_BASE}/socialActions/${encodeURIComponent(postUrn)}/comments`,
+    { headers: baseHeaders },
+  );
+  if (!res.ok) {
+    throw new Error(`LinkedIn comments list error (${res.status})`);
+  }
+  const json = (await res.json()) as {
+    elements?: Array<{ message?: { text?: string } }>;
+  };
+  const texts = new Set<string>();
+  for (const c of json.elements ?? []) {
+    if (typeof c.message?.text === "string") texts.add(c.message.text);
+  }
+  return texts;
+}
+
+/**
  * How far back a previous publish attempt's post still counts as "this
  * content already landed". A retried publish (the user re-clicking after a
  * transient-looking failure) happens within minutes; older identical posts
@@ -867,9 +895,36 @@ router.post(
       "X-Restli-Protocol-Version": "2.0.0",
     };
 
+    // A comment can land on LinkedIn even when the original response was lost
+    // (timeout/network blip), so the persisted postedCount may undercount.
+    // Probe the post's existing comments and skip any whose text already
+    // appears, so a resend never posts a duplicate. Best-effort: a probe
+    // failure means no skipping (same behavior as before).
+    let existingTexts: Set<string> | null = null;
+    try {
+      existingTexts = await fetchExistingCommentTexts(
+        state.postUrn,
+        baseHeaders,
+      );
+    } catch (err) {
+      req.log.warn(
+        { err, postUrn: state.postUrn },
+        "LinkedIn existing-comments probe failed; resending without dedupe",
+      );
+    }
+
     let postedCount = state.postedCount;
     let commentWarning: string | null = null;
     for (let i = postedCount; i < state.comments.length; i++) {
+      const text = state.comments[i]!;
+      if (existingTexts?.has(text)) {
+        req.log.warn(
+          { postUrn: state.postUrn, index: i },
+          "LinkedIn comment already exists on the post; skipping instead of re-posting",
+        );
+        postedCount += 1;
+        continue;
+      }
       try {
         await postLinkedinComment(
           state.postUrn,

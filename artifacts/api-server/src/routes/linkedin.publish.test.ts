@@ -688,7 +688,9 @@ describe("LinkedIn comment resend", () => {
         return makeRes({ json: { sub: "member123", name: "Jane Member" } });
       }
       if (call.url.includes("/socialActions/")) {
-        return makeRes({ status: 201 });
+        return call.method === "GET"
+          ? makeRes({ json: { elements: [] } })
+          : makeRes({ status: 201 });
       }
       return makeRes();
     };
@@ -704,8 +706,8 @@ describe("LinkedIn comment resend", () => {
 
     // Only the two missing comments went out — the already-posted first one
     // is never re-sent (no duplicates), and numbering is preserved.
-    const commentCalls = fetchCalls.filter((c) =>
-      c.url.includes("/socialActions/"),
+    const commentCalls = fetchCalls.filter(
+      (c) => c.url.includes("/socialActions/") && c.method === "POST",
     );
     expect(commentCalls.length).toBe(2);
     expect((commentCalls[0]!.body as any).message.text).toBe(COMMENTS[1]);
@@ -722,6 +724,9 @@ describe("LinkedIn comment resend", () => {
         return makeRes({ json: { sub: "member123" } });
       }
       if (call.url.includes("/socialActions/")) {
+        if (call.method === "GET") {
+          return makeRes({ json: { elements: [] } });
+        }
         commentCallCount += 1;
         // First comment succeeds, second fails.
         return commentCallCount === 1
@@ -744,6 +749,75 @@ describe("LinkedIn comment resend", () => {
     };
     expect(saved.postedCount).toBe(1);
     expect(saved.comments).toEqual(COMMENTS);
+  });
+
+  it("skips comments that already exist on the post and only posts the truly missing ones", async () => {
+    // The persisted state says only the first comment landed, but the second
+    // actually reached LinkedIn too (its response was lost). The resend must
+    // detect it via the comments probe and only post the third.
+    seedWithPendingComments(1);
+    fetchHandler = (call) => {
+      if (call.url.includes("/userinfo")) {
+        return makeRes({ json: { sub: "member123", name: "Jane Member" } });
+      }
+      if (call.url.includes("/socialActions/")) {
+        if (call.method === "GET") {
+          return makeRes({
+            json: {
+              elements: [
+                { message: { text: COMMENTS[0] } },
+                { message: { text: COMMENTS[1] } },
+              ],
+            },
+          });
+        }
+        return makeRes({ status: 201 });
+      }
+      return makeRes();
+    };
+
+    const res = await drive("POST", "/content/1/resend-linkedin-comments");
+
+    expect(res.status).toBe(200);
+    expect(res.json.commentsPosted).toBe(3);
+    expect(res.json.commentsRemaining).toBe(0);
+    expect(res.json.commentWarning).toBeUndefined();
+
+    // Only the genuinely missing third comment was posted; the second one
+    // (already on the post) was skipped, not re-sent.
+    const commentPosts = fetchCalls.filter(
+      (c) => c.url.includes("/socialActions/") && c.method === "POST",
+    );
+    expect(commentPosts.length).toBe(1);
+    expect((commentPosts[0]!.body as any).message.text).toBe(COMMENTS[2]);
+    // Sequence complete: the pending state is cleared.
+    expect(state.content[0].linkedinCommentState).toBeNull();
+  });
+
+  it("still resends from the persisted count when the comments probe fails", async () => {
+    seedWithPendingComments(1);
+    fetchHandler = (call) => {
+      if (call.url.includes("/userinfo")) {
+        return makeRes({ json: { sub: "member123" } });
+      }
+      if (call.url.includes("/socialActions/")) {
+        if (call.method === "GET") {
+          return makeRes({ status: 500, json: { message: "boom" } });
+        }
+        return makeRes({ status: 201 });
+      }
+      return makeRes();
+    };
+
+    const res = await drive("POST", "/content/1/resend-linkedin-comments");
+
+    expect(res.status).toBe(200);
+    expect(res.json.commentsPosted).toBe(3);
+    const commentPosts = fetchCalls.filter(
+      (c) => c.url.includes("/socialActions/") && c.method === "POST",
+    );
+    expect(commentPosts.length).toBe(2);
+    expect((commentPosts[0]!.body as any).message.text).toBe(COMMENTS[1]);
   });
 
   it("returns 400 when there is nothing to resend", async () => {
