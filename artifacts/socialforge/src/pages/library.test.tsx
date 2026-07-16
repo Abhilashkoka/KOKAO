@@ -84,6 +84,20 @@ vi.mock("@workspace/api-client-react", () => {
     useGetLinkedinStatus: () => ({ data: { connected: true } }),
     useGetThreadsStatus: () => ({ data: { connected: true } }),
     getListContentQueryKey: () => ["content"],
+    isRestartRejection: () => false,
+    RESTART_RETRY_DELAY_MS: 0,
+    mutateWithRestartRetry: (
+      m: { mutate: (v: unknown, o?: unknown) => void },
+      vars: unknown,
+      callbacks: {
+        onSuccess?: (res: unknown) => void;
+        onError?: (err: unknown, info: { retried: boolean }) => void;
+      },
+    ) =>
+      m.mutate(vars, {
+        onSuccess: callbacks.onSuccess,
+        onError: (err: unknown) => callbacks.onError?.(err, { retried: false }),
+      }),
   };
 });
 
