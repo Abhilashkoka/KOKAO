@@ -1,4 +1,9 @@
-import { db, notificationsTable, tenantsTable } from "@workspace/db";
+import {
+  db,
+  notificationsTable,
+  seatRequestsTable,
+  tenantsTable,
+} from "@workspace/db";
 import { and, eq, isNotNull, isNull, or } from "drizzle-orm";
 import { logger } from "./logger";
 import { fetchVerifiedEmail } from "./clerkUser";
@@ -209,6 +214,43 @@ export async function notifySeatRequestSubmitted(details: {
     logger.error(
       { err, requestingTenantId: details.requestingTenantId },
       "Failed to record seat-request-submitted notifications",
+    );
+  }
+}
+
+/**
+ * Auto-dismiss stale "seat request awaiting review" admin alerts once a
+ * request is decided. The notifications are not tied to a specific request
+ * (they all say "review it on the admin dashboard"), so they are only stale
+ * when NOTHING is left to review: if any seat request is still pending, all
+ * unread alerts stay put; once the pending queue is empty, every unread
+ * seat_request_submitted notification (across all admin recipients) is marked
+ * read. Marking them read also keeps the list accurate for the next request,
+ * which always inserts fresh rows. Never throws — cleanup must not fail the
+ * admin's decision.
+ */
+export async function resolveSeatRequestSubmittedNotifications(): Promise<void> {
+  try {
+    const pending = await db
+      .select({ id: seatRequestsTable.id })
+      .from(seatRequestsTable)
+      .where(eq(seatRequestsTable.status, "pending"))
+      .limit(1);
+    if (pending.length > 0) return;
+
+    await db
+      .update(notificationsTable)
+      .set({ readAt: new Date() })
+      .where(
+        and(
+          eq(notificationsTable.type, SEAT_REQUEST_SUBMITTED),
+          isNull(notificationsTable.readAt),
+        ),
+      );
+  } catch (err) {
+    logger.error(
+      { err },
+      "Failed to resolve seat-request-submitted notifications",
     );
   }
 }

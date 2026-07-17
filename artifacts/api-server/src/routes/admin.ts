@@ -28,7 +28,10 @@ import {
   planSettingsTable,
   seatRequestsTable,
 } from "@workspace/db";
-import { notifySeatRequestDecided } from "../lib/notifications";
+import {
+  notifySeatRequestDecided,
+  resolveSeatRequestSubmittedNotifications,
+} from "../lib/notifications";
 import {
   serializeSeatRequest,
   getEffectiveSeatLimit,
@@ -1266,6 +1269,10 @@ router.patch(
       approved,
       grantedSeats,
     });
+
+    // Clear other admins' now-stale "awaiting review" alerts (only when no
+    // other seat request is still pending).
+    await resolveSeatRequestSubmittedNotifications();
 
     const decidedTenant = (
       await db
