@@ -175,11 +175,15 @@ export async function notifySeatRequestDecided(
       // Owner + admin members: admins manage the team day-to-day, so a seat
       // decision (which changes how many people they can invite) reaches
       // them too, not just the owner.
-      await emailWorkspaceRecipients(tenantId, {
-        subject: title,
-        text: message,
-        html: `<p>${escapeHtml(message)}</p>`,
-      });
+      await emailWorkspaceRecipients(
+        tenantId,
+        {
+          subject: title,
+          text: message,
+          html: `<p>${escapeHtml(message)}</p>`,
+        },
+        { memberOptOutType: SEAT_REQUEST_DECIDED },
+      );
     }
   } catch (err) {
     logger.error(
@@ -262,7 +266,8 @@ export async function notifyTeamMemberLeft(
  * the channels — one in-app row on the shared tenant feed, and when the email
  * channel is on, the owner plus every ADMIN member's verified Clerk address
  * is emailed, EXCLUDING the admin who performed the removal (they already
- * know). The removed member was deleted before this runs, so they naturally
+ * know) and any admin who opted their own email off for this type
+ * (member-scoped preference; a "forced" email policy overrides opt-outs). The removed member was deleted before this runs, so they naturally
  * drop out of the recipient set. Best-effort — never throws, so a
  * notification failure cannot fail the removal itself.
  */
@@ -301,7 +306,10 @@ export async function notifyTeamMemberRemoved(
           text: message,
           html: `<p>${escapeHtml(message)}</p>`,
         },
-        { excludeClerkUserId: removedBy.clerkUserId },
+        {
+          excludeClerkUserId: removedBy.clerkUserId,
+          memberOptOutType: TEAM_MEMBER_REMOVED,
+        },
       );
     }
   } catch (err) {
