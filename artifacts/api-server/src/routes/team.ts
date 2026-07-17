@@ -300,11 +300,14 @@ router.post("/team/seat-requests", async (req: Request, res: Response) => {
   }
 
   const note = parsed.data.note?.trim() || null;
-  await db.insert(seatRequestsTable).values({
-    tenantId: req.tenantId,
-    requestedSeats: parsed.data.requestedSeats,
-    note,
-  });
+  const [createdRequest] = await db
+    .insert(seatRequestsTable)
+    .values({
+      tenantId: req.tenantId,
+      requestedSeats: parsed.data.requestedSeats,
+      note,
+    })
+    .returning({ id: seatRequestsTable.id });
 
   // Best-effort heads-up to platform admins; fully detached from the
   // response path so neither the name lookup nor the dispatch can fail
@@ -319,6 +322,7 @@ router.post("/team/seat-requests", async (req: Request, res: Response) => {
       // fall back to the id-based label below
     }
     await notifySeatRequestSubmitted({
+      seatRequestId: createdRequest.id,
       requestingTenantId,
       requestingTenantName: name ?? `Tenant #${requestingTenantId}`,
       requestedSeats,

@@ -79,6 +79,7 @@ describe("notifySeatRequestSubmitted", () => {
     const regular = await createTenant();
     try {
       await notifySeatRequestSubmitted({
+        seatRequestId: 900001,
         requestingTenantId: regular.tenantId,
         requestingTenantName: "Acme Co",
         requestedSeats: 7,
@@ -115,6 +116,7 @@ describe("notifySeatRequestSubmitted", () => {
       });
 
       await notifySeatRequestSubmitted({
+        seatRequestId: 900001,
         requestingTenantId: 999999,
         requestingTenantName: "Acme Co",
         requestedSeats: 3,
@@ -146,6 +148,7 @@ describe("notifySeatRequestSubmitted", () => {
       });
 
       await notifySeatRequestSubmitted({
+        seatRequestId: 900001,
         requestingTenantId: 999999,
         requestingTenantName: "Acme Co",
         requestedSeats: 3,
@@ -173,6 +176,7 @@ describe("notifySeatRequestSubmitted", () => {
       });
 
       const details = {
+        seatRequestId: 900002,
         requestingTenantId: 424242,
         requestingTenantName: "Acme Co",
         requestedSeats: 3,
@@ -240,12 +244,14 @@ describe("notifySeatRequestSubmitted", () => {
     const admin = await createTenant({ isSuperadmin: true });
     try {
       await notifySeatRequestSubmitted({
+        seatRequestId: 900001,
         requestingTenantId: 424242,
         requestingTenantName: "Acme Co",
         requestedSeats: 3,
         note: null,
       });
       await notifySeatRequestSubmitted({
+        seatRequestId: 900001,
         requestingTenantId: 535353,
         requestingTenantName: "Beta Inc",
         requestedSeats: 5,
@@ -268,6 +274,7 @@ describe("notifySeatRequestSubmitted", () => {
     const admin = await createTenant({ isSuperadmin: true });
     try {
       const details = {
+        seatRequestId: 900002,
         requestingTenantId: 424242,
         requestingTenantName: "Acme Co",
         requestedSeats: 3,

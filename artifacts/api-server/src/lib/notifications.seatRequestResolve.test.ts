@@ -68,13 +68,17 @@ async function insertSeatRequest(
   return row.id;
 }
 
-async function insertSubmittedNotification(tenantId: number): Promise<number> {
+async function insertSubmittedNotification(
+  tenantId: number,
+  referenceId: number | null = null,
+): Promise<number> {
   const [row] = await db
     .insert(notificationsTable)
     .values({
       tenantId,
       type: SEAT_REQUEST_SUBMITTED,
       platform: null,
+      referenceId,
       title: "New seat request awaiting review",
       message: "A workspace requested team seats.",
       linkUrl: "/admin",
@@ -127,6 +131,57 @@ describe("resolveSeatRequestSubmittedNotifications", () => {
       );
       expect(notes).toHaveLength(1);
       expect(notes[0].readAt).toBeNull();
+    } finally {
+      await cleanupSeatRequests(workspace.tenantId);
+      await deleteTenant(admin.tenantId);
+      await deleteTenant(workspace.tenantId);
+    }
+  });
+
+  it("clears only the decided request's alerts while another request is still pending", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const workspaceA = await createTenant();
+    const workspaceB = await createTenant();
+    try {
+      // Two workspaces each have a pending request; workspace A's is decided.
+      const requestA = await insertSeatRequest(workspaceA.tenantId, "approved");
+      const requestB = await insertSeatRequest(workspaceB.tenantId, "pending");
+      const noteA = await insertSubmittedNotification(admin.tenantId, requestA);
+      const noteB = await insertSubmittedNotification(admin.tenantId, requestB);
+
+      await resolveSeatRequestSubmittedNotifications(requestA);
+
+      const notes = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === SEAT_REQUEST_SUBMITTED,
+      );
+      const byId = new Map(notes.map((n) => [n.id, n]));
+      expect(byId.get(noteA)?.readAt).not.toBeNull();
+      expect(byId.get(noteB)?.readAt).toBeNull();
+    } finally {
+      await cleanupSeatRequests(workspaceA.tenantId);
+      await cleanupSeatRequests(workspaceB.tenantId);
+      await deleteTenant(admin.tenantId);
+      await deleteTenant(workspaceA.tenantId);
+      await deleteTenant(workspaceB.tenantId);
+    }
+  });
+
+  it("clears legacy untagged alerts too once nothing is pending", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const workspace = await createTenant();
+    try {
+      const decided = await insertSeatRequest(workspace.tenantId, "approved");
+      const tagged = await insertSubmittedNotification(admin.tenantId, decided);
+      const legacy = await insertSubmittedNotification(admin.tenantId, null);
+
+      await resolveSeatRequestSubmittedNotifications(decided);
+
+      const notes = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === SEAT_REQUEST_SUBMITTED,
+      );
+      const byId = new Map(notes.map((n) => [n.id, n]));
+      expect(byId.get(tagged)?.readAt).not.toBeNull();
+      expect(byId.get(legacy)?.readAt).not.toBeNull();
     } finally {
       await cleanupSeatRequests(workspace.tenantId);
       await deleteTenant(admin.tenantId);

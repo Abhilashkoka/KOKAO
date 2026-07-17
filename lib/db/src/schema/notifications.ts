@@ -16,6 +16,10 @@ export const notificationsTable = pgTable("notifications", {
   type: text("type").notNull(),
   // Optional platform this notification is about (facebook/instagram/linkedin).
   platform: text("platform"),
+  // Optional id of the domain row this notification is about (e.g. the seat
+  // request id for seat_request_submitted), so resolvers can target exactly
+  // the alerts belonging to one decided/handled item.
+  referenceId: integer("reference_id"),
   title: text("title").notNull(),
   message: text("message").notNull(),
   // Relative in-app link the notification points to (e.g. "/accounts").

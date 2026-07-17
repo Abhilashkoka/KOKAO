@@ -1273,9 +1273,10 @@ router.patch(
       grantedSeats,
     });
 
-    // Clear other admins' now-stale "awaiting review" alerts (only when no
-    // other seat request is still pending).
-    await resolveSeatRequestSubmittedNotifications();
+    // Clear other admins' now-stale "awaiting review" alerts for THIS
+    // decided request (legacy untagged rows are only swept once nothing is
+    // pending).
+    await resolveSeatRequestSubmittedNotifications(id);
 
     const decidedTenant = (
       await db

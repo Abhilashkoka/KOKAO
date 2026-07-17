@@ -248,6 +248,7 @@ export async function notifyTeamMemberRemoved(
  * notification failure cannot fail the seat request itself.
  */
 export async function notifySeatRequestSubmitted(details: {
+  seatRequestId: number;
   requestingTenantId: number;
   requestingTenantName: string;
   requestedSeats: number;
@@ -318,6 +319,7 @@ export async function notifySeatRequestSubmitted(details: {
           tenantId: recipient.id,
           type: SEAT_REQUEST_SUBMITTED,
           platform: scopeKey,
+          referenceId: details.seatRequestId,
           title,
           message,
           linkUrl: "/admin",
@@ -352,17 +354,34 @@ export async function notifySeatRequestSubmitted(details: {
 
 /**
  * Auto-dismiss stale "seat request awaiting review" admin alerts once a
- * request is decided. The notifications are not tied to a specific request
- * (they all say "review it on the admin dashboard"), so they are only stale
- * when NOTHING is left to review: if any seat request is still pending, all
- * unread alerts stay put; once the pending queue is empty, every unread
- * seat_request_submitted notification (across all admin recipients) is marked
- * read. Marking them read also keeps the list accurate for the next request,
- * which always inserts fresh rows. Never throws — cleanup must not fail the
- * admin's decision.
+ * request is decided. New notifications carry the seat request id in
+ * `referenceId`, so deciding a request immediately marks exactly ITS unread
+ * alerts read (across all admin recipients) — even while other workspaces'
+ * requests remain pending, whose alerts stay put. Legacy rows written before
+ * `referenceId` existed have a null reference; those are swept with the old
+ * conservative rule: only once NOTHING is left pending. Marking rows read
+ * also re-arms the per-workspace dedupe so the next request inserts a fresh
+ * alert. Never throws — cleanup must not fail the admin's decision.
  */
-export async function resolveSeatRequestSubmittedNotifications(): Promise<void> {
+export async function resolveSeatRequestSubmittedNotifications(
+  seatRequestId?: number,
+): Promise<void> {
   try {
+    if (seatRequestId !== undefined) {
+      await db
+        .update(notificationsTable)
+        .set({ readAt: new Date() })
+        .where(
+          and(
+            eq(notificationsTable.type, SEAT_REQUEST_SUBMITTED),
+            eq(notificationsTable.referenceId, seatRequestId),
+            isNull(notificationsTable.readAt),
+          ),
+        );
+    }
+
+    // Legacy sweep for rows without a referenceId: only stale once the whole
+    // pending queue is empty.
     const pending = await db
       .select({ id: seatRequestsTable.id })
       .from(seatRequestsTable)
@@ -376,6 +395,7 @@ export async function resolveSeatRequestSubmittedNotifications(): Promise<void> 
       .where(
         and(
           eq(notificationsTable.type, SEAT_REQUEST_SUBMITTED),
+          isNull(notificationsTable.referenceId),
           isNull(notificationsTable.readAt),
         ),
       );
