@@ -95,6 +95,7 @@ import {
   Loader2,
   Plus,
   Trash2,
+  ExternalLink,
 } from "lucide-react";
 
 const PLAN_LABELS: Record<string, string> = {
@@ -1503,6 +1504,12 @@ function SeatRequestsCard() {
   );
 }
 
+const ASR_KEY_PAGES: Record<string, string> = {
+  groq: "https://console.groq.com/keys",
+  deepgram: "https://console.deepgram.com/",
+  assemblyai: "https://www.assemblyai.com/app/api-keys",
+};
+
 function AsrProviderCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -1634,7 +1641,26 @@ function AsrProviderCard() {
             </div>
             {selected && selected.envKey && (
               <div className="space-y-2 rounded-md border p-3">
-                <p className="text-sm font-medium">API key for {selected.label}</p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium">API key for {selected.label}</p>
+                  {ASR_KEY_PAGES[selected.id] && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      asChild
+                      data-testid="button-get-asr-key"
+                    >
+                      <a
+                        href={ASR_KEY_PAGES[selected.id]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Get a {selected.label} key
+                        <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+                      </a>
+                    </Button>
+                  )}
+                </div>
                 {selected.keySource === "database" ? (
                   <div className="flex items-center gap-3">
                     <p className="text-sm text-muted-foreground">
