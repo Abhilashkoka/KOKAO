@@ -25,16 +25,8 @@ import {
   getGetContentQueryKey,
   useRestartRetry,
 } from "@workspace/api-client-react";
-import {
-  TWEET_MAX_LENGTH,
-  THREADS_MAX_LENGTH,
-  splitForLinkedin,
-  splitIntoTweets,
-  chunkOnWhitespace,
-  isOverLinkedinLimit,
-} from "@workspace/social-limits";
-
 import { ContentImage } from "@/components/ContentImage";
+import { buildSplitWarnings } from "@/components/publishSplitWarnings";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { Button, Card, Chip, ErrorState, Input, Label, Skeleton } from "@/components/ui";
 import colors from "@/constants/colors";
@@ -163,25 +155,11 @@ export default function ContentDetailScreen() {
     publishRetryPending;
 
   const captionText = caption.trim();
-  const liSplit = splitForLinkedin(captionText);
-  const tweetChunks = splitIntoTweets(captionText);
-  const threadsChunks = chunkOnWhitespace(captionText, THREADS_MAX_LENGTH);
-  const splitWarnings: string[] = [];
-  if (liReady && isOverLinkedinLimit(captionText)) {
-    splitWarnings.push(
-      `LinkedIn: this caption is over the limit, so the rest will be added as ${liSplit.comments.length} comment(s).`,
-    );
-  }
-  if (twReady && captionText.length > TWEET_MAX_LENGTH) {
-    splitWarnings.push(
-      `X: this caption is over the ${TWEET_MAX_LENGTH}-character limit, so it will post as a thread of ${tweetChunks.length} tweets.`,
-    );
-  }
-  if (thReady && captionText.length > THREADS_MAX_LENGTH) {
-    splitWarnings.push(
-      `Threads: this caption is over the ${THREADS_MAX_LENGTH}-character limit, so it will post as a chain of ${threadsChunks.length} connected posts.`,
-    );
-  }
+  const splitWarnings = buildSplitWarnings(captionText, {
+    linkedinReady: liReady,
+    twitterReady: twReady,
+    threadsReady: thReady,
+  });
 
   const expiredNames = [
     liExpired ? "LinkedIn" : null,
