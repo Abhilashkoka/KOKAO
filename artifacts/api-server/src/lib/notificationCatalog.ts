@@ -37,6 +37,12 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
       "A workspace submitted a request for more team seats and is waiting for a decision. Only platform admins receive this.",
   },
   {
+    type: "team_member_left",
+    label: "Team departures",
+    description:
+      "A teammate left your workspace on their own, freeing up a seat.",
+  },
+  {
     type: "publish_interrupted",
     label: "Interrupted publishes",
     description:

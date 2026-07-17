@@ -14,7 +14,10 @@ import {
   getEffectiveSeatLimit,
   getSeatsUsed,
 } from "../lib/team";
-import { notifySeatRequestSubmitted } from "../lib/notifications";
+import {
+  notifySeatRequestSubmitted,
+  notifyTeamMemberLeft,
+} from "../lib/notifications";
 
 const router: IRouter = Router();
 
@@ -60,6 +63,11 @@ router.post("/team/leave", async (req: Request, res: Response) => {
     res.status(404).json({ error: "Membership not found" });
     return;
   }
+  // Best-effort: tell the owner the seat was freed and by whom.
+  await notifyTeamMemberLeft(req.tenantId, {
+    email: deleted.email,
+    role: deleted.role,
+  });
   res.json({ ok: true });
 });
 

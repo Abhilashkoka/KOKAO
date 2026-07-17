@@ -68,6 +68,66 @@ export async function notifySeatRequestDecided(
   }
 }
 export const SWEEP_STALLED = "sweep_stalled";
+export const TEAM_MEMBER_LEFT = "team_member_left";
+
+/**
+ * Tell the workspace owner that a teammate removed themselves from the team
+ * (POST /team/leave), naming who left and noting the seat was freed. Follows
+ * the catalog/policy pattern: the OWNER tenant's effective settings for
+ * `team_member_left` decide the channels. Best-effort — never throws, so a
+ * notification failure cannot fail the leave itself.
+ */
+export async function notifyTeamMemberLeft(
+  tenantId: number,
+  leaver: { email: string | null; role: string },
+): Promise<void> {
+  try {
+    const effective = await getEffectiveSetting(tenantId, TEAM_MEMBER_LEFT);
+    if (!effective.enabled) return;
+
+    const who = leaver.email ?? "A teammate";
+    const title = "A teammate left your workspace";
+    const message =
+      `${who} left your workspace, so their seat is free again. ` +
+      `You can invite someone else from Settings > Team.`;
+
+    await db.insert(notificationsTable).values({
+      tenantId,
+      type: TEAM_MEMBER_LEFT,
+      platform: null,
+      title,
+      message,
+      linkUrl: "/settings",
+      inApp: effective.inApp,
+    });
+
+    if (effective.email) {
+      const tenant = (
+        await db
+          .select({ clerkUserId: tenantsTable.clerkUserId })
+          .from(tenantsTable)
+          .where(eq(tenantsTable.id, tenantId))
+          .limit(1)
+      )[0];
+      if (tenant) {
+        const email = await fetchVerifiedEmail(tenant.clerkUserId);
+        if (email) {
+          await sendEmail({
+            to: email,
+            subject: title,
+            text: message,
+            html: `<p>${escapeHtml(message)}</p>`,
+          });
+        }
+      }
+    }
+  } catch (err) {
+    logger.error(
+      { err, tenantId },
+      "Failed to record team-member-left notification",
+    );
+  }
+}
 
 /**
  * Alert every platform admin (superadmin) that a workspace has submitted a

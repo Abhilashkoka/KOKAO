@@ -31,6 +31,7 @@ import {
   tenantsTable,
   tenantMembersTable,
   teamInvitesTable,
+  notificationsTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { createTestApp } from "../test/testApp";
@@ -124,8 +125,8 @@ describe("GET /me for invited members", () => {
 });
 
 describe("POST /team/leave", () => {
-  it("lets a member leave and removes their membership row", async () => {
-    const { owner, memberClerkUserId } = await seedMembership();
+  it("lets a member leave, removes their membership row, and notifies the owner", async () => {
+    const { owner, memberClerkUserId, memberEmail } = await seedMembership();
     try {
       actAs(memberClerkUserId, "member@example.com");
       const res = await request(app).post("/api/team/leave");
@@ -137,6 +138,15 @@ describe("POST /team/leave", () => {
         .from(tenantMembersTable)
         .where(eq(tenantMembersTable.clerkUserId, memberClerkUserId));
       expect(rows).toHaveLength(0);
+
+      // The owner gets an in-app notification naming who left.
+      const notifications = await db
+        .select()
+        .from(notificationsTable)
+        .where(eq(notificationsTable.tenantId, owner.tenantId));
+      const left = notifications.filter((n) => n.type === "team_member_left");
+      expect(left).toHaveLength(1);
+      expect(left[0].message).toContain(memberEmail);
 
       // The next request auto-provisions a personal workspace for them.
       const me = await request(app).get("/api/me");
