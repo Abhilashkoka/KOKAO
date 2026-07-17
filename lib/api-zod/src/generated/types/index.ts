@@ -105,6 +105,7 @@ export * from './notificationSettingsInput';
 export * from './notificationTypeSetting';
 export * from './notificationTypeSettingEmailPolicy';
 export * from './onboardingStatus';
+export * from './pendingInviteHint';
 export * from './plan';
 export * from './planCreateInput';
 export * from './planLimits';

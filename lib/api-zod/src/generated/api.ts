@@ -50,7 +50,11 @@ export const GetMeResponse = zod.object({
   "workspaceName": zod.string().describe('Name of the workspace the current user is working in.'),
   "invitedByEmail": zod.string().nullish().describe('For invited members\/admins, the email of the person who invited them (null when unknown). Always null for the owner.'),
   "joinedAt": zod.coerce.date().nullish().describe('When the current user joined this workspace (members only).')
-}).optional()
+}).optional(),
+  "pendingInvite": zod.union([zod.object({
+  "email": zod.string().describe('The exact email address the invite was sent to.'),
+  "workspaceName": zod.string().describe('Name of the workspace the invite is for.')
+}),zod.null()]).optional().describe('For workspace owners only: a pending team invite sent to one of their verified emails for ANOTHER workspace (null when none). Invites only auto-accept on first sign-in with the invited address, so this lets the UI point the user at the right email.')
 })
 
 

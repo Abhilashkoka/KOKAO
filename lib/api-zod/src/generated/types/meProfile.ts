@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { PendingInviteHint } from './pendingInviteHint';
 import type { PlanLimits } from './planLimits';
 import type { TeamStatus } from './teamStatus';
 import type { Tenant } from './tenant';
@@ -21,4 +22,6 @@ export interface MeProfile {
   /** Whether the tenant has finished (or skipped) brand onboarding. */
   brandOnboardingComplete: boolean;
   team?: TeamStatus;
+  /** For workspace owners only: a pending team invite sent to one of their verified emails for ANOTHER workspace (null when none). Invites only auto-accept on first sign-in with the invited address, so this lets the UI point the user at the right email. */
+  pendingInvite?: PendingInviteHint | null;
 }

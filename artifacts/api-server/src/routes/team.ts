@@ -18,6 +18,7 @@ import {
   notifySeatRequestSubmitted,
   notifyTeamMemberLeft,
 } from "../lib/notifications";
+import { sendTeamInviteEmail } from "../lib/teamInviteEmail";
 
 const router: IRouter = Router();
 
@@ -164,6 +165,12 @@ router.post("/team/invites", async (req: Request, res: Response) => {
     role,
     invitedByClerkUserId: req.clerkUserId,
   });
+
+  // Best-effort invite email with the exact sign-in address the invitee must
+  // use (invites are matched on the verified sign-in email). Fully detached:
+  // a missing SendGrid connection or send failure never fails the invite.
+  const workspaceName = tenant.name;
+  void sendTeamInviteEmail({ to: email, workspaceName });
 
   res.json(await buildTeamOverview(req.tenantId, req.memberRole));
 });

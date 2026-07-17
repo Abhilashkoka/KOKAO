@@ -83,6 +83,13 @@ export interface TeamStatus {
   joinedAt?: string | null;
 }
 
+export interface PendingInviteHint {
+  /** The exact email address the invite was sent to. */
+  email: string;
+  /** Name of the workspace the invite is for. */
+  workspaceName: string;
+}
+
 export interface MeProfile {
   tenant: Tenant;
   usage: Usage;
@@ -94,6 +101,8 @@ export interface MeProfile {
   /** Whether the tenant has finished (or skipped) brand onboarding. */
   brandOnboardingComplete: boolean;
   team?: TeamStatus;
+  /** For workspace owners only: a pending team invite sent to one of their verified emails for ANOTHER workspace (null when none). Invites only auto-accept on first sign-in with the invited address, so this lets the UI point the user at the right email. */
+  pendingInvite?: PendingInviteHint | null;
 }
 
 export interface LeaveTeamResult {

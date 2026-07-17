@@ -17,16 +17,7 @@ export async function fetchVerifiedEmail(
   clerkUserId: string,
 ): Promise<string | null> {
   try {
-    const user = await Promise.race([
-      clerkClient.users.getUser(clerkUserId),
-      new Promise<never>((_, reject) => {
-        const t = setTimeout(
-          () => reject(new Error("Clerk user lookup timed out")),
-          PLATFORM_FETCH_TIMEOUT_MS,
-        );
-        t.unref?.();
-      }),
-    ]);
+    const user = await getUserWithTimeout(clerkUserId);
     const candidate =
       user.emailAddresses.find((e) => e.id === user.primaryEmailAddressId) ??
       user.emailAddresses[0];
@@ -36,4 +27,42 @@ export async function fetchVerifiedEmail(
   } catch {
     return null;
   }
+}
+
+/**
+ * Best-effort lookup of ALL of a user's VERIFIED emails (primary first).
+ * Returns [] on any failure. Same timeout/verification rules as
+ * `fetchVerifiedEmail`.
+ */
+export async function fetchVerifiedEmails(
+  clerkUserId: string,
+): Promise<string[]> {
+  try {
+    const user = await getUserWithTimeout(clerkUserId);
+    return user.emailAddresses
+      .filter((e) => e.verification?.status === "verified")
+      .sort((a, b) =>
+        a.id === user.primaryEmailAddressId
+          ? -1
+          : b.id === user.primaryEmailAddressId
+            ? 1
+            : 0,
+      )
+      .map((e) => e.emailAddress);
+  } catch {
+    return [];
+  }
+}
+
+async function getUserWithTimeout(clerkUserId: string) {
+  return Promise.race([
+    clerkClient.users.getUser(clerkUserId),
+    new Promise<never>((_, reject) => {
+      const t = setTimeout(
+        () => reject(new Error("Clerk user lookup timed out")),
+        PLATFORM_FETCH_TIMEOUT_MS,
+      );
+      t.unref?.();
+    }),
+  ]);
 }

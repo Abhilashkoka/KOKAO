@@ -8,6 +8,7 @@ import { getUsage } from "../lib/usage";
 import { isSuperadminEmail } from "../lib/superadmins";
 import { getEffectiveSeatLimit, getMembershipDetails } from "../lib/team";
 import { requireWorkspaceAdmin } from "../middlewares/requireWorkspaceAdmin";
+import { getPendingInviteHint } from "../lib/teamInviteEmail";
 
 const router: IRouter = Router();
 
@@ -31,6 +32,14 @@ router.get("/me", async (req: Request, res: Response) => {
     req.memberRole !== "owner"
       ? await getMembershipDetails(tenant, req.clerkUserId)
       : { invitedByEmail: null, joinedAt: null };
+  // Owners only: surface a pending team invite that sits on one of the
+  // user's verified emails so a missed invite isn't silently lost (invites
+  // only auto-accept on FIRST sign-in with the invited address). Best-effort
+  // and briefly cached inside the helper.
+  const pendingInvite =
+    req.memberRole === "owner"
+      ? await getPendingInviteHint(req.clerkUserId, req.tenantId)
+      : null;
   res.json({
     tenant: serializeTenant(tenant),
     usage: {
@@ -52,6 +61,7 @@ router.get("/me", async (req: Request, res: Response) => {
       invitedByEmail: membership.invitedByEmail,
       joinedAt: membership.joinedAt,
     },
+    pendingInvite,
   });
 });
 

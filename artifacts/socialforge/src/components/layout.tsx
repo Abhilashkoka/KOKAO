@@ -17,6 +17,7 @@ import { useGetMe } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { NotificationsBanner } from "@/components/notifications-banner";
+import { PendingInviteBanner } from "@/components/pending-invite-banner";
 import { OnboardingWizard } from "@/components/onboarding-wizard";
 import { TeamWelcomeDialog } from "@/components/team-welcome-dialog";
 import { useBrand } from "@/lib/brand";
@@ -128,6 +129,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <OnboardingWizard />
         <TeamWelcomeDialog />
         <NotificationsBanner />
+        <PendingInviteBanner />
         {children}
       </main>
     </div>

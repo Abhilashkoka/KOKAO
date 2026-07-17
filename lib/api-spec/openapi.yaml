@@ -3165,6 +3165,25 @@ components:
           description: Whether the tenant has finished (or skipped) brand onboarding.
         team:
           $ref: "#/components/schemas/TeamStatus"
+        pendingInvite:
+          anyOf:
+            - $ref: "#/components/schemas/PendingInviteHint"
+            - type: "null"
+          description: >-
+            For workspace owners only: a pending team invite sent to one of
+            their verified emails for ANOTHER workspace (null when none).
+            Invites only auto-accept on first sign-in with the invited
+            address, so this lets the UI point the user at the right email.
+    PendingInviteHint:
+      type: object
+      required: [email, workspaceName]
+      properties:
+        email:
+          type: string
+          description: The exact email address the invite was sent to.
+        workspaceName:
+          type: string
+          description: Name of the workspace the invite is for.
     TeamStatus:
       type: object
       required: [enabled, role, seatLimit, workspaceName]
