@@ -82,9 +82,11 @@ vi.mock("@workspace/db", async (importOriginal) => {
 });
 
 // Imported after the mocks so the router picks up the fakes.
-const { default: linkedinRouter, LINKEDIN_DEDUPE_PROBE } = await import(
-  "./linkedin"
-);
+const {
+  default: linkedinRouter,
+  LINKEDIN_DEDUPE_PROBE,
+  LINKEDIN_COMMENT_PROBE,
+} = await import("./linkedin");
 
 interface FetchCall {
   url: string;
@@ -1160,6 +1162,68 @@ describe("LinkedIn comment resend", () => {
     expect((commentPosts[0]!.body as any).message.text).toBe(COMMENTS[2]);
     // Sequence complete: the pending state is cleared.
     expect(state.content[0].linkedinCommentState).toBeNull();
+  });
+
+  it("detects a duplicate comment that sits on a later page of the comments listing", async () => {
+    // Same scenario as above, but the post is busy: the already-landed second
+    // comment is buried past the first page of the socialActions listing. The
+    // probe must page through with start/count and still skip it.
+    seedWithPendingComments(1);
+    const savedPageSize = LINKEDIN_COMMENT_PROBE.pageSize;
+    LINKEDIN_COMMENT_PROBE.pageSize = 2;
+    try {
+      const pages: Array<Array<{ message: { text: string } }>> = [
+        // Page 1: full page of unrelated reader replies.
+        [
+          { message: { text: "great post!" } },
+          { message: { text: "love this" } },
+        ],
+        // Page 2: another full page, contains the already-landed comment.
+        [
+          { message: { text: COMMENTS[1]! } },
+          { message: { text: "so true" } },
+        ],
+        // Page 3: short page ends the listing.
+        [{ message: { text: COMMENTS[0]! } }],
+      ];
+      fetchHandler = (call) => {
+        if (call.url.includes("/userinfo")) {
+          return makeRes({ json: { sub: "member123" } });
+        }
+        if (call.url.includes("/socialActions/")) {
+          if (call.method === "GET") {
+            const start = Number(
+              new URL(call.url).searchParams.get("start") ?? "0",
+            );
+            const page = Math.floor(start / LINKEDIN_COMMENT_PROBE.pageSize);
+            return makeRes({ json: { elements: pages[page] ?? [] } });
+          }
+          return makeRes({ status: 201 });
+        }
+        return makeRes();
+      };
+
+      const res = await drive("POST", "/content/1/resend-linkedin-comments");
+
+      expect(res.status).toBe(200);
+      expect(res.json.commentsPosted).toBe(3);
+      expect(res.json.commentsRemaining).toBe(0);
+
+      // The probe paged through the listing (3 GET pages)...
+      const probeCalls = fetchCalls.filter(
+        (c) => c.url.includes("/socialActions/") && c.method === "GET",
+      );
+      expect(probeCalls.length).toBe(3);
+      // ...and only the genuinely missing third comment was posted.
+      const commentPosts = fetchCalls.filter(
+        (c) => c.url.includes("/socialActions/") && c.method === "POST",
+      );
+      expect(commentPosts.length).toBe(1);
+      expect((commentPosts[0]!.body as any).message.text).toBe(COMMENTS[2]);
+      expect(state.content[0].linkedinCommentState).toBeNull();
+    } finally {
+      LINKEDIN_COMMENT_PROBE.pageSize = savedPageSize;
+    }
   });
 
   it("still resends from the persisted count when the comments probe fails", async () => {

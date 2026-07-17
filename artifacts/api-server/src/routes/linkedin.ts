@@ -125,29 +125,53 @@ async function postLinkedinComment(
 }
 
 /**
+ * Pagination bounds for the existing-comments probe. A post can accumulate
+ * many comments (reader replies plus our own overflow chain), so an
+ * already-posted overflow comment can scroll past the first page of the
+ * socialActions comments listing. The probe pages with `start`/`count` up to
+ * `maxPages` (mirrors LINKEDIN_DEDUPE_PROBE for the duplicate-post probe).
+ * Exported (and mutable) so tests can exercise the pagination without huge
+ * fixtures.
+ */
+export const LINKEDIN_COMMENT_PROBE = {
+  pageSize: 50,
+  maxPages: 5,
+};
+
+/**
  * List the texts of the comments that already exist on a LinkedIn post via the
  * socialActions Comments API. Used by the resend flow to detect comments that
  * actually landed even though the original response was lost, so a resend
- * never posts the same comment twice. Best-effort: callers treat a thrown
- * error as "unknown" and fall back to the persisted postedCount.
+ * never posts the same comment twice. Pages through the listing (see
+ * LINKEDIN_COMMENT_PROBE) so a duplicate comment on a busy post cannot hide
+ * past the first page. Best-effort: callers treat a thrown error as
+ * "unknown" and fall back to the persisted postedCount.
  */
 async function fetchExistingCommentTexts(
   postUrn: string,
   baseHeaders: Record<string, string>,
 ): Promise<Set<string>> {
-  const res = await platformFetch(
-    `${REST_BASE}/socialActions/${encodeURIComponent(postUrn)}/comments`,
-    { headers: baseHeaders },
-  );
-  if (!res.ok) {
-    throw new Error(`LinkedIn comments list error (${res.status})`);
-  }
-  const json = (await res.json()) as {
-    elements?: Array<{ message?: { text?: string } }>;
-  };
   const texts = new Set<string>();
-  for (const c of json.elements ?? []) {
-    if (typeof c.message?.text === "string") texts.add(c.message.text);
+  for (let page = 0; page < LINKEDIN_COMMENT_PROBE.maxPages; page++) {
+    const start = page * LINKEDIN_COMMENT_PROBE.pageSize;
+    const res = await platformFetch(
+      `${REST_BASE}/socialActions/${encodeURIComponent(postUrn)}/comments` +
+        `?start=${start}&count=${LINKEDIN_COMMENT_PROBE.pageSize}`,
+      { headers: baseHeaders },
+    );
+    if (!res.ok) {
+      throw new Error(`LinkedIn comments list error (${res.status})`);
+    }
+    const json = (await res.json()) as {
+      elements?: Array<{ message?: { text?: string } }>;
+    };
+    const elements = json.elements ?? [];
+    for (const c of elements) {
+      if (typeof c.message?.text === "string") texts.add(c.message.text);
+    }
+    // Stop when the page came back short (no more comments); maxPages bounds
+    // the work on pathologically busy posts.
+    if (elements.length < LINKEDIN_COMMENT_PROBE.pageSize) break;
   }
   return texts;
 }
