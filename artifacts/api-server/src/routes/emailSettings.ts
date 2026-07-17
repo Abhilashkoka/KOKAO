@@ -36,6 +36,39 @@ function auditSummary(row: EmailSettings | undefined) {
   };
 }
 
+/**
+ * Per-actor cooldown for test sends: the endpoint emails an ARBITRARY address
+ * the admin typed, so a stuck button or misuse could spam an external inbox.
+ * Allow a few sends per minute per superadmin tenant, then return 429 until
+ * the window rolls over. In-memory is fine here — this is a single-process
+ * admin tool and losing the counter on restart only re-allows a few sends.
+ * Unlike the express-rate-limit middlewares this does NOT skip under tests,
+ * so the throttle itself is testable.
+ */
+export const TEST_EMAIL_LIMIT = 3;
+export const TEST_EMAIL_WINDOW_MS = 60_000;
+const testSendHistory = new Map<string, number[]>();
+
+/** Returns true when this attempt is allowed and records it; false when throttled. */
+function allowTestSend(actorKey: string, now = Date.now()): boolean {
+  const cutoff = now - TEST_EMAIL_WINDOW_MS;
+  const recent = (testSendHistory.get(actorKey) ?? []).filter(
+    (t) => t > cutoff,
+  );
+  if (recent.length >= TEST_EMAIL_LIMIT) {
+    testSendHistory.set(actorKey, recent);
+    return false;
+  }
+  recent.push(now);
+  testSendHistory.set(actorKey, recent);
+  return true;
+}
+
+/** Test-only: clear the throttle so suites don't leak state between tests. */
+export function _resetTestEmailThrottle(): void {
+  testSendHistory.clear();
+}
+
 const router: IRouter = Router();
 
 async function loadRow(): Promise<EmailSettings | undefined> {
@@ -165,6 +198,38 @@ router.post(
       return;
     }
     const to = parsed.data.to.trim();
+
+    // Cooldown BEFORE any send: cap rapid-fire test emails to an arbitrary
+    // external inbox. Throttled attempts send nothing and touch no state.
+    if (!allowTestSend(String(req.tenantId))) {
+      // Audit the blocked attempt too — abuse attempts are exactly what the
+      // trail is for. Best-effort: never fail the response on an audit error.
+      try {
+        await recordAdminAction({
+          action: "email_test_send",
+          actorTenantId: req.tenantId,
+          actorEmail: req.tenantEmail,
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: null,
+          newValue: JSON.stringify({
+            recipient: to,
+            outcome: "throttled",
+            error: null,
+          }),
+        });
+      } catch (error) {
+        req.log.error(
+          { err: error },
+          "Failed to write throttled email-test-send audit log",
+        );
+      }
+      res.status(429).json({
+        error:
+          "Too many test emails. Please wait a minute before sending another.",
+      });
+      return;
+    }
 
     const result = await sendTestEmail({
       to,

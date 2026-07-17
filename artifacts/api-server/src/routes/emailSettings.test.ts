@@ -34,6 +34,10 @@ vi.mock("@clerk/express", async () => {
 });
 
 import { pool } from "@workspace/db";
+import {
+  TEST_EMAIL_LIMIT,
+  _resetTestEmailThrottle,
+} from "./emailSettings";
 import { createAdminTestApp } from "../test/testApp";
 import { resetAuthState, actAs } from "../test/authState";
 import {
@@ -95,6 +99,7 @@ beforeEach(async () => {
   resetAuthState();
   sendgridCalls.length = 0;
   sendgridResponse = { status: 202, body: "" };
+  _resetTestEmailThrottle();
   await clearEmailSettings();
 });
 
@@ -488,6 +493,131 @@ describe("POST /admin/email-settings/test", () => {
       );
     } finally {
       await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("throttles rapid-fire test sends with 429 and sends NOTHING for throttled attempts", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(admin.clerkUserId, "admin@example.com");
+
+      await request(app).put("/api/admin/email-settings").send({
+        sendingEnabled: false,
+        fromEmail: "alerts@socialforge.test",
+        apiKey: "SG.throttle-key-3333",
+      });
+
+      // The first few sends within the window go through.
+      for (let i = 0; i < TEST_EMAIL_LIMIT; i++) {
+        const res = await request(app)
+          .post("/api/admin/email-settings/test")
+          .send({ to: "victim@example.com" });
+        expect(res.status).toBe(200);
+        expect(res.body.ok).toBe(true);
+      }
+      expect(sendgridCalls.length).toBe(TEST_EMAIL_LIMIT);
+
+      // The next one inside the window is rejected with a clear 429 —
+      // and, critically, no email leaves the building.
+      const throttled = await request(app)
+        .post("/api/admin/email-settings/test")
+        .send({ to: "victim@example.com" });
+      expect(throttled.status).toBe(429);
+      expect(throttled.body.error).toMatch(/too many test emails/i);
+      expect(sendgridCalls.length).toBe(TEST_EMAIL_LIMIT);
+
+      // Still throttled on further hammering.
+      const again = await request(app)
+        .post("/api/admin/email-settings/test")
+        .send({ to: "victim@example.com" });
+      expect(again.status).toBe(429);
+      expect(sendgridCalls.length).toBe(TEST_EMAIL_LIMIT);
+
+      // Every attempt is audited: the allowed sends as "sent" and the two
+      // blocked ones as "throttled" — abuse attempts show up in the trail.
+      const logs = await getAuditLogsForActor(admin.tenantId);
+      const testLogs = logs.filter((l) => l.action === "email_test_send");
+      expect(testLogs.length).toBe(TEST_EMAIL_LIMIT + 2);
+      const outcomes = testLogs.map(
+        (l) => JSON.parse(l.newValue!).outcome as string,
+      );
+      expect(outcomes.filter((o) => o === "sent").length).toBe(
+        TEST_EMAIL_LIMIT,
+      );
+      expect(outcomes.filter((o) => o === "throttled").length).toBe(2);
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
+  it("allows sending again once the cooldown window has passed", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(admin.clerkUserId, "admin@example.com");
+
+      await request(app).put("/api/admin/email-settings").send({
+        sendingEnabled: false,
+        fromEmail: "alerts@socialforge.test",
+        apiKey: "SG.window-key-4444",
+      });
+
+      for (let i = 0; i < TEST_EMAIL_LIMIT; i++) {
+        const res = await request(app)
+          .post("/api/admin/email-settings/test")
+          .send({ to: "admin@example.com" });
+        expect(res.status).toBe(200);
+      }
+      const throttled = await request(app)
+        .post("/api/admin/email-settings/test")
+        .send({ to: "admin@example.com" });
+      expect(throttled.status).toBe(429);
+
+      // Simulate the window rolling over (a legitimate occasional send).
+      _resetTestEmailThrottle();
+
+      const later = await request(app)
+        .post("/api/admin/email-settings/test")
+        .send({ to: "admin@example.com" });
+      expect(later.status).toBe(200);
+      expect(later.body.ok).toBe(true);
+      expect(sendgridCalls.length).toBe(TEST_EMAIL_LIMIT + 1);
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
+  it("throttles per actor: one admin hitting the cap does not block another", async () => {
+    const adminA = await createTenant({ isSuperadmin: true });
+    const adminB = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(adminA.clerkUserId, "admin-a@example.com");
+      await request(app).put("/api/admin/email-settings").send({
+        sendingEnabled: false,
+        fromEmail: "alerts@socialforge.test",
+        apiKey: "SG.peractor-key-5555",
+      });
+
+      for (let i = 0; i < TEST_EMAIL_LIMIT; i++) {
+        const res = await request(app)
+          .post("/api/admin/email-settings/test")
+          .send({ to: "admin-a@example.com" });
+        expect(res.status).toBe(200);
+      }
+      const throttledA = await request(app)
+        .post("/api/admin/email-settings/test")
+        .send({ to: "admin-a@example.com" });
+      expect(throttledA.status).toBe(429);
+
+      // A different superadmin still has their own budget.
+      actAs(adminB.clerkUserId, "admin-b@example.com");
+      const resB = await request(app)
+        .post("/api/admin/email-settings/test")
+        .send({ to: "admin-b@example.com" });
+      expect(resB.status).toBe(200);
+      expect(resB.body.ok).toBe(true);
+    } finally {
+      await deleteTenant(adminA.tenantId);
+      await deleteTenant(adminB.tenantId);
     }
   });
 
