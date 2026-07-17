@@ -16,7 +16,8 @@ vi.mock("./email", () => ({
   sendEmail: vi.fn(async () => true),
 }));
 
-import { pool } from "@workspace/db";
+import { db, notificationsTable, pool } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
 import { fetchVerifiedEmail } from "./clerkUser";
 import { sendEmail } from "./email";
 import {
@@ -157,6 +158,100 @@ describe("notifySeatRequestSubmitted", () => {
       expect(calls).toHaveLength(1);
       expect(calls[0][0].subject).toMatch(/seat request/i);
       expect(calls[0][0].text).toContain("3 team seats");
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
+  it("does not stack a duplicate unread alert or re-email when the same workspace resubmits", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      mockEmailOnlyFor(admin.clerkUserId);
+      await setNotificationPreference(admin.tenantId, SEAT_REQUEST_SUBMITTED, {
+        inApp: true,
+        email: true,
+      });
+
+      const details = {
+        requestingTenantId: 424242,
+        requestingTenantName: "Acme Co",
+        requestedSeats: 3,
+        note: null,
+      };
+      await notifySeatRequestSubmitted(details);
+      // Resubmit with different content — still the same workspace.
+      await notifySeatRequestSubmitted({ ...details, requestedSeats: 9 });
+
+      const notes = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === SEAT_REQUEST_SUBMITTED,
+      );
+      expect(notes).toHaveLength(1);
+      expect(
+        mockSendEmail.mock.calls.filter(
+          (c) => c[0].to === "admin@example.com",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
+  it("still alerts for a request from a different workspace", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      await notifySeatRequestSubmitted({
+        requestingTenantId: 424242,
+        requestingTenantName: "Acme Co",
+        requestedSeats: 3,
+        note: null,
+      });
+      await notifySeatRequestSubmitted({
+        requestingTenantId: 535353,
+        requestingTenantName: "Beta Inc",
+        requestedSeats: 5,
+        note: null,
+      });
+
+      const notes = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === SEAT_REQUEST_SUBMITTED,
+      );
+      expect(notes).toHaveLength(2);
+      const messages = notes.map((n) => n.message).join(" | ");
+      expect(messages).toContain('"Acme Co"');
+      expect(messages).toContain('"Beta Inc"');
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
+  it("re-arms the dedupe once the admin reads the alert", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      const details = {
+        requestingTenantId: 424242,
+        requestingTenantName: "Acme Co",
+        requestedSeats: 3,
+        note: null,
+      };
+      await notifySeatRequestSubmitted(details);
+
+      // Admin dismisses the banner.
+      await db
+        .update(notificationsTable)
+        .set({ readAt: new Date() })
+        .where(
+          and(
+            eq(notificationsTable.tenantId, admin.tenantId),
+            eq(notificationsTable.type, SEAT_REQUEST_SUBMITTED),
+          ),
+        );
+
+      await notifySeatRequestSubmitted(details);
+
+      const notes = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === SEAT_REQUEST_SUBMITTED,
+      );
+      expect(notes).toHaveLength(2);
     } finally {
       await deleteTenant(admin.tenantId);
     }

@@ -141,8 +141,14 @@ export async function notifyTeamMemberLeft(
  * SUPERADMIN_EMAILS allowlist (routing hint only — the notification grants
  * nothing). Each recipient's own effective notification settings for
  * `seat_request_submitted` decide the channels (in-app / email), so admins
- * can tune or disable it like any other catalog type. Best-effort — never
- * throws, so a notification failure cannot fail the seat request itself.
+ * can tune or disable it like any other catalog type. Deduped per recipient
+ * AND per requesting workspace on an existing UNREAD row of this type (the
+ * requesting tenant id is carried in the `platform` column as a scope key),
+ * so a workspace that resubmits while its previous alert is still unread does
+ * not stack an identical banner or re-email admins — while requests from
+ * OTHER workspaces still each produce a fresh alert. The dedupe re-arms when
+ * the admin reads/dismisses the alert. Best-effort — never throws, so a
+ * notification failure cannot fail the seat request itself.
  */
 export async function notifySeatRequestSubmitted(details: {
   requestingTenantId: number;
@@ -167,6 +173,10 @@ export async function notifySeatRequestSubmitted(details: {
     );
     if (recipients.length === 0) return;
 
+    // Scope key: dedupe unread alerts per requesting workspace, carried in
+    // the (otherwise unused for this type) `platform` column.
+    const scopeKey = `tenant:${details.requestingTenantId}`;
+
     const title = "New seat request awaiting review";
     const noteText = details.note ? ` Note: "${details.note}"` : "";
     const message =
@@ -176,6 +186,23 @@ export async function notifySeatRequestSubmitted(details: {
 
     for (const recipient of recipients) {
       try {
+        // Skip if this admin already has an UNREAD alert for the SAME
+        // requesting workspace — a resubmit must not stack banners or
+        // re-email. Alerts about other workspaces are unaffected.
+        const existing = await db
+          .select({ id: notificationsTable.id })
+          .from(notificationsTable)
+          .where(
+            and(
+              eq(notificationsTable.tenantId, recipient.id),
+              eq(notificationsTable.type, SEAT_REQUEST_SUBMITTED),
+              eq(notificationsTable.platform, scopeKey),
+              isNull(notificationsTable.readAt),
+            ),
+          )
+          .limit(1);
+        if (existing.length > 0) continue;
+
         const effective = await getEffectiveSetting(
           recipient.id,
           SEAT_REQUEST_SUBMITTED,
@@ -185,7 +212,7 @@ export async function notifySeatRequestSubmitted(details: {
         await db.insert(notificationsTable).values({
           tenantId: recipient.id,
           type: SEAT_REQUEST_SUBMITTED,
-          platform: null,
+          platform: scopeKey,
           title,
           message,
           linkUrl: "/admin",
