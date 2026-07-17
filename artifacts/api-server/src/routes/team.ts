@@ -259,8 +259,9 @@ router.delete("/team/members/:id", async (req: Request, res: Response) => {
       );
   }
   // Best-effort: when a workspace ADMIN (not the owner) removed the member,
-  // tell the owner who was removed and by whom. The owner removing someone
-  // themselves gets no self-notification.
+  // tell the owner and the other admins who was removed and by whom. The
+  // acting admin is excluded (no self-notification email), and the owner
+  // removing someone themselves gets no notification at all.
   if (req.memberRole !== "owner") {
     const actor = (
       await db
@@ -277,7 +278,7 @@ router.delete("/team/members/:id", async (req: Request, res: Response) => {
     await notifyTeamMemberRemoved(
       req.tenantId,
       { email: deleted.email, role: deleted.role },
-      { email: actor?.email ?? null },
+      { email: actor?.email ?? null, clerkUserId: req.clerkUserId },
     );
   }
   res.json(await buildTeamOverview(req.tenantId, req.memberRole));

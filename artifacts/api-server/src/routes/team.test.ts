@@ -79,6 +79,7 @@ import { eq } from "drizzle-orm";
 import { createTestApp } from "../test/testApp";
 import { resetAuthState, actAs } from "../test/authState";
 import { createTenant, deleteTenant } from "../test/dbHelpers";
+import { notifySeatRequestDecided } from "../lib/notifications";
 import { randomUUID } from "crypto";
 
 const app = createTestApp();
@@ -285,6 +286,49 @@ describe("DELETE /team/members/:id", () => {
     }
   });
 
+  it("emails the owner and other admins but not the acting admin when the email channel is on", async () => {
+    const { owner, membership } = await seedMembership();
+    const actingAdminId = `test_${randomUUID()}`;
+    const otherAdminId = `test_${randomUUID()}`;
+    await db.insert(tenantMembersTable).values([
+      {
+        tenantId: owner.tenantId,
+        clerkUserId: actingAdminId,
+        email: "acting-admin@example.com",
+        role: "admin",
+      },
+      {
+        tenantId: owner.tenantId,
+        clerkUserId: otherAdminId,
+        email: "other-admin@example.com",
+        role: "admin",
+      },
+    ]);
+    try {
+      emailState.forceEmailOn = true;
+      emailState.verifiedEmails = {
+        [owner.clerkUserId]: "owner@example.com",
+        [actingAdminId]: "acting-admin@example.com",
+        [otherAdminId]: "other-admin@example.com",
+      };
+
+      actAs(actingAdminId, "acting-admin@example.com");
+      const res = await request(app).delete(
+        `/api/team/members/${membership.id}`,
+      );
+      expect(res.status).toBe(200);
+
+      const recipients = emailState.sent.map((m) => m.to).sort();
+      expect(recipients).toEqual([
+        "other-admin@example.com",
+        "owner@example.com",
+      ]);
+      expect(recipients).not.toContain("acting-admin@example.com");
+    } finally {
+      await cleanup(owner.tenantId);
+    }
+  });
+
   it("does not self-notify when the owner removes a member", async () => {
     const { owner, membership } = await seedMembership();
     try {
@@ -302,6 +346,41 @@ describe("DELETE /team/members/:id", () => {
         (n) => n.type === "team_member_removed",
       );
       expect(removed).toHaveLength(0);
+    } finally {
+      await cleanup(owner.tenantId);
+    }
+  });
+});
+
+describe("notifySeatRequestDecided recipient fan-out", () => {
+  it("emails the owner and admin members when the email channel is on", async () => {
+    const { owner } = await seedMembership();
+    const adminClerkUserId = `test_${randomUUID()}`;
+    try {
+      await db.insert(tenantMembersTable).values({
+        tenantId: owner.tenantId,
+        clerkUserId: adminClerkUserId,
+        email: "admin@example.com",
+        role: "admin",
+      });
+      emailState.forceEmailOn = true;
+      emailState.verifiedEmails = {
+        [owner.clerkUserId]: "owner@example.com",
+        [adminClerkUserId]: "admin-verified@example.com",
+      };
+
+      await notifySeatRequestDecided(owner.tenantId, {
+        approved: true,
+        grantedSeats: 8,
+      });
+
+      const recipients = emailState.sent.map((m) => m.to).sort();
+      expect(recipients).toEqual([
+        "admin-verified@example.com",
+        "owner@example.com",
+      ]);
+      // Plain members are never emailed (the seeded member has no verified
+      // email registered, and even with one they are not in the recipient set).
     } finally {
       await cleanup(owner.tenantId);
     }

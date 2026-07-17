@@ -18,6 +18,97 @@ export const SEAT_REQUEST_DECIDED = "seat_request_decided";
 export const SEAT_REQUEST_SUBMITTED = "seat_request_submitted";
 
 /**
+ * Resolve the "workspace email recipients" for team-management alerts: the
+ * workspace OWNER plus every ADMIN member (admins run the team day-to-day, so
+ * they get the same heads-up; plain members do not). Returns deduped,
+ * lowercase-deduped verified Clerk email addresses. An optional
+ * `excludeClerkUserId` (the actor — e.g. the leaver or the admin who
+ * performed the action) is never included. Each Clerk lookup is best-effort
+ * and isolated: one bad account cannot block the others. Never throws.
+ *
+ * Recipient policy by notification type:
+ * - owner + admins (this helper): team_member_left, team_member_removed,
+ *   seat_request_decided — team-management alerts admins act on.
+ * - OWNER-ONLY (deliberately not this helper): social_connection_failed
+ *   (account/credential health belongs to the workspace owner), and the
+ *   team-invite email itself (goes to the invitee, not the team).
+ * - superadmins: seat_request_submitted, sweep_stalled (platform-operator
+ *   alerts, outside the workspace entirely).
+ * - in-app only: publish_interrupted.
+ */
+export async function fetchWorkspaceEmailRecipients(
+  tenantId: number,
+  opts: { excludeClerkUserId?: string } = {},
+): Promise<string[]> {
+  const tenant = (
+    await db
+      .select({ clerkUserId: tenantsTable.clerkUserId })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, tenantId))
+      .limit(1)
+  )[0];
+  const admins = await db
+    .select({ clerkUserId: tenantMembersTable.clerkUserId })
+    .from(tenantMembersTable)
+    .where(
+      and(
+        eq(tenantMembersTable.tenantId, tenantId),
+        eq(tenantMembersTable.role, "admin"),
+      ),
+    );
+
+  const recipientIds = new Set<string>();
+  if (tenant) recipientIds.add(tenant.clerkUserId);
+  for (const admin of admins) recipientIds.add(admin.clerkUserId);
+  if (opts.excludeClerkUserId) recipientIds.delete(opts.excludeClerkUserId);
+
+  const emails: string[] = [];
+  const seen = new Set<string>();
+  for (const clerkUserId of recipientIds) {
+    try {
+      const email = await fetchVerifiedEmail(clerkUserId);
+      if (!email || seen.has(email.toLowerCase())) continue;
+      seen.add(email.toLowerCase());
+      emails.push(email);
+    } catch (err) {
+      logger.error(
+        { err, tenantId, clerkUserId },
+        "Failed to resolve a workspace email recipient",
+      );
+    }
+  }
+  return emails;
+}
+
+/**
+ * Best-effort fan-out of one message to all workspace email recipients
+ * (owner + admins via fetchWorkspaceEmailRecipients). Each send is isolated —
+ * one bad address cannot block the others. Never throws.
+ */
+async function emailWorkspaceRecipients(
+  tenantId: number,
+  message: { subject: string; text: string; html?: string },
+  opts: { excludeClerkUserId?: string } = {},
+): Promise<void> {
+  const emails = await fetchWorkspaceEmailRecipients(tenantId, opts);
+  for (const to of emails) {
+    try {
+      await sendEmail({
+        to,
+        subject: message.subject,
+        text: message.text,
+        html: message.html,
+      });
+    } catch (err) {
+      logger.error(
+        { err, tenantId },
+        "Failed to email a workspace recipient",
+      );
+    }
+  }
+}
+
+/**
  * Tell a workspace that a superadmin decided their seat request. In-app
  * (plus email when the tenant opted in / policy forces it). Best-effort —
  * never throws, so a notification failure cannot fail the admin decision.
@@ -48,23 +139,14 @@ export async function notifySeatRequestDecided(
     });
 
     if (effective.email) {
-      const tenant = (
-        await db
-          .select()
-          .from(tenantsTable)
-          .where(eq(tenantsTable.id, tenantId))
-          .limit(1)
-      )[0];
-      if (tenant) {
-        const email = await fetchVerifiedEmail(tenant.clerkUserId);
-        if (email) {
-          await sendEmail({
-            to: email,
-            subject: title,
-            text: message,
-          });
-        }
-      }
+      // Owner + admin members: admins manage the team day-to-day, so a seat
+      // decision (which changes how many people they can invite) reaches
+      // them too, not just the owner.
+      await emailWorkspaceRecipients(tenantId, {
+        subject: title,
+        text: message,
+        html: `<p>${escapeHtml(message)}</p>`,
+      });
     }
   } catch (err) {
     logger.error(
@@ -116,47 +198,15 @@ export async function notifyTeamMemberLeft(
 
     if (effective.email) {
       // Recipients: the owner plus every ADMIN member, excluding the leaver.
-      const tenant = (
-        await db
-          .select({ clerkUserId: tenantsTable.clerkUserId })
-          .from(tenantsTable)
-          .where(eq(tenantsTable.id, tenantId))
-          .limit(1)
-      )[0];
-      const admins = await db
-        .select({ clerkUserId: tenantMembersTable.clerkUserId })
-        .from(tenantMembersTable)
-        .where(
-          and(
-            eq(tenantMembersTable.tenantId, tenantId),
-            eq(tenantMembersTable.role, "admin"),
-          ),
-        );
-
-      const recipientIds = new Set<string>();
-      if (tenant) recipientIds.add(tenant.clerkUserId);
-      for (const admin of admins) recipientIds.add(admin.clerkUserId);
-      if (leaver.clerkUserId) recipientIds.delete(leaver.clerkUserId);
-
-      const seenEmails = new Set<string>();
-      for (const clerkUserId of recipientIds) {
-        try {
-          const email = await fetchVerifiedEmail(clerkUserId);
-          if (!email || seenEmails.has(email.toLowerCase())) continue;
-          seenEmails.add(email.toLowerCase());
-          await sendEmail({
-            to: email,
-            subject: title,
-            text: message,
-            html: `<p>${escapeHtml(message)}</p>`,
-          });
-        } catch (err) {
-          logger.error(
-            { err, tenantId, clerkUserId },
-            "Failed to email team-member-left alert to a recipient",
-          );
-        }
-      }
+      await emailWorkspaceRecipients(
+        tenantId,
+        {
+          subject: title,
+          text: message,
+          html: `<p>${escapeHtml(message)}</p>`,
+        },
+        { excludeClerkUserId: leaver.clerkUserId },
+      );
     }
   } catch (err) {
     logger.error(
@@ -167,18 +217,22 @@ export async function notifyTeamMemberLeft(
 }
 
 /**
- * Tell the workspace owner that a workspace ADMIN (not the owner) removed a
- * teammate (DELETE /team/members/:id), naming who was removed and by whom.
- * Callers must NOT invoke this when the owner performed the removal — no
- * self-notification. Follows the catalog/policy pattern: the OWNER tenant's
- * effective settings for `team_member_removed` decide the channels.
- * Best-effort — never throws, so a notification failure cannot fail the
- * removal itself.
+ * Tell the workspace owner AND its admin members that a workspace ADMIN (not
+ * the owner) removed a teammate (DELETE /team/members/:id), naming who was
+ * removed and by whom. Callers must NOT invoke this when the owner performed
+ * the removal — no self-notification. Follows the catalog/policy pattern:
+ * the workspace tenant's effective settings for `team_member_removed` decide
+ * the channels — one in-app row on the shared tenant feed, and when the email
+ * channel is on, the owner plus every ADMIN member's verified Clerk address
+ * is emailed, EXCLUDING the admin who performed the removal (they already
+ * know). The removed member was deleted before this runs, so they naturally
+ * drop out of the recipient set. Best-effort — never throws, so a
+ * notification failure cannot fail the removal itself.
  */
 export async function notifyTeamMemberRemoved(
   tenantId: number,
   removed: { email: string | null; role: string },
-  removedBy: { email: string | null },
+  removedBy: { email: string | null; clerkUserId?: string },
 ): Promise<void> {
   try {
     const effective = await getEffectiveSetting(tenantId, TEAM_MEMBER_REMOVED);
@@ -202,24 +256,16 @@ export async function notifyTeamMemberRemoved(
     });
 
     if (effective.email) {
-      const tenant = (
-        await db
-          .select({ clerkUserId: tenantsTable.clerkUserId })
-          .from(tenantsTable)
-          .where(eq(tenantsTable.id, tenantId))
-          .limit(1)
-      )[0];
-      if (tenant) {
-        const email = await fetchVerifiedEmail(tenant.clerkUserId);
-        if (email) {
-          await sendEmail({
-            to: email,
-            subject: title,
-            text: message,
-            html: `<p>${escapeHtml(message)}</p>`,
-          });
-        }
-      }
+      // Owner + admins, excluding the admin who performed the removal.
+      await emailWorkspaceRecipients(
+        tenantId,
+        {
+          subject: title,
+          text: message,
+          html: `<p>${escapeHtml(message)}</p>`,
+        },
+        { excludeClerkUserId: removedBy.clerkUserId },
+      );
     }
   } catch (err) {
     logger.error(
