@@ -66,6 +66,7 @@ export function LibraryPage() {
   const [editPlatform, setEditPlatform] = useState("instagram");
   const [editImagePath, setEditImagePath] = useState<string | null>(null);
   const [confirmReplaceOpen, setConfirmReplaceOpen] = useState(false);
+  const [deleteItem, setDeleteItem] = useState<any | null>(null);
   const [editImagePrompt, setEditImagePrompt] = useState<string | null>(null);
   const [editImageB64, setEditImageB64] = useState<string | null>(null);
   const generateCaption = useGenerateCaption();
@@ -369,12 +370,16 @@ export function LibraryPage() {
     });
   };
 
-  const handleDelete = (id: number) => {
-    if (!confirm("Are you sure you want to delete this content?")) return;
-    deleteContent.mutate({ id }, {
+  const confirmDelete = () => {
+    if (!deleteItem) return;
+    deleteContent.mutate({ id: deleteItem.id }, {
       onSuccess: () => {
         toast({ title: "Content deleted" });
         queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+        setDeleteItem(null);
+      },
+      onError: (err: any) => {
+        toast({ title: "Failed to delete", description: err?.message, variant: "destructive" });
       }
     });
   };
@@ -536,7 +541,7 @@ export function LibraryPage() {
                       <DropdownMenuItem disabled={!liReady} onClick={() => setLinkedinItem(item)}><Linkedin className="h-4 w-4 mr-2" /> Publish to LinkedIn</DropdownMenuItem>
                       <DropdownMenuItem disabled={!twReady} onClick={() => setTwitterItem(item)}><Twitter className="h-4 w-4 mr-2" /> Publish to X</DropdownMenuItem>
                       <DropdownMenuItem disabled={!thReady} onClick={() => setThreadsItem(item)}><AtSign className="h-4 w-4 mr-2" /> Publish to Threads</DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(item.id)}><Trash2 className="h-4 w-4 mr-2" /> Delete</DropdownMenuItem>
+                      <DropdownMenuItem className="text-destructive" onClick={() => setDeleteItem(item)}><Trash2 className="h-4 w-4 mr-2" /> Delete</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -822,6 +827,27 @@ export function LibraryPage() {
             <AlertDialogCancel>Keep current image</AlertDialogCancel>
             <AlertDialogAction onClick={() => { setConfirmReplaceOpen(false); doRegenerateImage(); }}>
               Replace image
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!deleteItem} onOpenChange={(open) => !open && setDeleteItem(null)}>
+        <AlertDialogContent className="sm:max-w-[420px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this post?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteItem?.title ? `"${deleteItem.title}" will be permanently deleted from your library.` : "This post will be permanently deleted from your library."} This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => { e.preventDefault(); confirmDelete(); }}
+              disabled={deleteContent.isPending}
+            >
+              {deleteContent.isPending ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

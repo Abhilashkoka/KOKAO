@@ -47,6 +47,7 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 
 const publishInstagramMutate = vi.fn();
 const generateImageMutate = vi.fn();
+const deleteContentMutate = vi.fn();
 
 const mockState: {
   content: any[];
@@ -72,6 +73,7 @@ vi.mock("@workspace/api-client-react", async () => {
       isPending: false,
     }),
     useGenerateImage: () => ({ mutate: generateImageMutate, isPending: false }),
+    useDeleteContent: () => ({ mutate: deleteContentMutate, isPending: false }),
     useGetFacebookCredentials: () => ({ data: { verifyStatus: "verified" } }),
     useGetInstagramCredentials: () => ({ data: mockState.igCreds }),
     useGetTwitterStatus: () => ({ data: { connected: true, accountName: "tester" } }),
@@ -153,6 +155,7 @@ beforeEach(() => {
   cleanup();
   publishInstagramMutate.mockReset();
   generateImageMutate.mockReset();
+  deleteContentMutate.mockReset();
   mockState.content = [];
   mockState.igCreds = { verifyStatus: "verified" };
 });
@@ -309,6 +312,38 @@ describe("Library edit dialog replace-image confirmation", () => {
 
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(generateImageMutate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Library delete confirmation", () => {
+  it("opens an in-app AlertDialog (not window.confirm) and deletes on confirm", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm");
+    mockState.content = [failedItem({ status: "draft", title: "My great post" })];
+    renderPage();
+    await openMenuAndClick(/delete/i);
+
+    // No native confirm, no deletion yet — the dialog opens first.
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(deleteContentMutate).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText(/"My great post"/)).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
+    expect(deleteContentMutate).toHaveBeenCalledTimes(1);
+    expect(deleteContentMutate.mock.calls[0][0]).toEqual({ id: 42 });
+    confirmSpy.mockRestore();
+  });
+
+  it("cancel closes the dialog and leaves the item untouched", async () => {
+    mockState.content = [failedItem({ status: "draft" })];
+    renderPage();
+    await openMenuAndClick(/delete/i);
+
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: /cancel/i }));
+
+    expect(deleteContentMutate).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   });
 });
 
