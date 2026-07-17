@@ -40,9 +40,10 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   };
 }
 
-const mockState: { caption: string; lastCaptionVars: any } = {
+const mockState: { caption: string; lastCaptionVars: any; lastImageVars: any } = {
   caption: "",
   lastCaptionVars: null,
+  lastImageVars: null,
 };
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -63,6 +64,13 @@ vi.mock("@workspace/api-client-react", async () => {
       mutate: (vars: unknown, opts: any) => {
         mockState.lastCaptionVars = vars;
         opts?.onSuccess?.({ caption: mockState.caption, hashtags: [] });
+      },
+    }),
+    useGenerateImage: () => ({
+      isPending: false,
+      mutate: (vars: unknown, opts: any) => {
+        mockState.lastImageVars = vars;
+        opts?.onSuccess?.({ imagePath: "/objects/t1/uploads/x", b64Json: "aW1n" });
       },
     }),
     useGetMe: () => ({
@@ -104,8 +112,18 @@ async function generateCaption(caption: string, platform: "twitter" | "instagram
 
 beforeEach(() => {
   mockState.lastCaptionVars = null;
+  mockState.lastImageVars = null;
   cleanup();
 });
+
+async function generateImage() {
+  renderPage();
+  fireEvent.change(screen.getByLabelText("Prompt"), {
+    target: { value: "A prompt long enough to pass validation" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /^Image$/i }));
+  await waitFor(() => expect(mockState.lastImageVars).toBeTruthy());
+}
 
 describe("Studio caption X character warning", () => {
   it("shows count without warning for an under-limit caption", async () => {
@@ -240,6 +258,40 @@ describe("Studio caption regenerate and tweak chips", () => {
     fireEvent.click(screen.getByTestId("button-regenerate-caption"));
     await waitFor(() =>
       expect(mockState.lastCaptionVars.data.prompt).toBe(basePrompt),
+    );
+  });
+});
+
+describe("Studio image regenerate and style tweak chips", () => {
+  it("shows style chips and a Regenerate button after an image is generated", async () => {
+    await generateImage();
+    expect(screen.getByTestId("button-image-tweak-brighter")).toBeTruthy();
+    expect(screen.getByTestId("button-image-tweak-minimal")).toBeTruthy();
+    expect(screen.getByTestId("button-image-tweak-more-vibrant")).toBeTruthy();
+    expect(screen.getByTestId("button-regenerate-image")).toBeTruthy();
+  });
+
+  it("appends the tweak instruction to the prompt when a chip is clicked", async () => {
+    await generateImage();
+    const basePrompt = mockState.lastImageVars.data.prompt;
+    fireEvent.click(screen.getByTestId("button-image-tweak-brighter"));
+    await waitFor(() =>
+      expect(mockState.lastImageVars.data.prompt).toBe(
+        `${basePrompt} Make the image brighter with more light and airy tones.`,
+      ),
+    );
+  });
+
+  it("regenerate resends the original prompt without any tweak instruction", async () => {
+    await generateImage();
+    const basePrompt = mockState.lastImageVars.data.prompt;
+    fireEvent.click(screen.getByTestId("button-image-tweak-minimal"));
+    await waitFor(() =>
+      expect(mockState.lastImageVars.data.prompt).toContain("minimal"),
+    );
+    fireEvent.click(screen.getByTestId("button-regenerate-image"));
+    await waitFor(() =>
+      expect(mockState.lastImageVars.data.prompt).toBe(basePrompt),
     );
   });
 });

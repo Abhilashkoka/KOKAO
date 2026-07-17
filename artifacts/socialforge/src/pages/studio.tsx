@@ -69,6 +69,12 @@ const CAPTION_TWEAKS = [
   { label: "More formal", instruction: "Make the caption more formal and professional." },
 ] as const;
 
+const IMAGE_TWEAKS = [
+  { label: "Brighter", instruction: "Make the image brighter with more light and airy tones." },
+  { label: "Minimal", instruction: "Make the image more minimal, clean, and uncluttered." },
+  { label: "More vibrant", instruction: "Make the image more vibrant with bold, saturated colors." },
+] as const;
+
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
 function kitSwatches(kit: BrandKit, max = 4): string[] {
@@ -152,6 +158,7 @@ export function StudioPage() {
   const [captionPlatform, setCaptionPlatform] = useState<string | null>(null);
   const [captionTweak, setCaptionTweak] = useState<string | null>(null);
   const [imageResult, setImageResult] = useState<{ imagePath: string; b64Json: string } | null>(null);
+  const [imageTweak, setImageTweak] = useState<string | null>(null);
   const [campaignPosts, setCampaignPosts] = useState<CampaignPost[] | null>(null);
   const [campaignImages, setCampaignImages] = useState<Record<string, GeneratedImage>>({});
   const [pendingCampaignImage, setPendingCampaignImage] = useState<{ platform: string; image: GeneratedImage } | null>(null);
@@ -376,7 +383,7 @@ export function StudioPage() {
 
   const onGenerateCaption = (data: z.infer<typeof schema>) => runGenerateCaption(data, null);
 
-  const onGenerateImage = (data: z.infer<typeof schema>) => {
+  const runGenerateImage = (data: z.infer<typeof schema>, tweak: string | null) => {
     if ((brandKits?.length ?? 0) > 1 && !data.brandKitId) {
       toast({
         title: "Pick a brand kit",
@@ -386,8 +393,12 @@ export function StudioPage() {
       });
       return;
     }
+    setImageTweak(tweak);
+    const tweakInstruction = tweak
+      ? ` ${IMAGE_TWEAKS.find((t) => t.label === tweak)?.instruction ?? ""}`
+      : "";
     generateImage.mutate(
-      { data: { prompt: data.prompt, size: data.size as any, brandKitId: data.brandKitId || undefined } },
+      { data: { prompt: `${data.prompt.trim()}${tweakInstruction}`, size: data.size as any, brandKitId: data.brandKitId || undefined } },
       {
         onSuccess: (res) => {
           setCampaignPosts(null);
@@ -400,6 +411,8 @@ export function StudioPage() {
       },
     );
   };
+
+  const onGenerateImage = (data: z.infer<typeof schema>) => runGenerateImage(data, null);
 
   const onGenerateCampaign = (data: z.infer<typeof schema>) => {
     if (campaignPlatforms.length === 0) {
@@ -1052,6 +1065,37 @@ export function StudioPage() {
                           />
                         </div>
                         <PlatformFitPreview src={`data:image/png;base64,${imageResult.b64Json}`} />
+                        <div className="flex flex-wrap items-center gap-2">
+                          {IMAGE_TWEAKS.map((t) => (
+                            <Button
+                              key={t.label}
+                              type="button"
+                              size="sm"
+                              variant={imageTweak === t.label ? "default" : "outline"}
+                              className="rounded-full"
+                              disabled={isPending}
+                              onClick={form.handleSubmit((data) => runGenerateImage(data, t.label))}
+                              data-testid={`button-image-tweak-${t.label.toLowerCase().replace(/\s+/g, "-")}`}
+                            >
+                              {t.label}
+                            </Button>
+                          ))}
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={isPending}
+                            onClick={form.handleSubmit((data) => runGenerateImage(data, null))}
+                            data-testid="button-regenerate-image"
+                          >
+                            {generateImage.isPending ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <RefreshCw className="mr-2 h-4 w-4" />
+                            )}
+                            Regenerate
+                          </Button>
+                        </div>
                       </div>
                     )}
                     {captionResult && (
