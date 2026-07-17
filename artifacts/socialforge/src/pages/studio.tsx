@@ -939,6 +939,7 @@ export function StudioPage() {
                       onClick={form.handleSubmit(onGenerateCampaign)}
                       disabled={isPending}
                       className="w-full"
+                      data-testid="button-generate-campaign"
                     >
                       {generateCampaign.isPending ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -953,6 +954,7 @@ export function StudioPage() {
                         variant="secondary"
                         onClick={form.handleSubmit(onGenerateCaption)}
                         disabled={isPending}
+                        data-testid="button-generate-caption"
                       >
                         {generateCaption.isPending ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -966,6 +968,7 @@ export function StudioPage() {
                         variant="secondary"
                         onClick={form.handleSubmit(onGenerateImage)}
                         disabled={isPending}
+                        data-testid="button-generate-image"
                       >
                         {generateImage.isPending ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />

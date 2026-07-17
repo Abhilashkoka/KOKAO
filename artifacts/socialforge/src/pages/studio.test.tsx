@@ -105,7 +105,7 @@ async function generateCaption(caption: string, platform: "twitter" | "instagram
     await user.click(screen.getByRole("combobox", { name: /platform/i }));
     await user.click(await screen.findByRole("option", { name: /twitter \/ x/i }));
   }
-  fireEvent.click(screen.getByRole("button", { name: /^Caption$/i }));
+  fireEvent.click(screen.getByTestId("button-generate-caption"));
   // react-hook-form submit resolution is async.
   await waitFor(() => expect(screen.getByText(caption)).toBeTruthy());
 }
@@ -121,7 +121,7 @@ async function generateImage() {
   fireEvent.change(screen.getByLabelText("Prompt"), {
     target: { value: "A prompt long enough to pass validation" },
   });
-  fireEvent.click(screen.getByRole("button", { name: /^Image$/i }));
+  fireEvent.click(screen.getByTestId("button-generate-image"));
   await waitFor(() => expect(mockState.lastImageVars).toBeTruthy());
 }
 
