@@ -15,6 +15,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGetMe, useListContent } from "@workspace/api-client-react";
 
 import { Badge, Card, ErrorState, Skeleton } from "@/components/ui";
+import {
+  TeamMembershipCard,
+  TeamWelcomeModal,
+} from "@/components/TeamMembership";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
 
@@ -117,6 +121,8 @@ export default function HomeScreen() {
         <ErrorState message={me.error?.message} onRetry={() => me.refetch()} />
       ) : (
         <>
+          <TeamWelcomeModal />
+          <TeamMembershipCard />
           <Card style={{ marginTop: 20 }}>
             <View style={styles.planRow}>
               <Text style={styles.cardTitle}>Monthly usage</Text>
