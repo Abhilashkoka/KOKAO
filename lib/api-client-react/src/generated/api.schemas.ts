@@ -446,6 +446,8 @@ export type AdminStatsConnectionSweepRecentFailuresItem = {
   at: string;
   /** How many sweeps in a row this tenant+platform check has failed, including this one. Values above 1 mark a chronic breakage rather than a one-off blip; the tally resets the first sweep the check succeeds. */
   consecutiveFailures?: number;
+  /** When the current failure streak began, so admins can see how long the check has been failing without doing sweep-interval math. For rows recorded before this field existed the server falls back to the failure's own timestamp. */
+  firstFailedAt?: string;
 };
 
 /**

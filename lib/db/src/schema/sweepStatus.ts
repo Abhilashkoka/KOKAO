@@ -20,6 +20,9 @@ export interface SweepFailure {
   /** How many sweeps in a row this tenant+platform check has failed,
    * including this one. Distinguishes a chronic breakage from a blip. */
   consecutiveFailures?: number;
+  /** ISO timestamp of the first failure in the current streak, so admins can
+   * see HOW LONG a check has been failing without sweep-interval math. */
+  firstFailedAt?: string;
 }
 
 /**

@@ -42,6 +42,9 @@ vi.mock("@workspace/api-client-react", async () => {
               error: "provider timeout",
               at: "2026-07-17T10:00:00.000Z",
               consecutiveFailures: 6,
+              firstFailedAt: new Date(
+                Date.now() - 2 * 60 * 60 * 1000,
+              ).toISOString(),
             },
             {
               tenantId: 8,
@@ -87,7 +90,7 @@ describe("Connection Sweep card repeat-offender streaks", () => {
     expect(chronic.textContent).toContain("Chronic Co");
     expect(
       within(chronic).getByTestId("badge-sweep-streak-0").textContent,
-    ).toBe("Failed 6 sweeps in a row");
+    ).toBe("Failed 6 sweeps in a row — failing for 2 hours");
 
     const blip = within(section).getByTestId("row-sweep-failure-1");
     expect(blip.textContent).toContain("Blip Inc");

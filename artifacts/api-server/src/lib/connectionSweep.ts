@@ -240,6 +240,7 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
           error: result.lastError,
           at: nowIso,
           consecutiveFailures: streak.count,
+          firstFailedAt: streak.firstFailedAt,
         });
       }
     }

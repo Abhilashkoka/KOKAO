@@ -357,6 +357,7 @@ describe("GET /admin/stats — platform stats stay admin-only", () => {
           error: "Re-verify for facebook exceeded 30s and was abandoned",
           at: "2026-07-16T10:00:00.000Z",
           consecutiveFailures: 6,
+          firstFailedAt: "2026-07-16T08:45:00.000Z",
         },
         {
           tenantId: 999999999, // deleted tenant — name resolves to null
@@ -390,6 +391,8 @@ describe("GET /admin/stats — platform stats stay admin-only", () => {
           at: failures[0].at,
           // Streak count is passed through so the UI can flag repeat offenders.
           consecutiveFailures: 6,
+          // Streak start is passed through so the UI can show "failing for".
+          firstFailedAt: "2026-07-16T08:45:00.000Z",
         },
         {
           tenantId: 999999999,
@@ -399,6 +402,8 @@ describe("GET /admin/stats — platform stats stay admin-only", () => {
           at: failures[1].at,
           // Rows persisted before streak tracking default to a streak of 1.
           consecutiveFailures: 1,
+          // Legacy rows without firstFailedAt fall back to the failure time.
+          firstFailedAt: failures[1].at,
         },
       ]);
     } finally {

@@ -110,6 +110,24 @@ function formatSweepDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)} s`;
 }
 
+/**
+ * Human duration since a streak's first failure, e.g. "45 minutes",
+ * "2 hours", "3 days". Returns null for future or unparsable timestamps.
+ */
+function formatFailingFor(firstFailedAt: string): string | null {
+  const start = new Date(firstFailedAt).getTime();
+  if (!Number.isFinite(start)) return null;
+  const ms = Date.now() - start;
+  if (ms < 0) return null;
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 1) return "less than a minute";
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"}`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"}`;
+}
+
 function isForbidden(error: unknown): boolean {
   return (
     typeof error === "object" &&
@@ -2814,6 +2832,10 @@ export function AdminPage() {
                               data-testid={`badge-sweep-streak-${i}`}
                             >
                               Failed {f.consecutiveFailures} sweeps in a row
+                              {f.firstFailedAt &&
+                              formatFailingFor(f.firstFailedAt)
+                                ? ` — failing for ${formatFailingFor(f.firstFailedAt)}`
+                                : ""}
                             </Badge>
                           )}
                           <span className="text-muted-foreground">

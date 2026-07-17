@@ -239,6 +239,9 @@ router.get("/admin/stats", async (_req: Request, res: Response) => {
             // Rows persisted before streak tracking lack the field; a lone
             // failure is by definition a streak of 1.
             consecutiveFailures: f.consecutiveFailures ?? 1,
+            // Rows persisted before firstFailedAt tracking fall back to the
+            // failure's own timestamp (a streak of 1 started when it failed).
+            firstFailedAt: f.firstFailedAt ?? f.at,
           })),
         }
       : null,
