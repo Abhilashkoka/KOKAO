@@ -174,3 +174,59 @@ describe("POST /team/leave", () => {
     }
   });
 });
+
+describe("DELETE /team/members/:id", () => {
+  it("notifies the owner when an admin (not the owner) removes a member", async () => {
+    const { owner, membership, memberEmail } = await seedMembership();
+    const adminClerkUserId = `test_${randomUUID()}`;
+    const adminEmail = `admin-${randomUUID()}@example.com`;
+    await db.insert(tenantMembersTable).values({
+      tenantId: owner.tenantId,
+      clerkUserId: adminClerkUserId,
+      email: adminEmail,
+      role: "admin",
+    });
+    try {
+      actAs(adminClerkUserId, adminEmail);
+      const res = await request(app).delete(
+        `/api/team/members/${membership.id}`,
+      );
+      expect(res.status).toBe(200);
+
+      const notifications = await db
+        .select()
+        .from(notificationsTable)
+        .where(eq(notificationsTable.tenantId, owner.tenantId));
+      const removed = notifications.filter(
+        (n) => n.type === "team_member_removed",
+      );
+      expect(removed).toHaveLength(1);
+      expect(removed[0].message).toContain(memberEmail);
+      expect(removed[0].message).toContain(adminEmail);
+    } finally {
+      await cleanup(owner.tenantId);
+    }
+  });
+
+  it("does not self-notify when the owner removes a member", async () => {
+    const { owner, membership } = await seedMembership();
+    try {
+      actAs(owner.clerkUserId, "owner@example.com");
+      const res = await request(app).delete(
+        `/api/team/members/${membership.id}`,
+      );
+      expect(res.status).toBe(200);
+
+      const notifications = await db
+        .select()
+        .from(notificationsTable)
+        .where(eq(notificationsTable.tenantId, owner.tenantId));
+      const removed = notifications.filter(
+        (n) => n.type === "team_member_removed",
+      );
+      expect(removed).toHaveLength(0);
+    } finally {
+      await cleanup(owner.tenantId);
+    }
+  });
+});

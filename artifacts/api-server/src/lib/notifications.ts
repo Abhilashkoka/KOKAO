@@ -74,6 +74,7 @@ export async function notifySeatRequestDecided(
 }
 export const SWEEP_STALLED = "sweep_stalled";
 export const TEAM_MEMBER_LEFT = "team_member_left";
+export const TEAM_MEMBER_REMOVED = "team_member_removed";
 
 /**
  * Tell the workspace owner that a teammate removed themselves from the team
@@ -130,6 +131,69 @@ export async function notifyTeamMemberLeft(
     logger.error(
       { err, tenantId },
       "Failed to record team-member-left notification",
+    );
+  }
+}
+
+/**
+ * Tell the workspace owner that a workspace ADMIN (not the owner) removed a
+ * teammate (DELETE /team/members/:id), naming who was removed and by whom.
+ * Callers must NOT invoke this when the owner performed the removal — no
+ * self-notification. Follows the catalog/policy pattern: the OWNER tenant's
+ * effective settings for `team_member_removed` decide the channels.
+ * Best-effort — never throws, so a notification failure cannot fail the
+ * removal itself.
+ */
+export async function notifyTeamMemberRemoved(
+  tenantId: number,
+  removed: { email: string | null; role: string },
+  removedBy: { email: string | null },
+): Promise<void> {
+  try {
+    const effective = await getEffectiveSetting(tenantId, TEAM_MEMBER_REMOVED);
+    if (!effective.enabled) return;
+
+    const who = removed.email ?? "A teammate";
+    const by = removedBy.email ?? "a workspace admin";
+    const title = "A teammate was removed from your workspace";
+    const message =
+      `${who} was removed from your workspace by ${by}, so their seat is free again. ` +
+      `You can invite someone else from Settings > Team.`;
+
+    await db.insert(notificationsTable).values({
+      tenantId,
+      type: TEAM_MEMBER_REMOVED,
+      platform: null,
+      title,
+      message,
+      linkUrl: "/settings",
+      inApp: effective.inApp,
+    });
+
+    if (effective.email) {
+      const tenant = (
+        await db
+          .select({ clerkUserId: tenantsTable.clerkUserId })
+          .from(tenantsTable)
+          .where(eq(tenantsTable.id, tenantId))
+          .limit(1)
+      )[0];
+      if (tenant) {
+        const email = await fetchVerifiedEmail(tenant.clerkUserId);
+        if (email) {
+          await sendEmail({
+            to: email,
+            subject: title,
+            text: message,
+            html: `<p>${escapeHtml(message)}</p>`,
+          });
+        }
+      }
+    }
+  } catch (err) {
+    logger.error(
+      { err, tenantId },
+      "Failed to record team-member-removed notification",
     );
   }
 }

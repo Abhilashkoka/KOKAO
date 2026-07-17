@@ -17,6 +17,7 @@ import {
 import {
   notifySeatRequestSubmitted,
   notifyTeamMemberLeft,
+  notifyTeamMemberRemoved,
 } from "../lib/notifications";
 import { sendTeamInviteEmail } from "../lib/teamInviteEmail";
 
@@ -236,6 +237,28 @@ router.delete("/team/members/:id", async (req: Request, res: Response) => {
           eq(teamInvitesTable.status, "pending"),
         ),
       );
+  }
+  // Best-effort: when a workspace ADMIN (not the owner) removed the member,
+  // tell the owner who was removed and by whom. The owner removing someone
+  // themselves gets no self-notification.
+  if (req.memberRole !== "owner") {
+    const actor = (
+      await db
+        .select({ email: tenantMembersTable.email })
+        .from(tenantMembersTable)
+        .where(
+          and(
+            eq(tenantMembersTable.tenantId, req.tenantId),
+            eq(tenantMembersTable.clerkUserId, req.clerkUserId),
+          ),
+        )
+        .limit(1)
+    )[0];
+    await notifyTeamMemberRemoved(
+      req.tenantId,
+      { email: deleted.email, role: deleted.role },
+      { email: actor?.email ?? null },
+    );
   }
   res.json(await buildTeamOverview(req.tenantId, req.memberRole));
 });

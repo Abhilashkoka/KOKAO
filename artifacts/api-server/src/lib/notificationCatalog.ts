@@ -43,6 +43,12 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
       "A teammate left your workspace on their own, freeing up a seat.",
   },
   {
+    type: "team_member_removed",
+    label: "Team removals",
+    description:
+      "A workspace admin removed a teammate from your workspace, freeing up a seat.",
+  },
+  {
     type: "publish_interrupted",
     label: "Interrupted publishes",
     description:
