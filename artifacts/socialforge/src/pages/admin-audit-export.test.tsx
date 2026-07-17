@@ -226,6 +226,28 @@ describe("AuditLogCard CSV export", () => {
     },
   );
 
+  it("disables the export button while the preflight is in flight", async () => {
+    mockState.auditLogs = { items: [makeRow(1, "a@example.com")], total: 1 };
+    let resolvePreflight!: (value: { ok: boolean; status: number }) => void;
+    fetchSpy.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePreflight = resolve;
+        }),
+    );
+    renderCard();
+
+    const button = screen.getByTestId("button-audit-export") as HTMLButtonElement;
+    fireEvent.click(button);
+
+    await waitFor(() => expect(button.disabled).toBe(true));
+    expect(clickedAnchors).toHaveLength(0);
+
+    resolvePreflight({ ok: true, status: 204 });
+    await waitFor(() => expect(button.disabled).toBe(false));
+    expect(clickedAnchors).toHaveLength(1);
+  });
+
   it("shows an error toast and skips the download when the preflight fetch throws", async () => {
     mockState.auditLogs = { items: [makeRow(1, "a@example.com")], total: 1 };
     fetchSpy.mockRejectedValue(new TypeError("Failed to fetch"));
