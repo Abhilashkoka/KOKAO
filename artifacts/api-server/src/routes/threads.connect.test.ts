@@ -123,6 +123,81 @@ function mockThreadsApi(): MockCall[] {
   return calls;
 }
 
+/**
+ * Route the callback's Threads round-trips to configurable failures so the
+ * error branches run without the network.
+ */
+function mockThreadsApiFailing(opts: {
+  shortTokenStatus?: number;
+  longTokenStatus?: number;
+  profileStatus?: number;
+}): MockCall[] {
+  const calls: MockCall[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(
+    async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      calls.push({ url, body: init?.body });
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+
+      if (url.startsWith("https://graph.threads.net/oauth/access_token")) {
+        if (opts.shortTokenStatus && opts.shortTokenStatus >= 400) {
+          return json(
+            { error_message: "Invalid authorization code" },
+            opts.shortTokenStatus,
+          );
+        }
+        return json({ access_token: TH_SHORT_LIVED_TOKEN, user_id: 987 });
+      }
+      if (url.startsWith("https://graph.threads.net/access_token")) {
+        if (opts.longTokenStatus && opts.longTokenStatus >= 400) {
+          return json({ error: "invalid token" }, opts.longTokenStatus);
+        }
+        return json({
+          access_token: TH_LONG_LIVED_TOKEN,
+          expires_in: 60 * 24 * 60 * 60,
+        });
+      }
+      if (url.startsWith("https://graph.threads.net/v1.0/me")) {
+        if (opts.profileStatus && opts.profileStatus >= 400) {
+          return json({ error: "bad token" }, opts.profileStatus);
+        }
+        return json({ id: TH_NEW_USER_ID, username: TH_NEW_USERNAME });
+      }
+      return json({});
+    },
+  );
+  return calls;
+}
+
+/** Seed a pre-existing (dead) Threads row and return its full snapshot. */
+async function seedExistingRow(tenantId: number) {
+  await insertThreadsAccount(tenantId, {
+    accessToken: TH_STALE_TOKEN,
+    providerUserId: "th_user_old",
+    tokenExpiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+    status: "error",
+    accountName: "@oldhandle",
+    verifyStatus: "failed",
+    verifyError:
+      "Your Threads access is no longer valid. Reconnect Threads to keep publishing.",
+  });
+  return getConnectedAccount(tenantId, "threads");
+}
+
+/** Mint a real signed state for the tenant via the authorize-URL endpoint. */
+async function mintState(clerkUserId: string): Promise<string> {
+  actAs(clerkUserId);
+  const urlRes = await request(app).get("/api/threads/auth/url");
+  expect(urlRes.status).toBe(200);
+  const state = new URL(urlRes.body.url).searchParams.get("state")!;
+  expect(state).toBeTruthy();
+  return state;
+}
+
 describe("Threads connect: GET /threads/auth/callback (reconnect over a dead row)", () => {
   it("reactivates a dead connection in place on reconnect (UPDATE, not a second row)", async () => {
     const calls = mockThreadsApi();
@@ -202,6 +277,211 @@ describe("Threads connect: GET /threads/auth/callback (reconnect over a dead row
       expect(row.verifiedAt!.getTime()).toBeGreaterThan(
         deadRow.verifiedAt!.getTime(),
       );
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("Threads connect callback error paths leave the stored row untouched", () => {
+  it("redirects with reason=token_exchange and does not modify the row when the short-lived token exchange fails", async () => {
+    const calls = mockThreadsApiFailing({ shortTokenStatus: 400 });
+    const tenant = await createTenant();
+    try {
+      const before = await seedExistingRow(tenant.tenantId);
+      const state = await mintState(tenant.clerkUserId);
+
+      const res = await request(app)
+        .get("/api/threads/auth/callback")
+        .query({ code: "AUTH_CODE", state });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?threads=error&reason=token_exchange",
+      );
+
+      // The short-lived token endpoint was hit, but neither the long-lived
+      // upgrade nor the profile lookup ever ran.
+      expect(
+        calls.some((c) =>
+          c.url.startsWith("https://graph.threads.net/oauth/access_token"),
+        ),
+      ).toBe(true);
+      expect(
+        calls.some((c) =>
+          c.url.startsWith("https://graph.threads.net/access_token"),
+        ),
+      ).toBe(false);
+      expect(
+        calls.some((c) => c.url.startsWith("https://graph.threads.net/v1.0/me")),
+      ).toBe(false);
+
+      const after = await getConnectedAccount(tenant.tenantId, "threads");
+      expect(after).toEqual(before);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with reason=token_exchange and does not modify the row when the long-lived upgrade fails", async () => {
+    const calls = mockThreadsApiFailing({ longTokenStatus: 400 });
+    const tenant = await createTenant();
+    try {
+      const before = await seedExistingRow(tenant.tenantId);
+      const state = await mintState(tenant.clerkUserId);
+
+      const res = await request(app)
+        .get("/api/threads/auth/callback")
+        .query({ code: "AUTH_CODE", state });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?threads=error&reason=token_exchange",
+      );
+
+      // Both token endpoints were hit; the profile lookup never ran.
+      expect(
+        calls.some((c) =>
+          c.url.startsWith("https://graph.threads.net/access_token"),
+        ),
+      ).toBe(true);
+      expect(
+        calls.some((c) => c.url.startsWith("https://graph.threads.net/v1.0/me")),
+      ).toBe(false);
+
+      // Crucially, the fresh short-lived token from the successful first
+      // exchange was NOT partially written before the upgrade failed.
+      const after = await getConnectedAccount(tenant.tenantId, "threads");
+      expect(after).toEqual(before);
+      expect(after.accessToken).toBe(TH_STALE_TOKEN);
+      expect(after.accessToken).not.toBe(TH_SHORT_LIVED_TOKEN);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with reason=profile_lookup and does not modify the row when the profile lookup fails after successful token exchanges", async () => {
+    const calls = mockThreadsApiFailing({ profileStatus: 401 });
+    const tenant = await createTenant();
+    try {
+      const before = await seedExistingRow(tenant.tenantId);
+      const state = await mintState(tenant.clerkUserId);
+
+      const res = await request(app)
+        .get("/api/threads/auth/callback")
+        .query({ code: "AUTH_CODE", state });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?threads=error&reason=profile_lookup",
+      );
+
+      // All three round-trips happened; the failure came from the profile.
+      expect(
+        calls.some((c) =>
+          c.url.startsWith("https://graph.threads.net/oauth/access_token"),
+        ),
+      ).toBe(true);
+      expect(
+        calls.some((c) =>
+          c.url.startsWith("https://graph.threads.net/access_token"),
+        ),
+      ).toBe(true);
+      expect(
+        calls.some((c) => c.url.startsWith("https://graph.threads.net/v1.0/me")),
+      ).toBe(true);
+
+      // Crucially, the fresh long-lived token from the successful exchange
+      // was NOT partially written before the profile lookup failure.
+      const after = await getConnectedAccount(tenant.tenantId, "threads");
+      expect(after).toEqual(before);
+      expect(after.accessToken).toBe(TH_STALE_TOKEN);
+      expect(after.accessToken).not.toBe(TH_LONG_LIVED_TOKEN);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with reason=invalid_state and never calls Threads when the state is tampered", async () => {
+    const calls = mockThreadsApiFailing({});
+    const tenant = await createTenant();
+    try {
+      const before = await seedExistingRow(tenant.tenantId);
+      const state = await mintState(tenant.clerkUserId);
+      const tampered = `${state.slice(0, -4)}0000`;
+
+      const res = await request(app)
+        .get("/api/threads/auth/callback")
+        .query({ code: "AUTH_CODE", state: tampered });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?threads=error&reason=invalid_state",
+      );
+      expect(calls.length).toBe(0);
+
+      const after = await getConnectedAccount(tenant.tenantId, "threads");
+      expect(after).toEqual(before);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with reason=invalid_state and never calls Threads when the state is missing", async () => {
+    const calls = mockThreadsApiFailing({});
+    const tenant = await createTenant();
+    try {
+      const before = await seedExistingRow(tenant.tenantId);
+
+      const res = await request(app)
+        .get("/api/threads/auth/callback")
+        .query({ code: "AUTH_CODE" });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?threads=error&reason=invalid_state",
+      );
+      expect(calls.length).toBe(0);
+
+      const after = await getConnectedAccount(tenant.tenantId, "threads");
+      expect(after).toEqual(before);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with reason=invalid_state and never calls Threads when the state has expired", async () => {
+    const calls = mockThreadsApiFailing({});
+    const tenant = await createTenant();
+    try {
+      const before = await seedExistingRow(tenant.tenantId);
+
+      // Mint the state while the clock is shifted far into the past so the
+      // signed TTL has already lapsed by the time the callback verifies it.
+      vi.useFakeTimers();
+      let state: string;
+      try {
+        vi.setSystemTime(Date.now() - 24 * 60 * 60 * 1000);
+        actAs(tenant.clerkUserId);
+        const urlRes = await request(app).get("/api/threads/auth/url");
+        expect(urlRes.status).toBe(200);
+        state = new URL(urlRes.body.url).searchParams.get("state")!;
+      } finally {
+        vi.useRealTimers();
+      }
+
+      const res = await request(app)
+        .get("/api/threads/auth/callback")
+        .query({ code: "AUTH_CODE", state });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?threads=error&reason=invalid_state",
+      );
+      expect(calls.length).toBe(0);
+
+      const after = await getConnectedAccount(tenant.tenantId, "threads");
+      expect(after).toEqual(before);
     } finally {
       await deleteTenant(tenant.tenantId);
     }

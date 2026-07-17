@@ -1130,6 +1130,197 @@ describe("X (Twitter) connect: GET /twitter/auth/callback", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Callback error paths with a PRE-EXISTING connection. A failed reconnect must
+// leave the tenant's stored row byte-for-byte unchanged — no partial token
+// writes, no cleared credentials, no misleading status flips.
+// ---------------------------------------------------------------------------
+
+/** Seed a pre-existing (dead) X row and return its full snapshot. */
+async function seedExistingXRow(tenantId: number) {
+  await insertConnectedAccount(
+    tenantId,
+    "twitter",
+    {
+      accessToken: X_LEGACY_ACCESS_TOKEN,
+      accessTokenSecret: X_LEGACY_TOKEN_SECRET,
+    },
+    "failed",
+    "@oldhandle",
+  );
+  await setAccountState(tenantId, "twitter", {
+    providerUserId: "x_user_old",
+    tokenExpiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+    accessToken: "legacy_plaintext_token",
+  });
+  return getConnectedAccount(tenantId, "twitter");
+}
+
+describe("X (Twitter) connect callback error paths leave the stored row untouched", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("redirects with reason=token_exchange and does not modify the row when the token exchange fails", async () => {
+    await setVerifiedTwitterRow();
+    const calls = mockConnectApi({ tokenFails: true });
+    const tenant = await createTenant();
+    try {
+      const before = await seedExistingXRow(tenant.tenantId);
+
+      // Use a real signed state minted by the authorize-URL endpoint.
+      actAs(tenant.clerkUserId);
+      const urlRes = await request(app).get("/api/twitter/auth/url");
+      const state = new URL(urlRes.body.url).searchParams.get("state")!;
+
+      const res = await request(app)
+        .get("/api/twitter/auth/callback")
+        .query({ code: "AUTH_CODE", state });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?twitter=error&reason=token_exchange",
+      );
+
+      // The token endpoint was hit, but the user lookup never was.
+      expect(calls.some((c) => c.url.includes("/2/oauth2/token"))).toBe(true);
+      expect(calls.some((c) => c.url.includes("/2/users/me"))).toBe(false);
+
+      const after = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(after).toEqual(before);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with reason=userinfo and does not modify the row when the user lookup fails after a successful token exchange", async () => {
+    await setVerifiedTwitterRow();
+    const calls = mockConnectApi({ userFails: true });
+    const tenant = await createTenant();
+    try {
+      const before = await seedExistingXRow(tenant.tenantId);
+
+      actAs(tenant.clerkUserId);
+      const urlRes = await request(app).get("/api/twitter/auth/url");
+      const state = new URL(urlRes.body.url).searchParams.get("state")!;
+
+      const res = await request(app)
+        .get("/api/twitter/auth/callback")
+        .query({ code: "AUTH_CODE", state });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?twitter=error&reason=userinfo",
+      );
+
+      // Both round-trips happened; the failure came from the user lookup.
+      expect(calls.some((c) => c.url.includes("/2/oauth2/token"))).toBe(true);
+      expect(calls.some((c) => c.url.includes("/2/users/me"))).toBe(true);
+
+      // Crucially, the fresh tokens from the successful exchange were NOT
+      // partially written before the user lookup failure.
+      const after = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(after).toEqual(before);
+      const creds = decryptJson<Record<string, string>>(
+        after.encryptedCredentials!,
+      );
+      expect(creds.accessToken).toBe(X_LEGACY_ACCESS_TOKEN);
+      expect(creds.accessToken).not.toBe(X_CONNECT_ACCESS_TOKEN);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with reason=invalid_state and never calls X when the state is tampered", async () => {
+    await setVerifiedTwitterRow();
+    const calls = mockConnectApi();
+    const tenant = await createTenant();
+    try {
+      const before = await seedExistingXRow(tenant.tenantId);
+
+      actAs(tenant.clerkUserId);
+      const valid = craftState(tenant.tenantId, "some_verifier");
+      // Flip the final character (part of the HMAC signature) to break it.
+      const decoded = Buffer.from(valid, "base64url").toString("utf8");
+      const tampered = Buffer.from(
+        decoded.slice(0, -1) + (decoded.endsWith("a") ? "b" : "a"),
+        "utf8",
+      ).toString("base64url");
+
+      const res = await request(app)
+        .get("/api/twitter/auth/callback")
+        .query({ code: "AUTH_CODE", state: tampered });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?twitter=error&reason=invalid_state",
+      );
+      expect(calls.length).toBe(0);
+
+      const after = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(after).toEqual(before);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with reason=invalid_state and never calls X when the state is missing", async () => {
+    await setVerifiedTwitterRow();
+    const calls = mockConnectApi();
+    const tenant = await createTenant();
+    try {
+      const before = await seedExistingXRow(tenant.tenantId);
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .get("/api/twitter/auth/callback")
+        .query({ code: "AUTH_CODE" });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?twitter=error&reason=invalid_state",
+      );
+      expect(calls.length).toBe(0);
+
+      const after = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(after).toEqual(before);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with reason=invalid_state and never calls X when the state has expired", async () => {
+    await setVerifiedTwitterRow();
+    const calls = mockConnectApi();
+    const tenant = await createTenant();
+    try {
+      const before = await seedExistingXRow(tenant.tenantId);
+
+      actAs(tenant.clerkUserId);
+      // Signed 11 minutes ago; the state TTL is 10 minutes.
+      const expired = craftState(
+        tenant.tenantId,
+        "some_verifier",
+        Date.now() - 11 * 60 * 1000,
+      );
+      const res = await request(app)
+        .get("/api/twitter/auth/callback")
+        .query({ code: "AUTH_CODE", state: expired });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?twitter=error&reason=invalid_state",
+      );
+      expect(calls.length).toBe(0);
+
+      const after = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(after).toEqual(before);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
 // Auto re-verify on Accounts-page load. GET /twitter/status proactively
 // re-checks a stored (stale) token so a revoked/expired one flips to "failed"
 // (surfacing the "Reconnect needed" callout) instead of looking "Verified"
