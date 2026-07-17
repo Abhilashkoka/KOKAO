@@ -8,7 +8,10 @@
 
 export type AdminStatsConnectionSweepRecentFailuresItem = {
   tenantId: number;
-  /** Workspace name, null if the tenant was deleted. */
+  /**
+     * Workspace name, null if the tenant was deleted.
+     * @nullable
+     */
   tenantName?: string | null;
   platform: string;
   error: string;

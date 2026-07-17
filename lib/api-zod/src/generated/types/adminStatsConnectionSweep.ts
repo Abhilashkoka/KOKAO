@@ -9,12 +9,14 @@ import type { AdminStatsConnectionSweepRecentFailuresItem } from './adminStatsCo
 
 /**
  * Health of the background dead-connection sweep. Null when the sweep has never completed a run (e.g. fresh deploy).
+ * @nullable
  */
 export type AdminStatsConnectionSweep = {
   lastRunAt: Date;
   durationMs: number;
   accountsChecked: number;
   errorCount: number;
+  /** @nullable */
   lastError?: string | null;
   /** Most recent failed checks from the last completed sweep run, newest first (capped server-side), so an admin can see which tenant + platform keeps timing out without reading logs. */
   recentFailures?: AdminStatsConnectionSweepRecentFailuresItem[];

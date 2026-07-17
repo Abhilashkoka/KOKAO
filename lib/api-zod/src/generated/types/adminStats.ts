@@ -16,6 +16,9 @@ export interface AdminStats {
   totalConnectedAccounts: number;
   /** True while a dead-connection sweep is currently in flight in this server process. The admin dashboard polls stats while this is true so the Connection Sweep card refreshes when the run ends. */
   sweepRunning?: boolean;
-  /** Health of the background dead-connection sweep. Null when the sweep has never completed a run (e.g. fresh deploy). */
+  /**
+     * Health of the background dead-connection sweep. Null when the sweep has never completed a run (e.g. fresh deploy).
+     * @nullable
+     */
   connectionSweep?: AdminStatsConnectionSweep;
 }

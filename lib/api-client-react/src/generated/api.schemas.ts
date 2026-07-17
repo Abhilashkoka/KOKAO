@@ -436,7 +436,10 @@ export type AdminStatsTenantsByPlan = {[key: string]: number};
 
 export type AdminStatsConnectionSweepRecentFailuresItem = {
   tenantId: number;
-  /** Workspace name, null if the tenant was deleted. */
+  /**
+     * Workspace name, null if the tenant was deleted.
+     * @nullable
+     */
   tenantName?: string | null;
   platform: string;
   error: string;
@@ -447,12 +450,14 @@ export type AdminStatsConnectionSweepRecentFailuresItem = {
 
 /**
  * Health of the background dead-connection sweep. Null when the sweep has never completed a run (e.g. fresh deploy).
+ * @nullable
  */
 export type AdminStatsConnectionSweep = {
   lastRunAt: string;
   durationMs: number;
   accountsChecked: number;
   errorCount: number;
+  /** @nullable */
   lastError?: string | null;
   /** Most recent failed checks from the last completed sweep run, newest first (capped server-side), so an admin can see which tenant + platform keeps timing out without reading logs. */
   recentFailures?: AdminStatsConnectionSweepRecentFailuresItem[];
@@ -466,7 +471,10 @@ export interface AdminStats {
   totalConnectedAccounts: number;
   /** True while a dead-connection sweep is currently in flight in this server process. The admin dashboard polls stats while this is true so the Connection Sweep card refreshes when the run ends. */
   sweepRunning?: boolean;
-  /** Health of the background dead-connection sweep. Null when the sweep has never completed a run (e.g. fresh deploy). */
+  /**
+     * Health of the background dead-connection sweep. Null when the sweep has never completed a run (e.g. fresh deploy).
+     * @nullable
+     */
   connectionSweep?: AdminStatsConnectionSweep;
 }
 
@@ -605,12 +613,18 @@ export interface TasteSignalCounts {
 export interface TasteProfileSummary {
   enabled: boolean;
   hasData: boolean;
-  /** Learned caption length preference (short/medium/long) or null. */
+  /**
+     * Learned caption length preference (short/medium/long) or null.
+     * @nullable
+     */
   captionLength: string | null;
+  /** @nullable */
   hashtagStyle: string | null;
+  /** @nullable */
   emojiStyle: string | null;
   approvedExamples: string[];
   signalCounts: TasteSignalCounts;
+  /** @nullable */
   lastSignalAt: string | null;
 }
 

@@ -10,11 +10,17 @@ import type { TasteSignalCounts } from './tasteSignalCounts';
 export interface TasteProfileSummary {
   enabled: boolean;
   hasData: boolean;
-  /** Learned caption length preference (short/medium/long) or null. */
+  /**
+     * Learned caption length preference (short/medium/long) or null.
+     * @nullable
+     */
   captionLength: string | null;
+  /** @nullable */
   hashtagStyle: string | null;
+  /** @nullable */
   emojiStyle: string | null;
   approvedExamples: string[];
   signalCounts: TasteSignalCounts;
+  /** @nullable */
   lastSignalAt: string | null;
 }

@@ -3712,8 +3712,7 @@ components:
             server process. The admin dashboard polls stats while this is
             true so the Connection Sweep card refreshes when the run ends.
         connectionSweep:
-          type: object
-          nullable: true
+          type: [object, "null"]
           description: >-
             Health of the background dead-connection sweep. Null when the
             sweep has never completed a run (e.g. fresh deploy).
@@ -3733,8 +3732,7 @@ components:
             errorCount:
               type: integer
             lastError:
-              type: string
-              nullable: true
+              type: [string, "null"]
             recentFailures:
               type: array
               description: >-
@@ -3748,8 +3746,7 @@ components:
                   tenantId:
                     type: integer
                   tenantName:
-                    type: string
-                    nullable: true
+                    type: [string, "null"]
                     description: Workspace name, null if the tenant was deleted.
                   platform:
                     type: string
@@ -3942,15 +3939,12 @@ components:
         hasData:
           type: boolean
         captionLength:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Learned caption length preference (short/medium/long) or null.
         hashtagStyle:
-          type: string
-          nullable: true
+          type: [string, "null"]
         emojiStyle:
-          type: string
-          nullable: true
+          type: [string, "null"]
         approvedExamples:
           type: array
           items:
@@ -3958,8 +3952,7 @@ components:
         signalCounts:
           $ref: "#/components/schemas/TasteSignalCounts"
         lastSignalAt:
-          type: string
-          nullable: true
+          type: [string, "null"]
     TasteProfileUpdateInput:
       type: object
       required: [enabled]

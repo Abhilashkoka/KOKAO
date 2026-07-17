@@ -1,0 +1,6 @@
+extends:
+  - minimal
+rules:
+  operation-operationId-unique: error
+  no-unresolved-refs: error
+  security-defined: off

@@ -862,6 +862,9 @@ importers:
 
   lib/api-spec:
     devDependencies:
+      '@redocly/cli':
+        specifier: ^2.39.0
+        version: 2.39.0
       orval:
         specifier: ^8.18.0
         version: 8.18.0(prettier@3.8.4)(typescript@5.9.3)
@@ -2759,6 +2762,11 @@ packages:
 
   '@react-navigation/routers@7.6.0':
     resolution: {integrity: sha512-lblhDXfS75jLc7G2K7BZGM+7cjqQXk13X/MA4fq/12r62zM+fBhhreLzYflSitrDDXFRJpSvJXy0ziiGU04Xow==}
+
+  '@redocly/cli@2.39.0':
+    resolution: {integrity: sha512-xA0Z9YMEhlzbpn/BVErlE2UzuKfahp9llBwEnVtAYuhWdF8UCIm+cgYX8f/gHQIJ/TKwB93awAewTOgEsbZFZw==}
+    engines: {node: '>=22.12.0 || >=20.19.0 <21.0.0', npm: '>=10'}
+    hasBin: true
 
   '@replit/vite-plugin-cartographer@0.5.21':
     resolution: {integrity: sha512-E5rco8Mov05QDfUOjoim3MVJdDX0/pBYql5Jay3w9cqmU/QOL6cEOUAjsBZPB/V8FEChsk++sZUrcWt1bHaAoQ==}
@@ -10112,6 +10120,8 @@ snapshots:
   '@react-navigation/routers@7.6.0':
     dependencies:
       nanoid: 3.3.14
+
+  '@redocly/cli@2.39.0': {}
 
   '@replit/vite-plugin-cartographer@0.5.21':
     dependencies:

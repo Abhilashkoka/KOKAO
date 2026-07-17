@@ -210,12 +210,14 @@ describe("notifySeatRequestSubmitted", () => {
       });
 
       await notifySeatRequestSubmitted({
+        seatRequestId: 987654,
         requestingTenantId: 424242,
         requestingTenantName: "Acme Co",
         requestedSeats: 3,
         note: null,
       });
       await notifySeatRequestSubmitted({
+        seatRequestId: 987654,
         requestingTenantId: 424242,
         requestingTenantName: "Acme Co",
         requestedSeats: 9,
