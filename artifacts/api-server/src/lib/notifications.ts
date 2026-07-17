@@ -304,7 +304,7 @@ export async function notifySeatRequestSubmitted(details: {
         if (existing.length > 0) {
           await db
             .update(notificationsTable)
-            .set({ title, message })
+            .set({ title, message, createdAt: new Date() })
             .where(eq(notificationsTable.id, existing[0].id));
           continue;
         }

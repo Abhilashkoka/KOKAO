@@ -216,6 +216,20 @@ describe("notifySeatRequestSubmitted", () => {
         requestedSeats: 3,
         note: null,
       });
+
+      // Backdate the original alert so we can prove the resubmit bumps it.
+      const staleDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      await db
+        .update(notificationsTable)
+        .set({ createdAt: staleDate })
+        .where(
+          and(
+            eq(notificationsTable.tenantId, admin.tenantId),
+            eq(notificationsTable.type, SEAT_REQUEST_SUBMITTED),
+          ),
+        );
+
+      const beforeResubmit = Date.now();
       await notifySeatRequestSubmitted({
         seatRequestId: 987002,
         requestingTenantId: 424242,
@@ -231,6 +245,11 @@ describe("notifySeatRequestSubmitted", () => {
       expect(notes[0].message).toContain("9 team seats");
       expect(notes[0].message).toContain('Note: "We hired more people"');
       expect(notes[0].message).not.toContain("3 team seats");
+      // The in-place update must refresh the timestamp so the alert sorts
+      // as recent instead of keeping the stale original createdAt.
+      expect(new Date(notes[0].createdAt).getTime()).toBeGreaterThanOrEqual(
+        beforeResubmit - 1000,
+      );
       // Still exactly one email — the in-place update must not re-email.
       expect(
         mockSendEmail.mock.calls.filter(
