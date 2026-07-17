@@ -6,7 +6,7 @@
 // "column X of relation Y does not exist". This check runs once before the
 // suite, compares the Drizzle schema against information_schema, and fails
 // with an actionable message instead.
-import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
+import { getTableConfig, isPgEnum, PgTable } from "drizzle-orm/pg-core";
 import { pool } from "@workspace/db";
 import * as schema from "@workspace/db/schema";
 
@@ -91,10 +91,56 @@ export default async function schemaDriftCheck(): Promise<void> {
       });
     }
 
+    const enumRes = await pool.query<{
+      enum_name: string;
+      enum_value: string;
+    }>(
+      `SELECT t.typname AS enum_name, e.enumlabel AS enum_value
+         FROM pg_type t
+         JOIN pg_enum e ON e.enumtypid = t.oid
+         JOIN pg_namespace n ON n.oid = t.typnamespace
+        WHERE n.nspname = 'public'
+        ORDER BY t.typname, e.enumsortorder`,
+    );
+    const liveEnums = new Map<string, string[]>();
+    for (const row of enumRes.rows) {
+      let values = liveEnums.get(row.enum_name);
+      if (!values) {
+        values = [];
+        liveEnums.set(row.enum_name, values);
+      }
+      values.push(row.enum_value);
+    }
+
     const missingTables: string[] = [];
     const missingColumns: string[] = [];
     const mismatchedColumns: string[] = [];
+    const mismatchedEnums: string[] = [];
     for (const exported of Object.values(schema)) {
+      if (isPgEnum(exported)) {
+        const enumName = exported.enumName;
+        const expectedValues = [...exported.enumValues];
+        const actualValues = liveEnums.get(enumName);
+        if (!actualValues) {
+          mismatchedEnums.push(
+            `${enumName}: missing enum type in database (expected values: ${expectedValues.join(", ")})`,
+          );
+          continue;
+        }
+        const actualSet = new Set(actualValues);
+        const expectedSet = new Set(expectedValues);
+        const missing = expectedValues.filter((v) => !actualSet.has(v));
+        const extra = actualValues.filter((v) => !expectedSet.has(v));
+        if (missing.length > 0 || extra.length > 0) {
+          const parts: string[] = [];
+          if (missing.length > 0)
+            parts.push(`missing in database: ${missing.join(", ")}`);
+          if (extra.length > 0)
+            parts.push(`unexpected in database: ${extra.join(", ")}`);
+          mismatchedEnums.push(`${enumName}: ${parts.join("; ")}`);
+        }
+        continue;
+      }
       if (!(exported instanceof PgTable)) continue;
       const { name: tableName, columns } = getTableConfig(exported);
       const liveCols = live.get(tableName);
@@ -128,12 +174,14 @@ export default async function schemaDriftCheck(): Promise<void> {
     if (
       missingTables.length > 0 ||
       missingColumns.length > 0 ||
-      mismatchedColumns.length > 0
+      mismatchedColumns.length > 0 ||
+      mismatchedEnums.length > 0
     ) {
       const details = [
         ...missingTables.map((t) => `  missing table: ${t}`),
         ...missingColumns.map((c) => `  missing column: ${c}`),
         ...mismatchedColumns.map((c) => `  mismatched column: ${c}`),
+        ...mismatchedEnums.map((e) => `  mismatched enum: ${e}`),
       ].join("\n");
       throw new Error(
         `Dev database schema is out of date with lib/db/src/schema/:\n${details}\n\n` +
