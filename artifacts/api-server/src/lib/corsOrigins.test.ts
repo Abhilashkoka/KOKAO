@@ -51,6 +51,22 @@ describe("buildAllowedOrigins", () => {
     expect(origins).toEqual(new Set(["https://app.example.replit.app"]));
   });
 
+  it("lowercases mixed-case domains so browser Origin headers match", () => {
+    // Published domains can be configured with capitals (e.g.
+    // SMP-builder-....replit.app) but browsers always send lowercase origins.
+    const origins = buildAllowedOrigins({
+      REPLIT_DOMAINS: "SMP-Builder-User1.replit.app",
+      REPLIT_INTERNAL_APP_DOMAIN: "https://Internal.Example.replit.app",
+    } as NodeJS.ProcessEnv);
+
+    expect(origins).toEqual(
+      new Set([
+        "https://smp-builder-user1.replit.app",
+        "https://internal.example.replit.app",
+      ]),
+    );
+  });
+
   it("handles fully empty env without producing bogus origins", () => {
     expect(buildAllowedOrigins({} as NodeJS.ProcessEnv)).toEqual(new Set());
   });

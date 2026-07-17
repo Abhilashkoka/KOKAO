@@ -15,7 +15,11 @@
  *
  * Entries may arrive with or without a scheme (REPLIT_INTERNAL_APP_DOMAIN
  * can include one), so any leading http(s):// is stripped before the origin
- * is normalized to https://<host>.
+ * is normalized to https://<host>. Hostnames are lowercased: published
+ * domains can be configured with capital letters (e.g.
+ * SMP-builder-....replit.app) but browsers always send a lowercase Origin
+ * header, so a case-preserving allowlist would silently reject the app's
+ * own production origin.
  *
  * Kept as a pure function so tests can assert the allowlist contents without
  * importing the full app (which pulls in Clerk, DB, routes, etc.).
@@ -29,7 +33,9 @@ export function buildAllowedOrigins(
       env.REPLIT_EXPO_DEV_DOMAIN ?? "",
       env.REPLIT_INTERNAL_APP_DOMAIN ?? "",
     ]
-      .map((d) => d.trim().replace(/^https?:\/\//i, "").replace(/\/+$/, ""))
+      .map((d) =>
+        d.trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "").toLowerCase(),
+      )
       .filter(Boolean)
       .map((d) => `https://${d}`),
   );
