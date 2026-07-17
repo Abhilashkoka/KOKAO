@@ -74,6 +74,7 @@ import {
   tenantMembersTable,
   teamInvitesTable,
   notificationsTable,
+  memberNotificationPreferencesTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { createTestApp } from "../test/testApp";
@@ -241,6 +242,57 @@ describe("POST /team/leave", () => {
     }
   });
 
+  it("deletes the leaver's saved notification preferences for the workspace only", async () => {
+    const { owner, memberClerkUserId } = await seedMembership();
+    const otherWorkspace = await createTenant({ email: "other@example.com" });
+    try {
+      await db.insert(memberNotificationPreferencesTable).values([
+        {
+          tenantId: owner.tenantId,
+          clerkUserId: memberClerkUserId,
+          type: "team_member_left",
+          inApp: true,
+          email: false,
+        },
+        {
+          // Same person's preference in a DIFFERENT workspace must survive.
+          tenantId: otherWorkspace.tenantId,
+          clerkUserId: memberClerkUserId,
+          type: "team_member_left",
+          inApp: true,
+          email: false,
+        },
+      ]);
+
+      actAs(memberClerkUserId, "member@example.com");
+      const res = await request(app).post("/api/team/leave");
+      expect(res.status).toBe(200);
+
+      const rows = await db
+        .select()
+        .from(memberNotificationPreferencesTable)
+        .where(
+          eq(
+            memberNotificationPreferencesTable.clerkUserId,
+            memberClerkUserId,
+          ),
+        );
+      expect(rows).toHaveLength(1);
+      expect(rows[0].tenantId).toBe(otherWorkspace.tenantId);
+    } finally {
+      await db
+        .delete(memberNotificationPreferencesTable)
+        .where(
+          eq(
+            memberNotificationPreferencesTable.clerkUserId,
+            memberClerkUserId,
+          ),
+        );
+      await deleteTenant(otherWorkspace.tenantId);
+      await cleanup(owner.tenantId);
+    }
+  });
+
   it("rejects the workspace owner with 403", async () => {
     const owner = await createTenant({ email: "boss@example.com" });
     try {
@@ -386,6 +438,59 @@ describe("DELETE /team/members/:id", () => {
         "no-tenant-yet@example.com",
       );
     } finally {
+      await cleanup(owner.tenantId);
+    }
+  });
+
+  it("deletes the removed member's saved notification preferences for the workspace only", async () => {
+    const { owner, membership, memberClerkUserId } = await seedMembership();
+    const otherWorkspace = await createTenant({ email: "other2@example.com" });
+    try {
+      await db.insert(memberNotificationPreferencesTable).values([
+        {
+          tenantId: owner.tenantId,
+          clerkUserId: memberClerkUserId,
+          type: "team_member_left",
+          inApp: true,
+          email: false,
+        },
+        {
+          // Same person's preference in a DIFFERENT workspace must survive.
+          tenantId: otherWorkspace.tenantId,
+          clerkUserId: memberClerkUserId,
+          type: "team_member_left",
+          inApp: true,
+          email: false,
+        },
+      ]);
+
+      actAs(owner.clerkUserId, "owner@example.com");
+      const res = await request(app).delete(
+        `/api/team/members/${membership.id}`,
+      );
+      expect(res.status).toBe(200);
+
+      const rows = await db
+        .select()
+        .from(memberNotificationPreferencesTable)
+        .where(
+          eq(
+            memberNotificationPreferencesTable.clerkUserId,
+            memberClerkUserId,
+          ),
+        );
+      expect(rows).toHaveLength(1);
+      expect(rows[0].tenantId).toBe(otherWorkspace.tenantId);
+    } finally {
+      await db
+        .delete(memberNotificationPreferencesTable)
+        .where(
+          eq(
+            memberNotificationPreferencesTable.clerkUserId,
+            memberClerkUserId,
+          ),
+        );
+      await deleteTenant(otherWorkspace.tenantId);
       await cleanup(owner.tenantId);
     }
   });

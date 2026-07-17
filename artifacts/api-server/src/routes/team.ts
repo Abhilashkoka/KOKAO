@@ -5,6 +5,7 @@ import {
   tenantMembersTable,
   teamInvitesTable,
   seatRequestsTable,
+  memberNotificationPreferencesTable,
 } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { CreateTeamInviteBody, CreateSeatRequestBody } from "@workspace/api-zod";
@@ -23,6 +24,25 @@ import {
 import { sendTeamInviteEmail } from "../lib/teamInviteEmail";
 
 const router: IRouter = Router();
+
+/**
+ * Delete a departed member's saved notification preferences for this
+ * workspace so stale rows don't accumulate and a later re-invite starts
+ * from defaults instead of silently inheriting old opt-outs.
+ */
+async function deleteMemberNotificationPreferences(
+  tenantId: number,
+  clerkUserId: string,
+) {
+  await db
+    .delete(memberNotificationPreferencesTable)
+    .where(
+      and(
+        eq(memberNotificationPreferencesTable.tenantId, tenantId),
+        eq(memberNotificationPreferencesTable.clerkUserId, clerkUserId),
+      ),
+    );
+}
 
 async function loadTenant(tenantId: number) {
   return (
@@ -84,6 +104,7 @@ router.post("/team/leave", async (req: Request, res: Response) => {
         ),
       );
   }
+  await deleteMemberNotificationPreferences(req.tenantId, deleted.clerkUserId);
   // Best-effort: tell the owner and workspace admins the seat was freed and
   // by whom (the leaver is excluded from the email fan-out).
   await notifyTeamMemberLeft(req.tenantId, {
@@ -259,6 +280,7 @@ router.delete("/team/members/:id", async (req: Request, res: Response) => {
         ),
       );
   }
+  await deleteMemberNotificationPreferences(req.tenantId, deleted.clerkUserId);
   // Best-effort: tell the removed person themselves they lost access to this
   // workspace (in-app on their own personal tenant + email to their verified
   // address). Fully detached — a failure here never fails the removal.
