@@ -23,7 +23,7 @@ import {
   useGetThreadsStatus,
   getListContentQueryKey,
   getGetContentQueryKey,
-  mutateWithRestartRetry,
+  useRestartRetry,
 } from "@workspace/api-client-react";
 import {
   TWEET_MAX_LENGTH,
@@ -69,6 +69,10 @@ export default function ContentDetailScreen() {
   const publishLinkedin = usePublishContentToLinkedin();
   const publishTwitter = usePublishContentToTwitter();
   const publishThreads = usePublishContentToThreads();
+  // Keeps the publish buttons disabled during the automatic one-shot retry
+  // window, when the underlying mutation is not "pending" but a second tap
+  // would race the scheduled retry and could double-post.
+  const { isRetrying: publishRetryPending, run: runPublishWithRetry } = useRestartRetry();
   const { data: fbCreds } = useGetFacebookCredentials();
   const { data: igCreds } = useGetInstagramCredentials();
   const { data: liStatus } = useGetLinkedinStatus();
@@ -155,7 +159,8 @@ export default function ContentDetailScreen() {
     publishInstagram.isPending ||
     publishLinkedin.isPending ||
     publishTwitter.isPending ||
-    publishThreads.isPending;
+    publishThreads.isPending ||
+    publishRetryPending;
 
   const captionText = caption.trim();
   const liSplit = splitForLinkedin(captionText);
@@ -211,7 +216,7 @@ export default function ContentDetailScreen() {
     setPublishMsg(null);
     setPublishErr(null);
     setPublishedLink(null);
-    mutateWithRestartRetry(publishFacebook, { id: contentId }, {
+    runPublishWithRetry(publishFacebook, { id: contentId }, {
       onSuccess: (res) => {
         setPublishMsg("Published to Facebook. Your post is live.");
         setPublishedLink(res?.permalink ?? null);
@@ -235,7 +240,7 @@ export default function ContentDetailScreen() {
     setPublishMsg(null);
     setPublishErr(null);
     setPublishedLink(null);
-    mutateWithRestartRetry(publishInstagram, { id: contentId }, {
+    runPublishWithRetry(publishInstagram, { id: contentId }, {
       onSuccess: () => {
         setPublishMsg(
           "Publishing to Instagram. This will update to Published once it's live.",
@@ -263,7 +268,7 @@ export default function ContentDetailScreen() {
     setPublishMsg(null);
     setPublishErr(null);
     setPublishedLink(null);
-    mutateWithRestartRetry(publishInstagram, { id: contentId }, {
+    runPublishWithRetry(publishInstagram, { id: contentId }, {
       onSuccess: () => {
         setPublishMsg(
           "Retrying publish. Instagram is processing your image again — this will update to Published once it's live.",
@@ -288,7 +293,7 @@ export default function ContentDetailScreen() {
     setPublishMsg(null);
     setPublishErr(null);
     setPublishedLink(null);
-    mutateWithRestartRetry(publishLinkedin, { id: contentId }, {
+    runPublishWithRetry(publishLinkedin, { id: contentId }, {
       onSuccess: (res) => {
         if (res?.commentWarning) {
           setPublishMsg(null);
@@ -323,7 +328,7 @@ export default function ContentDetailScreen() {
     setPublishMsg(null);
     setPublishErr(null);
     setPublishedLink(null);
-    mutateWithRestartRetry(publishTwitter, { id: contentId }, {
+    runPublishWithRetry(publishTwitter, { id: contentId }, {
       onSuccess: (res) => {
         const extra =
           res?.tweetCount && res.tweetCount > 1
@@ -351,7 +356,7 @@ export default function ContentDetailScreen() {
     setPublishMsg(null);
     setPublishErr(null);
     setPublishedLink(null);
-    mutateWithRestartRetry(publishThreads, { id: contentId }, {
+    runPublishWithRetry(publishThreads, { id: contentId }, {
       onSuccess: (res) => {
         if (res?.publishWarning) {
           setPublishMsg(null);
@@ -499,7 +504,7 @@ export default function ContentDetailScreen() {
             icon="refresh-cw"
             onPress={handleRetryInstagram}
             loading={publishInstagram.isPending}
-            disabled={!data.imagePath}
+            disabled={!data.imagePath || anyPublishPending}
             style={{ marginTop: 10 }}
           />
           {!data.imagePath ? (

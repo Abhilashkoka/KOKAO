@@ -78,6 +78,23 @@ vi.mock("@workspace/api-client-react", async () => {
     useGetLinkedinStatus: () => ({ data: { connected: true } }),
     useGetThreadsStatus: () => ({ data: { connected: true } }),
     getListContentQueryKey: () => ["content"],
+    // library.tsx routes publishes through this hook; the fallback stub from
+    // createApiClientMock would not match its { isRetrying, run } shape.
+    useRestartRetry: () => ({
+      isRetrying: false,
+      run: (
+        m: { mutate: (v: unknown, o?: unknown) => void },
+        vars: unknown,
+        callbacks: {
+          onSuccess?: (res: unknown) => void;
+          onError?: (err: unknown, info: { retried: boolean }) => void;
+        },
+      ) =>
+        m.mutate(vars, {
+          onSuccess: callbacks.onSuccess,
+          onError: (err: unknown) => callbacks.onError?.(err, { retried: false }),
+        }),
+    }),
   });
 });
 

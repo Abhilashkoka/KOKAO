@@ -10,3 +10,4 @@ export {
   mutateWithRestartRetry,
 } from "./restart-retry";
 export type { RestartRetryCallbacks, RetryReason } from "./restart-retry";
+export { useRestartRetry } from "./use-restart-retry";

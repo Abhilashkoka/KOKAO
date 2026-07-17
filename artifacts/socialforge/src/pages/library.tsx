@@ -31,7 +31,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, splitForLinkedin, chunkOnWhitespace, splitIntoTweets, THREADS_MAX_LENGTH } from "@workspace/social-limits";
-import { mutateWithRestartRetry } from "@/lib/restartRetry";
+import { useRestartRetry } from "@workspace/api-client-react";
 import { PendingPostsWarnings, usePendingResendActions } from "@/components/pending-posts-warning";
 
 const PLATFORM_NAMES: Record<string, string> = {
@@ -87,6 +87,11 @@ export function LibraryPage() {
   const [threadsItem, setThreadsItem] = useState<any | null>(null);
   const publishThreads = usePublishContentToThreads();
 
+  // Keeps publish buttons disabled during the automatic one-shot retry
+  // window (restart 503 / network blip), when no mutation is "pending" but a
+  // second click would race the scheduled retry and could double-post.
+  const { isRetrying: publishRetryPending, run: runPublishWithRetry } = useRestartRetry();
+
   // Shared resend actions for incomplete chains, used by the post-publish
   // warning toasts below (the cards/dialog render PendingPostsWarnings).
   const {
@@ -138,7 +143,7 @@ export function LibraryPage() {
 
   const handlePublish = () => {
     if (!publishItem) return;
-    mutateWithRestartRetry(publishContent, { id: publishItem.id }, {
+    runPublishWithRetry(publishContent, { id: publishItem.id }, {
       onSuccess: (res) => {
         toast({
           title: "Published to Facebook",
@@ -165,7 +170,7 @@ export function LibraryPage() {
 
   const handlePublishInstagram = () => {
     if (!instagramItem) return;
-    mutateWithRestartRetry(publishInstagram, { id: instagramItem.id }, {
+    runPublishWithRetry(publishInstagram, { id: instagramItem.id }, {
       onSuccess: () => {
         toast({
           title: "Publishing to Instagram",
@@ -195,7 +200,7 @@ export function LibraryPage() {
   // bounded background retry; the card then updates via the polling above.
   const handleRetry = (item: any) => {
     setRetryingId(item.id);
-    mutateWithRestartRetry(publishInstagram, { id: item.id }, {
+    runPublishWithRetry(publishInstagram, { id: item.id }, {
       onSuccess: () => {
         toast({
           title: "Retrying publish",
@@ -223,7 +228,7 @@ export function LibraryPage() {
 
   const handlePublishLinkedin = () => {
     if (!linkedinItem) return;
-    mutateWithRestartRetry(publishLinkedin, { id: linkedinItem.id }, {
+    runPublishWithRetry(publishLinkedin, { id: linkedinItem.id }, {
         onSuccess: (res) => {
           if (res?.commentWarning) {
             const itemId = linkedinItem.id;
@@ -273,7 +278,7 @@ export function LibraryPage() {
 
   const handlePublishTwitter = () => {
     if (!twitterItem) return;
-    mutateWithRestartRetry(publishTwitter, { id: twitterItem.id }, {
+    runPublishWithRetry(publishTwitter, { id: twitterItem.id }, {
       onSuccess: (res) => {
         if (res?.publishWarning) {
           const itemId = twitterItem.id;
@@ -316,7 +321,7 @@ export function LibraryPage() {
 
   const handlePublishThreads = () => {
     if (!threadsItem) return;
-    mutateWithRestartRetry(publishThreads, { id: threadsItem.id }, {
+    runPublishWithRetry(publishThreads, { id: threadsItem.id }, {
         onSuccess: (res) => {
           if (res?.publishWarning) {
             const itemId = threadsItem.id;
@@ -840,8 +845,8 @@ export function LibraryPage() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setPublishItem(null)}>Cancel</Button>
-            <Button onClick={handlePublish} disabled={publishContent.isPending}>
-              {publishContent.isPending ? "Publishing..." : "Publish"}
+            <Button onClick={handlePublish} disabled={publishContent.isPending || publishRetryPending}>
+              {publishContent.isPending ? "Publishing..." : publishRetryPending ? "Retrying..." : "Publish"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -869,9 +874,9 @@ export function LibraryPage() {
             <Button variant="outline" onClick={() => setInstagramItem(null)}>Cancel</Button>
             <Button
               onClick={handlePublishInstagram}
-              disabled={publishInstagram.isPending || !instagramItem?.imagePath}
+              disabled={publishInstagram.isPending || publishRetryPending || !instagramItem?.imagePath}
             >
-              {publishInstagram.isPending ? "Publishing..." : "Publish"}
+              {publishInstagram.isPending ? "Publishing..." : publishRetryPending ? "Retrying..." : "Publish"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -910,8 +915,8 @@ export function LibraryPage() {
           })()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setLinkedinItem(null)}>Cancel</Button>
-            <Button onClick={handlePublishLinkedin} disabled={publishLinkedin.isPending}>
-              {publishLinkedin.isPending ? "Publishing..." : "Publish"}
+            <Button onClick={handlePublishLinkedin} disabled={publishLinkedin.isPending || publishRetryPending}>
+              {publishLinkedin.isPending ? "Publishing..." : publishRetryPending ? "Retrying..." : "Publish"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -947,8 +952,8 @@ export function LibraryPage() {
           })()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setTwitterItem(null)}>Cancel</Button>
-            <Button onClick={handlePublishTwitter} disabled={publishTwitter.isPending}>
-              {publishTwitter.isPending ? "Publishing..." : "Publish"}
+            <Button onClick={handlePublishTwitter} disabled={publishTwitter.isPending || publishRetryPending}>
+              {publishTwitter.isPending ? "Publishing..." : publishRetryPending ? "Retrying..." : "Publish"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -983,8 +988,8 @@ export function LibraryPage() {
           })()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setThreadsItem(null)}>Cancel</Button>
-            <Button onClick={handlePublishThreads} disabled={publishThreads.isPending}>
-              {publishThreads.isPending ? "Publishing..." : "Publish"}
+            <Button onClick={handlePublishThreads} disabled={publishThreads.isPending || publishRetryPending}>
+              {publishThreads.isPending ? "Publishing..." : publishRetryPending ? "Retrying..." : "Publish"}
             </Button>
           </DialogFooter>
         </DialogContent>
