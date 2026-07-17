@@ -348,7 +348,7 @@ export function StudioPage() {
   const runGenerateCaption = (data: z.infer<typeof schema>, tweak: string | null) => {
     setCaptionTweak(tweak);
     const tweakInstruction = tweak
-      ? ` ${CAPTION_TWEAKS.find((t) => t.label === tweak)?.instruction ?? ""}`
+      ? ` ${CAPTION_TWEAKS.find((t) => t.label === tweak)?.instruction ?? tweak}`
       : "";
     generateCaption.mutate(
       {
@@ -387,7 +387,7 @@ export function StudioPage() {
     }
     setImageTweak(tweak);
     const tweakInstruction = tweak
-      ? ` ${IMAGE_TWEAKS.find((t) => t.label === tweak)?.instruction ?? ""}`
+      ? ` ${IMAGE_TWEAKS.find((t) => t.label === tweak)?.instruction ?? tweak}`
       : "";
     generateImage.mutate(
       { data: { prompt: `${data.prompt.trim()}${tweakInstruction}`, size: data.size as any, brandKitId: data.brandKitId || undefined } },
@@ -1120,6 +1120,13 @@ export function StudioPage() {
                             )}
                             Regenerate
                           </Button>
+                          <VoiceNoteButton
+                            disabled={isPending}
+                            onTranscript={(text) => {
+                              toast({ title: "Applying your change", description: `"${text}"` });
+                              form.handleSubmit((data) => runGenerateImage(data, text))();
+                            }}
+                          />
                         </div>
                       </div>
                     )}
@@ -1195,6 +1202,13 @@ export function StudioPage() {
                             )}
                             Regenerate
                           </Button>
+                          <VoiceNoteButton
+                            disabled={isPending}
+                            onTranscript={(text) => {
+                              toast({ title: "Applying your change", description: `"${text}"` });
+                              form.handleSubmit((data) => runGenerateCaption(data, text))();
+                            }}
+                          />
                         </div>
                       </div>
                     )}
