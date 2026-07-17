@@ -44,6 +44,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Share2, Plus, Trash2, CheckCircle2, Instagram, Facebook, Linkedin, Youtube, Loader2, Copy, ExternalLink, AlertCircle, Twitter, AtSign } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ReconnectHelpDialog } from "@/components/reconnect-help-dialog";
 
 function StatusPill({ status }: { status?: string | null }) {
   if (status === "verified") {
@@ -201,6 +202,9 @@ function FacebookCredentialsCard() {
                     <p className="text-sm text-destructive">
                       {data.verifyError || "Your Facebook Page connection stopped working."} Enter a fresh Page access token below to reconnect.
                     </p>
+                    <div className="pt-1">
+                      <ReconnectHelpDialog platform="facebook" />
+                    </div>
                   </div>
                 )}
                 <div className="space-y-2">
@@ -407,6 +411,9 @@ function InstagramCredentialsCard() {
                     <p className="text-sm text-destructive">
                       {data.verifyError || "Your Instagram connection stopped working."} Re-enter your Instagram Business account ID below to reconnect.
                     </p>
+                    <div className="pt-1">
+                      <ReconnectHelpDialog platform="instagram" />
+                    </div>
                   </div>
                 )}
                 <div className="space-y-2">
@@ -643,13 +650,16 @@ function TwitterCredentialsCard() {
                     Connect your X account to publish posts directly. You will be redirected to X to authorize access.
                   </p>
                 )}
-                <Button onClick={handleConnect} disabled={connecting}>
-                  {connecting ? (
-                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Connecting...</>
-                  ) : (
-                    "Connect X"
-                  )}
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button onClick={handleConnect} disabled={connecting}>
+                    {connecting ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Connecting...</>
+                    ) : (
+                      data?.expired ? "Reconnect X" : "Connect X"
+                    )}
+                  </Button>
+                  {data?.expired && <ReconnectHelpDialog platform="twitter" />}
+                </div>
               </div>
             )}
           </div>
@@ -1206,13 +1216,16 @@ export function AccountsPage() {
                       Connect your LinkedIn account to publish posts directly to your feed. You will be redirected to LinkedIn to authorize access.
                     </p>
                   )}
-                  <Button onClick={handleConnectLinkedin} disabled={linkedinConnecting}>
-                    {linkedinConnecting ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {linkedinStatus?.expired ? "Reconnecting..." : "Connecting..."}</>
-                    ) : (
-                      <><Linkedin className="h-4 w-4 mr-2" /> {linkedinStatus?.expired ? "Reconnect LinkedIn" : "Connect LinkedIn"}</>
-                    )}
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button onClick={handleConnectLinkedin} disabled={linkedinConnecting}>
+                      {linkedinConnecting ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {linkedinStatus?.expired ? "Reconnecting..." : "Connecting..."}</>
+                      ) : (
+                        <><Linkedin className="h-4 w-4 mr-2" /> {linkedinStatus?.expired ? "Reconnect LinkedIn" : "Connect LinkedIn"}</>
+                      )}
+                    </Button>
+                    {linkedinStatus?.expired && <ReconnectHelpDialog platform="linkedin" />}
+                  </div>
                 </div>
               ) : (
                 <div className="mt-3 space-y-4">
@@ -1332,13 +1345,16 @@ export function AccountsPage() {
                       Connect your YouTube channel through Google sign-in. You will be redirected to Google to approve read access to your channel.
                     </p>
                   )}
-                  <Button onClick={handleConnectYoutube} disabled={youtubeConnecting}>
-                    {youtubeConnecting ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {youtubeStatus?.expired ? "Reconnecting..." : "Connecting..."}</>
-                    ) : (
-                      <><Youtube className="h-4 w-4 mr-2" /> {youtubeStatus?.expired ? "Reconnect YouTube" : "Connect YouTube"}</>
-                    )}
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button onClick={handleConnectYoutube} disabled={youtubeConnecting}>
+                      {youtubeConnecting ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {youtubeStatus?.expired ? "Reconnecting..." : "Connecting..."}</>
+                      ) : (
+                        <><Youtube className="h-4 w-4 mr-2" /> {youtubeStatus?.expired ? "Reconnect YouTube" : "Connect YouTube"}</>
+                      )}
+                    </Button>
+                    {youtubeStatus?.expired && <ReconnectHelpDialog platform="youtube" />}
+                  </div>
                 </div>
               ) : (
                 <div className="mt-3 space-y-4">
@@ -1463,13 +1479,16 @@ export function AccountsPage() {
                       Connect your Threads profile to publish posts directly from the Content Library. You will be redirected to Threads to authorize access.
                     </p>
                   )}
-                  <Button onClick={handleConnectThreads} disabled={threadsConnecting}>
-                    {threadsConnecting ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {threadsStatus?.expired ? "Reconnecting..." : "Connecting..."}</>
-                    ) : (
-                      <><AtSign className="h-4 w-4 mr-2" /> {threadsStatus?.expired ? "Reconnect Threads" : "Connect Threads"}</>
-                    )}
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button onClick={handleConnectThreads} disabled={threadsConnecting}>
+                      {threadsConnecting ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {threadsStatus?.expired ? "Reconnecting..." : "Connecting..."}</>
+                      ) : (
+                        <><AtSign className="h-4 w-4 mr-2" /> {threadsStatus?.expired ? "Reconnect Threads" : "Connect Threads"}</>
+                      )}
+                    </Button>
+                    {threadsStatus?.expired && <ReconnectHelpDialog platform="threads" />}
+                  </div>
                 </div>
               ) : (
                 <div className="mt-3 space-y-4">
