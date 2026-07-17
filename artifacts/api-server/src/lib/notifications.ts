@@ -240,7 +240,9 @@ export async function notifyTeamMemberRemoved(
  * AND per requesting workspace on an existing UNREAD row of this type (the
  * requesting tenant id is carried in the `platform` column as a scope key),
  * so a workspace that resubmits while its previous alert is still unread does
- * not stack an identical banner or re-email admins — while requests from
+ * not stack an identical banner or re-email admins — instead the existing
+ * unread row's title/message are updated in place so the banner always shows
+ * the latest requested seat count and note — while requests from
  * OTHER workspaces still each produce a fresh alert. The dedupe re-arms when
  * the admin reads/dismisses the alert. Best-effort — never throws, so a
  * notification failure cannot fail the seat request itself.
@@ -281,9 +283,11 @@ export async function notifySeatRequestSubmitted(details: {
 
     for (const recipient of recipients) {
       try {
-        // Skip if this admin already has an UNREAD alert for the SAME
-        // requesting workspace — a resubmit must not stack banners or
-        // re-email. Alerts about other workspaces are unaffected.
+        // If this admin already has an UNREAD alert for the SAME requesting
+        // workspace, a resubmit must not stack banners or re-email — but the
+        // banner should reflect the LATEST request, so update the existing
+        // row's title/message in place. Alerts about other workspaces are
+        // unaffected.
         const existing = await db
           .select({ id: notificationsTable.id })
           .from(notificationsTable)
@@ -296,7 +300,13 @@ export async function notifySeatRequestSubmitted(details: {
             ),
           )
           .limit(1);
-        if (existing.length > 0) continue;
+        if (existing.length > 0) {
+          await db
+            .update(notificationsTable)
+            .set({ title, message })
+            .where(eq(notificationsTable.id, existing[0].id));
+          continue;
+        }
 
         const effective = await getEffectiveSetting(
           recipient.id,

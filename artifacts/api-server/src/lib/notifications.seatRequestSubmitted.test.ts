@@ -196,6 +196,46 @@ describe("notifySeatRequestSubmitted", () => {
     }
   });
 
+  it("updates the unread alert's message in place when the same workspace resubmits with new details", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      mockEmailOnlyFor(admin.clerkUserId);
+      await setNotificationPreference(admin.tenantId, SEAT_REQUEST_SUBMITTED, {
+        inApp: true,
+        email: true,
+      });
+
+      await notifySeatRequestSubmitted({
+        requestingTenantId: 424242,
+        requestingTenantName: "Acme Co",
+        requestedSeats: 3,
+        note: null,
+      });
+      await notifySeatRequestSubmitted({
+        requestingTenantId: 424242,
+        requestingTenantName: "Acme Co",
+        requestedSeats: 9,
+        note: "We hired more people",
+      });
+
+      const notes = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === SEAT_REQUEST_SUBMITTED,
+      );
+      expect(notes).toHaveLength(1);
+      expect(notes[0].message).toContain("9 team seats");
+      expect(notes[0].message).toContain('Note: "We hired more people"');
+      expect(notes[0].message).not.toContain("3 team seats");
+      // Still exactly one email — the in-place update must not re-email.
+      expect(
+        mockSendEmail.mock.calls.filter(
+          (c) => c[0].to === "admin@example.com",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
   it("still alerts for a request from a different workspace", async () => {
     const admin = await createTenant({ isSuperadmin: true });
     try {
