@@ -10,28 +10,90 @@ import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { pool } from "@workspace/db";
 import * as schema from "@workspace/db/schema";
 
+interface LiveColumn {
+  dataType: string;
+  udtName: string;
+  isNullable: boolean;
+}
+
+// Normalize a SQL type name to a canonical form so Drizzle's getSQLType()
+// output (e.g. "varchar(255)", "serial", "timestamp with time zone") can be
+// compared against information_schema values.
+function normalizeType(raw: string): string {
+  let t = raw.trim().toLowerCase();
+  // Strip length/precision qualifiers: varchar(255), numeric(10, 2), timestamp (3) ...
+  t = t.replace(/\s*\(\s*\d+(\s*,\s*\d+)?\s*\)/g, "");
+  const isArray = t.endsWith("[]");
+  if (isArray) t = t.slice(0, -2).trim();
+  const aliases: Record<string, string> = {
+    serial: "integer",
+    smallserial: "smallint",
+    bigserial: "bigint",
+    int: "integer",
+    int2: "smallint",
+    int4: "integer",
+    int8: "bigint",
+    "character varying": "varchar",
+    character: "char",
+    bpchar: "char",
+    bool: "boolean",
+    "double precision": "float8",
+    float: "float8",
+    real: "float4",
+    "timestamp without time zone": "timestamp",
+    "timestamp with time zone": "timestamptz",
+    "time without time zone": "time",
+    "time with time zone": "timetz",
+    decimal: "numeric",
+  };
+  t = aliases[t] ?? t;
+  return isArray ? `${t}[]` : t;
+}
+
+// Resolve the live column's effective type name from information_schema.
+function liveTypeName(col: LiveColumn): string {
+  const dt = col.dataType.toLowerCase();
+  if (dt === "array") {
+    // udt_name is like "_text" for text[]
+    return `${normalizeType(col.udtName.replace(/^_/, ""))}[]`;
+  }
+  if (dt === "user-defined") {
+    // Enums and other custom types: compare by udt (type) name.
+    return normalizeType(col.udtName);
+  }
+  return normalizeType(dt);
+}
+
 export default async function schemaDriftCheck(): Promise<void> {
   try {
     const res = await pool.query<{
       table_name: string;
       column_name: string;
+      data_type: string;
+      udt_name: string;
+      is_nullable: string;
     }>(
-      `SELECT table_name, column_name
+      `SELECT table_name, column_name, data_type, udt_name, is_nullable
          FROM information_schema.columns
         WHERE table_schema = 'public'`,
     );
-    const live = new Map<string, Set<string>>();
+    const live = new Map<string, Map<string, LiveColumn>>();
     for (const row of res.rows) {
       let cols = live.get(row.table_name);
       if (!cols) {
-        cols = new Set();
+        cols = new Map();
         live.set(row.table_name, cols);
       }
-      cols.add(row.column_name);
+      cols.set(row.column_name, {
+        dataType: row.data_type,
+        udtName: row.udt_name,
+        isNullable: row.is_nullable === "YES",
+      });
     }
 
     const missingTables: string[] = [];
     const missingColumns: string[] = [];
+    const mismatchedColumns: string[] = [];
     for (const exported of Object.values(schema)) {
       if (!(exported instanceof PgTable)) continue;
       const { name: tableName, columns } = getTableConfig(exported);
@@ -41,16 +103,37 @@ export default async function schemaDriftCheck(): Promise<void> {
         continue;
       }
       for (const col of columns) {
-        if (!liveCols.has(col.name)) {
+        const liveCol = liveCols.get(col.name);
+        if (!liveCol) {
           missingColumns.push(`${tableName}.${col.name}`);
+          continue;
+        }
+        const expectedType = normalizeType(col.getSQLType());
+        const actualType = liveTypeName(liveCol);
+        if (expectedType !== actualType) {
+          mismatchedColumns.push(
+            `${tableName}.${col.name}: expected type ${expectedType}, database has ${actualType}`,
+          );
+        }
+        const expectedNotNull = col.notNull;
+        const actualNotNull = !liveCol.isNullable;
+        if (expectedNotNull !== actualNotNull) {
+          mismatchedColumns.push(
+            `${tableName}.${col.name}: expected ${expectedNotNull ? "NOT NULL" : "nullable"}, database has ${actualNotNull ? "NOT NULL" : "nullable"}`,
+          );
         }
       }
     }
 
-    if (missingTables.length > 0 || missingColumns.length > 0) {
+    if (
+      missingTables.length > 0 ||
+      missingColumns.length > 0 ||
+      mismatchedColumns.length > 0
+    ) {
       const details = [
         ...missingTables.map((t) => `  missing table: ${t}`),
         ...missingColumns.map((c) => `  missing column: ${c}`),
+        ...mismatchedColumns.map((c) => `  mismatched column: ${c}`),
       ].join("\n");
       throw new Error(
         `Dev database schema is out of date with lib/db/src/schema/:\n${details}\n\n` +
