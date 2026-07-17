@@ -1,6 +1,11 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, emailSettingsTable, type EmailSettings } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import {
+  db,
+  emailSettingsTable,
+  adminAuditLogsTable,
+  type EmailSettings,
+} from "@workspace/db";
+import { and, eq, gt, notLike, count } from "drizzle-orm";
 import {
   AdminUpdateEmailSettingsBody,
   AdminSendTestEmailBody,
@@ -40,33 +45,62 @@ function auditSummary(row: EmailSettings | undefined) {
  * Per-actor cooldown for test sends: the endpoint emails an ARBITRARY address
  * the admin typed, so a stuck button or misuse could spam an external inbox.
  * Allow a few sends per minute per superadmin tenant, then return 429 until
- * the window rolls over. In-memory is fine here — this is a single-process
- * admin tool and losing the counter on restart only re-allows a few sends.
+ * the window rolls over.
+ *
+ * The counter is DERIVED from the append-only admin audit trail rather than
+ * held in process memory: every attempt is already audited as
+ * `email_test_send`, so counting the actor's recent non-throttled rows makes
+ * the cap survive server restarts and stay consistent across instances with
+ * no new tables. Throttled attempts are excluded from the count so hammering
+ * a blocked button cannot extend the block past the original window.
  * Unlike the express-rate-limit middlewares this does NOT skip under tests,
  * so the throttle itself is testable.
  */
 export const TEST_EMAIL_LIMIT = 3;
 export const TEST_EMAIL_WINDOW_MS = 60_000;
-const testSendHistory = new Map<string, number[]>();
 
-/** Returns true when this attempt is allowed and records it; false when throttled. */
-function allowTestSend(actorKey: string, now = Date.now()): boolean {
-  const cutoff = now - TEST_EMAIL_WINDOW_MS;
-  const recent = (testSendHistory.get(actorKey) ?? []).filter(
-    (t) => t > cutoff,
-  );
-  if (recent.length >= TEST_EMAIL_LIMIT) {
-    testSendHistory.set(actorKey, recent);
-    return false;
-  }
-  recent.push(now);
-  testSendHistory.set(actorKey, recent);
-  return true;
+/**
+ * Returns true when this attempt is allowed. Fails CLOSED (throttled) if the
+ * audit trail cannot be read — this endpoint's whole job is writing to the
+ * same database, so a degraded DB should block sends, not open the tap.
+ */
+async function allowTestSend(
+  actorTenantId: number,
+  now = Date.now(),
+): Promise<boolean> {
+  const cutoff = new Date(now - TEST_EMAIL_WINDOW_MS);
+  const [row] = await db
+    .select({ value: count() })
+    .from(adminAuditLogsTable)
+    .where(
+      and(
+        eq(adminAuditLogsTable.action, "email_test_send"),
+        eq(adminAuditLogsTable.actorTenantId, actorTenantId),
+        gt(adminAuditLogsTable.createdAt, cutoff),
+        // Only attempts that got past the throttle count against the cap.
+        notLike(adminAuditLogsTable.newValue, '%"outcome":"throttled"%'),
+      ),
+    );
+  return (row?.value ?? 0) < TEST_EMAIL_LIMIT;
 }
 
-/** Test-only: clear the throttle so suites don't leak state between tests. */
-export function _resetTestEmailThrottle(): void {
-  testSendHistory.clear();
+/**
+ * Test-only: expire the throttle window by backdating this suite's recent
+ * `email_test_send` audit rows past the window, simulating time passing
+ * without touching unrelated audit history.
+ */
+export async function _resetTestEmailThrottle(): Promise<void> {
+  const backdated = new Date(Date.now() - TEST_EMAIL_WINDOW_MS - 1000);
+  const cutoff = new Date(Date.now() - TEST_EMAIL_WINDOW_MS);
+  await db
+    .update(adminAuditLogsTable)
+    .set({ createdAt: backdated })
+    .where(
+      and(
+        eq(adminAuditLogsTable.action, "email_test_send"),
+        gt(adminAuditLogsTable.createdAt, cutoff),
+      ),
+    );
 }
 
 const router: IRouter = Router();
@@ -201,7 +235,17 @@ router.post(
 
     // Cooldown BEFORE any send: cap rapid-fire test emails to an arbitrary
     // external inbox. Throttled attempts send nothing and touch no state.
-    if (!allowTestSend(String(req.tenantId))) {
+    // The decision reads the audit trail; fail CLOSED on a read error.
+    let allowed = false;
+    try {
+      allowed = await allowTestSend(req.tenantId);
+    } catch (error) {
+      req.log.error(
+        { err: error },
+        "Failed to read email-test-send throttle state; failing closed",
+      );
+    }
+    if (!allowed) {
       // Audit the blocked attempt too — abuse attempts are exactly what the
       // trail is for. Best-effort: never fail the response on an audit error.
       try {

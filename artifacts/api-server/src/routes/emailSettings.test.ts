@@ -99,7 +99,7 @@ beforeEach(async () => {
   resetAuthState();
   sendgridCalls.length = 0;
   sendgridResponse = { status: 202, body: "" };
-  _resetTestEmailThrottle();
+  await _resetTestEmailThrottle();
   await clearEmailSettings();
 });
 
@@ -573,7 +573,7 @@ describe("POST /admin/email-settings/test", () => {
       expect(throttled.status).toBe(429);
 
       // Simulate the window rolling over (a legitimate occasional send).
-      _resetTestEmailThrottle();
+      await _resetTestEmailThrottle();
 
       const later = await request(app)
         .post("/api/admin/email-settings/test")
@@ -618,6 +618,38 @@ describe("POST /admin/email-settings/test", () => {
     } finally {
       await deleteTenant(adminA.tenantId);
       await deleteTenant(adminB.tenantId);
+    }
+  });
+
+  it("keeps throttling after a server restart: a fresh app instance still sees the cap", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(admin.clerkUserId, "admin@example.com");
+
+      await request(app).put("/api/admin/email-settings").send({
+        sendingEnabled: false,
+        fromEmail: "alerts@socialforge.test",
+        apiKey: "SG.restart-key-6666",
+      });
+
+      for (let i = 0; i < TEST_EMAIL_LIMIT; i++) {
+        const res = await request(app)
+          .post("/api/admin/email-settings/test")
+          .send({ to: "victim@example.com" });
+        expect(res.status).toBe(200);
+      }
+
+      // Simulate a restart / second instance: a brand-new app has no process
+      // memory, but the throttle is derived from the audit trail, so the cap
+      // still holds and no email leaves.
+      const freshApp = createAdminTestApp();
+      const throttled = await request(freshApp)
+        .post("/api/admin/email-settings/test")
+        .send({ to: "victim@example.com" });
+      expect(throttled.status).toBe(429);
+      expect(sendgridCalls.length).toBe(TEST_EMAIL_LIMIT);
+    } finally {
+      await deleteTenant(admin.tenantId);
     }
   });
 
