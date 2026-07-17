@@ -28,6 +28,29 @@ describe("buildAllowedOrigins", () => {
     expect(origins).toEqual(new Set(["https://app.example.replit.app"]));
   });
 
+  it("includes REPLIT_INTERNAL_APP_DOMAIN (published mobile origin)", () => {
+    const origins = buildAllowedOrigins({
+      REPLIT_DOMAINS: "app.example.replit.app",
+      REPLIT_INTERNAL_APP_DOMAIN: "internal.example.replit.app",
+    } as NodeJS.ProcessEnv);
+
+    expect(origins).toEqual(
+      new Set([
+        "https://app.example.replit.app",
+        "https://internal.example.replit.app",
+      ]),
+    );
+  });
+
+  it("normalizes a scheme-prefixed REPLIT_INTERNAL_APP_DOMAIN and dedupes", () => {
+    const origins = buildAllowedOrigins({
+      REPLIT_DOMAINS: "app.example.replit.app",
+      REPLIT_INTERNAL_APP_DOMAIN: "https://app.example.replit.app/",
+    } as NodeJS.ProcessEnv);
+
+    expect(origins).toEqual(new Set(["https://app.example.replit.app"]));
+  });
+
   it("handles fully empty env without producing bogus origins", () => {
     expect(buildAllowedOrigins({} as NodeJS.ProcessEnv)).toEqual(new Set());
   });
