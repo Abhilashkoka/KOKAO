@@ -635,6 +635,13 @@ export function StudioPage() {
                       )}
                     </Button>
                   </div>
+                  <VoiceNoteButton
+                    onTranscript={(text) => {
+                      setNiche((prev) => (prev ? `${prev} ${text}` : text));
+                      toast({ title: "Voice note added", description: "Your topic was filled in from the recording." });
+                    }}
+                    disabled={suggestTopics.isPending}
+                  />
                   {topicIdeas.length > 0 && (
                     <div className="space-y-2">
                       <p className="text-xs text-muted-foreground">Click an idea to use it as your brief:</p>
@@ -682,6 +689,13 @@ export function StudioPage() {
                       )}
                     </Button>
                   </div>
+                  <VoiceNoteButton
+                    onTranscript={(text) => {
+                      setResearchQuery((prev) => (prev ? `${prev} ${text}` : text));
+                      toast({ title: "Voice note added", description: "Your research question was filled in from the recording." });
+                    }}
+                    disabled={researchTopic.isPending}
+                  />
                   <p className="text-xs text-muted-foreground">
                     Searches the live web and builds a sourced brief with current facts.
                   </p>
