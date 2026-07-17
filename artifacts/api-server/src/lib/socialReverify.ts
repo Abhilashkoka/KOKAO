@@ -108,6 +108,19 @@ async function touchChecked(row: AccountRow): Promise<void> {
 }
 
 /**
+ * Thrown when a live platform write fails because the token died mid-publish
+ * (revoked in the window between the pre-publish re-verify and the write).
+ * Carries no raw platform text, so route handlers can safely surface
+ * `message` verbatim as the friendly reconnect prompt.
+ */
+export class PublishAuthRevokedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PublishAuthRevokedError";
+  }
+}
+
+/**
  * Flip a tenant's stored account row to verifyStatus "failed" after a live
  * platform call rejected its token (e.g. a Graph auth error surfacing
  * mid-publish, in the window after the pre-publish re-verify passed).
@@ -221,7 +234,7 @@ export async function reverifyInstagram(
 
 const LINKEDIN_USERINFO_URL = "https://api.linkedin.com/v2/userinfo";
 
-const LINKEDIN_TOKEN_INVALID_MESSAGE =
+export const LINKEDIN_TOKEN_INVALID_MESSAGE =
   "Your LinkedIn access token is no longer valid. Reconnect LinkedIn to keep publishing.";
 
 /**
@@ -373,7 +386,7 @@ const THREADS_REFRESH_URL = "https://graph.threads.net/refresh_access_token";
 /** Refresh when a Threads long-lived token is within this window of expiry. */
 export const THREADS_REFRESH_WHEN_REMAINING_MS = 7 * 24 * 60 * 60 * 1000;
 
-const THREADS_TOKEN_INVALID_MESSAGE =
+export const THREADS_TOKEN_INVALID_MESSAGE =
   "Your Threads access is no longer valid. Reconnect Threads to keep publishing.";
 
 export type ThreadsRefreshOutcome =

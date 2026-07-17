@@ -813,3 +813,136 @@ describe("Threads publish inline token refresh", () => {
     }
   });
 });
+
+describe("Threads publish when the token dies MID-publish", () => {
+  const RAW_THREADS_ERROR = "Error validating access token: session expired";
+
+  function mockThreadsDeadWrite(opts: { failOnContainer?: number } = {}) {
+    // Which container-create call (1-based) starts failing with the revoked
+    // token. Default 1 = the very first write fails.
+    const failFrom = opts.failOnContainer ?? 1;
+    const calls: MockCall[] = [];
+    let containerSeq = 0;
+    let publishSeq = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
+        calls.push({ url, method, body: String(init?.body ?? "") });
+        const json = (body: unknown, status = 200) =>
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "content-type": "application/json" },
+          });
+        if (
+          method === "GET" &&
+          url.startsWith(`${GRAPH_BASE}/${TH_USER_ID}/threads?`)
+        ) {
+          return json({ data: [] });
+        }
+        if (
+          method === "POST" &&
+          url === `${GRAPH_BASE}/${TH_USER_ID}/threads`
+        ) {
+          containerSeq += 1;
+          if (containerSeq >= failFrom) {
+            return json(
+              {
+                error: {
+                  message: RAW_THREADS_ERROR,
+                  code: 190,
+                  type: "OAuthException",
+                },
+              },
+              401,
+            );
+          }
+          return json({ id: `CONTAINER_${containerSeq}` });
+        }
+        if (
+          method === "POST" &&
+          url === `${GRAPH_BASE}/${TH_USER_ID}/threads_publish`
+        ) {
+          publishSeq += 1;
+          return json({ id: `POST_${publishSeq}` });
+        }
+        return json({});
+      },
+    );
+    return calls;
+  }
+
+  it("maps a 401/code-190 on the first write to the reconnect message and flips the account", async () => {
+    mockThreadsDeadWrite();
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: TH_USER_ID,
+      });
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: "hello world",
+      });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-threads`,
+      );
+
+      // The friendly reconnect message — never the raw Threads error.
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/reconnect/i);
+      expect(res.body.error).not.toContain(RAW_THREADS_ERROR);
+      expect(res.body.error).not.toMatch(/error validating access token/i);
+
+      // The item records the failure with the friendly message.
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("failed");
+      expect(item.failureReason).toMatch(/reconnect/i);
+      expect(item.failureReason).not.toContain(RAW_THREADS_ERROR);
+
+      // The account row flipped so the Accounts page prompts a reconnect.
+      const row = await getConnectedAccount(tenant.tenantId, "threads");
+      expect(row?.verifyStatus).toBe("failed");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("keeps the item published but flips the account when the token dies on a follow-up reply", async () => {
+    // A caption long enough to need a second (reply) post.
+    const caption = ("lorem ipsum dolor sit amet ").repeat(30).trim();
+    expect(chunkOnWhitespace(caption, 500).length).toBeGreaterThan(1);
+
+    // The first container+publish succeed; the second container (the reply)
+    // hits the revoked token.
+    mockThreadsDeadWrite({ failOnContainer: 2 });
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: TH_USER_ID,
+      });
+      const itemId = await insertContentItem(tenant.tenantId, { caption });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-threads`,
+      );
+
+      // The first post landed — keep the item published with a warning.
+      expect(res.status).toBe(200);
+      expect(res.body.publishWarning).toMatch(/could not be posted/i);
+      expect(res.body.publishWarning).not.toContain(RAW_THREADS_ERROR);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+
+      // But the account row still flipped so the reconnect prompt shows.
+      const row = await getConnectedAccount(tenant.tenantId, "threads");
+      expect(row?.verifyStatus).toBe("failed");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});

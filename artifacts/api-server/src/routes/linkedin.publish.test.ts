@@ -551,6 +551,108 @@ describe("LinkedIn publish with a dead token", () => {
   });
 });
 
+describe("LinkedIn publish when the token dies MID-publish", () => {
+  // The raw platform message a revoked token produces on the write itself.
+  const RAW_LINKEDIN_ERROR = "The token used in the request has been revoked";
+
+  it("maps a 401 on the post write (verify passed) to the reconnect message and flips the account", async () => {
+    seedConnectedAccount({ verifyStatus: "verified", verifiedAt: new Date() });
+    seedContentItem();
+    fetchHandler = (call) => {
+      // The pre-publish re-verify PASSES — the token dies in the tiny
+      // window between the check and the actual write.
+      if (call.url.includes("/userinfo")) {
+        return makeRes({ json: { sub: "member123", name: "Jane Member" } });
+      }
+      if (call.method === "GET" && call.url.includes("/rest/posts?")) {
+        return makeRes({ json: { elements: [] } });
+      }
+      if (call.method === "POST" && call.url.endsWith("/rest/posts")) {
+        return makeRes({ status: 401, json: { message: RAW_LINKEDIN_ERROR } });
+      }
+      return makeRes();
+    };
+
+    const res = await drive("POST", "/content/1/publish-linkedin");
+
+    // The friendly reconnect message — never the raw LinkedIn error.
+    expect(res.status).toBe(400);
+    expect(res.json.error).toMatch(/reconnect/i);
+    expect(res.json.error).not.toContain(RAW_LINKEDIN_ERROR);
+
+    // The item records the failure with the friendly message.
+    expect(state.content[0].status).toBe("failed");
+    expect(String(state.content[0].failureReason)).toMatch(/reconnect/i);
+    expect(String(state.content[0].failureReason)).not.toContain(
+      RAW_LINKEDIN_ERROR,
+    );
+    expect(state.content[0].postId ?? null).toBeNull();
+
+    // The account row flipped so the Accounts page prompts a reconnect.
+    expect(state.accounts[0].verifyStatus).toBe("failed");
+  });
+
+  it("maps a 403 on the image init (verify passed) to the reconnect message and flips the account", async () => {
+    seedConnectedAccount({ verifyStatus: "verified", verifiedAt: new Date() });
+    seedContentItem({ imagePath: "/objects/uploads/x.png" });
+    fetchHandler = (call) => {
+      if (call.url.includes("/userinfo")) {
+        return makeRes({ json: { sub: "member123", name: "Jane Member" } });
+      }
+      if (call.method === "GET" && call.url.includes("/rest/posts?")) {
+        return makeRes({ json: { elements: [] } });
+      }
+      if (call.url.includes("/rest/images?action=initializeUpload")) {
+        return makeRes({ status: 403, json: { message: RAW_LINKEDIN_ERROR } });
+      }
+      return makeRes();
+    };
+
+    const res = await drive("POST", "/content/1/publish-linkedin");
+
+    expect(res.status).toBe(400);
+    expect(res.json.error).toMatch(/reconnect/i);
+    expect(res.json.error).not.toContain(RAW_LINKEDIN_ERROR);
+    expect(state.content[0].status).toBe("failed");
+    expect(state.accounts[0].verifyStatus).toBe("failed");
+  });
+
+  it("keeps the item published but flips the account when the token dies on a follow-up comment", async () => {
+    const caption = "A".repeat(LINKEDIN_MAX_LENGTH + 50);
+    seedConnectedAccount({ verifyStatus: "verified", verifiedAt: new Date() });
+    seedContentItem({ caption });
+    fetchHandler = (call) => {
+      if (call.url.includes("/userinfo")) {
+        return makeRes({ json: { sub: "member123", name: "Jane Member" } });
+      }
+      if (call.method === "GET" && call.url.includes("/rest/posts?")) {
+        return makeRes({ json: { elements: [] } });
+      }
+      if (call.method === "POST" && call.url.endsWith("/rest/posts")) {
+        return makeRes({
+          status: 201,
+          headers: { "x-restli-id": "urn:li:share:ok" },
+        });
+      }
+      if (call.url.includes("/comments")) {
+        return makeRes({ status: 401, json: { message: RAW_LINKEDIN_ERROR } });
+      }
+      return makeRes();
+    };
+
+    const res = await drive("POST", "/content/1/publish-linkedin");
+
+    // The post itself landed — keep it published with a warning.
+    expect(res.status).toBe(200);
+    expect(res.json.commentWarning).toMatch(/could not be posted/i);
+    expect(res.json.commentWarning).not.toContain(RAW_LINKEDIN_ERROR);
+    expect(state.content[0].status).toBe("published");
+
+    // But the account row still flipped so the reconnect prompt shows.
+    expect(state.accounts[0].verifyStatus).toBe("failed");
+  });
+});
+
 describe("LinkedIn publish dedupe (retry after committed-but-lost response)", () => {
   const CAPTION = "Check this (out) #great & more";
   // Same escaping the route applies before sending.

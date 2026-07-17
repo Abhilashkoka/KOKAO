@@ -2111,3 +2111,134 @@ describe("X (Twitter) publish duplicate-post guard", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Token dies MID-publish: the account passed the verifyStatus gate, but X
+// rejects the actual tweet write with 401 (revoked in the window between the
+// gate and the write). The user must see the friendly reconnect message —
+// never the raw X error — and the account row must flip to "failed".
+// ---------------------------------------------------------------------------
+
+const RAW_X_ERROR = "Unauthorized: token has been revoked upstream";
+
+function mockXApiDeadWrite(
+  calls: MockCall[],
+  opts: { failFromTweet?: number } = {},
+) {
+  const failFrom = opts.failFromTweet ?? 1;
+  let tweetSeq = 0;
+  return vi
+    .spyOn(globalThis, "fetch")
+    .mockImplementation(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const auth =
+          (init?.headers as Record<string, string> | undefined)
+            ?.Authorization ?? "";
+        calls.push({ url, auth, body: init?.body });
+
+        const json = (body: unknown, status = 200) =>
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "content-type": "application/json" },
+          });
+
+        if (url.includes("/2/users/") && url.includes("/tweets")) {
+          return json({ data: [] });
+        }
+        if (url.includes("/2/media/upload")) {
+          return json({ data: { id: "MEDIA_1" } });
+        }
+        if (url.includes("/2/tweets")) {
+          tweetSeq += 1;
+          if (tweetSeq >= failFrom) {
+            return json(
+              { title: "Unauthorized", detail: RAW_X_ERROR, status: 401 },
+              401,
+            );
+          }
+          return json({ data: { id: `TWEET_${tweetSeq}` } });
+        }
+        return json({});
+      },
+    );
+}
+
+describe("X (Twitter) publish when the token dies MID-publish", () => {
+  beforeEach(async () => {
+    await setVerifiedTwitterRow();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("maps a 401 on the tweet write to the reconnect message and flips the account", async () => {
+    const calls: MockCall[] = [];
+    mockXApiDeadWrite(calls);
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: "hello x world",
+      });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-twitter`,
+      );
+
+      // The friendly reconnect message — never the raw X error.
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/reconnect/i);
+      expect(res.body.error).not.toContain(RAW_X_ERROR);
+
+      // The item records the failure with the friendly message.
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("failed");
+      expect(item.failureReason).toMatch(/reconnect/i);
+      expect(item.failureReason).not.toContain(RAW_X_ERROR);
+
+      // The account row flipped so the Accounts page prompts a reconnect.
+      const row = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(row?.verifyStatus).toBe("failed");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("keeps the item published but flips the account when the token dies on a follow-up tweet", async () => {
+    // A caption long enough to need a second tweet in the thread.
+    const caption = ("lorem ipsum dolor sit amet ").repeat(20).trim();
+    expect(splitIntoTweets(caption).length).toBeGreaterThan(1);
+
+    const calls: MockCall[] = [];
+    mockXApiDeadWrite(calls, { failFromTweet: 2 });
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      const itemId = await insertContentItem(tenant.tenantId, { caption });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-twitter`,
+      );
+
+      // The first tweet landed — keep the item published with a warning.
+      expect(res.status).toBe(200);
+      expect(res.body.publishWarning).toMatch(/could not be posted/i);
+      expect(res.body.publishWarning).not.toContain(RAW_X_ERROR);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("published");
+
+      // But the account row still flipped so the reconnect prompt shows.
+      const row = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(row?.verifyStatus).toBe("failed");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});

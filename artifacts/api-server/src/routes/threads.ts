@@ -20,7 +20,12 @@ import {
   randomNonce,
 } from "../lib/oauthState";
 import { resolveSocialConnectionNotifications } from "../lib/notifications";
-import { maybeRefreshThreadsToken } from "../lib/socialReverify";
+import {
+  maybeRefreshThreadsToken,
+  markAccountVerifyFailed,
+  PublishAuthRevokedError,
+  THREADS_TOKEN_INVALID_MESSAGE,
+} from "../lib/socialReverify";
 import {
   tryAcquireResendLock,
   RESEND_IN_PROGRESS_MESSAGE,
@@ -390,16 +395,49 @@ router.post("/threads/retest", async (req: Request, res: Response) => {
 });
 
 type ThreadsErrorBody = {
-  error?: { message?: string; error_user_msg?: string };
+  error?: {
+    message?: string;
+    error_user_msg?: string;
+    code?: number;
+    type?: string;
+  };
 };
 
-async function threadsErrorMessage(res: globalThis.Response, fallback: string) {
+/**
+ * The same friendly reconnect message the pre-publish gate returns. A token
+ * that dies in the window between the pre-publish check and the actual write
+ * must surface this — never the raw Threads/Graph error.
+ */
+const THREADS_RECONNECT_MESSAGE =
+  "Threads is not connected or its access is no longer valid. Reconnect your Threads account on the Accounts page and try again.";
+
+/**
+ * Turn a failed Threads/Graph response into a safe error to throw. An auth
+ * failure (HTTP 401, Graph error code 190, or type "OAuthException" — the
+ * token was revoked mid-publish) becomes a PublishAuthRevokedError carrying
+ * the friendly reconnect message; anything else keeps the platform's own
+ * message with a fallback.
+ */
+async function threadsResponseError(
+  res: globalThis.Response,
+  fallback: string,
+): Promise<Error> {
+  let body: ThreadsErrorBody = {};
   try {
-    const json = (await res.json()) as ThreadsErrorBody;
-    return json.error?.error_user_msg || json.error?.message || fallback;
+    body = (await res.json()) as ThreadsErrorBody;
   } catch {
-    return fallback;
+    /* ignore non-JSON body */
   }
+  if (
+    res.status === 401 ||
+    body.error?.code === 190 ||
+    body.error?.type === "OAuthException"
+  ) {
+    return new PublishAuthRevokedError(THREADS_RECONNECT_MESSAGE);
+  }
+  return new Error(
+    body.error?.error_user_msg || body.error?.message || fallback,
+  );
 }
 
 /**
@@ -512,11 +550,9 @@ async function publishOneThread(opts: {
     body: createParams.toString(),
   });
   if (!createRes.ok) {
-    throw new Error(
-      await threadsErrorMessage(
-        createRes,
-        `Threads container error (${createRes.status})`,
-      ),
+    throw await threadsResponseError(
+      createRes,
+      `Threads container error (${createRes.status})`,
     );
   }
   const createJson = (await createRes.json()) as { id?: string };
@@ -533,11 +569,9 @@ async function publishOneThread(opts: {
     }).toString(),
   });
   if (!publishRes.ok) {
-    throw new Error(
-      await threadsErrorMessage(
-        publishRes,
-        `Threads publish error (${publishRes.status})`,
-      ),
+    throw await threadsResponseError(
+      publishRes,
+      `Threads publish error (${publishRes.status})`,
     );
   }
   const publishJson = (await publishRes.json()) as { id?: string };
@@ -673,6 +707,23 @@ router.post(
             { err: chunkError, index },
             "Threads follow-up reply failed",
           );
+          // The token died mid-chain: the first post is already out, so keep
+          // the item published with a warning, but still flip the account
+          // row so the Accounts page prompts a reconnect.
+          if (chunkError instanceof PublishAuthRevokedError) {
+            try {
+              await markAccountVerifyFailed(
+                req.tenantId,
+                "threads",
+                THREADS_TOKEN_INVALID_MESSAGE,
+              );
+            } catch (markErr) {
+              req.log.error(
+                { err: markErr },
+                "Failed to flip Threads account to failed after mid-chain auth error",
+              );
+            }
+          }
           const remaining = chunks.length - index;
           publishWarning = `The post was published, but ${remaining} of ${chunks.length - 1} follow-up repl${remaining === 1 ? "y" : "ies"} with the rest of the caption could not be posted.`;
           chainPostedCount = index;
@@ -730,6 +781,48 @@ router.post(
       });
     } catch (error) {
       req.log.error({ err: error }, "Threads publish failed");
+
+      // The token died in the window between the pre-publish check and the
+      // actual write. Surface the same friendly reconnect message the
+      // pre-publish gate uses (never the raw Threads error) and flip the
+      // account row to "failed" so the Accounts page prompts a reconnect.
+      if (error instanceof PublishAuthRevokedError) {
+        try {
+          await markAccountVerifyFailed(
+            req.tenantId,
+            "threads",
+            THREADS_TOKEN_INVALID_MESSAGE,
+          );
+        } catch (markErr) {
+          req.log.error(
+            { err: markErr },
+            "Failed to flip Threads account to failed after mid-publish auth error",
+          );
+        }
+        try {
+          await db
+            .update(contentItemsTable)
+            .set({
+              status: "failed",
+              failureReason: error.message,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(contentItemsTable.id, id),
+                eq(contentItemsTable.tenantId, req.tenantId),
+              ),
+            );
+        } catch (updateErr) {
+          req.log.error(
+            { err: updateErr, contentItemId: id },
+            "Failed to record Threads publish failure",
+          );
+        }
+        res.status(400).json({ error: error.message });
+        return;
+      }
+
       const reason =
         error instanceof Error && error.message
           ? `Threads rejected the post: ${error.message}`

@@ -20,10 +20,23 @@ import {
   randomNonce,
 } from "../lib/oauthState";
 import { resolveSocialConnectionNotifications } from "../lib/notifications";
-import { reverifyLinkedin } from "../lib/socialReverify";
+import {
+  reverifyLinkedin,
+  markAccountVerifyFailed,
+  PublishAuthRevokedError,
+  LINKEDIN_TOKEN_INVALID_MESSAGE,
+} from "../lib/socialReverify";
 import { splitForLinkedin } from "@workspace/social-limits";
 
 const router: IRouter = Router();
+
+/**
+ * The same friendly reconnect message the pre-publish gate returns. A token
+ * that dies in the window between the pre-publish re-verify and the actual
+ * write must surface this — never the raw LinkedIn error.
+ */
+const LINKEDIN_RECONNECT_MESSAGE =
+  "LinkedIn is not connected or its access token is no longer valid. Reconnect your LinkedIn account on the Accounts page and try again.";
 
 const objectStorageService = new ObjectStorageService();
 
@@ -114,6 +127,10 @@ async function postLinkedinComment(
     },
   );
   if (res.status !== 201 && !res.ok) {
+    // The token died mid-sequence. Never surface the raw LinkedIn error.
+    if (res.status === 401 || res.status === 403) {
+      throw new PublishAuthRevokedError(LINKEDIN_RECONNECT_MESSAGE);
+    }
     let detail = `LinkedIn comment error (${res.status})`;
     try {
       const errJson = (await res.json()) as { message?: string };
@@ -589,6 +606,11 @@ async function createLinkedinPost(opts: {
       value?: { uploadUrl?: string; image?: string };
     };
     if (!initRes.ok || !initJson.value?.uploadUrl || !initJson.value.image) {
+      // The token died mid-publish (revoked between the pre-publish
+      // re-verify and this write). Never surface the raw LinkedIn error.
+      if (initRes.status === 401 || initRes.status === 403) {
+        throw new PublishAuthRevokedError(LINKEDIN_RECONNECT_MESSAGE);
+      }
       throw new Error(`Image upload could not be initialized (${initRes.status})`);
     }
 
@@ -630,6 +652,11 @@ async function createLinkedinPost(opts: {
     body: JSON.stringify(postBody),
   });
   if (postRes.status !== 201 && !postRes.ok) {
+    // The token died mid-publish (revoked between the pre-publish re-verify
+    // and this write). Never surface the raw LinkedIn error.
+    if (postRes.status === 401 || postRes.status === 403) {
+      throw new PublishAuthRevokedError(LINKEDIN_RECONNECT_MESSAGE);
+    }
     let detail = `LinkedIn API error (${postRes.status})`;
     try {
       const errJson = (await postRes.json()) as { message?: string };
@@ -853,6 +880,23 @@ router.post(
                 { err: commentError, postId },
                 "LinkedIn overflow comment failed",
               );
+              // The token died mid-sequence: the post is already published,
+              // so keep the item published with a warning, but still flip
+              // the account row so the Accounts page prompts a reconnect.
+              if (commentError instanceof PublishAuthRevokedError) {
+                try {
+                  await markAccountVerifyFailed(
+                    req.tenantId,
+                    "linkedin",
+                    LINKEDIN_TOKEN_INVALID_MESSAGE,
+                  );
+                } catch (markErr) {
+                  req.log.error(
+                    { err: markErr },
+                    "Failed to flip LinkedIn account to failed after mid-sequence auth error",
+                  );
+                }
+              }
               const remaining = overflowComments.length - index;
               commentWarning = `The post was published, but ${remaining} of ${overflowComments.length} follow-up comment(s) with the rest of the caption could not be posted.`;
               break;
@@ -899,6 +943,48 @@ router.post(
       });
     } catch (error) {
       req.log.error({ err: error }, "LinkedIn publish failed");
+
+      // The token died in the window between the pre-publish re-verify and
+      // the actual write. Surface the same friendly reconnect message the
+      // pre-publish gate uses (never the raw LinkedIn error) and flip the
+      // account row to "failed" so the Accounts page prompts a reconnect.
+      if (error instanceof PublishAuthRevokedError) {
+        try {
+          await markAccountVerifyFailed(
+            req.tenantId,
+            "linkedin",
+            LINKEDIN_TOKEN_INVALID_MESSAGE,
+          );
+        } catch (markErr) {
+          req.log.error(
+            { err: markErr },
+            "Failed to flip LinkedIn account to failed after mid-publish auth error",
+          );
+        }
+        try {
+          await db
+            .update(contentItemsTable)
+            .set({
+              status: "failed",
+              failureReason: error.message,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(contentItemsTable.id, id),
+                eq(contentItemsTable.tenantId, req.tenantId),
+              ),
+            );
+        } catch (updateErr) {
+          req.log.error(
+            { err: updateErr, contentItemId: id },
+            "Failed to record LinkedIn publish failure",
+          );
+        }
+        res.status(400).json({ error: error.message });
+        return;
+      }
+
       const reason =
         error instanceof Error && error.message
           ? `LinkedIn rejected the post: ${error.message}`

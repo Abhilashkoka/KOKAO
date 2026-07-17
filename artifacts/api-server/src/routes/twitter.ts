@@ -22,7 +22,11 @@ import {
 } from "../lib/twitterApi";
 import { encryptJson } from "../lib/secretCrypto";
 import { signOAuthState, verifySignedOAuthState } from "../lib/oauthState";
-import { reverifyTwitter } from "../lib/socialReverify";
+import {
+  reverifyTwitter,
+  markAccountVerifyFailed,
+  PublishAuthRevokedError,
+} from "../lib/socialReverify";
 import {
   tryAcquireResendLock,
   RESEND_IN_PROGRESS_MESSAGE,
@@ -30,6 +34,17 @@ import {
 import { resolveSocialConnectionNotifications } from "../lib/notifications";
 
 const router: IRouter = Router();
+
+/**
+ * The same friendly reconnect message the pre-publish token check returns. A
+ * token that dies in the window between that check and the actual write must
+ * surface this — never the raw X error.
+ */
+const TWITTER_RECONNECT_MESSAGE =
+  "X is not connected or not verified. Reconnect your X account on the Accounts page and try again.";
+
+const TWITTER_TOKEN_INVALID_MESSAGE =
+  "Your X access token is no longer valid. Reconnect X to keep publishing.";
 
 const objectStorageService = new ObjectStorageService();
 
@@ -427,6 +442,11 @@ async function postTweet(opts: {
     detail?: string;
   };
   if (!tweetRes.ok || !tweetJson.data?.id) {
+    // The token died mid-publish (revoked between the pre-publish token
+    // check and this write). Never surface the raw X error.
+    if (tweetRes.status === 401) {
+      throw new PublishAuthRevokedError(TWITTER_RECONNECT_MESSAGE);
+    }
     throw new Error(
       tweetJson.errors?.[0]?.detail ||
         tweetJson.errors?.[0]?.message ||
@@ -564,6 +584,23 @@ router.post(
           // record what is missing so it can be resent.
           if (i === 0) throw tweetError;
           req.log.error({ err: tweetError, index: i }, "X follow-up tweet failed");
+          // The token died mid-thread: the first tweet is already out, so
+          // keep the item published with a warning, but still flip the
+          // account row so the Accounts page prompts a reconnect.
+          if (tweetError instanceof PublishAuthRevokedError) {
+            try {
+              await markAccountVerifyFailed(
+                req.tenantId,
+                "twitter",
+                TWITTER_TOKEN_INVALID_MESSAGE,
+              );
+            } catch (markErr) {
+              req.log.error(
+                { err: markErr },
+                "Failed to flip X account to failed after mid-thread auth error",
+              );
+            }
+          }
           const remaining = tweets.length - i;
           publishWarning = `The post was published, but ${remaining} of ${tweets.length - 1} follow-up tweet${remaining === 1 ? "" : "s"} with the rest of the caption could not be posted.`;
           chainPostedCount = i;
@@ -620,6 +657,48 @@ router.post(
       });
     } catch (error) {
       req.log.error({ err: error }, "X publish failed");
+
+      // The token died in the window between the pre-publish token check and
+      // the actual write. Surface the same friendly reconnect message the
+      // pre-publish gate uses (never the raw X error) and flip the account
+      // row to "failed" so the Accounts page prompts a reconnect.
+      if (error instanceof PublishAuthRevokedError) {
+        try {
+          await markAccountVerifyFailed(
+            req.tenantId,
+            "twitter",
+            TWITTER_TOKEN_INVALID_MESSAGE,
+          );
+        } catch (markErr) {
+          req.log.error(
+            { err: markErr },
+            "Failed to flip X account to failed after mid-publish auth error",
+          );
+        }
+        try {
+          await db
+            .update(contentItemsTable)
+            .set({
+              status: "failed",
+              failureReason: error.message,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(contentItemsTable.id, id),
+                eq(contentItemsTable.tenantId, req.tenantId),
+              ),
+            );
+        } catch (updateErr) {
+          req.log.error(
+            { err: updateErr, contentItemId: id },
+            "Failed to record X publish failure",
+          );
+        }
+        res.status(400).json({ error: error.message });
+        return;
+      }
+
       const reason =
         error instanceof Error && error.message
           ? `X rejected the post: ${error.message}`
