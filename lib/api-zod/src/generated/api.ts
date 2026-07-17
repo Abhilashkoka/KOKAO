@@ -745,7 +745,14 @@ export const AdminGetStatsResponse = zod.object({
   "durationMs": zod.number(),
   "accountsChecked": zod.number(),
   "errorCount": zod.number(),
-  "lastError": zod.string().nullish()
+  "lastError": zod.string().nullish(),
+  "recentFailures": zod.array(zod.object({
+  "tenantId": zod.number(),
+  "tenantName": zod.string().nullish().describe('Workspace name, null if the tenant was deleted.'),
+  "platform": zod.string(),
+  "error": zod.string(),
+  "at": zod.coerce.date()
+})).optional().describe('Most recent failed checks from the last completed sweep run, newest first (capped server-side), so an admin can see which tenant + platform keeps timing out without reading logs.')
 }).nullish().describe('Health of the background dead-connection sweep. Null when the sweep has never completed a run (e.g. fresh deploy).')
 })
 

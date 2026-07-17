@@ -20,6 +20,7 @@ export * from './adminSeatRequest';
 export * from './adminSeatRequestStatus';
 export * from './adminStats';
 export * from './adminStatsConnectionSweep';
+export * from './adminStatsConnectionSweepRecentFailuresItem';
 export * from './adminStatsTenantsByPlan';
 export * from './adminSweepRunResult';
 export * from './adminTenant';

@@ -10,7 +10,7 @@ import {
   adminAuditLogsTable,
   sweepStatusTable,
 } from "@workspace/db";
-import { eq, sql, desc, gte, lte, and, or, ilike } from "drizzle-orm";
+import { eq, sql, desc, gte, lte, and, or, ilike, inArray } from "drizzle-orm";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import { recordAdminAction } from "../lib/adminAudit";
 import {
@@ -199,6 +199,20 @@ router.get("/admin/stats", async (_req: Request, res: Response) => {
     totalTenants += row.count;
   }
 
+  // Resolve workspace names for the sweep's recent offenders so the admin
+  // card can show "which tenant" without a second lookup. Best-effort: a
+  // deleted tenant just falls back to its numeric id.
+  const recentFailures = sweepRow[0]?.recentFailures ?? [];
+  const failureTenantIds = [...new Set(recentFailures.map((f) => f.tenantId))];
+  const nameById = new Map<number, string | null>();
+  if (failureTenantIds.length > 0) {
+    const nameRows = await db
+      .select({ id: tenantsTable.id, name: tenantsTable.name })
+      .from(tenantsTable)
+      .where(inArray(tenantsTable.id, failureTenantIds));
+    for (const r of nameRows) nameById.set(r.id, r.name);
+  }
+
   res.json({
     totalTenants,
     tenantsByPlan: byPlan,
@@ -213,6 +227,13 @@ router.get("/admin/stats", async (_req: Request, res: Response) => {
           accountsChecked: sweepRow[0].accountsChecked,
           errorCount: sweepRow[0].errorCount,
           lastError: sweepRow[0].lastError,
+          recentFailures: recentFailures.map((f) => ({
+            tenantId: f.tenantId,
+            tenantName: nameById.get(f.tenantId) ?? null,
+            platform: f.platform,
+            error: f.error,
+            at: f.at,
+          })),
         }
       : null,
   });

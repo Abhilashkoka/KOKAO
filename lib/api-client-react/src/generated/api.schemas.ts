@@ -425,6 +425,15 @@ export interface UpdateTenantDesignSkillBody {
 
 export type AdminStatsTenantsByPlan = {[key: string]: number};
 
+export type AdminStatsConnectionSweepRecentFailuresItem = {
+  tenantId: number;
+  /** Workspace name, null if the tenant was deleted. */
+  tenantName?: string | null;
+  platform: string;
+  error: string;
+  at: string;
+};
+
 /**
  * Health of the background dead-connection sweep. Null when the sweep has never completed a run (e.g. fresh deploy).
  */
@@ -434,6 +443,8 @@ export type AdminStatsConnectionSweep = {
   accountsChecked: number;
   errorCount: number;
   lastError?: string | null;
+  /** Most recent failed checks from the last completed sweep run, newest first (capped server-side), so an admin can see which tenant + platform keeps timing out without reading logs. */
+  recentFailures?: AdminStatsConnectionSweepRecentFailuresItem[];
 } | null;
 
 export interface AdminStats {

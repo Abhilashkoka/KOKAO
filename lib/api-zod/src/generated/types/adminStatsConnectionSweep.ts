@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { AdminStatsConnectionSweepRecentFailuresItem } from './adminStatsConnectionSweepRecentFailuresItem';
 
 /**
  * Health of the background dead-connection sweep. Null when the sweep has never completed a run (e.g. fresh deploy).
@@ -15,4 +16,6 @@ export type AdminStatsConnectionSweep = {
   accountsChecked: number;
   errorCount: number;
   lastError?: string | null;
+  /** Most recent failed checks from the last completed sweep run, newest first (capped server-side), so an admin can see which tenant + platform keeps timing out without reading logs. */
+  recentFailures?: AdminStatsConnectionSweepRecentFailuresItem[];
 } | null;

@@ -11,7 +11,12 @@
  * the deduped notifySocialConnectionFailed on a fresh verified -> failed
  * transition. An already-known breakage produces no duplicate spam.
  */
-import { db, connectedAccountsTable, sweepStatusTable } from "@workspace/db";
+import {
+  db,
+  connectedAccountsTable,
+  sweepStatusTable,
+  type SweepFailure,
+} from "@workspace/db";
 import { eq, inArray, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import {
@@ -105,11 +110,17 @@ const REVERIFIERS: Record<
   youtube: (tenantId) => reverifyYoutube(tenantId),
 };
 
+/** How many of the most recent failed checks to keep for the admin card. */
+export const SWEEP_RECENT_FAILURES_CAP = 10;
+
 /** Outcome of one full sweep, persisted for admin-dashboard visibility. */
 export interface SweepResult {
   accountsChecked: number;
   errorCount: number;
   lastError: string | null;
+  /** The most recent failed checks (newest first, capped), so an admin can
+   * see WHICH tenant+platform keeps timing out — not just a count. */
+  recentFailures: SweepFailure[];
 }
 
 /**
@@ -124,6 +135,7 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
     accountsChecked: 0,
     errorCount: 0,
     lastError: null,
+    recentFailures: [],
   };
   let rows: { tenantId: number; platform: string }[];
   try {
@@ -166,6 +178,17 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
         );
         result.errorCount += 1;
         result.lastError = err instanceof Error ? err.message : String(err);
+        // Keep the newest offenders at the front, capped so the persisted
+        // row stays small even on a very broken run.
+        result.recentFailures.unshift({
+          tenantId,
+          platform,
+          error: result.lastError,
+          at: new Date().toISOString(),
+        });
+        if (result.recentFailures.length > SWEEP_RECENT_FAILURES_CAP) {
+          result.recentFailures.length = SWEEP_RECENT_FAILURES_CAP;
+        }
       }
     }
   }
@@ -193,6 +216,7 @@ export async function recordSweepRun(
         accountsChecked: outcome.accountsChecked,
         errorCount: outcome.errorCount,
         lastError: outcome.lastError,
+        recentFailures: outcome.recentFailures,
       })
       .onConflictDoUpdate({
         target: sweepStatusTable.id,
@@ -202,6 +226,7 @@ export async function recordSweepRun(
           accountsChecked: outcome.accountsChecked,
           errorCount: outcome.errorCount,
           lastError: outcome.lastError,
+          recentFailures: outcome.recentFailures,
           updatedAt: sql`now()`,
         },
       });

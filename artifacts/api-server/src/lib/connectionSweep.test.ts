@@ -514,6 +514,7 @@ describe("checkSweepStaleness", () => {
         accountsChecked: 0,
         errorCount: 0,
         lastError: null,
+        recentFailures: [],
       });
 
       await checkSweepStaleness(true);
@@ -543,6 +544,7 @@ describe("checkSweepStaleness", () => {
         accountsChecked: 0,
         errorCount: 0,
         lastError: null,
+        recentFailures: [],
       });
 
       await checkSweepStaleness(true);
@@ -563,6 +565,7 @@ describe("checkSweepStaleness", () => {
         accountsChecked: 0,
         errorCount: 0,
         lastError: null,
+        recentFailures: [],
       });
       await checkSweepStaleness(true);
 
@@ -571,6 +574,7 @@ describe("checkSweepStaleness", () => {
         accountsChecked: 0,
         errorCount: 0,
         lastError: null,
+        recentFailures: [],
       });
       const afterRecovery = (await getNotifications(admin.tenantId)).filter(
         (n) => n.type === "sweep_stalled",
@@ -583,6 +587,7 @@ describe("checkSweepStaleness", () => {
         accountsChecked: 0,
         errorCount: 0,
         lastError: null,
+        recentFailures: [],
       });
       await checkSweepStaleness(true);
       const afterSecondStall = (await getNotifications(admin.tenantId)).filter(
@@ -605,6 +610,7 @@ describe("recordSweepRun", () => {
       accountsChecked: 3,
       errorCount: 0,
       lastError: null,
+      recentFailures: [],
     });
 
     const secondRun = new Date("2026-07-15T10:15:00Z");
@@ -612,6 +618,14 @@ describe("recordSweepRun", () => {
       accountsChecked: 4,
       errorCount: 1,
       lastError: "boom",
+      recentFailures: [
+        {
+          tenantId: 42,
+          platform: "facebook",
+          error: "boom",
+          at: "2026-07-15T10:14:00.000Z",
+        },
+      ],
     });
 
     const rows = await db.select().from(sweepStatusTable);
@@ -622,6 +636,14 @@ describe("recordSweepRun", () => {
     expect(rows[0]!.accountsChecked).toBe(4);
     expect(rows[0]!.errorCount).toBe(1);
     expect(rows[0]!.lastError).toBe("boom");
+    expect(rows[0]!.recentFailures).toEqual([
+      {
+        tenantId: 42,
+        platform: "facebook",
+        error: "boom",
+        at: "2026-07-15T10:14:00.000Z",
+      },
+    ]);
   });
 });
 

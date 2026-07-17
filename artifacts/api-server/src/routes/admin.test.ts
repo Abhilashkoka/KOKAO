@@ -335,6 +335,71 @@ describe("GET /admin/stats — platform stats stay admin-only", () => {
       await deleteTenant(actor.tenantId);
     }
   });
+
+  it("surfaces the sweep's recent failed checks with resolved tenant names", async () => {
+    const { db, sweepStatusTable, tenantsTable } = await import(
+      "@workspace/db"
+    );
+    const { eq } = await import("drizzle-orm");
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    try {
+      const [tenantRow] = await db
+        .select({ name: tenantsTable.name })
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, actor.tenantId));
+      const failures = [
+        {
+          tenantId: actor.tenantId,
+          platform: "facebook",
+          error: "Re-verify for facebook exceeded 30s and was abandoned",
+          at: "2026-07-16T10:00:00.000Z",
+        },
+        {
+          tenantId: 999999999, // deleted tenant — name resolves to null
+          platform: "linkedin",
+          error: "boom",
+          at: "2026-07-16T09:59:00.000Z",
+        },
+      ];
+      const values = {
+        lastRunAt: new Date("2026-07-16T10:00:05Z"),
+        durationMs: 5000,
+        accountsChecked: 4,
+        errorCount: 2,
+        lastError: failures[0].error,
+        recentFailures: failures,
+      };
+      await db
+        .insert(sweepStatusTable)
+        .values({ id: 1, ...values })
+        .onConflictDoUpdate({ target: sweepStatusTable.id, set: values });
+
+      actAs(actor.clerkUserId, actor.email);
+      const res = await request(app).get("/api/admin/stats");
+      expect(res.status).toBe(200);
+      expect(res.body.connectionSweep.recentFailures).toEqual([
+        {
+          tenantId: actor.tenantId,
+          tenantName: tenantRow!.name,
+          platform: "facebook",
+          error: failures[0].error,
+          at: failures[0].at,
+        },
+        {
+          tenantId: 999999999,
+          tenantName: null,
+          platform: "linkedin",
+          error: "boom",
+          at: failures[1].at,
+        },
+      ]);
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
 });
 
 describe("POST /admin/sweep/run — on-demand sweep stays admin-only", () => {

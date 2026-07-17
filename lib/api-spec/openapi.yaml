@@ -3613,6 +3613,29 @@ components:
             lastError:
               type: string
               nullable: true
+            recentFailures:
+              type: array
+              description: >-
+                Most recent failed checks from the last completed sweep run,
+                newest first (capped server-side), so an admin can see which
+                tenant + platform keeps timing out without reading logs.
+              items:
+                type: object
+                required: [tenantId, platform, error, at]
+                properties:
+                  tenantId:
+                    type: integer
+                  tenantName:
+                    type: string
+                    nullable: true
+                    description: Workspace name, null if the tenant was deleted.
+                  platform:
+                    type: string
+                  error:
+                    type: string
+                  at:
+                    type: string
+                    format: date-time
     AdminSweepRunResult:
       type: object
       required: [started]

@@ -2715,6 +2715,37 @@ export function AdminPage() {
                     </div>
                   </div>
                 )}
+              {(stats.connectionSweep.recentFailures?.length ?? 0) > 0 && (
+                <div className="w-full" data-testid="section-sweep-failures">
+                  <div className="text-muted-foreground mb-1">
+                    Recent failed checks
+                  </div>
+                  <div className="space-y-1">
+                    {stats.connectionSweep.recentFailures!.map((f, i) => (
+                      <div
+                        key={`${f.tenantId}-${f.platform}-${f.at}-${i}`}
+                        className="rounded-md border px-3 py-2 text-xs"
+                        data-testid={`row-sweep-failure-${i}`}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">
+                            {f.tenantName ?? `Tenant #${f.tenantId}`}
+                          </span>
+                          <Badge variant="outline" className="capitalize">
+                            {f.platform}
+                          </Badge>
+                          <span className="text-muted-foreground">
+                            {new Date(f.at).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="font-mono break-all text-muted-foreground mt-1">
+                          {f.error}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">

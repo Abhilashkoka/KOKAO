@@ -63,5 +63,12 @@ describe("sweep per-check timeout", () => {
     // The sweep still reached the tenant's other platform.
     expect(vi.mocked(reverifyLinkedin)).toHaveBeenCalledWith(tenantId);
     expect(outcome.accountsChecked).toBeGreaterThanOrEqual(2);
+    // The offender is identifiable: tenant + platform + error are recorded.
+    const failure = outcome.recentFailures.find(
+      (f) => f.tenantId === tenantId && f.platform === "facebook",
+    );
+    expect(failure).toBeDefined();
+    expect(failure!.error).toMatch(/abandoned/i);
+    expect(new Date(failure!.at).getTime()).toBeGreaterThan(0);
   });
 });
