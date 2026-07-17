@@ -24,6 +24,10 @@ args = "test"
 task = "workflow.run"
 args = "typecheck"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "codegen-drift"
+
 [[workflows.workflow]]
 name = "test"
 author = "agent"
@@ -45,6 +49,17 @@ args = "pnpm run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow]]
+name = "codegen-drift"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "TMP=$(mktemp -d) && trap 'rm -rf \"$TMP\"' EXIT && mkdir -p \"$TMP/lib/api-client-react/src\" \"$TMP/lib/api-zod/src\" && cp lib/api-client-react/src/custom-fetch.ts \"$TMP/lib/api-client-react/src/\" && DRIFT_OUT_ROOT=\"$TMP\" pnpm --filter @workspace/api-spec exec orval --config ./orval.drift.config.ts && diff -r lib/api-client-react/src/generated \"$TMP/lib/api-client-react/src/generated\" && diff -r lib/api-zod/src/generated \"$TMP/lib/api-zod/src/generated\""
 
 [agent]
 stack = "PNPM_WORKSPACE"
