@@ -2428,6 +2428,11 @@ export function AdminPage() {
     {
       query: {
         queryKey: getAdminListAuditLogsQueryKey(lastManualRunParams),
+        // Keep the "Last manual run" strip live even when ANOTHER admin
+        // triggers a sweep: poll while the card is visible so this page
+        // picks up runs it didn't initiate within a few seconds.
+        refetchInterval: 5000,
+        refetchIntervalInBackground: false,
       },
     },
   );
