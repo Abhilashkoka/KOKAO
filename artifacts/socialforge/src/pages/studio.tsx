@@ -32,6 +32,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useToast } from "@/hooks/use-toast";
 import { Wand2, Image as ImageIcon, Save, Loader2, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
+import { CAPTION_TWEAKS } from "@workspace/studio-presets";
 import { CampaignPostCard, type GeneratedImage } from "@/components/campaign-post-card";
 import {
   AlertDialog,
@@ -62,12 +63,6 @@ const schema = z.object({
   tone: z.string().optional(),
   size: z.enum(["1024x1024", "1536x1024", "1024x1536"]).optional(),
 });
-
-const CAPTION_TWEAKS = [
-  { label: "Shorter", instruction: "Make the caption shorter and more concise." },
-  { label: "Punchier", instruction: "Make the caption punchier and more attention-grabbing." },
-  { label: "More formal", instruction: "Make the caption more formal and professional." },
-] as const;
 
 const IMAGE_TWEAKS = [
   { label: "Brighter", instruction: "Make the image brighter with more light and airy tones." },

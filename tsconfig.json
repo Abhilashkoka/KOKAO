@@ -20,6 +20,9 @@
     },
     {
       "path": "./lib/social-limits"
+    },
+    {
+      "path": "./lib/studio-presets"
     }
   ]
 }

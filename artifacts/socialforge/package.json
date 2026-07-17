@@ -61,6 +61,7 @@
     "@workspace/api-client-react": "workspace:*",
     "@workspace/object-storage-web": "workspace:*",
     "@workspace/social-limits": "workspace:*",
+    "@workspace/studio-presets": "workspace:*",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
     "cmdk": "^1.1.1",
