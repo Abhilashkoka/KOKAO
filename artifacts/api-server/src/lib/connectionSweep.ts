@@ -221,8 +221,9 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
           lastAt: nowIso,
         };
         result.failStreaks[streakKey] = streak;
-        // Keep the newest offenders at the front, capped so the persisted
-        // row stays small even on a very broken run.
+        // Keep the newest offenders at the front. The cap is applied AFTER
+        // the sweep completes (see below) so a chronic long-streak offender
+        // can never be pushed out mid-run by fresher one-off failures.
         result.recentFailures.unshift({
           tenantId,
           platform,
@@ -230,11 +231,24 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
           at: nowIso,
           consecutiveFailures: streak.count,
         });
-        if (result.recentFailures.length > SWEEP_RECENT_FAILURES_CAP) {
-          result.recentFailures.length = SWEEP_RECENT_FAILURES_CAP;
-        }
       }
     }
+  }
+  // Cap the persisted failure list so the sweep_status row stays small even
+  // on a very broken run — but when trimming, keep the LONGEST consecutive
+  // streaks first (ties broken by recency, since the list is newest-first
+  // and sort is stable). A tenant+platform failing 8 sweeps in a row must
+  // stay visible to admins even when 10+ one-off failures land in the same
+  // run. Survivors keep their newest-first display order.
+  if (result.recentFailures.length > SWEEP_RECENT_FAILURES_CAP) {
+    const keep = new Set(
+      [...result.recentFailures]
+        .sort(
+          (a, b) => (b.consecutiveFailures ?? 0) - (a.consecutiveFailures ?? 0),
+        )
+        .slice(0, SWEEP_RECENT_FAILURES_CAP),
+    );
+    result.recentFailures = result.recentFailures.filter((f) => keep.has(f));
   }
   return result;
 }

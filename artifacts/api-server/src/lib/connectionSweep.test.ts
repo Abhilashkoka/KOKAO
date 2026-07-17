@@ -508,6 +508,73 @@ describe("sweepDeadConnections", () => {
     }
   });
 
+  it("keeps a long-streak chronic offender visible when more than the cap fail in one run", async () => {
+    const { SWEEP_RECENT_FAILURES_CAP } = await import("./connectionSweep");
+    const chronic = await createTenant();
+    const fresh: Awaited<ReturnType<typeof createTenant>>[] = [];
+    try {
+      // Seed a prior 7-sweep streak for the chronic tenant so this run's
+      // failure becomes its 8th consecutive failure.
+      await insertConnectedAccount(
+        chronic.tenantId,
+        "facebook",
+        { pageId: "PAGE_CHRONIC", pageAccessToken: "tok_c" },
+        "failed",
+      );
+      await setAccountState(chronic.tenantId, "facebook", {
+        verifiedAt: staleDate(),
+      });
+      await recordSweepRun(new Date(), 100, {
+        accountsChecked: 1,
+        errorCount: 1,
+        lastError: "seeded",
+        recentFailures: [],
+        failStreaks: {
+          [`${chronic.tenantId}:facebook`]: {
+            count: 7,
+            firstFailedAt: new Date(
+              Date.now() - 2 * 60 * 60 * 1000,
+            ).toISOString(),
+            lastError: "seeded",
+            lastAt: new Date().toISOString(),
+          },
+        },
+      });
+
+      // More one-off failures than the cap, all failing for the first time.
+      for (let i = 0; i < SWEEP_RECENT_FAILURES_CAP + 2; i++) {
+        const t = await createTenant();
+        fresh.push(t);
+        await insertConnectedAccount(
+          t.tenantId,
+          "facebook",
+          { pageId: `PAGE_F${i}`, pageAccessToken: `tok_f${i}` },
+          "failed",
+        );
+        await setAccountState(t.tenantId, "facebook", {
+          verifiedAt: staleDate(),
+        });
+      }
+
+      mockFb.mockRejectedValue(new Error("provider down"));
+      const outcome = await sweepDeadConnections();
+
+      expect(outcome.recentFailures.length).toBeLessThanOrEqual(
+        SWEEP_RECENT_FAILURES_CAP,
+      );
+      // The chronic 8-streak offender must survive the trim despite the
+      // flood of fresh one-off failures.
+      const survivor = outcome.recentFailures.find(
+        (f) => f.tenantId === chronic.tenantId && f.platform === "facebook",
+      );
+      expect(survivor).toBeDefined();
+      expect(survivor!.consecutiveFailures).toBe(8);
+    } finally {
+      await deleteTenant(chronic.tenantId);
+      for (const t of fresh) await deleteTenant(t.tenantId);
+    }
+  });
+
   it("never throws when one tenant's re-verify blows up, and still sweeps the rest", async () => {
     const broken = await createTenant();
     const healthy = await createTenant();
