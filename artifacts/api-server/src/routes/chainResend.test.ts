@@ -518,6 +518,117 @@ describe("Threads reply-chain resend", () => {
     }
   });
 
+  it("two truly simultaneous resends: the second is rejected with 409 while the first is still running, and nothing double-posts", async () => {
+    // Gate the first container-create call so the first request stalls
+    // mid-resend while the second request arrives.
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    let firstPublishStarted!: () => void;
+    const publishStarted = new Promise<void>((resolve) => {
+      firstPublishStarted = resolve;
+    });
+    const calls: MockCall[] = [];
+    let containerSeq = 0;
+    let publishSeq = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
+        calls.push({ url, method, body: String(init?.body ?? "") });
+        const json = (body: unknown, status = 200) =>
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "content-type": "application/json" },
+          });
+        if (
+          method === "GET" &&
+          url.startsWith(`${TH_GRAPH_BASE}/${TH_USER_ID}/threads?`)
+        ) {
+          return json({ data: [] });
+        }
+        if (
+          method === "POST" &&
+          url === `${TH_GRAPH_BASE}/${TH_USER_ID}/threads`
+        ) {
+          containerSeq += 1;
+          if (containerSeq === 1) {
+            firstPublishStarted();
+            await gate; // hold the first resend mid-flight
+          }
+          return json({ id: `CONTAINER_${containerSeq}` });
+        }
+        if (
+          method === "POST" &&
+          url === `${TH_GRAPH_BASE}/${TH_USER_ID}/threads_publish`
+        ) {
+          publishSeq += 1;
+          return json({ id: `POST_${publishSeq}` });
+        }
+        return json({});
+      },
+    );
+
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: TH_USER_ID,
+      });
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: longCaption,
+      });
+      await setChainState(itemId, tenant.tenantId, "threadsChainState", {
+        firstPostId: "ANCHOR",
+        lastPostedId: "ANCHOR",
+        posts: ["first chunk", "second chunk", "third chunk"],
+        postedCount: 1,
+      });
+      actAs(tenant.clerkUserId);
+
+      // .then() forces the lazy supertest request to actually start now.
+      const firstPromise = request(app)
+        .post(`/api/content/${itemId}/resend-threads-posts`)
+        .then((r) => r);
+      // Wait until the first request is genuinely mid-resend (it has read
+      // the chain state and started posting), then fire the second.
+      await publishStarted;
+      const second = await request(app).post(
+        `/api/content/${itemId}/resend-threads-posts`,
+      );
+      expect(second.status).toBe(409);
+      expect(second.body.error).toMatch(/already in progress/i);
+
+      releaseGate();
+      const first = await firstPromise;
+      expect(first.status).toBe(200);
+      expect(first.body.postsPublished).toBe(3);
+      expect(first.body.postsRemaining).toBe(0);
+
+      // Only the first request posted anything: exactly the 2 missing pieces.
+      const containerCalls = calls.filter(
+        (c) =>
+          c.method === "POST" &&
+          c.url === `${TH_GRAPH_BASE}/${TH_USER_ID}/threads`,
+      );
+      expect(containerCalls.length).toBe(2);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.threadsChainState).toBeNull();
+
+      // The lock is released after the first finishes: a later resend gets
+      // a normal 400 (nothing left), not a 409.
+      const third = await request(app).post(
+        `/api/content/${itemId}/resend-threads-posts`,
+      );
+      expect(third.status).toBe(400);
+    } finally {
+      releaseGate();
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("cannot resend another tenant's content item", async () => {
     mockThreadsApi();
     const owner = await createTenant();
@@ -787,6 +898,101 @@ describe("X thread resend", () => {
       const item = await getContentItem(itemId, tenant.tenantId);
       expect(item.twitterChainState).toBeNull();
     } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("two truly simultaneous resends: the second is rejected with 409 while the first is still running, and nothing double-posts", async () => {
+    // Gate the first tweet-create call so the first request stalls
+    // mid-resend while the second request arrives.
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    let firstTweetStarted!: () => void;
+    const tweetStarted = new Promise<void>((resolve) => {
+      firstTweetStarted = resolve;
+    });
+    const calls: MockCall[] = [];
+    let tweetSeq = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
+        calls.push({ url, method, body: String(init?.body ?? "") });
+        const json = (body: unknown, status = 200) =>
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "content-type": "application/json" },
+          });
+        if (
+          method === "GET" &&
+          url.startsWith(`${X_API_BASE}/2/users/${X_USER_ID}/tweets`)
+        ) {
+          return json({ data: [] });
+        }
+        if (method === "POST" && url === `${X_API_BASE}/2/tweets`) {
+          tweetSeq += 1;
+          if (tweetSeq === 1) {
+            firstTweetStarted();
+            await gate; // hold the first resend mid-flight
+          }
+          return json({ data: { id: `TWEET_${tweetSeq}` } });
+        }
+        return json({});
+      },
+    );
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: longCaption,
+      });
+      await setChainState(itemId, tenant.tenantId, "twitterChainState", {
+        firstPostId: "ANCHOR_T",
+        lastPostedId: "ANCHOR_T",
+        posts: ["tweet one", "tweet two", "tweet three"],
+        postedCount: 1,
+      });
+      actAs(tenant.clerkUserId);
+
+      // .then() forces the lazy supertest request to actually start now.
+      const firstPromise = request(app)
+        .post(`/api/content/${itemId}/resend-twitter-posts`)
+        .then((r) => r);
+      // Wait until the first request is genuinely mid-resend (it has read
+      // the chain state and started posting), then fire the second.
+      await tweetStarted;
+      const second = await request(app).post(
+        `/api/content/${itemId}/resend-twitter-posts`,
+      );
+      expect(second.status).toBe(409);
+      expect(second.body.error).toMatch(/already in progress/i);
+
+      releaseGate();
+      const first = await firstPromise;
+      expect(first.status).toBe(200);
+      expect(first.body.postsPublished).toBe(3);
+      expect(first.body.postsRemaining).toBe(0);
+
+      // Only the first request tweeted anything: exactly the 2 missing pieces.
+      const tweetCalls = calls.filter(
+        (c) => c.method === "POST" && c.url === `${X_API_BASE}/2/tweets`,
+      );
+      expect(tweetCalls.length).toBe(2);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.twitterChainState).toBeNull();
+
+      // The lock is released after the first finishes: a later resend gets
+      // a normal 400 (nothing left), not a 409.
+      const third = await request(app).post(
+        `/api/content/${itemId}/resend-twitter-posts`,
+      );
+      expect(third.status).toBe(400);
+    } finally {
+      releaseGate();
       await deleteTenant(tenant.tenantId);
     }
   });

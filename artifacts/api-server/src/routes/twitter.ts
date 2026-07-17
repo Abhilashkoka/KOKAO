@@ -23,6 +23,10 @@ import {
 import { encryptJson } from "../lib/secretCrypto";
 import { signOAuthState, verifySignedOAuthState } from "../lib/oauthState";
 import { reverifyTwitter } from "../lib/socialReverify";
+import {
+  tryAcquireResendLock,
+  RESEND_IN_PROGRESS_MESSAGE,
+} from "../lib/resendLock";
 import { resolveSocialConnectionNotifications } from "../lib/notifications";
 
 const router: IRouter = Router();
@@ -654,6 +658,15 @@ router.post(
   "/content/:id/resend-twitter-posts",
   async (req: Request, res: Response) => {
     const id = Number(req.params.id);
+    // Guard against two truly simultaneous resend clicks: both would read
+    // the same postedCount and probe before either has posted, so the dedupe
+    // probe can't see the other's writes.
+    const releaseLock = tryAcquireResendLock("twitter", id);
+    if (!releaseLock) {
+      res.status(409).json({ error: RESEND_IN_PROGRESS_MESSAGE });
+      return;
+    }
+    try {
     const item = await loadContentItem(id, req.tenantId);
     if (!item) {
       res.status(404).json({ error: "Not found" });
@@ -763,6 +776,9 @@ router.post(
       permalink: item.permalink ?? null,
       ...(publishWarning ? { publishWarning } : {}),
     });
+    } finally {
+      releaseLock();
+    }
   },
 );
 

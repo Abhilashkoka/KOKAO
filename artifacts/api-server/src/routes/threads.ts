@@ -21,6 +21,10 @@ import {
 } from "../lib/oauthState";
 import { resolveSocialConnectionNotifications } from "../lib/notifications";
 import { maybeRefreshThreadsToken } from "../lib/socialReverify";
+import {
+  tryAcquireResendLock,
+  RESEND_IN_PROGRESS_MESSAGE,
+} from "../lib/resendLock";
 import { chunkOnWhitespace, THREADS_MAX_LENGTH } from "@workspace/social-limits";
 
 const router: IRouter = Router();
@@ -764,6 +768,15 @@ router.post(
   "/content/:id/resend-threads-posts",
   async (req: Request, res: Response) => {
     const id = Number(req.params.id);
+    // Guard against two truly simultaneous resend clicks: both would read
+    // the same postedCount and probe before either has posted, so the dedupe
+    // probe can't see the other's writes.
+    const releaseLock = tryAcquireResendLock("threads", id);
+    if (!releaseLock) {
+      res.status(409).json({ error: RESEND_IN_PROGRESS_MESSAGE });
+      return;
+    }
+    try {
     const item = (
       await db
         .select()
@@ -894,6 +907,9 @@ router.post(
           : null),
       ...(publishWarning ? { publishWarning } : {}),
     });
+    } finally {
+      releaseLock();
+    }
   },
 );
 
