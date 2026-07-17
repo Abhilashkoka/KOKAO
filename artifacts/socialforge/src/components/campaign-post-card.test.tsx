@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { IMAGE_TWEAKS } from "@workspace/studio-presets";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   TWEET_MAX_LENGTH,
@@ -27,9 +28,13 @@ vi.mock("@/hooks/use-toast", () => ({
 
 // Resilient mock: unknown hooks fall back to an idle stub, so adding a new
 // hook to the component does not break these tests.
+const generateImageMutate = vi.hoisted(() => vi.fn());
+
 vi.mock("@workspace/api-client-react", async () => {
-  const { createApiClientMock } = await import("../test/apiClientMock");
-  return createApiClientMock();
+  const { createApiClientMock, idleMutation } = await import("../test/apiClientMock");
+  return createApiClientMock({
+    useGenerateImage: () => ({ ...idleMutation(), mutate: generateImageMutate }),
+  });
 });
 
 import { CampaignPostCard } from "./campaign-post-card";
@@ -158,5 +163,71 @@ describe("CampaignPostCard LinkedIn character warning", () => {
   it("renders no LinkedIn warning for other platforms", () => {
     renderCard("twitter", "l".repeat(LINKEDIN_MAX_LENGTH + 100));
     expect(screen.queryByText(/characters for LinkedIn/i)).toBeNull();
+  });
+});
+
+/**
+ * Guard: campaign variant images offer the SAME quick style tweak chips as
+ * the single-image Studio card, sourced from the shared
+ * @workspace/studio-presets IMAGE_TWEAKS list. Clicking a chip regenerates
+ * the variant's image with the shared instruction appended to the prompt,
+ * and the result still flows through onImageGenerated (which powers the
+ * "use for all platforms" flow).
+ */
+describe("CampaignPostCard image style tweak chips", () => {
+  function renderWithImage(onImageGenerated?: (platform: string, image: unknown) => void) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <CampaignPostCard
+          post={{ platform: "instagram", caption: "A cozy cafe post", hashtags: [], imagePrompt: "A cozy cafe interior" } as any}
+          brief="test brief"
+          image={{ imagePath: "/objects/t/uploads/x", b64Json: "aaaa" }}
+          onImageGenerated={onImageGenerated as any}
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("shows no tweak chips before an image exists", () => {
+    renderCard("instagram", "caption");
+    for (const t of IMAGE_TWEAKS) {
+      expect(
+        screen.queryByTestId(`button-campaign-image-tweak-instagram-${t.label.toLowerCase().replace(/\s+/g, "-")}`),
+      ).toBeNull();
+    }
+  });
+
+  it("renders every shared tweak chip once an image exists", () => {
+    renderWithImage();
+    for (const t of IMAGE_TWEAKS) {
+      expect(
+        screen.getByTestId(`button-campaign-image-tweak-instagram-${t.label.toLowerCase().replace(/\s+/g, "-")}`).textContent,
+      ).toBe(t.label);
+    }
+  });
+
+  it("clicking a chip regenerates with the shared instruction appended and reports via onImageGenerated", () => {
+    generateImageMutate.mockClear();
+    const onImageGenerated = vi.fn();
+    renderWithImage(onImageGenerated);
+    const tweak = IMAGE_TWEAKS[0];
+    fireEvent.click(
+      screen.getByTestId(`button-campaign-image-tweak-instagram-${tweak.label.toLowerCase().replace(/\s+/g, "-")}`),
+    );
+    expect(generateImageMutate).toHaveBeenCalledTimes(1);
+    const [vars, opts] = generateImageMutate.mock.calls[0];
+    expect(vars.data.prompt).toBe(`A cozy cafe interior ${tweak.instruction}`);
+    const res = { imagePath: "/objects/t/uploads/y", b64Json: "bbbb" };
+    (opts as any).onSuccess(res);
+    expect(onImageGenerated).toHaveBeenCalledWith("instagram", res);
+  });
+
+  it("plain regenerate sends the untweaked prompt", () => {
+    generateImageMutate.mockClear();
+    renderWithImage();
+    fireEvent.click(screen.getByTestId("button-campaign-image-instagram"));
+    expect(generateImageMutate).toHaveBeenCalledTimes(1);
+    expect(generateImageMutate.mock.calls[0][0].data.prompt).toBe("A cozy cafe interior");
   });
 });

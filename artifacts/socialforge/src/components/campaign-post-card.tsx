@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Image as ImageIcon, Save, Loader2, Check } from "lucide-react";
+import { IMAGE_TWEAKS } from "@workspace/studio-presets";
 import {
   TWEET_MAX_LENGTH,
   isOverTweetLimit,
@@ -59,6 +60,7 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
   const [localImage, setLocalImage] = useState<GeneratedImage | null>(null);
   const image = controlledImage !== undefined ? controlledImage : localImage;
   const [saved, setSaved] = useState(false);
+  const [imageTweak, setImageTweak] = useState<string | null>(null);
 
   const handleError = (error: any) => {
     if (error?.status === 402 || error?.response?.status === 402) {
@@ -72,9 +74,14 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
     }
   };
 
-  const onGenerateImage = () => {
+  const runGenerateImage = (tweak: string | null) => {
+    setImageTweak(tweak);
+    const tweakInstruction = tweak
+      ? ` ${IMAGE_TWEAKS.find((t) => t.label === tweak)?.instruction ?? ""}`
+      : "";
+    const basePrompt = (post.imagePrompt || post.caption).trim();
     generateImage.mutate(
-      { data: { prompt: post.imagePrompt || post.caption, brandKitId: brandKitId || undefined } },
+      { data: { prompt: `${basePrompt}${tweakInstruction}`, brandKitId: brandKitId || undefined } },
       {
         onSuccess: (res) => {
           if (onImageGenerated) {
@@ -123,8 +130,9 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
               type="button"
               variant="outline"
               size="sm"
-              onClick={onGenerateImage}
+              onClick={() => runGenerateImage(null)}
               disabled={generateImage.isPending}
+              data-testid={`button-campaign-image-${post.platform}`}
             >
               {generateImage.isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -162,6 +170,22 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
             <p className="text-[11px] text-muted-foreground">
               Shown cropped to {PLATFORM_LABELS[post.platform] ?? post.platform}'s recommended shape ({PLATFORM_RATIOS[post.platform]?.note ?? "1:1"}).
             </p>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              {IMAGE_TWEAKS.map((t) => (
+                <Button
+                  key={t.label}
+                  type="button"
+                  size="sm"
+                  variant={imageTweak === t.label ? "default" : "outline"}
+                  className="rounded-full"
+                  disabled={generateImage.isPending}
+                  onClick={() => runGenerateImage(t.label)}
+                  data-testid={`button-campaign-image-tweak-${post.platform}-${t.label.toLowerCase().replace(/\s+/g, "-")}`}
+                >
+                  {t.label}
+                </Button>
+              ))}
+            </div>
           </div>
         )}
         <p className="whitespace-pre-wrap text-sm">{post.caption}</p>
