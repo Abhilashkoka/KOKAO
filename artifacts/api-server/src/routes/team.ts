@@ -42,6 +42,12 @@ router.get("/team", async (req: Request, res: Response) => {
  * POST /team/leave — an invited member/admin removes themselves from the
  * workspace. Owners cannot leave (the workspace IS their tenant). On the
  * next request the leaver gets their own personal workspace auto-provisioned.
+ *
+ * Any PENDING invite for the leaver's email is revoked in the same operation
+ * (mirroring DELETE /team/members/:id). Otherwise a lingering duplicate or
+ * re-sent invite would be auto-accepted by requireTenant on their next
+ * sign-in, silently pulling them back into the workspace they just left.
+ * Rejoining requires a deliberate NEW invite sent after they leave.
  */
 router.post("/team/leave", async (req: Request, res: Response) => {
   if (req.memberRole === "owner") {
@@ -64,6 +70,18 @@ router.post("/team/leave", async (req: Request, res: Response) => {
   if (!deleted) {
     res.status(404).json({ error: "Membership not found" });
     return;
+  }
+  if (deleted.email) {
+    await db
+      .update(teamInvitesTable)
+      .set({ status: "revoked" })
+      .where(
+        and(
+          eq(teamInvitesTable.tenantId, req.tenantId),
+          sql`lower(${teamInvitesTable.email}) = ${deleted.email.toLowerCase()}`,
+          eq(teamInvitesTable.status, "pending"),
+        ),
+      );
   }
   // Best-effort: tell the owner and workspace admins the seat was freed and
   // by whom (the leaver is excluded from the email fan-out).

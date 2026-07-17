@@ -429,6 +429,52 @@ describe("member removal cuts access immediately (DELETE /team/members/:id)", ()
     }
   });
 
+  it("self-leave revokes a lingering pending invite for the same email so the leaver cannot be pulled back in", async () => {
+    const owner = await createTenant({ email: "owner-selfleave@example.com" });
+    await setSeatLimit(owner.tenantId, 5);
+    // Member joined earlier; a NEW pending invite for the same email exists
+    // at leave time (duplicate / re-invited by mistake).
+    const memberEmail = `selfleave-${randomUUID()}@example.com`;
+    const member = await addMember(owner.tenantId, "member", memberEmail);
+    const lingeringInviteId = await addPendingInvite(
+      owner.tenantId,
+      memberEmail,
+    );
+    try {
+      // The member leaves voluntarily.
+      actAs(member.clerkUserId, memberEmail);
+      const leave = await request(app).post("/api/team/leave");
+      expect(leave.status).toBe(200);
+
+      // The lingering pending invite was revoked in the same operation.
+      const invite = (
+        await db
+          .select()
+          .from(teamInvitesTable)
+          .where(eq(teamInvitesTable.id, lingeringInviteId))
+          .limit(1)
+      )[0];
+      expect(invite.status).toBe("revoked");
+
+      // The leaver's next request must NOT auto-accept back into the
+      // workspace they just left: they get a fresh personal workspace.
+      const meAfter = await request(app).get("/api/me");
+      expect(meAfter.status).toBe(200);
+      expect(meAfter.body.tenant.id).not.toBe(owner.tenantId);
+      expect(meAfter.body.team.role).toBe("owner");
+
+      // No membership row was re-created in the old workspace.
+      const memberships = await db
+        .select()
+        .from(tenantMembersTable)
+        .where(eq(tenantMembersTable.tenantId, owner.tenantId));
+      expect(memberships).toHaveLength(0);
+    } finally {
+      await deleteTenantForClerkUser(member.clerkUserId);
+      await deleteTenant(owner.tenantId);
+    }
+  });
+
   it("a deliberate NEW invite sent after removal still lets the ex-member rejoin", async () => {
     const owner = await createTenant({ email: "owner-rejoin@example.com" });
     await setSeatLimit(owner.tenantId, 5);
