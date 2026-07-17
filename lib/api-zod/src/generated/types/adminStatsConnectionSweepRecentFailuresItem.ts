@@ -13,4 +13,6 @@ export type AdminStatsConnectionSweepRecentFailuresItem = {
   platform: string;
   error: string;
   at: Date;
+  /** How many sweeps in a row this tenant+platform check has failed, including this one. Values above 1 mark a chronic breakage rather than a one-off blip; the tally resets the first sweep the check succeeds. */
+  consecutiveFailures?: number;
 };

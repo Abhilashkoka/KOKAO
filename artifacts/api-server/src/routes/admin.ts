@@ -236,6 +236,9 @@ router.get("/admin/stats", async (_req: Request, res: Response) => {
             platform: f.platform,
             error: f.error,
             at: f.at,
+            // Rows persisted before streak tracking lack the field; a lone
+            // failure is by definition a streak of 1.
+            consecutiveFailures: f.consecutiveFailures ?? 1,
           })),
         }
       : null,

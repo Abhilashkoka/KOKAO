@@ -16,6 +16,7 @@ import {
   connectedAccountsTable,
   sweepStatusTable,
   type SweepFailure,
+  type SweepStreak,
 } from "@workspace/db";
 import { eq, inArray, sql } from "drizzle-orm";
 import { logger } from "./logger";
@@ -121,6 +122,30 @@ export interface SweepResult {
   /** The most recent failed checks (newest first, capped), so an admin can
    * see WHICH tenant+platform keeps timing out — not just a count. */
   recentFailures: SweepFailure[];
+  /** Consecutive-failure tally per tenant+platform (`"tenantId:platform"`),
+   * carried across runs: incremented while a check keeps failing, key removed
+   * the first run it succeeds. Lets an admin tell a chronic breakage from a
+   * one-off blip. */
+  failStreaks: Record<string, SweepStreak>;
+}
+
+/**
+ * Load the previous run's consecutive-failure tallies so this run can
+ * continue them. Best-effort: on any read failure returns an empty map
+ * (streaks restart from 1 rather than blocking the sweep).
+ */
+async function loadPriorFailStreaks(): Promise<Record<string, SweepStreak>> {
+  try {
+    const [row] = await db
+      .select({ failStreaks: sweepStatusTable.failStreaks })
+      .from(sweepStatusTable)
+      .where(eq(sweepStatusTable.id, 1))
+      .limit(1);
+    return row?.failStreaks ?? {};
+  } catch (err) {
+    logger.error({ err }, "Failed to load prior sweep fail streaks");
+    return {};
+  }
 }
 
 /**
@@ -136,7 +161,9 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
     errorCount: 0,
     lastError: null,
     recentFailures: [],
+    failStreaks: {},
   };
+  const priorStreaks = await loadPriorFailStreaks();
   let rows: { tenantId: number; platform: string }[];
   try {
     rows = await db
@@ -150,6 +177,9 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
     logger.error({ err }, "Connection sweep failed to list connected accounts");
     result.errorCount = 1;
     result.lastError = err instanceof Error ? err.message : String(err);
+    // Nothing was actually checked, so carry the prior streaks unchanged —
+    // a bookkeeping failure must not erase a chronic offender's history.
+    result.failStreaks = priorStreaks;
     return result;
   }
 
@@ -178,13 +208,27 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
         );
         result.errorCount += 1;
         result.lastError = err instanceof Error ? err.message : String(err);
+        // Continue (or start) this check's consecutive-failure streak.
+        // Successful checks never write a key, so a recovery resets the
+        // tally automatically — result.failStreaks starts empty each run.
+        const streakKey = `${tenantId}:${platform}`;
+        const prior = priorStreaks[streakKey];
+        const nowIso = new Date().toISOString();
+        const streak: SweepStreak = {
+          count: (prior?.count ?? 0) + 1,
+          firstFailedAt: prior?.firstFailedAt ?? nowIso,
+          lastError: result.lastError,
+          lastAt: nowIso,
+        };
+        result.failStreaks[streakKey] = streak;
         // Keep the newest offenders at the front, capped so the persisted
         // row stays small even on a very broken run.
         result.recentFailures.unshift({
           tenantId,
           platform,
           error: result.lastError,
-          at: new Date().toISOString(),
+          at: nowIso,
+          consecutiveFailures: streak.count,
         });
         if (result.recentFailures.length > SWEEP_RECENT_FAILURES_CAP) {
           result.recentFailures.length = SWEEP_RECENT_FAILURES_CAP;
@@ -217,6 +261,7 @@ export async function recordSweepRun(
         errorCount: outcome.errorCount,
         lastError: outcome.lastError,
         recentFailures: outcome.recentFailures,
+        failStreaks: outcome.failStreaks,
       })
       .onConflictDoUpdate({
         target: sweepStatusTable.id,
@@ -227,6 +272,7 @@ export async function recordSweepRun(
           errorCount: outcome.errorCount,
           lastError: outcome.lastError,
           recentFailures: outcome.recentFailures,
+          failStreaks: outcome.failStreaks,
           updatedAt: sql`now()`,
         },
       });

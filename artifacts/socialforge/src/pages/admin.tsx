@@ -2797,6 +2797,14 @@ export function AdminPage() {
                           <Badge variant="outline" className="capitalize">
                             {f.platform}
                           </Badge>
+                          {(f.consecutiveFailures ?? 1) > 1 && (
+                            <Badge
+                              variant="destructive"
+                              data-testid={`badge-sweep-streak-${i}`}
+                            >
+                              Failed {f.consecutiveFailures} sweeps in a row
+                            </Badge>
+                          )}
                           <span className="text-muted-foreground">
                             {new Date(f.at).toLocaleString()}
                           </span>

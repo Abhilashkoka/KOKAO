@@ -450,6 +450,64 @@ describe("sweepDeadConnections", () => {
     }
   });
 
+  it("tracks a consecutive-failure streak across runs and resets it on success", async () => {
+    const tenant = await createTenant();
+    const key = `${tenant.tenantId}:facebook`;
+    try {
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "facebook",
+        { pageId: "PAGE_S", pageAccessToken: "tok_s" },
+        "verified",
+      );
+
+      // Run 1: the check crashes -> streak starts at 1.
+      await setAccountState(tenant.tenantId, "facebook", {
+        verifiedAt: staleDate(),
+      });
+      mockFb.mockRejectedValue(new Error("provider timeout"));
+      const first = await sweepDeadConnections();
+      expect(first.failStreaks[key]).toMatchObject({
+        count: 1,
+        lastError: "provider timeout",
+      });
+      const firstFailedAt = first.failStreaks[key]!.firstFailedAt;
+      expect(
+        first.recentFailures.find(
+          (f) => f.tenantId === tenant.tenantId && f.platform === "facebook",
+        )?.consecutiveFailures,
+      ).toBe(1);
+      // Persist so the next run can continue the streak.
+      await recordSweepRun(new Date(), 100, first);
+
+      // Run 2: still failing -> streak continues at 2, firstFailedAt kept.
+      await setAccountState(tenant.tenantId, "facebook", {
+        verifiedAt: staleDate(),
+      });
+      const second = await sweepDeadConnections();
+      expect(second.failStreaks[key]).toMatchObject({
+        count: 2,
+        firstFailedAt,
+      });
+      expect(
+        second.recentFailures.find(
+          (f) => f.tenantId === tenant.tenantId && f.platform === "facebook",
+        )?.consecutiveFailures,
+      ).toBe(2);
+      await recordSweepRun(new Date(), 100, second);
+
+      // Run 3: the check recovers -> the streak key is gone.
+      await setAccountState(tenant.tenantId, "facebook", {
+        verifiedAt: staleDate(),
+      });
+      mockFb.mockResolvedValue({ ok: true, accountName: "Test Page" });
+      const third = await sweepDeadConnections();
+      expect(third.failStreaks[key]).toBeUndefined();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("never throws when one tenant's re-verify blows up, and still sweeps the rest", async () => {
     const broken = await createTenant();
     const healthy = await createTenant();
@@ -515,6 +573,7 @@ describe("checkSweepStaleness", () => {
         errorCount: 0,
         lastError: null,
         recentFailures: [],
+        failStreaks: {},
       });
 
       await checkSweepStaleness(true);
@@ -545,6 +604,7 @@ describe("checkSweepStaleness", () => {
         errorCount: 0,
         lastError: null,
         recentFailures: [],
+        failStreaks: {},
       });
 
       await checkSweepStaleness(true);
@@ -566,6 +626,7 @@ describe("checkSweepStaleness", () => {
         errorCount: 0,
         lastError: null,
         recentFailures: [],
+        failStreaks: {},
       });
       await checkSweepStaleness(true);
 
@@ -575,6 +636,7 @@ describe("checkSweepStaleness", () => {
         errorCount: 0,
         lastError: null,
         recentFailures: [],
+        failStreaks: {},
       });
       const afterRecovery = (await getNotifications(admin.tenantId)).filter(
         (n) => n.type === "sweep_stalled",
@@ -588,6 +650,7 @@ describe("checkSweepStaleness", () => {
         errorCount: 0,
         lastError: null,
         recentFailures: [],
+        failStreaks: {},
       });
       await checkSweepStaleness(true);
       const afterSecondStall = (await getNotifications(admin.tenantId)).filter(
@@ -611,6 +674,7 @@ describe("recordSweepRun", () => {
       errorCount: 0,
       lastError: null,
       recentFailures: [],
+      failStreaks: {},
     });
 
     const secondRun = new Date("2026-07-15T10:15:00Z");
@@ -624,8 +688,17 @@ describe("recordSweepRun", () => {
           platform: "facebook",
           error: "boom",
           at: "2026-07-15T10:14:00.000Z",
+          consecutiveFailures: 3,
         },
       ],
+      failStreaks: {
+        "42:facebook": {
+          count: 3,
+          firstFailedAt: "2026-07-15T09:44:00.000Z",
+          lastError: "boom",
+          lastAt: "2026-07-15T10:14:00.000Z",
+        },
+      },
     });
 
     const rows = await db.select().from(sweepStatusTable);
@@ -642,8 +715,17 @@ describe("recordSweepRun", () => {
         platform: "facebook",
         error: "boom",
         at: "2026-07-15T10:14:00.000Z",
+        consecutiveFailures: 3,
       },
     ]);
+    expect(rows[0]!.failStreaks).toEqual({
+      "42:facebook": {
+        count: 3,
+        firstFailedAt: "2026-07-15T09:44:00.000Z",
+        lastError: "boom",
+        lastAt: "2026-07-15T10:14:00.000Z",
+      },
+    });
   });
 });
 

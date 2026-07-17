@@ -830,7 +830,8 @@ export const AdminGetStatsResponse = zod.object({
   "tenantName": zod.string().nullish().describe('Workspace name, null if the tenant was deleted.'),
   "platform": zod.string(),
   "error": zod.string(),
-  "at": zod.coerce.date()
+  "at": zod.coerce.date(),
+  "consecutiveFailures": zod.number().optional().describe('How many sweeps in a row this tenant+platform check has failed, including this one. Values above 1 mark a chronic breakage rather than a one-off blip; the tally resets the first sweep the check succeeds.')
 })).optional().describe('Most recent failed checks from the last completed sweep run, newest first (capped server-side), so an admin can see which tenant + platform keeps timing out without reading logs.')
 }).nullish().describe('Health of the background dead-connection sweep. Null when the sweep has never completed a run (e.g. fresh deploy).')
 })

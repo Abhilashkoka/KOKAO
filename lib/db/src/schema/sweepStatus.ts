@@ -17,6 +17,24 @@ export interface SweepFailure {
   error: string;
   /** ISO timestamp of when the failure was recorded. */
   at: string;
+  /** How many sweeps in a row this tenant+platform check has failed,
+   * including this one. Distinguishes a chronic breakage from a blip. */
+  consecutiveFailures?: number;
+}
+
+/**
+ * Cross-run consecutive-failure tally for one tenant+platform check, keyed
+ * `${tenantId}:${platform}` in the fail_streaks map. Incremented each sweep
+ * the check fails, removed the first sweep it succeeds (or the account is
+ * gone), so a chronically broken credential is distinguishable from noise.
+ */
+export interface SweepStreak {
+  count: number;
+  /** ISO timestamp of the first failure in the current streak. */
+  firstFailedAt: string;
+  lastError: string;
+  /** ISO timestamp of the most recent failure. */
+  lastAt: string;
 }
 
 /**
@@ -40,6 +58,13 @@ export const sweepStatusTable = pgTable("sweep_status", {
     .$type<SweepFailure[]>()
     .notNull()
     .default([]),
+  /** Consecutive-failure tally per tenant+platform (`"tenantId:platform"` ->
+   * streak), carried across runs so an admin can tell a check that fails
+   * sweep after sweep from a one-off blip. Reset (key removed) on success. */
+  failStreaks: jsonb("fail_streaks")
+    .$type<Record<string, SweepStreak>>()
+    .notNull()
+    .default({}),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()
