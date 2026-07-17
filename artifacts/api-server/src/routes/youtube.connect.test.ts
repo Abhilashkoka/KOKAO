@@ -94,6 +94,7 @@ function mockGoogleApiFailing(opts: {
   tokenStatus?: number;
   channelStatus?: number;
   noChannel?: boolean;
+  noRefreshToken?: boolean;
 }): MockCall[] {
   const calls: MockCall[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(
@@ -112,7 +113,9 @@ function mockGoogleApiFailing(opts: {
         }
         return json({
           access_token: YT_NEW_ACCESS_TOKEN,
-          refresh_token: "yt_new_refresh_token",
+          ...(opts.noRefreshToken
+            ? {}
+            : { refresh_token: "yt_new_refresh_token" }),
           expires_in: 3600,
         });
       }
@@ -257,6 +260,87 @@ describe("YouTube connect callback error paths leave the stored row untouched", 
       const after = await getConnectedAccount(tenant.tenantId, "youtube");
       expect(after).toEqual(before);
       expect(after.accessToken).toBe(YT_STALE_TOKEN);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with reason=no_refresh_token and does not modify the row when Google omits refresh_token and the stored credentials blob is null", async () => {
+    const calls = mockGoogleApiFailing({ noRefreshToken: true });
+    const tenant = await createTenant();
+    try {
+      await insertYoutubeAccount(tenant.tenantId, {
+        accessToken: YT_STALE_TOKEN,
+        refreshToken: null,
+        providerUserId: "yt_channel_old",
+        tokenExpiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        status: "error",
+        accountName: "Old Channel",
+        verifyStatus: "failed",
+        verifyError: "YouTube rejected the stored access.",
+      });
+      const before = await getConnectedAccount(tenant.tenantId, "youtube");
+      expect(before.encryptedCredentials).toBeNull();
+      const state = await mintState(tenant.clerkUserId);
+
+      const res = await request(app)
+        .get("/api/youtube/auth/callback")
+        .query({ code: "AUTH_CODE", state });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?youtube=error&reason=no_refresh_token",
+      );
+
+      // Both Google round-trips completed; the failure is purely local
+      // (no usable refresh token anywhere).
+      expect(
+        calls.some((c) => c.url.startsWith("https://oauth2.googleapis.com/token")),
+      ).toBe(true);
+      expect(
+        calls.some((c) =>
+          c.url.startsWith("https://www.googleapis.com/youtube/v3/channels"),
+        ),
+      ).toBe(true);
+
+      const after = await getConnectedAccount(tenant.tenantId, "youtube");
+      expect(after).toEqual(before);
+      expect(after.accessToken).toBe(YT_STALE_TOKEN);
+      expect(after.accessToken).not.toBe(YT_NEW_ACCESS_TOKEN);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("redirects with reason=no_refresh_token and does not modify the row when Google omits refresh_token and the stored credentials blob is undecryptable", async () => {
+    const calls = mockGoogleApiFailing({ noRefreshToken: true });
+    const tenant = await createTenant();
+    try {
+      await seedExistingRow(tenant.tenantId);
+      // Corrupt the stored blob so the prior refresh token cannot be read.
+      await pool.query(
+        `UPDATE connected_accounts
+         SET encrypted_credentials = 'v1:not-a-valid-ciphertext'
+         WHERE tenant_id = $1 AND platform = 'youtube'`,
+        [tenant.tenantId],
+      );
+      const before = await getConnectedAccount(tenant.tenantId, "youtube");
+      expect(before.encryptedCredentials).toBe("v1:not-a-valid-ciphertext");
+      const state = await mintState(tenant.clerkUserId);
+
+      const res = await request(app)
+        .get("/api/youtube/auth/callback")
+        .query({ code: "AUTH_CODE", state });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe(
+        "/accounts?youtube=error&reason=no_refresh_token",
+      );
+
+      const after = await getConnectedAccount(tenant.tenantId, "youtube");
+      expect(after).toEqual(before);
+      expect(after.accessToken).toBe(YT_STALE_TOKEN);
+      expect(after.encryptedCredentials).toBe("v1:not-a-valid-ciphertext");
     } finally {
       await deleteTenant(tenant.tenantId);
     }
