@@ -5,7 +5,7 @@ import {
   tenantMembersTable,
   tenantsTable,
 } from "@workspace/db";
-import { and, eq, isNotNull, isNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import { logger } from "./logger";
 import { fetchVerifiedEmail } from "./clerkUser";
 import { sendEmail } from "./email";
@@ -664,6 +664,169 @@ export async function notifySweepStalled(
     }
   } catch (err) {
     logger.error({ err }, "Failed to record sweep-stalled notifications");
+  }
+}
+
+export const SWEEP_FAIL_STREAK = "sweep_fail_streak";
+
+/**
+ * Alert every superadmin that one tenant's connection check has now failed
+ * many sweeps IN A ROW (a chronic breakage, not a one-off blip). Like
+ * sweep_stalled this is an operational platform-admin alert, so it bypasses
+ * the tenant notification-preference catalog: always recorded in-app and
+ * best-effort emailed to each superadmin's verified address.
+ *
+ * Deduped per recipient AND per offending tenant+platform: the streak key
+ * (`streak:<tenantId>:<platform>`) is carried in the `platform` column, and a
+ * new row is only inserted when there is no existing UNREAD row for the same
+ * key — so the alert fires once when the streak crosses the threshold and
+ * stays silent while it continues. The dedupe re-arms when the streak resets
+ * (see resolveSweepFailStreakNotifications) or when the admin dismisses the
+ * banner. Never throws.
+ */
+export async function notifySweepFailStreak(offender: {
+  tenantId: number;
+  platform: string;
+  count: number;
+  firstFailedAt: string;
+  lastError: string | null;
+}): Promise<void> {
+  try {
+    const candidates = await db
+      .select({
+        id: tenantsTable.id,
+        clerkUserId: tenantsTable.clerkUserId,
+        email: tenantsTable.email,
+        isSuperadmin: tenantsTable.isSuperadmin,
+      })
+      .from(tenantsTable)
+      .where(
+        or(eq(tenantsTable.isSuperadmin, true), isNotNull(tenantsTable.email)),
+      );
+    const recipients = candidates.filter(
+      (t) => t.isSuperadmin || isSuperadminEmail(t.email),
+    );
+    if (recipients.length === 0) return;
+
+    // Best-effort workspace name for a readable message; the id is the
+    // authoritative pointer either way.
+    const offenderTenant = (
+      await db
+        .select({ name: tenantsTable.name })
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, offender.tenantId))
+        .limit(1)
+    )[0];
+    const workspace = offenderTenant?.name
+      ? `Workspace "${offenderTenant.name}" (id ${offender.tenantId})`
+      : `Workspace id ${offender.tenantId}`;
+
+    const scopeKey = `streak:${offender.tenantId}:${offender.platform}`;
+    const label = platformLabel(offender.platform);
+    const errorText = offender.lastError
+      ? ` Last error: ${offender.lastError}`
+      : "";
+    const title = "A connection keeps failing its safety checks";
+    const message =
+      `${workspace}'s ${label} check has failed ${offender.count} sweeps in a row ` +
+      `(since ${offender.firstFailedAt}).${errorText} ` +
+      `This looks like a chronic breakage — review it on the admin dashboard.`;
+
+    for (const recipient of recipients) {
+      try {
+        const existing = await db
+          .select({ id: notificationsTable.id })
+          .from(notificationsTable)
+          .where(
+            and(
+              eq(notificationsTable.tenantId, recipient.id),
+              eq(notificationsTable.type, SWEEP_FAIL_STREAK),
+              eq(notificationsTable.platform, scopeKey),
+              isNull(notificationsTable.readAt),
+            ),
+          )
+          .limit(1);
+        if (existing.length > 0) continue;
+
+        await db.insert(notificationsTable).values({
+          tenantId: recipient.id,
+          type: SWEEP_FAIL_STREAK,
+          platform: scopeKey,
+          referenceId: offender.tenantId,
+          title,
+          message,
+          linkUrl: "/admin",
+          inApp: true,
+        });
+
+        // Fresh alert only (past the dedupe guard) -> best-effort email.
+        try {
+          const email = await fetchVerifiedEmail(recipient.clerkUserId);
+          if (email) {
+            await sendEmail({
+              to: email,
+              subject: title,
+              text: message,
+              html: `<p>${escapeHtml(message)}</p>`,
+            });
+          }
+        } catch (err) {
+          logger.error(
+            { err, recipientTenantId: recipient.id },
+            "Failed to email sweep-fail-streak alert",
+          );
+        }
+      } catch (err) {
+        logger.error(
+          { err, recipientTenantId: recipient.id },
+          "Failed to notify a superadmin about a fail streak",
+        );
+      }
+    }
+  } catch (err) {
+    logger.error(
+      { err, offenderTenantId: offender.tenantId, platform: offender.platform },
+      "Failed to record sweep-fail-streak notifications",
+    );
+  }
+}
+
+/**
+ * Mark unread sweep_fail_streak alerts read for every streak that is NO
+ * LONGER active at/above the alert threshold (the check recovered, or the
+ * offending row was removed). Clearing the row both hides the banner and
+ * re-arms the per-streak dedupe so a NEW streak on the same tenant+platform
+ * produces a fresh alert. `activeKeys` holds the scope keys
+ * (`streak:<tenantId>:<platform>`) that must stay unread. Never throws.
+ */
+export async function resolveSweepFailStreakNotifications(
+  activeKeys: string[],
+): Promise<void> {
+  try {
+    const active = new Set(activeKeys);
+    const open = await db
+      .select({
+        id: notificationsTable.id,
+        platform: notificationsTable.platform,
+      })
+      .from(notificationsTable)
+      .where(
+        and(
+          eq(notificationsTable.type, SWEEP_FAIL_STREAK),
+          isNull(notificationsTable.readAt),
+        ),
+      );
+    const staleIds = open
+      .filter((row) => !row.platform || !active.has(row.platform))
+      .map((row) => row.id);
+    if (staleIds.length === 0) return;
+
+    await db
+      .update(notificationsTable)
+      .set({ readAt: new Date() })
+      .where(inArray(notificationsTable.id, staleIds));
+  } catch (err) {
+    logger.error({ err }, "Failed to resolve sweep-fail-streak notifications");
   }
 }
 

@@ -21,7 +21,9 @@ import {
 import { eq, inArray, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import {
+  notifySweepFailStreak,
   notifySweepStalled,
+  resolveSweepFailStreakNotifications,
   resolveSweepStalledNotifications,
 } from "./notifications";
 import {
@@ -113,6 +115,14 @@ const REVERIFIERS: Record<
 
 /** How many of the most recent failed checks to keep for the admin card. */
 export const SWEEP_RECENT_FAILURES_CAP = 10;
+
+/** A tenant+platform check failing this many sweeps IN A ROW (~1 hour at the
+ * 15-minute interval) is a chronic breakage worth pushing to superadmins,
+ * not just showing on the dashboard. Overridable for tests/ops. */
+export const SWEEP_FAIL_STREAK_ALERT_THRESHOLD = (() => {
+  const raw = Number(process.env.SWEEP_FAIL_STREAK_ALERT_THRESHOLD);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 4;
+})();
 
 /** Outcome of one full sweep, persisted for admin-dashboard visibility. */
 export interface SweepResult {
@@ -296,6 +306,46 @@ export async function recordSweepRun(
   // The sweep just completed a run, so any outstanding "sweep stalled" alert
   // is resolved — clearing it also re-arms the dedupe for a future stall.
   await resolveSweepStalledNotifications();
+  // Chronic-breakage escalation: alert superadmins about every streak at or
+  // above the threshold (deduped per streak, so a continuing streak stays
+  // silent), and clear alerts for streaks that reset so the dedupe re-arms.
+  await processFailStreakAlerts(outcome.failStreaks);
+}
+
+/**
+ * Push chronic-breakage alerts to superadmins from a completed run's streak
+ * map: every tenant+platform whose consecutive-failure count is at or above
+ * SWEEP_FAIL_STREAK_ALERT_THRESHOLD gets a deduped superadmin notification,
+ * and any outstanding alert whose streak has since reset (or dropped below
+ * the threshold) is marked read so a future streak alerts afresh.
+ * Best-effort: never throws.
+ */
+export async function processFailStreakAlerts(
+  failStreaks: Record<string, SweepStreak>,
+): Promise<void> {
+  try {
+    const activeKeys: string[] = [];
+    for (const [key, streak] of Object.entries(failStreaks)) {
+      if (streak.count < SWEEP_FAIL_STREAK_ALERT_THRESHOLD) continue;
+      const [tenantIdRaw, ...platformParts] = key.split(":");
+      const tenantId = Number(tenantIdRaw);
+      const platform = platformParts.join(":");
+      if (!Number.isFinite(tenantId) || !platform) continue;
+      activeKeys.push(`streak:${tenantId}:${platform}`);
+      await notifySweepFailStreak({
+        tenantId,
+        platform,
+        count: streak.count,
+        firstFailedAt: streak.firstFailedAt,
+        lastError: streak.lastError,
+      });
+    }
+    // Streaks that recovered (or fell out of the map) release their alert,
+    // re-arming the per-streak dedupe for the next chronic breakage.
+    await resolveSweepFailStreakNotifications(activeKeys);
+  } catch (err) {
+    logger.error({ err }, "Failed to process sweep fail-streak alerts");
+  }
 }
 
 let lastStalenessCheckAt = 0;

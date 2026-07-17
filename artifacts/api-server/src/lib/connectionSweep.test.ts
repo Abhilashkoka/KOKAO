@@ -42,6 +42,8 @@ import {
   triggerSweepNow,
   isSweepRunning,
   checkSweepStaleness,
+  processFailStreakAlerts,
+  SWEEP_FAIL_STREAK_ALERT_THRESHOLD,
 } from "./connectionSweep";
 import {
   createTenant,
@@ -727,6 +729,135 @@ describe("checkSweepStaleness", () => {
       expect(afterSecondStall.filter((n) => n.readAt === null)).toHaveLength(1);
     } finally {
       await deleteTenant(admin.tenantId);
+    }
+  });
+});
+
+describe("processFailStreakAlerts", () => {
+  const streak = (count: number, lastError = "provider timeout") => ({
+    count,
+    firstFailedAt: "2026-07-17T09:00:00.000Z",
+    lastError,
+    lastAt: new Date().toISOString(),
+  });
+
+  it("alerts a superadmin once a streak crosses the threshold, deduped while it continues, and not a regular tenant", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const regular = await createTenant();
+    const offender = await createTenant();
+    const key = `${offender.tenantId}:facebook`;
+    try {
+      // Below the threshold: no alert.
+      await processFailStreakAlerts({
+        [key]: streak(SWEEP_FAIL_STREAK_ALERT_THRESHOLD - 1),
+      });
+      let adminNotifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_fail_streak",
+      );
+      expect(adminNotifs).toHaveLength(0);
+
+      // Crossing the threshold fires exactly one alert...
+      await processFailStreakAlerts({
+        [key]: streak(SWEEP_FAIL_STREAK_ALERT_THRESHOLD),
+      });
+      // ...and a continuing streak stays silent (deduped).
+      await processFailStreakAlerts({
+        [key]: streak(SWEEP_FAIL_STREAK_ALERT_THRESHOLD + 1),
+      });
+
+      adminNotifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_fail_streak",
+      );
+      expect(adminNotifs).toHaveLength(1);
+      expect(adminNotifs[0]!.readAt).toBeNull();
+      expect(adminNotifs[0]!.linkUrl).toBe("/admin");
+      expect(adminNotifs[0]!.platform).toBe(
+        `streak:${offender.tenantId}:facebook`,
+      );
+      expect(adminNotifs[0]!.message).toContain("Facebook Page");
+      expect(adminNotifs[0]!.message).toContain("provider timeout");
+
+      const regularNotifs = (await getNotifications(regular.tenantId)).filter(
+        (n) => n.type === "sweep_fail_streak",
+      );
+      expect(regularNotifs).toHaveLength(0);
+    } finally {
+      await deleteTenant(admin.tenantId);
+      await deleteTenant(regular.tenantId);
+      await deleteTenant(offender.tenantId);
+    }
+  });
+
+  it("a streak reset resolves the alert and re-arms the dedupe for a new streak", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const offender = await createTenant();
+    const key = `${offender.tenantId}:linkedin`;
+    try {
+      await processFailStreakAlerts({
+        [key]: streak(SWEEP_FAIL_STREAK_ALERT_THRESHOLD),
+      });
+
+      // The check recovers: the streak key disappears, the alert clears.
+      await processFailStreakAlerts({});
+      const afterRecovery = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_fail_streak",
+      );
+      expect(afterRecovery).toHaveLength(1);
+      expect(afterRecovery[0]!.readAt).not.toBeNull();
+
+      // A NEW streak on the same tenant+platform alerts afresh.
+      await processFailStreakAlerts({
+        [key]: streak(SWEEP_FAIL_STREAK_ALERT_THRESHOLD),
+      });
+      const afterSecondStreak = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_fail_streak",
+      );
+      expect(afterSecondStreak).toHaveLength(2);
+      expect(
+        afterSecondStreak.filter((n) => n.readAt === null),
+      ).toHaveLength(1);
+    } finally {
+      await deleteTenant(admin.tenantId);
+      await deleteTenant(offender.tenantId);
+    }
+  });
+
+  it("only clears the recovered streak's alert, keeping other active offenders unread", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const offenderA = await createTenant();
+    const offenderB = await createTenant();
+    try {
+      await processFailStreakAlerts({
+        [`${offenderA.tenantId}:facebook`]: streak(
+          SWEEP_FAIL_STREAK_ALERT_THRESHOLD,
+        ),
+        [`${offenderB.tenantId}:twitter`]: streak(
+          SWEEP_FAIL_STREAK_ALERT_THRESHOLD,
+        ),
+      });
+
+      // A recovers; B keeps failing.
+      await processFailStreakAlerts({
+        [`${offenderB.tenantId}:twitter`]: streak(
+          SWEEP_FAIL_STREAK_ALERT_THRESHOLD + 1,
+        ),
+      });
+
+      const notifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_fail_streak",
+      );
+      const forA = notifs.find(
+        (n) => n.platform === `streak:${offenderA.tenantId}:facebook`,
+      );
+      const forB = notifs.find(
+        (n) => n.platform === `streak:${offenderB.tenantId}:twitter`,
+      );
+      expect(forA?.readAt).not.toBeNull();
+      expect(forB?.readAt).toBeNull();
+    } finally {
+      await deleteTenant(admin.tenantId);
+      await deleteTenant(offenderA.tenantId);
+      await deleteTenant(offenderB.tenantId);
     }
   });
 });
