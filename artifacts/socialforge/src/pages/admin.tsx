@@ -2420,6 +2420,32 @@ export function AdminPage() {
   const updateTenantDesignSkill = useAdminUpdateTenantDesignSkill();
   const runSweep = useAdminRunSweep();
 
+  // Most recent manual sweep trigger (who clicked "Run now" and whether the
+  // sweep actually started or was skipped because one was already in flight).
+  const lastManualRunParams = { action: "sweep_run" as const, limit: 1 };
+  const { data: lastManualRunPage } = useAdminListAuditLogs(
+    lastManualRunParams,
+    {
+      query: {
+        queryKey: getAdminListAuditLogsQueryKey(lastManualRunParams),
+      },
+    },
+  );
+  const lastManualRun = lastManualRunPage?.items?.[0];
+  let lastManualRunStarted: boolean | null = null;
+  if (lastManualRun?.newValue) {
+    try {
+      const parsed = JSON.parse(lastManualRun.newValue) as {
+        started?: boolean;
+      };
+      if (typeof parsed.started === "boolean") {
+        lastManualRunStarted = parsed.started;
+      }
+    } catch {
+      // Leave outcome unknown for unparseable legacy rows.
+    }
+  }
+
   const handleDesignSkillChange = (tenantId: number, value: string) => {
     const enabled = value === "default" ? null : value === "on";
     updateTenantDesignSkill.mutate(
@@ -2458,6 +2484,9 @@ export function AdminPage() {
       onSuccess: (result) => {
         queryClient.invalidateQueries({
           queryKey: getAdminGetStatsQueryKey(),
+        });
+        queryClient.invalidateQueries({
+          queryKey: getAdminListAuditLogsQueryKey(),
         });
         if (result.started) {
           toast({
@@ -2671,6 +2700,40 @@ export function AdminPage() {
           </div>
         </CardHeader>
         <CardContent>
+          {lastManualRun && (
+            <div
+              className="mb-4 flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm"
+              data-testid="section-sweep-last-manual-run"
+            >
+              <span className="text-muted-foreground">Last manual run:</span>
+              <span className="font-medium" data-testid="text-sweep-manual-actor">
+                {lastManualRun.actorEmail ??
+                  `Tenant #${lastManualRun.actorTenantId}`}
+              </span>
+              <span
+                className="text-muted-foreground"
+                data-testid="text-sweep-manual-time"
+              >
+                {new Date(lastManualRun.createdAt).toLocaleString()}
+              </span>
+              {lastManualRunStarted !== null &&
+                (lastManualRunStarted ? (
+                  <Badge
+                    variant="secondary"
+                    data-testid="badge-sweep-manual-started"
+                  >
+                    Started
+                  </Badge>
+                ) : (
+                  <Badge
+                    variant="outline"
+                    data-testid="badge-sweep-manual-skipped"
+                  >
+                    Skipped (already running)
+                  </Badge>
+                ))}
+            </div>
+          )}
           {statsLoading ? (
             <Skeleton className="h-8 w-64" />
           ) : stats?.connectionSweep ? (
