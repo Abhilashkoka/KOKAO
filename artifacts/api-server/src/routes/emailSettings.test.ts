@@ -621,6 +621,52 @@ describe("POST /admin/email-settings/test", () => {
     }
   });
 
+  it("caps CONCURRENT test sends: simultaneous requests cannot exceed the limit", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(admin.clerkUserId, "admin@example.com");
+
+      await request(app).put("/api/admin/email-settings").send({
+        sendingEnabled: false,
+        fromEmail: "alerts@socialforge.test",
+        apiKey: "SG.concurrent-key-8888",
+      });
+
+      // Fire more simultaneous requests than the cap allows. Without the
+      // atomic count-and-reserve, several could see the same "2/3 used"
+      // snapshot and all send.
+      const responses = await Promise.all(
+        Array.from({ length: TEST_EMAIL_LIMIT + 3 }, () =>
+          request(app)
+            .post("/api/admin/email-settings/test")
+            .send({ to: "victim@example.com" }),
+        ),
+      );
+
+      const ok = responses.filter((r) => r.status === 200);
+      const throttled = responses.filter((r) => r.status === 429);
+      expect(ok.length).toBe(TEST_EMAIL_LIMIT);
+      expect(throttled.length).toBe(3);
+      // The hard guarantee: no more emails left than the cap allows.
+      expect(sendgridCalls.length).toBe(TEST_EMAIL_LIMIT);
+
+      // Every attempt is audited with a FINAL outcome — no lingering
+      // "pending" reservations after the responses complete.
+      const logs = await getAuditLogsForActor(admin.tenantId);
+      const testLogs = logs.filter((l) => l.action === "email_test_send");
+      const outcomes = testLogs.map(
+        (l) => JSON.parse(l.newValue!).outcome as string,
+      );
+      expect(outcomes.filter((o) => o === "sent").length).toBe(
+        TEST_EMAIL_LIMIT,
+      );
+      expect(outcomes.filter((o) => o === "throttled").length).toBe(3);
+      expect(outcomes).not.toContain("pending");
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
   it("keeps throttling after a server restart: a fresh app instance still sees the cap", async () => {
     const admin = await createTenant({ isSuperadmin: true });
     try {

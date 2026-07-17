@@ -5,7 +5,7 @@ import {
   adminAuditLogsTable,
   type EmailSettings,
 } from "@workspace/db";
-import { and, eq, gt, notLike, count } from "drizzle-orm";
+import { and, eq, gt, notLike, count, sql } from "drizzle-orm";
 import {
   AdminUpdateEmailSettingsBody,
   AdminSendTestEmailBody,
@@ -60,28 +60,68 @@ export const TEST_EMAIL_LIMIT = 3;
 export const TEST_EMAIL_WINDOW_MS = 60_000;
 
 /**
- * Returns true when this attempt is allowed. Fails CLOSED (throttled) if the
- * audit trail cannot be read — this endpoint's whole job is writing to the
- * same database, so a degraded DB should block sends, not open the tap.
+ * Namespace (classid) for the per-actor advisory lock that serializes the
+ * count-and-reserve step below. Any distinct int32 works; this one is just a
+ * stable constant unique to the test-email throttle.
  */
-async function allowTestSend(
+const TEST_EMAIL_LOCK_NS = 792_401;
+
+/**
+ * Atomically checks the cap and, if allowed, RESERVES a slot by inserting a
+ * provisional `email_test_send` audit row (outcome "pending") in the same
+ * transaction. A transaction-scoped advisory lock keyed on the actor tenant
+ * serializes concurrent requests, so two simultaneous clicks cannot both see
+ * 2/3 used and both send — the second one waits, then counts the first's
+ * pending reservation against the cap.
+ *
+ * Returns the reserved audit row's id when allowed, or null when throttled.
+ * Fails CLOSED (throws → caller throttles) if the audit trail cannot be
+ * read/written — this endpoint's whole job is writing to the same database,
+ * so a degraded DB should block sends, not open the tap.
+ */
+async function reserveTestSend(
   actorTenantId: number,
+  actorEmail: string | null,
+  recipient: string,
   now = Date.now(),
-): Promise<boolean> {
+): Promise<number | null> {
   const cutoff = new Date(now - TEST_EMAIL_WINDOW_MS);
-  const [row] = await db
-    .select({ value: count() })
-    .from(adminAuditLogsTable)
-    .where(
-      and(
-        eq(adminAuditLogsTable.action, "email_test_send"),
-        eq(adminAuditLogsTable.actorTenantId, actorTenantId),
-        gt(adminAuditLogsTable.createdAt, cutoff),
-        // Only attempts that got past the throttle count against the cap.
-        notLike(adminAuditLogsTable.newValue, '%"outcome":"throttled"%'),
-      ),
+  return await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(${TEST_EMAIL_LOCK_NS}, ${actorTenantId})`,
     );
-  return (row?.value ?? 0) < TEST_EMAIL_LIMIT;
+    const [row] = await tx
+      .select({ value: count() })
+      .from(adminAuditLogsTable)
+      .where(
+        and(
+          eq(adminAuditLogsTable.action, "email_test_send"),
+          eq(adminAuditLogsTable.actorTenantId, actorTenantId),
+          gt(adminAuditLogsTable.createdAt, cutoff),
+          // Only attempts that got past the throttle count against the cap;
+          // provisional "pending" reservations DO count, closing the race.
+          notLike(adminAuditLogsTable.newValue, '%"outcome":"throttled"%'),
+        ),
+      );
+    if ((row?.value ?? 0) >= TEST_EMAIL_LIMIT) return null;
+    const [inserted] = await tx
+      .insert(adminAuditLogsTable)
+      .values({
+        action: "email_test_send",
+        actorTenantId,
+        actorEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: JSON.stringify({
+          recipient,
+          outcome: "pending",
+          error: null,
+        }),
+      })
+      .returning({ id: adminAuditLogsTable.id });
+    return inserted.id;
+  });
 }
 
 /**
@@ -235,17 +275,19 @@ router.post(
 
     // Cooldown BEFORE any send: cap rapid-fire test emails to an arbitrary
     // external inbox. Throttled attempts send nothing and touch no state.
-    // The decision reads the audit trail; fail CLOSED on a read error.
-    let allowed = false;
+    // The check ATOMICALLY reserves a slot (count + provisional audit row
+    // under a per-actor advisory lock) so concurrent requests cannot both
+    // slip under the cap. Fail CLOSED on any error.
+    let reservationId: number | null = null;
     try {
-      allowed = await allowTestSend(req.tenantId);
+      reservationId = await reserveTestSend(req.tenantId, req.tenantEmail, to);
     } catch (error) {
       req.log.error(
         { err: error },
-        "Failed to read email-test-send throttle state; failing closed",
+        "Failed to reserve email-test-send throttle slot; failing closed",
       );
     }
-    if (!allowed) {
+    if (reservationId === null) {
       // Audit the blocked attempt too — abuse attempts are exactly what the
       // trail is for. Best-effort: never fail the response on an audit error.
       try {
@@ -299,27 +341,26 @@ router.post(
       await db.insert(emailSettingsTable).values(testFields);
     }
 
-    // Best-effort audit trail: record who triggered the test send and to
-    // where — a test send reveals delivery configuration and reaches an
-    // arbitrary recipient. Never fail the request if the audit write fails.
+    // Best-effort audit trail: finalize the provisional reservation row with
+    // the real outcome — a test send reveals delivery configuration and
+    // reaches an arbitrary recipient. Never fail the request if the audit
+    // update fails; the "pending" row still counts against the cap and ages
+    // out with the window.
     try {
-      await recordAdminAction({
-        action: "email_test_send",
-        actorTenantId: req.tenantId,
-        actorEmail: req.tenantEmail,
-        targetTenantId: null,
-        targetEmail: null,
-        oldValue: null,
-        newValue: JSON.stringify({
-          recipient: to,
-          outcome: result.ok ? "sent" : "failed",
-          error: result.ok ? null : result.error ?? "Test send failed",
-        }),
-      });
+      await db
+        .update(adminAuditLogsTable)
+        .set({
+          newValue: JSON.stringify({
+            recipient: to,
+            outcome: result.ok ? "sent" : "failed",
+            error: result.ok ? null : result.error ?? "Test send failed",
+          }),
+        })
+        .where(eq(adminAuditLogsTable.id, reservationId));
     } catch (error) {
       req.log.error(
         { err: error },
-        "Failed to write email-test-send audit log",
+        "Failed to finalize email-test-send audit log",
       );
     }
 
