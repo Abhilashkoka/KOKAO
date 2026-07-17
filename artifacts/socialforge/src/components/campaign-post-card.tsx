@@ -3,6 +3,7 @@ import {
   useGenerateImage,
   useCreateContent,
   getListContentQueryKey,
+  getGetMeQueryKey,
   type CampaignPost,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -84,6 +85,7 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
       { data: { prompt: `${basePrompt}${tweakInstruction}`, brandKitId: brandKitId || undefined } },
       {
         onSuccess: (res) => {
+          queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
           if (onImageGenerated) {
             onImageGenerated(post.platform, res);
           } else {

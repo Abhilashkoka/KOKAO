@@ -223,6 +223,25 @@ describe("CampaignPostCard image style tweak chips", () => {
     expect(onImageGenerated).toHaveBeenCalledWith("instagram", res);
   });
 
+  it("successful image generation invalidates the /me quota query", async () => {
+    generateImageMutate.mockClear();
+    const { getGetMeQueryKey } = await import("@workspace/api-client-react");
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
+    render(
+      <QueryClientProvider client={client}>
+        <CampaignPostCard
+          post={{ platform: "instagram", caption: "A cozy cafe post", hashtags: [], imagePrompt: "A cozy cafe interior" } as any}
+          brief="test brief"
+        />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByTestId("button-campaign-image-instagram"));
+    const [, opts] = generateImageMutate.mock.calls[0];
+    (opts as any).onSuccess({ imagePath: "/objects/t/uploads/z", b64Json: "cccc" });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: getGetMeQueryKey() });
+  });
+
   it("plain regenerate sends the untweaked prompt", () => {
     generateImageMutate.mockClear();
     renderWithImage();
