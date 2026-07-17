@@ -55,6 +55,8 @@ export function NotificationSettings() {
 
   if (!data) return null;
 
+  const memberScoped = data.scope === "member";
+
   const setPref = (type: string, patch: Partial<PrefState>) => {
     setPrefs((prev) => ({
       ...prev,
@@ -101,6 +103,16 @@ export function NotificationSettings() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {memberScoped && (
+          <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
+            <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+            <p className="text-muted-foreground">
+              You're a team member of this workspace, so these choices apply
+              only to you. Turning email off here stops emails sent to you
+              without affecting the workspace owner or other teammates.
+            </p>
+          </div>
+        )}
         {!data.emailConfigured && (
           <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
             <Info className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
@@ -143,6 +155,7 @@ export function NotificationSettings() {
                 )}
               </div>
 
+              {!memberScoped && (
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm">
                   <MonitorSmartphone className="h-4 w-4 text-muted-foreground" />
@@ -157,6 +170,7 @@ export function NotificationSettings() {
                   aria-label={`Toggle in-app popup for ${t.label}`}
                 />
               </div>
+              )}
 
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm">

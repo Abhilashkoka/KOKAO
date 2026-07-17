@@ -102,6 +102,7 @@ export * from './notificationPolicy';
 export * from './notificationPolicyEmailPolicy';
 export * from './notificationSettings';
 export * from './notificationSettingsInput';
+export * from './notificationSettingsScope';
 export * from './notificationTypeSetting';
 export * from './notificationTypeSettingEmailPolicy';
 export * from './onboardingStatus';

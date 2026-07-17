@@ -589,9 +589,22 @@ export interface NotificationTypeSetting {
   effective: NotificationChannelPreference;
 }
 
+/**
+ * "workspace" when the signed-in user owns this workspace (choices apply to the whole workspace); "member" when they are a team member/admin of someone else's workspace (choices are personal and only affect emails sent to them).
+ */
+export type NotificationSettingsScope = typeof NotificationSettingsScope[keyof typeof NotificationSettingsScope];
+
+
+export const NotificationSettingsScope = {
+  workspace: 'workspace',
+  member: 'member',
+} as const;
+
 export interface NotificationSettings {
   /** Whether email delivery is currently connected and will send. */
   emailConfigured: boolean;
+  /** "workspace" when the signed-in user owns this workspace (choices apply to the whole workspace); "member" when they are a team member/admin of someone else's workspace (choices are personal and only affect emails sent to them). */
+  scope: NotificationSettingsScope;
   types: NotificationTypeSetting[];
 }
 

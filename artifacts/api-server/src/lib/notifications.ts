@@ -14,6 +14,8 @@ import {
   defaultPolicy,
   defaultPreference,
   getEffectiveSetting,
+  getMemberEmailSetting,
+  getPolicyState,
   resolveEffective,
 } from "./notificationSettings";
 import type { EmailPolicy } from "./notificationCatalog";
@@ -45,7 +47,7 @@ export const SEAT_REQUEST_SUBMITTED = "seat_request_submitted";
  */
 export async function fetchWorkspaceEmailRecipients(
   tenantId: number,
-  opts: { excludeClerkUserId?: string } = {},
+  opts: { excludeClerkUserId?: string; memberOptOutType?: string } = {},
 ): Promise<string[]> {
   const tenant = (
     await db
@@ -69,10 +71,34 @@ export async function fetchWorkspaceEmailRecipients(
   for (const admin of admins) recipientIds.add(admin.clerkUserId);
   if (opts.excludeClerkUserId) recipientIds.delete(opts.excludeClerkUserId);
 
+  // When a notification type supports per-member opt-out, individual ADMIN
+  // members can turn its email off for THEMSELVES (member-scoped preference)
+  // without silencing the owner or other admins. The owner's channel is
+  // governed by the workspace's tenant-scoped preference (folded into the
+  // caller's `effective` gate), and a "forced" email policy overrides member
+  // opt-outs.
+  const adminIds = new Set(admins.map((a) => a.clerkUserId));
+  const optOutPolicy = opts.memberOptOutType
+    ? await getPolicyState(opts.memberOptOutType)
+    : null;
+
   const emails: string[] = [];
   const seen = new Set<string>();
   for (const clerkUserId of recipientIds) {
     try {
+      if (
+        opts.memberOptOutType &&
+        adminIds.has(clerkUserId) &&
+        clerkUserId !== tenant?.clerkUserId &&
+        optOutPolicy?.emailPolicy !== "forced"
+      ) {
+        const memberEmailPref = await getMemberEmailSetting(
+          tenantId,
+          clerkUserId,
+          opts.memberOptOutType,
+        );
+        if (memberEmailPref === false) continue;
+      }
       const email = await fetchVerifiedEmail(clerkUserId);
       if (!email || seen.has(email.toLowerCase())) continue;
       seen.add(email.toLowerCase());
@@ -95,7 +121,7 @@ export async function fetchWorkspaceEmailRecipients(
 async function emailWorkspaceRecipients(
   tenantId: number,
   message: { subject: string; text: string; html?: string },
-  opts: { excludeClerkUserId?: string } = {},
+  opts: { excludeClerkUserId?: string; memberOptOutType?: string } = {},
 ): Promise<void> {
   const emails = await fetchWorkspaceEmailRecipients(tenantId, opts);
   for (const to of emails) {
@@ -213,7 +239,10 @@ export async function notifyTeamMemberLeft(
           text: message,
           html: `<p>${escapeHtml(message)}</p>`,
         },
-        { excludeClerkUserId: leaver.clerkUserId },
+        {
+          excludeClerkUserId: leaver.clerkUserId,
+          memberOptOutType: TEAM_MEMBER_LEFT,
+        },
       );
     }
   } catch (err) {

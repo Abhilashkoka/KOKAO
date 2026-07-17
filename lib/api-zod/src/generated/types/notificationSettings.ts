@@ -5,10 +5,13 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { NotificationSettingsScope } from './notificationSettingsScope';
 import type { NotificationTypeSetting } from './notificationTypeSetting';
 
 export interface NotificationSettings {
   /** Whether email delivery is currently connected and will send. */
   emailConfigured: boolean;
+  /** "workspace" when the signed-in user owns this workspace (choices apply to the whole workspace); "member" when they are a team member/admin of someone else's workspace (choices are personal and only affect emails sent to them). */
+  scope: NotificationSettingsScope;
   types: NotificationTypeSetting[];
 }

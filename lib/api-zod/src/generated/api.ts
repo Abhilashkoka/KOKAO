@@ -151,6 +151,7 @@ export const CreateAppBrandUploadUrlResponse = zod.object({
  */
 export const GetNotificationSettingsResponse = zod.object({
   "emailConfigured": zod.boolean().describe('Whether email delivery is currently connected and will send.'),
+  "scope": zod.enum(['workspace', 'member']).describe('\"workspace\" when the signed-in user owns this workspace (choices apply to the whole workspace); \"member\" when they are a team member\/admin of someone else\'s workspace (choices are personal and only affect emails sent to them).'),
   "types": zod.array(zod.object({
   "type": zod.string(),
   "label": zod.string(),
@@ -182,6 +183,7 @@ export const UpdateNotificationSettingsBody = zod.object({
 
 export const UpdateNotificationSettingsResponse = zod.object({
   "emailConfigured": zod.boolean().describe('Whether email delivery is currently connected and will send.'),
+  "scope": zod.enum(['workspace', 'member']).describe('\"workspace\" when the signed-in user owns this workspace (choices apply to the whole workspace); \"member\" when they are a team member\/admin of someone else\'s workspace (choices are personal and only affect emails sent to them).'),
   "types": zod.array(zod.object({
   "type": zod.string(),
   "label": zod.string(),

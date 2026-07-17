@@ -1,5 +1,9 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, notificationPreferencesTable } from "@workspace/db";
+import {
+  db,
+  memberNotificationPreferencesTable,
+  notificationPreferencesTable,
+} from "@workspace/db";
 import { UpdateNotificationSettingsBody } from "@workspace/api-zod";
 import { isEmailConfigured } from "../lib/email";
 import {
@@ -9,6 +13,7 @@ import {
 import {
   defaultPolicy,
   defaultPreference,
+  getMemberPreferenceMap,
   getPolicyMap,
   getPreferenceMap,
   resolveEffective,
@@ -17,15 +22,29 @@ import {
 const router: IRouter = Router();
 
 /**
- * Assemble the tenant-facing notification settings: for each catalog type,
- * fold the global policy with the tenant's stored preference and expose both
- * the raw preference (what the toggles show) and the effective channels.
+ * Whether the request comes from a team member (admin/member) working inside
+ * someone ELSE's workspace. Their notification choices are member-scoped —
+ * stored per (workspace, clerkUserId) — so they never touch the owner's
+ * tenant-scoped preferences.
  */
-async function buildSettings(tenantId: number) {
+function isMemberScoped(req: Request): boolean {
+  return req.memberRole !== undefined && req.memberRole !== "owner";
+}
+
+/**
+ * Assemble the notification settings: for each catalog type, fold the global
+ * policy with the stored preference (tenant-scoped for owners, member-scoped
+ * for team members) and expose both the raw preference (what the toggles show)
+ * and the effective channels.
+ */
+async function buildSettings(req: Request) {
+  const memberScoped = isMemberScoped(req);
   const [emailConfigured, policyMap, prefMap] = await Promise.all([
     isEmailConfigured(),
     getPolicyMap(),
-    getPreferenceMap(tenantId),
+    memberScoped
+      ? getMemberPreferenceMap(req.tenantId, req.clerkUserId)
+      : getPreferenceMap(req.tenantId),
   ]);
 
   const types = NOTIFICATION_TYPES.map((def) => {
@@ -43,13 +62,17 @@ async function buildSettings(tenantId: number) {
     };
   });
 
-  return { emailConfigured, types };
+  return {
+    emailConfigured,
+    scope: memberScoped ? ("member" as const) : ("workspace" as const),
+    types,
+  };
 }
 
 router.get(
   "/notification-settings",
   async (req: Request, res: Response) => {
-    res.json(await buildSettings(req.tenantId));
+    res.json(await buildSettings(req));
   },
 );
 
@@ -75,30 +98,60 @@ router.put(
     }
 
     const tenantId = req.tenantId;
-    for (const pref of parsed.data.preferences) {
-      await db
-        .insert(notificationPreferencesTable)
-        .values({
-          tenantId,
-          type: pref.type,
-          inApp: pref.inApp,
-          email: pref.email,
-          updatedAt: new Date(),
-        })
-        .onConflictDoUpdate({
-          target: [
-            notificationPreferencesTable.tenantId,
-            notificationPreferencesTable.type,
-          ],
-          set: {
+    if (isMemberScoped(req)) {
+      // Member-scoped write: the member's own rows only. Never touches the
+      // owner's tenant-scoped preferences.
+      const clerkUserId = req.clerkUserId;
+      for (const pref of parsed.data.preferences) {
+        await db
+          .insert(memberNotificationPreferencesTable)
+          .values({
+            tenantId,
+            clerkUserId,
+            type: pref.type,
             inApp: pref.inApp,
             email: pref.email,
             updatedAt: new Date(),
-          },
-        });
+          })
+          .onConflictDoUpdate({
+            target: [
+              memberNotificationPreferencesTable.tenantId,
+              memberNotificationPreferencesTable.clerkUserId,
+              memberNotificationPreferencesTable.type,
+            ],
+            set: {
+              inApp: pref.inApp,
+              email: pref.email,
+              updatedAt: new Date(),
+            },
+          });
+      }
+    } else {
+      for (const pref of parsed.data.preferences) {
+        await db
+          .insert(notificationPreferencesTable)
+          .values({
+            tenantId,
+            type: pref.type,
+            inApp: pref.inApp,
+            email: pref.email,
+            updatedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: [
+              notificationPreferencesTable.tenantId,
+              notificationPreferencesTable.type,
+            ],
+            set: {
+              inApp: pref.inApp,
+              email: pref.email,
+              updatedAt: new Date(),
+            },
+          });
+      }
     }
 
-    res.json(await buildSettings(tenantId));
+    res.json(await buildSettings(req));
   },
 );
 

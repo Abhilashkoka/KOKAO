@@ -14,6 +14,7 @@ export * from "./designSkillSettings";
 export * from "./usageEvents";
 export * from "./notifications";
 export * from "./notificationPreferences";
+export * from "./memberNotificationPreferences";
 export * from "./notificationPolicies";
 export * from "./adminAuditLogs";
 export * from "./planSettings";
