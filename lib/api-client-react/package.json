@@ -6,6 +6,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "test": "vitest run"
+  },
   "dependencies": {
     "@tanstack/react-query": "catalog:"
   },
@@ -14,6 +17,7 @@
   },
   "devDependencies": {
     "@types/react": "catalog:",
-    "react": "catalog:"
+    "react": "catalog:",
+    "vitest": "^4.1.9"
   }
 }

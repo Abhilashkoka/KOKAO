@@ -4,7 +4,7 @@ import {
   isNetworkFailure,
   mutateWithRestartRetry,
   RESTART_RETRY_DELAY_MS,
-} from "./restartRetry";
+} from "./restart-retry";
 
 /**
  * Guards for the automatic publish retry on restart 503s:
