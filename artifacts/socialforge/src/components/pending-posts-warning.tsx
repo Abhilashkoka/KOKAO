@@ -59,6 +59,27 @@ export function usePendingResendActions() {
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
 
+  // A 409 means a resend for this post is already running (e.g. another tab
+  // or a rapid double click) — nothing failed, so show a neutral
+  // informational toast instead of a destructive "Resend failed" one.
+  const resendErrorToast = (err: any, fallback: string) => {
+    const message = err?.data?.error || err?.response?.data?.error;
+    if (err?.status === 409) {
+      toast({
+        title: "Resend already in progress",
+        description:
+          message ||
+          "A resend for this post is already running. Wait for it to finish before trying again.",
+      });
+      return;
+    }
+    toast({
+      title: "Resend failed",
+      description: message || fallback,
+      variant: "destructive",
+    });
+  };
+
   const handleResendLinkedinComments = (itemId: number) => {
     setResendingLinkedinId(itemId);
     resendLinkedinComments.mutate(
@@ -81,15 +102,8 @@ export function usePendingResendActions() {
           }
           invalidate();
         },
-        onError: (err: any) => {
-          toast({
-            title: "Resend failed",
-            description:
-              err?.response?.data?.error ||
-              "Could not resend the LinkedIn comments. Try again.",
-            variant: "destructive",
-          });
-        },
+        onError: (err: any) =>
+          resendErrorToast(err, "Could not resend the LinkedIn comments. Try again."),
         onSettled: () => setResendingLinkedinId(null),
       },
     );
@@ -117,15 +131,8 @@ export function usePendingResendActions() {
           }
           invalidate();
         },
-        onError: (err: any) => {
-          toast({
-            title: "Resend failed",
-            description:
-              err?.response?.data?.error ||
-              "Could not resend the missing Threads posts. Try again.",
-            variant: "destructive",
-          });
-        },
+        onError: (err: any) =>
+          resendErrorToast(err, "Could not resend the missing Threads posts. Try again."),
         onSettled: () => setResendingThreadsId(null),
       },
     );
@@ -153,15 +160,8 @@ export function usePendingResendActions() {
           }
           invalidate();
         },
-        onError: (err: any) => {
-          toast({
-            title: "Resend failed",
-            description:
-              err?.response?.data?.error ||
-              "Could not resend the missing X posts. Try again.",
-            variant: "destructive",
-          });
-        },
+        onError: (err: any) =>
+          resendErrorToast(err, "Could not resend the missing X posts. Try again."),
         onSettled: () => setResendingTwitterId(null),
       },
     );
