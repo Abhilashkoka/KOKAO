@@ -812,6 +812,40 @@ export const AdminUpdateDesignSkillResponse = zod.object({
 
 
 /**
+ * @summary Get the speech-to-text provider selection (superadmin only)
+ */
+export const AdminGetAsrSettingsResponse = zod.object({
+  "provider": zod.string().describe('Currently selected speech-to-text provider id.'),
+  "providers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "model": zod.string(),
+  "configured": zod.boolean().describe('Whether the API key\/secret needed by this provider is set.'),
+  "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).')
+}))
+})
+
+
+/**
+ * @summary Select the speech-to-text provider for the whole app (superadmin only)
+ */
+export const AdminUpdateAsrSettingsBody = zod.object({
+  "provider": zod.string().describe('Provider id from the catalog.')
+})
+
+export const AdminUpdateAsrSettingsResponse = zod.object({
+  "provider": zod.string().describe('Currently selected speech-to-text provider id.'),
+  "providers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "model": zod.string(),
+  "configured": zod.boolean().describe('Whether the API key\/secret needed by this provider is set.'),
+  "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).')
+}))
+})
+
+
+/**
  * @summary Platform-wide aggregate stats (superadmin only)
  */
 export const AdminGetStatsResponse = zod.object({
@@ -3755,6 +3789,20 @@ export const GenerateImageBody = zod.object({
 export const GenerateImageResponse = zod.object({
   "imagePath": zod.string(),
   "b64Json": zod.string()
+})
+
+
+/**
+ * @summary Transcribe a short voice note to text (unmetered helper)
+ */
+export const TranscribeAudioBody = zod.object({
+  "audio": zod.instanceof(File).describe('Audio file (webm\/ogg\/mp3\/wav\/m4a), max 15 MB.')
+})
+
+export const TranscribeAudioResponse = zod.object({
+  "text": zod.string(),
+  "provider": zod.string(),
+  "model": zod.string()
 })
 
 

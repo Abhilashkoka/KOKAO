@@ -850,6 +850,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/asr-settings:
+    get:
+      operationId: adminGetAsrSettings
+      tags: [admin]
+      summary: Get the speech-to-text provider selection (superadmin only)
+      responses:
+        "200":
+          description: ASR settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AsrSettingsView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminUpdateAsrSettings
+      tags: [admin]
+      summary: Select the speech-to-text provider for the whole app (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAsrSettingsRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AsrSettingsView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/stats:
     get:
       operationId: adminGetStats
@@ -1735,6 +1782,36 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "400":
           description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/transcribe:
+    post:
+      operationId: transcribeAudio
+      tags: [ai]
+      summary: Transcribe a short voice note to text (unmetered helper)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/AudioUploadInput"
+      responses:
+        "200":
+          description: Transcription
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TranscriptionResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Transcription provider failed or is not configured
           content:
             application/json:
               schema:
@@ -3683,6 +3760,58 @@ components:
       properties:
         enabled:
           type: boolean
+    AsrSettingsView:
+      type: object
+      required: [provider, providers]
+      properties:
+        provider:
+          type: string
+          description: Currently selected speech-to-text provider id.
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AsrProviderInfo"
+    AsrProviderInfo:
+      type: object
+      required: [id, label, model, configured]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        model:
+          type: string
+        configured:
+          type: boolean
+          description: Whether the API key/secret needed by this provider is set.
+        envKey:
+          type: ["string", "null"]
+          description: Secret name required by this provider (null when built-in).
+    UpdateAsrSettingsRequest:
+      type: object
+      required: [provider]
+      properties:
+        provider:
+          type: string
+          description: Provider id from the catalog.
+    AudioUploadInput:
+      type: object
+      required: [audio]
+      properties:
+        audio:
+          type: string
+          format: binary
+          description: Audio file (webm/ogg/mp3/wav/m4a), max 15 MB.
+    TranscriptionResult:
+      type: object
+      required: [text, provider, model]
+      properties:
+        text:
+          type: string
+        provider:
+          type: string
+        model:
+          type: string
     UpdateTenantDesignSkillBody:
       type: object
       required: [enabled]

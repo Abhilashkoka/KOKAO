@@ -6,6 +6,9 @@ import {
   useAdminUpdateTenantSuperadmin,
   useAdminUpdateTenantDesignSkill,
   useAdminGetDesignSkill,
+  useAdminGetAsrSettings,
+  useAdminUpdateAsrSettings,
+  getAdminGetAsrSettingsQueryKey,
   useAdminUpdateDesignSkill,
   getAdminGetDesignSkillQueryKey,
   useAdminGetMetaCredentials,
@@ -1496,6 +1499,93 @@ function SeatRequestsCard() {
   );
 }
 
+function AsrProviderCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: settings, isLoading } = useAdminGetAsrSettings();
+  const updateSettings = useAdminUpdateAsrSettings();
+
+  const handleSelect = (provider: string) => {
+    if (!settings || provider === settings.provider) return;
+    updateSettings.mutate(
+      { data: { provider } },
+      {
+        onSuccess: (result) => {
+          queryClient.invalidateQueries({ queryKey: getAdminGetAsrSettingsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getAdminListAuditLogsQueryKey() });
+          const chosen = result.providers.find((p) => p.id === result.provider);
+          toast({
+            title: "Speech-to-text provider updated",
+            description: chosen
+              ? `Voice notes are now transcribed with ${chosen.label}.`
+              : "Provider selection saved.",
+          });
+        },
+        onError: () => {
+          toast({
+            title: "Update failed",
+            description: "Could not change the speech-to-text provider.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const selected = settings?.providers.find((p) => p.id === settings.provider);
+
+  return (
+    <Card data-testid="card-asr-provider">
+      <CardHeader>
+        <CardTitle>Speech-to-Text Provider</CardTitle>
+        <CardDescription>
+          Which service transcribes voice notes in the Studio. Providers marked
+          "needs key" require their API key to be added as a secret before they
+          will work.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading || !settings ? (
+          <Skeleton className="h-9 w-64" />
+        ) : (
+          <>
+            <div className="flex items-center gap-3">
+              <Select
+                value={settings.provider}
+                onValueChange={handleSelect}
+                disabled={updateSettings.isPending}
+              >
+                <SelectTrigger className="w-72" data-testid="select-asr-provider">
+                  <SelectValue placeholder="Select a provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  {settings.providers.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selected &&
+                (selected.configured ? (
+                  <Badge variant="secondary">Ready</Badge>
+                ) : (
+                  <Badge variant="destructive">Needs key</Badge>
+                ))}
+            </div>
+            {selected && !selected.configured && selected.envKey && (
+              <p className="text-sm text-muted-foreground">
+                Add the {selected.envKey} secret to enable this provider. Until
+                then, voice note transcription will fail with a clear error.
+              </p>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function DesignSkillCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -2862,6 +2952,7 @@ export function AdminPage() {
 
       <SeatRequestsCard />
       <DesignSkillCard />
+      <AsrProviderCard />
       <PlansCard />
       <MetaCredentialsCard />
       <TwitterCredentialsCard />

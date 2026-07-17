@@ -424,6 +424,41 @@ export interface UpdateDesignSkillBody {
   enabled: boolean;
 }
 
+export interface AsrProviderInfo {
+  id: string;
+  label: string;
+  model: string;
+  /** Whether the API key/secret needed by this provider is set. */
+  configured: boolean;
+  /**
+     * Secret name required by this provider (null when built-in).
+     * @nullable
+     */
+  envKey?: string | null;
+}
+
+export interface AsrSettingsView {
+  /** Currently selected speech-to-text provider id. */
+  provider: string;
+  providers: AsrProviderInfo[];
+}
+
+export interface UpdateAsrSettingsRequest {
+  /** Provider id from the catalog. */
+  provider: string;
+}
+
+export interface AudioUploadInput {
+  /** Audio file (webm/ogg/mp3/wav/m4a), max 15 MB. */
+  audio: Blob;
+}
+
+export interface TranscriptionResult {
+  text: string;
+  provider: string;
+  model: string;
+}
+
 export interface UpdateTenantDesignSkillBody {
   /**
      * true/false forces on/off for this user; null follows the global switch.

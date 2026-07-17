@@ -14,10 +14,18 @@ import { eq, sql, desc, gte, lte, and, or, ilike, inArray } from "drizzle-orm";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import { recordAdminAction } from "../lib/adminAudit";
 import {
+  ASR_PROVIDERS,
+  getProviderDef,
+  isProviderConfigured,
+  getSelectedAsrProviderId,
+  setSelectedAsrProviderId,
+} from "../lib/asr";
+import {
   AdminUpdateTenantPlanBody,
   AdminUpdateTenantSuperadminBody,
   AdminUpdateTenantDesignSkillBody,
   AdminUpdateDesignSkillBody,
+  AdminUpdateAsrSettingsBody,
   AdminUpdateNotificationPoliciesBody,
   AdminUpdatePlanBody,
   AdminCreatePlanBody,
@@ -471,6 +479,67 @@ router.patch(
     res.json(serializeAdminTenant(updated));
   },
 );
+
+/** Serialize the ASR settings view (selected provider + catalog). */
+async function serializeAsrSettings() {
+  const provider = await getSelectedAsrProviderId();
+  return {
+    provider,
+    providers: ASR_PROVIDERS.map((p) => ({
+      id: p.id,
+      label: p.label,
+      model: p.model,
+      configured: isProviderConfigured(p),
+      envKey: p.envKey,
+    })),
+  };
+}
+
+/**
+ * GET /admin/asr-settings
+ * The platform-wide speech-to-text provider selection.
+ */
+router.get("/admin/asr-settings", async (_req: Request, res: Response) => {
+  res.json(await serializeAsrSettings());
+});
+
+/**
+ * PUT /admin/asr-settings
+ * Select which speech-to-text provider /ai/transcribe uses.
+ */
+router.put("/admin/asr-settings", async (req: Request, res: Response) => {
+  const parsed = AdminUpdateAsrSettingsBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const def = getProviderDef(parsed.data.provider);
+  if (!def) {
+    res.status(400).json({ error: "Unknown speech-to-text provider" });
+    return;
+  }
+
+  const before = await getSelectedAsrProviderId();
+  await setSelectedAsrProviderId(def.id);
+
+  if (before !== def.id) {
+    try {
+      await recordAdminAction({
+        action: "asr_provider_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: before,
+        newValue: def.id,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write ASR settings audit log");
+    }
+  }
+
+  res.json(await serializeAsrSettings());
+});
 
 /**
  * GET /admin/design-skill

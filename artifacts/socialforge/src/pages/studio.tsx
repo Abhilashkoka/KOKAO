@@ -35,6 +35,7 @@ import { Wand2, Image as ImageIcon, Save, Loader2, Lightbulb, Link2, Layers, Glo
 import { navigate } from "wouter/use-browser-location";
 import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
 import { CampaignPostCard, type GeneratedImage } from "@/components/campaign-post-card";
+import { VoiceNoteButton } from "@/components/voice-note-button";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -784,7 +785,17 @@ export function StudioPage() {
                     name="prompt"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Prompt</FormLabel>
+                        <div className="flex items-center justify-between">
+                          <FormLabel>Prompt</FormLabel>
+                          <VoiceNoteButton
+                            onTranscript={(text) => {
+                              const current = form.getValues("prompt");
+                              form.setValue("prompt", current ? `${current.trim()} ${text}` : text, {
+                                shouldValidate: true,
+                              });
+                            }}
+                          />
+                        </div>
                         <FormControl>
                           <Textarea
                             placeholder="e.g. A post announcing our new summer coffee blend, focus on the refreshing taste."

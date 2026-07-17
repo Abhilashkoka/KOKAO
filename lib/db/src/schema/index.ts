@@ -9,6 +9,7 @@ export * from "./scheduledPosts";
 export * from "./connectedAccounts";
 export * from "./appCredentials";
 export * from "./appBrandSettings";
+export * from "./asrSettings";
 export * from "./emailSettings";
 export * from "./designSkillSettings";
 export * from "./usageEvents";

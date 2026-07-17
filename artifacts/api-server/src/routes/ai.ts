@@ -16,6 +16,12 @@ import { getUsage, recordUsage } from "../lib/usage";
 import { loadActivePayload } from "../lib/brandKit/service";
 import { isDesignSkillEnabledFor, buildDesignedImagePrompt } from "../lib/designSkill";
 import { buildTasteGuidance } from "../lib/tasteMemory";
+import multer from "multer";
+import {
+  transcribeAudio,
+  AsrNotConfiguredError,
+  AsrProviderError,
+} from "../lib/asr";
 import {
   safeFetch,
   readCappedText,
@@ -619,5 +625,67 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Failed to generate campaign" });
   }
 });
+
+const audioUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024, files: 1 },
+});
+
+const ALLOWED_AUDIO_TYPES = new Set([
+  "audio/webm",
+  "audio/ogg",
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/mp4",
+  "audio/m4a",
+  "audio/x-m4a",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/flac",
+  "video/webm",
+  "video/mp4",
+]);
+
+/**
+ * POST /ai/transcribe
+ * Transcribe a short voice note using the platform-selected ASR provider.
+ * Unmetered helper (like suggest-topics); rate-limited by aiLimiter.
+ */
+router.post(
+  "/ai/transcribe",
+  audioUpload.single("audio"),
+  async (req: Request, res: Response) => {
+    const file = req.file;
+    if (!file || file.size === 0) {
+      res.status(400).json({ error: "No audio file uploaded (field name: audio)" });
+      return;
+    }
+    const mimeType = (file.mimetype || "").split(";")[0].trim().toLowerCase();
+    if (!ALLOWED_AUDIO_TYPES.has(mimeType)) {
+      res.status(400).json({ error: `Unsupported audio type: ${mimeType || "unknown"}` });
+      return;
+    }
+    try {
+      const result = await transcribeAudio({
+        buffer: file.buffer,
+        mimeType,
+        filename: file.originalname || "voice-note.webm",
+      });
+      res.json(result);
+    } catch (error) {
+      if (error instanceof AsrNotConfiguredError) {
+        res.status(502).json({ error: error.message });
+        return;
+      }
+      if (error instanceof AsrProviderError) {
+        req.log.error({ err: error }, "Transcription provider failed");
+        res.status(502).json({ error: error.message });
+        return;
+      }
+      req.log.error({ err: error }, "Transcription failed");
+      res.status(502).json({ error: "Transcription failed" });
+    }
+  },
+);
 
 export default router;

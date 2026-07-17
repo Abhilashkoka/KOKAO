@@ -33,6 +33,8 @@ import type {
   AppBrandInput,
   AppBrandUploadUrlBody,
   AppBrandUploadUrlResponse,
+  AsrSettingsView,
+  AudioUploadInput,
   BrandAsset,
   BrandAssetInput,
   BrandDraftRequest,
@@ -114,10 +116,12 @@ import type {
   ThreadsStatus,
   TopicIdeasRequest,
   TopicIdeasResult,
+  TranscriptionResult,
   TwitterAppCredentialInput,
   TwitterAppCredentialStatus,
   TwitterAuthUrlResult,
   TwitterStatus,
+  UpdateAsrSettingsRequest,
   UpdateDesignSkillBody,
   UpdateNotificationPoliciesBody,
   UpdateTenantDesignSkillBody,
@@ -2332,6 +2336,153 @@ export const useAdminUpdateDesignSkill = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAdminUpdateDesignSkillMutationOptions(options));
+    }
+
+export const getAdminGetAsrSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/asr-settings`
+}
+
+/**
+ * @summary Get the speech-to-text provider selection (superadmin only)
+ */
+export const adminGetAsrSettings = async ( options?: RequestInit): Promise<AsrSettingsView> => {
+
+  return customFetch<AsrSettingsView>(getAdminGetAsrSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetAsrSettingsQueryKey = () => {
+    return [
+    `/api/admin/asr-settings`
+    ] as const;
+    }
+
+
+export const getAdminGetAsrSettingsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetAsrSettings>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetAsrSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetAsrSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetAsrSettings>>> = ({ signal }) => adminGetAsrSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetAsrSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetAsrSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetAsrSettings>>>
+export type AdminGetAsrSettingsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the speech-to-text provider selection (superadmin only)
+ */
+
+export function useAdminGetAsrSettings<TData = Awaited<ReturnType<typeof adminGetAsrSettings>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetAsrSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetAsrSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateAsrSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/asr-settings`
+}
+
+/**
+ * @summary Select the speech-to-text provider for the whole app (superadmin only)
+ */
+export const adminUpdateAsrSettings = async (updateAsrSettingsRequest: UpdateAsrSettingsRequest, options?: RequestInit): Promise<AsrSettingsView> => {
+
+  return customFetch<AsrSettingsView>(getAdminUpdateAsrSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateAsrSettingsRequest)
+  }
+);}
+
+
+
+
+export const getAdminUpdateAsrSettingsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAsrSettings>>, TError,{data: BodyType<UpdateAsrSettingsRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAsrSettings>>, TError,{data: BodyType<UpdateAsrSettingsRequest>}, TContext> => {
+
+const mutationKey = ['adminUpdateAsrSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateAsrSettings>>, {data: BodyType<UpdateAsrSettingsRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateAsrSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateAsrSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateAsrSettings>>>
+    export type AdminUpdateAsrSettingsMutationBody = BodyType<UpdateAsrSettingsRequest>
+    export type AdminUpdateAsrSettingsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Select the speech-to-text provider for the whole app (superadmin only)
+ */
+export const useAdminUpdateAsrSettings = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAsrSettings>>, TError,{data: BodyType<UpdateAsrSettingsRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateAsrSettings>>,
+        TError,
+        {data: BodyType<UpdateAsrSettingsRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateAsrSettingsMutationOptions(options));
     }
 
 export const getAdminGetStatsUrl = () => {
@@ -4684,6 +4835,78 @@ export const useGenerateImage = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getGenerateImageMutationOptions(options));
+    }
+
+export const getTranscribeAudioUrl = () => {
+
+
+
+
+  return `/api/ai/transcribe`
+}
+
+/**
+ * @summary Transcribe a short voice note to text (unmetered helper)
+ */
+export const transcribeAudio = async (audioUploadInput: AudioUploadInput, options?: RequestInit): Promise<TranscriptionResult> => {
+    const formData = new FormData();
+formData.append(`audio`, audioUploadInput.audio);
+
+  return customFetch<TranscriptionResult>(getTranscribeAudioUrl(),
+  {
+    ...options,
+    method: 'POST'
+    ,
+    body: formData
+  }
+);}
+
+
+
+
+export const getTranscribeAudioMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof transcribeAudio>>, TError,{data: BodyType<AudioUploadInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof transcribeAudio>>, TError,{data: BodyType<AudioUploadInput>}, TContext> => {
+
+const mutationKey = ['transcribeAudio'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof transcribeAudio>>, {data: BodyType<AudioUploadInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  transcribeAudio(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TranscribeAudioMutationResult = NonNullable<Awaited<ReturnType<typeof transcribeAudio>>>
+    export type TranscribeAudioMutationBody = BodyType<AudioUploadInput>
+    export type TranscribeAudioMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Transcribe a short voice note to text (unmetered helper)
+ */
+export const useTranscribeAudio = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof transcribeAudio>>, TError,{data: BodyType<AudioUploadInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof transcribeAudio>>,
+        TError,
+        {data: BodyType<AudioUploadInput>},
+        TContext
+      > => {
+      return useMutation(getTranscribeAudioMutationOptions(options));
     }
 
 export const getSuggestTopicsUrl = () => {
