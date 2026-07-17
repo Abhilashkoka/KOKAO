@@ -49,6 +49,12 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
       "A workspace admin removed a teammate from your workspace, freeing up a seat.",
   },
   {
+    type: "removed_from_workspace",
+    label: "Removed from a workspace",
+    description:
+      "You were removed from a team workspace you belonged to and no longer have access to its content.",
+  },
+  {
     type: "publish_interrupted",
     label: "Interrupted publishes",
     description:

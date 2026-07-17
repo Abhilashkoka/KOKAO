@@ -329,6 +329,67 @@ describe("DELETE /team/members/:id", () => {
     }
   });
 
+  it("notifies the removed member on their own personal tenant and emails them", async () => {
+    const { owner, membership, memberClerkUserId } = await seedMembership();
+    // The removed person already has their own personal workspace.
+    const personal = await createTenant({ email: null });
+    await db
+      .update(tenantsTable)
+      .set({ clerkUserId: memberClerkUserId })
+      .where(eq(tenantsTable.id, personal.tenantId));
+    try {
+      emailState.forceEmailOn = true;
+      emailState.verifiedEmails = {
+        [memberClerkUserId]: "removed-verified@example.com",
+      };
+      actAs(owner.clerkUserId, "owner@example.com");
+      const res = await request(app).delete(
+        `/api/team/members/${membership.id}`,
+      );
+      expect(res.status).toBe(200);
+
+      const notifications = await db
+        .select()
+        .from(notificationsTable)
+        .where(eq(notificationsTable.tenantId, personal.tenantId));
+      const removed = notifications.filter(
+        (n) => n.type === "removed_from_workspace",
+      );
+      expect(removed).toHaveLength(1);
+      expect(removed[0].title).toContain("Acme Workspace");
+      expect(removed[0].message).toContain("no longer have access");
+
+      expect(emailState.sent.map((m) => m.to)).toContain(
+        "removed-verified@example.com",
+      );
+    } finally {
+      await deleteTenant(personal.tenantId);
+      await cleanup(owner.tenantId);
+    }
+  });
+
+  it("still succeeds and emails the removed member when they have no personal tenant yet", async () => {
+    const { owner, membership, memberClerkUserId } = await seedMembership();
+    try {
+      emailState.verifiedEmails = {
+        [memberClerkUserId]: "no-tenant-yet@example.com",
+      };
+      actAs(owner.clerkUserId, "owner@example.com");
+      const res = await request(app).delete(
+        `/api/team/members/${membership.id}`,
+      );
+      expect(res.status).toBe(200);
+
+      // No personal tenant exists, so no in-app row anywhere — but the email
+      // heads-up still goes out (default policy leaves email optional=on).
+      expect(emailState.sent.map((m) => m.to)).toContain(
+        "no-tenant-yet@example.com",
+      );
+    } finally {
+      await cleanup(owner.tenantId);
+    }
+  });
+
   it("does not self-notify when the owner removes a member", async () => {
     const { owner, membership } = await seedMembership();
     try {

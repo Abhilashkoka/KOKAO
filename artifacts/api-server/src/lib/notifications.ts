@@ -1,5 +1,6 @@
 import {
   db,
+  notificationPoliciesTable,
   notificationsTable,
   seatRequestsTable,
   tenantMembersTable,
@@ -9,7 +10,13 @@ import { and, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import { logger } from "./logger";
 import { fetchVerifiedEmail } from "./clerkUser";
 import { sendEmail } from "./email";
-import { getEffectiveSetting } from "./notificationSettings";
+import {
+  defaultPolicy,
+  defaultPreference,
+  getEffectiveSetting,
+  resolveEffective,
+} from "./notificationSettings";
+import type { EmailPolicy } from "./notificationCatalog";
 import { isSuperadminEmail } from "./superadmins";
 
 export const SOCIAL_CONNECTION_FAILED = "social_connection_failed";
@@ -158,6 +165,7 @@ export async function notifySeatRequestDecided(
 export const SWEEP_STALLED = "sweep_stalled";
 export const TEAM_MEMBER_LEFT = "team_member_left";
 export const TEAM_MEMBER_REMOVED = "team_member_removed";
+export const REMOVED_FROM_WORKSPACE = "removed_from_workspace";
 
 /**
  * Tell the workspace owner AND its admin members that a teammate removed
@@ -271,6 +279,92 @@ export async function notifyTeamMemberRemoved(
     logger.error(
       { err, tenantId },
       "Failed to record team-member-removed notification",
+    );
+  }
+}
+
+/**
+ * Tell the REMOVED person themselves that they no longer have access to the
+ * named workspace (DELETE /team/members/:id), so they are not confused when
+ * they next sign in and land in their own personal workspace with none of the
+ * team's content. The in-app row is written to the removed person's OWN
+ * personal tenant (the tenants row keyed by their clerkUserId) when it exists;
+ * their verified Clerk email gets a best-effort heads-up either way. Follows
+ * the catalog/policy pattern under `removed_from_workspace`: when the removed
+ * person has a personal tenant, their own effective settings decide the
+ * channels; when they have no tenant yet (auto-provisioned on next sign-in),
+ * the global policy alone decides whether the email fires (defaults apply for
+ * the missing preference). Never throws — a notification failure cannot fail
+ * the removal itself.
+ */
+export async function notifyRemovedMember(
+  workspaceName: string,
+  removed: { clerkUserId: string },
+): Promise<void> {
+  try {
+    const title = `You were removed from "${workspaceName}"`;
+    const message =
+      `You no longer have access to the "${workspaceName}" workspace or its content. ` +
+      `You are now in your own personal workspace. If you think this was a mistake, ` +
+      `contact the workspace owner — rejoining requires a new invite.`;
+
+    const personalTenant = (
+      await db
+        .select({ id: tenantsTable.id })
+        .from(tenantsTable)
+        .where(eq(tenantsTable.clerkUserId, removed.clerkUserId))
+        .limit(1)
+    )[0];
+
+    let effective;
+    if (personalTenant) {
+      effective = await getEffectiveSetting(
+        personalTenant.id,
+        REMOVED_FROM_WORKSPACE,
+      );
+    } else {
+      // No personal tenant yet — only the global policy applies.
+      const [policyRow] = await db
+        .select()
+        .from(notificationPoliciesTable)
+        .where(eq(notificationPoliciesTable.type, REMOVED_FROM_WORKSPACE))
+        .limit(1);
+      const policy = policyRow
+        ? {
+            enabled: policyRow.enabled,
+            emailPolicy: policyRow.emailPolicy as EmailPolicy,
+          }
+        : defaultPolicy();
+      effective = resolveEffective(policy, defaultPreference());
+    }
+    if (!effective.enabled) return;
+
+    if (personalTenant) {
+      await db.insert(notificationsTable).values({
+        tenantId: personalTenant.id,
+        type: REMOVED_FROM_WORKSPACE,
+        platform: null,
+        title,
+        message,
+        inApp: effective.inApp,
+      });
+    }
+
+    if (effective.email) {
+      const email = await fetchVerifiedEmail(removed.clerkUserId);
+      if (email) {
+        await sendEmail({
+          to: email,
+          subject: title,
+          text: message,
+          html: `<p>${escapeHtml(message)}</p>`,
+        });
+      }
+    }
+  } catch (err) {
+    logger.error(
+      { err, removedClerkUserId: removed.clerkUserId },
+      "Failed to notify removed member about losing workspace access",
     );
   }
 }

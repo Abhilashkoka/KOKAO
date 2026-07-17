@@ -15,6 +15,7 @@ import {
   getSeatsUsed,
 } from "../lib/team";
 import {
+  notifyRemovedMember,
   notifySeatRequestSubmitted,
   notifyTeamMemberLeft,
   notifyTeamMemberRemoved,
@@ -258,6 +259,14 @@ router.delete("/team/members/:id", async (req: Request, res: Response) => {
         ),
       );
   }
+  // Best-effort: tell the removed person themselves they lost access to this
+  // workspace (in-app on their own personal tenant + email to their verified
+  // address). Fully detached — a failure here never fails the removal.
+  const workspaceName =
+    (await loadTenant(req.tenantId))?.name ?? `Workspace #${req.tenantId}`;
+  await notifyRemovedMember(workspaceName, {
+    clerkUserId: deleted.clerkUserId,
+  });
   // Best-effort: when a workspace ADMIN (not the owner) removed the member,
   // tell the owner and the other admins who was removed and by whom. The
   // acting admin is excluded (no self-notification email), and the owner
