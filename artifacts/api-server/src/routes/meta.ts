@@ -10,7 +10,11 @@ import {
   type FacebookCredentials,
   type InstagramCredentials,
 } from "../lib/metaApi";
-import { reverifyFacebook, reverifyInstagram } from "../lib/socialReverify";
+import {
+  reverifyFacebook,
+  reverifyInstagram,
+  markAccountVerifyFailed,
+} from "../lib/socialReverify";
 import { enqueueBackgroundJob, isShuttingDown } from "../lib/backgroundJobs";
 import { trackSyncPublish } from "../middlewares/trackSyncPublish";
 import { logger } from "../lib/logger";
@@ -66,10 +70,17 @@ function sleep(ms: number): Promise<void> {
  */
 class InstagramPublishError extends Error {
   readonly retryable: boolean;
-  constructor(message: string, retryable: boolean) {
+  /**
+   * True when the failure was a Graph auth error (token revoked/expired
+   * mid-publish): the raw Graph text must be replaced with the friendly
+   * reconnect message and the account flipped to verifyStatus "failed".
+   */
+  readonly authError: boolean;
+  constructor(message: string, retryable: boolean, authError = false) {
     super(message);
     this.name = "InstagramPublishError";
     this.retryable = retryable;
+    this.authError = authError;
   }
 }
 
@@ -101,8 +112,40 @@ export const FB_PUBLISH_RETRY = {
 type GraphError = {
   message?: string;
   code?: number;
+  type?: string;
   is_transient?: boolean;
 };
+
+/**
+ * Detect a Graph API auth failure: the token was revoked/expired in the tiny
+ * window BETWEEN the pre-publish re-verify and the actual write. Meta signals
+ * this with HTTP 401, error code 190, or type "OAuthException". These must be
+ * mapped to the same friendly reconnect message the pre-publish gate uses —
+ * never surfaced as a raw Graph error — and the account row must flip to
+ * verifyStatus "failed" so the Accounts page prompts a reconnect.
+ */
+function isGraphAuthError(status: number, error?: GraphError): boolean {
+  if (status === 401) return true;
+  if (!error) return false;
+  return error.code === 190 || error.type === "OAuthException";
+}
+
+/**
+ * Thrown when a Graph write fails because the token died mid-publish. Carries
+ * no raw Graph text so the route handlers can safely surface `message`
+ * verbatim as the friendly reconnect prompt.
+ */
+class GraphAuthRevokedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GraphAuthRevokedError";
+  }
+}
+
+const FB_RECONNECT_MESSAGE =
+  "Facebook is not connected or its access token is no longer valid. Reconnect your Page on the Accounts page and try again.";
+const IG_PAGE_RECONNECT_MESSAGE =
+  "Instagram publishing needs a valid Facebook Page connection, but the Page token is no longer valid. Reconnect Facebook and try again.";
 
 /**
  * Decide whether a failed Graph API response is a transient hiccup worth
@@ -145,6 +188,12 @@ async function postToGraphWithRetry<T extends { error?: GraphError }>(
     const res = await platformFetch(url, { method: "POST", body: buildBody() });
     const json = (await res.json()) as T;
     if (res.ok && !json.error) return json;
+
+    // The token died mid-publish (revoked between the pre-publish re-verify
+    // and this write). Never retry it and never surface the raw Graph text.
+    if (isGraphAuthError(res.status, json.error)) {
+      throw new GraphAuthRevokedError(FB_RECONNECT_MESSAGE);
+    }
 
     lastError = new Error(json.error?.message || `${label} (${res.status})`);
     const transient = isTransientGraphError(res.status, json.error);
@@ -418,9 +467,12 @@ async function waitForContainerReady(
     );
     const statusJson = (await statusRes.json()) as {
       status_code?: string;
-      error?: { message?: string };
+      error?: GraphError;
     };
     if (!statusRes.ok || statusJson.error) {
+      if (isGraphAuthError(statusRes.status, statusJson.error)) {
+        throw new InstagramPublishError(IG_PAGE_RECONNECT_MESSAGE, false, true);
+      }
       throw new InstagramPublishError(
         statusJson.error?.message ||
           `Instagram API error while checking media status (${statusRes.status})`,
@@ -566,9 +618,12 @@ async function attemptInstagramPublish(
   );
   const createJson = (await createRes.json()) as {
     id?: string;
-    error?: { message?: string };
+    error?: GraphError;
   };
   if (!createRes.ok || createJson.error || !createJson.id) {
+    if (isGraphAuthError(createRes.status, createJson.error)) {
+      throw new InstagramPublishError(IG_PAGE_RECONNECT_MESSAGE, false, true);
+    }
     throw new InstagramPublishError(
       createJson.error?.message || `Instagram API error (${createRes.status})`,
       isRetryableStatus(createRes.status),
@@ -590,9 +645,12 @@ async function attemptInstagramPublish(
   );
   const publishJson = (await publishRes.json()) as {
     id?: string;
-    error?: { message?: string };
+    error?: GraphError;
   };
   if (!publishRes.ok || publishJson.error || !publishJson.id) {
+    if (isGraphAuthError(publishRes.status, publishJson.error)) {
+      throw new InstagramPublishError(IG_PAGE_RECONNECT_MESSAGE, false, true);
+    }
     throw new InstagramPublishError(
       publishJson.error?.message || `Instagram API error (${publishRes.status})`,
       isRetryableStatus(publishRes.status),
@@ -747,11 +805,33 @@ async function runInstagramPublish(
           ? "Instagram background publish failed after exhausting retries"
           : "Instagram background publish failed (non-retryable)",
       );
+      // The Page token died in the window between the pre-publish re-verify
+      // and the Graph write. Flip the Facebook account row to "failed" so the
+      // Accounts page prompts a reconnect, and record the friendly reconnect
+      // message instead of the raw Graph error.
+      const authError =
+        error instanceof InstagramPublishError && error.authError;
+      if (authError) {
+        try {
+          await markAccountVerifyFailed(
+            tenantId,
+            "facebook",
+            "Facebook rejected the Page access token. Reconnect your Page.",
+          );
+        } catch (markErr) {
+          logger.error(
+            { err: markErr, tenantId },
+            "Failed to flip Facebook account to failed after mid-publish auth error",
+          );
+        }
+      }
+
       // Flip the item to "failed" so the UI can surface it instead of leaving it
       // stuck on "publishing" forever.
       try {
-        const reason =
-          error instanceof Error && error.message
+        const reason = authError
+          ? (error as InstagramPublishError).message
+          : error instanceof Error && error.message
             ? `Instagram rejected the post: ${error.message}`
             : "Instagram rejected the post.";
         await setContentStatus(id, tenantId, "failed", reason);
@@ -881,6 +961,36 @@ router.post(
       res.json({ postId, permalink });
     } catch (error) {
       req.log.error({ err: error }, "Facebook publish failed");
+
+      // The token died in the window between the pre-publish re-verify and
+      // the actual write. Surface the same friendly reconnect message the
+      // pre-publish gate uses (never the raw Graph error) and flip the
+      // account row to "failed" so the Accounts page prompts a reconnect.
+      if (error instanceof GraphAuthRevokedError) {
+        try {
+          await markAccountVerifyFailed(
+            req.tenantId,
+            "facebook",
+            "Facebook rejected the Page access token. Reconnect your Page.",
+          );
+        } catch (markErr) {
+          req.log.error(
+            { err: markErr },
+            "Failed to flip Facebook account to failed after mid-publish auth error",
+          );
+        }
+        try {
+          await setContentStatus(id, req.tenantId, "failed", error.message);
+        } catch (updateErr) {
+          req.log.error(
+            { err: updateErr, contentItemId: id },
+            "Failed to record Facebook publish failure",
+          );
+        }
+        res.status(400).json({ error: error.message });
+        return;
+      }
+
       const reason =
         error instanceof Error && error.message
           ? `Facebook rejected the post: ${error.message}`

@@ -128,6 +128,50 @@ function mockGraphDeadToken(
     });
 }
 
+/**
+ * Mock a Graph API where verification reads SUCCEED but write endpoints
+ * reject the token with a 401/code-190 OAuth error — the token was revoked
+ * in the tiny window BETWEEN the pre-publish re-verify and the actual write.
+ */
+function mockGraphTokenDiesMidPublish(calls: string[]) {
+  return vi
+    .spyOn(globalThis, "fetch")
+    .mockImplementation(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      calls.push(url);
+      if (url.includes("fields=id,name"))
+        return jsonRes({ id: lastPathSegment(url), name: "Test Page" });
+      if (url.includes("fields=id,username"))
+        return jsonRes({ id: lastPathSegment(url), username: "testacct" });
+      if (url.includes("/debug_token"))
+        return jsonRes({
+          data: {
+            type: "PAGE",
+            scopes: ["pages_read_engagement", "pages_manage_posts"],
+          },
+        });
+      // Every write fails like a token revoked mid-publish.
+      if (
+        url.includes("/photos") ||
+        url.includes("/feed") ||
+        url.includes("/media_publish") ||
+        url.includes("/media")
+      ) {
+        return jsonRes(
+          {
+            error: {
+              message: RAW_GRAPH_ERROR,
+              code: 190,
+              type: "OAuthException",
+            },
+          },
+          401,
+        );
+      }
+      return jsonRes({});
+    });
+}
+
 /** Mock a fully healthy Graph API for the regression (valid creds) cases. */
 function mockGraphHealthy(calls: string[]) {
   return vi
@@ -264,6 +308,41 @@ describe("Facebook publish with broken credentials", () => {
     }
   });
 
+  it("maps a mid-publish token death (verify passes, write fails with code 190) to the reconnect message", async () => {
+    const calls: string[] = [];
+    mockGraphTokenDiesMidPublish(calls);
+
+    const { tenant, itemId } = await setupFbTenant("verified");
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-facebook`,
+      );
+
+      // The friendly reconnect message — never the raw Graph error.
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/reconnect/i);
+      expect(res.body.error).not.toContain(RAW_GRAPH_ERROR);
+      expect(res.body.error).not.toMatch(/error validating access token/i);
+
+      // The write was attempted exactly once — auth errors never retry.
+      const writeCalls = calls.filter((u) => u.includes("/feed"));
+      expect(writeCalls.length).toBe(1);
+
+      // The item records the failure with the friendly message.
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("failed");
+      expect(item.failureReason).toMatch(/reconnect/i);
+      expect(item.failureReason).not.toContain(RAW_GRAPH_ERROR);
+      expect(item.postId ?? null).toBeNull();
+
+      // The account row flipped so the Accounts page prompts a reconnect.
+      const account = await getConnectedAccount(tenant.tenantId, "facebook");
+      expect(account.verifyStatus).toBe("failed");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("still publishes normally with valid credentials (regression guard)", async () => {
     const calls: string[] = [];
     mockGraphHealthy(calls);
@@ -368,6 +447,55 @@ describe("Instagram publish with broken credentials", () => {
       const item = await getContentItem(itemId, tenant.tenantId);
       expect(item.status).toBe("draft");
     } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("maps a mid-publish token death (verify passes, write fails with code 190) to the reconnect message", async () => {
+    const originalPoll = { ...IG_CONTAINER_POLL };
+    const originalRetry = { ...IG_PUBLISH_RETRY };
+    IG_CONTAINER_POLL.initialDelayMs = 1;
+    IG_CONTAINER_POLL.maxDelayMs = 1;
+    IG_PUBLISH_RETRY.initialDelayMs = 1;
+    IG_PUBLISH_RETRY.maxDelayMs = 1;
+
+    const calls: string[] = [];
+    mockGraphTokenDiesMidPublish(calls);
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getSignedDownloadURL",
+    ).mockResolvedValue("https://storage.example/signed/test.png");
+
+    const { tenant, itemId } = await setupIgTenant("verified");
+    try {
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-instagram`,
+      );
+
+      // The pre-publish re-verify passed, so the request is accepted and
+      // handed to the background job — the failure surfaces on the item.
+      expect(res.status).toBe(202);
+      await waitForPendingJobs();
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("failed");
+      expect(item.failureReason).toMatch(/reconnect/i);
+      expect(item.failureReason).not.toContain(RAW_GRAPH_ERROR);
+      expect(item.failureReason).not.toMatch(/error validating access token/i);
+
+      // The write was attempted exactly once — auth errors never retry.
+      const writeCalls = calls.filter(
+        (u) =>
+          u.includes("/IG_OK/media") && !u.includes("fields=id,username"),
+      );
+      expect(writeCalls.length).toBe(1);
+
+      // The account row flipped so the Accounts page prompts a reconnect.
+      const fb = await getConnectedAccount(tenant.tenantId, "facebook");
+      expect(fb.verifyStatus).toBe("failed");
+    } finally {
+      Object.assign(IG_CONTAINER_POLL, originalPoll);
+      Object.assign(IG_PUBLISH_RETRY, originalRetry);
       await deleteTenant(tenant.tenantId);
     }
   });

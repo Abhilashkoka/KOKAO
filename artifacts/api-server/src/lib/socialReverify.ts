@@ -107,6 +107,28 @@ async function touchChecked(row: AccountRow): Promise<void> {
     .where(eq(connectedAccountsTable.id, row.id));
 }
 
+/**
+ * Flip a tenant's stored account row to verifyStatus "failed" after a live
+ * platform call rejected its token (e.g. a Graph auth error surfacing
+ * mid-publish, in the window after the pre-publish re-verify passed).
+ * Persists the failure and fires the breakage notification on a fresh
+ * verified -> failed transition, exactly like a failed re-verify would.
+ * Best-effort: no-ops when the row is missing.
+ */
+export async function markAccountVerifyFailed(
+  tenantId: number,
+  platform: string,
+  message: string,
+): Promise<void> {
+  const row = await loadAccountRow(tenantId, platform);
+  if (!row) return;
+  await writeStatus(row, {
+    verifyStatus: "failed",
+    verifyError: message,
+    accountName: row.accountName || platform,
+  });
+}
+
 interface ReverifyOptions {
   /** Skip the staleness gate and always re-test (used right before publishing). */
   force?: boolean;
