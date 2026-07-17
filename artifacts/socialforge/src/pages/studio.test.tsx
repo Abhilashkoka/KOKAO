@@ -53,9 +53,11 @@ vi.mock("wouter/use-browser-location", () => ({
   navigate: vi.fn(),
 }));
 
-vi.mock("@workspace/api-client-react", () => {
-  const idleMutation = () => ({ mutate: vi.fn(), isPending: false });
-  return {
+// Resilient mock: unknown hooks fall back to an idle stub, so adding a new
+// hook to studio.tsx does not break these tests.
+vi.mock("@workspace/api-client-react", async () => {
+  const { createApiClientMock } = await import("../test/apiClientMock");
+  return createApiClientMock({
     useGenerateCaption: () => ({
       isPending: false,
       mutate: (vars: unknown, opts: any) => {
@@ -63,14 +65,6 @@ vi.mock("@workspace/api-client-react", () => {
         opts?.onSuccess?.({ caption: mockState.caption, hashtags: [] });
       },
     }),
-    useGenerateImage: idleMutation,
-    useGenerateCampaign: idleMutation,
-    useSuggestTopics: idleMutation,
-    useSummarizeUrl: idleMutation,
-    useResearchTopic: idleMutation,
-    useCreateContent: idleMutation,
-    useUpdateContent: idleMutation,
-    useDeleteContent: idleMutation,
     useGetMe: () => ({
       data: {
         usage: { captions: 2, images: 1 },
@@ -78,9 +72,7 @@ vi.mock("@workspace/api-client-react", () => {
       },
     }),
     useListBrandKits: () => ({ data: [] }),
-    getListContentQueryKey: () => ["content"],
-    getGetMeQueryKey: () => ["me"],
-  };
+  });
 });
 
 import { StudioPage } from "./studio";

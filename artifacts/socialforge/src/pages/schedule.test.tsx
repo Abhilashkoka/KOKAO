@@ -22,19 +22,19 @@ vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
 
-vi.mock("@workspace/api-client-react", () => {
-  const mutation = () => ({ mutate: vi.fn(), isPending: false });
-  return {
+// Resilient mock: unknown hooks fall back to an idle stub, so adding a new
+// hook to schedule.tsx does not break these tests.
+vi.mock("@workspace/api-client-react", async () => {
+  const { createApiClientMock } = await import("../test/apiClientMock");
+  return createApiClientMock({
     useListSchedules: () => ({ data: mockState.schedules, isLoading: false }),
     useListContent: () => ({ data: mockState.content, isLoading: false }),
-    useCreateSchedule: mutation,
-    useDeleteSchedule: mutation,
     useResendLinkedinComments: () => ({ mutate: resendLinkedinMutate, isPending: false }),
     useResendThreadsPosts: () => ({ mutate: resendThreadsMutate, isPending: false }),
     useResendTwitterPosts: () => ({ mutate: resendTwitterMutate, isPending: false }),
     getListSchedulesQueryKey: () => ["schedules"],
     getListContentQueryKey: () => ["content"],
-  };
+  });
 });
 
 // Imported after the mock so the mocked module is picked up.

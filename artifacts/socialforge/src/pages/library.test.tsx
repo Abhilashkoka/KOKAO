@@ -60,24 +60,17 @@ vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
 
-vi.mock("@workspace/api-client-react", () => {
-  const mutation = () => ({ mutate: vi.fn(), isPending: false });
-  return {
+// Resilient mock: unknown hooks fall back to an idle stub, so adding a new
+// hook to library.tsx does not break these tests. Only the hooks the tests
+// actually observe are overridden.
+vi.mock("@workspace/api-client-react", async () => {
+  const { createApiClientMock } = await import("../test/apiClientMock");
+  return createApiClientMock({
     useListContent: () => ({ data: mockState.content, isLoading: false }),
-    useDeleteContent: mutation,
-    useUpdateContent: mutation,
-    usePublishContentToFacebook: mutation,
     usePublishContentToInstagram: () => ({
       mutate: publishInstagramMutate,
       isPending: false,
     }),
-    usePublishContentToLinkedin: mutation,
-    useResendLinkedinComments: mutation,
-    usePublishContentToTwitter: mutation,
-    useResendTwitterPosts: mutation,
-    usePublishContentToThreads: mutation,
-    useResendThreadsPosts: mutation,
-    useGenerateCaption: mutation,
     useGenerateImage: () => ({ mutate: generateImageMutate, isPending: false }),
     useGetFacebookCredentials: () => ({ data: { verifyStatus: "verified" } }),
     useGetInstagramCredentials: () => ({ data: mockState.igCreds }),
@@ -85,21 +78,7 @@ vi.mock("@workspace/api-client-react", () => {
     useGetLinkedinStatus: () => ({ data: { connected: true } }),
     useGetThreadsStatus: () => ({ data: { connected: true } }),
     getListContentQueryKey: () => ["content"],
-    isRestartRejection: () => false,
-    RESTART_RETRY_DELAY_MS: 0,
-    mutateWithRestartRetry: (
-      m: { mutate: (v: unknown, o?: unknown) => void },
-      vars: unknown,
-      callbacks: {
-        onSuccess?: (res: unknown) => void;
-        onError?: (err: unknown, info: { retried: boolean }) => void;
-      },
-    ) =>
-      m.mutate(vars, {
-        onSuccess: callbacks.onSuccess,
-        onError: (err: unknown) => callbacks.onError?.(err, { retried: false }),
-      }),
-  };
+  });
 });
 
 // Imported after the mock so the mocked module is picked up.

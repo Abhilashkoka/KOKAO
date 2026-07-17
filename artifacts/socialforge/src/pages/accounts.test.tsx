@@ -79,44 +79,23 @@ vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
 
-vi.mock("@workspace/api-client-react", () => {
-  const mutation = () => ({ mutate: vi.fn(), isPending: false });
-  return {
+// Resilient mock: unknown hooks fall back to an idle stub, so adding a new
+// hook to accounts.tsx does not break these tests.
+vi.mock("@workspace/api-client-react", async () => {
+  const { createApiClientMock } = await import("../test/apiClientMock");
+  return createApiClientMock({
     useListAccounts: () => mockState.accounts,
     useGetLinkedinStatus: () => ({ data: mockState.linkedin }),
     useGetFacebookCredentials: () => ({ data: mockState.facebook, isLoading: false }),
     useGetInstagramCredentials: () => ({ data: mockState.instagram, isLoading: false }),
     useGetTwitterStatus: () => ({ data: mockState.twitter, isLoading: false }),
-    useCreateAccount: mutation,
-    useDeleteAccount: mutation,
-    useDisconnectLinkedin: mutation,
-    useRetestLinkedin: mutation,
-    useSaveFacebookCredentials: mutation,
-    useDisconnectFacebook: mutation,
-    useRetestFacebookCredentials: mutation,
-    useSaveInstagramCredentials: mutation,
-    useDisconnectInstagram: mutation,
-    useRetestInstagramCredentials: mutation,
-    useDisconnectTwitter: mutation,
-    useRetestTwitterCredentials: mutation,
     useGetYoutubeStatus: () => ({ data: mockState.youtube, isLoading: false }),
-    useDisconnectYoutube: mutation,
-    useRetestYoutube: mutation,
     useGetThreadsStatus: () => ({ data: mockState.threads, isLoading: false }),
-    useDisconnectThreads: mutation,
-    useRetestThreads: mutation,
-    getListAccountsQueryKey: () => ["accounts"],
-    getGetLinkedinStatusQueryKey: () => ["linkedin-status"],
-    getGetFacebookCredentialsQueryKey: () => ["facebook-credentials"],
-    getGetInstagramCredentialsQueryKey: () => ["instagram-credentials"],
-    getGetTwitterStatusQueryKey: () => ["twitter-status"],
-    getGetYoutubeStatusQueryKey: () => ["youtube-status"],
-    getGetThreadsStatusQueryKey: () => ["threads-status"],
     getYoutubeAuthUrl: async () => ({ url: "https://youtube.example/auth" }),
     getThreadsAuthUrl: async () => ({ url: "https://threads.example/auth" }),
     getLinkedinAuthUrl: async () => ({ url: "https://linkedin.example/auth" }),
     getTwitterAuthUrl: async () => ({ url: "https://x.example/auth" }),
-  };
+  });
 });
 
 // Imported after the mock so the mocked module is picked up.

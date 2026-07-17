@@ -25,11 +25,12 @@ vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
 
-vi.mock("@workspace/api-client-react", () => ({
-  useGenerateImage: () => ({ mutate: vi.fn(), isPending: false }),
-  useCreateContent: () => ({ mutate: vi.fn(), isPending: false }),
-  getListContentQueryKey: () => ["content"],
-}));
+// Resilient mock: unknown hooks fall back to an idle stub, so adding a new
+// hook to the component does not break these tests.
+vi.mock("@workspace/api-client-react", async () => {
+  const { createApiClientMock } = await import("../test/apiClientMock");
+  return createApiClientMock();
+});
 
 import { CampaignPostCard } from "./campaign-post-card";
 

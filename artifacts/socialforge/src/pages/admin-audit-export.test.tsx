@@ -39,10 +39,11 @@ vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: toastSpy }),
 }));
 
-vi.mock("@workspace/api-client-react", () => {
-  const mutation = () => ({ mutate: vi.fn(), isPending: false });
-  const query = () => ({ data: undefined, isLoading: false, isFetching: false });
-  return {
+// Resilient mock: unknown hooks fall back to an idle stub, so adding a new
+// hook to admin.tsx does not break these tests.
+vi.mock("@workspace/api-client-react", async () => {
+  const { createApiClientMock } = await import("../test/apiClientMock");
+  return createApiClientMock({
     useAdminListAuditLogs: (params: Record<string, unknown>) => {
       mockState.lastParams = params;
       return {
@@ -55,41 +56,7 @@ vi.mock("@workspace/api-client-react", () => {
       "admin-audit-logs",
       params,
     ],
-    useAdminListTenants: query,
-    useAdminGetStats: query,
-    useAdminUpdateTenantPlan: mutation,
-    useAdminUpdateTenantSuperadmin: mutation,
-    useAdminGetMetaCredentials: query,
-    useAdminSaveMetaCredentials: mutation,
-    useAdminGetTwitterCredentials: query,
-    useAdminGetLinkedinCredentials: query,
-    useAdminSaveLinkedinCredentials: mutation,
-    getAdminGetLinkedinCredentialsQueryKey: () => ["admin-linkedin-creds"],
-    useAdminGetYoutubeCredentials: query,
-    useAdminSaveYoutubeCredentials: mutation,
-    getAdminGetYoutubeCredentialsQueryKey: () => ["admin-youtube-creds"],
-    useAdminGetThreadsCredentials: query,
-    useAdminSaveThreadsCredentials: mutation,
-    getAdminGetThreadsCredentialsQueryKey: () => ["admin-threads-creds"],
-    useAdminSaveTwitterCredentials: mutation,
-    useAdminListNotificationPolicies: query,
-    useAdminUpdateNotificationPolicies: mutation,
-    useAdminGetEmailSettings: query,
-    useAdminUpdateEmailSettings: mutation,
-    useAdminSendTestEmail: mutation,
-    getAdminListTenantsQueryKey: () => ["admin-tenants"],
-    getAdminGetStatsQueryKey: () => ["admin-stats"],
-    getAdminGetMetaCredentialsQueryKey: () => ["admin-meta-creds"],
-    getAdminGetTwitterCredentialsQueryKey: () => ["admin-twitter-creds"],
-    getAdminListNotificationPoliciesQueryKey: () => ["admin-notif-policies"],
-    getAdminGetEmailSettingsQueryKey: () => ["admin-email-settings"],
-    useListPlans: query,
-    useAdminUpdatePlan: mutation,
-    useAdminCreatePlan: mutation,
-    useAdminDeletePlan: mutation,
-    getListPlansQueryKey: () => ["plans"],
-    useGetMe: query,
-  };
+  });
 });
 
 // Imported after the mock so the mocked module is picked up.
