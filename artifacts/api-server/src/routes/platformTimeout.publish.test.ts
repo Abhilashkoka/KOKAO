@@ -70,6 +70,7 @@ vi.mock("../lib/metaApi", async (importOriginal) => {
 });
 
 import { pool, type AppCredential } from "@workspace/db";
+import { ObjectStorageService } from "../lib/objectStorage";
 import { createTestApp } from "../test/testApp";
 import { resetAuthState, actAs } from "../test/authState";
 import {
@@ -281,6 +282,68 @@ describe("hung platform call surfaces as a failed post (bounded timeout)", () =>
         rejectedLabel: /X rejected the post/,
       });
     } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("Instagram: hung platform call in the BACKGROUND publish job", () => {
+  it("a never-responding Graph API flips the item to failed with the timeout reason, without burning the retry/backoff schedule", async () => {
+    // Instagram needs an image; the signed-URL mint talks to the storage
+    // sidecar (not a platform), so stub it — the hang belongs to the Graph
+    // media-create call itself.
+    const signedUrlSpy = vi
+      .spyOn(ObjectStorageService.prototype, "getSignedDownloadURL")
+      .mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
+    const tenant = await createTenant();
+    try {
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "instagram",
+        { igUserId: "IG_TIMEOUT" },
+        "verified",
+      );
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "facebook",
+        { pageId: "PAGE_1", pageAccessToken: "tok_page" },
+        "verified",
+      );
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: "hang test ig",
+        imagePath: `/objects/${tenant.tenantId}/uploads/test.png`,
+      });
+      actAs(tenant.clerkUserId);
+
+      // The route responds immediately (202 "publishing") — the hang happens
+      // in the background job, so the HTTP layer must not be affected.
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-instagram`,
+      );
+      expect(res.status).toBe(202);
+      expect(res.body.status).toBe("publishing");
+
+      const started = Date.now();
+      await waitForPendingJobs();
+      const elapsed = Date.now() - started;
+
+      // A timeout is TERMINAL for the background job (PlatformTimeoutError is
+      // non-retryable): exactly one hung Graph call, no duplicate-post probe,
+      // no backoff sleeps. With the 3-attempt schedule (2s + 4s backoff) an
+      // erroneous retry loop would blow far past this bound.
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(elapsed).toBeLessThan(REQUEST_BOUND_MS);
+      expect(elapsed).toBeLessThan(SHUTDOWN_DRAIN_TIMEOUT_MS);
+
+      // The job persists a terminal, human-readable failure — the item must
+      // not be stuck on "publishing".
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item?.status).toBe("failed");
+      expect(item?.failureReason).toMatch(/Instagram rejected the post/);
+      expect(item?.failureReason).toMatch(/timed out/i);
+      expect(item?.failureReason).toMatch(/did not respond/i);
+    } finally {
+      signedUrlSpy.mockRestore();
       await deleteTenant(tenant.tenantId);
     }
   });
