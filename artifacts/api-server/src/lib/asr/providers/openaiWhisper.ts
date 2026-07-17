@@ -6,6 +6,7 @@ export const OPENAI_ASR_MODEL = "whisper-1";
 /** OpenAI Whisper via the existing Replit AI integration proxy (no extra key). */
 export async function transcribeWithOpenAI(
   input: TranscribeInput,
+  _apiKey: string | null,
 ): Promise<TranscriptionResult> {
   try {
     const file = await toFile(input.buffer, input.filename, { type: input.mimeType });

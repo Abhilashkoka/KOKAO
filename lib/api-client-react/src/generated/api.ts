@@ -100,6 +100,7 @@ import type {
   SeatRequestDecisionInput,
   SendTestEmailInput,
   SendTestEmailResult,
+  SetAsrProviderKeyRequest,
   SocialCredentialStatus,
   SummarizeUrlRequest,
   SummarizeUrlResult,
@@ -2483,6 +2484,147 @@ export const useAdminUpdateAsrSettings = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAdminUpdateAsrSettingsMutationOptions(options));
+    }
+
+export const getAdminSetAsrProviderKeyUrl = (providerId: string,) => {
+
+
+
+
+  return `/api/admin/asr-providers/${providerId}/key`
+}
+
+/**
+ * @summary Save a speech-to-text provider API key (superadmin only)
+ */
+export const adminSetAsrProviderKey = async (providerId: string,
+    setAsrProviderKeyRequest: SetAsrProviderKeyRequest, options?: RequestInit): Promise<AsrSettingsView> => {
+
+  return customFetch<AsrSettingsView>(getAdminSetAsrProviderKeyUrl(providerId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(setAsrProviderKeyRequest)
+  }
+);}
+
+
+
+
+export const getAdminSetAsrProviderKeyMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetAsrProviderKey>>, TError,{providerId: string;data: BodyType<SetAsrProviderKeyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSetAsrProviderKey>>, TError,{providerId: string;data: BodyType<SetAsrProviderKeyRequest>}, TContext> => {
+
+const mutationKey = ['adminSetAsrProviderKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSetAsrProviderKey>>, {providerId: string;data: BodyType<SetAsrProviderKeyRequest>}> = (props) => {
+          const {providerId,data} = props ?? {};
+
+          return  adminSetAsrProviderKey(providerId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSetAsrProviderKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminSetAsrProviderKey>>>
+    export type AdminSetAsrProviderKeyMutationBody = BodyType<SetAsrProviderKeyRequest>
+    export type AdminSetAsrProviderKeyMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save a speech-to-text provider API key (superadmin only)
+ */
+export const useAdminSetAsrProviderKey = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetAsrProviderKey>>, TError,{providerId: string;data: BodyType<SetAsrProviderKeyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSetAsrProviderKey>>,
+        TError,
+        {providerId: string;data: BodyType<SetAsrProviderKeyRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminSetAsrProviderKeyMutationOptions(options));
+    }
+
+export const getAdminClearAsrProviderKeyUrl = (providerId: string,) => {
+
+
+
+
+  return `/api/admin/asr-providers/${providerId}/key`
+}
+
+/**
+ * @summary Remove a saved speech-to-text provider API key (superadmin only)
+ */
+export const adminClearAsrProviderKey = async (providerId: string, options?: RequestInit): Promise<AsrSettingsView> => {
+
+  return customFetch<AsrSettingsView>(getAdminClearAsrProviderKeyUrl(providerId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getAdminClearAsrProviderKeyMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearAsrProviderKey>>, TError,{providerId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminClearAsrProviderKey>>, TError,{providerId: string}, TContext> => {
+
+const mutationKey = ['adminClearAsrProviderKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminClearAsrProviderKey>>, {providerId: string}> = (props) => {
+          const {providerId} = props ?? {};
+
+          return  adminClearAsrProviderKey(providerId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminClearAsrProviderKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminClearAsrProviderKey>>>
+
+    export type AdminClearAsrProviderKeyMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Remove a saved speech-to-text provider API key (superadmin only)
+ */
+export const useAdminClearAsrProviderKey = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearAsrProviderKey>>, TError,{providerId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminClearAsrProviderKey>>,
+        TError,
+        {providerId: string},
+        TContext
+      > => {
+      return useMutation(getAdminClearAsrProviderKeyMutationOptions(options));
     }
 
 export const getAdminGetStatsUrl = () => {

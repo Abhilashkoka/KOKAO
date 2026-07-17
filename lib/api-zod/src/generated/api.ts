@@ -821,7 +821,8 @@ export const AdminGetAsrSettingsResponse = zod.object({
   "label": zod.string(),
   "model": zod.string(),
   "configured": zod.boolean().describe('Whether the API key\/secret needed by this provider is set.'),
-  "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).')
+  "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
 }))
 })
 
@@ -840,7 +841,55 @@ export const AdminUpdateAsrSettingsResponse = zod.object({
   "label": zod.string(),
   "model": zod.string(),
   "configured": zod.boolean().describe('Whether the API key\/secret needed by this provider is set.'),
-  "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).')
+  "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+}))
+})
+
+
+/**
+ * @summary Save a speech-to-text provider API key (superadmin only)
+ */
+export const AdminSetAsrProviderKeyParams = zod.object({
+  "providerId": zod.coerce.string()
+})
+
+
+
+
+export const AdminSetAsrProviderKeyBody = zod.object({
+  "apiKey": zod.string().min(1).describe('The provider API key (stored encrypted, never returned).')
+})
+
+export const AdminSetAsrProviderKeyResponse = zod.object({
+  "provider": zod.string().describe('Currently selected speech-to-text provider id.'),
+  "providers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "model": zod.string(),
+  "configured": zod.boolean().describe('Whether the API key\/secret needed by this provider is set.'),
+  "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+}))
+})
+
+
+/**
+ * @summary Remove a saved speech-to-text provider API key (superadmin only)
+ */
+export const AdminClearAsrProviderKeyParams = zod.object({
+  "providerId": zod.coerce.string()
+})
+
+export const AdminClearAsrProviderKeyResponse = zod.object({
+  "provider": zod.string().describe('Currently selected speech-to-text provider id.'),
+  "providers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "model": zod.string(),
+  "configured": zod.boolean().describe('Whether the API key\/secret needed by this provider is set.'),
+  "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
 }))
 })
 

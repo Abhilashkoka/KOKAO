@@ -19,6 +19,9 @@ import {
   isProviderConfigured,
   getSelectedAsrProviderId,
   setSelectedAsrProviderId,
+  getAsrKeySource,
+  setStoredAsrKey,
+  clearStoredAsrKey,
 } from "../lib/asr";
 import {
   AdminUpdateTenantPlanBody,
@@ -26,6 +29,7 @@ import {
   AdminUpdateTenantDesignSkillBody,
   AdminUpdateDesignSkillBody,
   AdminUpdateAsrSettingsBody,
+  AdminSetAsrProviderKeyBody,
   AdminUpdateNotificationPoliciesBody,
   AdminUpdatePlanBody,
   AdminCreatePlanBody,
@@ -485,13 +489,16 @@ async function serializeAsrSettings() {
   const provider = await getSelectedAsrProviderId();
   return {
     provider,
-    providers: ASR_PROVIDERS.map((p) => ({
-      id: p.id,
-      label: p.label,
-      model: p.model,
-      configured: isProviderConfigured(p),
-      envKey: p.envKey,
-    })),
+    providers: await Promise.all(
+      ASR_PROVIDERS.map(async (p) => ({
+        id: p.id,
+        label: p.label,
+        model: p.model,
+        configured: await isProviderConfigured(p),
+        envKey: p.envKey,
+        keySource: await getAsrKeySource(p),
+      })),
+    ),
   };
 }
 
@@ -538,6 +545,70 @@ router.put("/admin/asr-settings", async (req: Request, res: Response) => {
     }
   }
 
+  res.json(await serializeAsrSettings());
+});
+
+/**
+ * PUT /admin/asr-providers/:providerId/key
+ * Save a provider's API key (encrypted at rest). Superadmin only.
+ */
+router.put("/admin/asr-providers/:providerId/key", async (req: Request, res: Response) => {
+  const def = getProviderDef(req.params.providerId as string);
+  if (!def) {
+    res.status(404).json({ error: "Unknown speech-to-text provider" });
+    return;
+  }
+  if (def.envKey === null) {
+    res.status(400).json({ error: "This provider is built in and does not take an API key" });
+    return;
+  }
+  const parsed = AdminSetAsrProviderKeyBody.safeParse(req.body);
+  const apiKey = parsed.success ? parsed.data.apiKey.trim() : "";
+  if (!apiKey) {
+    res.status(400).json({ error: "API key is required" });
+    return;
+  }
+  await setStoredAsrKey(def.id, apiKey);
+  try {
+    await recordAdminAction({
+      action: "asr_key_change",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: null,
+      newValue: `${def.id}:set`,
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write ASR key audit log");
+  }
+  res.json(await serializeAsrSettings());
+});
+
+/**
+ * DELETE /admin/asr-providers/:providerId/key
+ * Remove the saved API key (the env secret, if set, becomes the fallback).
+ */
+router.delete("/admin/asr-providers/:providerId/key", async (req: Request, res: Response) => {
+  const def = getProviderDef(req.params.providerId as string);
+  if (!def) {
+    res.status(404).json({ error: "Unknown speech-to-text provider" });
+    return;
+  }
+  await clearStoredAsrKey(def.id);
+  try {
+    await recordAdminAction({
+      action: "asr_key_change",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: null,
+      newValue: `${def.id}:cleared`,
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write ASR key audit log");
+  }
   res.json(await serializeAsrSettings());
 });
 

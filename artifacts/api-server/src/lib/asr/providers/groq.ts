@@ -9,8 +9,10 @@ import {
 export const GROQ_MODEL = "whisper-large-v3-turbo";
 
 /** Groq-hosted Whisper: OpenAI-compatible transcription endpoint. */
-export async function transcribeWithGroq(input: TranscribeInput): Promise<TranscriptionResult> {
-  const apiKey = process.env.GROQ_API_KEY;
+export async function transcribeWithGroq(
+  input: TranscribeInput,
+  apiKey: string | null,
+): Promise<TranscriptionResult> {
   if (!apiKey) throw new AsrNotConfiguredError("Groq", "GROQ_API_KEY");
 
   const form = new FormData();

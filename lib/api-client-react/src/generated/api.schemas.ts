@@ -424,6 +424,18 @@ export interface UpdateDesignSkillBody {
   enabled: boolean;
 }
 
+/**
+ * Where the active key comes from (admin-entered key wins over the env secret).
+ * @nullable
+ */
+export type AsrProviderInfoKeySource = typeof AsrProviderInfoKeySource[keyof typeof AsrProviderInfoKeySource] | null;
+
+
+export const AsrProviderInfoKeySource = {
+  database: 'database',
+  env: 'env',
+} as const;
+
 export interface AsrProviderInfo {
   id: string;
   label: string;
@@ -435,12 +447,25 @@ export interface AsrProviderInfo {
      * @nullable
      */
   envKey?: string | null;
+  /**
+     * Where the active key comes from (admin-entered key wins over the env secret).
+     * @nullable
+     */
+  keySource?: AsrProviderInfoKeySource;
 }
 
 export interface AsrSettingsView {
   /** Currently selected speech-to-text provider id. */
   provider: string;
   providers: AsrProviderInfo[];
+}
+
+export interface SetAsrProviderKeyRequest {
+  /**
+     * The provider API key (stored encrypted, never returned).
+     * @minLength 1
+     */
+  apiKey: string;
 }
 
 export interface UpdateAsrSettingsRequest {

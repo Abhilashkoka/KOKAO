@@ -13,6 +13,7 @@ export type AdminAuditAction =
   | "email_settings_change"
   | "design_skill_change"
   | "asr_provider_change"
+  | "asr_key_change"
   | "email_test_send"
   | "sweep_run"
   | "seat_request_approve"

@@ -1,4 +1,6 @@
-import { db, asrSettingsTable } from "@workspace/db";
+import { db, asrSettingsTable, appCredentialsTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
+import { encryptJson, decryptJson } from "../secretCrypto";
 import { transcribeWithGroq, GROQ_MODEL } from "./providers/groq";
 import { transcribeWithOpenAI, OPENAI_ASR_MODEL } from "./providers/openaiWhisper";
 import { transcribeWithDeepgram, DEEPGRAM_MODEL } from "./providers/deepgram";
@@ -16,7 +18,7 @@ export interface AsrProviderDef {
   model: string;
   /** Secret required to use this provider; null = uses the built-in OpenAI integration. */
   envKey: string | null;
-  transcribe: (input: TranscribeInput) => Promise<TranscriptionResult>;
+  transcribe: (input: TranscribeInput, apiKey: string | null) => Promise<TranscriptionResult>;
 }
 
 /** Catalog of selectable speech-to-text providers. Add new ones here only. */
@@ -55,8 +57,72 @@ export function getProviderDef(id: string): AsrProviderDef | undefined {
   return ASR_PROVIDERS.find((p) => p.id === id);
 }
 
-export function isProviderConfigured(def: AsrProviderDef): boolean {
-  return def.envKey === null || Boolean(process.env[def.envKey]);
+/** app_credentials row name for a provider's stored ASR key. */
+function asrCredentialProvider(providerId: string): string {
+  return `asr_${providerId}`;
+}
+
+interface StoredAsrKey {
+  apiKey: string;
+}
+
+/** The API key saved by a superadmin in the admin screen (encrypted at rest), or null. */
+export async function getStoredAsrKey(providerId: string): Promise<string | null> {
+  const row = (
+    await db
+      .select()
+      .from(appCredentialsTable)
+      .where(eq(appCredentialsTable.provider, asrCredentialProvider(providerId)))
+      .limit(1)
+  )[0];
+  if (!row) return null;
+  try {
+    const creds = decryptJson<StoredAsrKey>(row.encryptedCredentials);
+    return creds.apiKey || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Save (encrypted) or overwrite the admin-entered API key for a provider. */
+export async function setStoredAsrKey(providerId: string, apiKey: string): Promise<void> {
+  const encrypted = encryptJson({ apiKey } satisfies StoredAsrKey);
+  await db
+    .insert(appCredentialsTable)
+    .values({ provider: asrCredentialProvider(providerId), encryptedCredentials: encrypted })
+    .onConflictDoUpdate({
+      target: appCredentialsTable.provider,
+      set: { encryptedCredentials: encrypted, updatedAt: new Date() },
+    });
+}
+
+/** Remove the admin-entered API key (env secret, if any, becomes the fallback). */
+export async function clearStoredAsrKey(providerId: string): Promise<void> {
+  await db
+    .delete(appCredentialsTable)
+    .where(eq(appCredentialsTable.provider, asrCredentialProvider(providerId)));
+}
+
+export type AsrKeySource = "database" | "env" | null;
+
+/** Where the effective key comes from: admin-entered DB key wins, env secret is fallback. */
+export async function getAsrKeySource(def: AsrProviderDef): Promise<AsrKeySource> {
+  if (def.envKey === null) return null;
+  if (await getStoredAsrKey(def.id)) return "database";
+  if (process.env[def.envKey]) return "env";
+  return null;
+}
+
+/** The effective API key for a provider (DB first, then env), or null. */
+export async function resolveAsrApiKey(def: AsrProviderDef): Promise<string | null> {
+  if (def.envKey === null) return null;
+  const stored = await getStoredAsrKey(def.id);
+  if (stored) return stored;
+  return process.env[def.envKey] ?? null;
+}
+
+export async function isProviderConfigured(def: AsrProviderDef): Promise<boolean> {
+  return def.envKey === null || (await resolveAsrApiKey(def)) !== null;
 }
 
 /** The currently selected provider id (falls back to the default when the
@@ -83,5 +149,6 @@ export async function setSelectedAsrProviderId(id: string): Promise<void> {
 export async function transcribeAudio(input: TranscribeInput): Promise<TranscriptionResult> {
   const id = await getSelectedAsrProviderId();
   const def = getProviderDef(id) ?? getProviderDef(DEFAULT_ASR_PROVIDER)!;
-  return def.transcribe(input);
+  const apiKey = await resolveAsrApiKey(def);
+  return def.transcribe(input, apiKey);
 }

@@ -11,8 +11,8 @@ export const DEEPGRAM_MODEL = "nova-2";
 /** Deepgram pre-recorded transcription: raw audio bytes in the request body. */
 export async function transcribeWithDeepgram(
   input: TranscribeInput,
+  apiKey: string | null,
 ): Promise<TranscriptionResult> {
-  const apiKey = process.env.DEEPGRAM_API_KEY;
   if (!apiKey) throw new AsrNotConfiguredError("Deepgram", "DEEPGRAM_API_KEY");
 
   const res = await asrFetch(

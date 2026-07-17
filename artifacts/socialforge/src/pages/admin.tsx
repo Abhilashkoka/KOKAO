@@ -8,6 +8,8 @@ import {
   useAdminGetDesignSkill,
   useAdminGetAsrSettings,
   useAdminUpdateAsrSettings,
+  useAdminSetAsrProviderKey,
+  useAdminClearAsrProviderKey,
   getAdminGetAsrSettingsQueryKey,
   useAdminUpdateDesignSkill,
   getAdminGetDesignSkillQueryKey,
@@ -1275,6 +1277,8 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   credential_change: "Platform credentials saved",
   app_brand_change: "App branding changed",
   email_settings_change: "Email settings changed",
+  asr_provider_change: "Speech-to-text provider changed",
+  asr_key_change: "Speech-to-text key changed",
   email_test_send: "Test email sent",
   sweep_run: "Manual sweep run",
 };
@@ -1504,6 +1508,61 @@ function AsrProviderCard() {
   const queryClient = useQueryClient();
   const { data: settings, isLoading } = useAdminGetAsrSettings();
   const updateSettings = useAdminUpdateAsrSettings();
+  const setKey = useAdminSetAsrProviderKey();
+  const clearKey = useAdminClearAsrProviderKey();
+  const [keyInput, setKeyInput] = useState("");
+
+  const invalidateAsr = () => {
+    queryClient.invalidateQueries({ queryKey: getAdminGetAsrSettingsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getAdminListAuditLogsQueryKey() });
+  };
+
+  const handleSaveKey = (providerId: string) => {
+    const apiKey = keyInput.trim();
+    if (!apiKey) return;
+    setKey.mutate(
+      { providerId, data: { apiKey } },
+      {
+        onSuccess: () => {
+          invalidateAsr();
+          setKeyInput("");
+          toast({
+            title: "API key saved",
+            description: "The key is stored encrypted and is now in use.",
+          });
+        },
+        onError: () => {
+          toast({
+            title: "Save failed",
+            description: "Could not save the API key.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handleClearKey = (providerId: string) => {
+    clearKey.mutate(
+      { providerId },
+      {
+        onSuccess: () => {
+          invalidateAsr();
+          toast({
+            title: "API key removed",
+            description: "The saved key was deleted.",
+          });
+        },
+        onError: () => {
+          toast({
+            title: "Remove failed",
+            description: "Could not remove the API key.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
 
   const handleSelect = (provider: string) => {
     if (!settings || provider === settings.provider) return;
@@ -1540,8 +1599,8 @@ function AsrProviderCard() {
         <CardTitle>Speech-to-Text Provider</CardTitle>
         <CardDescription>
           Which service transcribes voice notes in the Studio. Providers marked
-          "needs key" require their API key to be added as a secret before they
-          will work.
+          "needs key" require an API key — enter it below and it is stored
+          encrypted.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -1573,11 +1632,55 @@ function AsrProviderCard() {
                   <Badge variant="destructive">Needs key</Badge>
                 ))}
             </div>
-            {selected && !selected.configured && selected.envKey && (
-              <p className="text-sm text-muted-foreground">
-                Add the {selected.envKey} secret to enable this provider. Until
-                then, voice note transcription will fail with a clear error.
-              </p>
+            {selected && selected.envKey && (
+              <div className="space-y-2 rounded-md border p-3">
+                <p className="text-sm font-medium">API key for {selected.label}</p>
+                {selected.keySource === "database" ? (
+                  <div className="flex items-center gap-3">
+                    <p className="text-sm text-muted-foreground">
+                      A key is saved (stored encrypted, never shown). Enter a new
+                      one below to replace it.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleClearKey(selected.id)}
+                      disabled={clearKey.isPending}
+                      data-testid="button-remove-asr-key"
+                    >
+                      Remove key
+                    </Button>
+                  </div>
+                ) : selected.keySource === "env" ? (
+                  <p className="text-sm text-muted-foreground">
+                    Currently using the {selected.envKey} secret. A key entered
+                    here takes priority over it.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No key set. Paste the provider's API key to enable it.
+                  </p>
+                )}
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="password"
+                    autoComplete="off"
+                    placeholder="Paste API key"
+                    value={keyInput}
+                    onChange={(e) => setKeyInput(e.target.value)}
+                    className="w-72"
+                    data-testid="input-asr-api-key"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={() => handleSaveKey(selected.id)}
+                    disabled={setKey.isPending || !keyInput.trim()}
+                    data-testid="button-save-asr-key"
+                  >
+                    {setKey.isPending ? "Saving..." : "Save key"}
+                  </Button>
+                </div>
+              </div>
             )}
           </>
         )}

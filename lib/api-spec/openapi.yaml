@@ -897,6 +897,71 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/asr-providers/{providerId}/key:
+    parameters:
+      - name: providerId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: adminSetAsrProviderKey
+      tags: [admin]
+      summary: Save a speech-to-text provider API key (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetAsrProviderKeyRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AsrSettingsView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Unknown provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: adminClearAsrProviderKey
+      tags: [admin]
+      summary: Remove a saved speech-to-text provider API key (superadmin only)
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AsrSettingsView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Unknown provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/stats:
     get:
       operationId: adminGetStats
@@ -3787,6 +3852,18 @@ components:
         envKey:
           type: ["string", "null"]
           description: Secret name required by this provider (null when built-in).
+        keySource:
+          type: ["string", "null"]
+          enum: [database, env, null]
+          description: Where the active key comes from (admin-entered key wins over the env secret).
+    SetAsrProviderKeyRequest:
+      type: object
+      required: [apiKey]
+      properties:
+        apiKey:
+          type: string
+          minLength: 1
+          description: The provider API key (stored encrypted, never returned).
     UpdateAsrSettingsRequest:
       type: object
       required: [provider]

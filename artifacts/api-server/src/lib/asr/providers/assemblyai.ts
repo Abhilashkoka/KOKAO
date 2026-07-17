@@ -15,8 +15,8 @@ const POLL_DEADLINE_MS = 60_000;
 /** AssemblyAI: upload the audio, create a transcript job, poll until done. */
 export async function transcribeWithAssemblyAI(
   input: TranscribeInput,
+  apiKey: string | null,
 ): Promise<TranscriptionResult> {
-  const apiKey = process.env.ASSEMBLYAI_API_KEY;
   if (!apiKey) throw new AsrNotConfiguredError("AssemblyAI", "ASSEMBLYAI_API_KEY");
   const headers = { Authorization: apiKey };
 

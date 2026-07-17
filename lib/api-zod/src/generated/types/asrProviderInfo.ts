@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { AsrProviderInfoKeySource } from './asrProviderInfoKeySource';
 
 export interface AsrProviderInfo {
   id: string;
@@ -17,4 +18,9 @@ export interface AsrProviderInfo {
      * @nullable
      */
   envKey?: string | null;
+  /**
+     * Where the active key comes from (admin-entered key wins over the env secret).
+     * @nullable
+     */
+  keySource?: AsrProviderInfoKeySource;
 }
