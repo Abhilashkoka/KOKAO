@@ -129,7 +129,11 @@ interface MockCall {
  * a 500 — used to force a mid-chain failure.
  */
 function mockThreadsApi(
-  opts: { failPublishFrom?: number; recentPosts?: unknown[] } = {},
+  opts: {
+    failPublishFrom?: number;
+    recentPosts?: unknown[];
+    probeError?: boolean;
+  } = {},
 ): MockCall[] {
   const calls: MockCall[] = [];
   let containerSeq = 0;
@@ -149,6 +153,7 @@ function mockThreadsApi(
         method === "GET" &&
         url.startsWith(`${TH_GRAPH_BASE}/${TH_USER_ID}/threads?`)
       ) {
+        if (opts.probeError) throw new Error("probe network failure");
         return json({ data: opts.recentPosts ?? [] });
       }
       if (
@@ -176,7 +181,11 @@ function mockThreadsApi(
 
 /** Simulate the X API: tweet creation, recent-tweets probe. */
 function mockTwitterApi(
-  opts: { failTweetFrom?: number; recentTweets?: unknown[] } = {},
+  opts: {
+    failTweetFrom?: number;
+    recentTweets?: unknown[];
+    probeError?: boolean;
+  } = {},
 ): MockCall[] {
   const calls: MockCall[] = [];
   let tweetSeq = 0;
@@ -195,6 +204,7 @@ function mockTwitterApi(
         method === "GET" &&
         url.startsWith(`${X_API_BASE}/2/users/${X_USER_ID}/tweets`)
       ) {
+        if (opts.probeError) throw new Error("probe network failure");
         return json({ data: opts.recentTweets ?? [] });
       }
       if (method === "POST" && url === `${X_API_BASE}/2/tweets`) {
@@ -352,6 +362,134 @@ describe("Threads reply-chain resend", () => {
       const state = item.threadsChainState as ThreadChainState;
       expect(state.postedCount).toBe(2);
       expect(state.lastPostedId).toBe("POST_1");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("double-click resend: the second click reuses posts that landed via the dedupe probe instead of double-posting", async () => {
+    // First click: the first missing piece ("second chunk") posts as POST_1,
+    // then the next publish fails with a transient 500 — but simulate that
+    // the write actually LANDED on Threads despite the error response.
+    const firstCalls = mockThreadsApi({ failPublishFrom: 2 });
+
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: TH_USER_ID,
+      });
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: longCaption,
+      });
+      await setChainState(itemId, tenant.tenantId, "threadsChainState", {
+        firstPostId: "ANCHOR",
+        lastPostedId: "ANCHOR",
+        posts: ["first chunk", "second chunk", "third chunk"],
+        postedCount: 1,
+      });
+      actAs(tenant.clerkUserId);
+
+      const first = await request(app).post(
+        `/api/content/${itemId}/resend-threads-posts`,
+      );
+      expect(first.status).toBe(200);
+      expect(first.body.postsRemaining).toBe(1);
+      expect(first.body.publishWarning).toMatch(/try resending again/i);
+      const firstPublishes = firstCalls.filter(
+        (c) =>
+          c.method === "POST" &&
+          c.url === `${TH_GRAPH_BASE}/${TH_USER_ID}/threads_publish`,
+      );
+      expect(firstPublishes.length).toBe(2); // one landed, one "failed"
+
+      // Second click: the probe now reports the "failed" third chunk as
+      // having landed. No new posts should be created.
+      vi.restoreAllMocks();
+      const secondCalls = mockThreadsApi({
+        recentPosts: [
+          {
+            id: "LANDED_3",
+            text: "third chunk",
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      });
+
+      const second = await request(app).post(
+        `/api/content/${itemId}/resend-threads-posts`,
+      );
+      expect(second.status).toBe(200);
+      expect(second.body.postsPublished).toBe(3);
+      expect(second.body.postsRemaining).toBe(0);
+      expect(second.body.publishWarning).toBeUndefined();
+
+      // The second click created ZERO new posts — it reused the landed one.
+      const secondContainers = secondCalls.filter(
+        (c) =>
+          c.method === "POST" &&
+          c.url === `${TH_GRAPH_BASE}/${TH_USER_ID}/threads`,
+      );
+      expect(secondContainers.length).toBe(0);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.threadsChainState).toBeNull();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("double-click resend: even when the dedupe probe errors, the second click never re-posts pieces that the state says landed", async () => {
+    mockThreadsApi({ failPublishFrom: 2 });
+
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: TH_USER_ID,
+      });
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: longCaption,
+      });
+      await setChainState(itemId, tenant.tenantId, "threadsChainState", {
+        firstPostId: "ANCHOR",
+        lastPostedId: "ANCHOR",
+        posts: ["first chunk", "second chunk", "third chunk"],
+        postedCount: 1,
+      });
+      actAs(tenant.clerkUserId);
+
+      const first = await request(app).post(
+        `/api/content/${itemId}/resend-threads-posts`,
+      );
+      expect(first.status).toBe(200);
+      expect(first.body.postsRemaining).toBe(1);
+
+      // Second click: the dedupe probe itself blows up. The endpoint must
+      // fall back to the persisted state and post ONLY the remaining piece.
+      vi.restoreAllMocks();
+      const secondCalls = mockThreadsApi({ probeError: true });
+
+      const second = await request(app).post(
+        `/api/content/${itemId}/resend-threads-posts`,
+      );
+      expect(second.status).toBe(200);
+      expect(second.body.postsPublished).toBe(3);
+      expect(second.body.postsRemaining).toBe(0);
+
+      const secondContainers = secondCalls.filter(
+        (c) =>
+          c.method === "POST" &&
+          c.url === `${TH_GRAPH_BASE}/${TH_USER_ID}/threads`,
+      );
+      expect(secondContainers.length).toBe(1);
+      expect(secondContainers[0].body).toContain("text=third+chunk");
+      // Chained onto the post that landed during the FIRST click, so the
+      // already-posted "second chunk" is never re-posted.
+      expect(secondContainers[0].body).toContain("reply_to_id=POST_1");
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.threadsChainState).toBeNull();
     } finally {
       await deleteTenant(tenant.tenantId);
     }
@@ -533,6 +671,121 @@ describe("X thread resend", () => {
       const only = JSON.parse(tweetCalls[0].body);
       expect(only.text).toBe("tweet three");
       expect(only.reply.in_reply_to_tweet_id).toBe("ALREADY_LANDED");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("double-click resend: the second click reuses tweets that landed via the dedupe probe instead of double-posting", async () => {
+    // First click: "tweet two" posts as TWEET_1, then "tweet three" fails
+    // with a transient 500 — but simulate that it actually LANDED on X.
+    const firstCalls = mockTwitterApi({ failTweetFrom: 2 });
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: longCaption,
+      });
+      await setChainState(itemId, tenant.tenantId, "twitterChainState", {
+        firstPostId: "ANCHOR_T",
+        lastPostedId: "ANCHOR_T",
+        posts: ["tweet one", "tweet two", "tweet three"],
+        postedCount: 1,
+      });
+      actAs(tenant.clerkUserId);
+
+      const first = await request(app).post(
+        `/api/content/${itemId}/resend-twitter-posts`,
+      );
+      expect(first.status).toBe(200);
+      expect(first.body.postsRemaining).toBe(1);
+      expect(first.body.publishWarning).toMatch(/try resending again/i);
+      const firstTweets = firstCalls.filter(
+        (c) => c.method === "POST" && c.url === `${X_API_BASE}/2/tweets`,
+      );
+      expect(firstTweets.length).toBe(2); // one landed, one "failed"
+
+      // Second click: the probe reports the "failed" tweet as landed.
+      vi.restoreAllMocks();
+      const secondCalls = mockTwitterApi({
+        recentTweets: [
+          {
+            id: "LANDED_T3",
+            text: "tweet three",
+            created_at: new Date().toISOString(),
+          },
+        ],
+      });
+
+      const second = await request(app).post(
+        `/api/content/${itemId}/resend-twitter-posts`,
+      );
+      expect(second.status).toBe(200);
+      expect(second.body.postsPublished).toBe(3);
+      expect(second.body.postsRemaining).toBe(0);
+      expect(second.body.publishWarning).toBeUndefined();
+
+      // ZERO new tweets on the second click — the landed one was reused.
+      const secondTweets = secondCalls.filter(
+        (c) => c.method === "POST" && c.url === `${X_API_BASE}/2/tweets`,
+      );
+      expect(secondTweets.length).toBe(0);
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.twitterChainState).toBeNull();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("double-click resend: even when the dedupe probe errors, the second click never re-posts tweets that the state says landed", async () => {
+    mockTwitterApi({ failTweetFrom: 2 });
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: longCaption,
+      });
+      await setChainState(itemId, tenant.tenantId, "twitterChainState", {
+        firstPostId: "ANCHOR_T",
+        lastPostedId: "ANCHOR_T",
+        posts: ["tweet one", "tweet two", "tweet three"],
+        postedCount: 1,
+      });
+      actAs(tenant.clerkUserId);
+
+      const first = await request(app).post(
+        `/api/content/${itemId}/resend-twitter-posts`,
+      );
+      expect(first.status).toBe(200);
+      expect(first.body.postsRemaining).toBe(1);
+
+      // Second click with a broken probe: fall back to the persisted state
+      // and post ONLY the remaining tweet.
+      vi.restoreAllMocks();
+      const secondCalls = mockTwitterApi({ probeError: true });
+
+      const second = await request(app).post(
+        `/api/content/${itemId}/resend-twitter-posts`,
+      );
+      expect(second.status).toBe(200);
+      expect(second.body.postsPublished).toBe(3);
+      expect(second.body.postsRemaining).toBe(0);
+
+      const secondTweets = secondCalls.filter(
+        (c) => c.method === "POST" && c.url === `${X_API_BASE}/2/tweets`,
+      );
+      expect(secondTweets.length).toBe(1);
+      const only = JSON.parse(secondTweets[0].body);
+      expect(only.text).toBe("tweet three");
+      // Chained onto the tweet that landed during the FIRST click, so the
+      // already-posted "tweet two" is never re-posted.
+      expect(only.reply.in_reply_to_tweet_id).toBe("TWEET_1");
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.twitterChainState).toBeNull();
     } finally {
       await deleteTenant(tenant.tenantId);
     }
