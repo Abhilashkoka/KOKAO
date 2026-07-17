@@ -2,6 +2,7 @@ import {
   db,
   notificationsTable,
   seatRequestsTable,
+  tenantMembersTable,
   tenantsTable,
 } from "@workspace/db";
 import { and, eq, isNotNull, isNull, or } from "drizzle-orm";
@@ -77,15 +78,21 @@ export const TEAM_MEMBER_LEFT = "team_member_left";
 export const TEAM_MEMBER_REMOVED = "team_member_removed";
 
 /**
- * Tell the workspace owner that a teammate removed themselves from the team
- * (POST /team/leave), naming who left and noting the seat was freed. Follows
- * the catalog/policy pattern: the OWNER tenant's effective settings for
- * `team_member_left` decide the channels. Best-effort — never throws, so a
- * notification failure cannot fail the leave itself.
+ * Tell the workspace owner AND its admin members that a teammate removed
+ * themselves from the team (POST /team/leave), naming who left and noting the
+ * seat was freed. Follows the catalog/policy pattern: the workspace tenant's
+ * effective settings for `team_member_left` decide the channels — one in-app
+ * row lands on the shared tenant feed (visible to everyone in the workspace),
+ * and when the email channel is on, the owner's verified address AND each
+ * ADMIN member's verified Clerk address are emailed (admins manage the team
+ * day-to-day, so they get the same heads-up). The leaver themselves is never
+ * emailed, and plain members are not. Each email is best-effort and isolated —
+ * one bad address cannot block the others. Never throws, so a notification
+ * failure cannot fail the leave itself.
  */
 export async function notifyTeamMemberLeft(
   tenantId: number,
-  leaver: { email: string | null; role: string },
+  leaver: { email: string | null; role: string; clerkUserId?: string },
 ): Promise<void> {
   try {
     const effective = await getEffectiveSetting(tenantId, TEAM_MEMBER_LEFT);
@@ -108,6 +115,7 @@ export async function notifyTeamMemberLeft(
     });
 
     if (effective.email) {
+      // Recipients: the owner plus every ADMIN member, excluding the leaver.
       const tenant = (
         await db
           .select({ clerkUserId: tenantsTable.clerkUserId })
@@ -115,15 +123,38 @@ export async function notifyTeamMemberLeft(
           .where(eq(tenantsTable.id, tenantId))
           .limit(1)
       )[0];
-      if (tenant) {
-        const email = await fetchVerifiedEmail(tenant.clerkUserId);
-        if (email) {
+      const admins = await db
+        .select({ clerkUserId: tenantMembersTable.clerkUserId })
+        .from(tenantMembersTable)
+        .where(
+          and(
+            eq(tenantMembersTable.tenantId, tenantId),
+            eq(tenantMembersTable.role, "admin"),
+          ),
+        );
+
+      const recipientIds = new Set<string>();
+      if (tenant) recipientIds.add(tenant.clerkUserId);
+      for (const admin of admins) recipientIds.add(admin.clerkUserId);
+      if (leaver.clerkUserId) recipientIds.delete(leaver.clerkUserId);
+
+      const seenEmails = new Set<string>();
+      for (const clerkUserId of recipientIds) {
+        try {
+          const email = await fetchVerifiedEmail(clerkUserId);
+          if (!email || seenEmails.has(email.toLowerCase())) continue;
+          seenEmails.add(email.toLowerCase());
           await sendEmail({
             to: email,
             subject: title,
             text: message,
             html: `<p>${escapeHtml(message)}</p>`,
           });
+        } catch (err) {
+          logger.error(
+            { err, tenantId, clerkUserId },
+            "Failed to email team-member-left alert to a recipient",
+          );
         }
       }
     }

@@ -25,6 +25,48 @@ vi.mock("@clerk/express", async () => {
   };
 });
 
+const emailState = vi.hoisted(() => ({
+  sent: [] as { to: string; subject: string }[],
+  forceEmailOn: false,
+  verifiedEmails: {} as Record<string, string | null>,
+}));
+
+vi.mock("../lib/email", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/email")>();
+  return {
+    ...actual,
+    sendEmail: vi.fn(async (msg: { to: string; subject: string }) => {
+      emailState.sent.push({ to: msg.to, subject: msg.subject });
+      return true;
+    }),
+  };
+});
+
+vi.mock("../lib/clerkUser", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/clerkUser")>();
+  return {
+    ...actual,
+    fetchVerifiedEmail: vi.fn(
+      async (clerkUserId: string) =>
+        emailState.verifiedEmails[clerkUserId] ?? null,
+    ),
+  };
+});
+
+vi.mock("../lib/notificationSettings", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../lib/notificationSettings")>();
+  return {
+    ...actual,
+    getEffectiveSetting: vi.fn(async (tenantId: number, type: string) => {
+      if (emailState.forceEmailOn) {
+        return { enabled: true, inApp: true, email: true };
+      }
+      return actual.getEffectiveSetting(tenantId, type);
+    }),
+  };
+});
+
 import {
   db,
   pool,
@@ -47,6 +89,9 @@ afterAll(async () => {
 
 beforeEach(() => {
   resetAuthState();
+  emailState.sent = [];
+  emailState.forceEmailOn = false;
+  emailState.verifiedEmails = {};
 });
 
 async function seedMembership(opts: { withInvite?: boolean } = {}) {
@@ -158,6 +203,38 @@ describe("POST /team/leave", () => {
         .from(tenantsTable)
         .where(eq(tenantsTable.clerkUserId, memberClerkUserId));
       if (personal) await deleteTenant(personal.id);
+    } finally {
+      await cleanup(owner.tenantId);
+    }
+  });
+
+  it("emails the owner and admin members (not the leaver) when the email channel is on", async () => {
+    const { owner, memberClerkUserId } = await seedMembership();
+    const adminClerkUserId = `test_${randomUUID()}`;
+    try {
+      await db.insert(tenantMembersTable).values({
+        tenantId: owner.tenantId,
+        clerkUserId: adminClerkUserId,
+        email: "admin@example.com",
+        role: "admin",
+      });
+      emailState.forceEmailOn = true;
+      emailState.verifiedEmails = {
+        [owner.clerkUserId]: "owner@example.com",
+        [adminClerkUserId]: "admin-verified@example.com",
+        [memberClerkUserId]: "leaver@example.com",
+      };
+
+      actAs(memberClerkUserId, "member@example.com");
+      const res = await request(app).post("/api/team/leave");
+      expect(res.status).toBe(200);
+
+      const recipients = emailState.sent.map((m) => m.to).sort();
+      expect(recipients).toEqual([
+        "admin-verified@example.com",
+        "owner@example.com",
+      ]);
+      expect(recipients).not.toContain("leaver@example.com");
     } finally {
       await cleanup(owner.tenantId);
     }

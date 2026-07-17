@@ -65,10 +65,12 @@ router.post("/team/leave", async (req: Request, res: Response) => {
     res.status(404).json({ error: "Membership not found" });
     return;
   }
-  // Best-effort: tell the owner the seat was freed and by whom.
+  // Best-effort: tell the owner and workspace admins the seat was freed and
+  // by whom (the leaver is excluded from the email fan-out).
   await notifyTeamMemberLeft(req.tenantId, {
     email: deleted.email,
     role: deleted.role,
+    clerkUserId: deleted.clerkUserId,
   });
   res.json({ ok: true });
 });
