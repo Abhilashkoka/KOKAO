@@ -27,6 +27,10 @@ import {
   LINKEDIN_TOKEN_INVALID_MESSAGE,
 } from "../lib/socialReverify";
 import { splitForLinkedin } from "@workspace/social-limits";
+import {
+  tryAcquireResendLock,
+  RESEND_IN_PROGRESS_MESSAGE,
+} from "../lib/resendLock";
 
 const router: IRouter = Router();
 
@@ -1023,6 +1027,15 @@ router.post(
   "/content/:id/resend-linkedin-comments",
   async (req: Request, res: Response) => {
     const id = Number(req.params.id);
+    // Guard against two truly simultaneous resend clicks: both would read
+    // the same postedCount and probe before either has posted, so the dedupe
+    // probe can't see the other's writes.
+    const releaseLock = tryAcquireResendLock("linkedin", id);
+    if (!releaseLock) {
+      res.status(409).json({ error: RESEND_IN_PROGRESS_MESSAGE });
+      return;
+    }
+    try {
     const item = (
       await db
         .select()
@@ -1151,6 +1164,9 @@ router.post(
         `https://www.linkedin.com/feed/update/${state.postUrn}`,
       ...(commentWarning ? { commentWarning } : {}),
     });
+    } finally {
+      releaseLock();
+    }
   },
 );
 

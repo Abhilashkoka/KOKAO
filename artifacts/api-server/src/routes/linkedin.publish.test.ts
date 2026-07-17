@@ -1354,6 +1354,81 @@ describe("LinkedIn comment resend", () => {
     expect((commentPosts[0]!.body as any).message.text).toBe(COMMENTS[1]);
   });
 
+  it("two truly simultaneous resends: the second is rejected with 409 while the first is still running, and nothing double-posts", async () => {
+    seedWithPendingComments(1);
+
+    // Gate the first comment POST so the first request stalls mid-resend
+    // while the second request arrives.
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    let firstPostStarted!: () => void;
+    const postStarted = new Promise<void>((resolve) => {
+      firstPostStarted = resolve;
+    });
+    let commentPostSeq = 0;
+    fetchHandler = ((call: FetchCall) => {
+      if (call.url.includes("/userinfo")) {
+        return makeRes({ json: { sub: "member123" } });
+      }
+      if (call.url.includes("/socialActions/")) {
+        if (call.method === "GET") {
+          return makeRes({ json: { elements: [] } });
+        }
+        commentPostSeq += 1;
+        if (commentPostSeq === 1) {
+          firstPostStarted();
+          return gate.then(() => makeRes({ status: 201 }));
+        }
+        return makeRes({ status: 201 });
+      }
+      return makeRes();
+    }) as unknown as FetchHandler;
+
+    try {
+      const firstPromise = drive(
+        "POST",
+        "/content/1/resend-linkedin-comments",
+      );
+      // Wait until the first request is genuinely mid-resend (it has read
+      // the comment state and started posting), then fire the second.
+      await postStarted;
+      const second = await drive(
+        "POST",
+        "/content/1/resend-linkedin-comments",
+      );
+      expect(second.status).toBe(409);
+      expect(second.json.error).toMatch(/already in progress/i);
+
+      releaseGate();
+      const first = await firstPromise;
+      expect(first.status).toBe(200);
+      expect(first.json.commentsPosted).toBe(3);
+      expect(first.json.commentsRemaining).toBe(0);
+
+      // Only the first request posted anything: exactly the 2 missing
+      // comments went out, in order.
+      const commentPosts = fetchCalls.filter(
+        (c) => c.url.includes("/socialActions/") && c.method === "POST",
+      );
+      expect(commentPosts.length).toBe(2);
+      expect((commentPosts[0]!.body as any).message.text).toBe(COMMENTS[1]);
+      expect((commentPosts[1]!.body as any).message.text).toBe(COMMENTS[2]);
+      expect(state.content[0].linkedinCommentState).toBeNull();
+
+      // The lock is released after the first finishes: a later resend gets
+      // a normal 400 (nothing left), not a 409.
+      const third = await drive(
+        "POST",
+        "/content/1/resend-linkedin-comments",
+      );
+      expect(third.status).toBe(400);
+    } finally {
+      releaseGate();
+    }
+  });
+
   it("returns 400 when there is nothing to resend", async () => {
     seedConnectedAccount();
     seedContentItem({ status: "published" });
