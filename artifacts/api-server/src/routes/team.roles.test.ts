@@ -380,6 +380,84 @@ describe("member removal cuts access immediately (DELETE /team/members/:id)", ()
       await deleteTenant(owner.tenantId);
     }
   });
+
+  it("removal revokes a lingering pending invite for the same email so the ex-member cannot silently rejoin", async () => {
+    const owner = await createTenant({ email: "owner-reinvite@example.com" });
+    await setSeatLimit(owner.tenantId, 5);
+    // Member joined earlier; a NEW pending invite for the same email exists
+    // at removal time (duplicate / re-invited by mistake).
+    const memberEmail = `dup-${randomUUID()}@example.com`;
+    const member = await addMember(owner.tenantId, "member", memberEmail);
+    const lingeringInviteId = await addPendingInvite(
+      owner.tenantId,
+      memberEmail,
+    );
+    try {
+      actAs(owner.clerkUserId, owner.email);
+      const remove = await request(app).delete(
+        `/api/team/members/${member.memberId}`,
+      );
+      expect(remove.status).toBe(200);
+
+      // The lingering pending invite was revoked in the same operation.
+      const invite = (
+        await db
+          .select()
+          .from(teamInvitesTable)
+          .where(eq(teamInvitesTable.id, lingeringInviteId))
+          .limit(1)
+      )[0];
+      expect(invite.status).toBe("revoked");
+
+      // The ex-member's next request must NOT auto-accept back into the
+      // workspace: they get a fresh personal workspace instead.
+      actAs(member.clerkUserId, memberEmail);
+      const meAfter = await request(app).get("/api/me");
+      expect(meAfter.status).toBe(200);
+      expect(meAfter.body.tenant.id).not.toBe(owner.tenantId);
+      expect(meAfter.body.team.role).toBe("owner");
+
+      // No membership row was re-created in the old workspace.
+      const memberships = await db
+        .select()
+        .from(tenantMembersTable)
+        .where(eq(tenantMembersTable.tenantId, owner.tenantId));
+      expect(memberships).toHaveLength(0);
+    } finally {
+      await deleteTenantForClerkUser(member.clerkUserId);
+      await deleteTenant(owner.tenantId);
+    }
+  });
+
+  it("a deliberate NEW invite sent after removal still lets the ex-member rejoin", async () => {
+    const owner = await createTenant({ email: "owner-rejoin@example.com" });
+    await setSeatLimit(owner.tenantId, 5);
+    const memberEmail = `rejoin-${randomUUID()}@example.com`;
+    const member = await addMember(owner.tenantId, "member", memberEmail);
+    try {
+      actAs(owner.clerkUserId, owner.email);
+      const remove = await request(app).delete(
+        `/api/team/members/${member.memberId}`,
+      );
+      expect(remove.status).toBe(200);
+
+      // Owner deliberately re-invites AFTER the removal.
+      const reinvite = await request(app)
+        .post("/api/team/invites")
+        .send({ email: memberEmail, role: "member" });
+      expect(reinvite.status).toBe(200);
+
+      // The ex-member's next sign-in accepts the fresh invite and rejoins.
+      actAs(member.clerkUserId, memberEmail);
+      const me = await request(app).get("/api/me");
+      expect(me.status).toBe(200);
+      expect(me.body.tenant.id).toBe(owner.tenantId);
+      expect(me.body.team.role).toBe("member");
+    } finally {
+      await deleteTenantForClerkUser(member.clerkUserId);
+      await deleteTenant(owner.tenantId);
+    }
+  });
 });
 
 describe("superadmin never inherited by members", () => {

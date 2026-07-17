@@ -6,7 +6,7 @@ import {
   teamInvitesTable,
   seatRequestsTable,
 } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { CreateTeamInviteBody, CreateSeatRequestBody } from "@workspace/api-zod";
 import { requireWorkspaceAdmin } from "../middlewares/requireWorkspaceAdmin";
 import {
@@ -183,7 +183,16 @@ router.delete("/team/invites/:id", async (req: Request, res: Response) => {
   res.json(await buildTeamOverview(req.tenantId, req.memberRole));
 });
 
-/** DELETE /team/members/:id — remove a member (they lose access immediately). */
+/**
+ * DELETE /team/members/:id — remove a member (they lose access immediately).
+ *
+ * Any PENDING invite for the removed member's email is revoked in the same
+ * operation. Otherwise a lingering duplicate/re-sent invite would be
+ * auto-accepted by requireTenant on the ex-member's next sign-in, silently
+ * re-adding them. Intended behavior: removal cuts access AND cancels any
+ * standing invitation; rejoining requires a deliberate NEW invite sent after
+ * the removal.
+ */
 router.delete("/team/members/:id", async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   const deleted = (
@@ -200,6 +209,18 @@ router.delete("/team/members/:id", async (req: Request, res: Response) => {
   if (!deleted) {
     res.status(404).json({ error: "Member not found" });
     return;
+  }
+  if (deleted.email) {
+    await db
+      .update(teamInvitesTable)
+      .set({ status: "revoked" })
+      .where(
+        and(
+          eq(teamInvitesTable.tenantId, req.tenantId),
+          sql`lower(${teamInvitesTable.email}) = ${deleted.email.toLowerCase()}`,
+          eq(teamInvitesTable.status, "pending"),
+        ),
+      );
   }
   res.json(await buildTeamOverview(req.tenantId, req.memberRole));
 });
