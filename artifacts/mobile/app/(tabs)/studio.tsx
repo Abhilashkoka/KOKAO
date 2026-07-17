@@ -26,7 +26,7 @@ import {
   type ContentItem,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { CAPTION_TWEAKS } from "@workspace/studio-presets";
+import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
 import { Image } from "expo-image";
 
 import {
@@ -57,12 +57,6 @@ const IMAGE_SIZES = [
   { label: "Portrait", value: "1024x1536" },
 ] as const;
 type ImageSize = (typeof IMAGE_SIZES)[number]["value"];
-
-const IMAGE_TWEAKS = [
-  { label: "Brighter", instruction: "Make the image brighter with more light and airy tones." },
-  { label: "Minimal", instruction: "Make the image more minimal, clean, and uncluttered." },
-  { label: "More vibrant", instruction: "Make the image more vibrant with bold, saturated colors." },
-] as const;
 
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 

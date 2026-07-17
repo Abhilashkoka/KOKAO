@@ -10,3 +10,11 @@ export const CAPTION_TWEAKS = [
 ] as const;
 
 export type CaptionTweak = (typeof CAPTION_TWEAKS)[number];
+
+export const IMAGE_TWEAKS = [
+  { label: "Brighter", instruction: "Make the image brighter with more light and airy tones." },
+  { label: "Minimal", instruction: "Make the image more minimal, clean, and uncluttered." },
+  { label: "More vibrant", instruction: "Make the image more vibrant with bold, saturated colors." },
+] as const;
+
+export type ImageTweak = (typeof IMAGE_TWEAKS)[number];
