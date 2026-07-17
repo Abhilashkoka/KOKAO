@@ -3,6 +3,7 @@ import { db, scheduledPostsTable, contentItemsTable } from "@workspace/db";
 import { and, eq, asc } from "drizzle-orm";
 import { CreateScheduleBody, UpdateScheduleBody } from "@workspace/api-zod";
 import { serializeSchedule } from "../lib/serializers";
+import { recordTasteSignal } from "../lib/tasteMemory";
 
 const router: IRouter = Router();
 
@@ -64,6 +65,14 @@ router.post("/schedules", async (req: Request, res: Response) => {
     .update(contentItemsTable)
     .set({ status: "scheduled", updatedAt: new Date() })
     .where(eq(contentItemsTable.id, parsed.data.contentItemId));
+
+  // Taste memory: scheduling content is an approval signal. Best-effort.
+  void recordTasteSignal(req.tenantId, {
+    kind: "scheduled",
+    caption: content.caption,
+    imagePrompt: content.imagePrompt,
+    platform: parsed.data.platform,
+  });
 
   res.status(201).json(serializeSchedule(created));
 });

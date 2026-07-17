@@ -11,6 +11,7 @@ import {
   useResearchTopic,
   useCreateContent,
   useUpdateContent,
+  useRecordTasteSignal,
   useDeleteContent,
   useListBrandKits,
   useGetMe,
@@ -181,6 +182,7 @@ export function StudioPage() {
   const createContent = useCreateContent();
   const updateContent = useUpdateContent();
   const deleteContent = useDeleteContent();
+  const recordTasteSignal = useRecordTasteSignal();
   const { data: me } = useGetMe();
 
   // Auto-saved draft: every generated caption/image is persisted immediately
@@ -469,7 +471,13 @@ export function StudioPage() {
     }
 
     const data = buildDraftData(captionResult, imageResult);
-    const onSaved = () => {
+    const onSaved = (saved?: { id?: number }) => {
+      // Taste memory: an explicit "Save to Library" is an approval signal.
+      // Fire-and-forget; a failure here must not affect the save flow.
+      const savedId = saved?.id ?? draftId;
+      if (savedId) {
+        recordTasteSignal.mutate({ data: { contentItemId: savedId, kind: "saved" } });
+      }
       queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
       setDraft(null);
       toast({ title: "Saved to library!" });

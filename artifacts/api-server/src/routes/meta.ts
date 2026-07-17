@@ -1,4 +1,5 @@
 import { mergePublishedPlatform } from "../lib/publishedPlatforms";
+import { recordTasteSignalFromContent } from "../lib/tasteMemory";
 import { buildPostText } from "../lib/postText";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, contentItemsTable } from "@workspace/db";
@@ -559,6 +560,8 @@ async function markPublished(
         eq(contentItemsTable.tenantId, tenantId),
       ),
     );
+  // Taste memory: a successful publish is the strongest approval signal.
+  void recordTasteSignalFromContent(tenantId, id, "published");
 }
 
 async function setContentStatus(

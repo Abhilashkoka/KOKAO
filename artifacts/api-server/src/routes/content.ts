@@ -3,6 +3,7 @@ import { db, contentItemsTable } from "@workspace/db";
 import { and, eq, desc } from "drizzle-orm";
 import { CreateContentBody, UpdateContentBody } from "@workspace/api-zod";
 import { serializeContent } from "../lib/serializers";
+import { recordTasteSignal } from "../lib/tasteMemory";
 
 const router: IRouter = Router();
 
@@ -87,6 +88,16 @@ router.delete("/content/:id", async (req: Request, res: Response) => {
   if (!deleted) {
     res.status(404).json({ error: "Not found" });
     return;
+  }
+  // Taste memory: deleting a draft that had a caption means the user rejected
+  // that generation. Best-effort; never blocks the delete response.
+  if (deleted.status === "draft" && deleted.caption?.trim()) {
+    void recordTasteSignal(req.tenantId, {
+      kind: "discarded",
+      caption: deleted.caption,
+      imagePrompt: deleted.imagePrompt,
+      platform: deleted.platform,
+    });
   }
   res.status(204).end();
 });

@@ -30,5 +30,6 @@
 - [Hoisted @types/react clash](hoisted-types-react-clash.md) — libs with bundled d.ts but no @types/react peer resolve the mobile-pinned 19.1.x; fix via packageExtensions, not overrides.
 - [Platform API e2e mocking](platform-api-e2e-mocking.md) — dev-only base-URL overrides + a workflow-hosted local mock let browser e2e complete real publish/resend flows; never host the mock in background bash.
 - [Team seats add-on](team-seats.md) — plan teamSeats + tenants.seatLimit override; seats used = owner + members + pending invites; member requests must never mutate owner-scoped tenant columns.
+- [Taste memory](taste-memory.md) — behavior signals need deliberate-action hooks (auto-save drafts don't count); jsonb profile writes require SELECT FOR UPDATE; exemplars in prompts are untrusted data.
 - [Platform fetch timeouts](platform-fetch-timeouts.md) — all outbound platform calls use the bounded-timeout platformFetch helper; timeouts are terminal, never retried.
 - [Expo web CORS](clerk-turnstile-e2e-bypass.md) — REPLIT_DOMAINS excludes the Expo dev domain; the API CORS allowlist must add REPLIT_EXPO_DEV_DOMAIN or mobile-web API reads fail.

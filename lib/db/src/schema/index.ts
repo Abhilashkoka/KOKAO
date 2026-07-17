@@ -19,3 +19,4 @@ export * from "./adminAuditLogs";
 export * from "./planSettings";
 export * from "./sweepStatus";
 export * from "./team";
+export * from "./tasteProfiles";

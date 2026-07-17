@@ -18,6 +18,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { NotificationSettings } from "@/components/notification-settings";
 import { TeamSettings } from "@/components/team-settings";
 import { AppBrandingSettings } from "@/components/app-branding-settings";
+import { TasteMemorySettings } from "@/components/taste-memory-settings";
 
 export function SettingsPage() {
   const { data: me, isLoading: meLoading } = useGetMe();
@@ -79,6 +80,7 @@ export function SettingsPage() {
           <TabsTrigger value="general">General</TabsTrigger>
           {me?.team?.enabled && <TabsTrigger value="team">Team</TabsTrigger>}
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
+          <TabsTrigger value="style-memory">Style memory</TabsTrigger>
           {me?.isSuperadmin && (
             <TabsTrigger value="branding">Branding</TabsTrigger>
           )}
@@ -197,6 +199,12 @@ export function SettingsPage() {
         <TabsContent value="notifications">
           <div className="max-w-2xl">
             <NotificationSettings />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="style-memory">
+          <div className="max-w-2xl">
+            <TasteMemorySettings />
           </div>
         </TabsContent>
 

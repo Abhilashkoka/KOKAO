@@ -201,6 +201,81 @@ export const UpdateNotificationSettingsResponse = zod.object({
 
 
 /**
+ * @summary Get the current tenant's learned style memory summary
+ */
+export const GetTasteProfileResponse = zod.object({
+  "enabled": zod.boolean(),
+  "hasData": zod.boolean(),
+  "captionLength": zod.string().nullable().describe('Learned caption length preference (short\/medium\/long) or null.'),
+  "hashtagStyle": zod.string().nullable(),
+  "emojiStyle": zod.string().nullable(),
+  "approvedExamples": zod.array(zod.string()),
+  "signalCounts": zod.object({
+  "saved": zod.number(),
+  "scheduled": zod.number(),
+  "published": zod.number(),
+  "discarded": zod.number()
+}),
+  "lastSignalAt": zod.string().nullable()
+})
+
+
+/**
+ * @summary Enable or disable style memory for the current tenant
+ */
+export const UpdateTasteProfileBody = zod.object({
+  "enabled": zod.boolean()
+})
+
+export const UpdateTasteProfileResponse = zod.object({
+  "enabled": zod.boolean(),
+  "hasData": zod.boolean(),
+  "captionLength": zod.string().nullable().describe('Learned caption length preference (short\/medium\/long) or null.'),
+  "hashtagStyle": zod.string().nullable(),
+  "emojiStyle": zod.string().nullable(),
+  "approvedExamples": zod.array(zod.string()),
+  "signalCounts": zod.object({
+  "saved": zod.number(),
+  "scheduled": zod.number(),
+  "published": zod.number(),
+  "discarded": zod.number()
+}),
+  "lastSignalAt": zod.string().nullable()
+})
+
+
+/**
+ * @summary Clear everything style memory has learned for the current tenant
+ */
+export const ClearTasteProfileResponse = zod.object({
+  "enabled": zod.boolean(),
+  "hasData": zod.boolean(),
+  "captionLength": zod.string().nullable().describe('Learned caption length preference (short\/medium\/long) or null.'),
+  "hashtagStyle": zod.string().nullable(),
+  "emojiStyle": zod.string().nullable(),
+  "approvedExamples": zod.array(zod.string()),
+  "signalCounts": zod.object({
+  "saved": zod.number(),
+  "scheduled": zod.number(),
+  "published": zod.number(),
+  "discarded": zod.number()
+}),
+  "lastSignalAt": zod.string().nullable()
+})
+
+
+/**
+ * @summary Record an approval signal for a content item (e.g. saved to library)
+ */
+export const RecordTasteSignalBody = zod.object({
+  "contentItemId": zod.number(),
+  "kind": zod.enum(['saved']).describe('Only client-reported signal today is an explicit library save.')
+})
+
+export const RecordTasteSignalResponse = zod.void()
+
+
+/**
  * @summary Get the workspace team overview (members, invites, seat requests)
  */
 export const GetTeamResponse = zod.object({

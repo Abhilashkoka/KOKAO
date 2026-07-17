@@ -1,4 +1,5 @@
 import { mergePublishedPlatform } from "../lib/publishedPlatforms";
+import { recordTasteSignalFromContent } from "../lib/tasteMemory";
 import { buildPostText } from "../lib/postText";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { trackSyncPublish } from "../middlewares/trackSyncPublish";
@@ -605,6 +606,8 @@ router.post(
             eq(contentItemsTable.tenantId, req.tenantId),
           ),
         );
+      // Taste memory: a successful publish is the strongest approval signal.
+      void recordTasteSignalFromContent(req.tenantId, id, "published");
       res.json({
         postId: firstPostId,
         permalink,

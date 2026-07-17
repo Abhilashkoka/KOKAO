@@ -593,6 +593,45 @@ export interface NotificationSettingsInput {
   preferences: UpdateNotificationPreferenceItem[];
 }
 
+export interface TasteSignalCounts {
+  saved: number;
+  scheduled: number;
+  published: number;
+  discarded: number;
+}
+
+export interface TasteProfileSummary {
+  enabled: boolean;
+  hasData: boolean;
+  /** Learned caption length preference (short/medium/long) or null. */
+  captionLength: string | null;
+  hashtagStyle: string | null;
+  emojiStyle: string | null;
+  approvedExamples: string[];
+  signalCounts: TasteSignalCounts;
+  lastSignalAt: string | null;
+}
+
+export interface TasteProfileUpdateInput {
+  enabled: boolean;
+}
+
+/**
+ * Only client-reported signal today is an explicit library save.
+ */
+export type TasteSignalCreateInputKind = typeof TasteSignalCreateInputKind[keyof typeof TasteSignalCreateInputKind];
+
+
+export const TasteSignalCreateInputKind = {
+  saved: 'saved',
+} as const;
+
+export interface TasteSignalCreateInput {
+  contentItemId: number;
+  /** Only client-reported signal today is an explicit library save. */
+  kind: TasteSignalCreateInputKind;
+}
+
 export type NotificationPolicyEmailPolicy = typeof NotificationPolicyEmailPolicy[keyof typeof NotificationPolicyEmailPolicy];
 
 

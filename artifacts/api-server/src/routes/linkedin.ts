@@ -1,4 +1,5 @@
 import { mergePublishedPlatform } from "../lib/publishedPlatforms";
+import { recordTasteSignalFromContent } from "../lib/tasteMemory";
 import { buildPostText } from "../lib/postText";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { trackSyncPublish } from "../middlewares/trackSyncPublish";
@@ -796,6 +797,9 @@ router.post(
             eq(contentItemsTable.tenantId, req.tenantId),
           ),
         );
+
+      // Taste memory: a successful publish is the strongest approval signal.
+      void recordTasteSignalFromContent(req.tenantId, id, "published");
 
       // The main post succeeded and is now marked published. Overflow text goes
       // out as follow-up comments so the full caption reaches readers. A comment

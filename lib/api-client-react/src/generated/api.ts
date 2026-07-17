@@ -101,6 +101,9 @@ import type {
   SocialCredentialStatus,
   SummarizeUrlRequest,
   SummarizeUrlResult,
+  TasteProfileSummary,
+  TasteProfileUpdateInput,
+  TasteSignalCreateInput,
   TeamInviteCreateInput,
   TeamOverview,
   Tenant,
@@ -819,6 +822,293 @@ export const useUpdateNotificationSettings = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getUpdateNotificationSettingsMutationOptions(options));
+    }
+
+export const getGetTasteProfileUrl = () => {
+
+
+
+
+  return `/api/taste-profile`
+}
+
+/**
+ * @summary Get the current tenant's learned style memory summary
+ */
+export const getTasteProfile = async ( options?: RequestInit): Promise<TasteProfileSummary> => {
+
+  return customFetch<TasteProfileSummary>(getGetTasteProfileUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTasteProfileQueryKey = () => {
+    return [
+    `/api/taste-profile`
+    ] as const;
+    }
+
+
+export const getGetTasteProfileQueryOptions = <TData = Awaited<ReturnType<typeof getTasteProfile>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTasteProfile>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTasteProfileQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTasteProfile>>> = ({ signal }) => getTasteProfile({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTasteProfile>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTasteProfileQueryResult = NonNullable<Awaited<ReturnType<typeof getTasteProfile>>>
+export type GetTasteProfileQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the current tenant's learned style memory summary
+ */
+
+export function useGetTasteProfile<TData = Awaited<ReturnType<typeof getTasteProfile>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTasteProfile>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTasteProfileQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateTasteProfileUrl = () => {
+
+
+
+
+  return `/api/taste-profile`
+}
+
+/**
+ * @summary Enable or disable style memory for the current tenant
+ */
+export const updateTasteProfile = async (tasteProfileUpdateInput: TasteProfileUpdateInput, options?: RequestInit): Promise<TasteProfileSummary> => {
+
+  return customFetch<TasteProfileSummary>(getUpdateTasteProfileUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(tasteProfileUpdateInput)
+  }
+);}
+
+
+
+
+export const getUpdateTasteProfileMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTasteProfile>>, TError,{data: BodyType<TasteProfileUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateTasteProfile>>, TError,{data: BodyType<TasteProfileUpdateInput>}, TContext> => {
+
+const mutationKey = ['updateTasteProfile'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateTasteProfile>>, {data: BodyType<TasteProfileUpdateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateTasteProfile(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateTasteProfileMutationResult = NonNullable<Awaited<ReturnType<typeof updateTasteProfile>>>
+    export type UpdateTasteProfileMutationBody = BodyType<TasteProfileUpdateInput>
+    export type UpdateTasteProfileMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Enable or disable style memory for the current tenant
+ */
+export const useUpdateTasteProfile = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTasteProfile>>, TError,{data: BodyType<TasteProfileUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateTasteProfile>>,
+        TError,
+        {data: BodyType<TasteProfileUpdateInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateTasteProfileMutationOptions(options));
+    }
+
+export const getClearTasteProfileUrl = () => {
+
+
+
+
+  return `/api/taste-profile`
+}
+
+/**
+ * @summary Clear everything style memory has learned for the current tenant
+ */
+export const clearTasteProfile = async ( options?: RequestInit): Promise<TasteProfileSummary> => {
+
+  return customFetch<TasteProfileSummary>(getClearTasteProfileUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getClearTasteProfileMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearTasteProfile>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clearTasteProfile>>, TError,void, TContext> => {
+
+const mutationKey = ['clearTasteProfile'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearTasteProfile>>, void> = () => {
+
+
+          return  clearTasteProfile(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClearTasteProfileMutationResult = NonNullable<Awaited<ReturnType<typeof clearTasteProfile>>>
+
+    export type ClearTasteProfileMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Clear everything style memory has learned for the current tenant
+ */
+export const useClearTasteProfile = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearTasteProfile>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof clearTasteProfile>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getClearTasteProfileMutationOptions(options));
+    }
+
+export const getRecordTasteSignalUrl = () => {
+
+
+
+
+  return `/api/taste-profile/signal`
+}
+
+/**
+ * @summary Record an approval signal for a content item (e.g. saved to library)
+ */
+export const recordTasteSignal = async (tasteSignalCreateInput: TasteSignalCreateInput, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getRecordTasteSignalUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(tasteSignalCreateInput)
+  }
+);}
+
+
+
+
+export const getRecordTasteSignalMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordTasteSignal>>, TError,{data: BodyType<TasteSignalCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof recordTasteSignal>>, TError,{data: BodyType<TasteSignalCreateInput>}, TContext> => {
+
+const mutationKey = ['recordTasteSignal'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof recordTasteSignal>>, {data: BodyType<TasteSignalCreateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  recordTasteSignal(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RecordTasteSignalMutationResult = NonNullable<Awaited<ReturnType<typeof recordTasteSignal>>>
+    export type RecordTasteSignalMutationBody = BodyType<TasteSignalCreateInput>
+    export type RecordTasteSignalMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Record an approval signal for a content item (e.g. saved to library)
+ */
+export const useRecordTasteSignal = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordTasteSignal>>, TError,{data: BodyType<TasteSignalCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof recordTasteSignal>>,
+        TError,
+        {data: BodyType<TasteSignalCreateInput>},
+        TContext
+      > => {
+      return useMutation(getRecordTasteSignalMutationOptions(options));
     }
 
 export const getGetTeamUrl = () => {

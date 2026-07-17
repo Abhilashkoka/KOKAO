@@ -220,6 +220,97 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /taste-profile:
+    get:
+      operationId: getTasteProfile
+      tags: [account]
+      summary: Get the current tenant's learned style memory summary
+      responses:
+        "200":
+          description: Taste profile summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TasteProfileSummary"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: updateTasteProfile
+      tags: [account]
+      summary: Enable or disable style memory for the current tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TasteProfileUpdateInput"
+      responses:
+        "200":
+          description: Updated taste profile summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TasteProfileSummary"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: clearTasteProfile
+      tags: [account]
+      summary: Clear everything style memory has learned for the current tenant
+      responses:
+        "200":
+          description: Cleared taste profile summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TasteProfileSummary"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /taste-profile/signal:
+    post:
+      operationId: recordTasteSignal
+      tags: [account]
+      summary: Record an approval signal for a content item (e.g. saved to library)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TasteSignalCreateInput"
+      responses:
+        "204":
+          description: Signal recorded
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /team:
     get:
       operationId: getTeam
@@ -3811,6 +3902,61 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/UpdateNotificationPreferenceItem"
+    TasteSignalCounts:
+      type: object
+      required: [saved, scheduled, published, discarded]
+      properties:
+        saved:
+          type: integer
+        scheduled:
+          type: integer
+        published:
+          type: integer
+        discarded:
+          type: integer
+    TasteProfileSummary:
+      type: object
+      required: [enabled, hasData, captionLength, hashtagStyle, emojiStyle, approvedExamples, signalCounts, lastSignalAt]
+      properties:
+        enabled:
+          type: boolean
+        hasData:
+          type: boolean
+        captionLength:
+          type: string
+          nullable: true
+          description: Learned caption length preference (short/medium/long) or null.
+        hashtagStyle:
+          type: string
+          nullable: true
+        emojiStyle:
+          type: string
+          nullable: true
+        approvedExamples:
+          type: array
+          items:
+            type: string
+        signalCounts:
+          $ref: "#/components/schemas/TasteSignalCounts"
+        lastSignalAt:
+          type: string
+          nullable: true
+    TasteProfileUpdateInput:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+    TasteSignalCreateInput:
+      type: object
+      required: [contentItemId, kind]
+      properties:
+        contentItemId:
+          type: integer
+        kind:
+          type: string
+          enum: [saved]
+          description: Only client-reported signal today is an explicit library save.
     NotificationPolicy:
       type: object
       required: [type, label, description, enabled, emailPolicy]

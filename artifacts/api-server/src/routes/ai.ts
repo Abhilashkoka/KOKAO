@@ -15,6 +15,7 @@ import { getPlanLimits } from "../lib/plans";
 import { getUsage, recordUsage } from "../lib/usage";
 import { loadActivePayload } from "../lib/brandKit/service";
 import { isDesignSkillEnabledFor, buildDesignedImagePrompt } from "../lib/designSkill";
+import { buildTasteGuidance } from "../lib/tasteMemory";
 import {
   safeFetch,
   readCappedText,
@@ -105,6 +106,10 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
       );
     }
   }
+  // Taste memory: learned preferences are soft guidance appended AFTER the
+  // brand kit rules, so brand rules and the user's explicit prompt still win.
+  const taste = await buildTasteGuidance(req.tenantId);
+  guidance.push(...taste.captionLines);
   guidance.push(
     'Respond ONLY with strict JSON of the form {"caption": string, "hashtags": string[]}. ' +
       "Hashtags must not include the # symbol. Provide 5-12 relevant hashtags.",
@@ -175,6 +180,10 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
     if (imagery) prompt += ` Imagery style: ${imagery}.`;
     prompt += ` Cohesive with a ${voiceHint(brand)} brand aesthetic.`;
   }
+
+  // Taste memory: soft style hint from previously approved image prompts.
+  const imageTaste = await buildTasteGuidance(req.tenantId);
+  if (imageTaste.imageHint) prompt += imageTaste.imageHint;
 
   // Canvas-design skill: when enabled, a text-model pass first writes a design
   // philosophy and compiles it into an art-directed prompt (brand elements are
