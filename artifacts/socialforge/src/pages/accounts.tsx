@@ -45,6 +45,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Share2, Plus, Trash2, CheckCircle2, Instagram, Facebook, Linkedin, Youtube, Loader2, Copy, ExternalLink, AlertCircle, Twitter, AtSign } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ReconnectHelpDialog } from "@/components/reconnect-help-dialog";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 function StatusPill({ status }: { status?: string | null }) {
   if (status === "verified") {
@@ -79,6 +80,7 @@ function FacebookCredentialsCard() {
   const [pageId, setPageId] = useState("");
   const [pageAccessToken, setPageAccessToken] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [confirmDisconnectOpen, setConfirmDisconnectOpen] = useState(false);
 
   const invalidateFacebook = () => {
     queryClient.invalidateQueries({ queryKey: getGetFacebookCredentialsQueryKey() });
@@ -87,7 +89,6 @@ function FacebookCredentialsCard() {
   };
 
   const handleDisconnect = () => {
-    if (!confirm("Disconnect Facebook? This clears your stored Page token. Your Instagram connection will also stop working until you reconnect Facebook.")) return;
     disconnect.mutate(undefined, {
       onSuccess: () => {
         invalidateFacebook();
@@ -241,7 +242,7 @@ function FacebookCredentialsCard() {
                           "Re-test now"
                         )}
                       </Button>
-                      <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={handleDisconnect} disabled={disconnect.isPending}>
+                      <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setConfirmDisconnectOpen(true)} disabled={disconnect.isPending}>
                         {disconnect.isPending ? (
                           <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
                         ) : (
@@ -256,6 +257,15 @@ function FacebookCredentialsCard() {
           </div>
         </div>
       </CardContent>
+      <ConfirmDialog
+        open={confirmDisconnectOpen}
+        onOpenChange={setConfirmDisconnectOpen}
+        title="Disconnect Facebook?"
+        description="This clears your stored Page token. Your Instagram connection will also stop working until you reconnect Facebook."
+        confirmLabel="Disconnect"
+        destructive
+        onConfirm={handleDisconnect}
+      />
     </Card>
   );
 }
@@ -271,6 +281,7 @@ function InstagramCredentialsCard() {
 
   const [igUserId, setIgUserId] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [confirmDisconnectOpen, setConfirmDisconnectOpen] = useState(false);
 
   const invalidateInstagram = () => {
     queryClient.invalidateQueries({ queryKey: getGetInstagramCredentialsQueryKey() });
@@ -278,7 +289,6 @@ function InstagramCredentialsCard() {
   };
 
   const handleDisconnect = () => {
-    if (!confirm("Disconnect Instagram? This clears your stored Instagram account.")) return;
     disconnect.mutate(undefined, {
       onSuccess: () => {
         invalidateInstagram();
@@ -388,7 +398,7 @@ function InstagramCredentialsCard() {
                     <p className="text-sm text-destructive">
                       Your Instagram account is still saved, but it cannot be verified or published while Facebook is disconnected. Reconnect Facebook, or disconnect Instagram below.
                     </p>
-                    <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={handleDisconnect} disabled={disconnect.isPending}>
+                    <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setConfirmDisconnectOpen(true)} disabled={disconnect.isPending}>
                       {disconnect.isPending ? (
                         <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
                       ) : (
@@ -441,7 +451,7 @@ function InstagramCredentialsCard() {
                           "Re-test now"
                         )}
                       </Button>
-                      <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={handleDisconnect} disabled={disconnect.isPending}>
+                      <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setConfirmDisconnectOpen(true)} disabled={disconnect.isPending}>
                         {disconnect.isPending ? (
                           <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
                         ) : (
@@ -456,6 +466,15 @@ function InstagramCredentialsCard() {
           </div>
         </div>
       </CardContent>
+      <ConfirmDialog
+        open={confirmDisconnectOpen}
+        onOpenChange={setConfirmDisconnectOpen}
+        title="Disconnect Instagram?"
+        description="This clears your stored Instagram account."
+        confirmLabel="Disconnect"
+        destructive
+        onConfirm={handleDisconnect}
+      />
     </Card>
   );
 }
@@ -467,6 +486,7 @@ function TwitterCredentialsCard() {
   const disconnect = useDisconnectTwitter();
   const retest = useRetestTwitterCredentials();
   const [connecting, setConnecting] = useState(false);
+  const [confirmDisconnectOpen, setConfirmDisconnectOpen] = useState(false);
 
   const refreshTwitter = () => {
     queryClient.invalidateQueries({ queryKey: getGetTwitterStatusQueryKey() });
@@ -545,7 +565,6 @@ function TwitterCredentialsCard() {
   };
 
   const handleDisconnect = () => {
-    if (!confirm("Disconnect X? This clears your stored X connection. You'll need to reconnect to publish again.")) return;
     disconnect.mutate(undefined, {
       onSuccess: () => {
         refreshTwitter();
@@ -630,7 +649,7 @@ function TwitterCredentialsCard() {
                       "Re-test now"
                     )}
                   </Button>
-                  <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={handleDisconnect} disabled={disconnect.isPending}>
+                  <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setConfirmDisconnectOpen(true)} disabled={disconnect.isPending}>
                     {disconnect.isPending ? (
                       <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
                     ) : (
@@ -665,6 +684,15 @@ function TwitterCredentialsCard() {
           </div>
         </div>
       </CardContent>
+      <ConfirmDialog
+        open={confirmDisconnectOpen}
+        onOpenChange={setConfirmDisconnectOpen}
+        title="Disconnect X?"
+        description="This clears your stored X connection. You'll need to reconnect to publish again."
+        confirmLabel="Disconnect"
+        destructive
+        onConfirm={handleDisconnect}
+      />
     </Card>
   );
 }
@@ -722,6 +750,13 @@ export function AccountsPage() {
   const [linkedinConnecting, setLinkedinConnecting] = useState(false);
   const [youtubeConnecting, setYoutubeConnecting] = useState(false);
   const [threadsConnecting, setThreadsConnecting] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState<
+    | { kind: "linkedin" }
+    | { kind: "youtube" }
+    | { kind: "threads" }
+    | { kind: "account"; id: number }
+    | null
+  >(null);
 
   const refreshLinkedin = () => {
     queryClient.invalidateQueries({ queryKey: getGetLinkedinStatusQueryKey() });
@@ -729,12 +764,6 @@ export function AccountsPage() {
   };
 
   const handleDisconnectLinkedin = () => {
-    if (
-      !confirm(
-        "Disconnect LinkedIn? This clears your stored LinkedIn token and account. You'll need to reconnect to publish again.",
-      )
-    )
-      return;
     disconnectLinkedin.mutate(undefined, {
       onSuccess: () => {
         toast({ title: "LinkedIn disconnected" });
@@ -789,12 +818,6 @@ export function AccountsPage() {
   };
 
   const handleDisconnectYoutube = () => {
-    if (
-      !confirm(
-        "Disconnect YouTube? This clears the stored access to your channel. You'll need to reconnect to link it again.",
-      )
-    )
-      return;
     disconnectYoutube.mutate(undefined, {
       onSuccess: () => {
         toast({ title: "YouTube disconnected" });
@@ -971,12 +994,6 @@ export function AccountsPage() {
   };
 
   const handleDisconnectThreads = () => {
-    if (
-      !confirm(
-        "Disconnect Threads? This clears your stored Threads access. You'll need to reconnect to publish again.",
-      )
-    )
-      return;
     disconnectThreads.mutate(undefined, {
       onSuccess: () => {
         toast({ title: "Threads disconnected" });
@@ -1114,7 +1131,6 @@ export function AccountsPage() {
   };
 
   const handleDelete = (id: number) => {
-    if (!confirm("Disconnect this account?")) return;
     deleteAccount.mutate({ id }, {
       onSuccess: () => {
         toast({ title: "Account disconnected" });
@@ -1196,7 +1212,7 @@ export function AccountsPage() {
                         "Reconnect"
                       )}
                     </Button>
-                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={handleDisconnectLinkedin} disabled={disconnectLinkedin.isPending}>
+                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setConfirmDisconnect({ kind: "linkedin" })} disabled={disconnectLinkedin.isPending}>
                       {disconnectLinkedin.isPending ? (
                         <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
                       ) : (
@@ -1325,7 +1341,7 @@ export function AccountsPage() {
                         "Reconnect"
                       )}
                     </Button>
-                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={handleDisconnectYoutube} disabled={disconnectYoutube.isPending}>
+                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setConfirmDisconnect({ kind: "youtube" })} disabled={disconnectYoutube.isPending}>
                       {disconnectYoutube.isPending ? (
                         <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
                       ) : (
@@ -1459,7 +1475,7 @@ export function AccountsPage() {
                         "Reconnect"
                       )}
                     </Button>
-                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={handleDisconnectThreads} disabled={disconnectThreads.isPending}>
+                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setConfirmDisconnect({ kind: "threads" })} disabled={disconnectThreads.isPending}>
                       {disconnectThreads.isPending ? (
                         <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
                       ) : (
@@ -1581,7 +1597,7 @@ export function AccountsPage() {
                     </div>
                   </div>
                 </div>
-                <Button variant="ghost" size="icon" className="text-destructive/50 hover:text-destructive hover:bg-destructive/10" onClick={() => handleDelete(acc.id)}>
+                <Button variant="ghost" size="icon" className="text-destructive/50 hover:text-destructive hover:bg-destructive/10" data-testid={`button-delete-account-${acc.id}`} onClick={() => setConfirmDisconnect({ kind: "account", id: acc.id })}>
                   <Trash2 className="h-5 w-5" />
                 </Button>
               </CardContent>
@@ -1633,6 +1649,38 @@ export function AccountsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={confirmDisconnect !== null}
+        onOpenChange={(dialogOpen) => !dialogOpen && setConfirmDisconnect(null)}
+        title={
+          confirmDisconnect?.kind === "linkedin"
+            ? "Disconnect LinkedIn?"
+            : confirmDisconnect?.kind === "youtube"
+              ? "Disconnect YouTube?"
+              : confirmDisconnect?.kind === "threads"
+                ? "Disconnect Threads?"
+                : "Disconnect this account?"
+        }
+        description={
+          confirmDisconnect?.kind === "linkedin"
+            ? "This clears your stored LinkedIn token and account. You'll need to reconnect to publish again."
+            : confirmDisconnect?.kind === "youtube"
+              ? "This clears the stored access to your channel. You'll need to reconnect to link it again."
+              : confirmDisconnect?.kind === "threads"
+                ? "This clears your stored Threads access. You'll need to reconnect to publish again."
+                : "The account will be removed from your connected accounts list."
+        }
+        confirmLabel="Disconnect"
+        destructive
+        onConfirm={() => {
+          if (!confirmDisconnect) return;
+          if (confirmDisconnect.kind === "linkedin") handleDisconnectLinkedin();
+          else if (confirmDisconnect.kind === "youtube") handleDisconnectYoutube();
+          else if (confirmDisconnect.kind === "threads") handleDisconnectThreads();
+          else handleDelete(confirmDisconnect.id);
+        }}
+      />
     </div>
   );
 }

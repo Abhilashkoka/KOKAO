@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, within, cleanup } from "@testing-library/react";
+import { render, screen, within, cleanup, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 /**
@@ -81,10 +81,15 @@ vi.mock("@/hooks/use-toast", () => ({
 
 // Resilient mock: unknown hooks fall back to an idle stub, so adding a new
 // hook to accounts.tsx does not break these tests.
+const deleteAccountMutate = vi.fn();
+const disconnectFacebookMutate = vi.fn();
+
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("../test/apiClientMock");
   return createApiClientMock({
     useListAccounts: () => mockState.accounts,
+    useDeleteAccount: () => ({ mutate: deleteAccountMutate, isPending: false }),
+    useDisconnectFacebook: () => ({ mutate: disconnectFacebookMutate, isPending: false }),
     useGetLinkedinStatus: () => ({ data: mockState.linkedin }),
     useGetFacebookCredentials: () => ({ data: mockState.facebook, isLoading: false }),
     useGetInstagramCredentials: () => ({ data: mockState.instagram, isLoading: false }),
@@ -395,5 +400,81 @@ describe("Accounts page reconnect prompts", () => {
     ).toBeTruthy();
     expect(th.queryByText("Reconnect needed")).toBeNull();
     expect(th.queryByText("Connected")).toBeNull();
+  });
+});
+
+/**
+ * Regression guard: disconnect/remove confirmations must use an in-app dialog.
+ * Native confirm() is silently blocked inside the sandboxed preview iframe,
+ * making the buttons appear dead.
+ */
+describe("Accounts page disconnect confirmation dialogs", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("removing a generic connected account asks via an in-app dialog", () => {
+    const nativeConfirm = vi.fn();
+    vi.stubGlobal("confirm", nativeConfirm);
+    mockState.accounts = {
+      data: [
+        {
+          id: 42,
+          platform: "instagram",
+          accountName: "@brand",
+          status: "connected",
+          canPublish: false,
+          createdAt: new Date("2026-01-01T00:00:00Z").toISOString(),
+        } as ConnectedAccount,
+      ],
+      isLoading: false,
+    };
+    renderPage();
+
+    fireEvent.click(screen.getByTestId("button-delete-account-42"));
+    expect(nativeConfirm).not.toHaveBeenCalled();
+    expect(screen.getByText("Disconnect this account?")).toBeTruthy();
+    expect(deleteAccountMutate).not.toHaveBeenCalled();
+
+    // Cancel leaves the account untouched.
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(deleteAccountMutate).not.toHaveBeenCalled();
+
+    // Confirming runs the delete mutation.
+    fireEvent.click(screen.getByTestId("button-delete-account-42"));
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    expect(deleteAccountMutate).toHaveBeenCalledWith(
+      { id: 42 },
+      expect.anything(),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("disconnecting Facebook asks via an in-app dialog", () => {
+    mockState.facebook = credentialStatus("facebook", {
+      saved: true,
+      appConfigured: true,
+      verifyStatus: "verified",
+      pageId: "123",
+    });
+    renderPage();
+
+    const fb = cardFor("Facebook Page Publishing");
+    fireEvent.click(fb.getByRole("button", { name: /^Disconnect$/ }));
+    expect(screen.getByText("Disconnect Facebook?")).toBeTruthy();
+    expect(disconnectFacebookMutate).not.toHaveBeenCalled();
+
+    // Cancel keeps the connection.
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(disconnectFacebookMutate).not.toHaveBeenCalled();
+
+    // Confirming runs the disconnect mutation.
+    fireEvent.click(fb.getByRole("button", { name: /^Disconnect$/ }));
+    fireEvent.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Disconnect",
+      }),
+    );
+    expect(disconnectFacebookMutate).toHaveBeenCalled();
   });
 });

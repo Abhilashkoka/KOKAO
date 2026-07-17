@@ -12,6 +12,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const resendThreadsMutate = vi.fn();
 const resendTwitterMutate = vi.fn();
 const resendLinkedinMutate = vi.fn();
+const deleteScheduleMutate = vi.fn();
 
 const mockState: { schedules: any[]; content: any[] } = {
   schedules: [],
@@ -32,6 +33,7 @@ vi.mock("@workspace/api-client-react", async () => {
     useResendLinkedinComments: () => ({ mutate: resendLinkedinMutate, isPending: false }),
     useResendThreadsPosts: () => ({ mutate: resendThreadsMutate, isPending: false }),
     useResendTwitterPosts: () => ({ mutate: resendTwitterMutate, isPending: false }),
+    useDeleteSchedule: () => ({ mutate: deleteScheduleMutate, isPending: false }),
     getListSchedulesQueryKey: () => ["schedules"],
     getListContentQueryKey: () => ["content"],
   });
@@ -116,5 +118,47 @@ describe("SchedulePage pending-chain warnings", () => {
     expect(resendTwitterMutate).toHaveBeenCalledWith({ id: 7 }, expect.anything());
     fireEvent.click(screen.getByTestId("button-schedule-resend-linkedin-comments-7"));
     expect(resendLinkedinMutate).toHaveBeenCalledWith({ id: 7 }, expect.anything());
+  });
+});
+
+/**
+ * Regression guard: the "Remove this scheduled post?" confirmation must use an
+ * in-app dialog. Native confirm() is silently blocked inside the sandboxed
+ * preview iframe, making the button appear dead.
+ */
+describe("SchedulePage delete confirmation dialog", () => {
+  beforeEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    mockState.schedules = [schedule()];
+    mockState.content = [contentItem()];
+  });
+
+  it("opens an in-app dialog instead of calling native confirm()", () => {
+    const nativeConfirm = vi.fn();
+    vi.stubGlobal("confirm", nativeConfirm);
+    renderPage();
+    fireEvent.click(screen.getByTestId("button-delete-schedule-1"));
+    expect(nativeConfirm).not.toHaveBeenCalled();
+    expect(screen.getByText("Remove this scheduled post?")).toBeTruthy();
+    expect(deleteScheduleMutate).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("cancel leaves the schedule untouched", () => {
+    renderPage();
+    fireEvent.click(screen.getByTestId("button-delete-schedule-1"));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(deleteScheduleMutate).not.toHaveBeenCalled();
+  });
+
+  it("confirming runs the delete mutation", () => {
+    renderPage();
+    fireEvent.click(screen.getByTestId("button-delete-schedule-1"));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect(deleteScheduleMutate).toHaveBeenCalledWith(
+      { id: 1 },
+      expect.anything(),
+    );
   });
 });

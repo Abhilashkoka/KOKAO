@@ -20,6 +20,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { PendingPostsWarnings } from "@/components/pending-posts-warning";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 export function SchedulePage() {
   const { data: schedules, isLoading: sLoading } = useListSchedules();
@@ -34,6 +35,7 @@ export function SchedulePage() {
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [time, setTime] = useState("12:00");
   const [platform, setPlatform] = useState("instagram");
+  const [deleteId, setDeleteId] = useState<number | null>(null);
 
   const handleCreate = () => {
     if (!contentId || !date) return;
@@ -62,7 +64,6 @@ export function SchedulePage() {
   };
 
   const handleDelete = (id: number) => {
-    if (!confirm("Remove this scheduled post?")) return;
     deleteSchedule.mutate({ id }, {
       onSuccess: () => {
         toast({ title: "Schedule removed" });
@@ -150,7 +151,7 @@ export function SchedulePage() {
                   </div>
                   
                   <div className="shrink-0 flex items-center">
-                    <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => handleDelete(post.id)}>
+                    <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 hover:text-destructive" data-testid={`button-delete-schedule-${post.id}`} onClick={() => setDeleteId(post.id)}>
                       <Trash2 className="h-5 w-5" />
                     </Button>
                   </div>
@@ -217,6 +218,18 @@ export function SchedulePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={deleteId !== null}
+        onOpenChange={(open) => !open && setDeleteId(null)}
+        title="Remove this scheduled post?"
+        description="The post will be taken off your calendar. The content itself stays in your library."
+        confirmLabel="Remove"
+        destructive
+        onConfirm={() => {
+          if (deleteId !== null) handleDelete(deleteId);
+        }}
+      />
     </div>
   );
 }

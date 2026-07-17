@@ -46,6 +46,7 @@ import {
   useGetMe,
 } from "@workspace/api-client-react";
 import { useAdminAccessRevoked } from "@/lib/admin-guard";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
@@ -1550,6 +1551,7 @@ function PlansCard() {
 
   const [drafts, setDrafts] = useState<Record<string, PlanDraft>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [newPlan, setNewPlan] = useState<PlanDraft>(EMPTY_NEW_PLAN);
 
@@ -1629,14 +1631,7 @@ function PlansCard() {
     );
   };
 
-  const handleDelete = (planId: string, planName: string) => {
-    if (
-      !window.confirm(
-        `Delete the "${planName}" plan? This cannot be undone. Plans still assigned to workspaces cannot be deleted.`,
-      )
-    ) {
-      return;
-    }
+  const handleDelete = (planId: string) => {
     deletePlan.mutate(
       { planId },
       {
@@ -1755,7 +1750,7 @@ function PlansCard() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => handleDelete(p.id, p.name)}
+                        onClick={() => setDeleteTarget({ id: p.id, name: p.name })}
                         disabled={deletePlan.isPending}
                         aria-label={`Delete ${p.name} plan`}
                         title="Delete this plan"
@@ -1985,6 +1980,17 @@ function PlansCard() {
           </div>
         )}
       </CardContent>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={deleteTarget ? `Delete the "${deleteTarget.name}" plan?` : "Delete this plan?"}
+        description="This cannot be undone. Plans still assigned to workspaces cannot be deleted."
+        confirmLabel="Delete plan"
+        destructive
+        onConfirm={() => {
+          if (deleteTarget) handleDelete(deleteTarget.id);
+        }}
+      />
     </Card>
   );
 }
