@@ -40,10 +40,16 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   };
 }
 
-const mockState: { caption: string; lastCaptionVars: any; lastImageVars: any } = {
+const mockState: {
+  caption: string;
+  lastCaptionVars: any;
+  lastImageVars: any;
+  lastCampaignVars: any;
+} = {
   caption: "",
   lastCaptionVars: null,
   lastImageVars: null,
+  lastCampaignVars: null,
 };
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -71,6 +77,20 @@ vi.mock("@workspace/api-client-react", async () => {
       mutate: (vars: unknown, opts: any) => {
         mockState.lastImageVars = vars;
         opts?.onSuccess?.({ imagePath: "/objects/t1/uploads/x", b64Json: "aW1n" });
+      },
+    }),
+    useGenerateCampaign: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => {
+        mockState.lastCampaignVars = vars;
+        opts?.onSuccess?.({
+          posts: (vars?.data?.platforms ?? []).map((platform: string) => ({
+            platform,
+            caption: `Caption for ${platform}`,
+            hashtags: [],
+            imagePrompt: `Image for ${platform}`,
+          })),
+        });
       },
     }),
     useGetMe: () => ({
@@ -113,6 +133,7 @@ async function generateCaption(caption: string, platform: "twitter" | "instagram
 beforeEach(() => {
   mockState.lastCaptionVars = null;
   mockState.lastImageVars = null;
+  mockState.lastCampaignVars = null;
   cleanup();
 });
 
@@ -293,5 +314,61 @@ describe("Studio image regenerate and style tweak chips", () => {
     await waitFor(() =>
       expect(mockState.lastImageVars.data.prompt).toBe(basePrompt),
     );
+  });
+});
+
+describe("Studio campaign generation quota-relevant variables", () => {
+  it("submits the prompt and all default platforms", async () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Prompt"), {
+      target: { value: "A campaign prompt long enough to pass validation" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-campaign"));
+    await waitFor(() => expect(mockState.lastCampaignVars).toBeTruthy());
+    expect(mockState.lastCampaignVars.data.prompt).toBe(
+      "A campaign prompt long enough to pass validation",
+    );
+    expect(mockState.lastCampaignVars.data.platforms).toEqual([
+      "instagram",
+      "facebook",
+      "linkedin",
+      "twitter",
+    ]);
+  });
+
+  it("submits only the platforms left selected after toggling some off", async () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Prompt"), {
+      target: { value: "A campaign prompt long enough to pass validation" },
+    });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Facebook" }));
+    await user.click(screen.getByRole("button", { name: "Twitter / X" }));
+    fireEvent.click(screen.getByTestId("button-generate-campaign"));
+    await waitFor(() => expect(mockState.lastCampaignVars).toBeTruthy());
+    expect(mockState.lastCampaignVars.data.platforms).toEqual([
+      "instagram",
+      "linkedin",
+    ]);
+  });
+
+  it("does not call the campaign mutation when no platforms are selected", async () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Prompt"), {
+      target: { value: "A campaign prompt long enough to pass validation" },
+    });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Instagram" }));
+    await user.click(screen.getByRole("button", { name: "Facebook" }));
+    await user.click(screen.getByRole("button", { name: "LinkedIn" }));
+    await user.click(screen.getByRole("button", { name: "Twitter / X" }));
+    fireEvent.click(screen.getByTestId("button-generate-campaign"));
+    // The submit handler resolves asynchronously; flush it, then assert the
+    // mutation was never invoked.
+    await waitFor(() =>
+      expect(screen.getByTestId("button-generate-campaign")).toBeTruthy(),
+    );
+    await Promise.resolve();
+    expect(mockState.lastCampaignVars).toBeNull();
   });
 });
