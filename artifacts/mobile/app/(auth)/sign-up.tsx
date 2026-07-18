@@ -25,7 +25,7 @@ export default function SignUpScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
   const { appName, iconUrl, logoUrl } = useAppBrand();
-  const brandImage = iconUrl || logoUrl;
+  const brandImage = logoUrl || iconUrl;
 
   const handleSubmit = async () => {
     setFormError(null);
@@ -72,6 +72,7 @@ export default function SignUpScreen() {
         source={brandImage ? { uri: brandImage } : require("@/assets/images/kokao-mark.png")}
         style={styles.logo}
         contentFit="contain"
+        contentPosition="left center"
       />
 
       {verifying ? (
@@ -164,9 +165,9 @@ export default function SignUpScreen() {
 const styles = StyleSheet.create({
   container: { paddingHorizontal: 24 },
   logo: {
-    width: 56,
+    width: 200,
     height: 56,
-    borderRadius: 14,
+    alignSelf: "flex-start",
     marginBottom: 20,
   },
   title: { fontFamily: fonts.bold, fontSize: 28, color: c.foreground },
