@@ -68,7 +68,16 @@ app.use(
 );
 
 app.use(globalLimiter);
-app.use(express.json());
+// Keep the raw request body around for webhook signature verification
+// (Razorpay signs the exact bytes it sent; re-serializing parsed JSON is
+// not guaranteed to match).
+app.use(
+  express.json({
+    verify(req, _res, buf) {
+      (req as { rawBody?: string }).rawBody = buf.toString("utf8");
+    },
+  }),
+);
 app.use(express.urlencoded({ extended: true }));
 
 app.use(

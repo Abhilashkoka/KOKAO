@@ -80,3 +80,16 @@ export const threadsAppCredentialsSchema = z.object({
   appSecret: z.string(),
 });
 export type ThreadsAppCredentials = z.infer<typeof threadsAppCredentialsSchema>;
+
+/**
+ * Razorpay API credentials (Key ID + Key Secret from the Razorpay dashboard)
+ * plus the webhook signing secret configured for the webhook endpoint. They
+ * drive subscription billing and one-time credit-pack payments. Superadmin
+ * managed, stored encrypted; no env fallback.
+ */
+export const razorpayAppCredentialsSchema = z.object({
+  keyId: z.string(),
+  keySecret: z.string(),
+  webhookSecret: z.string(),
+});
+export type RazorpayAppCredentials = z.infer<typeof razorpayAppCredentialsSchema>;

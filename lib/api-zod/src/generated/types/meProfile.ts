@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { CreditBalances } from './creditBalances';
 import type { PendingInviteHint } from './pendingInviteHint';
 import type { PlanLimits } from './planLimits';
 import type { TeamStatus } from './teamStatus';
@@ -15,6 +16,8 @@ export interface MeProfile {
   tenant: Tenant;
   usage: Usage;
   limits: PlanLimits;
+  /** Prepaid credit balances. Credits are consumed automatically when the monthly plan quota is exhausted. */
+  credits?: CreditBalances;
   /** Whether the current user has cross-tenant superadmin access. */
   isSuperadmin: boolean;
   /** Whether the current user is an allowlisted (root) owner. Only owners may grant or revoke the superadmin role for other tenants. */

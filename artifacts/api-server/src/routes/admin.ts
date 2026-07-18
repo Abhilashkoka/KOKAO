@@ -34,6 +34,9 @@ import {
   AdminUpdatePlanBody,
   AdminCreatePlanBody,
   AdminDecideSeatRequestBody,
+  AdminCreateCreditPackBody,
+  AdminUpdateCreditPackBody,
+  AdminGrantCreditsBody,
 } from "@workspace/api-zod";
 import {
   notificationPoliciesTable,
@@ -49,6 +52,9 @@ import {
   getEffectiveSeatLimit,
   getSeatsUsed,
 } from "../lib/team";
+import { creditPacksTable } from "@workspace/db";
+import { grantCredits, getCreditBalances } from "../lib/credits";
+import { isRazorpayConfigured, createRazorpayPlan } from "../lib/razorpay";
 import {
   DEFAULT_PLAN_IDS,
   FALLBACK_PLAN_ID,
@@ -699,7 +705,7 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
     return;
   }
 
-  const { name, priceLabel, limits, features, teamSeats } = parsed.data;
+  const { name, priceLabel, limits, features, teamSeats, priceInr } = parsed.data;
   if (invalidLimits(limits)) {
     res
       .status(400)
@@ -710,11 +716,50 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Team seats must be a whole number" });
     return;
   }
+  if (
+    priceInr !== undefined &&
+    priceInr !== null &&
+    (!Number.isInteger(priceInr) || priceInr <= 0)
+  ) {
+    res
+      .status(400)
+      .json({ error: "Price must be a positive whole number of paise" });
+    return;
+  }
+
+  // Razorpay sync: a new or changed INR price mints a fresh Razorpay Plan
+  // (Razorpay plans are immutable, so price changes always create a new one).
+  // Clearing the price detaches the plan from online purchase.
+  const nextPriceInr = priceInr === undefined ? previous.priceInr : priceInr;
+  let nextRazorpayPlanId = previous.razorpayPlanId;
+  if (nextPriceInr === null) {
+    nextRazorpayPlanId = null;
+  } else if (nextPriceInr !== previous.priceInr || !nextRazorpayPlanId) {
+    if (!(await isRazorpayConfigured())) {
+      res.status(400).json({
+        error:
+          "Add Razorpay API keys before setting plan prices (see the Razorpay card).",
+      });
+      return;
+    }
+    try {
+      const rzpPlan = await createRazorpayPlan(name.trim(), nextPriceInr);
+      nextRazorpayPlanId = rzpPlan.id;
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to create Razorpay plan");
+      res.status(502).json({
+        error: "Razorpay rejected the plan price. Check the API keys and try again.",
+      });
+      return;
+    }
+  }
 
   const values = {
     id: planId,
     name: name.trim(),
     priceLabel: priceLabel.trim(),
+    priceInr: nextPriceInr,
+    razorpayPlanId: nextRazorpayPlanId,
     teamSeats: teamSeats ?? previous.teamSeats,
     captions: limits.captions,
     images: limits.images,
@@ -918,6 +963,224 @@ router.delete("/admin/plans/:planId", async (req: Request, res: Response) => {
   res.json(await listPlans());
 });
 
+// ---------------------------------------------------------------------------
+// Billing: credit packs (superadmin-defined) + manual credit grants
+// ---------------------------------------------------------------------------
+
+function serializeCreditPack(p: typeof creditPacksTable.$inferSelect) {
+  return {
+    id: p.id,
+    name: p.name,
+    pricePaise: p.pricePaise,
+    captionCredits: p.captionCredits,
+    imageCredits: p.imageCredits,
+    active: p.active,
+    sortOrder: p.sortOrder,
+  };
+}
+
+async function listAllCreditPacks() {
+  const rows = await db
+    .select()
+    .from(creditPacksTable)
+    .orderBy(creditPacksTable.sortOrder, creditPacksTable.id);
+  return rows.map(serializeCreditPack);
+}
+
+const invalidPack = (b: {
+  name: string;
+  pricePaise: number;
+  captionCredits: number;
+  imageCredits: number;
+}) =>
+  !b.name.trim() ||
+  !Number.isInteger(b.pricePaise) ||
+  b.pricePaise <= 0 ||
+  !Number.isInteger(b.captionCredits) ||
+  b.captionCredits < 0 ||
+  !Number.isInteger(b.imageCredits) ||
+  b.imageCredits < 0 ||
+  (b.captionCredits === 0 && b.imageCredits === 0);
+
+/** GET /admin/credit-packs — all packs, including inactive. */
+router.get("/admin/credit-packs", async (_req: Request, res: Response) => {
+  res.json(await listAllCreditPacks());
+});
+
+/** POST /admin/credit-packs — create a purchasable credit pack. */
+router.post("/admin/credit-packs", async (req: Request, res: Response) => {
+  const parsed = AdminCreateCreditPackBody.safeParse(req.body);
+  if (!parsed.success || invalidPack(parsed.data)) {
+    res.status(400).json({
+      error:
+        "A pack needs a name, a positive price in paise, and at least one credit.",
+    });
+    return;
+  }
+  const count = (
+    await db.select({ count: sql<number>`count(*)::int` }).from(creditPacksTable)
+  )[0];
+  const created = (
+    await db
+      .insert(creditPacksTable)
+      .values({
+        name: parsed.data.name.trim(),
+        pricePaise: parsed.data.pricePaise,
+        captionCredits: parsed.data.captionCredits,
+        imageCredits: parsed.data.imageCredits,
+        active: parsed.data.active ?? true,
+        sortOrder: count?.count ?? 0,
+      })
+      .returning()
+  )[0];
+  try {
+    await recordAdminAction({
+      action: "credit_pack_change",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: null,
+      newValue: JSON.stringify(created ? serializeCreditPack(created) : null),
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write credit-pack audit log");
+  }
+  res.json(await listAllCreditPacks());
+});
+
+/** PUT /admin/credit-packs/:id — edit a credit pack. */
+router.put("/admin/credit-packs/:id", async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const parsed = AdminUpdateCreditPackBody.safeParse(req.body);
+  if (!parsed.success || invalidPack(parsed.data)) {
+    res.status(400).json({
+      error:
+        "A pack needs a name, a positive price in paise, and at least one credit.",
+    });
+    return;
+  }
+  const previous = (
+    await db.select().from(creditPacksTable).where(eq(creditPacksTable.id, id)).limit(1)
+  )[0];
+  if (!previous) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  const updated = (
+    await db
+      .update(creditPacksTable)
+      .set({
+        name: parsed.data.name.trim(),
+        pricePaise: parsed.data.pricePaise,
+        captionCredits: parsed.data.captionCredits,
+        imageCredits: parsed.data.imageCredits,
+        active: parsed.data.active ?? previous.active,
+        updatedAt: new Date(),
+      })
+      .where(eq(creditPacksTable.id, id))
+      .returning()
+  )[0];
+  try {
+    await recordAdminAction({
+      action: "credit_pack_change",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: JSON.stringify(serializeCreditPack(previous)),
+      newValue: JSON.stringify(updated ? serializeCreditPack(updated) : null),
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write credit-pack audit log");
+  }
+  res.json(await listAllCreditPacks());
+});
+
+/**
+ * DELETE /admin/credit-packs/:id — retire a credit pack. Rows are soft-
+ * deactivated (never hard-deleted) so the credit ledger's pack references
+ * stay resolvable.
+ */
+router.delete("/admin/credit-packs/:id", async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const previous = (
+    await db.select().from(creditPacksTable).where(eq(creditPacksTable.id, id)).limit(1)
+  )[0];
+  if (!previous) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  await db
+    .update(creditPacksTable)
+    .set({ active: false, updatedAt: new Date() })
+    .where(eq(creditPacksTable.id, id));
+  try {
+    await recordAdminAction({
+      action: "credit_pack_change",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: JSON.stringify(serializeCreditPack(previous)),
+      newValue: JSON.stringify({ ...serializeCreditPack(previous), active: false }),
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write credit-pack audit log");
+  }
+  res.json(await listAllCreditPacks());
+});
+
+/**
+ * POST /admin/tenants/:id/credits — manual credit grant (or deduction with
+ * negative deltas). Audited; the ledger records it as admin_grant.
+ */
+router.post("/admin/tenants/:id/credits", async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const parsed = AdminGrantCreditsBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const { captionCredits, imageCredits, note } = parsed.data;
+  if (
+    !Number.isInteger(captionCredits) ||
+    !Number.isInteger(imageCredits) ||
+    (captionCredits === 0 && imageCredits === 0)
+  ) {
+    res.status(400).json({ error: "Grant at least one credit (whole numbers)" });
+    return;
+  }
+  const tenant = (
+    await db.select().from(tenantsTable).where(eq(tenantsTable.id, id)).limit(1)
+  )[0];
+  if (!tenant) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  await grantCredits({
+    tenantId: id,
+    captionCredits,
+    imageCredits,
+    kind: "admin_grant",
+    note: note?.trim() || "Granted by admin",
+  });
+  try {
+    await recordAdminAction({
+      action: "credit_grant",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: tenant.id,
+      targetEmail: tenant.email ?? null,
+      oldValue: null,
+      newValue: JSON.stringify({ captionCredits, imageCredits }),
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write credit-grant audit log");
+  }
+  res.json({ ok: true, credits: await getCreditBalances(id) });
+});
+
 /**
  * GET /admin/audit-logs
  * The append-only trail of privileged admin actions (plan overrides and
@@ -936,6 +1199,8 @@ const AUDIT_ACTIONS = new Set([
   "email_settings_change",
   "email_test_send",
   "sweep_run",
+  "credit_pack_change",
+  "credit_grant",
 ]);
 
 function escapeLike(value: string): string {

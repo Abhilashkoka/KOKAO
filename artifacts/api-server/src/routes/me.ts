@@ -5,6 +5,7 @@ import { UpdateSettingsBody } from "@workspace/api-zod";
 import { serializeTenant } from "../lib/serializers";
 import { getPlanLimits, listPlans } from "../lib/plans";
 import { getUsage } from "../lib/usage";
+import { getCreditBalances } from "../lib/credits";
 import { isSuperadminEmail } from "../lib/superadmins";
 import { getEffectiveSeatLimit, getMembershipDetails } from "../lib/team";
 import { requireWorkspaceAdmin } from "../middlewares/requireWorkspaceAdmin";
@@ -48,6 +49,7 @@ router.get("/me", async (req: Request, res: Response) => {
       periodStart: usage.periodStart.toISOString(),
     },
     limits: await getPlanLimits(tenant.plan),
+    credits: await getCreditBalances(req.tenantId),
     isSuperadmin: req.isSuperadmin,
     // UI hint only: role-management authorization is enforced server-side
     // against the live verified email in the admin route.

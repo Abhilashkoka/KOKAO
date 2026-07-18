@@ -13,6 +13,7 @@ import {
 import { ObjectStorageService } from "../lib/objectStorage";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage, recordUsage } from "../lib/usage";
+import { getCreditBalances, spendCredit, type CreditKind } from "../lib/credits";
 import { loadActivePayload } from "../lib/brandKit/service";
 import { isDesignSkillEnabledFor, buildDesignedImagePrompt } from "../lib/designSkill";
 import { buildTasteGuidance } from "../lib/tasteMemory";
@@ -33,6 +34,46 @@ import {
 const router: IRouter = Router();
 
 const objectStorageService = new ObjectStorageService();
+
+/**
+ * How a metered generation is paid for: the monthly plan quota first, then
+ * prepaid credits when the quota is exhausted. Returns null when neither is
+ * available (the caller responds 402).
+ */
+type Funding = "quota" | "credit";
+
+async function resolveFunding(
+  tenantId: number,
+  limit: number,
+  used: number,
+  kind: CreditKind,
+): Promise<Funding | null> {
+  if (limit === -1 || used < limit) return "quota";
+  const balances = await getCreditBalances(tenantId);
+  const available = kind === "caption" ? balances.captionCredits : balances.imageCredits;
+  return available > 0 ? "credit" : null;
+}
+
+/**
+ * Record the cost of a successful generation. Quota-funded work is metered
+ * via usageEvents; credit-funded work debits the credit balance (and falls
+ * back to metering if the credit vanished in a race, so nothing is free).
+ */
+async function settleFunding(
+  req: Request,
+  funding: Funding,
+  kind: CreditKind,
+): Promise<void> {
+  if (funding === "credit") {
+    const spent = await spendCredit(req.tenantId, kind);
+    if (!spent) {
+      req.log.warn({ kind }, "Credit spend raced to zero; metering as usage");
+      await recordUsage(req.tenantId, kind);
+    }
+    return;
+  }
+  await recordUsage(req.tenantId, kind);
+}
 
 async function loadTenant(tenantId: number) {
   return (
@@ -84,8 +125,19 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
 
   const limits = await getPlanLimits(tenant.plan);
   const usage = await getUsage(req.tenantId);
-  if (limits.captions !== -1 && usage.captions >= limits.captions) {
-    res.status(402).json({ error: "Monthly caption quota reached. Upgrade your plan to continue." });
+  // Plan quota first; when it is gone, prepaid credits take over. 402 only
+  // when BOTH are exhausted.
+  const captionFunding = await resolveFunding(
+    req.tenantId,
+    limits.captions,
+    usage.captions,
+    "caption",
+  );
+  if (!captionFunding) {
+    res.status(402).json({
+      error:
+        "Monthly caption quota reached and no caption credits left. Upgrade your plan or buy a credit pack.",
+    });
     return;
   }
 
@@ -145,7 +197,7 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
       caption = raw;
     }
 
-    await recordUsage(req.tenantId, "caption");
+    await settleFunding(req, captionFunding, "caption");
     res.json({ caption, hashtags });
   } catch (error) {
     req.log.error({ err: error }, "Caption generation failed");
@@ -168,8 +220,17 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
 
   const limits = await getPlanLimits(tenant.plan);
   const usage = await getUsage(req.tenantId);
-  if (limits.images !== -1 && usage.images >= limits.images) {
-    res.status(402).json({ error: "Monthly image quota reached. Upgrade your plan to continue." });
+  const imageFunding = await resolveFunding(
+    req.tenantId,
+    limits.images,
+    usage.images,
+    "image",
+  );
+  if (!imageFunding) {
+    res.status(402).json({
+      error:
+        "Monthly image quota reached and no image credits left. Upgrade your plan or buy a credit pack.",
+    });
     return;
   }
 
@@ -225,7 +286,7 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
     }
     const imagePath = objectStorageService.normalizeObjectEntityPath(uploadURL);
 
-    await recordUsage(req.tenantId, "image");
+    await settleFunding(req, imageFunding, "image");
     res.json({ imagePath, b64Json: buffer.toString("base64") });
   } catch (error) {
     req.log.error({ err: error }, "Image generation failed");
@@ -534,11 +595,25 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
 
   const limits = await getPlanLimits(tenant.plan);
   const usage = await getUsage(req.tenantId);
-  if (limits.captions !== -1 && usage.captions + platforms.length > limits.captions) {
-    res.status(402).json({
-      error: "This campaign would exceed your monthly caption quota. Upgrade your plan or pick fewer platforms.",
-    });
-    return;
+  // A campaign costs one caption per platform. Cover as much as possible from
+  // the remaining plan quota, then top up from prepaid credits; 402 only when
+  // the two together cannot cover the whole campaign.
+  let quotaFunded = platforms.length;
+  let creditFunded = 0;
+  if (limits.captions !== -1) {
+    const remainingQuota = Math.max(0, limits.captions - usage.captions);
+    quotaFunded = Math.min(platforms.length, remainingQuota);
+    creditFunded = platforms.length - quotaFunded;
+    if (creditFunded > 0) {
+      const balances = await getCreditBalances(req.tenantId);
+      if (balances.captionCredits < creditFunded) {
+        res.status(402).json({
+          error:
+            "This campaign would exceed your monthly caption quota and you don't have enough caption credits. Upgrade your plan, buy a credit pack, or pick fewer platforms.",
+        });
+        return;
+      }
+    }
   }
 
   const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
@@ -618,7 +693,15 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
       };
     });
 
-    await Promise.all(platforms.map(() => recordUsage(req.tenantId, "caption")));
+    // Meter quota-funded captions, then debit credit-funded ones. A credit
+    // that raced to zero falls back to metering so nothing goes unpaid.
+    await Promise.all(
+      Array.from({ length: quotaFunded }, () => recordUsage(req.tenantId, "caption")),
+    );
+    for (let i = 0; i < creditFunded; i++) {
+      const spent = await spendCredit(req.tenantId, "caption");
+      if (!spent) await recordUsage(req.tenantId, "caption");
+    }
     res.json({ posts });
   } catch (error) {
     req.log.error({ err: error }, "Campaign generation failed");

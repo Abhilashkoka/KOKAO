@@ -527,6 +527,8 @@ export function StudioPage() {
     me && me.limits.captions !== -1 ? Math.max(0, me.limits.captions - me.usage.captions) : null;
   const imagesLeft =
     me && me.limits.images !== -1 ? Math.max(0, me.limits.images - me.usage.images) : null;
+  const captionCredits = me?.credits?.captionCredits ?? 0;
+  const imageCredits = me?.credits?.imageCredits ?? 0;
 
   const selectedBrandKitId = form.watch("brandKitId") || undefined;
   const selectedBrandKit = selectedBrandKitId
@@ -555,7 +557,7 @@ export function StudioPage() {
             </span>
             <span
               className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${
-                captionsLeft === 0 ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+                captionsLeft === 0 && captionCredits === 0 ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
               }`}
               data-testid="quota-captions"
             >
@@ -565,12 +567,14 @@ export function StudioPage() {
                   <InfinityIcon className="h-3.5 w-3.5" /> captions
                 </>
               ) : (
-                `${captionsLeft} caption${captionsLeft === 1 ? "" : "s"} left`
+                `${captionsLeft} caption${captionsLeft === 1 ? "" : "s"} left${
+                  captionCredits > 0 ? ` +${captionCredits} credits` : ""
+                }`
               )}
             </span>
             <span
               className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${
-                imagesLeft === 0 ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+                imagesLeft === 0 && imageCredits === 0 ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
               }`}
               data-testid="quota-images"
             >
@@ -580,7 +584,9 @@ export function StudioPage() {
                   <InfinityIcon className="h-3.5 w-3.5" /> images
                 </>
               ) : (
-                `${imagesLeft} image${imagesLeft === 1 ? "" : "s"} left`
+                `${imagesLeft} image${imagesLeft === 1 ? "" : "s"} left${
+                  imageCredits > 0 ? ` +${imageCredits} credits` : ""
+                }`
               )}
             </span>
             <span

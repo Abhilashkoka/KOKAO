@@ -44,6 +44,15 @@ import {
   getAdminGetEmailSettingsQueryKey,
   getAdminListAuditLogsQueryKey,
   useListPlans,
+  useAdminGetRazorpayCredentials,
+  useAdminSaveRazorpayCredentials,
+  getAdminGetRazorpayCredentialsQueryKey,
+  useAdminListCreditPacks,
+  useAdminCreateCreditPack,
+  useAdminUpdateCreditPack,
+  useAdminDeleteCreditPack,
+  getAdminListCreditPacksQueryKey,
+  useAdminGrantCredits,
   useAdminUpdatePlan,
   useAdminCreatePlan,
   useAdminDeletePlan,
@@ -52,6 +61,14 @@ import {
 } from "@workspace/api-client-react";
 import { useAdminAccessRevoked } from "@/lib/admin-guard";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
@@ -578,6 +595,501 @@ function LinkedinCredentialsCard() {
           </>
         )}
       </CardContent>
+    </Card>
+  );
+}
+
+function RazorpayCredentialsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useAdminGetRazorpayCredentials();
+  const saveRazorpay = useAdminSaveRazorpayCredentials();
+
+  const [keyId, setKeyId] = useState("");
+  const [keySecret, setKeySecret] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (data && !dirty) {
+      setKeyId(data.keyIdMasked ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const handleSave = () => {
+    if (!keyId.trim() || !keySecret.trim() || !webhookSecret.trim()) return;
+    saveRazorpay.mutate(
+      {
+        data: {
+          keyId: keyId.trim(),
+          keySecret: keySecret.trim(),
+          webhookSecret: webhookSecret.trim(),
+        },
+      },
+      {
+        onSuccess: (result) => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetRazorpayCredentialsQueryKey(),
+          });
+          setKeySecret("");
+          setWebhookSecret("");
+          setDirty(false);
+          if (result.testStatus === "ok") {
+            toast({
+              title: "Razorpay connected",
+              description:
+                "Keys verified. Workspaces can now subscribe and buy credit packs.",
+            });
+          } else {
+            toast({
+              variant: "destructive",
+              title: "Saved, but the key test failed",
+              description:
+                result.testError ||
+                "Razorpay rejected the keys. Double-check the Key ID and Secret.",
+            });
+          }
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description: err?.response?.data?.error || "Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Razorpay payment keys</CardTitle>
+        <CardDescription>
+          One-time platform setup for online billing. Enter the Key ID and Key
+          Secret from your Razorpay dashboard (Settings → API Keys), plus the
+          Webhook Secret you set when creating the webhook. Keys are tested on
+          save, encrypted at rest, and never shown again.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-xl">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (
+          <>
+            {data?.configured && (
+              <div className="flex items-center gap-2 text-sm">
+                {data.testStatus === "ok" ? (
+                  <span className="text-green-600 flex items-center gap-1">
+                    <CheckCircle2 className="h-4 w-4" /> Connected
+                  </span>
+                ) : (
+                  <span className="text-destructive flex items-center gap-1">
+                    <AlertCircle className="h-4 w-4" />
+                    {data.testError || "Key test failed"}
+                  </span>
+                )}
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Key ID</label>
+              <Input
+                value={keyId}
+                onChange={(e) => {
+                  setKeyId(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="rzp_live_..."
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Key Secret</label>
+              <Input
+                type="password"
+                value={keySecret}
+                onChange={(e) => {
+                  setKeySecret(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder={
+                  data?.configured
+                    ? "Enter to replace the saved secret"
+                    : "Razorpay Key Secret"
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Webhook Secret</label>
+              <Input
+                type="password"
+                value={webhookSecret}
+                onChange={(e) => {
+                  setWebhookSecret(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder={
+                  data?.configured
+                    ? "Enter to replace the saved secret"
+                    : "Webhook signing secret"
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                In the Razorpay dashboard, create a webhook pointing to
+                /api/razorpay/webhook on this app's domain, subscribed to
+                subscription and payment events, and paste its secret here.
+              </p>
+            </div>
+            <Button
+              onClick={handleSave}
+              disabled={
+                saveRazorpay.isPending ||
+                !keyId.trim() ||
+                !keySecret.trim() ||
+                !webhookSecret.trim()
+              }
+            >
+              {saveRazorpay.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                </>
+              ) : (
+                "Save & test"
+              )}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+interface CreditPackDraft {
+  name: string;
+  priceRupees: string;
+  captionCredits: string;
+  imageCredits: string;
+  active: boolean;
+}
+
+const EMPTY_PACK: CreditPackDraft = {
+  name: "",
+  priceRupees: "",
+  captionCredits: "0",
+  imageCredits: "0",
+  active: true,
+};
+
+function CreditPacksCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data: packs, isLoading } = useAdminListCreditPacks();
+  const createPack = useAdminCreateCreditPack();
+  const updatePack = useAdminUpdateCreditPack();
+  const deletePack = useAdminDeleteCreditPack();
+
+  const [drafts, setDrafts] = useState<Record<number, CreditPackDraft>>({});
+  const [newPack, setNewPack] = useState<CreditPackDraft>(EMPTY_PACK);
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null);
+
+  useEffect(() => {
+    if (!packs) return;
+    setDrafts((prev) => {
+      const next = { ...prev };
+      for (const p of packs) {
+        if (!next[p.id]) {
+          next[p.id] = {
+            name: p.name,
+            priceRupees: String(p.pricePaise / 100),
+            captionCredits: String(p.captionCredits),
+            imageCredits: String(p.imageCredits),
+            active: p.active,
+          };
+        }
+      }
+      return next;
+    });
+  }, [packs]);
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: getAdminListCreditPacksQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getAdminListAuditLogsQueryKey() });
+  };
+
+  const parsePack = (draft: CreditPackDraft) => {
+    const price = Number(draft.priceRupees);
+    const captions = Number(draft.captionCredits);
+    const images = Number(draft.imageCredits);
+    if (
+      !draft.name.trim() ||
+      !Number.isFinite(price) ||
+      price <= 0 ||
+      !Number.isInteger(captions) ||
+      captions < 0 ||
+      !Number.isInteger(images) ||
+      images < 0 ||
+      (captions === 0 && images === 0)
+    ) {
+      toast({
+        variant: "destructive",
+        title: "Check the fields",
+        description:
+          "A pack needs a name, a positive price in rupees, and at least one caption or image credit.",
+      });
+      return null;
+    }
+    return {
+      name: draft.name.trim(),
+      pricePaise: Math.round(price * 100),
+      captionCredits: captions,
+      imageCredits: images,
+      active: draft.active,
+    };
+  };
+
+  const onError = (err: any) =>
+    toast({
+      variant: "destructive",
+      title: "Could not save credit pack",
+      description: err?.response?.data?.error || "Please try again.",
+    });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Credit packs</CardTitle>
+        <CardDescription>
+          One-time purchases that top up a workspace's caption and image
+          credits. Credits are spent automatically after the monthly plan quota
+          runs out, and are the only way to generate on the Pay As You Go plan.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading || !packs ? (
+          <Skeleton className="h-40 w-full" />
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {packs.map((p) => {
+              const draft = drafts[p.id];
+              if (!draft) return null;
+              const setField = (field: keyof CreditPackDraft, value: string | boolean) =>
+                setDrafts((prev) => ({
+                  ...prev,
+                  [p.id]: { ...prev[p.id]!, [field]: value },
+                }));
+              return (
+                <div key={p.id} className="rounded-xl border border-border p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Badge variant={p.active ? "secondary" : "outline"}>
+                      {p.active ? "On sale" : "Hidden"}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setDeleteTarget({ id: p.id, name: p.name })}
+                      disabled={deletePack.isPending}
+                      aria-label={`Delete ${p.name} pack`}
+                    >
+                      <Trash2 className="h-4 w-4 text-muted-foreground" />
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Name</label>
+                    <Input
+                      value={draft.name}
+                      onChange={(e) => setField("name", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Price (INR)</label>
+                    <Input
+                      value={draft.priceRupees}
+                      onChange={(e) => setField("priceRupees", e.target.value)}
+                      placeholder="e.g. 499"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Caption credits</label>
+                      <Input
+                        value={draft.captionCredits}
+                        onChange={(e) => setField("captionCredits", e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Image credits</label>
+                      <Input
+                        value={draft.imageCredits}
+                        onChange={(e) => setField("imageCredits", e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium">On sale</label>
+                    <Switch
+                      checked={draft.active}
+                      onCheckedChange={(on) => setField("active", on)}
+                      aria-label={`Toggle ${p.name} on sale`}
+                    />
+                  </div>
+                  <Button
+                    className="w-full"
+                    disabled={updatePack.isPending}
+                    onClick={() => {
+                      const data = parsePack(draft);
+                      if (!data) return;
+                      updatePack.mutate(
+                        { id: p.id, data },
+                        {
+                          onSuccess: () => {
+                            refresh();
+                            toast({ title: "Credit pack saved" });
+                          },
+                          onError,
+                        },
+                      );
+                    }}
+                  >
+                    Save
+                  </Button>
+                </div>
+              );
+            })}
+            <div className="rounded-xl border border-dashed border-border p-4 space-y-3">
+              {!showNewForm ? (
+                <button
+                  type="button"
+                  onClick={() => setShowNewForm(true)}
+                  className="flex h-full min-h-40 w-full flex-col items-center justify-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Plus className="h-6 w-6" />
+                  <span className="text-sm font-medium">Add credit pack</span>
+                </button>
+              ) : (
+                <>
+                  <Badge variant="outline">New pack</Badge>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Name</label>
+                    <Input
+                      value={newPack.name}
+                      onChange={(e) =>
+                        setNewPack((prev) => ({ ...prev, name: e.target.value }))
+                      }
+                      placeholder="e.g. Starter pack"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Price (INR)</label>
+                    <Input
+                      value={newPack.priceRupees}
+                      onChange={(e) =>
+                        setNewPack((prev) => ({ ...prev, priceRupees: e.target.value }))
+                      }
+                      placeholder="e.g. 499"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Caption credits</label>
+                      <Input
+                        value={newPack.captionCredits}
+                        onChange={(e) =>
+                          setNewPack((prev) => ({
+                            ...prev,
+                            captionCredits: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Image credits</label>
+                      <Input
+                        value={newPack.imageCredits}
+                        onChange={(e) =>
+                          setNewPack((prev) => ({
+                            ...prev,
+                            imageCredits: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      className="flex-1"
+                      disabled={createPack.isPending}
+                      onClick={() => {
+                        const data = parsePack(newPack);
+                        if (!data) return;
+                        createPack.mutate(
+                          { data },
+                          {
+                            onSuccess: () => {
+                              refresh();
+                              setNewPack(EMPTY_PACK);
+                              setShowNewForm(false);
+                              toast({ title: "Credit pack created" });
+                            },
+                            onError,
+                          },
+                        );
+                      }}
+                    >
+                      {createPack.isPending ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Creating...
+                        </>
+                      ) : (
+                        "Create pack"
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setShowNewForm(false);
+                        setNewPack(EMPTY_PACK);
+                      }}
+                      disabled={createPack.isPending}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </CardContent>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={deleteTarget ? `Remove "${deleteTarget.name}"?` : "Remove this pack?"}
+        description="The pack disappears from the store. Credits already purchased are kept."
+        confirmLabel="Remove pack"
+        destructive
+        onConfirm={() => {
+          if (!deleteTarget) return;
+          deletePack.mutate(
+            { id: deleteTarget.id },
+            {
+              onSuccess: () => {
+                refresh();
+                setDrafts((prev) => {
+                  const next = { ...prev };
+                  delete next[deleteTarget.id];
+                  return next;
+                });
+                toast({ title: "Credit pack removed" });
+              },
+              onError,
+            },
+          );
+        }}
+      />
     </Card>
   );
 }
@@ -1287,6 +1799,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
 interface PlanDraft {
   name: string;
   priceLabel: string;
+  priceRupees: string;
   captions: string;
   images: string;
   brandKits: string;
@@ -1318,6 +1831,7 @@ const LIMIT_FIELDS: { key: keyof Pick<PlanDraft, "captions" | "images" | "brandK
 const EMPTY_NEW_PLAN: PlanDraft = {
   name: "",
   priceLabel: "",
+  priceRupees: "",
   captions: "",
   images: "",
   brandKits: "",
@@ -1809,24 +2323,28 @@ function PlansCard() {
     };
     const teamSeatsTrimmed = draft.teamSeats.trim();
     const teamSeats = teamSeatsTrimmed === "" ? 0 : Number(teamSeatsTrimmed);
+    const priceRupeesTrimmed = draft.priceRupees.trim();
+    const priceRupees = priceRupeesTrimmed === "" ? null : Number(priceRupeesTrimmed);
     if (
       !draft.name.trim() ||
       !draft.priceLabel.trim() ||
       Object.values(limits).some((v) => v === null) ||
       !Number.isInteger(teamSeats) ||
-      teamSeats < 0
+      teamSeats < 0 ||
+      (priceRupees !== null && (!Number.isFinite(priceRupees) || priceRupees <= 0))
     ) {
       toast({
         variant: "destructive",
         title: "Check the fields",
         description:
-          'Limits must be whole numbers, or "unlimited". Team seats must be 0 or more. Name and price are required.',
+          'Limits must be whole numbers, or "unlimited". Team seats must be 0 or more. Name and price are required. The chargeable price must be a positive number (or blank for not sold online).',
       });
       return null;
     }
     return {
       name: draft.name.trim(),
       priceLabel: draft.priceLabel.trim(),
+      priceInr: priceRupees === null ? null : Math.round(priceRupees * 100),
       teamSeats,
       limits: {
         captions: limits.captions!,
@@ -1901,6 +2419,10 @@ function PlansCard() {
           next[p.id] = {
             name: p.name,
             priceLabel: p.priceLabel,
+            priceRupees:
+              typeof p.priceInr === "number" && p.priceInr > 0
+                ? String(p.priceInr / 100)
+                : "",
             captions: limitToInput(p.limits.captions),
             images: limitToInput(p.limits.images),
             brandKits: limitToInput(p.limits.brandKits),
@@ -2015,6 +2537,18 @@ function PlansCard() {
                       placeholder="$29 / mo"
                     />
                   </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Monthly price in INR (chargeable)
+                    </label>
+                    <Input
+                      value={draft.priceRupees}
+                      onChange={(e) =>
+                        setField(p.id, "priceRupees", e.target.value)
+                      }
+                      placeholder="e.g. 999 — blank = not sold online"
+                    />
+                  </div>
                   {LIMIT_FIELDS.map((f) => (
                     <div key={f.key} className="space-y-2">
                       <label className="text-sm font-medium">{f.label}</label>
@@ -2119,6 +2653,21 @@ function PlansCard() {
                         }))
                       }
                       placeholder="$199 / mo"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Monthly price in INR (chargeable)
+                    </label>
+                    <Input
+                      value={newPlan.priceRupees}
+                      onChange={(e) =>
+                        setNewPlan((prev) => ({
+                          ...prev,
+                          priceRupees: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g. 999 — blank = not sold online"
                     />
                   </div>
                   {LIMIT_FIELDS.map((f) => (
@@ -2659,6 +3208,11 @@ export function AdminPage() {
   });
   const { data: planCatalog } = useListPlans();
   const updatePlan = useAdminUpdateTenantPlan();
+  const grantCredits = useAdminGrantCredits();
+  const [grantTarget, setGrantTarget] = useState<{ id: number; name: string } | null>(null);
+  const [grantCaptions, setGrantCaptions] = useState("0");
+  const [grantImages, setGrantImages] = useState("0");
+  const [grantNote, setGrantNote] = useState("");
   const updateSuperadmin = useAdminUpdateTenantSuperadmin();
   const updateTenantDesignSkill = useAdminUpdateTenantDesignSkill();
   const runSweep = useAdminRunSweep();
@@ -3083,6 +3637,8 @@ export function AdminPage() {
       <DesignSkillCard />
       <AsrProviderCard />
       <PlansCard />
+      <CreditPacksCard />
+      <RazorpayCredentialsCard />
       <MetaCredentialsCard />
       <TwitterCredentialsCard />
       <LinkedinCredentialsCard />
@@ -3120,6 +3676,7 @@ export function AdminPage() {
                     <TableHead className="text-right">Accounts</TableHead>
                     <TableHead>Plan</TableHead>
                     <TableHead>Design Skill</TableHead>
+                    <TableHead>Credits</TableHead>
                     <TableHead>Superadmin</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -3204,6 +3761,17 @@ export function AdminPage() {
                         </Select>
                       </TableCell>
                       <TableCell>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setGrantTarget({ id: t.id, name: t.name })
+                          }
+                        >
+                          Grant
+                        </Button>
+                      </TableCell>
+                      <TableCell>
                         <div className="flex items-center gap-2">
                           <Switch
                             checked={t.isSuperadmin}
@@ -3235,6 +3803,120 @@ export function AdminPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={grantTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setGrantTarget(null);
+            setGrantCaptions("0");
+            setGrantImages("0");
+            setGrantNote("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>
+              Grant credits{grantTarget ? ` to ${grantTarget.name}` : ""}
+            </DialogTitle>
+            <DialogDescription>
+              Adds free caption and image credits to this workspace. Credits
+              are used after the monthly plan quota runs out.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Caption credits</label>
+              <Input
+                value={grantCaptions}
+                onChange={(e) => setGrantCaptions(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Image credits</label>
+              <Input
+                value={grantImages}
+                onChange={(e) => setGrantImages(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Note (optional)</label>
+            <Input
+              value={grantNote}
+              onChange={(e) => setGrantNote(e.target.value)}
+              placeholder="e.g. goodwill top-up"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              disabled={grantCredits.isPending}
+              onClick={() => {
+                if (!grantTarget) return;
+                const captions = Number(grantCaptions);
+                const images = Number(grantImages);
+                if (
+                  !Number.isInteger(captions) ||
+                  !Number.isInteger(images) ||
+                  captions < 0 ||
+                  images < 0 ||
+                  (captions === 0 && images === 0)
+                ) {
+                  toast({
+                    variant: "destructive",
+                    title: "Check the amounts",
+                    description:
+                      "Enter whole numbers, with at least one credit to grant.",
+                  });
+                  return;
+                }
+                grantCredits.mutate(
+                  {
+                    id: grantTarget.id,
+                    data: {
+                      captionCredits: captions,
+                      imageCredits: images,
+                      note: grantNote.trim() || undefined,
+                    },
+                  },
+                  {
+                    onSuccess: () => {
+                      queryClient.invalidateQueries({
+                        queryKey: getAdminListAuditLogsQueryKey(),
+                      });
+                      toast({
+                        title: "Credits granted",
+                        description: `Added to ${grantTarget.name}.`,
+                      });
+                      setGrantTarget(null);
+                      setGrantCaptions("0");
+                      setGrantImages("0");
+                      setGrantNote("");
+                    },
+                    onError: (err: any) => {
+                      toast({
+                        variant: "destructive",
+                        title: "Could not grant credits",
+                        description:
+                          err?.response?.data?.error || "Please try again.",
+                      });
+                    },
+                  },
+                );
+              }}
+            >
+              {grantCredits.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Granting...
+                </>
+              ) : (
+                "Grant credits"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

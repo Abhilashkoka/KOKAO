@@ -24,6 +24,7 @@ import type {
   ActivateVersionInput,
   AdminAuditLogPage,
   AdminExportAuditLogsParams,
+  AdminGrantCredits200,
   AdminListAuditLogsParams,
   AdminSeatRequest,
   AdminStats,
@@ -35,6 +36,17 @@ import type {
   AppBrandUploadUrlResponse,
   AsrSettingsView,
   AudioUploadInput,
+  BillingCancelSubscription200,
+  BillingOverview,
+  BillingPurchaseCredits200,
+  BillingPurchaseCreditsInput,
+  BillingSubscribe200,
+  BillingSubscribeInput,
+  BillingSwitchPayg200,
+  BillingVerifyPurchase200,
+  BillingVerifyPurchaseInput,
+  BillingVerifySubscription200,
+  BillingVerifySubscriptionInput,
   BrandAsset,
   BrandAssetInput,
   BrandDraftRequest,
@@ -56,11 +68,14 @@ import type {
   ContentInput,
   ContentItem,
   ContentUpdate,
+  CreditPack,
+  CreditPackInput,
   DesignSkillSettings,
   EmailSettingsInput,
   EmailSettingsStatus,
   ErrorEnvelope,
   FacebookCredentialInput,
+  GrantCreditsInput,
   HealthStatus,
   ImageRequest,
   ImageResult,
@@ -87,6 +102,8 @@ import type {
   PublishLinkedInResult,
   PublishThreadsResult,
   PublishTwitterResult,
+  RazorpayAppCredentialInput,
+  RazorpayAppCredentialStatus,
   ResearchRequest,
   ResearchResult,
   ResendChainPostsResult,
@@ -8736,6 +8753,1009 @@ export const useAdminSaveThreadsCredentials = <TError = ErrorType<ErrorEnvelope>
         TContext
       > => {
       return useMutation(getAdminSaveThreadsCredentialsMutationOptions(options));
+    }
+
+export const getAdminGetRazorpayCredentialsUrl = () => {
+
+
+
+
+  return `/api/admin/platform-credentials/razorpay`
+}
+
+/**
+ * @summary Get masked Razorpay billing credentials (superadmin only)
+ */
+export const adminGetRazorpayCredentials = async ( options?: RequestInit): Promise<RazorpayAppCredentialStatus> => {
+
+  return customFetch<RazorpayAppCredentialStatus>(getAdminGetRazorpayCredentialsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetRazorpayCredentialsQueryKey = () => {
+    return [
+    `/api/admin/platform-credentials/razorpay`
+    ] as const;
+    }
+
+
+export const getAdminGetRazorpayCredentialsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetRazorpayCredentials>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetRazorpayCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetRazorpayCredentialsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetRazorpayCredentials>>> = ({ signal }) => adminGetRazorpayCredentials({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetRazorpayCredentials>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetRazorpayCredentialsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetRazorpayCredentials>>>
+export type AdminGetRazorpayCredentialsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get masked Razorpay billing credentials (superadmin only)
+ */
+
+export function useAdminGetRazorpayCredentials<TData = Awaited<ReturnType<typeof adminGetRazorpayCredentials>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetRazorpayCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetRazorpayCredentialsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminSaveRazorpayCredentialsUrl = () => {
+
+
+
+
+  return `/api/admin/platform-credentials/razorpay`
+}
+
+/**
+ * @summary Save Razorpay billing credentials (superadmin only)
+ */
+export const adminSaveRazorpayCredentials = async (razorpayAppCredentialInput: RazorpayAppCredentialInput, options?: RequestInit): Promise<RazorpayAppCredentialStatus> => {
+
+  return customFetch<RazorpayAppCredentialStatus>(getAdminSaveRazorpayCredentialsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(razorpayAppCredentialInput)
+  }
+);}
+
+
+
+
+export const getAdminSaveRazorpayCredentialsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveRazorpayCredentials>>, TError,{data: BodyType<RazorpayAppCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSaveRazorpayCredentials>>, TError,{data: BodyType<RazorpayAppCredentialInput>}, TContext> => {
+
+const mutationKey = ['adminSaveRazorpayCredentials'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSaveRazorpayCredentials>>, {data: BodyType<RazorpayAppCredentialInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminSaveRazorpayCredentials(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSaveRazorpayCredentialsMutationResult = NonNullable<Awaited<ReturnType<typeof adminSaveRazorpayCredentials>>>
+    export type AdminSaveRazorpayCredentialsMutationBody = BodyType<RazorpayAppCredentialInput>
+    export type AdminSaveRazorpayCredentialsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save Razorpay billing credentials (superadmin only)
+ */
+export const useAdminSaveRazorpayCredentials = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveRazorpayCredentials>>, TError,{data: BodyType<RazorpayAppCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSaveRazorpayCredentials>>,
+        TError,
+        {data: BodyType<RazorpayAppCredentialInput>},
+        TContext
+      > => {
+      return useMutation(getAdminSaveRazorpayCredentialsMutationOptions(options));
+    }
+
+export const getAdminListCreditPacksUrl = () => {
+
+
+
+
+  return `/api/admin/credit-packs`
+}
+
+/**
+ * @summary List all credit packs, including inactive (superadmin only)
+ */
+export const adminListCreditPacks = async ( options?: RequestInit): Promise<CreditPack[]> => {
+
+  return customFetch<CreditPack[]>(getAdminListCreditPacksUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListCreditPacksQueryKey = () => {
+    return [
+    `/api/admin/credit-packs`
+    ] as const;
+    }
+
+
+export const getAdminListCreditPacksQueryOptions = <TData = Awaited<ReturnType<typeof adminListCreditPacks>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListCreditPacks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListCreditPacksQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListCreditPacks>>> = ({ signal }) => adminListCreditPacks({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListCreditPacks>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListCreditPacksQueryResult = NonNullable<Awaited<ReturnType<typeof adminListCreditPacks>>>
+export type AdminListCreditPacksQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List all credit packs, including inactive (superadmin only)
+ */
+
+export function useAdminListCreditPacks<TData = Awaited<ReturnType<typeof adminListCreditPacks>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListCreditPacks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListCreditPacksQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminCreateCreditPackUrl = () => {
+
+
+
+
+  return `/api/admin/credit-packs`
+}
+
+/**
+ * @summary Create a purchasable credit pack (superadmin only)
+ */
+export const adminCreateCreditPack = async (creditPackInput: CreditPackInput, options?: RequestInit): Promise<CreditPack[]> => {
+
+  return customFetch<CreditPack[]>(getAdminCreateCreditPackUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(creditPackInput)
+  }
+);}
+
+
+
+
+export const getAdminCreateCreditPackMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminCreateCreditPack>>, TError,{data: BodyType<CreditPackInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminCreateCreditPack>>, TError,{data: BodyType<CreditPackInput>}, TContext> => {
+
+const mutationKey = ['adminCreateCreditPack'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminCreateCreditPack>>, {data: BodyType<CreditPackInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminCreateCreditPack(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminCreateCreditPackMutationResult = NonNullable<Awaited<ReturnType<typeof adminCreateCreditPack>>>
+    export type AdminCreateCreditPackMutationBody = BodyType<CreditPackInput>
+    export type AdminCreateCreditPackMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create a purchasable credit pack (superadmin only)
+ */
+export const useAdminCreateCreditPack = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminCreateCreditPack>>, TError,{data: BodyType<CreditPackInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminCreateCreditPack>>,
+        TError,
+        {data: BodyType<CreditPackInput>},
+        TContext
+      > => {
+      return useMutation(getAdminCreateCreditPackMutationOptions(options));
+    }
+
+export const getAdminUpdateCreditPackUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/credit-packs/${id}`
+}
+
+/**
+ * @summary Edit a credit pack (superadmin only)
+ */
+export const adminUpdateCreditPack = async (id: number,
+    creditPackInput: CreditPackInput, options?: RequestInit): Promise<CreditPack[]> => {
+
+  return customFetch<CreditPack[]>(getAdminUpdateCreditPackUrl(id),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(creditPackInput)
+  }
+);}
+
+
+
+
+export const getAdminUpdateCreditPackMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateCreditPack>>, TError,{id: number;data: BodyType<CreditPackInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateCreditPack>>, TError,{id: number;data: BodyType<CreditPackInput>}, TContext> => {
+
+const mutationKey = ['adminUpdateCreditPack'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateCreditPack>>, {id: number;data: BodyType<CreditPackInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminUpdateCreditPack(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateCreditPackMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateCreditPack>>>
+    export type AdminUpdateCreditPackMutationBody = BodyType<CreditPackInput>
+    export type AdminUpdateCreditPackMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Edit a credit pack (superadmin only)
+ */
+export const useAdminUpdateCreditPack = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateCreditPack>>, TError,{id: number;data: BodyType<CreditPackInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateCreditPack>>,
+        TError,
+        {id: number;data: BodyType<CreditPackInput>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateCreditPackMutationOptions(options));
+    }
+
+export const getAdminDeleteCreditPackUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/credit-packs/${id}`
+}
+
+/**
+ * @summary Retire a credit pack (soft-deactivate; superadmin only)
+ */
+export const adminDeleteCreditPack = async (id: number, options?: RequestInit): Promise<CreditPack[]> => {
+
+  return customFetch<CreditPack[]>(getAdminDeleteCreditPackUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getAdminDeleteCreditPackMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminDeleteCreditPack>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminDeleteCreditPack>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['adminDeleteCreditPack'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminDeleteCreditPack>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  adminDeleteCreditPack(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminDeleteCreditPackMutationResult = NonNullable<Awaited<ReturnType<typeof adminDeleteCreditPack>>>
+
+    export type AdminDeleteCreditPackMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Retire a credit pack (soft-deactivate; superadmin only)
+ */
+export const useAdminDeleteCreditPack = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminDeleteCreditPack>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminDeleteCreditPack>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getAdminDeleteCreditPackMutationOptions(options));
+    }
+
+export const getAdminGrantCreditsUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/tenants/${id}/credits`
+}
+
+/**
+ * @summary Manually grant (or deduct) credits for a tenant (superadmin only)
+ */
+export const adminGrantCredits = async (id: number,
+    grantCreditsInput: GrantCreditsInput, options?: RequestInit): Promise<AdminGrantCredits200> => {
+
+  return customFetch<AdminGrantCredits200>(getAdminGrantCreditsUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(grantCreditsInput)
+  }
+);}
+
+
+
+
+export const getAdminGrantCreditsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminGrantCredits>>, TError,{id: number;data: BodyType<GrantCreditsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminGrantCredits>>, TError,{id: number;data: BodyType<GrantCreditsInput>}, TContext> => {
+
+const mutationKey = ['adminGrantCredits'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminGrantCredits>>, {id: number;data: BodyType<GrantCreditsInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminGrantCredits(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminGrantCreditsMutationResult = NonNullable<Awaited<ReturnType<typeof adminGrantCredits>>>
+    export type AdminGrantCreditsMutationBody = BodyType<GrantCreditsInput>
+    export type AdminGrantCreditsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Manually grant (or deduct) credits for a tenant (superadmin only)
+ */
+export const useAdminGrantCredits = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminGrantCredits>>, TError,{id: number;data: BodyType<GrantCreditsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminGrantCredits>>,
+        TError,
+        {id: number;data: BodyType<GrantCreditsInput>},
+        TContext
+      > => {
+      return useMutation(getAdminGrantCreditsMutationOptions(options));
+    }
+
+export const getBillingGetOverviewUrl = () => {
+
+
+
+
+  return `/api/billing`
+}
+
+/**
+ * @summary Billing overview for the current workspace
+ */
+export const billingGetOverview = async ( options?: RequestInit): Promise<BillingOverview> => {
+
+  return customFetch<BillingOverview>(getBillingGetOverviewUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getBillingGetOverviewQueryKey = () => {
+    return [
+    `/api/billing`
+    ] as const;
+    }
+
+
+export const getBillingGetOverviewQueryOptions = <TData = Awaited<ReturnType<typeof billingGetOverview>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof billingGetOverview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getBillingGetOverviewQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof billingGetOverview>>> = ({ signal }) => billingGetOverview({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof billingGetOverview>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type BillingGetOverviewQueryResult = NonNullable<Awaited<ReturnType<typeof billingGetOverview>>>
+export type BillingGetOverviewQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Billing overview for the current workspace
+ */
+
+export function useBillingGetOverview<TData = Awaited<ReturnType<typeof billingGetOverview>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof billingGetOverview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getBillingGetOverviewQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getBillingSubscribeUrl = () => {
+
+
+
+
+  return `/api/billing/subscribe`
+}
+
+/**
+ * @summary Start a Razorpay subscription checkout for a paid plan (owner only)
+ */
+export const billingSubscribe = async (billingSubscribeInput: BillingSubscribeInput, options?: RequestInit): Promise<BillingSubscribe200> => {
+
+  return customFetch<BillingSubscribe200>(getBillingSubscribeUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(billingSubscribeInput)
+  }
+);}
+
+
+
+
+export const getBillingSubscribeMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof billingSubscribe>>, TError,{data: BodyType<BillingSubscribeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof billingSubscribe>>, TError,{data: BodyType<BillingSubscribeInput>}, TContext> => {
+
+const mutationKey = ['billingSubscribe'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof billingSubscribe>>, {data: BodyType<BillingSubscribeInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  billingSubscribe(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BillingSubscribeMutationResult = NonNullable<Awaited<ReturnType<typeof billingSubscribe>>>
+    export type BillingSubscribeMutationBody = BodyType<BillingSubscribeInput>
+    export type BillingSubscribeMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Start a Razorpay subscription checkout for a paid plan (owner only)
+ */
+export const useBillingSubscribe = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof billingSubscribe>>, TError,{data: BodyType<BillingSubscribeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof billingSubscribe>>,
+        TError,
+        {data: BodyType<BillingSubscribeInput>},
+        TContext
+      > => {
+      return useMutation(getBillingSubscribeMutationOptions(options));
+    }
+
+export const getBillingVerifySubscriptionUrl = () => {
+
+
+
+
+  return `/api/billing/verify-subscription`
+}
+
+/**
+ * @summary Verify a completed subscription checkout and activate the plan (owner only)
+ */
+export const billingVerifySubscription = async (billingVerifySubscriptionInput: BillingVerifySubscriptionInput, options?: RequestInit): Promise<BillingVerifySubscription200> => {
+
+  return customFetch<BillingVerifySubscription200>(getBillingVerifySubscriptionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(billingVerifySubscriptionInput)
+  }
+);}
+
+
+
+
+export const getBillingVerifySubscriptionMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof billingVerifySubscription>>, TError,{data: BodyType<BillingVerifySubscriptionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof billingVerifySubscription>>, TError,{data: BodyType<BillingVerifySubscriptionInput>}, TContext> => {
+
+const mutationKey = ['billingVerifySubscription'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof billingVerifySubscription>>, {data: BodyType<BillingVerifySubscriptionInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  billingVerifySubscription(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BillingVerifySubscriptionMutationResult = NonNullable<Awaited<ReturnType<typeof billingVerifySubscription>>>
+    export type BillingVerifySubscriptionMutationBody = BodyType<BillingVerifySubscriptionInput>
+    export type BillingVerifySubscriptionMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Verify a completed subscription checkout and activate the plan (owner only)
+ */
+export const useBillingVerifySubscription = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof billingVerifySubscription>>, TError,{data: BodyType<BillingVerifySubscriptionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof billingVerifySubscription>>,
+        TError,
+        {data: BodyType<BillingVerifySubscriptionInput>},
+        TContext
+      > => {
+      return useMutation(getBillingVerifySubscriptionMutationOptions(options));
+    }
+
+export const getBillingCancelSubscriptionUrl = () => {
+
+
+
+
+  return `/api/billing/cancel`
+}
+
+/**
+ * @summary Cancel the active subscription at the end of the paid period (owner only)
+ */
+export const billingCancelSubscription = async ( options?: RequestInit): Promise<BillingCancelSubscription200> => {
+
+  return customFetch<BillingCancelSubscription200>(getBillingCancelSubscriptionUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getBillingCancelSubscriptionMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof billingCancelSubscription>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof billingCancelSubscription>>, TError,void, TContext> => {
+
+const mutationKey = ['billingCancelSubscription'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof billingCancelSubscription>>, void> = () => {
+
+
+          return  billingCancelSubscription(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BillingCancelSubscriptionMutationResult = NonNullable<Awaited<ReturnType<typeof billingCancelSubscription>>>
+
+    export type BillingCancelSubscriptionMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Cancel the active subscription at the end of the paid period (owner only)
+ */
+export const useBillingCancelSubscription = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof billingCancelSubscription>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof billingCancelSubscription>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getBillingCancelSubscriptionMutationOptions(options));
+    }
+
+export const getBillingSwitchPaygUrl = () => {
+
+
+
+
+  return `/api/billing/switch-payg`
+}
+
+/**
+ * @summary Move this workspace onto the Pay As You Go plan (owner only)
+ */
+export const billingSwitchPayg = async ( options?: RequestInit): Promise<BillingSwitchPayg200> => {
+
+  return customFetch<BillingSwitchPayg200>(getBillingSwitchPaygUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getBillingSwitchPaygMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof billingSwitchPayg>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof billingSwitchPayg>>, TError,void, TContext> => {
+
+const mutationKey = ['billingSwitchPayg'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof billingSwitchPayg>>, void> = () => {
+
+
+          return  billingSwitchPayg(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BillingSwitchPaygMutationResult = NonNullable<Awaited<ReturnType<typeof billingSwitchPayg>>>
+
+    export type BillingSwitchPaygMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Move this workspace onto the Pay As You Go plan (owner only)
+ */
+export const useBillingSwitchPayg = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof billingSwitchPayg>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof billingSwitchPayg>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getBillingSwitchPaygMutationOptions(options));
+    }
+
+export const getBillingPurchaseCreditsUrl = () => {
+
+
+
+
+  return `/api/billing/purchase-credits`
+}
+
+/**
+ * @summary Create a one-time Razorpay order for a credit pack (owner only)
+ */
+export const billingPurchaseCredits = async (billingPurchaseCreditsInput: BillingPurchaseCreditsInput, options?: RequestInit): Promise<BillingPurchaseCredits200> => {
+
+  return customFetch<BillingPurchaseCredits200>(getBillingPurchaseCreditsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(billingPurchaseCreditsInput)
+  }
+);}
+
+
+
+
+export const getBillingPurchaseCreditsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof billingPurchaseCredits>>, TError,{data: BodyType<BillingPurchaseCreditsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof billingPurchaseCredits>>, TError,{data: BodyType<BillingPurchaseCreditsInput>}, TContext> => {
+
+const mutationKey = ['billingPurchaseCredits'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof billingPurchaseCredits>>, {data: BodyType<BillingPurchaseCreditsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  billingPurchaseCredits(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BillingPurchaseCreditsMutationResult = NonNullable<Awaited<ReturnType<typeof billingPurchaseCredits>>>
+    export type BillingPurchaseCreditsMutationBody = BodyType<BillingPurchaseCreditsInput>
+    export type BillingPurchaseCreditsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create a one-time Razorpay order for a credit pack (owner only)
+ */
+export const useBillingPurchaseCredits = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof billingPurchaseCredits>>, TError,{data: BodyType<BillingPurchaseCreditsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof billingPurchaseCredits>>,
+        TError,
+        {data: BodyType<BillingPurchaseCreditsInput>},
+        TContext
+      > => {
+      return useMutation(getBillingPurchaseCreditsMutationOptions(options));
+    }
+
+export const getBillingVerifyPurchaseUrl = () => {
+
+
+
+
+  return `/api/billing/verify-purchase`
+}
+
+/**
+ * @summary Verify a credit-pack payment and add the credits (owner only)
+ */
+export const billingVerifyPurchase = async (billingVerifyPurchaseInput: BillingVerifyPurchaseInput, options?: RequestInit): Promise<BillingVerifyPurchase200> => {
+
+  return customFetch<BillingVerifyPurchase200>(getBillingVerifyPurchaseUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(billingVerifyPurchaseInput)
+  }
+);}
+
+
+
+
+export const getBillingVerifyPurchaseMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof billingVerifyPurchase>>, TError,{data: BodyType<BillingVerifyPurchaseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof billingVerifyPurchase>>, TError,{data: BodyType<BillingVerifyPurchaseInput>}, TContext> => {
+
+const mutationKey = ['billingVerifyPurchase'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof billingVerifyPurchase>>, {data: BodyType<BillingVerifyPurchaseInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  billingVerifyPurchase(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BillingVerifyPurchaseMutationResult = NonNullable<Awaited<ReturnType<typeof billingVerifyPurchase>>>
+    export type BillingVerifyPurchaseMutationBody = BodyType<BillingVerifyPurchaseInput>
+    export type BillingVerifyPurchaseMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Verify a credit-pack payment and add the credits (owner only)
+ */
+export const useBillingVerifyPurchase = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof billingVerifyPurchase>>, TError,{data: BodyType<BillingVerifyPurchaseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof billingVerifyPurchase>>,
+        TError,
+        {data: BodyType<BillingVerifyPurchaseInput>},
+        TContext
+      > => {
+      return useMutation(getBillingVerifyPurchaseMutationOptions(options));
     }
 
 export const getAdminGetYoutubeCredentialsUrl = () => {

@@ -15,6 +15,13 @@ export interface Plan {
   limits: PlanLimits;
   features: string[];
   /**
+   * Razorpay billing: monthly price in paise (INR * 100). null = the plan is
+   * not purchasable via Razorpay (free / manual-only plans).
+   */
+  priceInr: number | null;
+  /** Razorpay Plan id backing paid subscriptions (set on price save). */
+  razorpayPlanId: string | null;
+  /**
    * Team add-on: default seat allotment (including the owner) for workspaces
    * on this plan. 0 = the team feature is not included. Superadmins can
    * override per workspace via tenants.seatLimit (approved seat requests).
@@ -29,6 +36,8 @@ export const DEFAULT_PLANS: Plan[] = [
     priceLabel: "$0 / mo",
     limits: { captions: 20, images: 10, brandKits: 1, scheduledPosts: 10 },
     teamSeats: 0,
+    priceInr: null,
+    razorpayPlanId: null,
     features: [
       "20 AI captions / month",
       "10 AI images / month",
@@ -37,11 +46,31 @@ export const DEFAULT_PLANS: Plan[] = [
     ],
   },
   {
+    id: "payg",
+    name: "Pay As You Go",
+    priceLabel: "No monthly fee",
+    // Zero monthly allowances: all metered usage draws from purchased
+    // credits (see lib/credits.ts). -1 would mean unlimited; 0 means "plan
+    // quota exhausted immediately", which routes then satisfy from credits.
+    limits: { captions: 0, images: 0, brandKits: 3, scheduledPosts: 50 },
+    teamSeats: 0,
+    priceInr: null,
+    razorpayPlanId: null,
+    features: [
+      "No subscription — buy credit packs as needed",
+      "Credits never expire",
+      "3 brand kits",
+      "Schedule up to 50 posts",
+    ],
+  },
+  {
     id: "pro",
     name: "Pro",
     priceLabel: "$29 / mo",
     limits: { captions: 500, images: 200, brandKits: 10, scheduledPosts: 200 },
     teamSeats: 0,
+    priceInr: null,
+    razorpayPlanId: null,
     features: [
       "500 AI captions / month",
       "200 AI images / month",
@@ -56,6 +85,8 @@ export const DEFAULT_PLANS: Plan[] = [
     priceLabel: "$99 / mo",
     limits: { captions: -1, images: -1, brandKits: -1, scheduledPosts: -1 },
     teamSeats: 5,
+    priceInr: null,
+    razorpayPlanId: null,
     features: [
       "Unlimited AI captions",
       "Unlimited AI images",
@@ -142,6 +173,8 @@ function rowToPlan(r: typeof planSettingsTable.$inferSelect): Plan {
     },
     features: r.features,
     teamSeats: r.teamSeats,
+    priceInr: r.priceInr,
+    razorpayPlanId: r.razorpayPlanId,
   };
 }
 

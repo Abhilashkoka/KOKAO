@@ -35,4 +35,5 @@
 - [Expo web CORS](clerk-turnstile-e2e-bypass.md) — REPLIT_DOMAINS excludes the Expo dev domain; the API CORS allowlist must add REPLIT_EXPO_DEV_DOMAIN or mobile-web API reads fail.
 - [ASR provider keys](asr-provider-keys.md) — speech-to-text providers take injected keys; admin-entered encrypted DB key wins over env secret; clients only ever see keySource.
 - [Codegen drift validation](codegen-drift-validation.md) — drift checks must generate into a temp mirror, never the working tree; orval clean:true races parallel typecheck.
+- [Razorpay billing invariants](razorpay-billing.md) — always re-fetch the canonical order/subscription and require final paid state; ledger records applied (clamped) deltas so it reconciles with balance.
 - [Prod deploy env shadowing](prod-deploy-env-shadowing.md) — user-set REPLIT_DOMAINS/REPLIT_DEV_DOMAIN secrets shadow prod values; agents can't delete secrets; CORS allowlist must lowercase hosts.

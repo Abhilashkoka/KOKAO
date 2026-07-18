@@ -30,4 +30,10 @@ export interface PlanUpdateInput {
      * @minimum 0
      */
   teamSeats?: number;
+  /**
+     * Subscription price in paise. Null clears the online price.
+     * @minimum 1
+     * @nullable
+     */
+  priceInr?: number | null;
 }

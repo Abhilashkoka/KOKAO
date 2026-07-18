@@ -9,6 +9,8 @@ declare global {
       isSuperadmin: boolean;
       tenantIsSuperadmin: boolean;
       memberRole: "owner" | "admin" | "member";
+      /** Raw request body bytes (utf8) captured for webhook signature checks. */
+      rawBody?: string;
     }
   }
 }

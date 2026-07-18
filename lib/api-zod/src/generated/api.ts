@@ -40,6 +40,10 @@ export const GetMeResponse = zod.object({
   "brandKits": zod.number().describe('Max brand kits. -1 means unlimited.'),
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
+  "credits": zod.object({
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number()
+}).optional().describe('Prepaid credit balances. Credits are consumed automatically when the monthly plan quota is exhausted.'),
   "isSuperadmin": zod.boolean().describe('Whether the current user has cross-tenant superadmin access.'),
   "isOwner": zod.boolean().describe('Whether the current user is an allowlisted (root) owner. Only owners may grant or revoke the superadmin role for other tenants.'),
   "brandOnboardingComplete": zod.boolean().describe('Whether the tenant has finished (or skipped) brand onboarding.'),
@@ -96,7 +100,9 @@ export const ListPlansResponseItem = zod.object({
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
   "features": zod.array(zod.string()),
-  "teamSeats": zod.number().describe('Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included.')
+  "teamSeats": zod.number().describe('Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included.'),
+  "priceInr": zod.number().nullish().describe('Subscription price in paise (INR x 100). Null = not purchasable online.'),
+  "razorpayPlanId": zod.string().nullish()
 })
 export const ListPlansResponse = zod.array(ListPlansResponseItem)
 
@@ -620,6 +626,7 @@ export const adminCreatePlanBodyTeamSeatsMin = 0;
 
 
 
+
 export const AdminCreatePlanBody = zod.object({
   "id": zod.string().min(1).max(adminCreatePlanBodyIdMax).regex(adminCreatePlanBodyIdRegExp).optional().describe('Optional url-safe id (lowercase letters, digits, dashes). Derived from the name when omitted.'),
   "name": zod.string().min(1).max(adminCreatePlanBodyNameMax),
@@ -631,7 +638,8 @@ export const AdminCreatePlanBody = zod.object({
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
   "features": zod.array(zod.string().min(1).max(adminCreatePlanBodyFeaturesItemMax)).max(adminCreatePlanBodyFeaturesMax),
-  "teamSeats": zod.number().min(adminCreatePlanBodyTeamSeatsMin).optional().describe('Default team seat allotment. 0 disables the team add-on.')
+  "teamSeats": zod.number().min(adminCreatePlanBodyTeamSeatsMin).optional().describe('Default team seat allotment. 0 disables the team add-on.'),
+  "priceInr": zod.number().min(1).nullish().describe('Subscription price in paise. Null clears the online price.')
 })
 
 export const AdminCreatePlanResponseItem = zod.object({
@@ -645,7 +653,9 @@ export const AdminCreatePlanResponseItem = zod.object({
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
   "features": zod.array(zod.string()),
-  "teamSeats": zod.number().describe('Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included.')
+  "teamSeats": zod.number().describe('Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included.'),
+  "priceInr": zod.number().nullish().describe('Subscription price in paise (INR x 100). Null = not purchasable online.'),
+  "razorpayPlanId": zod.string().nullish()
 })
 export const AdminCreatePlanResponse = zod.array(AdminCreatePlanResponseItem)
 
@@ -668,7 +678,9 @@ export const AdminDeletePlanResponseItem = zod.object({
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
   "features": zod.array(zod.string()),
-  "teamSeats": zod.number().describe('Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included.')
+  "teamSeats": zod.number().describe('Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included.'),
+  "priceInr": zod.number().nullish().describe('Subscription price in paise (INR x 100). Null = not purchasable online.'),
+  "razorpayPlanId": zod.string().nullish()
 })
 export const AdminDeletePlanResponse = zod.array(AdminDeletePlanResponseItem)
 
@@ -692,6 +704,7 @@ export const adminUpdatePlanBodyTeamSeatsMin = 0;
 
 
 
+
 export const AdminUpdatePlanBody = zod.object({
   "name": zod.string().min(1).max(adminUpdatePlanBodyNameMax),
   "priceLabel": zod.string().min(1).max(adminUpdatePlanBodyPriceLabelMax),
@@ -702,7 +715,8 @@ export const AdminUpdatePlanBody = zod.object({
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
   "features": zod.array(zod.string().min(1).max(adminUpdatePlanBodyFeaturesItemMax)).max(adminUpdatePlanBodyFeaturesMax),
-  "teamSeats": zod.number().min(adminUpdatePlanBodyTeamSeatsMin).optional().describe('Default team seat allotment. 0 disables the team add-on.')
+  "teamSeats": zod.number().min(adminUpdatePlanBodyTeamSeatsMin).optional().describe('Default team seat allotment. 0 disables the team add-on.'),
+  "priceInr": zod.number().min(1).nullish().describe('Subscription price in paise. Null clears the online price.')
 })
 
 export const AdminUpdatePlanResponseItem = zod.object({
@@ -716,7 +730,9 @@ export const AdminUpdatePlanResponseItem = zod.object({
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
   "features": zod.array(zod.string()),
-  "teamSeats": zod.number().describe('Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included.')
+  "teamSeats": zod.number().describe('Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included.'),
+  "priceInr": zod.number().nullish().describe('Subscription price in paise (INR x 100). Null = not purchasable online.'),
+  "razorpayPlanId": zod.string().nullish()
 })
 export const AdminUpdatePlanResponse = zod.array(AdminUpdatePlanResponseItem)
 
@@ -4663,6 +4679,312 @@ export const AdminSaveThreadsCredentialsResponse = zod.object({
   "appSecretMasked": zod.string().nullish(),
   "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the Meta app\'s Threads API settings.'),
   "savedAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Get masked Razorpay billing credentials (superadmin only)
+ */
+export const AdminGetRazorpayCredentialsResponse = zod.object({
+  "configured": zod.boolean(),
+  "keyIdMasked": zod.string().nullable(),
+  "keySecretMasked": zod.string().nullable(),
+  "webhookSecretMasked": zod.string().nullable(),
+  "testStatus": zod.string().nullable(),
+  "testedAt": zod.string().nullable(),
+  "testError": zod.string().nullable()
+})
+
+
+/**
+ * @summary Save Razorpay billing credentials (superadmin only)
+ */
+export const adminSaveRazorpayCredentialsBodyKeyIdMax = 200;
+
+export const adminSaveRazorpayCredentialsBodyKeySecretMax = 200;
+
+export const adminSaveRazorpayCredentialsBodyWebhookSecretMax = 200;
+
+
+
+export const AdminSaveRazorpayCredentialsBody = zod.object({
+  "keyId": zod.string().min(1).max(adminSaveRazorpayCredentialsBodyKeyIdMax),
+  "keySecret": zod.string().min(1).max(adminSaveRazorpayCredentialsBodyKeySecretMax),
+  "webhookSecret": zod.string().min(1).max(adminSaveRazorpayCredentialsBodyWebhookSecretMax)
+})
+
+export const AdminSaveRazorpayCredentialsResponse = zod.object({
+  "configured": zod.boolean(),
+  "keyIdMasked": zod.string().nullable(),
+  "keySecretMasked": zod.string().nullable(),
+  "webhookSecretMasked": zod.string().nullable(),
+  "testStatus": zod.string().nullable(),
+  "testedAt": zod.string().nullable(),
+  "testError": zod.string().nullable()
+})
+
+
+/**
+ * @summary List all credit packs, including inactive (superadmin only)
+ */
+export const AdminListCreditPacksResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "pricePaise": zod.number(),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "active": zod.boolean(),
+  "sortOrder": zod.number()
+})
+export const AdminListCreditPacksResponse = zod.array(AdminListCreditPacksResponseItem)
+
+
+/**
+ * @summary Create a purchasable credit pack (superadmin only)
+ */
+export const adminCreateCreditPackBodyNameMax = 80;
+
+
+export const adminCreateCreditPackBodyCaptionCreditsMin = 0;
+
+export const adminCreateCreditPackBodyImageCreditsMin = 0;
+
+
+
+export const AdminCreateCreditPackBody = zod.object({
+  "name": zod.string().min(1).max(adminCreateCreditPackBodyNameMax),
+  "pricePaise": zod.number().min(1),
+  "captionCredits": zod.number().min(adminCreateCreditPackBodyCaptionCreditsMin),
+  "imageCredits": zod.number().min(adminCreateCreditPackBodyImageCreditsMin),
+  "active": zod.boolean().optional()
+})
+
+export const AdminCreateCreditPackResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "pricePaise": zod.number(),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "active": zod.boolean(),
+  "sortOrder": zod.number()
+})
+export const AdminCreateCreditPackResponse = zod.array(AdminCreateCreditPackResponseItem)
+
+
+/**
+ * @summary Edit a credit pack (superadmin only)
+ */
+export const AdminUpdateCreditPackParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const adminUpdateCreditPackBodyNameMax = 80;
+
+
+export const adminUpdateCreditPackBodyCaptionCreditsMin = 0;
+
+export const adminUpdateCreditPackBodyImageCreditsMin = 0;
+
+
+
+export const AdminUpdateCreditPackBody = zod.object({
+  "name": zod.string().min(1).max(adminUpdateCreditPackBodyNameMax),
+  "pricePaise": zod.number().min(1),
+  "captionCredits": zod.number().min(adminUpdateCreditPackBodyCaptionCreditsMin),
+  "imageCredits": zod.number().min(adminUpdateCreditPackBodyImageCreditsMin),
+  "active": zod.boolean().optional()
+})
+
+export const AdminUpdateCreditPackResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "pricePaise": zod.number(),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "active": zod.boolean(),
+  "sortOrder": zod.number()
+})
+export const AdminUpdateCreditPackResponse = zod.array(AdminUpdateCreditPackResponseItem)
+
+
+/**
+ * @summary Retire a credit pack (soft-deactivate; superadmin only)
+ */
+export const AdminDeleteCreditPackParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AdminDeleteCreditPackResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "pricePaise": zod.number(),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "active": zod.boolean(),
+  "sortOrder": zod.number()
+})
+export const AdminDeleteCreditPackResponse = zod.array(AdminDeleteCreditPackResponseItem)
+
+
+/**
+ * @summary Manually grant (or deduct) credits for a tenant (superadmin only)
+ */
+export const AdminGrantCreditsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const adminGrantCreditsBodyNoteMax = 200;
+
+
+
+export const AdminGrantCreditsBody = zod.object({
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "note": zod.string().max(adminGrantCreditsBodyNoteMax).optional()
+})
+
+export const AdminGrantCreditsResponse = zod.object({
+  "ok": zod.boolean(),
+  "credits": zod.object({
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number()
+})
+})
+
+
+/**
+ * @summary Billing overview for the current workspace
+ */
+export const BillingGetOverviewResponse = zod.object({
+  "configured": zod.boolean().describe('Whether online payments are set up by the platform admin.'),
+  "keyId": zod.string().nullable().describe('Razorpay public key id for Checkout (null when unconfigured).'),
+  "plan": zod.string(),
+  "subscription": zod.union([zod.object({
+  "id": zod.number(),
+  "planId": zod.string(),
+  "status": zod.string(),
+  "razorpaySubscriptionId": zod.string(),
+  "currentPeriodEnd": zod.string().nullable(),
+  "cancelAtPeriodEnd": zod.boolean()
+}),zod.null()]),
+  "credits": zod.object({
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number()
+}),
+  "creditPacks": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "pricePaise": zod.number(),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "active": zod.boolean(),
+  "sortOrder": zod.number()
+})),
+  "history": zod.array(zod.object({
+  "id": zod.number(),
+  "kind": zod.string(),
+  "captionDelta": zod.number(),
+  "imageDelta": zod.number(),
+  "note": zod.string().nullable(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Start a Razorpay subscription checkout for a paid plan (owner only)
+ */
+export const billingSubscribeBodyPlanIdMax = 40;
+
+
+
+export const BillingSubscribeBody = zod.object({
+  "planId": zod.string().min(1).max(billingSubscribeBodyPlanIdMax)
+})
+
+export const BillingSubscribeResponse = zod.object({
+  "razorpaySubscriptionId": zod.string(),
+  "keyId": zod.string()
+})
+
+
+/**
+ * @summary Verify a completed subscription checkout and activate the plan (owner only)
+ */
+export const billingVerifySubscriptionBodyRazorpaySubscriptionIdMax = 100;
+
+export const billingVerifySubscriptionBodyRazorpayPaymentIdMax = 100;
+
+export const billingVerifySubscriptionBodyRazorpaySignatureMax = 300;
+
+
+
+export const BillingVerifySubscriptionBody = zod.object({
+  "razorpaySubscriptionId": zod.string().min(1).max(billingVerifySubscriptionBodyRazorpaySubscriptionIdMax),
+  "razorpayPaymentId": zod.string().min(1).max(billingVerifySubscriptionBodyRazorpayPaymentIdMax),
+  "razorpaySignature": zod.string().min(1).max(billingVerifySubscriptionBodyRazorpaySignatureMax)
+})
+
+export const BillingVerifySubscriptionResponse = zod.object({
+  "ok": zod.boolean(),
+  "plan": zod.string()
+})
+
+
+/**
+ * @summary Cancel the active subscription at the end of the paid period (owner only)
+ */
+export const BillingCancelSubscriptionResponse = zod.object({
+  "ok": zod.boolean()
+})
+
+
+/**
+ * @summary Move this workspace onto the Pay As You Go plan (owner only)
+ */
+export const BillingSwitchPaygResponse = zod.object({
+  "ok": zod.boolean(),
+  "plan": zod.string()
+})
+
+
+/**
+ * @summary Create a one-time Razorpay order for a credit pack (owner only)
+ */
+export const BillingPurchaseCreditsBody = zod.object({
+  "creditPackId": zod.number()
+})
+
+export const BillingPurchaseCreditsResponse = zod.object({
+  "razorpayOrderId": zod.string(),
+  "amountPaise": zod.number(),
+  "keyId": zod.string()
+})
+
+
+/**
+ * @summary Verify a credit-pack payment and add the credits (owner only)
+ */
+export const billingVerifyPurchaseBodyRazorpayOrderIdMax = 100;
+
+export const billingVerifyPurchaseBodyRazorpayPaymentIdMax = 100;
+
+export const billingVerifyPurchaseBodyRazorpaySignatureMax = 300;
+
+
+
+export const BillingVerifyPurchaseBody = zod.object({
+  "razorpayOrderId": zod.string().min(1).max(billingVerifyPurchaseBodyRazorpayOrderIdMax),
+  "razorpayPaymentId": zod.string().min(1).max(billingVerifyPurchaseBodyRazorpayPaymentIdMax),
+  "razorpaySignature": zod.string().min(1).max(billingVerifyPurchaseBodyRazorpaySignatureMax)
+})
+
+export const BillingVerifyPurchaseResponse = zod.object({
+  "ok": zod.boolean(),
+  "credits": zod.object({
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number()
+})
 })
 
 

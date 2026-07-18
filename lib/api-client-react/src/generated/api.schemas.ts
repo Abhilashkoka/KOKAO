@@ -50,6 +50,11 @@ export interface PlanLimits {
   scheduledPosts: number;
 }
 
+export interface CreditBalances {
+  captionCredits: number;
+  imageCredits: number;
+}
+
 /**
  * The current user's role in this workspace.
  */
@@ -94,6 +99,8 @@ export interface MeProfile {
   tenant: Tenant;
   usage: Usage;
   limits: PlanLimits;
+  /** Prepaid credit balances. Credits are consumed automatically when the monthly plan quota is exhausted. */
+  credits?: CreditBalances;
   /** Whether the current user has cross-tenant superadmin access. */
   isSuperadmin: boolean;
   /** Whether the current user is an allowlisted (root) owner. Only owners may grant or revoke the superadmin role for other tenants. */
@@ -328,6 +335,13 @@ export interface Plan {
   features: string[];
   /** Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included. */
   teamSeats: number;
+  /**
+     * Subscription price in paise (INR x 100). Null = not purchasable online.
+     * @nullable
+     */
+  priceInr?: number | null;
+  /** @nullable */
+  razorpayPlanId?: string | null;
 }
 
 export interface PlanCreateInput {
@@ -360,6 +374,12 @@ export interface PlanCreateInput {
      * @minimum 0
      */
   teamSeats?: number;
+  /**
+     * Subscription price in paise. Null clears the online price.
+     * @minimum 1
+     * @nullable
+     */
+  priceInr?: number | null;
 }
 
 export interface PlanUpdateInput {
@@ -385,6 +405,161 @@ export interface PlanUpdateInput {
      * @minimum 0
      */
   teamSeats?: number;
+  /**
+     * Subscription price in paise. Null clears the online price.
+     * @minimum 1
+     * @nullable
+     */
+  priceInr?: number | null;
+}
+
+export interface RazorpayAppCredentialStatus {
+  configured: boolean;
+  /** @nullable */
+  keyIdMasked: string | null;
+  /** @nullable */
+  keySecretMasked: string | null;
+  /** @nullable */
+  webhookSecretMasked: string | null;
+  /** @nullable */
+  testStatus: string | null;
+  /** @nullable */
+  testedAt: string | null;
+  /** @nullable */
+  testError: string | null;
+}
+
+export interface RazorpayAppCredentialInput {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  keyId: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  keySecret: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  webhookSecret: string;
+}
+
+export interface CreditPack {
+  id: number;
+  name: string;
+  pricePaise: number;
+  captionCredits: number;
+  imageCredits: number;
+  active: boolean;
+  sortOrder: number;
+}
+
+export interface CreditPackInput {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name: string;
+  /** @minimum 1 */
+  pricePaise: number;
+  /** @minimum 0 */
+  captionCredits: number;
+  /** @minimum 0 */
+  imageCredits: number;
+  active?: boolean;
+}
+
+export interface GrantCreditsInput {
+  captionCredits: number;
+  imageCredits: number;
+  /** @maxLength 200 */
+  note?: string;
+}
+
+export interface CreditLedgerEntry {
+  id: number;
+  kind: string;
+  captionDelta: number;
+  imageDelta: number;
+  /** @nullable */
+  note: string | null;
+  createdAt: string;
+}
+
+export interface BillingSubscription {
+  id: number;
+  planId: string;
+  status: string;
+  razorpaySubscriptionId: string;
+  /** @nullable */
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+}
+
+export interface BillingOverview {
+  /** Whether online payments are set up by the platform admin. */
+  configured: boolean;
+  /**
+     * Razorpay public key id for Checkout (null when unconfigured).
+     * @nullable
+     */
+  keyId: string | null;
+  plan: string;
+  subscription: BillingSubscription | null;
+  credits: CreditBalances;
+  creditPacks: CreditPack[];
+  history: CreditLedgerEntry[];
+}
+
+export interface BillingSubscribeInput {
+  /**
+     * @minLength 1
+     * @maxLength 40
+     */
+  planId: string;
+}
+
+export interface BillingVerifySubscriptionInput {
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  razorpaySubscriptionId: string;
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  razorpayPaymentId: string;
+  /**
+     * @minLength 1
+     * @maxLength 300
+     */
+  razorpaySignature: string;
+}
+
+export interface BillingPurchaseCreditsInput {
+  creditPackId: number;
+}
+
+export interface BillingVerifyPurchaseInput {
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  razorpayOrderId: string;
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  razorpayPaymentId: string;
+  /**
+     * @minLength 1
+     * @maxLength 300
+     */
+  razorpaySignature: string;
 }
 
 export interface AdminTenantCounts {
@@ -1853,5 +2028,40 @@ export const AdminExportAuditLogsAction = {
 
 export type ListBrandKitsParams = {
 includeArchived?: boolean;
+};
+
+export type AdminGrantCredits200 = {
+  ok: boolean;
+  credits: CreditBalances;
+};
+
+export type BillingSubscribe200 = {
+  razorpaySubscriptionId: string;
+  keyId: string;
+};
+
+export type BillingVerifySubscription200 = {
+  ok: boolean;
+  plan: string;
+};
+
+export type BillingCancelSubscription200 = {
+  ok: boolean;
+};
+
+export type BillingSwitchPayg200 = {
+  ok: boolean;
+  plan: string;
+};
+
+export type BillingPurchaseCredits200 = {
+  razorpayOrderId: string;
+  amountPaise: number;
+  keyId: string;
+};
+
+export type BillingVerifyPurchase200 = {
+  ok: boolean;
+  credits: CreditBalances;
 };
 

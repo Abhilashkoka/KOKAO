@@ -21,6 +21,8 @@ import notificationsRouter from "./notifications";
 import notificationSettingsRouter from "./notificationSettings";
 import tasteProfileRouter from "./tasteProfile";
 import emailSettingsRouter from "./emailSettings";
+import billingRouter from "./billing";
+import razorpayWebhookRouter from "./razorpayWebhook";
 import adminRouter from "./admin";
 import { publicAppBrandRouter, protectedAppBrandRouter } from "./appBrand";
 import { requireTenant } from "../middlewares/requireTenant";
@@ -33,6 +35,9 @@ router.use(healthRouter);
 router.use(publicStorageRouter);
 router.use(plansRouter);
 router.use(publicAppBrandRouter);
+// Razorpay webhook: server-to-server, authenticated by its HMAC signature
+// (no app session), so it must sit before requireTenant.
+router.use(razorpayWebhookRouter);
 // OAuth callbacks arrive as top-level redirects from the provider and may not
 // carry the app session; they authenticate via the HMAC-signed `state` token
 // instead. Rate-limited like the other OAuth/credential routes.
@@ -74,6 +79,7 @@ router.use(notificationsRouter);
 router.use(notificationSettingsRouter);
 router.use(tasteProfileRouter);
 router.use(emailSettingsRouter);
+router.use(billingRouter);
 router.use(adminRouter);
 router.use(protectedAppBrandRouter);
 

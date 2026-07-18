@@ -19,6 +19,7 @@ export * from "./memberNotificationPreferences";
 export * from "./notificationPolicies";
 export * from "./adminAuditLogs";
 export * from "./planSettings";
+export * from "./billing";
 export * from "./sweepStatus";
 export * from "./team";
 export * from "./tasteProfiles";

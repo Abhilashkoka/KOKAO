@@ -15,4 +15,11 @@ export interface Plan {
   features: string[];
   /** Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included. */
   teamSeats: number;
+  /**
+     * Subscription price in paise (INR x 100). Null = not purchasable online.
+     * @nullable
+     */
+  priceInr?: number | null;
+  /** @nullable */
+  razorpayPlanId?: string | null;
 }

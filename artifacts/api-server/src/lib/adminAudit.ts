@@ -17,7 +17,9 @@ export type AdminAuditAction =
   | "email_test_send"
   | "sweep_run"
   | "seat_request_approve"
-  | "seat_request_deny";
+  | "seat_request_deny"
+  | "credit_pack_change"
+  | "credit_grant";
 
 export interface RecordAdminActionInput {
   action: AdminAuditAction;

@@ -9,6 +9,7 @@ import {
   AdminSaveLinkedinCredentialsBody,
   AdminSaveYoutubeCredentialsBody,
   AdminSaveThreadsCredentialsBody,
+  AdminSaveRazorpayCredentialsBody,
 } from "@workspace/api-zod";
 import type {
   MetaAppCredentials,
@@ -16,7 +17,9 @@ import type {
   LinkedinAppCredentials,
   YoutubeAppCredentials,
   ThreadsAppCredentials,
+  RazorpayAppCredentials,
 } from "@workspace/db";
+import { testRazorpayCredentials } from "../lib/razorpay";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import {
   encryptJson,
@@ -1076,6 +1079,118 @@ router.post(
 
     const row = await loadAccountRow(req.tenantId, "instagram");
     res.json(serializeSocialStatus("instagram", true, row));
+  },
+);
+
+
+// ---------------------------------------------------------------------------
+// Admin: Razorpay billing credentials (superadmin only)
+// ---------------------------------------------------------------------------
+
+async function loadRazorpayRow() {
+  return (
+    await db
+      .select()
+      .from(appCredentialsTable)
+      .where(eq(appCredentialsTable.provider, "razorpay"))
+      .limit(1)
+  )[0];
+}
+
+function serializeRazorpayStatus(
+  row: Awaited<ReturnType<typeof loadRazorpayRow>> | undefined,
+) {
+  if (!row) {
+    return {
+      configured: false,
+      keyIdMasked: null,
+      keySecretMasked: null,
+      webhookSecretMasked: null,
+      testStatus: null,
+      testedAt: null,
+      testError: null,
+    };
+  }
+  let creds: RazorpayAppCredentials | null = null;
+  try {
+    creds = decryptJson<RazorpayAppCredentials>(row.encryptedCredentials);
+  } catch {
+    creds = null;
+  }
+  return {
+    configured: true,
+    keyIdMasked: maskSecret(creds?.keyId, 4),
+    keySecretMasked: maskSecret(creds?.keySecret, 4),
+    webhookSecretMasked: maskSecret(creds?.webhookSecret, 4),
+    testStatus: row.lastTestStatus ?? null,
+    testedAt: row.lastTestedAt ? row.lastTestedAt.toISOString() : null,
+    testError: row.lastTestError ?? null,
+  };
+}
+
+router.get(
+  "/admin/platform-credentials/razorpay",
+  requireSuperadmin,
+  async (_req: Request, res: Response) => {
+    res.json(serializeRazorpayStatus(await loadRazorpayRow()));
+  },
+);
+
+router.put(
+  "/admin/platform-credentials/razorpay",
+  requireSuperadmin,
+  async (req: Request, res: Response) => {
+    if (!isEncryptionConfigured()) {
+      res
+        .status(400)
+        .json({ error: "Server is missing SESSION_SECRET; cannot store secrets." });
+      return;
+    }
+    const parsed = AdminSaveRazorpayCredentialsBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+
+    const { keyId, keySecret, webhookSecret } = parsed.data;
+    const test = await testRazorpayCredentials({ keyId, keySecret, webhookSecret });
+    const now = new Date();
+    const encrypted = encryptJson({ keyId, keySecret, webhookSecret });
+
+    const existing = await loadRazorpayRow();
+    let oldKeyIdMasked: string | null = null;
+    if (existing) {
+      try {
+        oldKeyIdMasked = maskSecret(
+          decryptJson<RazorpayAppCredentials>(existing.encryptedCredentials).keyId,
+          4,
+        );
+      } catch {
+        oldKeyIdMasked = null;
+      }
+    }
+    const values = {
+      encryptedCredentials: encrypted,
+      lastTestStatus: test.ok ? "verified" : "failed",
+      lastTestedAt: now,
+      lastTestError: test.ok ? null : test.error ?? "Verification failed",
+      updatedAt: now,
+    };
+    if (existing) {
+      await db
+        .update(appCredentialsTable)
+        .set(values)
+        .where(eq(appCredentialsTable.id, existing.id));
+    } else {
+      await db.insert(appCredentialsTable).values({
+        provider: "razorpay",
+        ...values,
+      });
+    }
+
+    await auditCredentialChange(req, "razorpay", oldKeyIdMasked, maskSecret(keyId, 4));
+
+    res.json(serializeRazorpayStatus(await loadRazorpayRow()));
   },
 );
 

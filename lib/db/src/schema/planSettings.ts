@@ -31,6 +31,12 @@ export const planSettingsTable = pgTable("plan_settings", {
   // Team add-on: default seat allotment for workspaces on this plan.
   // 0 = the team feature is not included in this plan.
   teamSeats: integer("team_seats").notNull().default(0),
+  // Razorpay billing: monthly price in paise (INR * 100). null = the plan is
+  // not purchasable via Razorpay (free / manual-only plans).
+  priceInr: integer("price_inr"),
+  // The Razorpay Plan id backing paid subscriptions for this plan (created
+  // automatically when a superadmin saves a price).
+  razorpayPlanId: text("razorpay_plan_id"),
   sortOrder: integer("sort_order").notNull().default(0),
   archived: boolean("archived").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true })

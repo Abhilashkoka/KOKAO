@@ -3070,6 +3070,484 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /admin/platform-credentials/razorpay:
+    get:
+      operationId: adminGetRazorpayCredentials
+      tags: [billing]
+      summary: Get masked Razorpay billing credentials (superadmin only)
+      responses:
+        "200":
+          description: Razorpay credential status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RazorpayAppCredentialStatus"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminSaveRazorpayCredentials
+      tags: [billing]
+      summary: Save Razorpay billing credentials (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RazorpayAppCredentialInput"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RazorpayAppCredentialStatus"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/credit-packs:
+    get:
+      operationId: adminListCreditPacks
+      tags: [billing]
+      summary: List all credit packs, including inactive (superadmin only)
+      responses:
+        "200":
+          description: Credit packs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CreditPack"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: adminCreateCreditPack
+      tags: [billing]
+      summary: Create a purchasable credit pack (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreditPackInput"
+      responses:
+        "200":
+          description: Updated pack list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CreditPack"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/credit-packs/{id}:
+    put:
+      operationId: adminUpdateCreditPack
+      tags: [billing]
+      summary: Edit a credit pack (superadmin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreditPackInput"
+      responses:
+        "200":
+          description: Updated pack list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CreditPack"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: adminDeleteCreditPack
+      tags: [billing]
+      summary: Retire a credit pack (soft-deactivate; superadmin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated pack list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CreditPack"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/tenants/{id}/credits:
+    post:
+      operationId: adminGrantCredits
+      tags: [billing]
+      summary: Manually grant (or deduct) credits for a tenant (superadmin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GrantCreditsInput"
+      responses:
+        "200":
+          description: Granted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, credits]
+                properties:
+                  ok:
+                    type: boolean
+                  credits:
+                    $ref: "#/components/schemas/CreditBalances"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing:
+    get:
+      operationId: billingGetOverview
+      tags: [billing]
+      summary: Billing overview for the current workspace
+      responses:
+        "200":
+          description: Billing overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingOverview"
+
+  /billing/subscribe:
+    post:
+      operationId: billingSubscribe
+      tags: [billing]
+      summary: Start a Razorpay subscription checkout for a paid plan (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingSubscribeInput"
+      responses:
+        "200":
+          description: Subscription created; open Razorpay Checkout with it
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [razorpaySubscriptionId, keyId]
+                properties:
+                  razorpaySubscriptionId:
+                    type: string
+                  keyId:
+                    type: string
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Active subscription already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/verify-subscription:
+    post:
+      operationId: billingVerifySubscription
+      tags: [billing]
+      summary: Verify a completed subscription checkout and activate the plan (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingVerifySubscriptionInput"
+      responses:
+        "200":
+          description: Activated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, plan]
+                properties:
+                  ok:
+                    type: boolean
+                  plan:
+                    type: string
+        "400":
+          description: Verification failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Payment received but not yet confirmed by Razorpay
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/cancel:
+    post:
+      operationId: billingCancelSubscription
+      tags: [billing]
+      summary: Cancel the active subscription at the end of the paid period (owner only)
+      responses:
+        "200":
+          description: Cancellation scheduled
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+        "400":
+          description: No active subscription
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/switch-payg:
+    post:
+      operationId: billingSwitchPayg
+      tags: [billing]
+      summary: Move this workspace onto the Pay As You Go plan (owner only)
+      responses:
+        "200":
+          description: Switched
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, plan]
+                properties:
+                  ok:
+                    type: boolean
+                  plan:
+                    type: string
+        "400":
+          description: Not possible right now
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/purchase-credits:
+    post:
+      operationId: billingPurchaseCredits
+      tags: [billing]
+      summary: Create a one-time Razorpay order for a credit pack (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingPurchaseCreditsInput"
+      responses:
+        "200":
+          description: Order created; open Razorpay Checkout with it
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [razorpayOrderId, amountPaise, keyId]
+                properties:
+                  razorpayOrderId:
+                    type: string
+                  amountPaise:
+                    type: integer
+                  keyId:
+                    type: string
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Credit pack not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/verify-purchase:
+    post:
+      operationId: billingVerifyPurchase
+      tags: [billing]
+      summary: Verify a credit-pack payment and add the credits (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingVerifyPurchaseInput"
+      responses:
+        "200":
+          description: Credited
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, credits]
+                properties:
+                  ok:
+                    type: boolean
+                  credits:
+                    $ref: "#/components/schemas/CreditBalances"
+        "400":
+          description: Verification failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Payment not confirmed yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /admin/platform-credentials/youtube:
     get:
       operationId: adminGetYoutubeCredentials
@@ -3403,6 +3881,11 @@ components:
           $ref: "#/components/schemas/Usage"
         limits:
           $ref: "#/components/schemas/PlanLimits"
+        credits:
+          $ref: "#/components/schemas/CreditBalances"
+          description: >-
+            Prepaid credit balances. Credits are consumed automatically when
+            the monthly plan quota is exhausted.
         isSuperadmin:
           type: boolean
           description: Whether the current user has cross-tenant superadmin access.
@@ -3706,6 +4189,11 @@ components:
           description: >-
             Team add-on: default seat allotment (including the owner) for
             workspaces on this plan. 0 means the team feature is not included.
+        priceInr:
+          type: ["integer", "null"]
+          description: Subscription price in paise (INR x 100). Null = not purchasable online.
+        razorpayPlanId:
+          type: ["string", "null"]
 
     PlanCreateInput:
       type: object
@@ -3740,6 +4228,10 @@ components:
           type: integer
           minimum: 0
           description: Default team seat allotment. 0 disables the team add-on.
+        priceInr:
+          type: ["integer", "null"]
+          minimum: 1
+          description: Subscription price in paise. Null clears the online price.
     PlanUpdateInput:
       type: object
       required: [name, priceLabel, limits, features]
@@ -3765,6 +4257,221 @@ components:
           type: integer
           minimum: 0
           description: Default team seat allotment. 0 disables the team add-on.
+        priceInr:
+          type: ["integer", "null"]
+          minimum: 1
+          description: Subscription price in paise. Null clears the online price.
+    RazorpayAppCredentialStatus:
+      type: object
+      required:
+        [
+          configured,
+          keyIdMasked,
+          keySecretMasked,
+          webhookSecretMasked,
+          testStatus,
+          testedAt,
+          testError,
+        ]
+      properties:
+        configured:
+          type: boolean
+        keyIdMasked:
+          type: ["string", "null"]
+        keySecretMasked:
+          type: ["string", "null"]
+        webhookSecretMasked:
+          type: ["string", "null"]
+        testStatus:
+          type: ["string", "null"]
+        testedAt:
+          type: ["string", "null"]
+        testError:
+          type: ["string", "null"]
+    RazorpayAppCredentialInput:
+      type: object
+      required: [keyId, keySecret, webhookSecret]
+      properties:
+        keyId:
+          type: string
+          minLength: 1
+          maxLength: 200
+        keySecret:
+          type: string
+          minLength: 1
+          maxLength: 200
+        webhookSecret:
+          type: string
+          minLength: 1
+          maxLength: 200
+    CreditBalances:
+      type: object
+      required: [captionCredits, imageCredits]
+      properties:
+        captionCredits:
+          type: integer
+        imageCredits:
+          type: integer
+    CreditPack:
+      type: object
+      required: [id, name, pricePaise, captionCredits, imageCredits, active, sortOrder]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        pricePaise:
+          type: integer
+        captionCredits:
+          type: integer
+        imageCredits:
+          type: integer
+        active:
+          type: boolean
+        sortOrder:
+          type: integer
+    CreditPackInput:
+      type: object
+      required: [name, pricePaise, captionCredits, imageCredits]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        pricePaise:
+          type: integer
+          minimum: 1
+        captionCredits:
+          type: integer
+          minimum: 0
+        imageCredits:
+          type: integer
+          minimum: 0
+        active:
+          type: boolean
+    GrantCreditsInput:
+      type: object
+      required: [captionCredits, imageCredits]
+      properties:
+        captionCredits:
+          type: integer
+        imageCredits:
+          type: integer
+        note:
+          type: string
+          maxLength: 200
+    CreditLedgerEntry:
+      type: object
+      required: [id, kind, captionDelta, imageDelta, note, createdAt]
+      properties:
+        id:
+          type: integer
+        kind:
+          type: string
+        captionDelta:
+          type: integer
+        imageDelta:
+          type: integer
+        note:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+    BillingSubscription:
+      type: object
+      required:
+        [
+          id,
+          planId,
+          status,
+          razorpaySubscriptionId,
+          currentPeriodEnd,
+          cancelAtPeriodEnd,
+        ]
+      properties:
+        id:
+          type: integer
+        planId:
+          type: string
+        status:
+          type: string
+        razorpaySubscriptionId:
+          type: string
+        currentPeriodEnd:
+          type: ["string", "null"]
+        cancelAtPeriodEnd:
+          type: boolean
+    BillingOverview:
+      type: object
+      required: [configured, keyId, plan, subscription, credits, creditPacks, history]
+      properties:
+        configured:
+          type: boolean
+          description: Whether online payments are set up by the platform admin.
+        keyId:
+          type: ["string", "null"]
+          description: Razorpay public key id for Checkout (null when unconfigured).
+        plan:
+          type: string
+        subscription:
+          oneOf:
+            - $ref: "#/components/schemas/BillingSubscription"
+            - type: "null"
+        credits:
+          $ref: "#/components/schemas/CreditBalances"
+        creditPacks:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreditPack"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreditLedgerEntry"
+    BillingSubscribeInput:
+      type: object
+      required: [planId]
+      properties:
+        planId:
+          type: string
+          minLength: 1
+          maxLength: 40
+    BillingVerifySubscriptionInput:
+      type: object
+      required: [razorpaySubscriptionId, razorpayPaymentId, razorpaySignature]
+      properties:
+        razorpaySubscriptionId:
+          type: string
+          minLength: 1
+          maxLength: 100
+        razorpayPaymentId:
+          type: string
+          minLength: 1
+          maxLength: 100
+        razorpaySignature:
+          type: string
+          minLength: 1
+          maxLength: 300
+    BillingPurchaseCreditsInput:
+      type: object
+      required: [creditPackId]
+      properties:
+        creditPackId:
+          type: integer
+    BillingVerifyPurchaseInput:
+      type: object
+      required: [razorpayOrderId, razorpayPaymentId, razorpaySignature]
+      properties:
+        razorpayOrderId:
+          type: string
+          minLength: 1
+          maxLength: 100
+        razorpayPaymentId:
+          type: string
+          minLength: 1
+          maxLength: 100
+        razorpaySignature:
+          type: string
+          minLength: 1
+          maxLength: 300
     AdminTenantCounts:
       type: object
       required: [content, brandKits, scheduledPosts, connectedAccounts]
