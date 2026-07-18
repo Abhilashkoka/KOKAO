@@ -33,7 +33,8 @@ vi.mock("@clerk/express", async () => {
   };
 });
 
-import { pool } from "@workspace/db";
+import { pool, db, adminAuditLogsTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import {
   TEST_EMAIL_LIMIT,
   _resetTestEmailThrottle,
@@ -662,6 +663,119 @@ describe("POST /admin/email-settings/test", () => {
       );
       expect(outcomes.filter((o) => o === "throttled").length).toBe(3);
       expect(outcomes).not.toContain("pending");
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
+  it("finalizes abandoned pending reservations older than the window as 'abandoned'", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(admin.clerkUserId, "admin@example.com");
+
+      await request(app).put("/api/admin/email-settings").send({
+        sendingEnabled: false,
+        fromEmail: "alerts@socialforge.test",
+        apiKey: "SG.abandoned-key-7777",
+      });
+
+      // Simulate a crash between reserve and finalize: a "pending" audit row
+      // whose window has already expired.
+      const stale = new Date(Date.now() - 10 * 60_000);
+      const [abandoned] = await db
+        .insert(adminAuditLogsTable)
+        .values({
+          action: "email_test_send",
+          actorTenantId: admin.tenantId,
+          actorEmail: "admin@example.com",
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: null,
+          newValue: JSON.stringify({
+            recipient: "victim@example.com",
+            outcome: "pending",
+            error: null,
+          }),
+          createdAt: stale,
+        })
+        .returning({ id: adminAuditLogsTable.id });
+
+      // A fresh (in-window) pending row must NOT be touched by the sweep.
+      const [fresh] = await db
+        .insert(adminAuditLogsTable)
+        .values({
+          action: "email_test_send",
+          actorTenantId: admin.tenantId,
+          actorEmail: "admin@example.com",
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: null,
+          newValue: JSON.stringify({
+            recipient: "victim@example.com",
+            outcome: "pending",
+            error: null,
+          }),
+        })
+        .returning({ id: adminAuditLogsTable.id });
+
+      // Any test-send request triggers the housekeeping sweep.
+      const res = await request(app)
+        .post("/api/admin/email-settings/test")
+        .send({ to: "admin@example.com" });
+      expect(res.status).toBe(200);
+
+      const [staleRow] = await db
+        .select({ newValue: adminAuditLogsTable.newValue })
+        .from(adminAuditLogsTable)
+        .where(eq(adminAuditLogsTable.id, abandoned.id));
+      expect(JSON.parse(staleRow.newValue!)).toMatchObject({
+        recipient: "victim@example.com",
+        outcome: "abandoned",
+      });
+
+      const [freshRow] = await db
+        .select({ newValue: adminAuditLogsTable.newValue })
+        .from(adminAuditLogsTable)
+        .where(eq(adminAuditLogsTable.id, fresh.id));
+      expect(JSON.parse(freshRow.newValue!).outcome).toBe("pending");
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
+  it("in-window pending reservations still count against the cap (throttle unchanged)", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(admin.clerkUserId, "admin@example.com");
+
+      await request(app).put("/api/admin/email-settings").send({
+        sendingEnabled: false,
+        fromEmail: "alerts@socialforge.test",
+        apiKey: "SG.pendingcap-key-9999",
+      });
+
+      // Seed the full cap as fresh pending reservations.
+      for (let i = 0; i < TEST_EMAIL_LIMIT; i++) {
+        await db.insert(adminAuditLogsTable).values({
+          action: "email_test_send",
+          actorTenantId: admin.tenantId,
+          actorEmail: "admin@example.com",
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: null,
+          newValue: JSON.stringify({
+            recipient: "victim@example.com",
+            outcome: "pending",
+            error: null,
+          }),
+        });
+      }
+
+      const res = await request(app)
+        .post("/api/admin/email-settings/test")
+        .send({ to: "admin@example.com" });
+      expect(res.status).toBe(429);
+      expect(sendgridCalls.length).toBe(0);
     } finally {
       await deleteTenant(admin.tenantId);
     }

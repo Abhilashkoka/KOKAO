@@ -5,7 +5,7 @@ import {
   adminAuditLogsTable,
   type EmailSettings,
 } from "@workspace/db";
-import { and, eq, gt, notLike, count, sql } from "drizzle-orm";
+import { and, eq, gt, lte, like, notLike, count, sql } from "drizzle-orm";
 import {
   AdminUpdateEmailSettingsBody,
   AdminSendTestEmailBody,
@@ -90,6 +90,26 @@ async function reserveTestSend(
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(${TEST_EMAIL_LOCK_NS}, ${actorTenantId})`,
     );
+    // Housekeeping: finalize ABANDONED reservations. If a previous request
+    // crashed or was aborted between reserving a slot and writing the real
+    // outcome, its "pending" row would otherwise linger forever in the
+    // append-only trail and mislead admin views. Rows older than the window
+    // no longer count against the cap, so rewriting them to "abandoned"
+    // cannot change throttle behavior — it only makes the trail honest.
+    // Swept for ALL actors (any request cleans up), which is safe: row
+    // updates take row locks and never touch in-window rows.
+    await tx
+      .update(adminAuditLogsTable)
+      .set({
+        newValue: sql`replace(${adminAuditLogsTable.newValue}, '"outcome":"pending"', '"outcome":"abandoned"')`,
+      })
+      .where(
+        and(
+          eq(adminAuditLogsTable.action, "email_test_send"),
+          lte(adminAuditLogsTable.createdAt, cutoff),
+          like(adminAuditLogsTable.newValue, '%"outcome":"pending"%'),
+        ),
+      );
     const [row] = await tx
       .select({ value: count() })
       .from(adminAuditLogsTable)
