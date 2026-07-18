@@ -9,6 +9,7 @@ import {
   usageEventsTable,
   adminAuditLogsTable,
   sweepStatusTable,
+  subscriptionsTable,
 } from "@workspace/db";
 import { eq, sql, desc, gte, lte, and, or, ilike, inArray } from "drizzle-orm";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
@@ -321,10 +322,40 @@ router.patch("/admin/tenants/:id", async (req: Request, res: Response) => {
     return;
   }
 
+  // Overriding a tenant who is actively PAYING for a subscription is easy to
+  // do by accident — require an explicit confirmation flag so the admin UI
+  // can warn first. The override wins once confirmed: planOverriddenAt stops
+  // Razorpay webhooks from syncing the plan back.
+  if (parsed.data.plan !== previous.plan) {
+    const activeSub = (
+      await db
+        .select()
+        .from(subscriptionsTable)
+        .where(
+          and(
+            eq(subscriptionsTable.tenantId, id),
+            inArray(subscriptionsTable.status, ["active", "authenticated"]),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (activeSub && parsed.data.confirmActiveSubscription !== true) {
+      res.status(409).json({
+        error:
+          "This tenant has an active paid subscription. Overriding the plan will not cancel or refund it, and renewals will no longer change the plan. Confirm to override anyway.",
+      });
+      return;
+    }
+  }
+
   const updated = (
     await db
       .update(tenantsTable)
-      .set({ plan: parsed.data.plan, updatedAt: new Date() })
+      .set({
+        plan: parsed.data.plan,
+        planOverriddenAt: new Date(),
+        updatedAt: new Date(),
+      })
       .where(eq(tenantsTable.id, id))
       .returning()
   )[0];

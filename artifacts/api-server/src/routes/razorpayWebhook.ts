@@ -80,6 +80,22 @@ async function handleSubscriptionEvent(
     .where(eq(subscriptionsTable.id, sub.id));
 
   if (isEntitledStatus(status)) {
+    // Admin override wins: while a superadmin has manually set this tenant's
+    // plan (planOverriddenAt), entitlement webhooks must not sync it back.
+    const tenant = (
+      await db
+        .select()
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, sub.tenantId))
+        .limit(1)
+    )[0];
+    if (tenant?.planOverriddenAt) {
+      req.log.info(
+        { subscriptionId, tenantId: sub.tenantId },
+        "Skipping plan sync: superadmin plan override is in effect",
+      );
+      return;
+    }
     await db
       .update(tenantsTable)
       .set({ plan: sub.planId, updatedAt: new Date() })

@@ -27,6 +27,11 @@ export const tenantsTable = pgTable("tenants", {
   // Per-tenant override for the canvas-design image prompt skill.
   // null = follow the global design_skill_settings switch.
   designSkillEnabled: boolean("design_skill_enabled"),
+  // Set when a superadmin manually overrides the tenant's plan. While set,
+  // Razorpay subscription webhooks must NOT sync the plan (admin override
+  // wins). Cleared when the tenant takes a billing action themselves
+  // (subscribe verification, switch to pay-as-you-go).
+  planOverriddenAt: timestamp("plan_overridden_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

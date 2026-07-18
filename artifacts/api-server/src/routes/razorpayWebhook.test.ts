@@ -6,6 +6,7 @@ import {
   pool,
   db,
   subscriptionsTable,
+  tenantsTable,
   creditPacksTable,
   razorpayEventsTable,
   creditLedgerTable,
@@ -185,6 +186,67 @@ describe("POST /billing/razorpay-webhook", () => {
     );
     expect(cancel.status).toBe(200);
     expect((await getTenant(tenantId))?.plan).toBe("free");
+  });
+
+  it("does not sync the plan on entitlement events while a superadmin override is in effect", async () => {
+    const subId = `sub_test_ovr_${Date.now()}`;
+    await db.insert(subscriptionsTable).values({
+      tenantId,
+      planId: "pro",
+      razorpaySubscriptionId: subId,
+      status: "active",
+    });
+    // Superadmin manually overrode the tenant to "business".
+    await db
+      .update(tenantsTable)
+      .set({ plan: "business", planOverriddenAt: new Date() })
+      .where(eq(tenantsTable.id, tenantId));
+    try {
+      // A renewal (charged → active) arrives: the plan must NOT flip back.
+      const charged = await post(
+        app,
+        {
+          event: "subscription.charged",
+          payload: {
+            subscription: {
+              entity: { id: subId, status: "active", current_end: 1893456000 },
+            },
+          },
+        },
+        { eventId: evId("ovr-charged") },
+      );
+      expect(charged.status).toBe(200);
+      expect((await getTenant(tenantId))?.plan).toBe("business");
+
+      // Override cleared (tenant made a billing change themselves): the next
+      // entitlement event syncs the plan again.
+      await db
+        .update(tenantsTable)
+        .set({ planOverriddenAt: null })
+        .where(eq(tenantsTable.id, tenantId));
+      const resync = await post(
+        app,
+        {
+          event: "subscription.charged",
+          payload: {
+            subscription: {
+              entity: { id: subId, status: "active", current_end: 1893456000 },
+            },
+          },
+        },
+        { eventId: evId("ovr-resync") },
+      );
+      expect(resync.status).toBe(200);
+      expect((await getTenant(tenantId))?.plan).toBe("pro");
+    } finally {
+      await db
+        .update(tenantsTable)
+        .set({ plan: "free", planOverriddenAt: null })
+        .where(eq(tenantsTable.id, tenantId));
+      await db
+        .delete(subscriptionsTable)
+        .where(eq(subscriptionsTable.razorpaySubscriptionId, subId));
+    }
   });
 
   it("credits a pack on payment.captured and dedupes by event id and order id", async () => {

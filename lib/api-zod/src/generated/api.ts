@@ -580,7 +580,8 @@ export const adminUpdateTenantPlanBodyPlanMax = 40;
 
 
 export const AdminUpdateTenantPlanBody = zod.object({
-  "plan": zod.string().min(1).max(adminUpdateTenantPlanBodyPlanMax)
+  "plan": zod.string().min(1).max(adminUpdateTenantPlanBodyPlanMax),
+  "confirmActiveSubscription": zod.boolean().optional().describe('Must be true to override the plan of a tenant that has an active Razorpay subscription. Without it the request is rejected with 409 so the admin UI can warn first.')
 })
 
 export const AdminUpdateTenantPlanResponse = zod.object({

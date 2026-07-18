@@ -12,4 +12,6 @@ export interface UpdateTenantPlanBody {
      * @maxLength 40
      */
   plan: string;
+  /** Must be true to override the plan of a tenant that has an active Razorpay subscription. Without it the request is rejected with 409 so the admin UI can warn first. */
+  confirmActiveSubscription?: boolean;
 }

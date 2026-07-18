@@ -605,17 +605,13 @@ function RazorpayCredentialsCard() {
   const { data, isLoading } = useAdminGetRazorpayCredentials();
   const saveRazorpay = useAdminSaveRazorpayCredentials();
 
+  // The Key ID input intentionally starts EMPTY (the saved value is shown as
+  // a placeholder only): prefilling the masked text would let an operator who
+  // edits just the secrets accidentally save the masked placeholder as the
+  // real Key ID. Saving always requires re-entering all three values.
   const [keyId, setKeyId] = useState("");
   const [keySecret, setKeySecret] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
-  const [dirty, setDirty] = useState(false);
-
-  useEffect(() => {
-    if (data && !dirty) {
-      setKeyId(data.keyIdMasked ?? "");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
 
   const handleSave = () => {
     if (!keyId.trim() || !keySecret.trim() || !webhookSecret.trim()) return;
@@ -632,9 +628,9 @@ function RazorpayCredentialsCard() {
           queryClient.invalidateQueries({
             queryKey: getAdminGetRazorpayCredentialsQueryKey(),
           });
+          setKeyId("");
           setKeySecret("");
           setWebhookSecret("");
-          setDirty(false);
           if (result.testStatus === "verified") {
             toast({
               title: "Razorpay connected",
@@ -699,11 +695,12 @@ function RazorpayCredentialsCard() {
               <label className="text-sm font-medium">Key ID</label>
               <Input
                 value={keyId}
-                onChange={(e) => {
-                  setKeyId(e.target.value);
-                  setDirty(true);
-                }}
-                placeholder="rzp_live_..."
+                onChange={(e) => setKeyId(e.target.value)}
+                placeholder={
+                  data?.configured && data.keyIdMasked
+                    ? `Saved: ${data.keyIdMasked} — enter to replace`
+                    : "rzp_live_..."
+                }
               />
             </div>
             <div className="space-y-2">
@@ -711,10 +708,7 @@ function RazorpayCredentialsCard() {
               <Input
                 type="password"
                 value={keySecret}
-                onChange={(e) => {
-                  setKeySecret(e.target.value);
-                  setDirty(true);
-                }}
+                onChange={(e) => setKeySecret(e.target.value)}
                 placeholder={
                   data?.configured
                     ? "Enter to replace the saved secret"
@@ -727,10 +721,7 @@ function RazorpayCredentialsCard() {
               <Input
                 type="password"
                 value={webhookSecret}
-                onChange={(e) => {
-                  setWebhookSecret(e.target.value);
-                  setDirty(true);
-                }}
+                onChange={(e) => setWebhookSecret(e.target.value)}
                 placeholder={
                   data?.configured
                     ? "Enter to replace the saved secret"
@@ -3210,6 +3201,10 @@ export function AdminPage() {
   const updatePlan = useAdminUpdateTenantPlan();
   const grantCredits = useAdminGrantCredits();
   const [grantTarget, setGrantTarget] = useState<{ id: number; name: string } | null>(null);
+  const [planOverrideConfirm, setPlanOverrideConfirm] = useState<{
+    tenantId: number;
+    plan: string;
+  } | null>(null);
   const [grantCaptions, setGrantCaptions] = useState("0");
   const [grantImages, setGrantImages] = useState("0");
   const [grantNote, setGrantNote] = useState("");
@@ -3337,11 +3332,21 @@ export function AdminPage() {
     );
   }
 
-  const handlePlanChange = (tenantId: number, plan: string) => {
+  const handlePlanChange = (
+    tenantId: number,
+    plan: string,
+    confirmActiveSubscription = false,
+  ) => {
     updatePlan.mutate(
-      { id: tenantId, data: { plan } },
+      {
+        id: tenantId,
+        data: confirmActiveSubscription
+          ? { plan, confirmActiveSubscription: true }
+          : { plan },
+      },
       {
         onSuccess: () => {
+          setPlanOverrideConfirm(null);
           queryClient.invalidateQueries({
             queryKey: getAdminListTenantsQueryKey(),
           });
@@ -3353,10 +3358,16 @@ export function AdminPage() {
           });
           toast({ title: "Plan updated", description: "Tenant plan changed successfully." });
         },
-        onError: () => {
+        onError: (err: any) => {
+          if (err?.response?.status === 409) {
+            // Active paid subscription: warn and ask the admin to confirm.
+            setPlanOverrideConfirm({ tenantId, plan });
+            return;
+          }
           toast({
             title: "Update failed",
-            description: "Could not update the tenant plan.",
+            description:
+              err?.response?.data?.error || "Could not update the tenant plan.",
             variant: "destructive",
           });
         },
@@ -3803,6 +3814,23 @@ export function AdminPage() {
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={planOverrideConfirm !== null}
+        onOpenChange={(open) => !open && setPlanOverrideConfirm(null)}
+        title="Override an active subscription?"
+        description="This workspace is currently paying for a subscription. Changing the plan here will not cancel or refund it, and future renewals will no longer change the plan — your choice stays in effect until the workspace makes a billing change itself."
+        confirmLabel="Override plan"
+        destructive
+        onConfirm={() => {
+          if (!planOverrideConfirm) return;
+          handlePlanChange(
+            planOverrideConfirm.tenantId,
+            planOverrideConfirm.plan,
+            true,
+          );
+        }}
+      />
 
       <Dialog
         open={grantTarget !== null}

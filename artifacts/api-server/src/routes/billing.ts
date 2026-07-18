@@ -242,9 +242,11 @@ router.post("/billing/verify-subscription", async (req: Request, res: Response) 
         updatedAt: new Date(),
       })
       .where(eq(subscriptionsTable.id, sub.id));
+    // The tenant just paid for this plan themselves — a deliberate billing
+    // action clears any earlier superadmin plan override.
     await db
       .update(tenantsTable)
-      .set({ plan: sub.planId, updatedAt: new Date() })
+      .set({ plan: sub.planId, planOverriddenAt: null, updatedAt: new Date() })
       .where(eq(tenantsTable.id, req.tenantId));
 
     res.json({ ok: true, plan: sub.planId });
@@ -309,9 +311,10 @@ router.post("/billing/switch-payg", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Pay As You Go is not available" });
     return;
   }
+  // Deliberate tenant billing action: clears any superadmin plan override.
   await db
     .update(tenantsTable)
-    .set({ plan: "payg", updatedAt: new Date() })
+    .set({ plan: "payg", planOverriddenAt: null, updatedAt: new Date() })
     .where(eq(tenantsTable.id, req.tenantId));
   res.json({ ok: true, plan: "payg" });
 });

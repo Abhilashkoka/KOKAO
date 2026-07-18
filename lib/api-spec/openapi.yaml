@@ -594,6 +594,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: >-
+            Tenant has an active subscription; retry with
+            confirmActiveSubscription true to override anyway.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Not found
           content:
@@ -4707,6 +4715,12 @@ components:
           type: string
           minLength: 1
           maxLength: 40
+        confirmActiveSubscription:
+          type: boolean
+          description: >-
+            Must be true to override the plan of a tenant that has an active
+            Razorpay subscription. Without it the request is rejected with 409
+            so the admin UI can warn first.
     UpdateTenantSuperadminBody:
       type: object
       required: [isSuperadmin]
