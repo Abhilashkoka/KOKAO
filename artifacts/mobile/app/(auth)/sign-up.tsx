@@ -1,11 +1,11 @@
 import { useAuth, useSignUp } from "@clerk/expo";
-import { Feather } from "@expo/vector-icons";
 import { Link, useRouter } from "expo-router";
 import React, { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Image, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { SocialSignInButtons } from "@/components/SocialSignInButtons";
 import { Button, Input, Label } from "@/components/ui";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
@@ -64,9 +64,11 @@ export default function SignUpScreen() {
         { paddingTop: insets.top + 64, paddingBottom: insets.bottom + 32 },
       ]}
     >
-      <View style={styles.logoBox}>
-        <Feather name="zap" size={26} color="#ffffff" />
-      </View>
+      <Image
+        source={require("@/assets/images/kokao-mark.png")}
+        style={styles.logo}
+        resizeMode="contain"
+      />
 
       {verifying ? (
         <>
@@ -139,6 +141,8 @@ export default function SignUpScreen() {
             style={{ marginTop: 22 }}
           />
 
+          <SocialSignInButtons onError={setFormError} />
+
           <View style={styles.linkRow}>
             <Text style={styles.linkText}>Already have an account? </Text>
             <Link href="/(auth)/sign-in">
@@ -155,13 +159,10 @@ export default function SignUpScreen() {
 
 const styles = StyleSheet.create({
   container: { paddingHorizontal: 24 },
-  logoBox: {
+  logo: {
     width: 56,
     height: 56,
-    borderRadius: 16,
-    backgroundColor: c.primary,
-    alignItems: "center",
-    justifyContent: "center",
+    borderRadius: 14,
     marginBottom: 20,
   },
   title: { fontFamily: fonts.bold, fontSize: 28, color: c.foreground },
