@@ -1,6 +1,20 @@
 extends:
   - minimal
 rules:
+  # Structural / correctness rules (keep these on)
+  struct: error
   operation-operationId-unique: error
   no-unresolved-refs: error
+  no-invalid-schema-examples: error
+  no-invalid-parameter-examples: error
+  no-enum-type-mismatch: error
+  no-example-value-and-externalValue: error
+  operation-parameters-unique: error
+  path-declaration-must-exist: error
+  path-not-include-query: error
+  no-identical-paths: error
+  no-undefined-server-variable: error
+  no-invalid-media-type-examples: error
+  no-schema-type-mismatch: error
+  # Stylistic rules intentionally off
   security-defined: off
