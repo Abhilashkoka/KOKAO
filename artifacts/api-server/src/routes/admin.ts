@@ -809,7 +809,7 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
     return;
   }
 
-  const { name, priceLabel, limits, features, teamSeats } = parsed.data;
+  const { name, priceLabel, limits, features, teamSeats, priceInr } = parsed.data;
   if (teamSeats !== undefined && !Number.isInteger(teamSeats)) {
     res.status(400).json({ error: "Team seats must be a whole number" });
     return;
@@ -818,6 +818,16 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
     res
       .status(400)
       .json({ error: "Limits must be whole numbers (use -1 for unlimited)" });
+    return;
+  }
+  if (
+    priceInr !== undefined &&
+    priceInr !== null &&
+    (!Number.isInteger(priceInr) || priceInr <= 0)
+  ) {
+    res
+      .status(400)
+      .json({ error: "Price must be a positive whole number of paise" });
     return;
   }
 
@@ -850,10 +860,37 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
     return;
   }
 
+  // Razorpay sync: a plan created WITH a price is purchasable immediately —
+  // mint the matching Razorpay Plan before inserting the row, exactly like
+  // a price change on update does.
+  const newPriceInr = priceInr ?? null;
+  let newRazorpayPlanId: string | null = null;
+  if (newPriceInr !== null) {
+    if (!(await isRazorpayConfigured())) {
+      res.status(400).json({
+        error:
+          "Add Razorpay API keys before setting plan prices (see the Razorpay card).",
+      });
+      return;
+    }
+    try {
+      const rzpPlan = await createRazorpayPlan(name.trim(), newPriceInr);
+      newRazorpayPlanId = rzpPlan.id;
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to create Razorpay plan");
+      res.status(502).json({
+        error: "Razorpay rejected the plan price. Check the API keys and try again.",
+      });
+      return;
+    }
+  }
+
   await db.insert(planSettingsTable).values({
     id,
     name: name.trim(),
     priceLabel: priceLabel.trim(),
+    priceInr: newPriceInr,
+    razorpayPlanId: newRazorpayPlanId,
     teamSeats: teamSeats ?? 0,
     captions: limits.captions,
     images: limits.images,
