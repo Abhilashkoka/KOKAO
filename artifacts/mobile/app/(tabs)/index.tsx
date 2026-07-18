@@ -109,12 +109,21 @@ export default function HomeScreen() {
             </Text>
           )}
         </View>
-        <Pressable
-          onPress={handleSignOut}
-          style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.7 : 1 }]}
-        >
-          <Feather name="log-out" size={18} color={c.mutedForeground} />
-        </Pressable>
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <Pressable
+            onPress={() => router.push("/privacy")}
+            accessibilityLabel="Privacy settings"
+            style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <Feather name="shield" size={18} color={c.mutedForeground} />
+          </Pressable>
+          <Pressable
+            onPress={handleSignOut}
+            style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <Feather name="log-out" size={18} color={c.mutedForeground} />
+          </Pressable>
+        </View>
       </View>
 
       {me.isError ? (
