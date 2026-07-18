@@ -856,8 +856,10 @@ export const SWEEP_FAIL_STREAK = "sweep_fail_streak";
  * Deduped per recipient AND per offending tenant+platform: the streak key
  * (`streak:<tenantId>:<platform>`) is carried in the `platform` column, and a
  * new row is only inserted when there is no existing UNREAD row for the same
- * key — so the alert fires once when the streak crosses the threshold and
- * stays silent while it continues. The dedupe re-arms when the streak resets
+ * key — so the alert fires once when the streak crosses the threshold. While
+ * the streak continues, the existing unread row's title/message are updated
+ * in place (no new rows, no re-emails) so the banner always shows the latest
+ * count and duration. The dedupe re-arms when the streak resets
  * (see resolveSweepFailStreakNotifications) or when the admin dismisses the
  * banner. Never throws.
  */
@@ -923,7 +925,16 @@ export async function notifySweepFailStreak(offender: {
             ),
           )
           .limit(1);
-        if (existing.length > 0) continue;
+        if (existing.length > 0) {
+          // The streak is still running — don't stack banners or re-email,
+          // but refresh the unread row so the banner shows the LATEST count
+          // and duration instead of the stale threshold-crossing snapshot.
+          await db
+            .update(notificationsTable)
+            .set({ title, message, createdAt: new Date() })
+            .where(eq(notificationsTable.id, existing[0].id));
+          continue;
+        }
 
         await db.insert(notificationsTable).values({
           tenantId: recipient.id,

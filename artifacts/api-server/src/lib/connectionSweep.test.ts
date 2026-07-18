@@ -786,7 +786,7 @@ describe("processFailStreakAlerts", () => {
     lastAt: new Date().toISOString(),
   });
 
-  it("alerts a superadmin once a streak crosses the threshold, deduped while it continues, and not a regular tenant", async () => {
+  it("alerts a superadmin once a streak crosses the threshold, updates the unread banner in place while it continues, and not a regular tenant", async () => {
     const admin = await createTenant({ isSuperadmin: true });
     const regular = await createTenant();
     const offender = await createTenant();
@@ -805,10 +805,25 @@ describe("processFailStreakAlerts", () => {
       await processFailStreakAlerts({
         [key]: streak(SWEEP_FAIL_STREAK_ALERT_THRESHOLD),
       });
-      // ...and a continuing streak stays silent (deduped).
+      adminNotifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_fail_streak",
+      );
+      expect(adminNotifs).toHaveLength(1);
+      expect(adminNotifs[0]!.message).toContain(
+        `failed ${SWEEP_FAIL_STREAK_ALERT_THRESHOLD} sweeps in a row`,
+      );
+
+      // ...and a continuing streak stays silent (no new row, no re-email)
+      // but the unread banner is updated in place with the latest count.
+      const { fetchVerifiedEmail } = await import("./clerkUser");
+      const emailLookupsBefore = vi.mocked(fetchVerifiedEmail).mock.calls
+        .length;
       await processFailStreakAlerts({
-        [key]: streak(SWEEP_FAIL_STREAK_ALERT_THRESHOLD + 1),
+        [key]: streak(SWEEP_FAIL_STREAK_ALERT_THRESHOLD + 5),
       });
+      expect(vi.mocked(fetchVerifiedEmail).mock.calls.length).toBe(
+        emailLookupsBefore,
+      );
 
       adminNotifs = (await getNotifications(admin.tenantId)).filter(
         (n) => n.type === "sweep_fail_streak",
@@ -821,6 +836,9 @@ describe("processFailStreakAlerts", () => {
       );
       expect(adminNotifs[0]!.message).toContain("Facebook Page");
       expect(adminNotifs[0]!.message).toContain("provider timeout");
+      expect(adminNotifs[0]!.message).toContain(
+        `failed ${SWEEP_FAIL_STREAK_ALERT_THRESHOLD + 5} sweeps in a row`,
+      );
 
       const regularNotifs = (await getNotifications(regular.tenantId)).filter(
         (n) => n.type === "sweep_fail_streak",
