@@ -145,9 +145,14 @@ export function TeamSettings() {
           title: "You left the workspace",
           description: "Setting up your own workspace...",
         });
-        // A fresh personal workspace is auto-provisioned on the next request;
-        // a full reload drops every cached query from the old workspace.
-        setTimeout(() => window.location.assign("/"), 800);
+        // Drop every cached query from the old workspace right away so no
+        // stale content/brand-kit/account data lingers, then do a full
+        // reload into the freshly auto-provisioned personal workspace.
+        queryClient.clear();
+        setTimeout(
+          () => window.location.assign(import.meta.env.BASE_URL),
+          800,
+        );
       },
       onError: (err: any) => {
         setLeaveConfirmOpen(false);
