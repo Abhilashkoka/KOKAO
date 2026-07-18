@@ -2283,6 +2283,92 @@ describe("X (Twitter) publish when the token dies MID-publish", () => {
     }
   });
 
+  it("records a breakage notification exactly once when a mid-publish 401 flips the account, and dedupes repeats", async () => {
+    const calls: MockCall[] = [];
+    mockXApiDeadWrite(calls);
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: "hello x world",
+      });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-twitter`,
+      );
+      expect(res.status).toBe(400);
+
+      // The verified -> failed flip fired the deduped in-app notification so
+      // the user isn't silently left with a broken connection.
+      const row = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(row?.verifyStatus).toBe("failed");
+      const notes = (await getNotifications(tenant.tenantId)).filter(
+        (n) => n.type === "social_connection_failed",
+      );
+      expect(notes.length).toBe(1);
+      expect(notes[0].platform).toBe("twitter");
+      expect(notes[0].message).toMatch(/reconnect/i);
+      expect(notes[0].message).not.toContain(RAW_X_ERROR);
+      expect(notes[0].readAt).toBeNull();
+
+      // A second failed publish must NOT create a duplicate notification.
+      // Reset the row to verified so the mid-publish path flips it again
+      // (a fresh verified -> failed transition); the unresolved existing
+      // notification is the dedupe guard.
+      await setAccountState(tenant.tenantId, "twitter", {
+        verifyStatus: "verified",
+        status: "connected",
+        verifyError: null,
+      });
+      const res2 = await request(app).post(
+        `/api/content/${itemId}/publish-twitter`,
+      );
+      expect(res2.status).toBe(400);
+
+      const rowAfter = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(rowAfter?.verifyStatus).toBe("failed");
+      const notesAfter = (await getNotifications(tenant.tenantId)).filter(
+        (n) => n.type === "social_connection_failed",
+      );
+      expect(notesAfter.length).toBe(1);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("records the breakage notification when the token dies on a follow-up tweet (item stays published)", async () => {
+    const caption = ("lorem ipsum dolor sit amet ").repeat(20).trim();
+    expect(splitIntoTweets(caption).length).toBeGreaterThan(1);
+
+    const calls: MockCall[] = [];
+    mockXApiDeadWrite(calls, { failFromTweet: 2 });
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      const itemId = await insertContentItem(tenant.tenantId, { caption });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-twitter`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.publishWarning).toMatch(/could not be posted/i);
+
+      // Even though the publish "succeeded", the mid-thread token death
+      // flipped the account and notified the tenant exactly once.
+      const notes = (await getNotifications(tenant.tenantId)).filter(
+        (n) => n.type === "social_connection_failed",
+      );
+      expect(notes.length).toBe(1);
+      expect(notes[0].platform).toBe("twitter");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("keeps the item published but flips the account when the token dies on a follow-up tweet", async () => {
     // A caption long enough to need a second tweet in the thread.
     const caption = ("lorem ipsum dolor sit amet ").repeat(20).trim();
