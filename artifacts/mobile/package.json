@@ -69,6 +69,7 @@
   },
   "dependencies": {
     "expo-application": "~7.0.8",
+    "expo-audio": "~1.1.1",
     "expo-battery": "~10.0.8",
     "expo-cellular": "~8.0.8",
     "expo-device": "~8.0.10",

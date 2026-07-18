@@ -32,6 +32,7 @@ import { Image } from "expo-image";
 import { CaptionSplitHints } from "@/components/CaptionSplitHints";
 import { track, trackFeatureUse } from "@/lib/analytics";
 import { ContentImage } from "@/components/ContentImage";
+import { VoiceNoteButton } from "@/components/VoiceNoteButton";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { Button, Card, Chip, EmptyState, Input, Label, Skeleton } from "@/components/ui";
 import colors from "@/constants/colors";
@@ -159,6 +160,7 @@ export default function StudioScreen() {
   const [error, setError] = useState<string | null>(null);
   const [quotaHit, setQuotaHit] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [voiceErr, setVoiceErr] = useState<string | null>(null);
   const [attachOpen, setAttachOpen] = useState(false);
   const [attachingId, setAttachingId] = useState<number | null>(null);
   const [replaceTarget, setReplaceTarget] = useState<ContentItem | null>(null);
@@ -388,6 +390,17 @@ export default function StudioScreen() {
           placeholder="e.g. Announcing our new summer collection"
           multiline
         />
+        <View style={{ marginTop: 8, alignSelf: "flex-start" }}>
+          <VoiceNoteButton
+            onTranscript={(text) => {
+              setPrompt((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
+              setSaved(false);
+              setVoiceErr(null);
+            }}
+            onError={(msg) => setVoiceErr(msg)}
+          />
+        </View>
+        {voiceErr ? <Text style={styles.voiceError}>{voiceErr}</Text> : null}
 
         {kits.length > 0 ? (
           <>
@@ -769,6 +782,12 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
   quotaText: { color: c.accentForeground },
+  voiceError: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    color: c.destructive,
+    marginTop: 6,
+  },
   captionText: {
     fontFamily: fonts.regular,
     fontSize: 14,
