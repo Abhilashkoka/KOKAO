@@ -116,6 +116,35 @@ const REVERIFIERS: Record<
 /** How many of the most recent failed checks to keep for the admin card. */
 export const SWEEP_RECENT_FAILURES_CAP = 10;
 
+/** Cap on the persisted fail_streaks map. Unlike recentFailures this map is
+ * carried ACROSS runs, so with thousands of chronically broken connections it
+ * would otherwise grow without bound and bloat the single sweep_status jsonb
+ * row. When trimming, the LONGEST streaks are kept (ties broken by most
+ * recent failure) so chronic offenders never lose their history to one-off
+ * blips. Overridable for tests/ops via SWEEP_FAIL_STREAKS_CAP. */
+export const SWEEP_FAIL_STREAKS_CAP = (() => {
+  const raw = Number(process.env.SWEEP_FAIL_STREAKS_CAP);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 200;
+})();
+
+/**
+ * Bound a fail-streak map to SWEEP_FAIL_STREAKS_CAP entries, keeping the
+ * longest streaks (ties broken by most recent lastAt). Returns the same map
+ * when already within the cap.
+ */
+export function capFailStreaks(
+  streaks: Record<string, SweepStreak>,
+): Record<string, SweepStreak> {
+  const entries = Object.entries(streaks);
+  if (entries.length <= SWEEP_FAIL_STREAKS_CAP) return streaks;
+  entries.sort(
+    (a, b) =>
+      b[1].count - a[1].count ||
+      Date.parse(b[1].lastAt) - Date.parse(a[1].lastAt),
+  );
+  return Object.fromEntries(entries.slice(0, SWEEP_FAIL_STREAKS_CAP));
+}
+
 /** A tenant+platform check failing this many sweeps IN A ROW (~1 hour at the
  * 15-minute interval) is a chronic breakage worth pushing to superadmins,
  * not just showing on the dashboard. Overridable for tests/ops. */
@@ -189,7 +218,7 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
     result.lastError = err instanceof Error ? err.message : String(err);
     // Nothing was actually checked, so carry the prior streaks unchanged —
     // a bookkeeping failure must not erase a chronic offender's history.
-    result.failStreaks = priorStreaks;
+    result.failStreaks = capFailStreaks(priorStreaks);
     return result;
   }
 
@@ -261,6 +290,11 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
     );
     result.recentFailures = result.recentFailures.filter((f) => keep.has(f));
   }
+  // Bound the cross-run streak map the same way: keep the longest streaks so
+  // the single sweep_status jsonb row can't grow without limit when many
+  // connections stay broken. Entries only exist for accounts that were
+  // actually checked this run, so deleted account rows fall out naturally.
+  result.failStreaks = capFailStreaks(result.failStreaks);
   return result;
 }
 

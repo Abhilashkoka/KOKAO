@@ -44,7 +44,10 @@ import {
   checkSweepStaleness,
   processFailStreakAlerts,
   SWEEP_FAIL_STREAK_ALERT_THRESHOLD,
+  capFailStreaks,
+  SWEEP_FAIL_STREAKS_CAP,
 } from "./connectionSweep";
+import type { SweepStreak } from "@workspace/db";
 import {
   createTenant,
   deleteTenant,
@@ -730,6 +733,48 @@ describe("checkSweepStaleness", () => {
     } finally {
       await deleteTenant(admin.tenantId);
     }
+  });
+});
+
+describe("capFailStreaks", () => {
+  const streakAt = (count: number, lastAt: string): SweepStreak => ({
+    count,
+    firstFailedAt: "2026-07-17T09:00:00.000Z",
+    lastError: "provider timeout",
+    lastAt,
+  });
+
+  it("returns the same map untouched when within the cap", () => {
+    const streaks = {
+      "1:facebook": streakAt(3, "2026-07-18T10:00:00.000Z"),
+      "2:linkedin": streakAt(1, "2026-07-18T10:01:00.000Z"),
+    };
+    expect(capFailStreaks(streaks)).toBe(streaks);
+  });
+
+  it("keeps the longest streaks when over the cap, breaking ties by recency", () => {
+    const streaks: Record<string, SweepStreak> = {};
+    // Fill to exactly the cap with count=1 entries, oldest lastAt first.
+    for (let i = 0; i < SWEEP_FAIL_STREAKS_CAP; i++) {
+      streaks[`${i}:facebook`] = streakAt(
+        1,
+        new Date(Date.UTC(2026, 6, 18, 0, 0, i)).toISOString(),
+      );
+    }
+    // Two extra entries: one chronic long streak (must survive) and one
+    // one-off blip that is OLDER than everything else (must be dropped).
+    streaks["9001:linkedin"] = streakAt(8, "2026-07-17T00:00:00.000Z");
+    streaks["9002:threads"] = streakAt(1, "2026-07-16T00:00:00.000Z");
+
+    const capped = capFailStreaks(streaks);
+    expect(Object.keys(capped)).toHaveLength(SWEEP_FAIL_STREAKS_CAP);
+    // The chronic streak survives despite being older than the blips.
+    expect(capped["9001:linkedin"]).toEqual(streaks["9001:linkedin"]);
+    // The two oldest count=1 entries are the ones trimmed.
+    expect(capped["9002:threads"]).toBeUndefined();
+    expect(capped["0:facebook"]).toBeUndefined();
+    // Survivors keep their exact streak data.
+    expect(capped["1:facebook"]).toEqual(streaks["1:facebook"]);
   });
 });
 
