@@ -32,6 +32,7 @@ import {
 import { SchedulePicker } from "@/components/SchedulePicker";
 import { ContentImage } from "@/components/ContentImage";
 import { buildSplitWarnings } from "@/components/publishSplitWarnings";
+import { buildExpiredNames, buildExpiredBannerText } from "@/components/expiredConnectionBanner";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { Button, Card, Chip, ErrorState, Input, Label, Skeleton } from "@/components/ui";
 import colors from "@/constants/colors";
@@ -179,11 +180,11 @@ export default function ContentDetailScreen() {
     threadsReady: thReady,
   });
 
-  const expiredNames = [
-    liExpired ? "LinkedIn" : null,
-    twExpired ? "X" : null,
-    thExpired ? "Threads" : null,
-  ].filter((n): n is string => n !== null);
+  const expiredNames = buildExpiredNames({
+    linkedinExpired: liExpired,
+    twitterExpired: twExpired,
+    threadsExpired: thExpired,
+  });
 
   const invalidateContent = () => {
     queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
@@ -741,7 +742,7 @@ export default function ContentDetailScreen() {
             <View style={styles.brokenBox}>
               <Feather name="alert-triangle" size={14} color={c.destructive} />
               <Text style={styles.brokenText}>
-                {`Your ${expiredNames.join(" and ")} connection${expiredNames.length > 1 ? "s" : ""} expired. Reconnect ${expiredNames.length > 1 ? "them" : "it"} from KOKAO on the web.`}
+                {buildExpiredBannerText(expiredNames)}
               </Text>
             </View>
           ) : null}
