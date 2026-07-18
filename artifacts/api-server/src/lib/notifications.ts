@@ -41,8 +41,9 @@ export const SEAT_REQUEST_SUBMITTED = "seat_request_submitted";
  * - OWNER-ONLY (deliberately not this helper): social_connection_failed
  *   (account/credential health belongs to the workspace owner), and the
  *   team-invite email itself (goes to the invitee, not the team).
- * - superadmins: seat_request_submitted, sweep_stalled (platform-operator
- *   alerts, outside the workspace entirely).
+ * - superadmins: seat_request_submitted, sweep_stalled, sweep_fail_streak
+ *   (platform-operator alerts, outside the workspace entirely; each admin's
+ *   own effective settings decide the channels).
  * - in-app only: publish_interrupted.
  */
 export async function fetchWorkspaceEmailRecipients(
@@ -751,10 +752,11 @@ export async function notifyPublishInterrupted(
 /**
  * Alert every superadmin that the background connection sweep has stopped
  * running (its last recorded run is older than the stale threshold). This is
- * an operational alert for platform admins, NOT a tenant-facing notification,
- * so it deliberately bypasses the tenant notification-preference catalog:
- * it is always recorded in-app and best-effort emailed to each superadmin's
- * verified address.
+ * an operational alert for platform admins, NOT a tenant-facing notification.
+ * It IS part of the notification catalog: each superadmin's own effective
+ * settings for `sweep_stalled` decide the channels, so an admin can turn off
+ * the email channel while keeping the in-app banner. Defaults keep the
+ * historical behavior (in-app + best-effort email).
  *
  * Recipients are tenants with the grantable `isSuperadmin` DB flag OR whose
  * cached email is on the SUPERADMIN_EMAILS allowlist (the cached email is a
@@ -811,6 +813,9 @@ export async function notifySweepStalled(
         .limit(1);
       if (existing.length > 0) continue;
 
+      const effective = await getEffectiveSetting(tenant.id, SWEEP_STALLED);
+      if (!effective.enabled) continue;
+
       await db.insert(notificationsTable).values({
         tenantId: tenant.id,
         type: SWEEP_STALLED,
@@ -818,19 +823,22 @@ export async function notifySweepStalled(
         title: "Background safety check stalled",
         message,
         linkUrl: "/admin",
-        inApp: true,
+        inApp: effective.inApp,
       });
 
-      // Fresh alert only (past the dedupe guard) -> best-effort email.
+      // Fresh alert only (past the dedupe guard) -> best-effort email,
+      // gated on this admin's own email-channel choice.
       try {
-        const email = await fetchVerifiedEmail(tenant.clerkUserId);
-        if (email) {
-          await sendEmail({
-            to: email,
-            subject: "Background safety check stalled",
-            text: message,
-            html: `<p>${escapeHtml(message)}</p>`,
-          });
+        if (effective.email) {
+          const email = await fetchVerifiedEmail(tenant.clerkUserId);
+          if (email) {
+            await sendEmail({
+              to: email,
+              subject: "Background safety check stalled",
+              text: message,
+              html: `<p>${escapeHtml(message)}</p>`,
+            });
+          }
         }
       } catch (err) {
         logger.error(
@@ -849,9 +857,11 @@ export const SWEEP_FAIL_STREAK = "sweep_fail_streak";
 /**
  * Alert every superadmin that one tenant's connection check has now failed
  * many sweeps IN A ROW (a chronic breakage, not a one-off blip). Like
- * sweep_stalled this is an operational platform-admin alert, so it bypasses
- * the tenant notification-preference catalog: always recorded in-app and
- * best-effort emailed to each superadmin's verified address.
+ * sweep_stalled this is an operational platform-admin alert that is part of
+ * the notification catalog: each superadmin's own effective settings for
+ * `sweep_fail_streak` decide the channels, so an admin can turn off the email
+ * channel while keeping the in-app banner. Defaults keep the historical
+ * behavior (in-app + best-effort email to the verified address).
  *
  * Deduped per recipient AND per offending tenant+platform: the streak key
  * (`streak:<tenantId>:<platform>`) is carried in the `platform` column, and a
@@ -936,6 +946,12 @@ export async function notifySweepFailStreak(offender: {
           continue;
         }
 
+        const effective = await getEffectiveSetting(
+          recipient.id,
+          SWEEP_FAIL_STREAK,
+        );
+        if (!effective.enabled) continue;
+
         await db.insert(notificationsTable).values({
           tenantId: recipient.id,
           type: SWEEP_FAIL_STREAK,
@@ -944,19 +960,22 @@ export async function notifySweepFailStreak(offender: {
           title,
           message,
           linkUrl: "/admin",
-          inApp: true,
+          inApp: effective.inApp,
         });
 
-        // Fresh alert only (past the dedupe guard) -> best-effort email.
+        // Fresh alert only (past the dedupe guard) -> best-effort email,
+        // gated on this admin's own email-channel choice.
         try {
-          const email = await fetchVerifiedEmail(recipient.clerkUserId);
-          if (email) {
-            await sendEmail({
-              to: email,
-              subject: title,
-              text: message,
-              html: `<p>${escapeHtml(message)}</p>`,
-            });
+          if (effective.email) {
+            const email = await fetchVerifiedEmail(recipient.clerkUserId);
+            if (email) {
+              await sendEmail({
+                to: email,
+                subject: title,
+                text: message,
+                html: `<p>${escapeHtml(message)}</p>`,
+              });
+            }
           }
         } catch (err) {
           logger.error(

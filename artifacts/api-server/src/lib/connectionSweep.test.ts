@@ -48,9 +48,12 @@ import {
   SWEEP_FAIL_STREAKS_CAP,
 } from "./connectionSweep";
 import type { SweepStreak } from "@workspace/db";
+import { fetchVerifiedEmail } from "./clerkUser";
+import { sendEmail } from "./email";
 import {
   createTenant,
   deleteTenant,
+  setNotificationPreference,
   insertConnectedAccount,
   insertLinkedinAccount,
   insertThreadsAccount,
@@ -668,6 +671,45 @@ describe("checkSweepStaleness", () => {
     }
   });
 
+  it("an admin who turned off the email channel keeps the in-app banner but gets no email", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const adminEmail = `sweep-optout-${admin.tenantId}@example.com`;
+    try {
+      await setNotificationPreference(admin.tenantId, "sweep_stalled", {
+        inApp: true,
+        email: false,
+      });
+      vi.mocked(fetchVerifiedEmail).mockImplementation(async (clerkUserId) =>
+        clerkUserId === admin.clerkUserId ? adminEmail : null,
+      );
+
+      await recordSweepRun(new Date(Date.now() - 60 * 60 * 1000), 500, {
+        accountsChecked: 0,
+        errorCount: 0,
+        lastError: null,
+        recentFailures: [],
+        failStreaks: {},
+      });
+      await checkSweepStaleness(true);
+
+      const notifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_stalled",
+      );
+      expect(notifs).toHaveLength(1);
+      expect(notifs[0]!.inApp).toBe(true);
+
+      // No email went to the opted-out admin (other admins in the shared dev
+      // DB may still be emailed, so assert on the recipient, not call count).
+      const sentTo = vi
+        .mocked(sendEmail)
+        .mock.calls.map((c) => (c[0] as { to: string }).to);
+      expect(sentTo).not.toContain(adminEmail);
+    } finally {
+      vi.mocked(fetchVerifiedEmail).mockResolvedValue(null);
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
   it("does not alert when the last run is fresh", async () => {
     const admin = await createTenant({ isSuperadmin: true });
     try {
@@ -847,6 +889,68 @@ describe("processFailStreakAlerts", () => {
     } finally {
       await deleteTenant(admin.tenantId);
       await deleteTenant(regular.tenantId);
+      await deleteTenant(offender.tenantId);
+    }
+  });
+
+  it("an admin who turned off the email channel keeps the in-app banner but gets no email", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const offender = await createTenant();
+    const adminEmail = `streak-optout-${admin.tenantId}@example.com`;
+    try {
+      await setNotificationPreference(admin.tenantId, "sweep_fail_streak", {
+        inApp: true,
+        email: false,
+      });
+      vi.mocked(fetchVerifiedEmail).mockImplementation(async (clerkUserId) =>
+        clerkUserId === admin.clerkUserId ? adminEmail : null,
+      );
+
+      await processFailStreakAlerts({
+        [`${offender.tenantId}:facebook`]: streak(
+          SWEEP_FAIL_STREAK_ALERT_THRESHOLD,
+        ),
+      });
+
+      const notifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_fail_streak",
+      );
+      expect(notifs).toHaveLength(1);
+      expect(notifs[0]!.inApp).toBe(true);
+
+      const sentTo = vi
+        .mocked(sendEmail)
+        .mock.calls.map((c) => (c[0] as { to: string }).to);
+      expect(sentTo).not.toContain(adminEmail);
+    } finally {
+      vi.mocked(fetchVerifiedEmail).mockResolvedValue(null);
+      await deleteTenant(admin.tenantId);
+      await deleteTenant(offender.tenantId);
+    }
+  });
+
+  it("by default (no stored preference) a fresh alert still emails the admin", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const offender = await createTenant();
+    const adminEmail = `streak-default-${admin.tenantId}@example.com`;
+    try {
+      vi.mocked(fetchVerifiedEmail).mockImplementation(async (clerkUserId) =>
+        clerkUserId === admin.clerkUserId ? adminEmail : null,
+      );
+
+      await processFailStreakAlerts({
+        [`${offender.tenantId}:facebook`]: streak(
+          SWEEP_FAIL_STREAK_ALERT_THRESHOLD,
+        ),
+      });
+
+      const sentTo = vi
+        .mocked(sendEmail)
+        .mock.calls.map((c) => (c[0] as { to: string }).to);
+      expect(sentTo).toContain(adminEmail);
+    } finally {
+      vi.mocked(fetchVerifiedEmail).mockResolvedValue(null);
+      await deleteTenant(admin.tenantId);
       await deleteTenant(offender.tenantId);
     }
   });

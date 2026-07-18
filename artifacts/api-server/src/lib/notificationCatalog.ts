@@ -55,6 +55,18 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
       "You were removed from a team workspace you belonged to and no longer have access to its content.",
   },
   {
+    type: "sweep_stalled",
+    label: "Stalled safety checks (platform admins)",
+    description:
+      "The background connection safety check has stopped completing runs and expired social connections will go undetected until it recovers. Only platform admins receive this.",
+  },
+  {
+    type: "sweep_fail_streak",
+    label: "Chronic connection failures (platform admins)",
+    description:
+      "One workspace's social connection check has failed many sweeps in a row — a chronic breakage worth reviewing. Only platform admins receive this.",
+  },
+  {
     type: "publish_interrupted",
     label: "Interrupted publishes",
     description:
