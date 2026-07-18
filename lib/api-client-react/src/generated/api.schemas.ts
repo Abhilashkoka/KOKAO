@@ -1759,6 +1759,16 @@ export interface ImageRequest {
   size?: ImageRequestSize;
   /** @nullable */
   brandKitId?: number | null;
+  /**
+     * Ties this image's data usage to a generated campaign
+     * @nullable
+     */
+  campaignId?: string | null;
+  /**
+     * Target platform, for per-platform data metering
+     * @nullable
+     */
+  platform?: string | null;
 }
 
 export interface ImageResult {
@@ -1842,6 +1852,8 @@ export interface CampaignPost {
 
 export interface CampaignResult {
   posts: CampaignPost[];
+  /** Correlates follow-up image generations and data metering */
+  campaignId?: string;
 }
 
 export interface ScheduledPost {
@@ -1930,6 +1942,309 @@ export interface UploadUrlResponse {
   objectPath: string;
   metadata?: UploadUrlRequest;
 }
+
+export interface ConsentState {
+  analytics: boolean;
+  deviceDetails: boolean;
+  locationCoarse: boolean;
+  locationPrecise: boolean;
+  carrier: boolean;
+  /** Whether the user has answered the consent disclosure. */
+  responded: boolean;
+}
+
+export interface ConsentInput {
+  analytics?: boolean;
+  deviceDetails?: boolean;
+  locationCoarse?: boolean;
+  locationPrecise?: boolean;
+  carrier?: boolean;
+}
+
+export type AnalyticsEventInputParams = { [key: string]: unknown };
+
+export interface AnalyticsEventInput {
+  /**
+     * snake_case event name.
+     * @minLength 1
+     * @maxLength 80
+     */
+  name: string;
+  params?: AnalyticsEventInputParams;
+  clientTimestamp?: string;
+}
+
+export type AnalyticsContextInputPlatform = typeof AnalyticsContextInputPlatform[keyof typeof AnalyticsContextInputPlatform];
+
+
+export const AnalyticsContextInputPlatform = {
+  web: 'web',
+  ios: 'ios',
+  android: 'android',
+} as const;
+
+export interface AnalyticsContextInput {
+  platform?: AnalyticsContextInputPlatform;
+  appVersion?: string;
+  osVersion?: string;
+  browser?: string;
+  deviceModel?: string;
+  networkType?: string;
+  carrier?: string;
+  language?: string;
+  latitude?: number;
+  longitude?: number;
+  source?: string;
+  medium?: string;
+  campaign?: string;
+}
+
+export interface AnalyticsIngestInput {
+  /** @maxLength 64 */
+  anonymousId?: string;
+  /** @maxLength 64 */
+  sessionId?: string;
+  context?: AnalyticsContextInput;
+  /**
+     * @minItems 1
+     * @maxItems 100
+     */
+  events: AnalyticsEventInput[];
+}
+
+export interface AnalyticsIngestResult {
+  accepted: number;
+  dropped: number;
+}
+
+export interface NameCount {
+  name: string;
+  count: number;
+}
+
+export interface DateCount {
+  date: string;
+  count: number;
+}
+
+/**
+ * Retention rates 0-1 for sign-up cohorts in the window.
+ */
+export type AudienceAnalyticsRetention = {
+  d1: number;
+  d7: number;
+  d30: number;
+};
+
+export interface AudienceAnalytics {
+  dau: DateCount[];
+  mau: number;
+  /** DAU/MAU ratio (0-1) for the latest day. */
+  stickiness: number;
+  sessions: number;
+  avgSessionLengthSec: number;
+  /** Retention rates 0-1 for sign-up cohorts in the window. */
+  retention: AudienceAnalyticsRetention;
+  countries: NameCount[];
+  platforms: NameCount[];
+  browsers: NameCount[];
+  deviceModels: NameCount[];
+}
+
+export type AcquisitionAnalyticsSourcesItem = {
+  source: string;
+  medium: string;
+  campaign: string;
+  count: number;
+};
+
+export interface AcquisitionAnalytics {
+  firstOpens: number;
+  signUps: number;
+  logins: number;
+  signUpMethods: NameCount[];
+  sources: AcquisitionAnalyticsSourcesItem[];
+  landingPages: NameCount[];
+}
+
+export type FunnelAnalyticsOnboarding = {
+  started: number;
+  completed: number;
+  completionRate: number;
+  avgCompletionTimeSec: number;
+};
+
+export type FunnelAnalyticsFunnelItem = {
+  step: string;
+  count: number;
+  dropOffPct: number;
+};
+
+export interface FunnelAnalytics {
+  onboarding: FunnelAnalyticsOnboarding;
+  /** Share of signed-up users with at least one key action. */
+  activationRate: number;
+  funnel: FunnelAnalyticsFunnelItem[];
+}
+
+export type EngagementAnalyticsNavigationPathsItem = {
+  from: string;
+  to: string;
+  count: number;
+};
+
+export type EngagementAnalyticsSearch = {
+  total: number;
+  zeroResultRate: number;
+  topTerms: NameCount[];
+};
+
+export type EngagementAnalyticsFeaturesItem = {
+  feature: string;
+  uses: number;
+  uniqueUsers: number;
+};
+
+export interface EngagementAnalytics {
+  pageViews: number;
+  topPages: NameCount[];
+  navigationPaths: EngagementAnalyticsNavigationPathsItem[];
+  search: EngagementAnalyticsSearch;
+  features: EngagementAnalyticsFeaturesItem[];
+  keyActions: NameCount[];
+}
+
+export type RevenueAnalyticsByPlanItem = {
+  name: string;
+  count: number;
+  totalPaise: number;
+};
+
+export type RevenueAnalyticsByCreditPackItem = {
+  name: string;
+  count: number;
+  totalPaise: number;
+};
+
+export interface RevenueAnalytics {
+  purchaseCount: number;
+  purchaseTotalPaise: number;
+  refundCount: number;
+  refundTotalPaise: number;
+  arpuPaise: number;
+  subscriptionsStarted: number;
+  subscriptionsRenewed: number;
+  subscriptionsCancelled: number;
+  cancelReasons: NameCount[];
+  byPlan: RevenueAnalyticsByPlanItem[];
+  byCreditPack: RevenueAnalyticsByCreditPackItem[];
+}
+
+export type DataConsumptionAnalyticsTotalsItem = {
+  kind: string;
+  count: number;
+  requestBytes: number;
+  responseBytes: number;
+  totalBytes: number;
+};
+
+export type DataConsumptionAnalyticsMonthlyItem = {
+  month: string;
+  kind: string;
+  count: number;
+  totalBytes: number;
+};
+
+export type DataConsumptionAnalyticsByTenantItem = {
+  tenantId: number;
+  /** @nullable */
+  tenantName: string | null;
+  count: number;
+  totalBytes: number;
+};
+
+export type DataConsumptionAnalyticsRecentCampaignsItemPlatformsItem = {
+  platform: string;
+  totalBytes: number;
+};
+
+export type DataConsumptionAnalyticsRecentCampaignsItem = {
+  campaignId: string;
+  platforms: DataConsumptionAnalyticsRecentCampaignsItemPlatformsItem[];
+  totalBytes: number;
+  createdAt: string;
+};
+
+export interface DataConsumptionAnalytics {
+  totals: DataConsumptionAnalyticsTotalsItem[];
+  monthly: DataConsumptionAnalyticsMonthlyItem[];
+  /** Superadmin scope only; empty for workspace admins. */
+  byTenant: DataConsumptionAnalyticsByTenantItem[];
+  recentCampaigns: DataConsumptionAnalyticsRecentCampaignsItem[];
+}
+
+export type ReliabilityAnalyticsStartupItem = {
+  platform: string;
+  avgMs: number;
+  p95Ms: number;
+  count: number;
+};
+
+export type ReliabilityAnalyticsApiLatencyItem = {
+  group: string;
+  count: number;
+  errorRate: number;
+  p50Ms: number;
+  p95Ms: number;
+  p99Ms: number;
+};
+
+export interface ReliabilityAnalytics {
+  errorCount: number;
+  errorsByType: NameCount[];
+  errorsByScreen: NameCount[];
+  crashCount: number;
+  crashFreeSessionRate: number;
+  anrCount: number;
+  startup: ReliabilityAnalyticsStartupItem[];
+  apiLatency: ReliabilityAnalyticsApiLatencyItem[];
+}
+
+export type ConsentAnalyticsOptIns = {
+  analytics: number;
+  deviceDetails: number;
+  locationCoarse: number;
+  locationPrecise: number;
+  carrier: number;
+};
+
+export type ConsentAnalyticsTrendsItem = {
+  date: string;
+  optIns: number;
+  optOuts: number;
+};
+
+export interface ConsentAnalytics {
+  totalUsers: number;
+  respondedUsers: number;
+  optIns: ConsentAnalyticsOptIns;
+  trends: ConsentAnalyticsTrendsItem[];
+}
+
+/**
+ * Start of the reporting window (defaults to 30 days ago).
+ */
+export type AnalyticsFromParameter = string;
+
+/**
+ * End of the reporting window (defaults to now).
+ */
+export type AnalyticsToParameter = string;
+
+/**
+ * Superadmin-only per-tenant drilldown; ignored otherwise.
+ */
+export type AnalyticsTenantIdParameter = number;
 
 export type AdminListAuditLogsParams = {
 /**
@@ -2065,5 +2380,125 @@ export type BillingPurchaseCredits200 = {
 export type BillingVerifyPurchase200 = {
   ok: boolean;
   credits: CreditBalances;
+};
+
+export type GetAudienceAnalyticsParams = {
+/**
+ * Start of the reporting window (defaults to 30 days ago).
+ */
+from?: AnalyticsFromParameter;
+/**
+ * End of the reporting window (defaults to now).
+ */
+to?: AnalyticsToParameter;
+/**
+ * Superadmin-only per-tenant drilldown; ignored otherwise.
+ */
+tenantId?: AnalyticsTenantIdParameter;
+};
+
+export type GetAcquisitionAnalyticsParams = {
+/**
+ * Start of the reporting window (defaults to 30 days ago).
+ */
+from?: AnalyticsFromParameter;
+/**
+ * End of the reporting window (defaults to now).
+ */
+to?: AnalyticsToParameter;
+/**
+ * Superadmin-only per-tenant drilldown; ignored otherwise.
+ */
+tenantId?: AnalyticsTenantIdParameter;
+};
+
+export type GetFunnelAnalyticsParams = {
+/**
+ * Start of the reporting window (defaults to 30 days ago).
+ */
+from?: AnalyticsFromParameter;
+/**
+ * End of the reporting window (defaults to now).
+ */
+to?: AnalyticsToParameter;
+/**
+ * Superadmin-only per-tenant drilldown; ignored otherwise.
+ */
+tenantId?: AnalyticsTenantIdParameter;
+};
+
+export type GetEngagementAnalyticsParams = {
+/**
+ * Start of the reporting window (defaults to 30 days ago).
+ */
+from?: AnalyticsFromParameter;
+/**
+ * End of the reporting window (defaults to now).
+ */
+to?: AnalyticsToParameter;
+/**
+ * Superadmin-only per-tenant drilldown; ignored otherwise.
+ */
+tenantId?: AnalyticsTenantIdParameter;
+};
+
+export type GetRevenueAnalyticsParams = {
+/**
+ * Start of the reporting window (defaults to 30 days ago).
+ */
+from?: AnalyticsFromParameter;
+/**
+ * End of the reporting window (defaults to now).
+ */
+to?: AnalyticsToParameter;
+/**
+ * Superadmin-only per-tenant drilldown; ignored otherwise.
+ */
+tenantId?: AnalyticsTenantIdParameter;
+};
+
+export type GetDataConsumptionAnalyticsParams = {
+/**
+ * Start of the reporting window (defaults to 30 days ago).
+ */
+from?: AnalyticsFromParameter;
+/**
+ * End of the reporting window (defaults to now).
+ */
+to?: AnalyticsToParameter;
+/**
+ * Superadmin-only per-tenant drilldown; ignored otherwise.
+ */
+tenantId?: AnalyticsTenantIdParameter;
+};
+
+export type GetReliabilityAnalyticsParams = {
+/**
+ * Start of the reporting window (defaults to 30 days ago).
+ */
+from?: AnalyticsFromParameter;
+/**
+ * End of the reporting window (defaults to now).
+ */
+to?: AnalyticsToParameter;
+/**
+ * Superadmin-only per-tenant drilldown; ignored otherwise.
+ */
+tenantId?: AnalyticsTenantIdParameter;
+};
+
+export type GetConsentAnalyticsParams = {
+/**
+ * Start of the reporting window (defaults to 30 days ago).
+ */
+from?: AnalyticsFromParameter;
+/**
+ * End of the reporting window (defaults to now).
+ */
+to?: AnalyticsToParameter;
+/**
+ * Superadmin-only per-tenant drilldown; ignored otherwise.
+ */
+tenantId?: AnalyticsTenantIdParameter;
 };
 

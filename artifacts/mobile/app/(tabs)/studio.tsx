@@ -30,6 +30,7 @@ import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
 import { Image } from "expo-image";
 
 import { CaptionSplitHints } from "@/components/CaptionSplitHints";
+import { track, trackFeatureUse } from "@/lib/analytics";
 import { ContentImage } from "@/components/ContentImage";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { Button, Card, Chip, EmptyState, Input, Label, Skeleton } from "@/components/ui";
@@ -216,6 +217,8 @@ export default function StudioScreen() {
       { data: { prompt: `${prompt.trim()}${tweakInstruction}`, platform, tone, brandKitId } },
       {
         onSuccess: (res) => {
+          track("caption_generated", { platform, tone });
+          trackFeatureUse("studio_caption");
           setCaption(res.caption);
           setHashtags(res.hashtags);
         },
@@ -239,6 +242,8 @@ export default function StudioScreen() {
       { data: { prompt: `${prompt.trim()}${tweakInstruction}`, size: imageSize, brandKitId } },
       {
         onSuccess: (res) => {
+          track("image_generated", { size: imageSize });
+          trackFeatureUse("studio_image");
           setImageB64(res.b64Json);
           setImagePath(res.imagePath);
         },
@@ -272,6 +277,7 @@ export default function StudioScreen() {
       },
       {
         onSuccess: () => {
+          track("content_saved", {});
           setSaved(true);
           queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
         },

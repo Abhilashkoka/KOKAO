@@ -3849,7 +3849,9 @@ export const GenerateCaptionResponse = zod.object({
 export const GenerateImageBody = zod.object({
   "prompt": zod.string().min(1),
   "size": zod.enum(['1024x1024', '1536x1024', '1024x1536']).optional(),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "campaignId": zod.string().nullish().describe('Ties this image\'s data usage to a generated campaign'),
+  "platform": zod.string().nullish().describe('Target platform, for per-platform data metering')
 })
 
 export const GenerateImageResponse = zod.object({
@@ -3924,7 +3926,8 @@ export const GenerateCampaignResponse = zod.object({
   "caption": zod.string(),
   "hashtags": zod.array(zod.string()),
   "imagePrompt": zod.string()
-}))
+})),
+  "campaignId": zod.string().optional().describe('Correlates follow-up image generations and data metering')
 })
 
 
@@ -5132,5 +5135,363 @@ export const GetStorageObjectParams = zod.object({
 })
 
 export const GetStorageObjectResponse = zod.unknown()
+
+
+/**
+ * @summary Get the current user's data-collection consent state
+ */
+export const GetConsentResponse = zod.object({
+  "analytics": zod.boolean(),
+  "deviceDetails": zod.boolean(),
+  "locationCoarse": zod.boolean(),
+  "locationPrecise": zod.boolean(),
+  "carrier": zod.boolean(),
+  "responded": zod.boolean().describe('Whether the user has answered the consent disclosure.')
+})
+
+
+/**
+ * @summary Update the current user's data-collection consent
+ */
+export const UpdateConsentBody = zod.object({
+  "analytics": zod.boolean().optional(),
+  "deviceDetails": zod.boolean().optional(),
+  "locationCoarse": zod.boolean().optional(),
+  "locationPrecise": zod.boolean().optional(),
+  "carrier": zod.boolean().optional()
+})
+
+export const UpdateConsentResponse = zod.object({
+  "analytics": zod.boolean(),
+  "deviceDetails": zod.boolean(),
+  "locationCoarse": zod.boolean(),
+  "locationPrecise": zod.boolean(),
+  "carrier": zod.boolean(),
+  "responded": zod.boolean().describe('Whether the user has answered the consent disclosure.')
+})
+
+
+/**
+ * Public endpoint: pre-login clients send anonymous events (consent-gated fields are stripped and only core lifecycle events are accepted). Authenticated batches are enforced against the user's stored consent — the server decides what is stored, regardless of what was sent.
+ * @summary Ingest a batch of analytics events (consent enforced server-side)
+ */
+export const ingestAnalyticsEventsBodyAnonymousIdMax = 64;
+
+export const ingestAnalyticsEventsBodySessionIdMax = 64;
+
+export const ingestAnalyticsEventsBodyEventsItemNameMax = 80;
+
+export const ingestAnalyticsEventsBodyEventsMax = 100;
+
+
+
+export const IngestAnalyticsEventsBody = zod.object({
+  "anonymousId": zod.string().max(ingestAnalyticsEventsBodyAnonymousIdMax).optional(),
+  "sessionId": zod.string().max(ingestAnalyticsEventsBodySessionIdMax).optional(),
+  "context": zod.object({
+  "platform": zod.enum(['web', 'ios', 'android']).optional(),
+  "appVersion": zod.string().optional(),
+  "osVersion": zod.string().optional(),
+  "browser": zod.string().optional(),
+  "deviceModel": zod.string().optional(),
+  "networkType": zod.string().optional(),
+  "carrier": zod.string().optional(),
+  "language": zod.string().optional(),
+  "latitude": zod.number().optional(),
+  "longitude": zod.number().optional(),
+  "source": zod.string().optional(),
+  "medium": zod.string().optional(),
+  "campaign": zod.string().optional()
+}).optional(),
+  "events": zod.array(zod.object({
+  "name": zod.string().min(1).max(ingestAnalyticsEventsBodyEventsItemNameMax).describe('snake_case event name.'),
+  "params": zod.record(zod.string(), zod.unknown()).optional(),
+  "clientTimestamp": zod.coerce.date().optional()
+})).min(1).max(ingestAnalyticsEventsBodyEventsMax)
+})
+
+export const IngestAnalyticsEventsResponse = zod.object({
+  "accepted": zod.number(),
+  "dropped": zod.number()
+})
+
+
+/**
+ * @summary Audience metrics (DAU/MAU, retention, geo, platform mix)
+ */
+export const GetAudienceAnalyticsQueryParams = zod.object({
+  "from": zod.date().optional().describe('Start of the reporting window (defaults to 30 days ago).'),
+  "to": zod.date().optional().describe('End of the reporting window (defaults to now).'),
+  "tenantId": zod.coerce.number().optional().describe('Superadmin-only per-tenant drilldown; ignored otherwise.')
+})
+
+export const GetAudienceAnalyticsResponse = zod.object({
+  "dau": zod.array(zod.object({
+  "date": zod.string(),
+  "count": zod.number()
+})),
+  "mau": zod.number(),
+  "stickiness": zod.number().describe('DAU\/MAU ratio (0-1) for the latest day.'),
+  "sessions": zod.number(),
+  "avgSessionLengthSec": zod.number(),
+  "retention": zod.object({
+  "d1": zod.number(),
+  "d7": zod.number(),
+  "d30": zod.number()
+}).describe('Retention rates 0-1 for sign-up cohorts in the window.'),
+  "countries": zod.array(zod.object({
+  "name": zod.string(),
+  "count": zod.number()
+})),
+  "platforms": zod.array(zod.object({
+  "name": zod.string(),
+  "count": zod.number()
+})),
+  "browsers": zod.array(zod.object({
+  "name": zod.string(),
+  "count": zod.number()
+})),
+  "deviceModels": zod.array(zod.object({
+  "name": zod.string(),
+  "count": zod.number()
+}))
+})
+
+
+/**
+ * @summary Acquisition metrics (first opens, sign-ups, sources)
+ */
+export const GetAcquisitionAnalyticsQueryParams = zod.object({
+  "from": zod.date().optional().describe('Start of the reporting window (defaults to 30 days ago).'),
+  "to": zod.date().optional().describe('End of the reporting window (defaults to now).'),
+  "tenantId": zod.coerce.number().optional().describe('Superadmin-only per-tenant drilldown; ignored otherwise.')
+})
+
+export const GetAcquisitionAnalyticsResponse = zod.object({
+  "firstOpens": zod.number(),
+  "signUps": zod.number(),
+  "logins": zod.number(),
+  "signUpMethods": zod.array(zod.object({
+  "name": zod.string(),
+  "count": zod.number()
+})),
+  "sources": zod.array(zod.object({
+  "source": zod.string(),
+  "medium": zod.string(),
+  "campaign": zod.string(),
+  "count": zod.number()
+})),
+  "landingPages": zod.array(zod.object({
+  "name": zod.string(),
+  "count": zod.number()
+}))
+})
+
+
+/**
+ * @summary Activation and funnel metrics
+ */
+export const GetFunnelAnalyticsQueryParams = zod.object({
+  "from": zod.date().optional().describe('Start of the reporting window (defaults to 30 days ago).'),
+  "to": zod.date().optional().describe('End of the reporting window (defaults to now).'),
+  "tenantId": zod.coerce.number().optional().describe('Superadmin-only per-tenant drilldown; ignored otherwise.')
+})
+
+export const GetFunnelAnalyticsResponse = zod.object({
+  "onboarding": zod.object({
+  "started": zod.number(),
+  "completed": zod.number(),
+  "completionRate": zod.number(),
+  "avgCompletionTimeSec": zod.number()
+}),
+  "activationRate": zod.number().describe('Share of signed-up users with at least one key action.'),
+  "funnel": zod.array(zod.object({
+  "step": zod.string(),
+  "count": zod.number(),
+  "dropOffPct": zod.number()
+}))
+})
+
+
+/**
+ * @summary Engagement and feature-usage metrics
+ */
+export const GetEngagementAnalyticsQueryParams = zod.object({
+  "from": zod.date().optional().describe('Start of the reporting window (defaults to 30 days ago).'),
+  "to": zod.date().optional().describe('End of the reporting window (defaults to now).'),
+  "tenantId": zod.coerce.number().optional().describe('Superadmin-only per-tenant drilldown; ignored otherwise.')
+})
+
+export const GetEngagementAnalyticsResponse = zod.object({
+  "pageViews": zod.number(),
+  "topPages": zod.array(zod.object({
+  "name": zod.string(),
+  "count": zod.number()
+})),
+  "navigationPaths": zod.array(zod.object({
+  "from": zod.string(),
+  "to": zod.string(),
+  "count": zod.number()
+})),
+  "search": zod.object({
+  "total": zod.number(),
+  "zeroResultRate": zod.number(),
+  "topTerms": zod.array(zod.object({
+  "name": zod.string(),
+  "count": zod.number()
+}))
+}),
+  "features": zod.array(zod.object({
+  "feature": zod.string(),
+  "uses": zod.number(),
+  "uniqueUsers": zod.number()
+})),
+  "keyActions": zod.array(zod.object({
+  "name": zod.string(),
+  "count": zod.number()
+}))
+})
+
+
+/**
+ * @summary Revenue metrics (purchases, subscriptions, refunds)
+ */
+export const GetRevenueAnalyticsQueryParams = zod.object({
+  "from": zod.date().optional().describe('Start of the reporting window (defaults to 30 days ago).'),
+  "to": zod.date().optional().describe('End of the reporting window (defaults to now).'),
+  "tenantId": zod.coerce.number().optional().describe('Superadmin-only per-tenant drilldown; ignored otherwise.')
+})
+
+export const GetRevenueAnalyticsResponse = zod.object({
+  "purchaseCount": zod.number(),
+  "purchaseTotalPaise": zod.number(),
+  "refundCount": zod.number(),
+  "refundTotalPaise": zod.number(),
+  "arpuPaise": zod.number(),
+  "subscriptionsStarted": zod.number(),
+  "subscriptionsRenewed": zod.number(),
+  "subscriptionsCancelled": zod.number(),
+  "cancelReasons": zod.array(zod.object({
+  "name": zod.string(),
+  "count": zod.number()
+})),
+  "byPlan": zod.array(zod.object({
+  "name": zod.string(),
+  "count": zod.number(),
+  "totalPaise": zod.number()
+})),
+  "byCreditPack": zod.array(zod.object({
+  "name": zod.string(),
+  "count": zod.number(),
+  "totalPaise": zod.number()
+}))
+})
+
+
+/**
+ * @summary AI data-consumption metrics (bytes per caption/image/campaign)
+ */
+export const GetDataConsumptionAnalyticsQueryParams = zod.object({
+  "from": zod.date().optional().describe('Start of the reporting window (defaults to 30 days ago).'),
+  "to": zod.date().optional().describe('End of the reporting window (defaults to now).'),
+  "tenantId": zod.coerce.number().optional().describe('Superadmin-only per-tenant drilldown; ignored otherwise.')
+})
+
+export const GetDataConsumptionAnalyticsResponse = zod.object({
+  "totals": zod.array(zod.object({
+  "kind": zod.string(),
+  "count": zod.number(),
+  "requestBytes": zod.number(),
+  "responseBytes": zod.number(),
+  "totalBytes": zod.number()
+})),
+  "monthly": zod.array(zod.object({
+  "month": zod.string(),
+  "kind": zod.string(),
+  "count": zod.number(),
+  "totalBytes": zod.number()
+})),
+  "byTenant": zod.array(zod.object({
+  "tenantId": zod.number(),
+  "tenantName": zod.string().nullable(),
+  "count": zod.number(),
+  "totalBytes": zod.number()
+})).describe('Superadmin scope only; empty for workspace admins.'),
+  "recentCampaigns": zod.array(zod.object({
+  "campaignId": zod.string(),
+  "platforms": zod.array(zod.object({
+  "platform": zod.string(),
+  "totalBytes": zod.number()
+})),
+  "totalBytes": zod.number(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Reliability and performance metrics
+ */
+export const GetReliabilityAnalyticsQueryParams = zod.object({
+  "from": zod.date().optional().describe('Start of the reporting window (defaults to 30 days ago).'),
+  "to": zod.date().optional().describe('End of the reporting window (defaults to now).'),
+  "tenantId": zod.coerce.number().optional().describe('Superadmin-only per-tenant drilldown; ignored otherwise.')
+})
+
+export const GetReliabilityAnalyticsResponse = zod.object({
+  "errorCount": zod.number(),
+  "errorsByType": zod.array(zod.object({
+  "name": zod.string(),
+  "count": zod.number()
+})),
+  "errorsByScreen": zod.array(zod.object({
+  "name": zod.string(),
+  "count": zod.number()
+})),
+  "crashCount": zod.number(),
+  "crashFreeSessionRate": zod.number(),
+  "anrCount": zod.number(),
+  "startup": zod.array(zod.object({
+  "platform": zod.string(),
+  "avgMs": zod.number(),
+  "p95Ms": zod.number(),
+  "count": zod.number()
+})),
+  "apiLatency": zod.array(zod.object({
+  "group": zod.string(),
+  "count": zod.number(),
+  "errorRate": zod.number(),
+  "p50Ms": zod.number(),
+  "p95Ms": zod.number(),
+  "p99Ms": zod.number()
+}))
+})
+
+
+/**
+ * @summary Consent and privacy opt-in metrics
+ */
+export const GetConsentAnalyticsQueryParams = zod.object({
+  "from": zod.date().optional().describe('Start of the reporting window (defaults to 30 days ago).'),
+  "to": zod.date().optional().describe('End of the reporting window (defaults to now).'),
+  "tenantId": zod.coerce.number().optional().describe('Superadmin-only per-tenant drilldown; ignored otherwise.')
+})
+
+export const GetConsentAnalyticsResponse = zod.object({
+  "totalUsers": zod.number(),
+  "respondedUsers": zod.number(),
+  "optIns": zod.object({
+  "analytics": zod.number(),
+  "deviceDetails": zod.number(),
+  "locationCoarse": zod.number(),
+  "locationPrecise": zod.number(),
+  "carrier": zod.number()
+}),
+  "trends": zod.array(zod.object({
+  "date": zod.string(),
+  "optIns": zod.number(),
+  "optOuts": zod.number()
+}))
+})
 
 

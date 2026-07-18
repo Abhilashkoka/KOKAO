@@ -13,6 +13,7 @@ import { globalLimiter } from "./middlewares/rateLimit";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { buildAllowedOrigins } from "./lib/corsOrigins";
+import { apiLatencySampler } from "./middlewares/apiLatency";
 
 /**
  * Origins allowed to make credentialed (cookie-authed) cross-origin requests.
@@ -89,6 +90,7 @@ app.use(
   })),
 );
 
+app.use(apiLatencySampler);
 app.use("/api", router);
 
 export default app;

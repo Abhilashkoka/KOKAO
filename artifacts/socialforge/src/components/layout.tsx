@@ -9,6 +9,7 @@ import {
   Share2, 
   Settings,
   Shield,
+  BarChart3,
   Menu,
   LogOut
 } from "lucide-react";
@@ -31,6 +32,8 @@ const NAV_ITEMS = [
   { href: "/accounts", label: "Accounts", icon: Share2 },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
+
+const ANALYTICS_NAV_ITEM = { href: "/analytics", label: "Analytics", icon: BarChart3 };
 
 const ADMIN_NAV_ITEMS = [
   { href: "/admin", label: "Admin", icon: Shield },
@@ -64,9 +67,17 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     signOutPendingRef.current = false;
   }, [isLoaded, isSignedIn, meError, signOut]);
 
-  const navItems = me?.isSuperadmin
-    ? [...NAV_ITEMS, ...ADMIN_NAV_ITEMS]
-    : NAV_ITEMS;
+  // Analytics is for superadmins and workspace owners/admins; plain team
+  // members don't see it (the server also rejects them with 403).
+  const role = me?.team?.role;
+  const canSeeAnalytics = Boolean(
+    me && (me.isSuperadmin || !me.team || role === "owner" || role === "admin"),
+  );
+  const navItems = [
+    ...NAV_ITEMS,
+    ...(canSeeAnalytics ? [ANALYTICS_NAV_ITEM] : []),
+    ...(me?.isSuperadmin ? ADMIN_NAV_ITEMS : []),
+  ];
   
   if (!isLoaded) {
     return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse flex flex-col items-center gap-4"><div className="h-8 w-8 bg-primary/20 rounded-full"></div><div className="text-muted-foreground">Loading workspace...</div></div></div>;

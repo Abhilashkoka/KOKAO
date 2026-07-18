@@ -24,6 +24,9 @@ import emailSettingsRouter from "./emailSettings";
 import billingRouter from "./billing";
 import razorpayWebhookRouter from "./razorpayWebhook";
 import adminRouter from "./admin";
+import consentRouter from "./consent";
+import analyticsIngestRouter from "./analyticsIngest";
+import analyticsRouter from "./analytics";
 import { publicAppBrandRouter, protectedAppBrandRouter } from "./appBrand";
 import { requireTenant } from "../middlewares/requireTenant";
 import { aiLimiter, sensitiveLimiter } from "../middlewares/rateLimit";
@@ -38,6 +41,10 @@ router.use(publicAppBrandRouter);
 // Razorpay webhook: server-to-server, authenticated by its HMAC signature
 // (no app session), so it must sit before requireTenant.
 router.use(razorpayWebhookRouter);
+// Analytics ingestion: PUBLIC so pre-login pages can record core lifecycle
+// events under an anonymous id. Consent and event allowlists are enforced
+// inside the route, server-side.
+router.use(analyticsIngestRouter);
 // OAuth callbacks arrive as top-level redirects from the provider and may not
 // carry the app session; they authenticate via the HMAC-signed `state` token
 // instead. Rate-limited like the other OAuth/credential routes.
@@ -82,5 +89,7 @@ router.use(emailSettingsRouter);
 router.use(billingRouter);
 router.use(adminRouter);
 router.use(protectedAppBrandRouter);
+router.use(consentRouter);
+router.use(analyticsRouter);
 
 export default router;

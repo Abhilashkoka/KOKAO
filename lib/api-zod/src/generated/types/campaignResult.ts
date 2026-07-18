@@ -9,4 +9,6 @@ import type { CampaignPost } from './campaignPost';
 
 export interface CampaignResult {
   posts: CampaignPost[];
+  /** Correlates follow-up image generations and data metering */
+  campaignId?: string;
 }

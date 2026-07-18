@@ -19,6 +19,9 @@ export async function getUsage(
       and(
         eq(usageEventsTable.tenantId, tenantId),
         gte(usageEventsTable.createdAt, periodStart),
+        // Credit-funded rows exist only for data-consumption metering and
+        // must never count against the monthly plan quota.
+        sql`${usageEventsTable.funding} IS DISTINCT FROM 'credit'`,
       ),
     )
     .groupBy(usageEventsTable.kind);
@@ -28,9 +31,31 @@ export async function getUsage(
   return { captions, images, periodStart };
 }
 
+/** Optional AI data-consumption metrics attached to a usage row. */
+export interface UsageMeta {
+  requestBytes?: number;
+  responseBytes?: number;
+  durationMs?: number;
+  model?: string;
+  campaignId?: string;
+  platform?: string;
+  funding?: "quota" | "credit";
+}
+
 export async function recordUsage(
   tenantId: number,
   kind: "caption" | "image",
+  meta: UsageMeta = {},
 ): Promise<void> {
-  await db.insert(usageEventsTable).values({ tenantId, kind });
+  await db.insert(usageEventsTable).values({
+    tenantId,
+    kind,
+    requestBytes: meta.requestBytes ?? null,
+    responseBytes: meta.responseBytes ?? null,
+    durationMs: meta.durationMs ?? null,
+    model: meta.model ?? null,
+    campaignId: meta.campaignId ?? null,
+    platform: meta.platform ?? null,
+    funding: meta.funding ?? null,
+  });
 }

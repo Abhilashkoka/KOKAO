@@ -26,6 +26,7 @@ import {
   RazorpayApiError,
 } from "../lib/razorpay";
 import { getPlan, listPlans } from "../lib/plans";
+import { recordServerEvent } from "../lib/analytics";
 import { getCreditBalances, grantCredits, listCreditHistory } from "../lib/credits";
 
 /**
@@ -249,6 +250,23 @@ router.post("/billing/verify-subscription", async (req: Request, res: Response) 
       .set({ plan: sub.planId, planOverriddenAt: null, updatedAt: new Date() })
       .where(eq(tenantsTable.id, req.tenantId));
 
+    // Server-side revenue analytics (own billing records, not consent-gated).
+    const plan = await getPlan(sub.planId);
+    void recordServerEvent({
+      name: "subscription_started",
+      tenantId: req.tenantId,
+      params: { item_type: "subscription", item_name: sub.planId },
+    });
+    void recordServerEvent({
+      name: "purchase",
+      tenantId: req.tenantId,
+      params: {
+        item_type: "subscription",
+        item_name: sub.planId,
+        amount_paise: plan?.priceInr ?? 0,
+      },
+    });
+
     res.json({ ok: true, plan: sub.planId });
   } catch (error) {
     handleRazorpayError(req, res, error, "Failed to verify subscription");
@@ -277,6 +295,15 @@ router.post("/billing/cancel", async (req: Request, res: Response) => {
       .update(subscriptionsTable)
       .set({ cancelAtPeriodEnd: true, status: live.status, updatedAt: new Date() })
       .where(eq(subscriptionsTable.id, sub.id));
+    void recordServerEvent({
+      name: "subscription_cancelled",
+      tenantId: req.tenantId,
+      params: {
+        item_type: "subscription",
+        item_name: sub.planId,
+        reason: "user_cancelled",
+      },
+    });
     res.json({ ok: true });
   } catch (error) {
     handleRazorpayError(req, res, error, "Failed to cancel subscription");
@@ -425,6 +452,15 @@ router.post("/billing/verify-purchase", async (req: Request, res: Response) => {
       razorpayOrderId,
       creditPackId: pack.id,
       note: pack.name,
+    });
+    void recordServerEvent({
+      name: "purchase",
+      tenantId: req.tenantId,
+      params: {
+        item_type: "credit_pack",
+        item_name: pack.name,
+        amount_paise: pack.pricePaise,
+      },
     });
     // Duplicate grants (webhook raced us) are fine — balance is already right.
     res.json({ ok: true, credits: await getCreditBalances(req.tenantId) });

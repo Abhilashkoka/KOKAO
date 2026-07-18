@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { PendingPostsWarnings } from "@/components/pending-posts-warning";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { track, trackFeatureUse } from "@/lib/analytics";
 
 export function SchedulePage() {
   const { data: schedules, isLoading: sLoading } = useListSchedules();
@@ -53,6 +54,8 @@ export function SchedulePage() {
       }
     }, {
       onSuccess: () => {
+        track("post_scheduled", { platform });
+        trackFeatureUse("scheduler");
         toast({ title: "Post scheduled!" });
         queryClient.invalidateQueries({ queryKey: getListSchedulesQueryKey() });
         setOpen(false);

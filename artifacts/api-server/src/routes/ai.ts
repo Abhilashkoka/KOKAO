@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { randomUUID } from "node:crypto";
 import { db, tenantsTable, type BrandKitPayload } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { openai, generateImageBuffer } from "@workspace/integrations-openai-ai-server";
@@ -12,7 +13,7 @@ import {
 } from "@workspace/api-zod";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { getPlanLimits } from "../lib/plans";
-import { getUsage, recordUsage } from "../lib/usage";
+import { getUsage, recordUsage, type UsageMeta } from "../lib/usage";
 import { spendCredit, refundCredits, type CreditKind } from "../lib/credits";
 import { loadActivePayload } from "../lib/brandKit/service";
 import { isDesignSkillEnabledFor, buildDesignedImagePrompt } from "../lib/designSkill";
@@ -58,14 +59,19 @@ async function reserveFunding(
   return reserved ? "credit" : null;
 }
 
-/** Record the cost of a successful quota-funded generation. */
+/**
+ * Record the cost of a successful generation. Quota-funded work counts
+ * against the plan; credit-funded work was already debited at reservation
+ * time but still gets a usage row (funding="credit", excluded from quota
+ * counting) so AI data consumption is metered for every generation.
+ */
 async function settleFunding(
   req: Request,
   funding: Funding,
   kind: CreditKind,
+  meta: Omit<UsageMeta, "funding"> = {},
 ): Promise<void> {
-  // Credit-funded work was already debited at reservation time.
-  if (funding === "quota") await recordUsage(req.tenantId, kind);
+  await recordUsage(req.tenantId, kind, { ...meta, funding });
 }
 
 /** Return a reserved credit when the funded generation failed. */
@@ -180,6 +186,7 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
       "Hashtags must not include the # symbol. Provide 5-12 relevant hashtags.",
   );
 
+  const startedAt = Date.now();
   try {
     const completion = await openai.chat.completions.create({
       model: tenant.aiModel,
@@ -204,7 +211,13 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
       caption = raw;
     }
 
-    await settleFunding(req, captionFunding, "caption");
+    await settleFunding(req, captionFunding, "caption", {
+      requestBytes: Buffer.byteLength(guidance.join(" ") + parsed.data.prompt),
+      responseBytes: Buffer.byteLength(raw),
+      durationMs: Date.now() - startedAt,
+      model: tenant.aiModel,
+      platform,
+    });
     res.json({ caption, hashtags });
   } catch (error) {
     await releaseFunding(req, captionFunding, "caption");
@@ -279,6 +292,7 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
     }
   }
 
+  const startedAt = Date.now();
   try {
     const buffer = await generateImageBuffer(prompt, size);
 
@@ -294,8 +308,17 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
     }
     const imagePath = objectStorageService.normalizeObjectEntityPath(uploadURL);
 
-    await settleFunding(req, imageFunding, "image");
-    res.json({ imagePath, b64Json: buffer.toString("base64") });
+    const b64Json = buffer.toString("base64");
+    await settleFunding(req, imageFunding, "image", {
+      // Prompt in, stored image + base64 preview out.
+      requestBytes: Buffer.byteLength(prompt),
+      responseBytes: buffer.length + Buffer.byteLength(b64Json),
+      durationMs: Date.now() - startedAt,
+      model: tenant.aiModel,
+      campaignId: parsed.data.campaignId ?? undefined,
+      platform: parsed.data.platform ?? undefined,
+    });
+    res.json({ imagePath, b64Json });
   } catch (error) {
     await releaseFunding(req, imageFunding, "image");
     req.log.error({ err: error }, "Image generation failed");
@@ -660,6 +683,8 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
       "Include one object per requested platform, using the exact platform identifiers given. Hashtags must not include the # symbol; provide 5-12 per post.",
   );
 
+  const campaignId = randomUUID();
+  const startedAt = Date.now();
   try {
     const completion = await openai.chat.completions.create({
       model: tenant.aiModel,
@@ -705,12 +730,26 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
       };
     });
 
-    // Credit-funded captions were already debited at reservation time; only
-    // the quota-funded share is metered here.
+    // One usage row per platform, tagged with the campaign id so data
+    // consumption can be reported per campaign. Credit-funded captions were
+    // already debited at reservation time; funding="credit" rows are excluded
+    // from quota counting but still metered.
+    const requestBytes = Buffer.byteLength(guidance.join(" ") + parsed.data.prompt);
+    const perPlatformRequest = Math.ceil(requestBytes / platforms.length);
     await Promise.all(
-      Array.from({ length: quotaFunded }, () => recordUsage(req.tenantId, "caption")),
+      posts.map((post, i) =>
+        recordUsage(req.tenantId, "caption", {
+          funding: i < quotaFunded ? "quota" : "credit",
+          requestBytes: perPlatformRequest,
+          responseBytes: Buffer.byteLength(JSON.stringify(post)),
+          durationMs: Date.now() - startedAt,
+          model: tenant.aiModel,
+          campaignId,
+          platform: post.platform,
+        }),
+      ),
     );
-    res.json({ posts });
+    res.json({ posts, campaignId });
   } catch (error) {
     if (creditFunded > 0) {
       try {

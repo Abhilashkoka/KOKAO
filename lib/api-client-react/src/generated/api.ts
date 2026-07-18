@@ -21,6 +21,7 @@ import type {
 
 import type {
   AccountInput,
+  AcquisitionAnalytics,
   ActivateVersionInput,
   AdminAuditLogPage,
   AdminExportAuditLogsParams,
@@ -30,11 +31,14 @@ import type {
   AdminStats,
   AdminSweepRunResult,
   AdminTenant,
+  AnalyticsIngestInput,
+  AnalyticsIngestResult,
   AppBrand,
   AppBrandInput,
   AppBrandUploadUrlBody,
   AppBrandUploadUrlResponse,
   AsrSettingsView,
+  AudienceAnalytics,
   AudioUploadInput,
   BillingCancelSubscription200,
   BillingOverview,
@@ -65,16 +69,30 @@ import type {
   CaptionResult,
   CompleteOnboardingInput,
   ConnectedAccount,
+  ConsentAnalytics,
+  ConsentInput,
+  ConsentState,
   ContentInput,
   ContentItem,
   ContentUpdate,
   CreditPack,
   CreditPackInput,
+  DataConsumptionAnalytics,
   DesignSkillSettings,
   EmailSettingsInput,
   EmailSettingsStatus,
+  EngagementAnalytics,
   ErrorEnvelope,
   FacebookCredentialInput,
+  FunnelAnalytics,
+  GetAcquisitionAnalyticsParams,
+  GetAudienceAnalyticsParams,
+  GetConsentAnalyticsParams,
+  GetDataConsumptionAnalyticsParams,
+  GetEngagementAnalyticsParams,
+  GetFunnelAnalyticsParams,
+  GetReliabilityAnalyticsParams,
+  GetRevenueAnalyticsParams,
   GrantCreditsInput,
   HealthStatus,
   ImageRequest,
@@ -104,12 +122,14 @@ import type {
   PublishTwitterResult,
   RazorpayAppCredentialInput,
   RazorpayAppCredentialStatus,
+  ReliabilityAnalytics,
   ResearchRequest,
   ResearchResult,
   ResendChainPostsResult,
   ResendLinkedinCommentsResult,
   ResolveSelectionInput,
   ResolveSelectionResult,
+  RevenueAnalytics,
   ScheduleInput,
   ScheduleUpdate,
   ScheduledPost,
@@ -10484,6 +10504,896 @@ export function useGetStorageObject<TData = Awaited<ReturnType<typeof getStorage
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetStorageObjectQueryOptions(objectPath,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetConsentUrl = () => {
+
+
+
+
+  return `/api/consent`
+}
+
+/**
+ * @summary Get the current user's data-collection consent state
+ */
+export const getConsent = async ( options?: RequestInit): Promise<ConsentState> => {
+
+  return customFetch<ConsentState>(getGetConsentUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetConsentQueryKey = () => {
+    return [
+    `/api/consent`
+    ] as const;
+    }
+
+
+export const getGetConsentQueryOptions = <TData = Awaited<ReturnType<typeof getConsent>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getConsent>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetConsentQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getConsent>>> = ({ signal }) => getConsent({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getConsent>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetConsentQueryResult = NonNullable<Awaited<ReturnType<typeof getConsent>>>
+export type GetConsentQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the current user's data-collection consent state
+ */
+
+export function useGetConsent<TData = Awaited<ReturnType<typeof getConsent>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getConsent>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetConsentQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateConsentUrl = () => {
+
+
+
+
+  return `/api/consent`
+}
+
+/**
+ * @summary Update the current user's data-collection consent
+ */
+export const updateConsent = async (consentInput: ConsentInput, options?: RequestInit): Promise<ConsentState> => {
+
+  return customFetch<ConsentState>(getUpdateConsentUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(consentInput)
+  }
+);}
+
+
+
+
+export const getUpdateConsentMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateConsent>>, TError,{data: BodyType<ConsentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateConsent>>, TError,{data: BodyType<ConsentInput>}, TContext> => {
+
+const mutationKey = ['updateConsent'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateConsent>>, {data: BodyType<ConsentInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateConsent(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateConsentMutationResult = NonNullable<Awaited<ReturnType<typeof updateConsent>>>
+    export type UpdateConsentMutationBody = BodyType<ConsentInput>
+    export type UpdateConsentMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update the current user's data-collection consent
+ */
+export const useUpdateConsent = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateConsent>>, TError,{data: BodyType<ConsentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateConsent>>,
+        TError,
+        {data: BodyType<ConsentInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateConsentMutationOptions(options));
+    }
+
+export const getIngestAnalyticsEventsUrl = () => {
+
+
+
+
+  return `/api/analytics/events`
+}
+
+/**
+ * Public endpoint: pre-login clients send anonymous events (consent-gated fields are stripped and only core lifecycle events are accepted). Authenticated batches are enforced against the user's stored consent — the server decides what is stored, regardless of what was sent.
+ * @summary Ingest a batch of analytics events (consent enforced server-side)
+ */
+export const ingestAnalyticsEvents = async (analyticsIngestInput: AnalyticsIngestInput, options?: RequestInit): Promise<AnalyticsIngestResult> => {
+
+  return customFetch<AnalyticsIngestResult>(getIngestAnalyticsEventsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(analyticsIngestInput)
+  }
+);}
+
+
+
+
+export const getIngestAnalyticsEventsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof ingestAnalyticsEvents>>, TError,{data: BodyType<AnalyticsIngestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof ingestAnalyticsEvents>>, TError,{data: BodyType<AnalyticsIngestInput>}, TContext> => {
+
+const mutationKey = ['ingestAnalyticsEvents'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof ingestAnalyticsEvents>>, {data: BodyType<AnalyticsIngestInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  ingestAnalyticsEvents(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type IngestAnalyticsEventsMutationResult = NonNullable<Awaited<ReturnType<typeof ingestAnalyticsEvents>>>
+    export type IngestAnalyticsEventsMutationBody = BodyType<AnalyticsIngestInput>
+    export type IngestAnalyticsEventsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Ingest a batch of analytics events (consent enforced server-side)
+ */
+export const useIngestAnalyticsEvents = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof ingestAnalyticsEvents>>, TError,{data: BodyType<AnalyticsIngestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof ingestAnalyticsEvents>>,
+        TError,
+        {data: BodyType<AnalyticsIngestInput>},
+        TContext
+      > => {
+      return useMutation(getIngestAnalyticsEventsMutationOptions(options));
+    }
+
+export const getGetAudienceAnalyticsUrl = (params?: GetAudienceAnalyticsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/analytics/audience?${stringifiedParams}` : `/api/analytics/audience`
+}
+
+/**
+ * @summary Audience metrics (DAU/MAU, retention, geo, platform mix)
+ */
+export const getAudienceAnalytics = async (params?: GetAudienceAnalyticsParams, options?: RequestInit): Promise<AudienceAnalytics> => {
+
+  return customFetch<AudienceAnalytics>(getGetAudienceAnalyticsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAudienceAnalyticsQueryKey = (params?: GetAudienceAnalyticsParams,) => {
+    return [
+    `/api/analytics/audience`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetAudienceAnalyticsQueryOptions = <TData = Awaited<ReturnType<typeof getAudienceAnalytics>>, TError = ErrorType<ErrorEnvelope>>(params?: GetAudienceAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAudienceAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAudienceAnalyticsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAudienceAnalytics>>> = ({ signal }) => getAudienceAnalytics(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAudienceAnalytics>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAudienceAnalyticsQueryResult = NonNullable<Awaited<ReturnType<typeof getAudienceAnalytics>>>
+export type GetAudienceAnalyticsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Audience metrics (DAU/MAU, retention, geo, platform mix)
+ */
+
+export function useGetAudienceAnalytics<TData = Awaited<ReturnType<typeof getAudienceAnalytics>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: GetAudienceAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAudienceAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAudienceAnalyticsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetAcquisitionAnalyticsUrl = (params?: GetAcquisitionAnalyticsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/analytics/acquisition?${stringifiedParams}` : `/api/analytics/acquisition`
+}
+
+/**
+ * @summary Acquisition metrics (first opens, sign-ups, sources)
+ */
+export const getAcquisitionAnalytics = async (params?: GetAcquisitionAnalyticsParams, options?: RequestInit): Promise<AcquisitionAnalytics> => {
+
+  return customFetch<AcquisitionAnalytics>(getGetAcquisitionAnalyticsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAcquisitionAnalyticsQueryKey = (params?: GetAcquisitionAnalyticsParams,) => {
+    return [
+    `/api/analytics/acquisition`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetAcquisitionAnalyticsQueryOptions = <TData = Awaited<ReturnType<typeof getAcquisitionAnalytics>>, TError = ErrorType<ErrorEnvelope>>(params?: GetAcquisitionAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAcquisitionAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAcquisitionAnalyticsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAcquisitionAnalytics>>> = ({ signal }) => getAcquisitionAnalytics(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAcquisitionAnalytics>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAcquisitionAnalyticsQueryResult = NonNullable<Awaited<ReturnType<typeof getAcquisitionAnalytics>>>
+export type GetAcquisitionAnalyticsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Acquisition metrics (first opens, sign-ups, sources)
+ */
+
+export function useGetAcquisitionAnalytics<TData = Awaited<ReturnType<typeof getAcquisitionAnalytics>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: GetAcquisitionAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAcquisitionAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAcquisitionAnalyticsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetFunnelAnalyticsUrl = (params?: GetFunnelAnalyticsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/analytics/funnels?${stringifiedParams}` : `/api/analytics/funnels`
+}
+
+/**
+ * @summary Activation and funnel metrics
+ */
+export const getFunnelAnalytics = async (params?: GetFunnelAnalyticsParams, options?: RequestInit): Promise<FunnelAnalytics> => {
+
+  return customFetch<FunnelAnalytics>(getGetFunnelAnalyticsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetFunnelAnalyticsQueryKey = (params?: GetFunnelAnalyticsParams,) => {
+    return [
+    `/api/analytics/funnels`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetFunnelAnalyticsQueryOptions = <TData = Awaited<ReturnType<typeof getFunnelAnalytics>>, TError = ErrorType<ErrorEnvelope>>(params?: GetFunnelAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFunnelAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetFunnelAnalyticsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getFunnelAnalytics>>> = ({ signal }) => getFunnelAnalytics(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getFunnelAnalytics>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetFunnelAnalyticsQueryResult = NonNullable<Awaited<ReturnType<typeof getFunnelAnalytics>>>
+export type GetFunnelAnalyticsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Activation and funnel metrics
+ */
+
+export function useGetFunnelAnalytics<TData = Awaited<ReturnType<typeof getFunnelAnalytics>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: GetFunnelAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFunnelAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetFunnelAnalyticsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetEngagementAnalyticsUrl = (params?: GetEngagementAnalyticsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/analytics/engagement?${stringifiedParams}` : `/api/analytics/engagement`
+}
+
+/**
+ * @summary Engagement and feature-usage metrics
+ */
+export const getEngagementAnalytics = async (params?: GetEngagementAnalyticsParams, options?: RequestInit): Promise<EngagementAnalytics> => {
+
+  return customFetch<EngagementAnalytics>(getGetEngagementAnalyticsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetEngagementAnalyticsQueryKey = (params?: GetEngagementAnalyticsParams,) => {
+    return [
+    `/api/analytics/engagement`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetEngagementAnalyticsQueryOptions = <TData = Awaited<ReturnType<typeof getEngagementAnalytics>>, TError = ErrorType<ErrorEnvelope>>(params?: GetEngagementAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getEngagementAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetEngagementAnalyticsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getEngagementAnalytics>>> = ({ signal }) => getEngagementAnalytics(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getEngagementAnalytics>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetEngagementAnalyticsQueryResult = NonNullable<Awaited<ReturnType<typeof getEngagementAnalytics>>>
+export type GetEngagementAnalyticsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Engagement and feature-usage metrics
+ */
+
+export function useGetEngagementAnalytics<TData = Awaited<ReturnType<typeof getEngagementAnalytics>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: GetEngagementAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getEngagementAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetEngagementAnalyticsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetRevenueAnalyticsUrl = (params?: GetRevenueAnalyticsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/analytics/revenue?${stringifiedParams}` : `/api/analytics/revenue`
+}
+
+/**
+ * @summary Revenue metrics (purchases, subscriptions, refunds)
+ */
+export const getRevenueAnalytics = async (params?: GetRevenueAnalyticsParams, options?: RequestInit): Promise<RevenueAnalytics> => {
+
+  return customFetch<RevenueAnalytics>(getGetRevenueAnalyticsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetRevenueAnalyticsQueryKey = (params?: GetRevenueAnalyticsParams,) => {
+    return [
+    `/api/analytics/revenue`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetRevenueAnalyticsQueryOptions = <TData = Awaited<ReturnType<typeof getRevenueAnalytics>>, TError = ErrorType<ErrorEnvelope>>(params?: GetRevenueAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getRevenueAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetRevenueAnalyticsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getRevenueAnalytics>>> = ({ signal }) => getRevenueAnalytics(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getRevenueAnalytics>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetRevenueAnalyticsQueryResult = NonNullable<Awaited<ReturnType<typeof getRevenueAnalytics>>>
+export type GetRevenueAnalyticsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Revenue metrics (purchases, subscriptions, refunds)
+ */
+
+export function useGetRevenueAnalytics<TData = Awaited<ReturnType<typeof getRevenueAnalytics>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: GetRevenueAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getRevenueAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetRevenueAnalyticsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetDataConsumptionAnalyticsUrl = (params?: GetDataConsumptionAnalyticsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/analytics/data-consumption?${stringifiedParams}` : `/api/analytics/data-consumption`
+}
+
+/**
+ * @summary AI data-consumption metrics (bytes per caption/image/campaign)
+ */
+export const getDataConsumptionAnalytics = async (params?: GetDataConsumptionAnalyticsParams, options?: RequestInit): Promise<DataConsumptionAnalytics> => {
+
+  return customFetch<DataConsumptionAnalytics>(getGetDataConsumptionAnalyticsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetDataConsumptionAnalyticsQueryKey = (params?: GetDataConsumptionAnalyticsParams,) => {
+    return [
+    `/api/analytics/data-consumption`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetDataConsumptionAnalyticsQueryOptions = <TData = Awaited<ReturnType<typeof getDataConsumptionAnalytics>>, TError = ErrorType<ErrorEnvelope>>(params?: GetDataConsumptionAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDataConsumptionAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDataConsumptionAnalyticsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDataConsumptionAnalytics>>> = ({ signal }) => getDataConsumptionAnalytics(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDataConsumptionAnalytics>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetDataConsumptionAnalyticsQueryResult = NonNullable<Awaited<ReturnType<typeof getDataConsumptionAnalytics>>>
+export type GetDataConsumptionAnalyticsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary AI data-consumption metrics (bytes per caption/image/campaign)
+ */
+
+export function useGetDataConsumptionAnalytics<TData = Awaited<ReturnType<typeof getDataConsumptionAnalytics>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: GetDataConsumptionAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDataConsumptionAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetDataConsumptionAnalyticsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetReliabilityAnalyticsUrl = (params?: GetReliabilityAnalyticsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/analytics/reliability?${stringifiedParams}` : `/api/analytics/reliability`
+}
+
+/**
+ * @summary Reliability and performance metrics
+ */
+export const getReliabilityAnalytics = async (params?: GetReliabilityAnalyticsParams, options?: RequestInit): Promise<ReliabilityAnalytics> => {
+
+  return customFetch<ReliabilityAnalytics>(getGetReliabilityAnalyticsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetReliabilityAnalyticsQueryKey = (params?: GetReliabilityAnalyticsParams,) => {
+    return [
+    `/api/analytics/reliability`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetReliabilityAnalyticsQueryOptions = <TData = Awaited<ReturnType<typeof getReliabilityAnalytics>>, TError = ErrorType<ErrorEnvelope>>(params?: GetReliabilityAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getReliabilityAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetReliabilityAnalyticsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getReliabilityAnalytics>>> = ({ signal }) => getReliabilityAnalytics(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getReliabilityAnalytics>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetReliabilityAnalyticsQueryResult = NonNullable<Awaited<ReturnType<typeof getReliabilityAnalytics>>>
+export type GetReliabilityAnalyticsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Reliability and performance metrics
+ */
+
+export function useGetReliabilityAnalytics<TData = Awaited<ReturnType<typeof getReliabilityAnalytics>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: GetReliabilityAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getReliabilityAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetReliabilityAnalyticsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetConsentAnalyticsUrl = (params?: GetConsentAnalyticsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/analytics/consent-stats?${stringifiedParams}` : `/api/analytics/consent-stats`
+}
+
+/**
+ * @summary Consent and privacy opt-in metrics
+ */
+export const getConsentAnalytics = async (params?: GetConsentAnalyticsParams, options?: RequestInit): Promise<ConsentAnalytics> => {
+
+  return customFetch<ConsentAnalytics>(getGetConsentAnalyticsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetConsentAnalyticsQueryKey = (params?: GetConsentAnalyticsParams,) => {
+    return [
+    `/api/analytics/consent-stats`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetConsentAnalyticsQueryOptions = <TData = Awaited<ReturnType<typeof getConsentAnalytics>>, TError = ErrorType<ErrorEnvelope>>(params?: GetConsentAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getConsentAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetConsentAnalyticsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getConsentAnalytics>>> = ({ signal }) => getConsentAnalytics(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getConsentAnalytics>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetConsentAnalyticsQueryResult = NonNullable<Awaited<ReturnType<typeof getConsentAnalytics>>>
+export type GetConsentAnalyticsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Consent and privacy opt-in metrics
+ */
+
+export function useGetConsentAnalytics<TData = Awaited<ReturnType<typeof getConsentAnalytics>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: GetConsentAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getConsentAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetConsentAnalyticsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

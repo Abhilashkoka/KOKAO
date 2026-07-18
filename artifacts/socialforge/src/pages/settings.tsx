@@ -20,6 +20,7 @@ import { TeamSettings } from "@/components/team-settings";
 import { AppBrandingSettings } from "@/components/app-branding-settings";
 import { TasteMemorySettings } from "@/components/taste-memory-settings";
 import { BillingSettings } from "@/components/billing-settings";
+import { ConsentSettings } from "@/components/consent-settings";
 
 export function SettingsPage() {
   const { data: me, isLoading: meLoading } = useGetMe();
@@ -83,6 +84,7 @@ export function SettingsPage() {
           <TabsTrigger value="billing">Billing</TabsTrigger>
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
           <TabsTrigger value="style-memory">Style memory</TabsTrigger>
+          <TabsTrigger value="privacy">Privacy &amp; Data</TabsTrigger>
           {me?.isSuperadmin && (
             <TabsTrigger value="branding">Branding</TabsTrigger>
           )}
@@ -212,6 +214,10 @@ export function SettingsPage() {
           <div className="max-w-2xl">
             <TasteMemorySettings />
           </div>
+        </TabsContent>
+
+        <TabsContent value="privacy">
+          <ConsentSettings />
         </TabsContent>
 
         {me?.isSuperadmin && (

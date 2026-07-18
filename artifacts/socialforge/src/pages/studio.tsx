@@ -36,6 +36,7 @@ import { navigate } from "wouter/use-browser-location";
 import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
 import { CampaignPostCard, type GeneratedImage } from "@/components/campaign-post-card";
 import { VoiceNoteButton } from "@/components/voice-note-button";
+import { track, trackFeatureUse } from "@/lib/analytics";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -366,6 +367,8 @@ export function StudioPage() {
           setCaptionPlatform(data.platform ?? null);
           refreshQuota();
           upsertDraft(res, imageResult);
+          track("caption_generated", { category: "content", outcome: "success" });
+          trackFeatureUse("studio_caption");
           toast({ title: "Caption generated!", description: "Auto-saved to your library as a draft." });
         },
         onError: handleError,
@@ -397,6 +400,8 @@ export function StudioPage() {
           setImageResult(res);
           refreshQuota();
           upsertDraft(captionResult, res);
+          track("image_generated", { category: "content", outcome: "success" });
+          trackFeatureUse("studio_image");
           toast({ title: "Image generated!", description: "Auto-saved to your library as a draft." });
         },
         onError: handleError,
@@ -430,6 +435,12 @@ export function StudioPage() {
           setCampaignPosts(res.posts);
           setDraft(null);
           refreshQuota();
+          track("campaign_generated", {
+            category: "content",
+            outcome: "success",
+            platform_count: res.posts.length,
+          });
+          trackFeatureUse("campaign_generator");
           toast({ title: "Campaign generated!", description: `${res.posts.length} platform variants ready.` });
         },
         onError: handleError,
@@ -475,6 +486,7 @@ export function StudioPage() {
       }
       queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
       setDraft(null);
+      track("content_saved", { category: "content", outcome: "success" });
       toast({ title: "Saved to library!" });
       navigate("/library");
     };

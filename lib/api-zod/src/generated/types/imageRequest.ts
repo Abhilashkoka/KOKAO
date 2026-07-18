@@ -13,4 +13,14 @@ export interface ImageRequest {
   size?: ImageRequestSize;
   /** @nullable */
   brandKitId?: number | null;
+  /**
+     * Ties this image's data usage to a generated campaign
+     * @nullable
+     */
+  campaignId?: string | null;
+  /**
+     * Target platform, for per-platform data metering
+     * @nullable
+     */
+  platform?: string | null;
 }

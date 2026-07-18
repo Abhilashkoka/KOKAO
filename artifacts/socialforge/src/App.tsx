@@ -9,6 +9,7 @@ import { BrandKitsPage } from "@/pages/brand-kits";
 import { AccountsPage } from "@/pages/accounts";
 import { SettingsPage } from "@/pages/settings";
 import { AdminPage } from "@/pages/admin";
+import { AnalyticsPage } from "@/pages/analytics";
 import { BrandProvider } from "@/lib/brand";
 
 import { Switch, Route, Redirect, useLocation, Router as WouterRouter } from "wouter";
@@ -27,6 +28,7 @@ import {
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
+import { AnalyticsTracker } from "@/components/analytics-tracker";
 
 import { ClerkProvider, Show, useClerk } from "@clerk/react";
 import { publishableKeyFromHost } from "@clerk/react/internal";
@@ -141,6 +143,7 @@ function ClerkProviderWithRoutes() {
     >
       <QueryClientProvider client={queryClient}>
         <ClerkQueryClientCacheInvalidator />
+        <AnalyticsTracker />
         <BrandProvider>
         <TooltipProvider>
           <Switch>
@@ -155,6 +158,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/accounts" component={() => <ProtectedRoute component={AccountsPage} />} />
             <Route path="/settings" component={() => <ProtectedRoute component={SettingsPage} />} />
             <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} />} />
+            <Route path="/analytics" component={() => <ProtectedRoute component={AnalyticsPage} />} />
             {/* Branding moved into Settings; keep old links working. */}
             <Route path="/app-brand" component={() => <Redirect to="/settings" />} />
             

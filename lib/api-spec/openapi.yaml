@@ -28,6 +28,8 @@ tags:
     description: Cross-tenant superadmin operations.
   - name: notifications
     description: In-app and email notification preferences and policies.
+  - name: analytics
+    description: Consent-gated event analytics, ingestion, and reporting.
 paths:
   /healthz:
     get:
@@ -3805,7 +3807,287 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /consent:
+    get:
+      operationId: getConsent
+      tags: [analytics]
+      summary: Get the current user's data-collection consent state
+      responses:
+        "200":
+          description: Consent state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsentState"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: updateConsent
+      tags: [analytics]
+      summary: Update the current user's data-collection consent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConsentInput"
+      responses:
+        "200":
+          description: Updated consent state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsentState"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /analytics/events:
+    post:
+      operationId: ingestAnalyticsEvents
+      tags: [analytics]
+      summary: Ingest a batch of analytics events (consent enforced server-side)
+      description: >
+        Public endpoint: pre-login clients send anonymous events (consent-gated
+        fields are stripped and only core lifecycle events are accepted).
+        Authenticated batches are enforced against the user's stored consent —
+        the server decides what is stored, regardless of what was sent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalyticsIngestInput"
+      responses:
+        "200":
+          description: Ingestion result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsIngestResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /analytics/audience:
+    get:
+      operationId: getAudienceAnalytics
+      tags: [analytics]
+      summary: Audience metrics (DAU/MAU, retention, geo, platform mix)
+      parameters:
+        - $ref: "#/components/parameters/AnalyticsFrom"
+        - $ref: "#/components/parameters/AnalyticsTo"
+        - $ref: "#/components/parameters/AnalyticsTenantId"
+      responses:
+        "200":
+          description: Audience metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AudienceAnalytics"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /analytics/acquisition:
+    get:
+      operationId: getAcquisitionAnalytics
+      tags: [analytics]
+      summary: Acquisition metrics (first opens, sign-ups, sources)
+      parameters:
+        - $ref: "#/components/parameters/AnalyticsFrom"
+        - $ref: "#/components/parameters/AnalyticsTo"
+        - $ref: "#/components/parameters/AnalyticsTenantId"
+      responses:
+        "200":
+          description: Acquisition metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcquisitionAnalytics"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /analytics/funnels:
+    get:
+      operationId: getFunnelAnalytics
+      tags: [analytics]
+      summary: Activation and funnel metrics
+      parameters:
+        - $ref: "#/components/parameters/AnalyticsFrom"
+        - $ref: "#/components/parameters/AnalyticsTo"
+        - $ref: "#/components/parameters/AnalyticsTenantId"
+      responses:
+        "200":
+          description: Funnel metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FunnelAnalytics"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /analytics/engagement:
+    get:
+      operationId: getEngagementAnalytics
+      tags: [analytics]
+      summary: Engagement and feature-usage metrics
+      parameters:
+        - $ref: "#/components/parameters/AnalyticsFrom"
+        - $ref: "#/components/parameters/AnalyticsTo"
+        - $ref: "#/components/parameters/AnalyticsTenantId"
+      responses:
+        "200":
+          description: Engagement metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EngagementAnalytics"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /analytics/revenue:
+    get:
+      operationId: getRevenueAnalytics
+      tags: [analytics]
+      summary: Revenue metrics (purchases, subscriptions, refunds)
+      parameters:
+        - $ref: "#/components/parameters/AnalyticsFrom"
+        - $ref: "#/components/parameters/AnalyticsTo"
+        - $ref: "#/components/parameters/AnalyticsTenantId"
+      responses:
+        "200":
+          description: Revenue metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevenueAnalytics"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /analytics/data-consumption:
+    get:
+      operationId: getDataConsumptionAnalytics
+      tags: [analytics]
+      summary: AI data-consumption metrics (bytes per caption/image/campaign)
+      parameters:
+        - $ref: "#/components/parameters/AnalyticsFrom"
+        - $ref: "#/components/parameters/AnalyticsTo"
+        - $ref: "#/components/parameters/AnalyticsTenantId"
+      responses:
+        "200":
+          description: Data consumption metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataConsumptionAnalytics"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /analytics/reliability:
+    get:
+      operationId: getReliabilityAnalytics
+      tags: [analytics]
+      summary: Reliability and performance metrics
+      parameters:
+        - $ref: "#/components/parameters/AnalyticsFrom"
+        - $ref: "#/components/parameters/AnalyticsTo"
+        - $ref: "#/components/parameters/AnalyticsTenantId"
+      responses:
+        "200":
+          description: Reliability metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReliabilityAnalytics"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /analytics/consent-stats:
+    get:
+      operationId: getConsentAnalytics
+      tags: [analytics]
+      summary: Consent and privacy opt-in metrics
+      parameters:
+        - $ref: "#/components/parameters/AnalyticsFrom"
+        - $ref: "#/components/parameters/AnalyticsTo"
+        - $ref: "#/components/parameters/AnalyticsTenantId"
+      responses:
+        "200":
+          description: Consent metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsentAnalytics"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
 components:
+  parameters:
+    AnalyticsFrom:
+      name: from
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: Start of the reporting window (defaults to 30 days ago).
+    AnalyticsTo:
+      name: to
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: End of the reporting window (defaults to now).
+    AnalyticsTenantId:
+      name: tenantId
+      in: query
+      required: false
+      schema:
+        type: integer
+      description: Superadmin-only per-tenant drilldown; ignored otherwise.
   schemas:
     HealthStatus:
       type: object
@@ -5982,6 +6264,12 @@ components:
           enum: ["1024x1024", "1536x1024", "1024x1536"]
         brandKitId:
           type: ["integer", "null"]
+        campaignId:
+          type: ["string", "null"]
+          description: Ties this image's data usage to a generated campaign
+        platform:
+          type: ["string", "null"]
+          description: Target platform, for per-platform data metering
     ImageResult:
       type: object
       required: [imagePath, b64Json]
@@ -6103,6 +6391,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CampaignPost"
+        campaignId:
+          type: string
+          description: Correlates follow-up image generations and data metering
 
     ScheduledPost:
       type: object
@@ -6215,3 +6506,486 @@ components:
           description: Normalized object path (e.g. `/objects/uploads/uuid`).
         metadata:
           $ref: "#/components/schemas/UploadUrlRequest"
+    ConsentState:
+      type: object
+      required:
+        [analytics, deviceDetails, locationCoarse, locationPrecise, carrier, responded]
+      properties:
+        analytics:
+          type: boolean
+        deviceDetails:
+          type: boolean
+        locationCoarse:
+          type: boolean
+        locationPrecise:
+          type: boolean
+        carrier:
+          type: boolean
+        responded:
+          type: boolean
+          description: Whether the user has answered the consent disclosure.
+    ConsentInput:
+      type: object
+      properties:
+        analytics:
+          type: boolean
+        deviceDetails:
+          type: boolean
+        locationCoarse:
+          type: boolean
+        locationPrecise:
+          type: boolean
+        carrier:
+          type: boolean
+    AnalyticsEventInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: snake_case event name.
+        params:
+          type: object
+          additionalProperties: true
+        clientTimestamp:
+          type: string
+          format: date-time
+    AnalyticsContextInput:
+      type: object
+      properties:
+        platform:
+          type: string
+          enum: [web, ios, android]
+        appVersion:
+          type: string
+        osVersion:
+          type: string
+        browser:
+          type: string
+        deviceModel:
+          type: string
+        networkType:
+          type: string
+        carrier:
+          type: string
+        language:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        source:
+          type: string
+        medium:
+          type: string
+        campaign:
+          type: string
+    AnalyticsIngestInput:
+      type: object
+      required: [events]
+      properties:
+        anonymousId:
+          type: string
+          maxLength: 64
+        sessionId:
+          type: string
+          maxLength: 64
+        context:
+          $ref: "#/components/schemas/AnalyticsContextInput"
+        events:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/AnalyticsEventInput"
+    AnalyticsIngestResult:
+      type: object
+      required: [accepted, dropped]
+      properties:
+        accepted:
+          type: integer
+        dropped:
+          type: integer
+    NameCount:
+      type: object
+      required: [name, count]
+      properties:
+        name:
+          type: string
+        count:
+          type: integer
+    DateCount:
+      type: object
+      required: [date, count]
+      properties:
+        date:
+          type: string
+        count:
+          type: integer
+    AudienceAnalytics:
+      type: object
+      required:
+        [dau, mau, stickiness, sessions, avgSessionLengthSec, retention, countries, platforms, browsers, deviceModels]
+      properties:
+        dau:
+          type: array
+          items:
+            $ref: "#/components/schemas/DateCount"
+        mau:
+          type: integer
+        stickiness:
+          type: number
+          description: DAU/MAU ratio (0-1) for the latest day.
+        sessions:
+          type: integer
+        avgSessionLengthSec:
+          type: number
+        retention:
+          type: object
+          required: [d1, d7, d30]
+          properties:
+            d1:
+              type: number
+            d7:
+              type: number
+            d30:
+              type: number
+          description: Retention rates 0-1 for sign-up cohorts in the window.
+        countries:
+          type: array
+          items:
+            $ref: "#/components/schemas/NameCount"
+        platforms:
+          type: array
+          items:
+            $ref: "#/components/schemas/NameCount"
+        browsers:
+          type: array
+          items:
+            $ref: "#/components/schemas/NameCount"
+        deviceModels:
+          type: array
+          items:
+            $ref: "#/components/schemas/NameCount"
+    AcquisitionAnalytics:
+      type: object
+      required: [firstOpens, signUps, logins, signUpMethods, sources, landingPages]
+      properties:
+        firstOpens:
+          type: integer
+        signUps:
+          type: integer
+        logins:
+          type: integer
+        signUpMethods:
+          type: array
+          items:
+            $ref: "#/components/schemas/NameCount"
+        sources:
+          type: array
+          items:
+            type: object
+            required: [source, medium, campaign, count]
+            properties:
+              source:
+                type: string
+              medium:
+                type: string
+              campaign:
+                type: string
+              count:
+                type: integer
+        landingPages:
+          type: array
+          items:
+            $ref: "#/components/schemas/NameCount"
+    FunnelAnalytics:
+      type: object
+      required: [onboarding, activationRate, funnel]
+      properties:
+        onboarding:
+          type: object
+          required: [started, completed, completionRate, avgCompletionTimeSec]
+          properties:
+            started:
+              type: integer
+            completed:
+              type: integer
+            completionRate:
+              type: number
+            avgCompletionTimeSec:
+              type: number
+        activationRate:
+          type: number
+          description: Share of signed-up users with at least one key action.
+        funnel:
+          type: array
+          items:
+            type: object
+            required: [step, count, dropOffPct]
+            properties:
+              step:
+                type: string
+              count:
+                type: integer
+              dropOffPct:
+                type: number
+    EngagementAnalytics:
+      type: object
+      required: [pageViews, topPages, navigationPaths, search, features, keyActions]
+      properties:
+        pageViews:
+          type: integer
+        topPages:
+          type: array
+          items:
+            $ref: "#/components/schemas/NameCount"
+        navigationPaths:
+          type: array
+          items:
+            type: object
+            required: [from, to, count]
+            properties:
+              from:
+                type: string
+              to:
+                type: string
+              count:
+                type: integer
+        search:
+          type: object
+          required: [total, zeroResultRate, topTerms]
+          properties:
+            total:
+              type: integer
+            zeroResultRate:
+              type: number
+            topTerms:
+              type: array
+              items:
+                $ref: "#/components/schemas/NameCount"
+        features:
+          type: array
+          items:
+            type: object
+            required: [feature, uses, uniqueUsers]
+            properties:
+              feature:
+                type: string
+              uses:
+                type: integer
+              uniqueUsers:
+                type: integer
+        keyActions:
+          type: array
+          items:
+            $ref: "#/components/schemas/NameCount"
+    RevenueAnalytics:
+      type: object
+      required:
+        [purchaseCount, purchaseTotalPaise, refundCount, refundTotalPaise, arpuPaise, subscriptionsStarted, subscriptionsRenewed, subscriptionsCancelled, cancelReasons, byPlan, byCreditPack]
+      properties:
+        purchaseCount:
+          type: integer
+        purchaseTotalPaise:
+          type: integer
+        refundCount:
+          type: integer
+        refundTotalPaise:
+          type: integer
+        arpuPaise:
+          type: integer
+        subscriptionsStarted:
+          type: integer
+        subscriptionsRenewed:
+          type: integer
+        subscriptionsCancelled:
+          type: integer
+        cancelReasons:
+          type: array
+          items:
+            $ref: "#/components/schemas/NameCount"
+        byPlan:
+          type: array
+          items:
+            type: object
+            required: [name, count, totalPaise]
+            properties:
+              name:
+                type: string
+              count:
+                type: integer
+              totalPaise:
+                type: integer
+        byCreditPack:
+          type: array
+          items:
+            type: object
+            required: [name, count, totalPaise]
+            properties:
+              name:
+                type: string
+              count:
+                type: integer
+              totalPaise:
+                type: integer
+    DataConsumptionAnalytics:
+      type: object
+      required: [totals, monthly, byTenant, recentCampaigns]
+      properties:
+        totals:
+          type: array
+          items:
+            type: object
+            required: [kind, count, requestBytes, responseBytes, totalBytes]
+            properties:
+              kind:
+                type: string
+              count:
+                type: integer
+              requestBytes:
+                type: integer
+              responseBytes:
+                type: integer
+              totalBytes:
+                type: integer
+        monthly:
+          type: array
+          items:
+            type: object
+            required: [month, kind, count, totalBytes]
+            properties:
+              month:
+                type: string
+              kind:
+                type: string
+              count:
+                type: integer
+              totalBytes:
+                type: integer
+        byTenant:
+          type: array
+          description: Superadmin scope only; empty for workspace admins.
+          items:
+            type: object
+            required: [tenantId, tenantName, count, totalBytes]
+            properties:
+              tenantId:
+                type: integer
+              tenantName:
+                type: [string, "null"]
+              count:
+                type: integer
+              totalBytes:
+                type: integer
+        recentCampaigns:
+          type: array
+          items:
+            type: object
+            required: [campaignId, platforms, totalBytes, createdAt]
+            properties:
+              campaignId:
+                type: string
+              platforms:
+                type: array
+                items:
+                  type: object
+                  required: [platform, totalBytes]
+                  properties:
+                    platform:
+                      type: string
+                    totalBytes:
+                      type: integer
+              totalBytes:
+                type: integer
+              createdAt:
+                type: string
+    ReliabilityAnalytics:
+      type: object
+      required:
+        [errorCount, errorsByType, errorsByScreen, crashCount, crashFreeSessionRate, anrCount, startup, apiLatency]
+      properties:
+        errorCount:
+          type: integer
+        errorsByType:
+          type: array
+          items:
+            $ref: "#/components/schemas/NameCount"
+        errorsByScreen:
+          type: array
+          items:
+            $ref: "#/components/schemas/NameCount"
+        crashCount:
+          type: integer
+        crashFreeSessionRate:
+          type: number
+        anrCount:
+          type: integer
+        startup:
+          type: array
+          items:
+            type: object
+            required: [platform, avgMs, p95Ms, count]
+            properties:
+              platform:
+                type: string
+              avgMs:
+                type: number
+              p95Ms:
+                type: number
+              count:
+                type: integer
+        apiLatency:
+          type: array
+          items:
+            type: object
+            required: [group, count, errorRate, p50Ms, p95Ms, p99Ms]
+            properties:
+              group:
+                type: string
+              count:
+                type: integer
+              errorRate:
+                type: number
+              p50Ms:
+                type: number
+              p95Ms:
+                type: number
+              p99Ms:
+                type: number
+    ConsentAnalytics:
+      type: object
+      required: [totalUsers, respondedUsers, optIns, trends]
+      properties:
+        totalUsers:
+          type: integer
+        respondedUsers:
+          type: integer
+        optIns:
+          type: object
+          required: [analytics, deviceDetails, locationCoarse, locationPrecise, carrier]
+          properties:
+            analytics:
+              type: integer
+            deviceDetails:
+              type: integer
+            locationCoarse:
+              type: integer
+            locationPrecise:
+              type: integer
+            carrier:
+              type: integer
+        trends:
+          type: array
+          items:
+            type: object
+            required: [date, optIns, optOuts]
+            properties:
+              date:
+                type: string
+              optIns:
+                type: integer
+              optOuts:
+                type: integer

@@ -1,11 +1,15 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { track } from "@/lib/analytics";
 import { useLocation } from "wouter";
 import {
   useGetMe,
+  useGetConsent,
+  useUpdateConsent,
   useDraftBrandKit,
   useCreateBrandKit,
   useCompleteOnboarding,
   getGetMeQueryKey,
+  getGetConsentQueryKey,
   getListBrandKitsQueryKey,
   type BrandKitPayload,
 } from "@workspace/api-client-react";
@@ -13,9 +17,40 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Sparkles, Loader2, Palette, Wand2, ArrowRight } from "lucide-react";
+import {
+  Sparkles,
+  Loader2,
+  Palette,
+  Wand2,
+  ArrowRight,
+  ShieldCheck,
+} from "lucide-react";
+
+const CONSENT_OPTIONS = [
+  {
+    key: "analytics" as const,
+    label: "Usage analytics",
+    description: "Pages visited, features used, and errors — helps us improve.",
+  },
+  {
+    key: "deviceDetails" as const,
+    label: "Device details",
+    description: "Browser, operating system, and network type.",
+  },
+  {
+    key: "locationCoarse" as const,
+    label: "Approximate location",
+    description: "City-level location from your network. No GPS.",
+  },
+  {
+    key: "locationPrecise" as const,
+    label: "Precise location",
+    description: "Exact coordinates, only with your browser's permission.",
+  },
+];
 
 export function OnboardingWizard() {
   const [location] = useLocation();
@@ -26,8 +61,18 @@ export function OnboardingWizard() {
   const draftBrandKit = useDraftBrandKit();
   const createBrandKit = useCreateBrandKit();
   const completeOnboarding = useCompleteOnboarding();
+  const updateConsent = useUpdateConsent();
 
-  const [step, setStep] = useState<"welcome" | "brand">("welcome");
+  const [step, setStep] = useState<"consent" | "welcome" | "brand">("consent");
+  const [consentFlags, setConsentFlags] = useState<Record<string, boolean>>({
+    analytics: false,
+    deviceDetails: false,
+    locationCoarse: false,
+    locationPrecise: false,
+  });
+  const [consentBusy, setConsentBusy] = useState(false);
+  const startedAtRef = useRef(Date.now());
+  const startedTrackedRef = useRef(false);
   const [name, setName] = useState("");
   const [industry, setIndustry] = useState("");
   const [url, setUrl] = useState("");
@@ -36,7 +81,48 @@ export function OnboardingWizard() {
 
   const onAdminPage = location === "/admin" || location.startsWith("/admin/");
   const shouldShow = !!me && !me.brandOnboardingComplete && !onAdminPage;
+  const { data: storedConsent } = useGetConsent({
+    query: { queryKey: getGetConsentQueryKey(), enabled: shouldShow },
+  });
+
+  useEffect(() => {
+    if (shouldShow && !startedTrackedRef.current) {
+      startedTrackedRef.current = true;
+      startedAtRef.current = Date.now();
+      track("onboarding_started", { entry_point: "first_login" });
+    }
+  }, [shouldShow]);
+
   if (!shouldShow) return null;
+
+  // Users who already answered the consent question skip straight to setup.
+  const effectiveStep =
+    step === "consent" && storedConsent?.responded ? "welcome" : step;
+
+  const handleConsentContinue = () => {
+    setConsentBusy(true);
+    updateConsent.mutate(
+      { data: consentFlags },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getGetConsentQueryKey(),
+          });
+          setConsentBusy(false);
+          setStep("welcome");
+        },
+        onError: () => {
+          setConsentBusy(false);
+          toast({
+            title: "Could not save your choices",
+            description: "You can change them anytime in Settings.",
+            variant: "destructive",
+          });
+          setStep("welcome");
+        },
+      },
+    );
+  };
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
@@ -47,7 +133,16 @@ export function OnboardingWizard() {
     completeOnboarding.mutate(
       { data: { skipped, industry: industry.trim() || undefined } },
       {
-        onSuccess: () => refresh(),
+        onSuccess: () => {
+          if (!skipped) {
+            track("onboarding_completed", {
+              completion_time_sec: Math.round(
+                (Date.now() - startedAtRef.current) / 1000,
+              ),
+            });
+          }
+          refresh();
+        },
         onError: () =>
           toast({ title: "Could not finish setup", variant: "destructive" }),
       },
@@ -117,7 +212,56 @@ export function OnboardingWizard() {
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
       >
-        {step === "welcome" ? (
+        {effectiveStep === "consent" ? (
+          <div className="py-2 space-y-5">
+            <div className="space-y-2 text-center">
+              <div className="mx-auto h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center">
+                <ShieldCheck className="h-6 w-6 text-primary" />
+              </div>
+              <h2 className="text-xl font-bold tracking-tight">
+                Your data, your choice
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                KOKAO can collect some usage data to improve the product.
+                Everything is optional and off by default. You can change these
+                anytime under Settings, and saying no never limits what you can
+                do.
+              </p>
+            </div>
+            <div className="space-y-3 max-h-[45vh] overflow-y-auto px-1">
+              {CONSENT_OPTIONS.map((opt) => (
+                <div
+                  key={opt.key}
+                  className="flex items-start justify-between gap-4 rounded-lg border border-border p-3"
+                >
+                  <div className="space-y-0.5">
+                    <p className="text-sm font-medium">{opt.label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {opt.description}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={consentFlags[opt.key] ?? false}
+                    onCheckedChange={(v) =>
+                      setConsentFlags((prev) => ({ ...prev, [opt.key]: v }))
+                    }
+                    aria-label={opt.label}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end pt-1">
+              <Button onClick={handleConsentContinue} disabled={consentBusy}>
+                {consentBusy ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <ArrowRight className="mr-2 h-4 w-4" />
+                )}
+                Continue
+              </Button>
+            </div>
+          </div>
+        ) : effectiveStep === "welcome" ? (
           <div className="text-center py-4 space-y-5">
             <div className="mx-auto h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center">
               <Sparkles className="h-7 w-7 text-primary" />

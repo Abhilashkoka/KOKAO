@@ -33,6 +33,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, splitForLinkedin, chunkOnWhitespace, splitIntoTweets, THREADS_MAX_LENGTH } from "@workspace/social-limits";
 import { useRestartRetry } from "@workspace/api-client-react";
 import { PendingPostsWarnings, usePendingResendActions } from "@/components/pending-posts-warning";
+import { track } from "@/lib/analytics";
 
 const PLATFORM_NAMES: Record<string, string> = {
   instagram: "Instagram",
@@ -146,6 +147,7 @@ export function LibraryPage() {
     if (!publishItem) return;
     runPublishWithRetry(publishContent, { id: publishItem.id }, {
       onSuccess: (res) => {
+        track("post_published", { platform: "facebook" });
         toast({
           title: "Published to Facebook",
           description: res?.permalink ? "Your post is live on Facebook." : undefined,
@@ -173,6 +175,7 @@ export function LibraryPage() {
     if (!instagramItem) return;
     runPublishWithRetry(publishInstagram, { id: instagramItem.id }, {
       onSuccess: () => {
+        track("post_published", { platform: "instagram" });
         toast({
           title: "Publishing to Instagram",
           description:
@@ -231,6 +234,7 @@ export function LibraryPage() {
     if (!linkedinItem) return;
     runPublishWithRetry(publishLinkedin, { id: linkedinItem.id }, {
         onSuccess: (res) => {
+          track("post_published", { platform: "linkedin" });
           if (res?.commentWarning) {
             const itemId = linkedinItem.id;
             toast({
@@ -281,6 +285,7 @@ export function LibraryPage() {
     if (!twitterItem) return;
     runPublishWithRetry(publishTwitter, { id: twitterItem.id }, {
       onSuccess: (res) => {
+        track("post_published", { platform: "twitter" });
         if (res?.publishWarning) {
           const itemId = twitterItem.id;
           toast({
@@ -324,6 +329,7 @@ export function LibraryPage() {
     if (!threadsItem) return;
     runPublishWithRetry(publishThreads, { id: threadsItem.id }, {
         onSuccess: (res) => {
+          track("post_published", { platform: "threads" });
           if (res?.publishWarning) {
             const itemId = threadsItem.id;
             toast({

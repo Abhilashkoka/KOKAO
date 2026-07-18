@@ -16,6 +16,8 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { setBaseUrl } from "@workspace/api-client-react";
 
+import { AnalyticsTracker } from "@/components/AnalyticsTracker";
+import { trackError } from "@/lib/analytics";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { fonts } from "@/constants/fonts";
 import colors from "@/constants/colors";
@@ -71,8 +73,11 @@ export default function RootLayout() {
     >
       <ClerkLoaded>
         <SafeAreaProvider>
-          <ErrorBoundary>
+          <ErrorBoundary
+            onError={(error) => trackError(error.name || "render_error", undefined, true)}
+          >
             <QueryClientProvider client={queryClient}>
+              <AnalyticsTracker />
               <GestureHandlerRootView>
                 <KeyboardProvider>
                   <RootLayoutNav />

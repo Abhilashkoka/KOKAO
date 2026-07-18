@@ -9,6 +9,7 @@ import {
 import { eq } from "drizzle-orm";
 import { verifyWebhookSignature, fetchRazorpayOrder } from "../lib/razorpay";
 import { grantCredits } from "../lib/credits";
+import { recordServerEvent } from "../lib/analytics";
 
 /**
  * PUBLIC Razorpay webhook receiver (mounted before requireTenant). Every
@@ -51,6 +52,7 @@ function isEntitledStatus(status: string): boolean {
 async function handleSubscriptionEvent(
   req: Request,
   entity: NonNullable<NonNullable<WebhookEvent["payload"]>["subscription"]>["entity"],
+  eventName?: string,
 ): Promise<void> {
   const subscriptionId = entity?.id;
   const status = entity?.status;
@@ -78,6 +80,15 @@ async function handleSubscriptionEvent(
       updatedAt: new Date(),
     })
     .where(eq(subscriptionsTable.id, sub.id));
+
+  if (eventName === "subscription.charged") {
+    // Renewal payment landed — server-side revenue analytics.
+    void recordServerEvent({
+      name: "subscription_renewed",
+      tenantId: sub.tenantId,
+      params: { item_type: "subscription", item_name: sub.planId },
+    });
+  }
 
   if (isEntitledStatus(status)) {
     // Admin override wins: while a superadmin has manually set this tenant's
@@ -131,6 +142,15 @@ async function handleSubscriptionEvent(
         .update(tenantsTable)
         .set({ plan: "free", updatedAt: new Date() })
         .where(eq(tenantsTable.id, sub.tenantId));
+      void recordServerEvent({
+        name: "subscription_cancelled",
+        tenantId: sub.tenantId,
+        params: {
+          item_type: "subscription",
+          item_name: sub.planId,
+          reason: status,
+        },
+      });
     }
   }
 }
@@ -184,6 +204,15 @@ async function handlePaymentCaptured(
   });
   if (granted) {
     req.log.info({ tenantId, packId, orderId }, "Credited pack via webhook backstop");
+    void recordServerEvent({
+      name: "purchase",
+      tenantId,
+      params: {
+        item_type: "credit_pack",
+        item_name: pack.name,
+        amount_paise: pack.pricePaise,
+      },
+    });
   }
 }
 
@@ -212,7 +241,7 @@ router.post("/billing/razorpay-webhook", async (req: Request, res: Response) => 
 
   try {
     if (event.event?.startsWith("subscription.")) {
-      await handleSubscriptionEvent(req, event.payload?.subscription?.entity);
+      await handleSubscriptionEvent(req, event.payload?.subscription?.entity, event.event);
     } else if (event.event === "payment.captured") {
       await handlePaymentCaptured(req, event.payload?.payment?.entity);
     }

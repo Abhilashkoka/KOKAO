@@ -23,3 +23,4 @@ export * from "./billing";
 export * from "./sweepStatus";
 export * from "./team";
 export * from "./tasteProfiles";
+export * from "./analytics";
