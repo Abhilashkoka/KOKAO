@@ -99,7 +99,7 @@ export default function SignInScreen() {
         source={brandImage ? { uri: brandImage } : require("@/assets/images/kokao-mark.png")}
         style={styles.logo}
         contentFit="contain"
-        contentPosition="left center"
+        contentPosition="center"
       />
 
       {verifyingCode ? (
@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
   logo: {
     width: 200,
     height: 56,
-    alignSelf: "flex-start",
+    alignSelf: "center",
     marginBottom: 20,
   },
   title: { fontFamily: fonts.bold, fontSize: 28, color: c.foreground },

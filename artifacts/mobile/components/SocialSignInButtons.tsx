@@ -1,5 +1,5 @@
 import { useSSO } from "@clerk/expo";
-import { FontAwesome, FontAwesome6 } from "@expo/vector-icons";
+import { FontAwesome } from "@expo/vector-icons";
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import { useRouter } from "expo-router";
@@ -21,7 +21,7 @@ const c = colors.light;
 WebBrowser.maybeCompleteAuthSession();
 
 type Provider = {
-  strategy: "oauth_google" | "oauth_github" | "oauth_apple" | "oauth_x";
+  strategy: "oauth_google" | "oauth_apple";
   label: string;
   icon: React.ReactNode;
 };
@@ -36,16 +36,6 @@ const PROVIDERS: Provider[] = [
     strategy: "oauth_apple",
     label: "Continue with Apple",
     icon: <FontAwesome name="apple" size={20} color={c.foreground} />,
-  },
-  {
-    strategy: "oauth_github",
-    label: "Continue with GitHub",
-    icon: <FontAwesome name="github" size={19} color={c.foreground} />,
-  },
-  {
-    strategy: "oauth_x",
-    label: "Continue with X",
-    icon: <FontAwesome6 name="x-twitter" size={17} color={c.foreground} />,
   },
 ];
 
