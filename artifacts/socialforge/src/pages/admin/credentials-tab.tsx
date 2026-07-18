@@ -1,0 +1,942 @@
+import { useState, useEffect } from "react";
+import {
+  useAdminGetMetaCredentials,
+  useAdminSaveMetaCredentials,
+  getAdminGetMetaCredentialsQueryKey,
+  useAdminGetTwitterCredentials,
+  useAdminSaveTwitterCredentials,
+  getAdminGetTwitterCredentialsQueryKey,
+  useAdminGetLinkedinCredentials,
+  useAdminSaveLinkedinCredentials,
+  getAdminGetLinkedinCredentialsQueryKey,
+  useAdminGetYoutubeCredentials,
+  useAdminSaveYoutubeCredentials,
+  getAdminGetYoutubeCredentialsQueryKey,
+  useAdminGetThreadsCredentials,
+  useAdminSaveThreadsCredentials,
+  getAdminGetThreadsCredentialsQueryKey,
+  useAdminGetRazorpayCredentials,
+  useAdminSaveRazorpayCredentials,
+  getAdminGetRazorpayCredentialsQueryKey,
+} from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
+import { CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+
+function MetaCredentialsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useAdminGetMetaCredentials();
+  const saveMeta = useAdminSaveMetaCredentials();
+
+  const [appId, setAppId] = useState("");
+  const [appSecret, setAppSecret] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  // Prefill the App ID field with the masked value once loaded so admins can
+  // see something is configured. Secret stays blank (write-only).
+  useEffect(() => {
+    if (data && !dirty) {
+      setAppId(data.appIdMasked ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const handleSave = () => {
+    if (!appId.trim() || !appSecret.trim()) return;
+    saveMeta.mutate(
+      { data: { appId: appId.trim(), appSecret: appSecret.trim() } },
+      {
+        onSuccess: (res) => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetMetaCredentialsQueryKey(),
+          });
+          setAppSecret("");
+          setDirty(false);
+          if (res.testStatus === "verified") {
+            toast({
+              title: "Meta credentials verified",
+              description: "The app keys were saved and tested successfully.",
+            });
+          } else {
+            toast({
+              variant: "destructive",
+              title: "Saved, but verification failed",
+              description:
+                res.testError ||
+                "The app keys were saved but Meta rejected them. Double-check the App ID and Secret.",
+            });
+          }
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description:
+              err?.response?.data?.error || "Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  const status = data?.testStatus;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Meta (Facebook & Instagram) app credentials</CardTitle>
+        <CardDescription>
+          One-time platform setup. Enter your Meta app's App ID and App Secret.
+          Every workspace then connects their own Facebook Page and Instagram
+          account on the Accounts page. Secrets are encrypted at rest and never
+          shown again.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-xl">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (
+          <>
+            {data?.configured && (
+              <div className="flex items-center gap-2 text-sm">
+                {status === "verified" ? (
+                  <span className="text-green-600 flex items-center gap-1">
+                    <CheckCircle2 className="h-4 w-4" /> Verified with Meta
+                  </span>
+                ) : status === "failed" ? (
+                  <span className="text-destructive flex items-center gap-1">
+                    <AlertCircle className="h-4 w-4" /> Verification failed
+                    {data.testError ? `: ${data.testError}` : ""}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">Saved</span>
+                )}
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">App ID</label>
+              <Input
+                value={appId}
+                onChange={(e) => {
+                  setAppId(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="1234567890123456"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">App Secret</label>
+              <Input
+                type="password"
+                value={appSecret}
+                onChange={(e) => {
+                  setAppSecret(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder={
+                  data?.configured ? "Enter to replace the saved secret" : "App Secret"
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Find both in the Meta app dashboard under Settings &gt; Basic at{" "}
+                developers.facebook.com/apps.
+              </p>
+            </div>
+            <Button
+              onClick={handleSave}
+              disabled={saveMeta.isPending || !appId.trim() || !appSecret.trim()}
+            >
+              {saveMeta.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving &
+                  testing...
+                </>
+              ) : (
+                "Save and test"
+              )}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TwitterCredentialsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useAdminGetTwitterCredentials();
+  const saveTwitter = useAdminSaveTwitterCredentials();
+
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (data && !dirty) {
+      setClientId(data.clientIdMasked ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const copyRedirect = () => {
+    if (!data?.redirectUri) return;
+    navigator.clipboard.writeText(data.redirectUri);
+    toast({ title: "Callback URL copied" });
+  };
+
+  const handleSave = () => {
+    if (!clientId.trim() || !clientSecret.trim()) return;
+    saveTwitter.mutate(
+      { data: { clientId: clientId.trim(), clientSecret: clientSecret.trim() } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetTwitterCredentialsQueryKey(),
+          });
+          setClientSecret("");
+          setDirty(false);
+          toast({
+            title: "X credentials saved",
+            description:
+              "Workspaces can now connect their X account on the Accounts page.",
+          });
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description: err?.response?.data?.error || "Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>X (Twitter) app credentials</CardTitle>
+        <CardDescription>
+          One-time platform setup. Enter your X app's OAuth 2.0 Client ID and
+          Client Secret (a confidential client). Every workspace then connects
+          their own X account through the OAuth 2.0 flow on the Accounts page.
+          Secrets are encrypted at rest and never shown again.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-xl">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (
+          <>
+            {data?.configured && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-green-600 flex items-center gap-1">
+                  <CheckCircle2 className="h-4 w-4" /> Saved
+                </span>
+              </div>
+            )}
+            {data?.redirectUri && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Callback URL (register this in your X app)
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input readOnly value={data.redirectUri} />
+                  <Button type="button" variant="outline" onClick={copyRedirect}>
+                    Copy
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Add this exact URL to your X app's OAuth 2.0 "Callback URI /
+                  Redirect URL" list, and set the app type to a confidential
+                  client with Read and Write permissions.
+                </p>
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Client ID</label>
+              <Input
+                value={clientId}
+                onChange={(e) => {
+                  setClientId(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="OAuth 2.0 Client ID"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Client Secret</label>
+              <Input
+                type="password"
+                value={clientSecret}
+                onChange={(e) => {
+                  setClientSecret(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder={
+                  data?.configured
+                    ? "Enter to replace the saved secret"
+                    : "OAuth 2.0 Client Secret"
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Create an app in the X developer portal at developer.x.com,
+                enable OAuth 2.0, and copy the Client ID and Client Secret from
+                the app's Keys and tokens tab.
+              </p>
+            </div>
+            <Button
+              onClick={handleSave}
+              disabled={
+                saveTwitter.isPending || !clientId.trim() || !clientSecret.trim()
+              }
+            >
+              {saveTwitter.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                </>
+              ) : (
+                "Save"
+              )}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function LinkedinCredentialsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useAdminGetLinkedinCredentials();
+  const saveLinkedin = useAdminSaveLinkedinCredentials();
+
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (data && !dirty) {
+      setClientId(data.clientIdMasked ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const copyRedirect = () => {
+    if (!data?.redirectUri) return;
+    navigator.clipboard.writeText(data.redirectUri);
+    toast({ title: "Callback URL copied" });
+  };
+
+  const handleSave = () => {
+    if (!clientId.trim() || !clientSecret.trim()) return;
+    saveLinkedin.mutate(
+      { data: { clientId: clientId.trim(), clientSecret: clientSecret.trim() } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetLinkedinCredentialsQueryKey(),
+          });
+          setClientSecret("");
+          setDirty(false);
+          toast({
+            title: "LinkedIn credentials saved",
+            description:
+              "Workspaces can now connect their LinkedIn account on the Accounts page.",
+          });
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description: err?.response?.data?.error || "Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>LinkedIn app credentials</CardTitle>
+        <CardDescription>
+          One-time platform setup. Enter the Client ID and Client Secret from
+          your LinkedIn app's Auth tab. Every workspace then connects their own
+          LinkedIn account through the sign-in flow on the Accounts page.
+          Secrets are encrypted at rest and never shown again.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-xl">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (
+          <>
+            {data?.configured && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-green-600 flex items-center gap-1">
+                  <CheckCircle2 className="h-4 w-4" /> Saved
+                </span>
+              </div>
+            )}
+            {data?.redirectUri && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Callback URL (register this in your LinkedIn app)
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input readOnly value={data.redirectUri} />
+                  <Button type="button" variant="outline" onClick={copyRedirect}>
+                    Copy
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Add this exact URL to the "Authorized redirect URLs" list on
+                  your LinkedIn app's Auth tab, and make sure the app has the
+                  "Sign In with LinkedIn using OpenID Connect" and "Share on
+                  LinkedIn" products enabled.
+                </p>
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Client ID</label>
+              <Input
+                value={clientId}
+                onChange={(e) => {
+                  setClientId(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="LinkedIn Client ID"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Client Secret</label>
+              <Input
+                type="password"
+                value={clientSecret}
+                onChange={(e) => {
+                  setClientSecret(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder={
+                  data?.configured
+                    ? "Enter to replace the saved secret"
+                    : "LinkedIn Client Secret"
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Find both values on the Auth tab of your app at
+                developer.linkedin.com under "Application credentials".
+              </p>
+            </div>
+            <Button
+              onClick={handleSave}
+              disabled={
+                saveLinkedin.isPending || !clientId.trim() || !clientSecret.trim()
+              }
+            >
+              {saveLinkedin.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                </>
+              ) : (
+                "Save"
+              )}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function RazorpayCredentialsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useAdminGetRazorpayCredentials();
+  const saveRazorpay = useAdminSaveRazorpayCredentials();
+
+  // The Key ID input intentionally starts EMPTY (the saved value is shown as
+  // a placeholder only): prefilling the masked text would let an operator who
+  // edits just the secrets accidentally save the masked placeholder as the
+  // real Key ID. Saving always requires re-entering all three values.
+  const [keyId, setKeyId] = useState("");
+  const [keySecret, setKeySecret] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
+
+  const handleSave = () => {
+    if (!keyId.trim() || !keySecret.trim() || !webhookSecret.trim()) return;
+    saveRazorpay.mutate(
+      {
+        data: {
+          keyId: keyId.trim(),
+          keySecret: keySecret.trim(),
+          webhookSecret: webhookSecret.trim(),
+        },
+      },
+      {
+        onSuccess: (result) => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetRazorpayCredentialsQueryKey(),
+          });
+          setKeyId("");
+          setKeySecret("");
+          setWebhookSecret("");
+          if (result.testStatus === "verified") {
+            toast({
+              title: "Razorpay connected",
+              description:
+                "Keys verified. Workspaces can now subscribe and buy credit packs.",
+            });
+          } else {
+            toast({
+              variant: "destructive",
+              title: "Saved, but the key test failed",
+              description:
+                result.testError ||
+                "Razorpay rejected the keys. Double-check the Key ID and Secret.",
+            });
+          }
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description: err?.response?.data?.error || "Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Razorpay payment keys</CardTitle>
+        <CardDescription>
+          One-time platform setup for online billing. Enter the Key ID and Key
+          Secret from your Razorpay dashboard (Settings → API Keys), plus the
+          Webhook Secret you set when creating the webhook. Keys are tested on
+          save, encrypted at rest, and never shown again.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-xl">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (
+          <>
+            {data?.configured && (
+              <div className="flex items-center gap-2 text-sm">
+                {data.testStatus === "verified" ? (
+                  <span className="text-green-600 flex items-center gap-1">
+                    <CheckCircle2 className="h-4 w-4" /> Connected
+                  </span>
+                ) : (
+                  <span className="text-destructive flex items-center gap-1">
+                    <AlertCircle className="h-4 w-4" />
+                    {data.testError || "Key test failed"}
+                  </span>
+                )}
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Key ID</label>
+              <Input
+                value={keyId}
+                onChange={(e) => setKeyId(e.target.value)}
+                placeholder={
+                  data?.configured && data.keyIdMasked
+                    ? `Saved: ${data.keyIdMasked} — enter to replace`
+                    : "rzp_live_..."
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Key Secret</label>
+              <Input
+                type="password"
+                value={keySecret}
+                onChange={(e) => setKeySecret(e.target.value)}
+                placeholder={
+                  data?.configured
+                    ? "Enter to replace the saved secret"
+                    : "Razorpay Key Secret"
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Webhook Secret</label>
+              <Input
+                type="password"
+                value={webhookSecret}
+                onChange={(e) => setWebhookSecret(e.target.value)}
+                placeholder={
+                  data?.configured
+                    ? "Enter to replace the saved secret"
+                    : "Webhook signing secret"
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                In the Razorpay dashboard, create a webhook pointing to
+                /api/billing/razorpay-webhook on this app's domain, subscribed
+                to subscription and payment events, and paste its secret here.
+              </p>
+            </div>
+            <Button
+              onClick={handleSave}
+              disabled={
+                saveRazorpay.isPending ||
+                !keyId.trim() ||
+                !keySecret.trim() ||
+                !webhookSecret.trim()
+              }
+            >
+              {saveRazorpay.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                </>
+              ) : (
+                "Save & test"
+              )}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+function YoutubeCredentialsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useAdminGetYoutubeCredentials();
+  const saveYoutube = useAdminSaveYoutubeCredentials();
+
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (data && !dirty) {
+      setClientId(data.clientIdMasked ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const copyRedirect = () => {
+    if (!data?.redirectUri) return;
+    navigator.clipboard.writeText(data.redirectUri);
+    toast({ title: "Callback URL copied" });
+  };
+
+  const handleSave = () => {
+    if (!clientId.trim() || !clientSecret.trim()) return;
+    saveYoutube.mutate(
+      { data: { clientId: clientId.trim(), clientSecret: clientSecret.trim() } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetYoutubeCredentialsQueryKey(),
+          });
+          setClientSecret("");
+          setDirty(false);
+          toast({
+            title: "YouTube credentials saved",
+            description:
+              "Workspaces can now connect their YouTube channel on the Accounts page.",
+          });
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description: err?.response?.data?.error || "Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>YouTube app credentials</CardTitle>
+        <CardDescription>
+          One-time platform setup. Enter the Client ID and Client Secret of a
+          Google Cloud OAuth client (type "Web application") with the YouTube
+          Data API v3 enabled. Every workspace then connects their own YouTube
+          channel through Google sign-in on the Accounts page. Secrets are
+          encrypted at rest and never shown again.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-xl">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (
+          <>
+            {data?.configured && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-green-600 flex items-center gap-1">
+                  <CheckCircle2 className="h-4 w-4" /> Saved
+                </span>
+              </div>
+            )}
+            {data?.redirectUri && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Callback URL (register this in your Google Cloud OAuth client)
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input readOnly value={data.redirectUri} />
+                  <Button type="button" variant="outline" onClick={copyRedirect}>
+                    Copy
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Add this exact URL to the "Authorized redirect URIs" list on
+                  your OAuth client in the Google Cloud console, and make sure
+                  the project has the YouTube Data API v3 enabled.
+                </p>
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Client ID</label>
+              <Input
+                value={clientId}
+                onChange={(e) => {
+                  setClientId(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="Google OAuth Client ID"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Client Secret</label>
+              <Input
+                type="password"
+                value={clientSecret}
+                onChange={(e) => {
+                  setClientSecret(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder={
+                  data?.configured
+                    ? "Enter to replace the saved secret"
+                    : "Google OAuth Client Secret"
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Find both values under APIs &amp; Services, Credentials in the
+                Google Cloud console.
+              </p>
+            </div>
+            <Button
+              onClick={handleSave}
+              disabled={
+                saveYoutube.isPending || !clientId.trim() || !clientSecret.trim()
+              }
+            >
+              {saveYoutube.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                </>
+              ) : (
+                "Save"
+              )}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ThreadsCredentialsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useAdminGetThreadsCredentials();
+  const saveThreads = useAdminSaveThreadsCredentials();
+
+  const [appId, setAppId] = useState("");
+  const [appSecret, setAppSecret] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (data && !dirty) {
+      setAppId(data.appIdMasked ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const copyRedirect = () => {
+    if (!data?.redirectUri) return;
+    navigator.clipboard.writeText(data.redirectUri);
+    toast({ title: "Callback URL copied" });
+  };
+
+  const handleSave = () => {
+    if (!appId.trim() || !appSecret.trim()) return;
+    saveThreads.mutate(
+      { data: { appId: appId.trim(), appSecret: appSecret.trim() } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetThreadsCredentialsQueryKey(),
+          });
+          setAppSecret("");
+          setDirty(false);
+          toast({
+            title: "Threads credentials saved",
+            description:
+              "Workspaces can now connect their Threads profile on the Accounts page.",
+          });
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description: err?.response?.data?.error || "Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Threads app credentials</CardTitle>
+        <CardDescription>
+          One-time platform setup. Enter the Threads App ID and Threads App
+          Secret of a Meta app with the "Access the Threads API" use case
+          added. These are different from the regular Facebook App ID and
+          Secret, even inside the same Meta app. Every workspace then connects
+          their own Threads profile on the Accounts page. Secrets are
+          encrypted at rest and never shown again.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-xl">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (
+          <>
+            {data?.configured && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-green-600 flex items-center gap-1">
+                  <CheckCircle2 className="h-4 w-4" /> Saved
+                </span>
+              </div>
+            )}
+            {data?.redirectUri && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Callback URL (register this in the Meta app's Threads API settings)
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input readOnly value={data.redirectUri} />
+                  <Button type="button" variant="outline" onClick={copyRedirect}>
+                    Copy
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Add this exact URL as a Redirect Callback URL in the Threads
+                  API settings of your Meta app (under the "Access the Threads
+                  API" use case, Customize, Settings).
+                </p>
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Threads App ID</label>
+              <Input
+                value={appId}
+                onChange={(e) => {
+                  setAppId(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="Threads App ID"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Threads App Secret</label>
+              <Input
+                type="password"
+                value={appSecret}
+                onChange={(e) => {
+                  setAppSecret(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder={
+                  data?.configured
+                    ? "Enter to replace the saved secret"
+                    : "Threads App Secret"
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Find both values in the Meta app under App settings, Basic —
+                scroll to the Threads section (not the regular App ID/Secret at
+                the top).
+              </p>
+            </div>
+            <Button
+              onClick={handleSave}
+              disabled={
+                saveThreads.isPending || !appId.trim() || !appSecret.trim()
+              }
+            >
+              {saveThreads.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                </>
+              ) : (
+                "Save"
+              )}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function CredentialsTab() {
+  return (
+    <div className="space-y-8">
+      <MetaCredentialsCard />
+      <TwitterCredentialsCard />
+      <LinkedinCredentialsCard />
+      <YoutubeCredentialsCard />
+      <ThreadsCredentialsCard />
+      <RazorpayCredentialsCard />
+    </div>
+  );
+}
