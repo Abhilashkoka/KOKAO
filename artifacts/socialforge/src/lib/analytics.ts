@@ -16,6 +16,9 @@ const INGEST_URL = `${BASE}api/analytics/events`;
 const ANON_KEY = "kokao_anon_id";
 const SESSION_KEY = "kokao_session";
 const FIRST_OPEN_KEY = "kokao_first_open";
+const SIGN_UP_KEY = "kokao_sign_up_tracked";
+/** How recently a Clerk user must have been created to count as a fresh sign-up. */
+const SIGN_UP_FRESH_WINDOW_MS = 60 * 60_000;
 const UTM_KEY = "kokao_utm";
 const SESSION_TIMEOUT_MS = 30 * 60_000;
 const FLUSH_INTERVAL_MS = 10_000;
@@ -213,6 +216,25 @@ export function trackPageView(page: string): void {
     page,
     ...(previousPage ? { referrer_page: previousPage } : {}),
   });
+}
+
+/**
+ * Fire "sign_up" exactly once per new user. Called after sign-in with the
+ * Clerk user's id and creation time; only accounts created within the fresh
+ * window count (so existing users signing in on a new device don't fire it).
+ * Deduped in localStorage by user id.
+ */
+let signUpTrackedFor: string | null = null;
+
+export function trackSignUpOnce(userId: string, createdAt: Date | null | undefined): void {
+  if (!userId || !createdAt) return;
+  if (Date.now() - createdAt.getTime() > SIGN_UP_FRESH_WINDOW_MS) return;
+  if (signUpTrackedFor === userId) return;
+  const store = safeStorage("local");
+  if (store?.getItem(SIGN_UP_KEY) === userId) return;
+  signUpTrackedFor = userId;
+  store?.setItem(SIGN_UP_KEY, userId);
+  track("sign_up", { method: "clerk" });
 }
 
 export function trackFeatureUse(feature: string, params?: Record<string, unknown>): void {

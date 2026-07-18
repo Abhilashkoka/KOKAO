@@ -9,6 +9,7 @@ import {
   initAnalytics,
   setConsentState,
   trackPageView,
+  trackSignUpOnce,
 } from "@/lib/analytics";
 
 /**
@@ -18,7 +19,7 @@ import {
  */
 export function AnalyticsTracker() {
   const [location] = useLocation();
-  const { isSignedIn } = useUser();
+  const { isSignedIn, user } = useUser();
   const { data: consent } = useGetConsent({
     query: {
       queryKey: getGetConsentQueryKey(),
@@ -46,6 +47,12 @@ export function AnalyticsTracker() {
       Boolean(isSignedIn),
     );
   }, [consent, isSignedIn]);
+
+  useEffect(() => {
+    if (isSignedIn && user) {
+      trackSignUpOnce(user.id, user.createdAt);
+    }
+  }, [isSignedIn, user]);
 
   useEffect(() => {
     trackPageView(location);

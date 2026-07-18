@@ -25,6 +25,9 @@ const INGEST_URL = domain ? `https://${domain}/api/analytics/events` : null;
 
 const ANON_KEY = "kokao_anon_id";
 const FIRST_OPEN_KEY = "kokao_first_open";
+const SIGN_UP_KEY = "kokao_sign_up_tracked";
+/** How recently a Clerk user must have been created to count as a fresh sign-up. */
+const SIGN_UP_FRESH_WINDOW_MS = 60 * 60_000;
 const SESSION_TIMEOUT_MS = 30 * 60_000;
 const FLUSH_INTERVAL_MS = 15_000;
 const MAX_QUEUE = 40;
@@ -159,6 +162,35 @@ export function trackScreenView(screen: string): void {
 
 export function trackFeatureUse(feature: string, params?: Record<string, unknown>): void {
   track("feature_use", { feature, ...params });
+}
+
+/**
+ * Fire "sign_up" exactly once per new user. Called after sign-in with the
+ * Clerk user's id and creation time; only accounts created within the fresh
+ * window count (so existing users signing in on a new device don't fire it).
+ * Deduped in AsyncStorage by user id.
+ */
+let signUpTrackedFor: string | null = null;
+
+export async function trackSignUpOnce(
+  userId: string,
+  createdAt: Date | null | undefined,
+): Promise<void> {
+  if (!userId || !createdAt) return;
+  if (Date.now() - createdAt.getTime() > SIGN_UP_FRESH_WINDOW_MS) return;
+  if (signUpTrackedFor === userId) return;
+  try {
+    if ((await AsyncStorage.getItem(SIGN_UP_KEY)) === userId) return;
+  } catch {
+    // storage unavailable; the in-memory marker still dedupes this session
+  }
+  signUpTrackedFor = userId;
+  try {
+    await AsyncStorage.setItem(SIGN_UP_KEY, userId);
+  } catch {
+    // best effort
+  }
+  track("sign_up", { method: "clerk" });
 }
 
 export function trackError(errorType: string, screen?: string, fatal = false): void {

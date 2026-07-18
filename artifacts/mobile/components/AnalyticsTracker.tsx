@@ -1,4 +1,4 @@
-import { useAuth } from "@clerk/expo";
+import { useAuth, useUser } from "@clerk/expo";
 import { usePathname } from "expo-router";
 import { useEffect } from "react";
 import { useGetConsent, getGetConsentQueryKey } from "@workspace/api-client-react";
@@ -8,6 +8,7 @@ import {
   setAnalyticsAuth,
   setConsentState,
   trackScreenView,
+  trackSignUpOnce,
   type ConsentState,
 } from "@/lib/analytics";
 
@@ -17,6 +18,7 @@ const APP_STARTED_AT = Date.now();
 export function AnalyticsTracker() {
   const pathname = usePathname();
   const { isSignedIn, getToken } = useAuth();
+  const { user } = useUser();
   const { data: consent } = useGetConsent({
     query: {
       queryKey: getGetConsentQueryKey(),
@@ -36,6 +38,12 @@ export function AnalyticsTracker() {
   useEffect(() => {
     setConsentState((consent as ConsentState | undefined) ?? null, Boolean(isSignedIn));
   }, [consent, isSignedIn]);
+
+  useEffect(() => {
+    if (isSignedIn && user) {
+      void trackSignUpOnce(user.id, user.createdAt);
+    }
+  }, [isSignedIn, user]);
 
   useEffect(() => {
     if (pathname) trackScreenView(pathname);
