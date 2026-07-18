@@ -24,7 +24,12 @@ import {
   getListContentQueryKey,
   getGetContentQueryKey,
   useRestartRetry,
+  useListSchedules,
+  useCreateSchedule,
+  useDeleteSchedule,
+  getListSchedulesQueryKey,
 } from "@workspace/api-client-react";
+import { SchedulePicker } from "@/components/SchedulePicker";
 import { ContentImage } from "@/components/ContentImage";
 import { buildSplitWarnings } from "@/components/publishSplitWarnings";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
@@ -55,6 +60,19 @@ export default function ContentDetailScreen() {
   });
   const update = useUpdateContent();
   const remove = useDeleteContent();
+
+  const { data: schedules } = useListSchedules({
+    query: { queryKey: getListSchedulesQueryKey() },
+  });
+  const createSchedule = useCreateSchedule();
+  const deleteSchedule = useDeleteSchedule();
+  const [showSchedulePicker, setShowSchedulePicker] = useState(false);
+  const [scheduleMsg, setScheduleMsg] = useState<string | null>(null);
+  const [scheduleErr, setScheduleErr] = useState<string | null>(null);
+
+  const existingSchedule = (schedules ?? []).find(
+    (s) => s.contentItemId === contentId && s.status === "pending",
+  );
 
   const publishFacebook = usePublishContentToFacebook();
   const publishInstagram = usePublishContentToInstagram();
@@ -364,6 +382,77 @@ export default function ContentDetailScreen() {
     });
   };
 
+  const handleScheduleConfirm = (platform: string, scheduledAt: Date) => {
+    haptic();
+    setScheduleMsg(null);
+    setScheduleErr(null);
+    createSchedule.mutate(
+      {
+        data: {
+          contentItemId: contentId,
+          platform,
+          scheduledAt: scheduledAt.toISOString(),
+        },
+      },
+      {
+        onSuccess: () => {
+          setShowSchedulePicker(false);
+          // Keep any unsaved title/caption edits: only flip the local status,
+          // never clear the dirty flag here (the server already set the
+          // content status to "scheduled").
+          setStatus("scheduled");
+          setScheduleMsg(
+            `Scheduled for ${scheduledAt.toLocaleString(undefined, {
+              weekday: "short",
+              day: "numeric",
+              month: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+            })} on ${platform}.`,
+          );
+          queryClient.invalidateQueries({ queryKey: getListSchedulesQueryKey() });
+          invalidateContent();
+        },
+        onError: (err) =>
+          setScheduleErr(apiErrorText(err, "Could not schedule this post.")),
+      },
+    );
+  };
+
+  const handleCancelSchedule = () => {
+    if (!existingSchedule) return;
+    haptic();
+    setScheduleMsg(null);
+    setScheduleErr(null);
+    deleteSchedule.mutate(
+      { id: existingSchedule.id },
+      {
+        onSuccess: () => {
+          update.mutate(
+            { id: contentId, data: { status: "draft" } },
+            {
+              onSuccess: () => {
+                setStatus("draft");
+                setScheduleMsg("Schedule cancelled. This post is back to a draft.");
+              },
+              onError: () => {
+                setScheduleErr(
+                  "The schedule was cancelled, but the post status could not be reset. Pick a status and save changes.",
+                );
+              },
+              onSettled: () => {
+                queryClient.invalidateQueries({ queryKey: getListSchedulesQueryKey() });
+                invalidateContent();
+              },
+            },
+          );
+        },
+        onError: (err) =>
+          setScheduleErr(apiErrorText(err, "Could not cancel the schedule.")),
+      },
+    );
+  };
+
   const handleDelete = () => {
     haptic();
     setErrMsg(null);
@@ -450,12 +539,71 @@ export default function ContentDetailScreen() {
             label={s}
             selected={status === s}
             onPress={() => {
+              if (s === "scheduled") {
+                // Scheduling needs a date and time — open the picker instead
+                // of silently flipping the status. One pending schedule per
+                // post: if one exists, point at it instead of adding another.
+                if (existingSchedule) {
+                  setScheduleErr(null);
+                  setScheduleMsg(
+                    "This post is already scheduled. Cancel the schedule below to pick a new time.",
+                  );
+                  return;
+                }
+                setScheduleMsg(null);
+                setScheduleErr(null);
+                setShowSchedulePicker(true);
+                return;
+              }
+              setShowSchedulePicker(false);
               setStatus(s);
               setDirty(true);
             }}
           />
         ))}
       </View>
+
+      {showSchedulePicker ? (
+        <SchedulePicker
+          defaultPlatform={data.platform}
+          pending={createSchedule.isPending}
+          onConfirm={handleScheduleConfirm}
+          onCancel={() => setShowSchedulePicker(false)}
+        />
+      ) : null}
+
+      {existingSchedule ? (
+        <Card style={{ marginTop: 12 }}>
+          <View style={styles.scheduleRow}>
+            <Feather name="clock" size={16} color={c.primary} />
+            <Text style={styles.scheduleText}>
+              {`Scheduled for ${new Date(existingSchedule.scheduledAt).toLocaleString(undefined, {
+                weekday: "short",
+                day: "numeric",
+                month: "short",
+                hour: "2-digit",
+                minute: "2-digit",
+              })} on ${existingSchedule.platform}.`}
+            </Text>
+          </View>
+          <Button
+            title="Cancel schedule"
+            icon="x"
+            variant="outline"
+            onPress={handleCancelSchedule}
+            loading={deleteSchedule.isPending}
+            style={{ marginTop: 10 }}
+          />
+        </Card>
+      ) : null}
+
+      {scheduleMsg ? (
+        <View style={styles.messageRow}>
+          <Feather name="check-circle" size={16} color={c.success} />
+          <Text style={styles.messageText}>{scheduleMsg}</Text>
+        </View>
+      ) : null}
+      {scheduleErr ? <Text style={styles.error}>{scheduleErr}</Text> : null}
 
       <View style={{ marginTop: 16 }}>
         <Label>Publish</Label>
@@ -712,6 +860,17 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   messageText: { fontFamily: fonts.semiBold, fontSize: 13, color: c.success },
+  scheduleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  scheduleText: {
+    flex: 1,
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: c.foreground,
+  },
   error: {
     fontFamily: fonts.regular,
     fontSize: 13,
