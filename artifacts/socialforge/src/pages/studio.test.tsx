@@ -51,16 +51,19 @@ const mockState: {
   lastImageVars: any;
   lastCampaignVars: any;
   me: any;
+  campaignError: any;
 } = {
   caption: "",
   lastCaptionVars: null,
   lastImageVars: null,
   lastCampaignVars: null,
   me: defaultMe(),
+  campaignError: null,
 };
 
+const toastSpy = vi.fn();
 vi.mock("@/hooks/use-toast", () => ({
-  useToast: () => ({ toast: vi.fn() }),
+  useToast: () => ({ toast: toastSpy }),
 }));
 
 vi.mock("wouter/use-browser-location", () => ({
@@ -90,6 +93,10 @@ vi.mock("@workspace/api-client-react", async () => {
       isPending: false,
       mutate: (vars: any, opts: any) => {
         mockState.lastCampaignVars = vars;
+        if (mockState.campaignError) {
+          opts?.onError?.(mockState.campaignError);
+          return;
+        }
         opts?.onSuccess?.({
           posts: (vars?.data?.platforms ?? []).map((platform: string) => ({
             platform,
@@ -137,6 +144,8 @@ beforeEach(() => {
   mockState.lastImageVars = null;
   mockState.lastCampaignVars = null;
   mockState.me = defaultMe();
+  mockState.campaignError = null;
+  toastSpy.mockClear();
   cleanup();
 });
 
@@ -424,5 +433,50 @@ describe("Studio image buttons when the monthly image quota is exhausted", () =>
     renderPage();
     const btn = screen.getByTestId("button-generate-caption") as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
+  });
+});
+
+describe("Studio campaign out-of-quota (402) error handling", () => {
+  it("shows a clear quota-exceeded toast, not a generic error, on a 402", async () => {
+    mockState.campaignError = {
+      status: 402,
+      message: "Monthly caption quota exceeded",
+    };
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Prompt"), {
+      target: { value: "A campaign prompt long enough to pass validation" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-campaign"));
+    await waitFor(() => expect(toastSpy).toHaveBeenCalled());
+    const toastArg = toastSpy.mock.calls[0][0];
+    expect(toastArg.title).toBe("Quota Reached");
+    expect(toastArg.description).toMatch(/quota exceeded|monthly/i);
+    expect(toastArg.variant).toBe("destructive");
+    expect(toastArg.title).not.toBe("Error");
+  });
+
+  it("recognizes a 402 nested under error.response.status", async () => {
+    mockState.campaignError = { response: { status: 402 } };
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Prompt"), {
+      target: { value: "A campaign prompt long enough to pass validation" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-campaign"));
+    await waitFor(() => expect(toastSpy).toHaveBeenCalled());
+    const toastArg = toastSpy.mock.calls[0][0];
+    expect(toastArg.title).toBe("Quota Reached");
+    expect(toastArg.description).toMatch(/monthly AI limit/i);
+  });
+
+  it("still uses the generic error toast for non-402 failures", async () => {
+    mockState.campaignError = { status: 500, message: "Upstream exploded" };
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Prompt"), {
+      target: { value: "A campaign prompt long enough to pass validation" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-campaign"));
+    await waitFor(() => expect(toastSpy).toHaveBeenCalled());
+    const toastArg = toastSpy.mock.calls[0][0];
+    expect(toastArg.title).toBe("Error");
   });
 });
