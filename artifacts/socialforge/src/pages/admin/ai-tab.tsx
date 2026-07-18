@@ -251,6 +251,7 @@ function AsrProviderCard() {
 
 const IMAGE_GEN_KEY_PAGES: Record<string, string> = {
   gemini: "https://aistudio.google.com/apikey",
+  bfl: "https://dashboard.bfl.ai/",
   stability: "https://platform.stability.ai/account/keys",
   replicate: "https://replicate.com/account/api-tokens",
 };
@@ -438,6 +439,27 @@ function ImageGenProviderCard() {
                 )}
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Model</p>
+                  {shown.modelOptions && shown.modelOptions.length > 0 && (
+                    <Select
+                      value={
+                        shown.modelOptions.some((o) => o.value === (modelValue || shown.defaultModel))
+                          ? modelValue || shown.defaultModel
+                          : ""
+                      }
+                      onValueChange={(value) => setModelInput(value)}
+                    >
+                      <SelectTrigger className="w-96" data-testid="select-image-gen-model">
+                        <SelectValue placeholder="Pick a model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {shown.modelOptions.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>
+                            {o.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                   <Input
                     placeholder={shown.defaultModel || "model-name"}
                     value={modelValue}

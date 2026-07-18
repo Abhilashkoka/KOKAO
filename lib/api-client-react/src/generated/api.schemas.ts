@@ -648,6 +648,11 @@ export interface UpdateAsrSettingsRequest {
   provider: string;
 }
 
+export interface ImageGenModelOption {
+  value: string;
+  label: string;
+}
+
 /**
  * Where the active key comes from (admin-entered key wins over the env secret).
  * @nullable
@@ -670,6 +675,8 @@ export interface ImageGenProviderInfo {
   supportsModelOverride: boolean;
   /** Whether this provider needs an admin-entered base URL. */
   requiresBaseUrl: boolean;
+  /** Suggested model choices for this provider (free text still allowed). */
+  modelOptions?: ImageGenModelOption[];
   /**
      * Secret name required by this provider (null when built-in).
      * @nullable

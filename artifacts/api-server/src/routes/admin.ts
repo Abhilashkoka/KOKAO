@@ -676,6 +676,7 @@ async function serializeImageGenSettings() {
         configured: await isImageGenProviderConfigured(p),
         supportsModelOverride: p.supportsModelOverride,
         requiresBaseUrl: p.requiresBaseUrl,
+        modelOptions: p.modelOptions ? [...p.modelOptions] : [],
         envKey: p.envKey,
         keySource: await getImageGenKeySource(p),
       })),

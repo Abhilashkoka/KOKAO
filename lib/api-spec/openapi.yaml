@@ -5016,6 +5016,11 @@ components:
         requiresBaseUrl:
           type: boolean
           description: Whether this provider needs an admin-entered base URL.
+        modelOptions:
+          type: array
+          description: Suggested model choices for this provider (free text still allowed).
+          items:
+            $ref: "#/components/schemas/ImageGenModelOption"
         envKey:
           type: ["string", "null"]
           description: Secret name required by this provider (null when built-in).
@@ -5023,6 +5028,14 @@ components:
           type: ["string", "null"]
           enum: [database, env, null]
           description: Where the active key comes from (admin-entered key wins over the env secret).
+    ImageGenModelOption:
+      type: object
+      required: [value, label]
+      properties:
+        value:
+          type: string
+        label:
+          type: string
     SetImageGenProviderKeyRequest:
       type: object
       required: [apiKey]

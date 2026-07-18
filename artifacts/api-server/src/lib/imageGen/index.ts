@@ -6,6 +6,7 @@ import { generateWithGemini, GEMINI_IMAGE_MODEL } from "./providers/gemini";
 import { generateWithStability, STABILITY_MODEL } from "./providers/stability";
 import { generateWithReplicate, REPLICATE_MODEL } from "./providers/replicate";
 import { generateWithOpenAICompatible } from "./providers/openaiCompatible";
+import { generateWithBfl, BFL_MODEL } from "./providers/bfl";
 import type { ImageGenInput, ImageGenResult, ImageSize } from "./types";
 
 export { ImageGenNotConfiguredError, ImageGenProviderError } from "./types";
@@ -23,6 +24,8 @@ export interface ImageGenProviderDef {
   supportsModelOverride: boolean;
   /** Whether this provider needs an admin-entered base URL ("custom" only). */
   requiresBaseUrl: boolean;
+  /** Suggested model choices shown in the admin UI (free text still allowed). */
+  modelOptions?: readonly { value: string; label: string }[];
   generate: (input: ImageGenInput, apiKey: string | null) => Promise<ImageGenResult>;
 }
 
@@ -44,7 +47,27 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     envKey: "GEMINI_API_KEY",
     supportsModelOverride: true,
     requiresBaseUrl: false,
+    modelOptions: [
+      { value: GEMINI_IMAGE_MODEL, label: "Nano Banana (gemini-2.5-flash-image)" },
+      { value: "gemini-3-pro-image-preview", label: "Nano Banana Pro (gemini-3-pro-image-preview)" },
+    ],
     generate: generateWithGemini,
+  },
+  {
+    id: "bfl",
+    label: "Black Forest Labs (FLUX)",
+    defaultModel: BFL_MODEL,
+    envKey: "BFL_API_KEY",
+    supportsModelOverride: true,
+    requiresBaseUrl: false,
+    modelOptions: [
+      { value: "flux-2-pro", label: "FLUX.2 Pro (flux-2-pro)" },
+      { value: "flux-2-flex", label: "FLUX.2 Flex (flux-2-flex)" },
+      { value: "flux-pro-1.1", label: "FLUX 1.1 Pro (flux-pro-1.1)" },
+      { value: "flux-pro-1.1-ultra", label: "FLUX 1.1 Pro Ultra (flux-pro-1.1-ultra)" },
+      { value: "flux-dev", label: "FLUX Dev (flux-dev)" },
+    ],
+    generate: generateWithBfl,
   },
   {
     id: "stability",

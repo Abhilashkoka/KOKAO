@@ -925,6 +925,10 @@ export const AdminGetImageGenSettingsResponse = zod.object({
   "configured": zod.boolean().describe('Whether the API key\/secret needed by this provider is set.'),
   "supportsModelOverride": zod.boolean().describe('Whether the model name can be changed for this provider.'),
   "requiresBaseUrl": zod.boolean().describe('Whether this provider needs an admin-entered base URL.'),
+  "modelOptions": zod.array(zod.object({
+  "value": zod.string(),
+  "label": zod.string()
+})).optional().describe('Suggested model choices for this provider (free text still allowed).'),
   "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
 }))
@@ -951,6 +955,10 @@ export const AdminUpdateImageGenSettingsResponse = zod.object({
   "configured": zod.boolean().describe('Whether the API key\/secret needed by this provider is set.'),
   "supportsModelOverride": zod.boolean().describe('Whether the model name can be changed for this provider.'),
   "requiresBaseUrl": zod.boolean().describe('Whether this provider needs an admin-entered base URL.'),
+  "modelOptions": zod.array(zod.object({
+  "value": zod.string(),
+  "label": zod.string()
+})).optional().describe('Suggested model choices for this provider (free text still allowed).'),
   "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
 }))
@@ -982,6 +990,10 @@ export const AdminSetImageGenProviderKeyResponse = zod.object({
   "configured": zod.boolean().describe('Whether the API key\/secret needed by this provider is set.'),
   "supportsModelOverride": zod.boolean().describe('Whether the model name can be changed for this provider.'),
   "requiresBaseUrl": zod.boolean().describe('Whether this provider needs an admin-entered base URL.'),
+  "modelOptions": zod.array(zod.object({
+  "value": zod.string(),
+  "label": zod.string()
+})).optional().describe('Suggested model choices for this provider (free text still allowed).'),
   "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
 }))
@@ -1006,6 +1018,10 @@ export const AdminClearImageGenProviderKeyResponse = zod.object({
   "configured": zod.boolean().describe('Whether the API key\/secret needed by this provider is set.'),
   "supportsModelOverride": zod.boolean().describe('Whether the model name can be changed for this provider.'),
   "requiresBaseUrl": zod.boolean().describe('Whether this provider needs an admin-entered base URL.'),
+  "modelOptions": zod.array(zod.object({
+  "value": zod.string(),
+  "label": zod.string()
+})).optional().describe('Suggested model choices for this provider (free text still allowed).'),
   "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
 }))

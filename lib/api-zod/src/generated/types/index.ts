@@ -145,6 +145,7 @@ export * from './getReliabilityAnalyticsParams';
 export * from './getRevenueAnalyticsParams';
 export * from './grantCreditsInput';
 export * from './healthStatus';
+export * from './imageGenModelOption';
 export * from './imageGenProviderInfo';
 export * from './imageGenProviderInfoKeySource';
 export * from './imageGenSettingsView';

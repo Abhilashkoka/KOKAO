@@ -7,4 +7,6 @@ description: Pluggable admin-selected image providers mirroring the ASR framewor
 - **Custom OpenAI-compatible provider is an SSRF vector.** Any admin-entered base URL AND any provider-returned image URL must be validated with the shared `assertPublicHost` guard, https-only, `redirect: "manual"`.
   **Why:** the server fetches these URLs with credentials; without the guard a malicious base URL or response can probe internal hosts.
   **How to apply:** when adding providers that take user/admin URLs or download from returned URLs, run them through the same guard.
+- BFL (FLUX) provider is async: submit returns a `polling_url` to poll until Ready, then a short-lived result URL to download — both provider-returned URLs go through the same SSRF guard, and the model id doubles as the URL path segment so it must be regex-validated.
+- Providers can carry suggested `modelOptions` (value+label) in the catalog, exposed via the admin API and shown as a Select above the free-text model input — that's how "Nano Banana Pro" (gemini-3-pro-image-preview) is surfaced without a new provider.
 - UI pattern gotcha: a "draft provider" select (custom needs baseUrl+model before saving) must clear the draft when the user re-selects the saved provider and on successful save, or the card gets stuck in "Not saved yet".

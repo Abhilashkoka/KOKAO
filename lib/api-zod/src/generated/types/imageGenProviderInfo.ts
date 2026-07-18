@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { ImageGenModelOption } from './imageGenModelOption';
 import type { ImageGenProviderInfoKeySource } from './imageGenProviderInfoKeySource';
 
 export interface ImageGenProviderInfo {
@@ -17,6 +18,8 @@ export interface ImageGenProviderInfo {
   supportsModelOverride: boolean;
   /** Whether this provider needs an admin-entered base URL. */
   requiresBaseUrl: boolean;
+  /** Suggested model choices for this provider (free text still allowed). */
+  modelOptions?: ImageGenModelOption[];
   /**
      * Secret name required by this provider (null when built-in).
      * @nullable
