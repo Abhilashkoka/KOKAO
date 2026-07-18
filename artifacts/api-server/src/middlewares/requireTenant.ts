@@ -196,6 +196,34 @@ export async function requireTenant(
       }
 
       if (!tenant) {
+        // Concurrent first requests race with invite auto-accept: another
+        // request may have consumed the pending invite (marking it accepted)
+        // after our membership check but before our invite lookup. Re-check
+        // membership before provisioning a personal tenant, otherwise the
+        // user ends up owning a personal workspace that permanently shadows
+        // their team membership.
+        const lateMembership = (
+          await db
+            .select()
+            .from(tenantMembersTable)
+            .where(eq(tenantMembersTable.clerkUserId, clerkUserId))
+            .limit(1)
+        )[0];
+        if (lateMembership) {
+          tenant = (
+            await db
+              .select()
+              .from(tenantsTable)
+              .where(eq(tenantsTable.id, lateMembership.tenantId))
+              .limit(1)
+          )[0];
+          if (tenant) {
+            memberRole = lateMembership.role === "admin" ? "admin" : "member";
+          }
+        }
+      }
+
+      if (!tenant) {
         // Conflict-safe provisioning: concurrent first requests for the same
         // clerkUserId race here, so insert-on-conflict-do-nothing then reselect.
         await db

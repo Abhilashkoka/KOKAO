@@ -7,7 +7,7 @@ import {
   tenantsTable,
   tenantMembersTable,
 } from "@workspace/db";
-import { and, eq, gte, lte, isNotNull, sql, type SQL } from "drizzle-orm";
+import { and, eq, gte, lte, isNotNull, inArray, sql, type SQL } from "drizzle-orm";
 import { fetchVerifiedEmail } from "../lib/clerkUser";
 import { isSuperadminEmail } from "../lib/superadmins";
 
@@ -181,7 +181,7 @@ analyticsRoute("/analytics/audience", async (_req, scope, from, to) => {
               scope.tenantId !== null
                 ? eq(analyticsEventsTable.tenantId, scope.tenantId)
                 : sql`true`,
-              sql`${actor} = ANY(${users})`,
+              inArray(actor, users),
             ),
           )
           .groupBy(sql`1`);
@@ -302,7 +302,7 @@ analyticsRoute("/analytics/funnels", async (_req, scope, from, to) => {
       await db
         .select({ count: sql<number>`count(distinct ${actor})::int` })
         .from(analyticsEventsTable)
-        .where(and(...conds, sql`${analyticsEventsTable.eventName} = ANY(${names})`))
+        .where(and(...conds, inArray(analyticsEventsTable.eventName, names)))
     )[0]?.count ?? 0;
 
   const [started, completed, completionTime, signedUp, activated, firstGen, saved, scheduledOrPublished] =
@@ -348,7 +348,10 @@ analyticsRoute("/analytics/funnels", async (_req, scope, from, to) => {
               .as("a"),
           )
           .where(
-            sql`EXISTS (SELECT 1 FROM analytics_events k WHERE coalesce(k.clerk_user_id, k.anonymous_id) = a.auser AND k.event_name = ANY(${KEY_ACTIONS}) AND k.created_at BETWEEN ${from} AND ${to})`,
+            sql`EXISTS (SELECT 1 FROM analytics_events k WHERE coalesce(k.clerk_user_id, k.anonymous_id) = a.auser AND k.event_name IN (${sql.join(
+              KEY_ACTIONS.map((k) => sql`${k}`),
+              sql`, `,
+            )}) AND k.created_at BETWEEN ${from} AND ${to})`,
           );
         return rows[0]?.count ?? 0;
       })(),
@@ -446,7 +449,7 @@ analyticsRoute("/analytics/engagement", async (_req, scope, from, to) => {
           count: sql<number>`count(*)::int`,
         })
         .from(analyticsEventsTable)
-        .where(and(...conds, sql`${analyticsEventsTable.eventName} = ANY(${KEY_ACTIONS})`))
+        .where(and(...conds, inArray(analyticsEventsTable.eventName, KEY_ACTIONS)))
         .groupBy(analyticsEventsTable.eventName)
         .orderBy(sql`count(*) DESC`),
     ]);
@@ -766,7 +769,10 @@ analyticsRoute("/analytics/consent-stats", async (_req, scope, from, to) => {
         .where(eq(tenantMembersTable.tenantId, scope.tenantId)),
     ]);
     const ids = [...owner.map((o) => o.id), ...members.map((m) => m.id)];
-    userFilter = sql`${userConsentsTable.clerkUserId} = ANY(${ids.length > 0 ? ids : ["__none__"]})`;
+    userFilter = inArray(
+      userConsentsTable.clerkUserId,
+      ids.length > 0 ? ids : ["__none__"],
+    );
   }
 
   const [totalUsersRow, consentAgg, trends] = await Promise.all([

@@ -37,4 +37,6 @@
 - [Consent-gated analytics](consent-analytics.md) — server ingest is the only consent boundary; coarse location = server geo-IP, GPS only for precise opt-in; orval partial query options need explicit queryKey.
 - [Codegen drift validation](codegen-drift-validation.md) — drift checks must generate into a temp mirror, never the working tree; orval clean:true races parallel typecheck.
 - [Razorpay billing invariants](razorpay-billing.md) — always re-fetch the canonical order/subscription and require final paid state; ledger records applied (clamped) deltas so it reconciles with balance.
+- [Drizzle ANY(array) binding](drizzle-any-array-binding.md) — raw sql`= ANY(${jsArray})` fails at runtime; use inArray or sql.join IN-lists; mocked tests won't catch it.
+- [Invite-accept provisioning race](invite-accept-race.md) — parallel first requests can give an invited member a shadow personal tenant; re-check membership before provisioning.
 - [Prod deploy env shadowing](prod-deploy-env-shadowing.md) — user-set REPLIT_DOMAINS/REPLIT_DEV_DOMAIN secrets shadow prod values; agents can't delete secrets; CORS allowlist must lowercase hosts.
