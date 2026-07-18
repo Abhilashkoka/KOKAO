@@ -912,6 +912,107 @@ export const AdminClearAsrProviderKeyResponse = zod.object({
 
 
 /**
+ * @summary Get the image generation provider selection (superadmin only)
+ */
+export const AdminGetImageGenSettingsResponse = zod.object({
+  "provider": zod.string().describe('Currently selected image generation provider id.'),
+  "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
+  "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
+  "providers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "defaultModel": zod.string(),
+  "configured": zod.boolean().describe('Whether the API key\/secret needed by this provider is set.'),
+  "supportsModelOverride": zod.boolean().describe('Whether the model name can be changed for this provider.'),
+  "requiresBaseUrl": zod.boolean().describe('Whether this provider needs an admin-entered base URL.'),
+  "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+}))
+})
+
+
+/**
+ * @summary Select the image generation provider for the whole app (superadmin only)
+ */
+export const AdminUpdateImageGenSettingsBody = zod.object({
+  "provider": zod.string().describe('Provider id from the catalog.'),
+  "model": zod.string().nullish().describe('Optional model override (empty\/null = provider default).'),
+  "customBaseUrl": zod.string().nullish().describe('Base URL for the custom provider (https only).')
+})
+
+export const AdminUpdateImageGenSettingsResponse = zod.object({
+  "provider": zod.string().describe('Currently selected image generation provider id.'),
+  "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
+  "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
+  "providers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "defaultModel": zod.string(),
+  "configured": zod.boolean().describe('Whether the API key\/secret needed by this provider is set.'),
+  "supportsModelOverride": zod.boolean().describe('Whether the model name can be changed for this provider.'),
+  "requiresBaseUrl": zod.boolean().describe('Whether this provider needs an admin-entered base URL.'),
+  "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+}))
+})
+
+
+/**
+ * @summary Save an image generation provider API key (superadmin only)
+ */
+export const AdminSetImageGenProviderKeyParams = zod.object({
+  "providerId": zod.coerce.string()
+})
+
+
+
+
+export const AdminSetImageGenProviderKeyBody = zod.object({
+  "apiKey": zod.string().min(1).describe('The provider API key (stored encrypted, never returned).')
+})
+
+export const AdminSetImageGenProviderKeyResponse = zod.object({
+  "provider": zod.string().describe('Currently selected image generation provider id.'),
+  "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
+  "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
+  "providers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "defaultModel": zod.string(),
+  "configured": zod.boolean().describe('Whether the API key\/secret needed by this provider is set.'),
+  "supportsModelOverride": zod.boolean().describe('Whether the model name can be changed for this provider.'),
+  "requiresBaseUrl": zod.boolean().describe('Whether this provider needs an admin-entered base URL.'),
+  "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+}))
+})
+
+
+/**
+ * @summary Remove a saved image generation provider API key (superadmin only)
+ */
+export const AdminClearImageGenProviderKeyParams = zod.object({
+  "providerId": zod.coerce.string()
+})
+
+export const AdminClearImageGenProviderKeyResponse = zod.object({
+  "provider": zod.string().describe('Currently selected image generation provider id.'),
+  "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
+  "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
+  "providers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "defaultModel": zod.string(),
+  "configured": zod.boolean().describe('Whether the API key\/secret needed by this provider is set.'),
+  "supportsModelOverride": zod.boolean().describe('Whether the model name can be changed for this provider.'),
+  "requiresBaseUrl": zod.boolean().describe('Whether this provider needs an admin-entered base URL.'),
+  "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+}))
+})
+
+
+/**
  * @summary Platform-wide aggregate stats (superadmin only)
  */
 export const AdminGetStatsResponse = zod.object({

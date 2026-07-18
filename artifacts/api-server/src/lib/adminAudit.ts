@@ -14,6 +14,8 @@ export type AdminAuditAction =
   | "design_skill_change"
   | "asr_provider_change"
   | "asr_key_change"
+  | "imagegen_provider_change"
+  | "imagegen_key_change"
   | "email_test_send"
   | "sweep_run"
   | "seat_request_approve"

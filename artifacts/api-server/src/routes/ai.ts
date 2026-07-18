@@ -2,7 +2,12 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import { db, tenantsTable, type BrandKitPayload } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { openai, generateImageBuffer } from "@workspace/integrations-openai-ai-server";
+import { openai } from "@workspace/integrations-openai-ai-server";
+import {
+  generateImage,
+  ImageGenNotConfiguredError,
+  ImageGenProviderError,
+} from "../lib/imageGen";
 import {
   GenerateCaptionBody,
   GenerateImageBody,
@@ -294,7 +299,7 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
 
   const startedAt = Date.now();
   try {
-    const buffer = await generateImageBuffer(prompt, size);
+    const { buffer, model: imageModel } = await generateImage(prompt, size);
 
     const uploadURL = await objectStorageService.getObjectEntityUploadURL(req.tenantId);
     const putRes = await fetch(uploadURL, {
@@ -314,7 +319,7 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
       requestBytes: Buffer.byteLength(prompt),
       responseBytes: buffer.length + Buffer.byteLength(b64Json),
       durationMs: Date.now() - startedAt,
-      model: tenant.aiModel,
+      model: imageModel,
       campaignId: parsed.data.campaignId ?? undefined,
       platform: parsed.data.platform ?? undefined,
     });
@@ -322,6 +327,14 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
   } catch (error) {
     await releaseFunding(req, imageFunding, "image");
     req.log.error({ err: error }, "Image generation failed");
+    if (error instanceof ImageGenNotConfiguredError) {
+      res.status(503).json({ error: error.message });
+      return;
+    }
+    if (error instanceof ImageGenProviderError) {
+      res.status(502).json({ error: "The image provider rejected the request. Try again or contact your admin." });
+      return;
+    }
     res.status(500).json({ error: "Failed to generate image" });
   }
 });

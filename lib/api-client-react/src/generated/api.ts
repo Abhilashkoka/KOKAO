@@ -95,6 +95,7 @@ import type {
   GetRevenueAnalyticsParams,
   GrantCreditsInput,
   HealthStatus,
+  ImageGenSettingsView,
   ImageRequest,
   ImageResult,
   InstagramCredentialInput,
@@ -138,6 +139,7 @@ import type {
   SendTestEmailInput,
   SendTestEmailResult,
   SetAsrProviderKeyRequest,
+  SetImageGenProviderKeyRequest,
   SocialCredentialStatus,
   SummarizeUrlRequest,
   SummarizeUrlResult,
@@ -161,6 +163,7 @@ import type {
   TwitterStatus,
   UpdateAsrSettingsRequest,
   UpdateDesignSkillBody,
+  UpdateImageGenSettingsRequest,
   UpdateNotificationPoliciesBody,
   UpdateTenantDesignSkillBody,
   UpdateTenantPlanBody,
@@ -2662,6 +2665,294 @@ export const useAdminClearAsrProviderKey = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAdminClearAsrProviderKeyMutationOptions(options));
+    }
+
+export const getAdminGetImageGenSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/image-gen-settings`
+}
+
+/**
+ * @summary Get the image generation provider selection (superadmin only)
+ */
+export const adminGetImageGenSettings = async ( options?: RequestInit): Promise<ImageGenSettingsView> => {
+
+  return customFetch<ImageGenSettingsView>(getAdminGetImageGenSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetImageGenSettingsQueryKey = () => {
+    return [
+    `/api/admin/image-gen-settings`
+    ] as const;
+    }
+
+
+export const getAdminGetImageGenSettingsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetImageGenSettings>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetImageGenSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetImageGenSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetImageGenSettings>>> = ({ signal }) => adminGetImageGenSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetImageGenSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetImageGenSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetImageGenSettings>>>
+export type AdminGetImageGenSettingsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the image generation provider selection (superadmin only)
+ */
+
+export function useAdminGetImageGenSettings<TData = Awaited<ReturnType<typeof adminGetImageGenSettings>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetImageGenSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetImageGenSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateImageGenSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/image-gen-settings`
+}
+
+/**
+ * @summary Select the image generation provider for the whole app (superadmin only)
+ */
+export const adminUpdateImageGenSettings = async (updateImageGenSettingsRequest: UpdateImageGenSettingsRequest, options?: RequestInit): Promise<ImageGenSettingsView> => {
+
+  return customFetch<ImageGenSettingsView>(getAdminUpdateImageGenSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateImageGenSettingsRequest)
+  }
+);}
+
+
+
+
+export const getAdminUpdateImageGenSettingsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateImageGenSettings>>, TError,{data: BodyType<UpdateImageGenSettingsRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateImageGenSettings>>, TError,{data: BodyType<UpdateImageGenSettingsRequest>}, TContext> => {
+
+const mutationKey = ['adminUpdateImageGenSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateImageGenSettings>>, {data: BodyType<UpdateImageGenSettingsRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateImageGenSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateImageGenSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateImageGenSettings>>>
+    export type AdminUpdateImageGenSettingsMutationBody = BodyType<UpdateImageGenSettingsRequest>
+    export type AdminUpdateImageGenSettingsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Select the image generation provider for the whole app (superadmin only)
+ */
+export const useAdminUpdateImageGenSettings = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateImageGenSettings>>, TError,{data: BodyType<UpdateImageGenSettingsRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateImageGenSettings>>,
+        TError,
+        {data: BodyType<UpdateImageGenSettingsRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateImageGenSettingsMutationOptions(options));
+    }
+
+export const getAdminSetImageGenProviderKeyUrl = (providerId: string,) => {
+
+
+
+
+  return `/api/admin/image-gen-providers/${providerId}/key`
+}
+
+/**
+ * @summary Save an image generation provider API key (superadmin only)
+ */
+export const adminSetImageGenProviderKey = async (providerId: string,
+    setImageGenProviderKeyRequest: SetImageGenProviderKeyRequest, options?: RequestInit): Promise<ImageGenSettingsView> => {
+
+  return customFetch<ImageGenSettingsView>(getAdminSetImageGenProviderKeyUrl(providerId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(setImageGenProviderKeyRequest)
+  }
+);}
+
+
+
+
+export const getAdminSetImageGenProviderKeyMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetImageGenProviderKey>>, TError,{providerId: string;data: BodyType<SetImageGenProviderKeyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSetImageGenProviderKey>>, TError,{providerId: string;data: BodyType<SetImageGenProviderKeyRequest>}, TContext> => {
+
+const mutationKey = ['adminSetImageGenProviderKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSetImageGenProviderKey>>, {providerId: string;data: BodyType<SetImageGenProviderKeyRequest>}> = (props) => {
+          const {providerId,data} = props ?? {};
+
+          return  adminSetImageGenProviderKey(providerId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSetImageGenProviderKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminSetImageGenProviderKey>>>
+    export type AdminSetImageGenProviderKeyMutationBody = BodyType<SetImageGenProviderKeyRequest>
+    export type AdminSetImageGenProviderKeyMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save an image generation provider API key (superadmin only)
+ */
+export const useAdminSetImageGenProviderKey = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetImageGenProviderKey>>, TError,{providerId: string;data: BodyType<SetImageGenProviderKeyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSetImageGenProviderKey>>,
+        TError,
+        {providerId: string;data: BodyType<SetImageGenProviderKeyRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminSetImageGenProviderKeyMutationOptions(options));
+    }
+
+export const getAdminClearImageGenProviderKeyUrl = (providerId: string,) => {
+
+
+
+
+  return `/api/admin/image-gen-providers/${providerId}/key`
+}
+
+/**
+ * @summary Remove a saved image generation provider API key (superadmin only)
+ */
+export const adminClearImageGenProviderKey = async (providerId: string, options?: RequestInit): Promise<ImageGenSettingsView> => {
+
+  return customFetch<ImageGenSettingsView>(getAdminClearImageGenProviderKeyUrl(providerId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getAdminClearImageGenProviderKeyMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearImageGenProviderKey>>, TError,{providerId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminClearImageGenProviderKey>>, TError,{providerId: string}, TContext> => {
+
+const mutationKey = ['adminClearImageGenProviderKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminClearImageGenProviderKey>>, {providerId: string}> = (props) => {
+          const {providerId} = props ?? {};
+
+          return  adminClearImageGenProviderKey(providerId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminClearImageGenProviderKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminClearImageGenProviderKey>>>
+
+    export type AdminClearImageGenProviderKeyMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Remove a saved image generation provider API key (superadmin only)
+ */
+export const useAdminClearImageGenProviderKey = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearImageGenProviderKey>>, TError,{providerId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminClearImageGenProviderKey>>,
+        TError,
+        {providerId: string},
+        TContext
+      > => {
+      return useMutation(getAdminClearImageGenProviderKeyMutationOptions(options));
     }
 
 export const getAdminGetStatsUrl = () => {

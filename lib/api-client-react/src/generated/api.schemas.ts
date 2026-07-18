@@ -648,6 +648,79 @@ export interface UpdateAsrSettingsRequest {
   provider: string;
 }
 
+/**
+ * Where the active key comes from (admin-entered key wins over the env secret).
+ * @nullable
+ */
+export type ImageGenProviderInfoKeySource = typeof ImageGenProviderInfoKeySource[keyof typeof ImageGenProviderInfoKeySource] | null;
+
+
+export const ImageGenProviderInfoKeySource = {
+  database: 'database',
+  env: 'env',
+} as const;
+
+export interface ImageGenProviderInfo {
+  id: string;
+  label: string;
+  defaultModel: string;
+  /** Whether the API key/secret needed by this provider is set. */
+  configured: boolean;
+  /** Whether the model name can be changed for this provider. */
+  supportsModelOverride: boolean;
+  /** Whether this provider needs an admin-entered base URL. */
+  requiresBaseUrl: boolean;
+  /**
+     * Secret name required by this provider (null when built-in).
+     * @nullable
+     */
+  envKey?: string | null;
+  /**
+     * Where the active key comes from (admin-entered key wins over the env secret).
+     * @nullable
+     */
+  keySource?: ImageGenProviderInfoKeySource;
+}
+
+export interface ImageGenSettingsView {
+  /** Currently selected image generation provider id. */
+  provider: string;
+  /**
+     * Admin model override (null = provider default).
+     * @nullable
+     */
+  model: string | null;
+  /**
+     * Base URL for the custom (OpenAI-compatible) provider.
+     * @nullable
+     */
+  customBaseUrl: string | null;
+  providers: ImageGenProviderInfo[];
+}
+
+export interface SetImageGenProviderKeyRequest {
+  /**
+     * The provider API key (stored encrypted, never returned).
+     * @minLength 1
+     */
+  apiKey: string;
+}
+
+export interface UpdateImageGenSettingsRequest {
+  /** Provider id from the catalog. */
+  provider: string;
+  /**
+     * Optional model override (empty/null = provider default).
+     * @nullable
+     */
+  model?: string | null;
+  /**
+     * Base URL for the custom provider (https only).
+     * @nullable
+     */
+  customBaseUrl?: string | null;
+}
+
 export interface AudioUploadInput {
   /** Audio file (webm/ogg/mp3/wav/m4a), max 15 MB. */
   audio: Blob;

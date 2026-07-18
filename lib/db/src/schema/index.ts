@@ -10,6 +10,7 @@ export * from "./connectedAccounts";
 export * from "./appCredentials";
 export * from "./appBrandSettings";
 export * from "./asrSettings";
+export * from "./imageGenSettings";
 export * from "./emailSettings";
 export * from "./designSkillSettings";
 export * from "./usageEvents";

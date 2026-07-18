@@ -972,6 +972,118 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/image-gen-settings:
+    get:
+      operationId: adminGetImageGenSettings
+      tags: [admin]
+      summary: Get the image generation provider selection (superadmin only)
+      responses:
+        "200":
+          description: Image generation settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageGenSettingsView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminUpdateImageGenSettings
+      tags: [admin]
+      summary: Select the image generation provider for the whole app (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateImageGenSettingsRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageGenSettingsView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/image-gen-providers/{providerId}/key:
+    parameters:
+      - name: providerId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: adminSetImageGenProviderKey
+      tags: [admin]
+      summary: Save an image generation provider API key (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetImageGenProviderKeyRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageGenSettingsView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Unknown provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: adminClearImageGenProviderKey
+      tags: [admin]
+      summary: Remove a saved image generation provider API key (superadmin only)
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageGenSettingsView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Unknown provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/stats:
     get:
       operationId: adminGetStats
@@ -4868,6 +4980,70 @@ components:
         provider:
           type: string
           description: Provider id from the catalog.
+    ImageGenSettingsView:
+      type: object
+      required: [provider, model, customBaseUrl, providers]
+      properties:
+        provider:
+          type: string
+          description: Currently selected image generation provider id.
+        model:
+          type: ["string", "null"]
+          description: Admin model override (null = provider default).
+        customBaseUrl:
+          type: ["string", "null"]
+          description: Base URL for the custom (OpenAI-compatible) provider.
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImageGenProviderInfo"
+    ImageGenProviderInfo:
+      type: object
+      required: [id, label, defaultModel, configured, supportsModelOverride, requiresBaseUrl]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        defaultModel:
+          type: string
+        configured:
+          type: boolean
+          description: Whether the API key/secret needed by this provider is set.
+        supportsModelOverride:
+          type: boolean
+          description: Whether the model name can be changed for this provider.
+        requiresBaseUrl:
+          type: boolean
+          description: Whether this provider needs an admin-entered base URL.
+        envKey:
+          type: ["string", "null"]
+          description: Secret name required by this provider (null when built-in).
+        keySource:
+          type: ["string", "null"]
+          enum: [database, env, null]
+          description: Where the active key comes from (admin-entered key wins over the env secret).
+    SetImageGenProviderKeyRequest:
+      type: object
+      required: [apiKey]
+      properties:
+        apiKey:
+          type: string
+          minLength: 1
+          description: The provider API key (stored encrypted, never returned).
+    UpdateImageGenSettingsRequest:
+      type: object
+      required: [provider]
+      properties:
+        provider:
+          type: string
+          description: Provider id from the catalog.
+        model:
+          type: ["string", "null"]
+          description: Optional model override (empty/null = provider default).
+        customBaseUrl:
+          type: ["string", "null"]
+          description: Base URL for the custom provider (https only).
     AudioUploadInput:
       type: object
       required: [audio]

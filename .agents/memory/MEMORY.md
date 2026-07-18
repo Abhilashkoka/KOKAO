@@ -40,3 +40,4 @@
 - [Drizzle ANY(array) binding](drizzle-any-array-binding.md) — raw sql`= ANY(${jsArray})` fails at runtime; use inArray or sql.join IN-lists; mocked tests won't catch it.
 - [Invite-accept provisioning race](invite-accept-race.md) — parallel first requests can give an invited member a shadow personal tenant; re-check membership before provisioning.
 - [Prod deploy env shadowing](prod-deploy-env-shadowing.md) — user-set REPLIT_DOMAINS/REPLIT_DEV_DOMAIN secrets shadow prod values; agents can't delete secrets; CORS allowlist must lowercase hosts.
+- [Image gen providers](imagegen-providers.md) — admin-selected provider like ASR; custom OpenAI-compatible URLs must pass the shared SSRF guard (endpoint AND returned image URL).

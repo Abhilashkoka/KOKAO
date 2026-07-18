@@ -25,12 +25,24 @@ import {
   clearStoredAsrKey,
 } from "../lib/asr";
 import {
+  IMAGE_GEN_PROVIDERS,
+  getImageGenProviderDef,
+  isImageGenProviderConfigured,
+  getImageGenSelection,
+  setImageGenSelection,
+  getImageGenKeySource,
+  setStoredImageGenKey,
+  clearStoredImageGenKey,
+} from "../lib/imageGen";
+import {
   AdminUpdateTenantPlanBody,
   AdminUpdateTenantSuperadminBody,
   AdminUpdateTenantDesignSkillBody,
   AdminUpdateDesignSkillBody,
   AdminUpdateAsrSettingsBody,
   AdminSetAsrProviderKeyBody,
+  AdminUpdateImageGenSettingsBody,
+  AdminSetImageGenProviderKeyBody,
   AdminUpdateNotificationPoliciesBody,
   AdminUpdatePlanBody,
   AdminCreatePlanBody,
@@ -648,6 +660,166 @@ router.delete("/admin/asr-providers/:providerId/key", async (req: Request, res: 
   }
   res.json(await serializeAsrSettings());
 });
+
+/** Serialize the image generation settings view (selection + catalog). */
+async function serializeImageGenSettings() {
+  const selection = await getImageGenSelection();
+  return {
+    provider: selection.provider,
+    model: selection.model,
+    customBaseUrl: selection.customBaseUrl,
+    providers: await Promise.all(
+      IMAGE_GEN_PROVIDERS.map(async (p) => ({
+        id: p.id,
+        label: p.label,
+        defaultModel: p.defaultModel,
+        configured: await isImageGenProviderConfigured(p),
+        supportsModelOverride: p.supportsModelOverride,
+        requiresBaseUrl: p.requiresBaseUrl,
+        envKey: p.envKey,
+        keySource: await getImageGenKeySource(p),
+      })),
+    ),
+  };
+}
+
+/**
+ * GET /admin/image-gen-settings
+ * The platform-wide image generation provider selection.
+ */
+router.get("/admin/image-gen-settings", async (_req: Request, res: Response) => {
+  res.json(await serializeImageGenSettings());
+});
+
+/**
+ * PUT /admin/image-gen-settings
+ * Select which provider (and optional model override) /ai/generate-image uses.
+ */
+router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
+  const parsed = AdminUpdateImageGenSettingsBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const def = getImageGenProviderDef(parsed.data.provider);
+  if (!def) {
+    res.status(400).json({ error: "Unknown image generation provider" });
+    return;
+  }
+  const model = parsed.data.model?.trim() || null;
+  const customBaseUrl = parsed.data.customBaseUrl?.trim() || null;
+  if (customBaseUrl && !/^https:\/\//i.test(customBaseUrl)) {
+    res.status(400).json({ error: "The custom provider base URL must start with https://" });
+    return;
+  }
+  if (def.requiresBaseUrl && !customBaseUrl) {
+    res.status(400).json({ error: "This provider needs a base URL" });
+    return;
+  }
+  if (def.requiresBaseUrl && !model) {
+    res.status(400).json({ error: "This provider needs a model name" });
+    return;
+  }
+
+  const before = await getImageGenSelection();
+  await setImageGenSelection({
+    provider: def.id,
+    model: def.supportsModelOverride ? model : null,
+    customBaseUrl,
+  });
+
+  const changed =
+    before.provider !== def.id ||
+    before.model !== model ||
+    before.customBaseUrl !== customBaseUrl;
+  if (changed) {
+    try {
+      await recordAdminAction({
+        action: "imagegen_provider_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: `${before.provider}${before.model ? `:${before.model}` : ""}`,
+        newValue: `${def.id}${model ? `:${model}` : ""}`,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write image-gen settings audit log");
+    }
+  }
+
+  res.json(await serializeImageGenSettings());
+});
+
+/**
+ * PUT /admin/image-gen-providers/:providerId/key
+ * Save a provider's API key (encrypted at rest). Superadmin only.
+ */
+router.put(
+  "/admin/image-gen-providers/:providerId/key",
+  async (req: Request, res: Response) => {
+    const def = getImageGenProviderDef(req.params.providerId as string);
+    if (!def) {
+      res.status(404).json({ error: "Unknown image generation provider" });
+      return;
+    }
+    if (def.envKey === null) {
+      res.status(400).json({ error: "This provider is built in and does not take an API key" });
+      return;
+    }
+    const parsed = AdminSetImageGenProviderKeyBody.safeParse(req.body);
+    const apiKey = parsed.success ? parsed.data.apiKey.trim() : "";
+    if (!apiKey) {
+      res.status(400).json({ error: "API key is required" });
+      return;
+    }
+    await setStoredImageGenKey(def.id, apiKey);
+    try {
+      await recordAdminAction({
+        action: "imagegen_key_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: `${def.id}:set`,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write image-gen key audit log");
+    }
+    res.json(await serializeImageGenSettings());
+  },
+);
+
+/**
+ * DELETE /admin/image-gen-providers/:providerId/key
+ * Remove the saved API key (the env secret, if set, becomes the fallback).
+ */
+router.delete(
+  "/admin/image-gen-providers/:providerId/key",
+  async (req: Request, res: Response) => {
+    const def = getImageGenProviderDef(req.params.providerId as string);
+    if (!def) {
+      res.status(404).json({ error: "Unknown image generation provider" });
+      return;
+    }
+    await clearStoredImageGenKey(def.id);
+    try {
+      await recordAdminAction({
+        action: "imagegen_key_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: `${def.id}:cleared`,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write image-gen key audit log");
+    }
+    res.json(await serializeImageGenSettings());
+  },
+);
 
 /**
  * GET /admin/design-skill
