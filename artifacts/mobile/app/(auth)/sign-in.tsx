@@ -1,7 +1,8 @@
 import { useSignIn } from "@clerk/expo";
+import { Image } from "expo-image";
 import { Link, useRouter } from "expo-router";
 import React, { useState } from "react";
-import { Image, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
@@ -9,6 +10,7 @@ import { SocialSignInButtons } from "@/components/SocialSignInButtons";
 import { Button, Input, Label } from "@/components/ui";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
+import { useAppBrand } from "@/lib/brand";
 
 const c = colors.light;
 
@@ -22,6 +24,8 @@ export default function SignInScreen() {
   const [verifyingCode, setVerifyingCode] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
+  const { appName, iconUrl, logoUrl } = useAppBrand();
+  const brandImage = iconUrl || logoUrl;
 
   const finalizeIfComplete = async () => {
     if (signIn.status === "complete") {
@@ -92,9 +96,9 @@ export default function SignInScreen() {
       ]}
     >
       <Image
-        source={require("@/assets/images/kokao-mark.png")}
+        source={brandImage ? { uri: brandImage } : require("@/assets/images/kokao-mark.png")}
         style={styles.logo}
-        resizeMode="contain"
+        contentFit="contain"
       />
 
       {verifyingCode ? (
@@ -142,7 +146,7 @@ export default function SignInScreen() {
       ) : (
         <>
           <Text style={styles.title}>Welcome back</Text>
-          <Text style={styles.subtitle}>Sign in to your KOKAO workspace</Text>
+          <Text style={styles.subtitle}>Sign in to your {appName} workspace</Text>
 
           <Label>Email address</Label>
           <Input
@@ -180,7 +184,7 @@ export default function SignInScreen() {
           <SocialSignInButtons onError={setFormError} />
 
           <View style={styles.linkRow}>
-            <Text style={styles.linkText}>New to KOKAO? </Text>
+            <Text style={styles.linkText}>New to {appName}? </Text>
             <Link href="/(auth)/sign-up">
               <Text style={styles.link}>Create an account</Text>
             </Link>

@@ -1,7 +1,8 @@
 import { useAuth, useSignUp } from "@clerk/expo";
+import { Image } from "expo-image";
 import { Link, useRouter } from "expo-router";
 import React, { useState } from "react";
-import { Image, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
@@ -9,6 +10,7 @@ import { SocialSignInButtons } from "@/components/SocialSignInButtons";
 import { Button, Input, Label } from "@/components/ui";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
+import { useAppBrand } from "@/lib/brand";
 
 const c = colors.light;
 
@@ -22,6 +24,8 @@ export default function SignUpScreen() {
   const [code, setCode] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
+  const { appName, iconUrl, logoUrl } = useAppBrand();
+  const brandImage = iconUrl || logoUrl;
 
   const handleSubmit = async () => {
     setFormError(null);
@@ -65,9 +69,9 @@ export default function SignUpScreen() {
       ]}
     >
       <Image
-        source={require("@/assets/images/kokao-mark.png")}
+        source={brandImage ? { uri: brandImage } : require("@/assets/images/kokao-mark.png")}
         style={styles.logo}
-        resizeMode="contain"
+        contentFit="contain"
       />
 
       {verifying ? (
@@ -106,7 +110,7 @@ export default function SignUpScreen() {
       ) : (
         <>
           <Text style={styles.title}>Create your account</Text>
-          <Text style={styles.subtitle}>Start creating on-brand content with KOKAO</Text>
+          <Text style={styles.subtitle}>Start creating on-brand content with {appName}</Text>
 
           <Label>Email address</Label>
           <Input

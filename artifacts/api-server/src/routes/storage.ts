@@ -41,6 +41,10 @@ publicStorageRouter.get(
         res.status(404).json({ error: "File not found" });
         return;
       }
+      // Public assets (e.g. app branding) are embedded by other origins such
+      // as the Expo mobile app. Helmet's default CORP of `same-origin` would
+      // make browsers block those loads, so relax it for public objects only.
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
       await streamObject(res, file, true);
     } catch (error) {
       req.log.error({ err: error }, "Error serving public object");
