@@ -40,16 +40,23 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   };
 }
 
+const defaultMe = () => ({
+  usage: { captions: 2, images: 1 },
+  limits: { captions: 10, images: 5 },
+});
+
 const mockState: {
   caption: string;
   lastCaptionVars: any;
   lastImageVars: any;
   lastCampaignVars: any;
+  me: any;
 } = {
   caption: "",
   lastCaptionVars: null,
   lastImageVars: null,
   lastCampaignVars: null,
+  me: defaultMe(),
 };
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -93,12 +100,7 @@ vi.mock("@workspace/api-client-react", async () => {
         });
       },
     }),
-    useGetMe: () => ({
-      data: {
-        usage: { captions: 2, images: 1 },
-        limits: { captions: 10, images: 5 },
-      },
-    }),
+    useGetMe: () => ({ data: mockState.me }),
     useListBrandKits: () => ({ data: [] }),
   });
 });
@@ -134,6 +136,7 @@ beforeEach(() => {
   mockState.lastCaptionVars = null;
   mockState.lastImageVars = null;
   mockState.lastCampaignVars = null;
+  mockState.me = defaultMe();
   cleanup();
 });
 
@@ -370,5 +373,56 @@ describe("Studio campaign generation quota-relevant variables", () => {
     );
     await Promise.resolve();
     expect(mockState.lastCampaignVars).toBeNull();
+  });
+});
+
+describe("Studio image buttons when the monthly image quota is exhausted", () => {
+  it("disables the Image button with a plan-limit hint when quota and credits are both zero", () => {
+    mockState.me = {
+      usage: { captions: 2, images: 5 },
+      limits: { captions: 10, images: 5 },
+      credits: { captionCredits: 0, imageCredits: 0 },
+    };
+    renderPage();
+    const btn = screen.getByTestId("button-generate-image") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    // The hint must be user-visible text (disabled buttons can't show tooltips).
+    expect(screen.getByTestId("image-quota-hint").textContent).toMatch(
+      /image limit reached/i,
+    );
+  });
+
+  it("keeps the Image button enabled when quota is exhausted but image credits remain", () => {
+    mockState.me = {
+      usage: { captions: 2, images: 5 },
+      limits: { captions: 10, images: 5 },
+      credits: { captionCredits: 0, imageCredits: 3 },
+    };
+    renderPage();
+    const btn = screen.getByTestId("button-generate-image") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    expect(screen.queryByTestId("image-quota-hint")).toBeNull();
+  });
+
+  it("keeps the Image button enabled on unlimited plans", () => {
+    mockState.me = {
+      usage: { captions: 2, images: 500 },
+      limits: { captions: -1, images: -1 },
+      credits: { captionCredits: 0, imageCredits: 0 },
+    };
+    renderPage();
+    const btn = screen.getByTestId("button-generate-image") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+  });
+
+  it("keeps the caption button enabled when only the image quota is exhausted", () => {
+    mockState.me = {
+      usage: { captions: 2, images: 5 },
+      limits: { captions: 10, images: 5 },
+      credits: { captionCredits: 0, imageCredits: 0 },
+    };
+    renderPage();
+    const btn = screen.getByTestId("button-generate-caption") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
   });
 });

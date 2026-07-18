@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   useGenerateImage,
   useCreateContent,
+  useGetMe,
   getListContentQueryKey,
   getGetMeQueryKey,
   type CampaignPost,
@@ -57,6 +58,15 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
   const queryClient = useQueryClient();
   const generateImage = useGenerateImage();
   const createContent = useCreateContent();
+  const { data: me } = useGetMe();
+
+  const imagesLeft =
+    me && me.limits.images !== -1 ? Math.max(0, me.limits.images - me.usage.images) : null;
+  const imageCredits = me?.credits?.imageCredits ?? 0;
+  const imagesExhausted = imagesLeft === 0 && imageCredits === 0;
+  const imageLimitHint = imagesExhausted
+    ? "Monthly image limit reached. Upgrade your plan or buy credits to keep generating images."
+    : undefined;
 
   const [localImage, setLocalImage] = useState<GeneratedImage | null>(null);
   const image = controlledImage !== undefined ? controlledImage : localImage;
@@ -133,7 +143,8 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
               variant="outline"
               size="sm"
               onClick={() => runGenerateImage(null)}
-              disabled={generateImage.isPending}
+              disabled={generateImage.isPending || imagesExhausted}
+              title={imageLimitHint}
               data-testid={`button-campaign-image-${post.platform}`}
             >
               {generateImage.isPending ? (
@@ -157,6 +168,11 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
         </div>
       </CardHeader>
       <CardContent className="p-4 space-y-4">
+        {imagesExhausted && (
+          <p className="text-xs text-destructive" data-testid={`image-quota-hint-${post.platform}`}>
+            {imageLimitHint}
+          </p>
+        )}
         {image && (
           <div className="space-y-1">
             <div
@@ -180,7 +196,8 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
                   size="sm"
                   variant={imageTweak === t.label ? "default" : "outline"}
                   className="rounded-full"
-                  disabled={generateImage.isPending}
+                  disabled={generateImage.isPending || imagesExhausted}
+                  title={imageLimitHint}
                   onClick={() => runGenerateImage(t.label)}
                   data-testid={`button-campaign-image-tweak-${post.platform}-${t.label.toLowerCase().replace(/\s+/g, "-")}`}
                 >

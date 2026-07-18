@@ -29,11 +29,13 @@ vi.mock("@/hooks/use-toast", () => ({
 // Resilient mock: unknown hooks fall back to an idle stub, so adding a new
 // hook to the component does not break these tests.
 const generateImageMutate = vi.hoisted(() => vi.fn());
+const mockState = vi.hoisted(() => ({ me: null as any }));
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock, idleMutation } = await import("../test/apiClientMock");
   return createApiClientMock({
     useGenerateImage: () => ({ ...idleMutation(), mutate: generateImageMutate }),
+    useGetMe: () => ({ data: mockState.me }),
   });
 });
 
@@ -51,7 +53,10 @@ function renderCard(platform: string, caption: string) {
   );
 }
 
-beforeEach(() => cleanup());
+beforeEach(() => {
+  mockState.me = null;
+  cleanup();
+});
 
 describe("CampaignPostCard X character warning", () => {
   it("shows no over-limit warning for an under-limit twitter caption", () => {
@@ -248,5 +253,78 @@ describe("CampaignPostCard image style tweak chips", () => {
     fireEvent.click(screen.getByTestId("button-campaign-image-instagram"));
     expect(generateImageMutate).toHaveBeenCalledTimes(1);
     expect(generateImageMutate.mock.calls[0][0].data.prompt).toBe("A cozy cafe interior");
+  });
+});
+
+describe("CampaignPostCard image buttons when the monthly image quota is exhausted", () => {
+  function renderWithImage() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <CampaignPostCard
+          post={{ platform: "instagram", caption: "A cozy cafe post", hashtags: [], imagePrompt: "A cozy cafe interior" } as any}
+          brief="test brief"
+          image={{ imagePath: "/objects/t/uploads/x", b64Json: "aaaa" }}
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("disables the Image button and shows a visible plan-limit hint when quota and credits are zero", () => {
+    mockState.me = {
+      usage: { captions: 2, images: 5 },
+      limits: { captions: 10, images: 5 },
+      credits: { captionCredits: 0, imageCredits: 0 },
+    };
+    renderCard("instagram", "caption");
+    const btn = screen.getByTestId("button-campaign-image-instagram") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    // The hint must be user-visible text (disabled buttons can't show tooltips).
+    expect(screen.getByTestId("image-quota-hint-instagram").textContent).toMatch(
+      /image limit reached/i,
+    );
+  });
+
+  it("disables the tweak chips and Regenerate when an image exists and quota is exhausted", () => {
+    mockState.me = {
+      usage: { captions: 2, images: 5 },
+      limits: { captions: 10, images: 5 },
+      credits: { captionCredits: 0, imageCredits: 0 },
+    };
+    renderWithImage();
+    expect(
+      (screen.getByTestId("button-campaign-image-instagram") as HTMLButtonElement).disabled,
+    ).toBe(true);
+    for (const t of IMAGE_TWEAKS) {
+      const chip = screen.getByTestId(
+        `button-campaign-image-tweak-instagram-${t.label.toLowerCase().replace(/\s+/g, "-")}`,
+      ) as HTMLButtonElement;
+      expect(chip.disabled).toBe(true);
+    }
+  });
+
+  it("keeps the Image button enabled when image credits remain", () => {
+    mockState.me = {
+      usage: { captions: 2, images: 5 },
+      limits: { captions: 10, images: 5 },
+      credits: { captionCredits: 0, imageCredits: 2 },
+    };
+    renderCard("instagram", "caption");
+    expect(
+      (screen.getByTestId("button-campaign-image-instagram") as HTMLButtonElement).disabled,
+    ).toBe(false);
+    expect(screen.queryByTestId("image-quota-hint-instagram")).toBeNull();
+  });
+
+  it("keeps the Image button enabled on unlimited plans", () => {
+    mockState.me = {
+      usage: { captions: 2, images: 500 },
+      limits: { captions: -1, images: -1 },
+      credits: { captionCredits: 0, imageCredits: 0 },
+    };
+    renderCard("instagram", "caption");
+    expect(
+      (screen.getByTestId("button-campaign-image-instagram") as HTMLButtonElement).disabled,
+    ).toBe(false);
   });
 });

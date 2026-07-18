@@ -541,6 +541,10 @@ export function StudioPage() {
     me && me.limits.images !== -1 ? Math.max(0, me.limits.images - me.usage.images) : null;
   const captionCredits = me?.credits?.captionCredits ?? 0;
   const imageCredits = me?.credits?.imageCredits ?? 0;
+  const imagesExhausted = imagesLeft === 0 && imageCredits === 0;
+  const imageLimitHint = imagesExhausted
+    ? "Monthly image limit reached. Upgrade your plan or buy credits to keep generating images."
+    : undefined;
 
   const selectedBrandKitId = form.watch("brandKitId") || undefined;
   const selectedBrandKit = selectedBrandKitId
@@ -1010,7 +1014,8 @@ export function StudioPage() {
                         type="button"
                         variant="secondary"
                         onClick={form.handleSubmit(onGenerateImage)}
-                        disabled={isPending}
+                        disabled={isPending || imagesExhausted}
+                        title={imageLimitHint}
                         data-testid="button-generate-image"
                       >
                         {generateImage.isPending ? (
@@ -1021,6 +1026,11 @@ export function StudioPage() {
                         Image
                       </Button>
                     </div>
+                    {imagesExhausted && (
+                      <p className="text-xs text-destructive" data-testid="image-quota-hint">
+                        {imageLimitHint}
+                      </p>
+                    )}
                   </div>
                 </form>
               </Form>
@@ -1116,7 +1126,8 @@ export function StudioPage() {
                               size="sm"
                               variant={imageTweak === t.label ? "default" : "outline"}
                               className="rounded-full"
-                              disabled={isPending}
+                              disabled={isPending || imagesExhausted}
+                              title={imageLimitHint}
                               onClick={form.handleSubmit((data) => runGenerateImage(data, t.label))}
                               data-testid={`button-image-tweak-${t.label.toLowerCase().replace(/\s+/g, "-")}`}
                             >
@@ -1127,7 +1138,8 @@ export function StudioPage() {
                             type="button"
                             size="sm"
                             variant="secondary"
-                            disabled={isPending}
+                            disabled={isPending || imagesExhausted}
+                            title={imageLimitHint}
                             onClick={form.handleSubmit((data) => runGenerateImage(data, null))}
                             data-testid="button-regenerate-image"
                           >
@@ -1139,13 +1151,18 @@ export function StudioPage() {
                             Regenerate
                           </Button>
                           <VoiceNoteButton
-                            disabled={isPending}
+                            disabled={isPending || imagesExhausted}
                             onTranscript={(text) => {
                               toast({ title: "Applying your change", description: `"${text}"` });
                               form.handleSubmit((data) => runGenerateImage(data, text))();
                             }}
                           />
                         </div>
+                        {imagesExhausted && (
+                          <p className="text-xs text-destructive" data-testid="image-quota-hint-result">
+                            {imageLimitHint}
+                          </p>
+                        )}
                       </div>
                     )}
                     {captionResult && (
