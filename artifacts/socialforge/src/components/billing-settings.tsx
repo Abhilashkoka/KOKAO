@@ -392,7 +392,9 @@ export function BillingSettings() {
                         ? "Credit pack"
                         : entry.kind === "admin_grant"
                           ? "Granted by admin"
-                          : "Used"}
+                          : entry.kind === "refund"
+                            ? "Refunded"
+                            : "Used"}
                     </span>
                     {entry.note && (
                       <span className="text-muted-foreground"> — {entry.note}</span>
@@ -420,7 +422,7 @@ export function BillingSettings() {
         open={confirmCancel}
         onOpenChange={setConfirmCancel}
         title="Cancel subscription?"
-        description="Your plan stays active until the end of the paid period, then your workspace moves to Pay As You Go."
+        description="Your plan stays active until the end of the paid period, then your workspace moves to the Free plan. You can switch to Pay As You Go afterwards if you prefer."
         confirmLabel="Cancel subscription"
         onConfirm={() =>
           cancelSubscription.mutate(undefined, {

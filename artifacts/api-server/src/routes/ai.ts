@@ -13,7 +13,7 @@ import {
 import { ObjectStorageService } from "../lib/objectStorage";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage, recordUsage } from "../lib/usage";
-import { getCreditBalances, spendCredit, type CreditKind } from "../lib/credits";
+import { spendCredit, refundCredits, type CreditKind } from "../lib/credits";
 import { loadActivePayload } from "../lib/brandKit/service";
 import { isDesignSkillEnabledFor, buildDesignedImagePrompt } from "../lib/designSkill";
 import { buildTasteGuidance } from "../lib/tasteMemory";
@@ -37,42 +37,49 @@ const objectStorageService = new ObjectStorageService();
 
 /**
  * How a metered generation is paid for: the monthly plan quota first, then
- * prepaid credits when the quota is exhausted. Returns null when neither is
- * available (the caller responds 402).
+ * prepaid credits when the quota is exhausted.
+ *
+ * Credits are RESERVED (atomically debited) up front, before the expensive
+ * generation runs, so two concurrent requests can never both consume the
+ * same last credit — the second reservation fails and gets a 402. If the
+ * generation then fails, the reservation is refunded (audited in the
+ * ledger). Quota-funded work is metered after success as before.
  */
 type Funding = "quota" | "credit";
 
-async function resolveFunding(
+async function reserveFunding(
   tenantId: number,
   limit: number,
   used: number,
   kind: CreditKind,
 ): Promise<Funding | null> {
   if (limit === -1 || used < limit) return "quota";
-  const balances = await getCreditBalances(tenantId);
-  const available = kind === "caption" ? balances.captionCredits : balances.imageCredits;
-  return available > 0 ? "credit" : null;
+  const reserved = await spendCredit(tenantId, kind);
+  return reserved ? "credit" : null;
 }
 
-/**
- * Record the cost of a successful generation. Quota-funded work is metered
- * via usageEvents; credit-funded work debits the credit balance (and falls
- * back to metering if the credit vanished in a race, so nothing is free).
- */
+/** Record the cost of a successful quota-funded generation. */
 async function settleFunding(
   req: Request,
   funding: Funding,
   kind: CreditKind,
 ): Promise<void> {
-  if (funding === "credit") {
-    const spent = await spendCredit(req.tenantId, kind);
-    if (!spent) {
-      req.log.warn({ kind }, "Credit spend raced to zero; metering as usage");
-      await recordUsage(req.tenantId, kind);
-    }
-    return;
+  // Credit-funded work was already debited at reservation time.
+  if (funding === "quota") await recordUsage(req.tenantId, kind);
+}
+
+/** Return a reserved credit when the funded generation failed. */
+async function releaseFunding(
+  req: Request,
+  funding: Funding,
+  kind: CreditKind,
+): Promise<void> {
+  if (funding !== "credit") return;
+  try {
+    await refundCredits(req.tenantId, kind, 1, `${kind} generation failed`);
+  } catch (error) {
+    req.log.error({ err: error, kind }, "Failed to refund reserved credit");
   }
-  await recordUsage(req.tenantId, kind);
 }
 
 async function loadTenant(tenantId: number) {
@@ -127,7 +134,7 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
   const usage = await getUsage(req.tenantId);
   // Plan quota first; when it is gone, prepaid credits take over. 402 only
   // when BOTH are exhausted.
-  const captionFunding = await resolveFunding(
+  const captionFunding = await reserveFunding(
     req.tenantId,
     limits.captions,
     usage.captions,
@@ -200,6 +207,7 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
     await settleFunding(req, captionFunding, "caption");
     res.json({ caption, hashtags });
   } catch (error) {
+    await releaseFunding(req, captionFunding, "caption");
     req.log.error({ err: error }, "Caption generation failed");
     res.status(500).json({ error: "Failed to generate caption" });
   }
@@ -220,7 +228,7 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
 
   const limits = await getPlanLimits(tenant.plan);
   const usage = await getUsage(req.tenantId);
-  const imageFunding = await resolveFunding(
+  const imageFunding = await reserveFunding(
     req.tenantId,
     limits.images,
     usage.images,
@@ -289,6 +297,7 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
     await settleFunding(req, imageFunding, "image");
     res.json({ imagePath, b64Json: buffer.toString("base64") });
   } catch (error) {
+    await releaseFunding(req, imageFunding, "image");
     req.log.error({ err: error }, "Image generation failed");
     res.status(500).json({ error: "Failed to generate image" });
   }
@@ -605,8 +614,11 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     quotaFunded = Math.min(platforms.length, remainingQuota);
     creditFunded = platforms.length - quotaFunded;
     if (creditFunded > 0) {
-      const balances = await getCreditBalances(req.tenantId);
-      if (balances.captionCredits < creditFunded) {
+      // Reserve every credit-funded unit atomically (all-or-nothing) BEFORE
+      // generating, so concurrent campaigns cannot over-consume credits. The
+      // reservation is refunded if generation fails.
+      const reserved = await spendCredit(req.tenantId, "caption", creditFunded);
+      if (!reserved) {
         res.status(402).json({
           error:
             "This campaign would exceed your monthly caption quota and you don't have enough caption credits. Upgrade your plan, buy a credit pack, or pick fewer platforms.",
@@ -693,17 +705,25 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
       };
     });
 
-    // Meter quota-funded captions, then debit credit-funded ones. A credit
-    // that raced to zero falls back to metering so nothing goes unpaid.
+    // Credit-funded captions were already debited at reservation time; only
+    // the quota-funded share is metered here.
     await Promise.all(
       Array.from({ length: quotaFunded }, () => recordUsage(req.tenantId, "caption")),
     );
-    for (let i = 0; i < creditFunded; i++) {
-      const spent = await spendCredit(req.tenantId, "caption");
-      if (!spent) await recordUsage(req.tenantId, "caption");
-    }
     res.json({ posts });
   } catch (error) {
+    if (creditFunded > 0) {
+      try {
+        await refundCredits(
+          req.tenantId,
+          "caption",
+          creditFunded,
+          "campaign generation failed",
+        );
+      } catch (refundError) {
+        req.log.error({ err: refundError }, "Failed to refund reserved campaign credits");
+      }
+    }
     req.log.error({ err: error }, "Campaign generation failed");
     res.status(500).json({ error: "Failed to generate campaign" });
   }

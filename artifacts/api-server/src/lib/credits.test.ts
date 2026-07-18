@@ -3,6 +3,7 @@ import { pool } from "@workspace/db";
 import {
   getCreditBalances,
   spendCredit,
+  refundCredits,
   grantCredits,
   listCreditHistory,
 } from "./credits";
@@ -110,5 +111,24 @@ describe("credits lib", () => {
     const deduction = history.find((h) => h.note === "deduction");
     expect(deduction?.captionDelta).toBe(-6);
     expect(deduction?.imageDelta).toBe(-2);
+  });
+
+  it("multi-count spend is all-or-nothing and refunds restore the balance", async () => {
+    // Balance is 0 captions / 3 images after the previous test.
+    expect(await spendCredit(tenantId, "image", 4)).toBe(false); // insufficient
+    expect(await getCreditBalances(tenantId)).toMatchObject({ imageCredits: 3 });
+
+    expect(await spendCredit(tenantId, "image", 3)).toBe(true);
+    expect(await getCreditBalances(tenantId)).toMatchObject({ imageCredits: 0 });
+
+    // Refund returns the reserved credits with an audited ledger entry.
+    await refundCredits(tenantId, "image", 3, "generation failed");
+    expect(await getCreditBalances(tenantId)).toMatchObject({ imageCredits: 3 });
+    const history = await listCreditHistory(tenantId, 100);
+    const refund = history.find((h) => h.kind === "refund");
+    expect(refund?.imageDelta).toBe(3);
+    // Ledger still reconciles with the stored balance.
+    const imageSum = history.reduce((s, h) => s + h.imageDelta, 0);
+    expect(imageSum).toBe(3);
   });
 });

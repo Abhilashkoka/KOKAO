@@ -32,13 +32,18 @@ export async function getCreditBalances(tenantId: number): Promise<CreditBalance
 }
 
 /**
- * Atomically spend one credit of the given kind. Returns true when a credit
- * was consumed, false when the balance was empty (caller should 402).
+ * Atomically spend `count` credits of the given kind (all-or-nothing).
+ * Returns true when the credits were consumed, false when the balance could
+ * not cover the full count (caller should 402). Callers reserve credits
+ * BEFORE doing the funded work and refund via `refundCredits` if the work
+ * fails, so a credit-backed success always has a committed debit behind it.
  */
 export async function spendCredit(
   tenantId: number,
   kind: CreditKind,
+  count = 1,
 ): Promise<boolean> {
+  if (count <= 0) return true;
   return db.transaction(async (tx) => {
     const row = (
       await tx
@@ -48,23 +53,69 @@ export async function spendCredit(
         .for("update")
     )[0];
     const balance = kind === "caption" ? (row?.captionCredits ?? 0) : (row?.imageCredits ?? 0);
-    if (balance <= 0) return false;
+    if (balance < count) return false;
 
     await tx
       .update(creditBalancesTable)
       .set(
         kind === "caption"
-          ? { captionCredits: balance - 1 }
-          : { imageCredits: balance - 1 },
+          ? { captionCredits: balance - count }
+          : { imageCredits: balance - count },
       )
       .where(eq(creditBalancesTable.tenantId, tenantId));
     await tx.insert(creditLedgerTable).values({
       tenantId,
       kind: "spend",
-      captionDelta: kind === "caption" ? -1 : 0,
-      imageDelta: kind === "image" ? -1 : 0,
+      captionDelta: kind === "caption" ? -count : 0,
+      imageDelta: kind === "image" ? -count : 0,
     });
     return true;
+  });
+}
+
+/**
+ * Return credits that were reserved for work that then failed. Appends a
+ * "refund" ledger entry so the reserve/refund pair is fully auditable.
+ */
+export async function refundCredits(
+  tenantId: number,
+  kind: CreditKind,
+  count: number,
+  note?: string,
+): Promise<void> {
+  if (count <= 0) return;
+  await db.transaction(async (tx) => {
+    const row = (
+      await tx
+        .select()
+        .from(creditBalancesTable)
+        .where(eq(creditBalancesTable.tenantId, tenantId))
+        .for("update")
+    )[0];
+    const oldCaptions = row?.captionCredits ?? 0;
+    const oldImages = row?.imageCredits ?? 0;
+    const newCaptions = kind === "caption" ? oldCaptions + count : oldCaptions;
+    const newImages = kind === "image" ? oldImages + count : oldImages;
+
+    await tx.insert(creditLedgerTable).values({
+      tenantId,
+      kind: "refund",
+      captionDelta: newCaptions - oldCaptions,
+      imageDelta: newImages - oldImages,
+      note: note ?? null,
+    });
+    if (row) {
+      await tx
+        .update(creditBalancesTable)
+        .set({ captionCredits: newCaptions, imageCredits: newImages })
+        .where(eq(creditBalancesTable.tenantId, tenantId));
+    } else {
+      await tx.insert(creditBalancesTable).values({
+        tenantId,
+        captionCredits: newCaptions,
+        imageCredits: newImages,
+      });
+    }
   });
 }
 

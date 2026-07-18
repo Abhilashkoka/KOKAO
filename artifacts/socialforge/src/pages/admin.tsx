@@ -3818,11 +3818,12 @@ export function AdminPage() {
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
             <DialogTitle>
-              Grant credits{grantTarget ? ` to ${grantTarget.name}` : ""}
+              Adjust credits{grantTarget ? ` for ${grantTarget.name}` : ""}
             </DialogTitle>
             <DialogDescription>
-              Adds free caption and image credits to this workspace. Credits
-              are used after the monthly plan quota runs out.
+              Adds or deducts caption and image credits for this workspace
+              (use negative numbers to deduct; balances never go below zero).
+              Credits are used after the monthly plan quota runs out.
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
@@ -3859,15 +3860,13 @@ export function AdminPage() {
                 if (
                   !Number.isInteger(captions) ||
                   !Number.isInteger(images) ||
-                  captions < 0 ||
-                  images < 0 ||
                   (captions === 0 && images === 0)
                 ) {
                   toast({
                     variant: "destructive",
                     title: "Check the amounts",
                     description:
-                      "Enter whole numbers, with at least one credit to grant.",
+                      "Enter whole numbers (negative to deduct); at least one amount must be non-zero.",
                   });
                   return;
                 }
@@ -3886,8 +3885,8 @@ export function AdminPage() {
                         queryKey: getAdminListAuditLogsQueryKey(),
                       });
                       toast({
-                        title: "Credits granted",
-                        description: `Added to ${grantTarget.name}.`,
+                        title: "Credits updated",
+                        description: `Balance adjusted for ${grantTarget.name}.`,
                       });
                       setGrantTarget(null);
                       setGrantCaptions("0");
@@ -3897,7 +3896,7 @@ export function AdminPage() {
                     onError: (err: any) => {
                       toast({
                         variant: "destructive",
-                        title: "Could not grant credits",
+                        title: "Could not adjust credits",
                         description:
                           err?.response?.data?.error || "Please try again.",
                       });
@@ -3911,7 +3910,7 @@ export function AdminPage() {
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Granting...
                 </>
               ) : (
-                "Grant credits"
+                "Apply adjustment"
               )}
             </Button>
           </DialogFooter>
