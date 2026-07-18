@@ -5,6 +5,7 @@ import type { TwitterAppCredentials } from "@workspace/db";
 import { TWEET_MAX_LENGTH } from "@workspace/social-limits";
 import { decryptJson, encryptJson } from "./secretCrypto";
 import { platformFetch } from "./platformFetch";
+import { PublishAuthRevokedError } from "./socialReverify";
 
 // Re-export the shared tweet-length limit so callers can source it from a single
 // place and stay aligned with @workspace/social-limits (no 280-char drift).
@@ -300,6 +301,15 @@ interface MediaUploadResponse {
   detail?: string;
 }
 
+/**
+ * Same friendly reconnect prompt `routes/twitter.ts` surfaces when the token
+ * dies mid-publish. A 401 during the media-upload flow means the token was
+ * revoked between the pre-publish check and the upload — never surface the
+ * raw X error for it.
+ */
+const MEDIA_UPLOAD_RECONNECT_MESSAGE =
+  "X is not connected or not verified. Reconnect your X account on the Accounts page and try again.";
+
 function mediaUploadError(json: MediaUploadResponse, status: number): string {
   return (
     json.errors?.[0]?.message ||
@@ -340,6 +350,9 @@ export async function uploadTwitterMedia(opts: {
   const initJson = (await initRes.json()) as MediaUploadResponse;
   const mediaId = initJson.data?.id ?? initJson.id ?? initJson.media_id_string;
   if (!initRes.ok || !mediaId) {
+    if (initRes.status === 401) {
+      throw new PublishAuthRevokedError(MEDIA_UPLOAD_RECONNECT_MESSAGE);
+    }
     throw new Error(mediaUploadError(initJson, initRes.status));
   }
 
@@ -359,6 +372,9 @@ export async function uploadTwitterMedia(opts: {
     body: form,
   });
   if (!appendRes.ok) {
+    if (appendRes.status === 401) {
+      throw new PublishAuthRevokedError(MEDIA_UPLOAD_RECONNECT_MESSAGE);
+    }
     let json: MediaUploadResponse = {};
     try {
       json = (await appendRes.json()) as MediaUploadResponse;
@@ -383,6 +399,9 @@ export async function uploadTwitterMedia(opts: {
   });
   const finalizeJson = (await finalizeRes.json()) as MediaUploadResponse;
   if (!finalizeRes.ok) {
+    if (finalizeRes.status === 401) {
+      throw new PublishAuthRevokedError(MEDIA_UPLOAD_RECONNECT_MESSAGE);
+    }
     throw new Error(mediaUploadError(finalizeJson, finalizeRes.status));
   }
   return (
