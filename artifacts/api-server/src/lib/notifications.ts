@@ -194,9 +194,70 @@ export async function notifySeatRequestDecided(
   }
 }
 export const SWEEP_STALLED = "sweep_stalled";
+export const TEAM_MEMBER_JOINED = "team_member_joined";
 export const TEAM_MEMBER_LEFT = "team_member_left";
 export const TEAM_MEMBER_REMOVED = "team_member_removed";
 export const REMOVED_FROM_WORKSPACE = "removed_from_workspace";
+
+/**
+ * Tell the workspace owner AND its admin members that an invited teammate
+ * signed in and actually JOINED the workspace (invite auto-accepted in
+ * requireTenant), naming who joined. Follows the catalog/policy pattern: the
+ * workspace tenant's effective settings for `team_member_joined` decide the
+ * channels — one in-app row lands on the shared tenant feed, and when the
+ * email channel is on, the owner plus every ADMIN member's verified Clerk
+ * address is emailed, EXCLUDING the joiner themselves and any admin who opted
+ * their own email off for this type (member-scoped preference; a "forced"
+ * email policy overrides opt-outs). Best-effort — never throws, so a
+ * notification failure cannot fail the join itself.
+ */
+export async function notifyTeamMemberJoined(
+  tenantId: number,
+  joiner: { email: string | null; role: string; clerkUserId?: string },
+): Promise<void> {
+  try {
+    const effective = await getEffectiveSetting(tenantId, TEAM_MEMBER_JOINED);
+    if (!effective.enabled) return;
+
+    const who = joiner.email ?? "A teammate";
+    const roleLabel = joiner.role === "admin" ? "an admin" : "a member";
+    const title = "A teammate joined your workspace";
+    const message =
+      `${who} accepted their invite and joined your workspace as ${roleLabel}. ` +
+      `You can manage your team from Settings > Team.`;
+
+    await db.insert(notificationsTable).values({
+      tenantId,
+      type: TEAM_MEMBER_JOINED,
+      platform: null,
+      title,
+      message,
+      linkUrl: "/settings",
+      inApp: effective.inApp,
+    });
+
+    if (effective.email) {
+      // Owner + admins, excluding the joiner themselves.
+      await emailWorkspaceRecipients(
+        tenantId,
+        {
+          subject: title,
+          text: message,
+          html: `<p>${escapeHtml(message)}</p>`,
+        },
+        {
+          excludeClerkUserId: joiner.clerkUserId,
+          memberOptOutType: TEAM_MEMBER_JOINED,
+        },
+      );
+    }
+  } catch (err) {
+    logger.error(
+      { err, tenantId },
+      "Failed to record team-member-joined notification",
+    );
+  }
+}
 
 /**
  * Tell the workspace owner AND its admin members that a teammate removed

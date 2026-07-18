@@ -10,6 +10,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { getEffectiveSeatLimit, getSeatsUsed } from "../lib/team";
 import { fetchVerifiedEmail } from "../lib/clerkUser";
 import { isSuperadminEmail } from "../lib/superadmins";
+import { notifyTeamMemberJoined } from "../lib/notifications";
 
 /**
  * Resolves the Clerk-authenticated user to a KOKAO tenant, auto-provisioning
@@ -189,6 +190,14 @@ export async function requireTenant(
                 tenant = inviteTenant;
                 memberRole =
                   membership.role === "admin" ? "admin" : "member";
+                // Close the invite loop: tell the owner + admin members the
+                // invitee actually joined. Best-effort — never blocks or
+                // fails the join itself.
+                await notifyTeamMemberJoined(invite.tenantId, {
+                  email,
+                  role: membership.role,
+                  clerkUserId,
+                });
               }
             }
           }

@@ -37,6 +37,12 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
       "A workspace submitted a request for more team seats and is waiting for a decision. Only platform admins receive this.",
   },
   {
+    type: "team_member_joined",
+    label: "Team joins",
+    description:
+      "An invited teammate signed in and joined your workspace, taking up their seat.",
+  },
+  {
     type: "team_member_left",
     label: "Team departures",
     description:

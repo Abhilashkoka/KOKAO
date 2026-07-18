@@ -518,6 +518,115 @@ describe("DELETE /team/members/:id", () => {
   });
 });
 
+describe("invite auto-accept join notification", () => {
+  async function seedPendingInvite(role: "member" | "admin" = "member") {
+    const owner = await createTenant({ email: "owner@example.com" });
+    await db
+      .update(tenantsTable)
+      .set({ seatLimit: 5, name: "Acme Workspace" })
+      .where(eq(tenantsTable.id, owner.tenantId));
+    const inviteeClerkUserId = `test_${randomUUID()}`;
+    const inviteeEmail = `invitee-${randomUUID()}@example.com`;
+    await db.insert(teamInvitesTable).values({
+      tenantId: owner.tenantId,
+      email: inviteeEmail,
+      role,
+      status: "pending",
+      invitedByClerkUserId: owner.clerkUserId,
+    });
+    return { owner, inviteeClerkUserId, inviteeEmail };
+  }
+
+  it("records a team_member_joined notification when an invited user first signs in", async () => {
+    const { owner, inviteeClerkUserId, inviteeEmail } =
+      await seedPendingInvite();
+    try {
+      emailState.verifiedEmails = { [inviteeClerkUserId]: inviteeEmail };
+      actAs(inviteeClerkUserId, inviteeEmail);
+      const res = await request(app).get("/api/me");
+      expect(res.status).toBe(200);
+      expect(res.body.team.role).toBe("member");
+
+      const notifications = await db
+        .select()
+        .from(notificationsTable)
+        .where(eq(notificationsTable.tenantId, owner.tenantId));
+      const joined = notifications.filter(
+        (n) => n.type === "team_member_joined",
+      );
+      expect(joined).toHaveLength(1);
+      expect(joined[0].message).toContain(inviteeEmail);
+      expect(joined[0].message).toContain("as a member");
+    } finally {
+      await cleanup(owner.tenantId);
+    }
+  });
+
+  it("emails the owner and admin members but never the joiner when email is on", async () => {
+    const { owner, inviteeClerkUserId, inviteeEmail } =
+      await seedPendingInvite("admin");
+    const adminClerkUserId = `test_${randomUUID()}`;
+    try {
+      await db.insert(tenantMembersTable).values({
+        tenantId: owner.tenantId,
+        clerkUserId: adminClerkUserId,
+        email: "existing-admin@example.com",
+        role: "admin",
+      });
+      emailState.forceEmailOn = true;
+      emailState.verifiedEmails = {
+        [owner.clerkUserId]: "owner@example.com",
+        [adminClerkUserId]: "existing-admin-verified@example.com",
+        [inviteeClerkUserId]: inviteeEmail,
+      };
+
+      actAs(inviteeClerkUserId, inviteeEmail);
+      const res = await request(app).get("/api/me");
+      expect(res.status).toBe(200);
+      expect(res.body.team.role).toBe("admin");
+
+      const recipients = emailState.sent.map((m) => m.to).sort();
+      expect(recipients).toEqual([
+        "existing-admin-verified@example.com",
+        "owner@example.com",
+      ]);
+      expect(recipients).not.toContain(inviteeEmail);
+    } finally {
+      await cleanup(owner.tenantId);
+    }
+  });
+
+  it("does not notify when the notification type is disabled", async () => {
+    const { owner, inviteeClerkUserId, inviteeEmail } =
+      await seedPendingInvite();
+    try {
+      const { getEffectiveSetting } = await import(
+        "../lib/notificationSettings"
+      );
+      vi.mocked(getEffectiveSetting).mockResolvedValueOnce({
+        enabled: false,
+        inApp: false,
+        email: false,
+      });
+      emailState.verifiedEmails = { [inviteeClerkUserId]: inviteeEmail };
+      actAs(inviteeClerkUserId, inviteeEmail);
+      const res = await request(app).get("/api/me");
+      expect(res.status).toBe(200);
+
+      const notifications = await db
+        .select()
+        .from(notificationsTable)
+        .where(eq(notificationsTable.tenantId, owner.tenantId));
+      expect(
+        notifications.filter((n) => n.type === "team_member_joined"),
+      ).toHaveLength(0);
+      expect(emailState.sent).toHaveLength(0);
+    } finally {
+      await cleanup(owner.tenantId);
+    }
+  });
+});
+
 describe("notifySeatRequestDecided recipient fan-out", () => {
   it("emails the owner and admin members when the email channel is on", async () => {
     const { owner } = await seedMembership();
