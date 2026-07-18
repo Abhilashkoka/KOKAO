@@ -5,11 +5,13 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { BillingSubscriptionBillingCycle } from './billingSubscriptionBillingCycle';
 
 export interface BillingSubscription {
   id: number;
   planId: string;
   status: string;
+  billingCycle: BillingSubscriptionBillingCycle;
   razorpaySubscriptionId: string;
   /** @nullable */
   currentPeriodEnd: string | null;

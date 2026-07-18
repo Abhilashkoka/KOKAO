@@ -22,6 +22,13 @@ export interface Plan {
   /** Razorpay Plan id backing paid subscriptions (set on price save). */
   razorpayPlanId: string | null;
   /**
+   * Yearly billing: total price for 12 months in paise. null = no annual
+   * option for this plan.
+   */
+  priceInrYearly: number | null;
+  /** Razorpay Plan id (period=yearly) backing annual subscriptions. */
+  razorpayPlanIdYearly: string | null;
+  /**
    * Team add-on: default seat allotment (including the owner) for workspaces
    * on this plan. 0 = the team feature is not included. Superadmins can
    * override per workspace via tenants.seatLimit (approved seat requests).
@@ -38,6 +45,8 @@ export const DEFAULT_PLANS: Plan[] = [
     teamSeats: 0,
     priceInr: null,
     razorpayPlanId: null,
+    priceInrYearly: null,
+    razorpayPlanIdYearly: null,
     features: [
       "20 AI captions / month",
       "10 AI images / month",
@@ -56,6 +65,8 @@ export const DEFAULT_PLANS: Plan[] = [
     teamSeats: 0,
     priceInr: null,
     razorpayPlanId: null,
+    priceInrYearly: null,
+    razorpayPlanIdYearly: null,
     features: [
       "No subscription — buy credit packs as needed",
       "Credits never expire",
@@ -71,6 +82,8 @@ export const DEFAULT_PLANS: Plan[] = [
     teamSeats: 0,
     priceInr: null,
     razorpayPlanId: null,
+    priceInrYearly: null,
+    razorpayPlanIdYearly: null,
     features: [
       "500 AI captions / month",
       "200 AI images / month",
@@ -87,6 +100,8 @@ export const DEFAULT_PLANS: Plan[] = [
     teamSeats: 5,
     priceInr: null,
     razorpayPlanId: null,
+    priceInrYearly: null,
+    razorpayPlanIdYearly: null,
     features: [
       "Unlimited AI captions",
       "Unlimited AI images",
@@ -175,6 +190,8 @@ function rowToPlan(r: typeof planSettingsTable.$inferSelect): Plan {
     teamSeats: r.teamSeats,
     priceInr: r.priceInr,
     razorpayPlanId: r.razorpayPlanId,
+    priceInrYearly: r.priceInrYearly,
+    razorpayPlanIdYearly: r.razorpayPlanIdYearly,
   };
 }
 

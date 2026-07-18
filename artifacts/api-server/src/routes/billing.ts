@@ -102,6 +102,7 @@ router.get("/billing", async (req: Request, res: Response) => {
             id: sub.id,
             planId: sub.planId,
             status: sub.status,
+            billingCycle: sub.billingCycle,
             razorpaySubscriptionId: sub.razorpaySubscriptionId,
             currentPeriodEnd: sub.currentPeriodEnd?.toISOString() ?? null,
             cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
@@ -149,8 +150,17 @@ router.post("/billing/subscribe", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Unknown plan" });
     return;
   }
-  if (!plan.priceInr || !plan.razorpayPlanId) {
-    res.status(400).json({ error: "This plan is not available for online purchase" });
+  const cycle = parsed.data.billingCycle ?? "monthly";
+  const cyclePlanId =
+    cycle === "yearly" ? plan.razorpayPlanIdYearly : plan.razorpayPlanId;
+  const cyclePrice = cycle === "yearly" ? plan.priceInrYearly : plan.priceInr;
+  if (!cyclePrice || !cyclePlanId) {
+    res.status(400).json({
+      error:
+        cycle === "yearly"
+          ? "This plan does not offer yearly billing"
+          : "This plan is not available for online purchase",
+    });
     return;
   }
 
@@ -167,15 +177,21 @@ router.post("/billing/subscribe", async (req: Request, res: Response) => {
   }
 
   try {
-    const rzpSub = await createRazorpaySubscription(plan.razorpayPlanId, {
-      tenantId: String(req.tenantId),
-      planId: plan.id,
-    });
+    const rzpSub = await createRazorpaySubscription(
+      cyclePlanId,
+      {
+        tenantId: String(req.tenantId),
+        planId: plan.id,
+        billingCycle: cycle,
+      },
+      cycle,
+    );
     await db.insert(subscriptionsTable).values({
       tenantId: req.tenantId,
       planId: plan.id,
       razorpaySubscriptionId: rzpSub.id,
       status: rzpSub.status || "created",
+      billingCycle: cycle,
     });
     res.json({ razorpaySubscriptionId: rzpSub.id, keyId: await getRazorpayKeyId() });
   } catch (error) {
@@ -263,7 +279,8 @@ router.post("/billing/verify-subscription", async (req: Request, res: Response) 
       params: {
         item_type: "subscription",
         item_name: sub.planId,
-        amount_paise: plan?.priceInr ?? 0,
+        amount_paise:
+          (sub.billingCycle === "yearly" ? plan?.priceInrYearly : plan?.priceInr) ?? 0,
       },
     });
 

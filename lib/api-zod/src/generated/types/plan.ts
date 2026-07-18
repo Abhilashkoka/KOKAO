@@ -22,4 +22,11 @@ export interface Plan {
   priceInr?: number | null;
   /** @nullable */
   razorpayPlanId?: string | null;
+  /**
+     * Total yearly price in paise (charged once per year). Null = no annual billing option for this plan.
+     * @nullable
+     */
+  priceInrYearly?: number | null;
+  /** @nullable */
+  razorpayPlanIdYearly?: string | null;
 }

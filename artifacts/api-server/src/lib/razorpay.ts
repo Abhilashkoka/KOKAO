@@ -202,18 +202,22 @@ export interface RazorpayOrderEntity {
   notes?: Record<string, string>;
 }
 
-/** Create a monthly Razorpay Plan for a catalog plan's INR price. */
+/**
+ * Create a Razorpay Plan for a catalog plan's INR price. For yearly plans the
+ * amount is the FULL 12-month price charged once per year.
+ */
 export async function createRazorpayPlan(
   name: string,
   pricePaise: number,
+  period: "monthly" | "yearly" = "monthly",
 ): Promise<RazorpayPlanEntity> {
   return razorpayRequest<RazorpayPlanEntity>("/plans", {
     method: "POST",
     body: {
-      period: "monthly",
+      period,
       interval: 1,
       item: {
-        name: `${name} (monthly)`,
+        name: `${name} (${period})`,
         amount: pricePaise,
         currency: "INR",
       },
@@ -225,12 +229,14 @@ export async function createRazorpayPlan(
 export async function createRazorpaySubscription(
   razorpayPlanId: string,
   notes: Record<string, string>,
+  cycle: "monthly" | "yearly" = "monthly",
 ): Promise<RazorpaySubscriptionEntity> {
   return razorpayRequest<RazorpaySubscriptionEntity>("/subscriptions", {
     method: "POST",
     body: {
       plan_id: razorpayPlanId,
-      total_count: 120, // 10 years of monthly cycles; effectively "until cancelled"
+      // Effectively "until cancelled": 10 years of cycles either way.
+      total_count: cycle === "yearly" ? 10 : 120,
       customer_notify: 0,
       notes,
     },

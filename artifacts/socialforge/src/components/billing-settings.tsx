@@ -80,6 +80,7 @@ export function BillingSettings() {
   const { toast } = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [cycle, setCycle] = useState<"monthly" | "yearly">("monthly");
 
   const isOwner = me?.team ? me.team.role === "owner" : true;
 
@@ -96,6 +97,19 @@ export function BillingSettings() {
     (p): p is Plan & { priceInr: number } =>
       typeof p.priceInr === "number" && p.priceInr > 0,
   );
+  const anyYearly = paidPlans.some(
+    (p) => typeof p.priceInrYearly === "number" && p.priceInrYearly > 0,
+  );
+  const yearlySavingsPct = (() => {
+    let best = 0;
+    for (const p of paidPlans) {
+      if (typeof p.priceInrYearly === "number" && p.priceInrYearly > 0) {
+        const pct = Math.round((1 - p.priceInrYearly / (p.priceInr * 12)) * 100);
+        if (pct > best) best = pct;
+      }
+    }
+    return best;
+  })();
   const sub = billing.subscription;
   const hasActiveSub =
     !!sub && (sub.status === "active" || sub.status === "authenticated");
@@ -109,7 +123,9 @@ export function BillingSettings() {
   const handleSubscribe = async (planId: string) => {
     setBusyId(planId);
     try {
-      const started = await subscribe.mutateAsync({ data: { planId } });
+      const started = await subscribe.mutateAsync({
+        data: { planId, billingCycle: cycle },
+      });
       await openCheckout({
         key: started.keyId,
         subscription_id: started.razorpaySubscriptionId,
@@ -242,6 +258,7 @@ export function BillingSettings() {
             {sub && (
               <>
                 {" "}— subscription {sub.status}
+                {sub.billingCycle === "yearly" && " (billed yearly)"}
                 {sub.cancelAtPeriodEnd && " (ends after the paid period)"}
                 {sub.currentPeriodEnd &&
                   ` — renews/ends ${new Date(sub.currentPeriodEnd).toLocaleDateString()}`}
@@ -255,31 +272,87 @@ export function BillingSettings() {
               No plans are available for online purchase yet.
             </p>
           )}
-          <div className="grid gap-4 sm:grid-cols-2">
-            {paidPlans.map((plan) => (
-              <div key={plan.id} className="rounded-lg border p-4 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold">{plan.name}</span>
-                  {billing.plan === plan.id && <Badge>Current</Badge>}
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {formatInr(plan.priceInr)} / month
-                </p>
-                <Button
-                  size="sm"
-                  disabled={
-                    !isOwner ||
-                    !billing.configured ||
-                    billing.plan === plan.id ||
-                    hasActiveSub ||
-                    busyId === plan.id
-                  }
-                  onClick={() => handleSubscribe(plan.id)}
+          {anyYearly && (
+            <div className="flex items-center gap-3">
+              <div className="inline-flex items-center rounded-full border bg-muted p-1">
+                <button
+                  type="button"
+                  onClick={() => setCycle("monthly")}
+                  className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                    cycle === "monthly"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
                 >
-                  {busyId === plan.id ? "Opening checkout..." : "Subscribe"}
-                </Button>
+                  Monthly
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCycle("yearly")}
+                  className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                    cycle === "yearly"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Yearly
+                  {yearlySavingsPct > 0 && (
+                    <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                      Save up to {yearlySavingsPct}%
+                    </span>
+                  )}
+                </button>
               </div>
-            ))}
+            </div>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            {paidPlans.map((plan) => {
+              const hasYearly =
+                typeof plan.priceInrYearly === "number" && plan.priceInrYearly > 0;
+              const showYearly = cycle === "yearly" && hasYearly;
+              return (
+                <div key={plan.id} className="rounded-lg border p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold">{plan.name}</span>
+                    {billing.plan === plan.id && <Badge>Current</Badge>}
+                  </div>
+                  {showYearly ? (
+                    <div className="text-sm text-muted-foreground">
+                      <p>
+                        <span className="font-medium text-foreground">
+                          {formatInr(Math.round(plan.priceInrYearly! / 12))}
+                        </span>{" "}
+                        / month
+                      </p>
+                      <p className="text-xs">
+                        {formatInr(plan.priceInrYearly!)} billed once a year
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      {formatInr(plan.priceInr)} / month
+                      {cycle === "yearly" && !hasYearly && (
+                        <span className="block text-xs">Monthly billing only</span>
+                      )}
+                    </p>
+                  )}
+                  <Button
+                    size="sm"
+                    disabled={
+                      !isOwner ||
+                      !billing.configured ||
+                      billing.plan === plan.id ||
+                      hasActiveSub ||
+                      busyId === plan.id ||
+                      (cycle === "yearly" && !hasYearly)
+                    }
+                    onClick={() => handleSubscribe(plan.id)}
+                  >
+                    {busyId === plan.id ? "Opening checkout..." : "Subscribe"}
+                  </Button>
+                </div>
+              );
+            })}
           </div>
           <div className="flex flex-wrap gap-2">
             {hasActiveSub && !sub?.cancelAtPeriodEnd && (

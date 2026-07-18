@@ -342,6 +342,13 @@ export interface Plan {
   priceInr?: number | null;
   /** @nullable */
   razorpayPlanId?: string | null;
+  /**
+     * Total yearly price in paise (charged once per year). Null = no annual billing option for this plan.
+     * @nullable
+     */
+  priceInrYearly?: number | null;
+  /** @nullable */
+  razorpayPlanIdYearly?: string | null;
 }
 
 export interface PlanCreateInput {
@@ -380,6 +387,12 @@ export interface PlanCreateInput {
      * @nullable
      */
   priceInr?: number | null;
+  /**
+     * Total yearly price in paise. Null = no annual option.
+     * @minimum 1
+     * @nullable
+     */
+  priceInrYearly?: number | null;
 }
 
 export interface PlanUpdateInput {
@@ -411,6 +424,12 @@ export interface PlanUpdateInput {
      * @nullable
      */
   priceInr?: number | null;
+  /**
+     * Total yearly price in paise. Null = no annual option.
+     * @minimum 1
+     * @nullable
+     */
+  priceInrYearly?: number | null;
 }
 
 export interface RazorpayAppCredentialStatus {
@@ -489,10 +508,19 @@ export interface CreditLedgerEntry {
   createdAt: string;
 }
 
+export type BillingSubscriptionBillingCycle = typeof BillingSubscriptionBillingCycle[keyof typeof BillingSubscriptionBillingCycle];
+
+
+export const BillingSubscriptionBillingCycle = {
+  monthly: 'monthly',
+  yearly: 'yearly',
+} as const;
+
 export interface BillingSubscription {
   id: number;
   planId: string;
   status: string;
+  billingCycle: BillingSubscriptionBillingCycle;
   razorpaySubscriptionId: string;
   /** @nullable */
   currentPeriodEnd: string | null;
@@ -514,12 +542,25 @@ export interface BillingOverview {
   history: CreditLedgerEntry[];
 }
 
+/**
+ * Billing cycle for the subscription. Defaults to monthly.
+ */
+export type BillingSubscribeInputBillingCycle = typeof BillingSubscribeInputBillingCycle[keyof typeof BillingSubscribeInputBillingCycle];
+
+
+export const BillingSubscribeInputBillingCycle = {
+  monthly: 'monthly',
+  yearly: 'yearly',
+} as const;
+
 export interface BillingSubscribeInput {
   /**
      * @minLength 1
      * @maxLength 40
      */
   planId: string;
+  /** Billing cycle for the subscription. Defaults to monthly. */
+  billingCycle?: BillingSubscribeInputBillingCycle;
 }
 
 export interface BillingVerifySubscriptionInput {

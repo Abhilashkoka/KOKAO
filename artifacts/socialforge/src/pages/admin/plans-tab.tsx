@@ -35,6 +35,7 @@ interface PlanDraft {
   name: string;
   priceLabel: string;
   priceRupees: string;
+  priceRupeesYearly: string;
   captions: string;
   images: string;
   brandKits: string;
@@ -67,6 +68,7 @@ const EMPTY_NEW_PLAN: PlanDraft = {
   name: "",
   priceLabel: "",
   priceRupees: "",
+  priceRupeesYearly: "",
   captions: "",
   images: "",
   brandKits: "",
@@ -433,13 +435,17 @@ function PlansCard() {
     const teamSeats = teamSeatsTrimmed === "" ? 0 : Number(teamSeatsTrimmed);
     const priceRupeesTrimmed = draft.priceRupees.trim();
     const priceRupees = priceRupeesTrimmed === "" ? null : Number(priceRupeesTrimmed);
+    const yearlyTrimmed = draft.priceRupeesYearly.trim();
+    const priceRupeesYearly = yearlyTrimmed === "" ? null : Number(yearlyTrimmed);
     if (
       !draft.name.trim() ||
       !draft.priceLabel.trim() ||
       Object.values(limits).some((v) => v === null) ||
       !Number.isInteger(teamSeats) ||
       teamSeats < 0 ||
-      (priceRupees !== null && (!Number.isFinite(priceRupees) || priceRupees <= 0))
+      (priceRupees !== null && (!Number.isFinite(priceRupees) || priceRupees <= 0)) ||
+      (priceRupeesYearly !== null &&
+        (!Number.isFinite(priceRupeesYearly) || priceRupeesYearly <= 0))
     ) {
       toast({
         variant: "destructive",
@@ -449,10 +455,20 @@ function PlansCard() {
       });
       return null;
     }
+    if (priceRupeesYearly !== null && priceRupees === null) {
+      toast({
+        variant: "destructive",
+        title: "Check the fields",
+        description: "Set a monthly price before adding a yearly price.",
+      });
+      return null;
+    }
     return {
       name: draft.name.trim(),
       priceLabel: draft.priceLabel.trim(),
       priceInr: priceRupees === null ? null : Math.round(priceRupees * 100),
+      priceInrYearly:
+        priceRupeesYearly === null ? null : Math.round(priceRupeesYearly * 100),
       teamSeats,
       limits: {
         captions: limits.captions!,
@@ -530,6 +546,10 @@ function PlansCard() {
             priceRupees:
               typeof p.priceInr === "number" && p.priceInr > 0
                 ? String(p.priceInr / 100)
+                : "",
+            priceRupeesYearly:
+              typeof p.priceInrYearly === "number" && p.priceInrYearly > 0
+                ? String(p.priceInrYearly / 100)
                 : "",
             captions: limitToInput(p.limits.captions),
             images: limitToInput(p.limits.images),
@@ -657,6 +677,18 @@ function PlansCard() {
                       placeholder="e.g. 999 — blank = not sold online"
                     />
                   </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Yearly price in INR (chargeable, total for 12 months)
+                    </label>
+                    <Input
+                      value={draft.priceRupeesYearly}
+                      onChange={(e) =>
+                        setField(p.id, "priceRupeesYearly", e.target.value)
+                      }
+                      placeholder="e.g. 9990 — blank = no yearly option"
+                    />
+                  </div>
                   {LIMIT_FIELDS.map((f) => (
                     <div key={f.key} className="space-y-2">
                       <label className="text-sm font-medium">{f.label}</label>
@@ -776,6 +808,21 @@ function PlansCard() {
                         }))
                       }
                       placeholder="e.g. 999 — blank = not sold online"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Yearly price in INR (chargeable, total for 12 months)
+                    </label>
+                    <Input
+                      value={newPlan.priceRupeesYearly}
+                      onChange={(e) =>
+                        setNewPlan((prev) => ({
+                          ...prev,
+                          priceRupeesYearly: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g. 9990 — blank = no yearly option"
                     />
                   </div>
                   {LIMIT_FIELDS.map((f) => (

@@ -43,4 +43,10 @@ export interface PlanCreateInput {
      * @nullable
      */
   priceInr?: number | null;
+  /**
+     * Total yearly price in paise. Null = no annual option.
+     * @minimum 1
+     * @nullable
+     */
+  priceInrYearly?: number | null;
 }

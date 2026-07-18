@@ -24,6 +24,8 @@ export const subscriptionsTable = pgTable("subscriptions", {
    * finished yet).
    */
   status: text("status").notNull().default("created"),
+  /** Billing cycle chosen at checkout: "monthly" | "yearly". */
+  billingCycle: text("billing_cycle").notNull().default("monthly"),
   /** End of the currently paid period (from Razorpay charge webhooks). */
   currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
   /** True when the user asked to cancel at the end of the paid period. */

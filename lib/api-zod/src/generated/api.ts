@@ -102,7 +102,9 @@ export const ListPlansResponseItem = zod.object({
   "features": zod.array(zod.string()),
   "teamSeats": zod.number().describe('Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included.'),
   "priceInr": zod.number().nullish().describe('Subscription price in paise (INR x 100). Null = not purchasable online.'),
-  "razorpayPlanId": zod.string().nullish()
+  "razorpayPlanId": zod.string().nullish(),
+  "priceInrYearly": zod.number().nullish().describe('Total yearly price in paise (charged once per year). Null = no annual billing option for this plan.'),
+  "razorpayPlanIdYearly": zod.string().nullish()
 })
 export const ListPlansResponse = zod.array(ListPlansResponseItem)
 
@@ -628,6 +630,7 @@ export const adminCreatePlanBodyTeamSeatsMin = 0;
 
 
 
+
 export const AdminCreatePlanBody = zod.object({
   "id": zod.string().min(1).max(adminCreatePlanBodyIdMax).regex(adminCreatePlanBodyIdRegExp).optional().describe('Optional url-safe id (lowercase letters, digits, dashes). Derived from the name when omitted.'),
   "name": zod.string().min(1).max(adminCreatePlanBodyNameMax),
@@ -640,7 +643,8 @@ export const AdminCreatePlanBody = zod.object({
 }),
   "features": zod.array(zod.string().min(1).max(adminCreatePlanBodyFeaturesItemMax)).max(adminCreatePlanBodyFeaturesMax),
   "teamSeats": zod.number().min(adminCreatePlanBodyTeamSeatsMin).optional().describe('Default team seat allotment. 0 disables the team add-on.'),
-  "priceInr": zod.number().min(1).nullish().describe('Subscription price in paise. Null clears the online price.')
+  "priceInr": zod.number().min(1).nullish().describe('Subscription price in paise. Null clears the online price.'),
+  "priceInrYearly": zod.number().min(1).nullish().describe('Total yearly price in paise. Null = no annual option.')
 })
 
 export const AdminCreatePlanResponseItem = zod.object({
@@ -656,7 +660,9 @@ export const AdminCreatePlanResponseItem = zod.object({
   "features": zod.array(zod.string()),
   "teamSeats": zod.number().describe('Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included.'),
   "priceInr": zod.number().nullish().describe('Subscription price in paise (INR x 100). Null = not purchasable online.'),
-  "razorpayPlanId": zod.string().nullish()
+  "razorpayPlanId": zod.string().nullish(),
+  "priceInrYearly": zod.number().nullish().describe('Total yearly price in paise (charged once per year). Null = no annual billing option for this plan.'),
+  "razorpayPlanIdYearly": zod.string().nullish()
 })
 export const AdminCreatePlanResponse = zod.array(AdminCreatePlanResponseItem)
 
@@ -681,7 +687,9 @@ export const AdminDeletePlanResponseItem = zod.object({
   "features": zod.array(zod.string()),
   "teamSeats": zod.number().describe('Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included.'),
   "priceInr": zod.number().nullish().describe('Subscription price in paise (INR x 100). Null = not purchasable online.'),
-  "razorpayPlanId": zod.string().nullish()
+  "razorpayPlanId": zod.string().nullish(),
+  "priceInrYearly": zod.number().nullish().describe('Total yearly price in paise (charged once per year). Null = no annual billing option for this plan.'),
+  "razorpayPlanIdYearly": zod.string().nullish()
 })
 export const AdminDeletePlanResponse = zod.array(AdminDeletePlanResponseItem)
 
@@ -706,6 +714,7 @@ export const adminUpdatePlanBodyTeamSeatsMin = 0;
 
 
 
+
 export const AdminUpdatePlanBody = zod.object({
   "name": zod.string().min(1).max(adminUpdatePlanBodyNameMax),
   "priceLabel": zod.string().min(1).max(adminUpdatePlanBodyPriceLabelMax),
@@ -717,7 +726,8 @@ export const AdminUpdatePlanBody = zod.object({
 }),
   "features": zod.array(zod.string().min(1).max(adminUpdatePlanBodyFeaturesItemMax)).max(adminUpdatePlanBodyFeaturesMax),
   "teamSeats": zod.number().min(adminUpdatePlanBodyTeamSeatsMin).optional().describe('Default team seat allotment. 0 disables the team add-on.'),
-  "priceInr": zod.number().min(1).nullish().describe('Subscription price in paise. Null clears the online price.')
+  "priceInr": zod.number().min(1).nullish().describe('Subscription price in paise. Null clears the online price.'),
+  "priceInrYearly": zod.number().min(1).nullish().describe('Total yearly price in paise. Null = no annual option.')
 })
 
 export const AdminUpdatePlanResponseItem = zod.object({
@@ -733,7 +743,9 @@ export const AdminUpdatePlanResponseItem = zod.object({
   "features": zod.array(zod.string()),
   "teamSeats": zod.number().describe('Team add-on: default seat allotment (including the owner) for workspaces on this plan. 0 means the team feature is not included.'),
   "priceInr": zod.number().nullish().describe('Subscription price in paise (INR x 100). Null = not purchasable online.'),
-  "razorpayPlanId": zod.string().nullish()
+  "razorpayPlanId": zod.string().nullish(),
+  "priceInrYearly": zod.number().nullish().describe('Total yearly price in paise (charged once per year). Null = no annual billing option for this plan.'),
+  "razorpayPlanIdYearly": zod.string().nullish()
 })
 export const AdminUpdatePlanResponse = zod.array(AdminUpdatePlanResponseItem)
 
@@ -4984,6 +4996,7 @@ export const BillingGetOverviewResponse = zod.object({
   "id": zod.number(),
   "planId": zod.string(),
   "status": zod.string(),
+  "billingCycle": zod.enum(['monthly', 'yearly']),
   "razorpaySubscriptionId": zod.string(),
   "currentPeriodEnd": zod.string().nullable(),
   "cancelAtPeriodEnd": zod.boolean()
@@ -5020,7 +5033,8 @@ export const billingSubscribeBodyPlanIdMax = 40;
 
 
 export const BillingSubscribeBody = zod.object({
-  "planId": zod.string().min(1).max(billingSubscribeBodyPlanIdMax)
+  "planId": zod.string().min(1).max(billingSubscribeBodyPlanIdMax),
+  "billingCycle": zod.enum(['monthly', 'yearly']).optional().describe('Billing cycle for the subscription. Defaults to monthly.')
 })
 
 export const BillingSubscribeResponse = zod.object({

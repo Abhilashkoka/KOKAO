@@ -4596,6 +4596,13 @@ components:
           description: Subscription price in paise (INR x 100). Null = not purchasable online.
         razorpayPlanId:
           type: ["string", "null"]
+        priceInrYearly:
+          type: ["integer", "null"]
+          description: >-
+            Total yearly price in paise (charged once per year). Null = no
+            annual billing option for this plan.
+        razorpayPlanIdYearly:
+          type: ["string", "null"]
 
     PlanCreateInput:
       type: object
@@ -4634,6 +4641,10 @@ components:
           type: ["integer", "null"]
           minimum: 1
           description: Subscription price in paise. Null clears the online price.
+        priceInrYearly:
+          type: ["integer", "null"]
+          minimum: 1
+          description: Total yearly price in paise. Null = no annual option.
     PlanUpdateInput:
       type: object
       required: [name, priceLabel, limits, features]
@@ -4663,6 +4674,10 @@ components:
           type: ["integer", "null"]
           minimum: 1
           description: Subscription price in paise. Null clears the online price.
+        priceInrYearly:
+          type: ["integer", "null"]
+          minimum: 1
+          description: Total yearly price in paise. Null = no annual option.
     RazorpayAppCredentialStatus:
       type: object
       required:
@@ -4785,6 +4800,7 @@ components:
           id,
           planId,
           status,
+          billingCycle,
           razorpaySubscriptionId,
           currentPeriodEnd,
           cancelAtPeriodEnd,
@@ -4796,6 +4812,9 @@ components:
           type: string
         status:
           type: string
+        billingCycle:
+          type: string
+          enum: [monthly, yearly]
         razorpaySubscriptionId:
           type: string
         currentPeriodEnd:
@@ -4836,6 +4855,10 @@ components:
           type: string
           minLength: 1
           maxLength: 40
+        billingCycle:
+          type: string
+          enum: [monthly, yearly]
+          description: Billing cycle for the subscription. Defaults to monthly.
     BillingVerifySubscriptionInput:
       type: object
       required: [razorpaySubscriptionId, razorpayPaymentId, razorpaySignature]

@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { BillingSubscribeInputBillingCycle } from './billingSubscribeInputBillingCycle';
 
 export interface BillingSubscribeInput {
   /**
@@ -12,4 +13,6 @@ export interface BillingSubscribeInput {
      * @maxLength 40
      */
   planId: string;
+  /** Billing cycle for the subscription. Defaults to monthly. */
+  billingCycle?: BillingSubscribeInputBillingCycle;
 }

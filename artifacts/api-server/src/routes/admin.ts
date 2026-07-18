@@ -909,7 +909,8 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
     return;
   }
 
-  const { name, priceLabel, limits, features, teamSeats, priceInr } = parsed.data;
+  const { name, priceLabel, limits, features, teamSeats, priceInr, priceInrYearly } =
+    parsed.data;
   if (invalidLimits(limits)) {
     res
       .status(400)
@@ -921,9 +922,12 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
     return;
   }
   if (
-    priceInr !== undefined &&
-    priceInr !== null &&
-    (!Number.isInteger(priceInr) || priceInr <= 0)
+    (priceInr !== undefined &&
+      priceInr !== null &&
+      (!Number.isInteger(priceInr) || priceInr <= 0)) ||
+    (priceInrYearly !== undefined &&
+      priceInrYearly !== null &&
+      (!Number.isInteger(priceInrYearly) || priceInrYearly <= 0))
   ) {
     res
       .status(400)
@@ -935,10 +939,29 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
   // (Razorpay plans are immutable, so price changes always create a new one).
   // Clearing the price detaches the plan from online purchase.
   const nextPriceInr = priceInr === undefined ? previous.priceInr : priceInr;
+  const nextPriceInrYearly =
+    priceInrYearly === undefined ? previous.priceInrYearly : priceInrYearly;
+  if (nextPriceInrYearly !== null && nextPriceInr === null) {
+    res.status(400).json({
+      error: "Set a monthly price before adding a yearly price.",
+    });
+    return;
+  }
   let nextRazorpayPlanId = previous.razorpayPlanId;
+  let nextRazorpayPlanIdYearly = previous.razorpayPlanIdYearly;
+  const needsMonthlyMint =
+    nextPriceInr !== null &&
+    (nextPriceInr !== previous.priceInr || !nextRazorpayPlanId);
+  const needsYearlyMint =
+    nextPriceInrYearly !== null &&
+    (nextPriceInrYearly !== previous.priceInrYearly || !nextRazorpayPlanIdYearly);
   if (nextPriceInr === null) {
     nextRazorpayPlanId = null;
-  } else if (nextPriceInr !== previous.priceInr || !nextRazorpayPlanId) {
+  }
+  if (nextPriceInrYearly === null) {
+    nextRazorpayPlanIdYearly = null;
+  }
+  if (needsMonthlyMint || needsYearlyMint) {
     if (!(await isRazorpayConfigured())) {
       res.status(400).json({
         error:
@@ -947,8 +970,18 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
       return;
     }
     try {
-      const rzpPlan = await createRazorpayPlan(name.trim(), nextPriceInr);
-      nextRazorpayPlanId = rzpPlan.id;
+      if (needsMonthlyMint) {
+        const rzpPlan = await createRazorpayPlan(name.trim(), nextPriceInr!);
+        nextRazorpayPlanId = rzpPlan.id;
+      }
+      if (needsYearlyMint) {
+        const rzpPlanYearly = await createRazorpayPlan(
+          name.trim(),
+          nextPriceInrYearly!,
+          "yearly",
+        );
+        nextRazorpayPlanIdYearly = rzpPlanYearly.id;
+      }
     } catch (error) {
       req.log.error({ err: error }, "Failed to create Razorpay plan");
       res.status(502).json({
@@ -964,6 +997,8 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
     priceLabel: priceLabel.trim(),
     priceInr: nextPriceInr,
     razorpayPlanId: nextRazorpayPlanId,
+    priceInrYearly: nextPriceInrYearly,
+    razorpayPlanIdYearly: nextRazorpayPlanIdYearly,
     teamSeats: teamSeats ?? previous.teamSeats,
     captions: limits.captions,
     images: limits.images,
@@ -1013,7 +1048,8 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
     return;
   }
 
-  const { name, priceLabel, limits, features, teamSeats, priceInr } = parsed.data;
+  const { name, priceLabel, limits, features, teamSeats, priceInr, priceInrYearly } =
+    parsed.data;
   if (teamSeats !== undefined && !Number.isInteger(teamSeats)) {
     res.status(400).json({ error: "Team seats must be a whole number" });
     return;
@@ -1025,9 +1061,12 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
     return;
   }
   if (
-    priceInr !== undefined &&
-    priceInr !== null &&
-    (!Number.isInteger(priceInr) || priceInr <= 0)
+    (priceInr !== undefined &&
+      priceInr !== null &&
+      (!Number.isInteger(priceInr) || priceInr <= 0)) ||
+    (priceInrYearly !== undefined &&
+      priceInrYearly !== null &&
+      (!Number.isInteger(priceInrYearly) || priceInrYearly <= 0))
   ) {
     res
       .status(400)
@@ -1068,7 +1107,15 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
   // mint the matching Razorpay Plan before inserting the row, exactly like
   // a price change on update does.
   const newPriceInr = priceInr ?? null;
+  const newPriceInrYearly = priceInrYearly ?? null;
+  if (newPriceInrYearly !== null && newPriceInr === null) {
+    res.status(400).json({
+      error: "Set a monthly price before adding a yearly price.",
+    });
+    return;
+  }
   let newRazorpayPlanId: string | null = null;
+  let newRazorpayPlanIdYearly: string | null = null;
   if (newPriceInr !== null) {
     if (!(await isRazorpayConfigured())) {
       res.status(400).json({
@@ -1080,6 +1127,14 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
     try {
       const rzpPlan = await createRazorpayPlan(name.trim(), newPriceInr);
       newRazorpayPlanId = rzpPlan.id;
+      if (newPriceInrYearly !== null) {
+        const rzpPlanYearly = await createRazorpayPlan(
+          name.trim(),
+          newPriceInrYearly,
+          "yearly",
+        );
+        newRazorpayPlanIdYearly = rzpPlanYearly.id;
+      }
     } catch (error) {
       req.log.error({ err: error }, "Failed to create Razorpay plan");
       res.status(502).json({
@@ -1095,6 +1150,8 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
     priceLabel: priceLabel.trim(),
     priceInr: newPriceInr,
     razorpayPlanId: newRazorpayPlanId,
+    priceInrYearly: newPriceInrYearly,
+    razorpayPlanIdYearly: newRazorpayPlanIdYearly,
     teamSeats: teamSeats ?? 0,
     captions: limits.captions,
     images: limits.images,
