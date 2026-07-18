@@ -635,7 +635,7 @@ function RazorpayCredentialsCard() {
           setKeySecret("");
           setWebhookSecret("");
           setDirty(false);
-          if (result.testStatus === "ok") {
+          if (result.testStatus === "verified") {
             toast({
               title: "Razorpay connected",
               description:
@@ -683,7 +683,7 @@ function RazorpayCredentialsCard() {
           <>
             {data?.configured && (
               <div className="flex items-center gap-2 text-sm">
-                {data.testStatus === "ok" ? (
+                {data.testStatus === "verified" ? (
                   <span className="text-green-600 flex items-center gap-1">
                     <CheckCircle2 className="h-4 w-4" /> Connected
                   </span>
@@ -739,8 +739,8 @@ function RazorpayCredentialsCard() {
               />
               <p className="text-xs text-muted-foreground">
                 In the Razorpay dashboard, create a webhook pointing to
-                /api/razorpay/webhook on this app's domain, subscribed to
-                subscription and payment events, and paste its secret here.
+                /api/billing/razorpay-webhook on this app's domain, subscribed
+                to subscription and payment events, and paste its secret here.
               </p>
             </div>
             <Button

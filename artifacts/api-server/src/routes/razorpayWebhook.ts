@@ -90,15 +90,30 @@ async function handleSubscriptionEvent(
     status === "completed" ||
     status === "halted"
   ) {
-    // Lapse to Pay As You Go only if the tenant is still on the plan this
-    // subscription paid for (a superadmin override or newer sub wins).
+    // Downgrade to Free, but only AFTER the paid period the tenant already
+    // paid for has ended. Cancel-at-period-end subscriptions get their
+    // "cancelled" event at cycle end, so the guard usually passes; an early
+    // terminal event with time remaining keeps the plan until a later
+    // completed/expired event (or the next webhook) lands past the period end.
+    const periodEnd = entity?.current_end
+      ? new Date(entity.current_end * 1000)
+      : sub.currentPeriodEnd;
+    if (periodEnd && periodEnd.getTime() > Date.now()) {
+      req.log.info(
+        { subscriptionId, status, periodEnd },
+        "Subscription ended but paid period still active; deferring downgrade",
+      );
+      return;
+    }
+    // Only if the tenant is still on the plan this subscription paid for
+    // (a superadmin override or newer subscription wins).
     const tenant = (
       await db.select().from(tenantsTable).where(eq(tenantsTable.id, sub.tenantId)).limit(1)
     )[0];
     if (tenant && tenant.plan === sub.planId) {
       await db
         .update(tenantsTable)
-        .set({ plan: "payg", updatedAt: new Date() })
+        .set({ plan: "free", updatedAt: new Date() })
         .where(eq(tenantsTable.id, sub.tenantId));
     }
   }

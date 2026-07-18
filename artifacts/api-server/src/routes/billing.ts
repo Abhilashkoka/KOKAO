@@ -284,7 +284,8 @@ router.post("/billing/cancel", async (req: Request, res: Response) => {
 /**
  * POST /billing/switch-payg
  * Move a free-plan workspace onto Pay As You Go (no payment involved).
- * Paid plans must be cancelled first (the lapse lands on payg automatically).
+ * Paid plans must be cancelled first (the lapse lands on Free automatically;
+ * switching to Pay As You Go afterwards is a deliberate choice).
  */
 router.post("/billing/switch-payg", async (req: Request, res: Response) => {
   if (!requireOwner(req, res)) return;
@@ -298,7 +299,8 @@ router.post("/billing/switch-payg", async (req: Request, res: Response) => {
   const sub = await latestSubscription(req.tenantId);
   if (sub && (sub.status === "active" || sub.status === "authenticated")) {
     res.status(400).json({
-      error: "Cancel your subscription first; you will move to Pay As You Go when it ends.",
+      error:
+        "Cancel your subscription first; once it ends you can switch to Pay As You Go.",
     });
     return;
   }

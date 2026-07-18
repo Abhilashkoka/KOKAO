@@ -131,7 +131,7 @@ describe("POST /billing/razorpay-webhook", () => {
     expect(res.status).toBe(400);
   });
 
-  it("activates the plan on subscription.activated and lapses to payg on cancelled", async () => {
+  it("activates the plan on subscription.activated and lapses to free after the paid period", async () => {
     const subId = `sub_test_${Date.now()}`;
     await db.insert(subscriptionsTable).values({
       tenantId,
@@ -156,16 +156,35 @@ describe("POST /billing/razorpay-webhook", () => {
     expect(subRow.status).toBe("active");
     expect(subRow.currentPeriodEnd).not.toBeNull();
 
-    const cancel = await post(
+    // Cancelled while the paid period (current_end in 2030) is still active:
+    // the downgrade is deferred and the plan stays.
+    const earlyCancel = await post(
       app,
       {
         event: "subscription.cancelled",
         payload: { subscription: { entity: { id: subId, status: "cancelled" } } },
       },
+      { eventId: evId("can-early") },
+    );
+    expect(earlyCancel.status).toBe(200);
+    expect((await getTenant(tenantId))?.plan).toBe("pro");
+
+    // Cancelled with the paid period already over: downgrade to Free.
+    const pastEnd = Math.floor(Date.now() / 1000) - 60;
+    const cancel = await post(
+      app,
+      {
+        event: "subscription.cancelled",
+        payload: {
+          subscription: {
+            entity: { id: subId, status: "cancelled", current_end: pastEnd },
+          },
+        },
+      },
       { eventId: evId("can") },
     );
     expect(cancel.status).toBe(200);
-    expect((await getTenant(tenantId))?.plan).toBe("payg");
+    expect((await getTenant(tenantId))?.plan).toBe("free");
   });
 
   it("credits a pack on payment.captured and dedupes by event id and order id", async () => {
