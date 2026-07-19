@@ -20,6 +20,8 @@ const SIGN_UP_KEY = "kokao_sign_up_tracked";
 /** How recently a Clerk user must have been created to count as a fresh sign-up. */
 const SIGN_UP_FRESH_WINDOW_MS = 60 * 60_000;
 const UTM_KEY = "kokao_utm";
+/** localStorage key holding unsent events so they survive tab closes mid-outage. */
+const PENDING_KEY = "kokao_pending_events";
 const SESSION_TIMEOUT_MS = 30 * 60_000;
 const FLUSH_INTERVAL_MS = 10_000;
 const MAX_QUEUE = 40;
@@ -188,11 +190,66 @@ function requeueFailedBatch(events: QueuedEvent[]): void {
   }
 }
 
+/**
+ * Mirror the in-memory queue into localStorage so unsent events survive the
+ * tab being closed while the network is down. Called after every flush and
+ * on page hide; an empty queue clears the stored copy.
+ */
+function persistQueue(): void {
+  const store = safeStorage("local");
+  if (!store) return;
+  try {
+    if (queue.length === 0) {
+      store.removeItem(PENDING_KEY);
+    } else {
+      store.setItem(PENDING_KEY, JSON.stringify(queue.slice(-MAX_BUFFERED)));
+    }
+  } catch {
+    // storage full/unavailable; analytics must never break the app
+  }
+}
+
+/**
+ * Restore events persisted by a previous page load. The stored copy is
+ * removed immediately so a crashy init can't replay it twice; the existing
+ * caps still apply (over-attempted events are dropped, buffer capped at
+ * MAX_BUFFERED with newest events winning).
+ */
+function restoreQueue(): void {
+  const store = safeStorage("local");
+  if (!store) return;
+  try {
+    const raw = store.getItem(PENDING_KEY);
+    store.removeItem(PENDING_KEY);
+    if (!raw) return;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    const restored = (parsed as QueuedEvent[]).filter(
+      (e) =>
+        e !== null &&
+        typeof e === "object" &&
+        typeof e.name === "string" &&
+        typeof e.clientTimestamp === "string" &&
+        (e.attempts ?? 0) < MAX_SEND_ATTEMPTS,
+    );
+    queue = [...restored, ...queue];
+    if (queue.length > MAX_BUFFERED) {
+      queue = queue.slice(queue.length - MAX_BUFFERED);
+    }
+  } catch {
+    // corrupt stored copy; start fresh
+  }
+}
+
 async function flush(useBeacon = false): Promise<void> {
-  if (queue.length === 0) return;
+  if (queue.length === 0) {
+    persistQueue();
+    return;
+  }
   // Signed-in users who declined analytics send nothing at all.
   if (signedIn && consent !== null && !consent.analytics) {
     queue = [];
+    persistQueue();
     return;
   }
   const batch = queue.splice(0, MAX_QUEUE);
@@ -210,6 +267,7 @@ async function flush(useBeacon = false): Promise<void> {
         new Blob([body], { type: "application/json" }),
       );
       if (!accepted) requeueFailedBatch(batch);
+      persistQueue();
       return;
     }
     const res = await fetch(INGEST_URL, {
@@ -229,6 +287,7 @@ async function flush(useBeacon = false): Promise<void> {
     // brief network blip doesn't permanently lose the events.
     requeueFailedBatch(batch);
   }
+  persistQueue();
 }
 
 /** Test-only access to the internal queue and flush (not for app code). */
@@ -241,6 +300,8 @@ export const __analyticsTestHooks = {
   resetQueue: (): void => {
     queue = [];
   },
+  persistQueue,
+  restoreQueue,
 };
 
 /** Queue an event. Flushes automatically on a timer and page hide. */
@@ -369,6 +430,10 @@ export function initAnalytics(): void {
   const store = safeStorage("local");
   const session = getSession();
 
+  // Recover events a previous page load couldn't send (e.g. the tab was
+  // closed while the network was down).
+  restoreQueue();
+
   if (store && !store.getItem(FIRST_OPEN_KEY)) {
     store.setItem(FIRST_OPEN_KEY, new Date().toISOString());
     track("first_open", { page: window.location.pathname });
@@ -399,7 +464,16 @@ export function initAnalytics(): void {
     trackError("unhandled_rejection");
   });
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") void flush(true);
+    if (document.visibilityState === "hidden") {
+      // The beacon path is synchronous up to the requeue, so the persist
+      // below captures whatever couldn't be handed off before a tab close.
+      void flush(true);
+      persistQueue();
+    }
+  });
+  window.addEventListener("pagehide", () => {
+    void flush(true);
+    persistQueue();
   });
 
   flushTimer = setInterval(() => void flush(), FLUSH_INTERVAL_MS);

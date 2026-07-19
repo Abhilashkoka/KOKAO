@@ -28,6 +28,8 @@ const FIRST_OPEN_KEY = "kokao_first_open";
 const SIGN_UP_KEY = "kokao_sign_up_tracked";
 /** How recently a Clerk user must have been created to count as a fresh sign-up. */
 const SIGN_UP_FRESH_WINDOW_MS = 60 * 60_000;
+/** AsyncStorage key holding unsent events so they survive app kills mid-outage. */
+const PENDING_KEY = "kokao_pending_events";
 const SESSION_TIMEOUT_MS = 30 * 60_000;
 const FLUSH_INTERVAL_MS = 15_000;
 const MAX_QUEUE = 40;
@@ -140,10 +142,67 @@ function requeueFailedBatch(events: QueuedEvent[]): void {
   }
 }
 
+/**
+ * Mirror the in-memory queue into AsyncStorage so unsent events survive the
+ * app being killed while the network is down. Called after every flush; an
+ * empty queue clears the stored copy.
+ */
+async function persistQueue(): Promise<void> {
+  try {
+    if (queue.length === 0) {
+      await AsyncStorage.removeItem(PENDING_KEY);
+    } else {
+      await AsyncStorage.setItem(PENDING_KEY, JSON.stringify(queue.slice(-MAX_BUFFERED)));
+    }
+  } catch {
+    // storage unavailable; analytics must never break the app
+  }
+}
+
+/**
+ * Restore events persisted by a previous launch. The stored copy is removed
+ * immediately so a crashy init can't replay it twice; the existing caps
+ * still apply (over-attempted events are dropped, buffer capped at
+ * MAX_BUFFERED with newest events winning).
+ */
+async function restoreQueue(): Promise<void> {
+  let raw: string | null = null;
+  try {
+    raw = await AsyncStorage.getItem(PENDING_KEY);
+    await AsyncStorage.removeItem(PENDING_KEY);
+  } catch {
+    // storage unavailable
+    return;
+  }
+  if (!raw) return;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    const restored = (parsed as QueuedEvent[]).filter(
+      (e) =>
+        e !== null &&
+        typeof e === "object" &&
+        typeof e.name === "string" &&
+        typeof e.clientTimestamp === "string" &&
+        (e.attempts ?? 0) < MAX_SEND_ATTEMPTS,
+    );
+    queue = [...restored, ...queue];
+    if (queue.length > MAX_BUFFERED) {
+      queue = queue.slice(queue.length - MAX_BUFFERED);
+    }
+  } catch {
+    // corrupt stored copy; start fresh
+  }
+}
+
 async function flush(): Promise<void> {
-  if (queue.length === 0 || !INGEST_URL) return;
+  if (queue.length === 0 || !INGEST_URL) {
+    if (INGEST_URL) await persistQueue();
+    return;
+  }
   if (signedIn && consent !== null && !consent.analytics) {
     queue = [];
+    await persistQueue();
     return;
   }
   const batch = queue.splice(0, MAX_QUEUE);
@@ -172,6 +231,7 @@ async function flush(): Promise<void> {
     // brief network blip doesn't permanently lose the events.
     requeueFailedBatch(batch);
   }
+  await persistQueue();
 }
 
 /** Test-only access to the internal queue and flush (not for app code). */
@@ -184,6 +244,8 @@ export const __analyticsTestHooks = {
   resetQueue: (): void => {
     queue = [];
   },
+  persistQueue,
+  restoreQueue,
 };
 
 export function track(name: string, params?: Record<string, unknown>): void {
@@ -385,6 +447,10 @@ async function trackFirstOpenOnce(): Promise<void> {
 /** Initialize: first-open/session events, startup timing, telemetry probes. */
 export function initAnalytics(appStartedAt: number): void {
   if (flushTimer) return;
+
+  // Recover events a previous launch couldn't send (e.g. the app was killed
+  // while the network was down).
+  void restoreQueue();
 
   void trackFirstOpenOnce();
 
