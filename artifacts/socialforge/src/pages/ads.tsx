@@ -16,6 +16,9 @@ import {
   useApproveAdDraft,
   useRejectAdDraft,
   useListAdsChangeLog,
+  useGetAdsBudgetCaps,
+  useUpdateAdsBudgetCaps,
+  getGetAdsBudgetCapsQueryKey,
   getListAdConnectionsQueryKey,
   getListAdDraftsQueryKey,
   getListAdsChangeLogQueryKey,
@@ -69,7 +72,40 @@ import {
   Pencil,
   Plus,
   ShieldCheck,
+  TrendingUp,
+  Wallet,
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+
+/**
+ * Budget diff fields produced by the server ("Daily budget (minor units)" /
+ * "Lifetime budget (minor units)"). A change counts as a LARGE increase when
+ * the new budget is at least 2x the current one.
+ */
+const LARGE_INCREASE_FACTOR = 2;
+
+export interface BudgetIncrease {
+  field: string;
+  before: number;
+  after: number;
+  factor: number;
+}
+
+export function findLargeBudgetIncreases(
+  changes: { field: string; before?: string | null; after?: string | null }[],
+): BudgetIncrease[] {
+  const out: BudgetIncrease[] = [];
+  for (const c of changes) {
+    if (!c.field.toLowerCase().includes("budget")) continue;
+    const before = c.before != null ? Number(c.before) : NaN;
+    const after = c.after != null ? Number(c.after) : NaN;
+    if (!Number.isFinite(before) || !Number.isFinite(after) || before <= 0) continue;
+    if (after >= before * LARGE_INCREASE_FACTOR) {
+      out.push({ field: c.field, before, after, factor: after / before });
+    }
+  }
+  return out;
+}
 
 const DATE_PRESETS = [
   { value: "today", label: "Today" },
@@ -201,6 +237,8 @@ export function AdsPage() {
         metaAvailable={status?.platforms.find((p) => p.platform === "meta")?.available ?? false}
         canManage={canManage}
       />
+
+      {connectedConn && <BudgetCapsCard isOwner={isOwner} currency={connectedConn.currency ?? null} />}
 
       {connectedConn && (
         <Tabs defaultValue="campaigns">
@@ -453,6 +491,147 @@ function AccountPicker({ canManage }: { canManage: boolean }) {
         </Button>
       </div>
     </div>
+  );
+}
+
+function BudgetCapsCard({
+  isOwner,
+  currency,
+}: {
+  isOwner: boolean;
+  currency: string | null;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: caps, isLoading } = useGetAdsBudgetCaps();
+  const update = useUpdateAdsBudgetCaps();
+  const [editing, setEditing] = useState(false);
+  const [daily, setDaily] = useState("");
+  const [lifetime, setLifetime] = useState("");
+
+  const startEditing = () => {
+    setDaily(caps?.maxDailyBudget != null ? String(caps.maxDailyBudget) : "");
+    setLifetime(caps?.maxLifetimeBudget != null ? String(caps.maxLifetimeBudget) : "");
+    setEditing(true);
+  };
+
+  const save = () => {
+    const parse = (v: string): number | null | undefined => {
+      if (!v.trim()) return null;
+      const n = Number(v);
+      return Number.isInteger(n) && n > 0 ? n : undefined;
+    };
+    const maxDailyBudget = parse(daily);
+    const maxLifetimeBudget = parse(lifetime);
+    if (maxDailyBudget === undefined || maxLifetimeBudget === undefined) {
+      toast({
+        variant: "destructive",
+        title: "Invalid cap",
+        description: "Caps must be positive whole amounts in minor units, or left empty for no cap.",
+      });
+      return;
+    }
+    update.mutate(
+      { data: { maxDailyBudget, maxLifetimeBudget } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetAdsBudgetCapsQueryKey() });
+          setEditing(false);
+          toast({ title: "Budget caps saved" });
+        },
+        onError: (err) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save the budget caps",
+            description:
+              (err as { payload?: { error?: string } }).payload?.error ?? undefined,
+          });
+        },
+      },
+    );
+  };
+
+  const fmtCap = (v: number | null | undefined) =>
+    v != null ? `${formatMoneyMinor(v, currency)} (${v.toLocaleString()} minor units)` : "No cap";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Wallet className="h-5 w-5" /> Budget caps
+        </CardTitle>
+        <CardDescription>
+          Optional spend guardrails. Drafts proposing a daily or lifetime budget
+          above these caps are rejected before they ever reach approval.
+          {!isOwner && " Only the workspace owner can change them."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-10 w-full" />
+        ) : editing ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="cap-daily">Max daily budget (minor units)</Label>
+                <Input
+                  id="cap-daily"
+                  type="number"
+                  min="1"
+                  placeholder="No cap"
+                  value={daily}
+                  onChange={(e) => setDaily(e.target.value)}
+                  data-testid="input-cap-daily"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cap-lifetime">Max lifetime budget (minor units)</Label>
+                <Input
+                  id="cap-lifetime"
+                  type="number"
+                  min="1"
+                  placeholder="No cap"
+                  value={lifetime}
+                  onChange={(e) => setLifetime(e.target.value)}
+                  data-testid="input-cap-lifetime"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={save} disabled={update.isPending} data-testid="button-save-caps">
+                {update.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Save caps
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1 text-sm">
+              <div>
+                <span className="text-muted-foreground">Daily: </span>
+                <span className="font-medium" data-testid="text-cap-daily">
+                  {fmtCap(caps?.maxDailyBudget)}
+                </span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Lifetime: </span>
+                <span className="font-medium" data-testid="text-cap-lifetime">
+                  {fmtCap(caps?.maxLifetimeBudget)}
+                </span>
+              </div>
+            </div>
+            {isOwner && (
+              <Button variant="outline" size="sm" onClick={startEditing} data-testid="button-edit-caps">
+                <Pencil className="h-4 w-4 mr-2" /> Edit caps
+              </Button>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1099,34 +1278,98 @@ function DraftsSection({
       )}
 
       {confirming && (
-        <Dialog open onOpenChange={(open) => !open && setConfirming(null)}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Apply this change to your ad account?</DialogTitle>
-              <DialogDescription>
-                This will {confirming.action === "create" ? "create" : "modify"}{" "}
-                "{confirming.targetName}" on {confirming.platform === "meta" ? "Meta" : confirming.platform}. The change is
-                verified after it is applied and recorded in the change history.
-              </DialogDescription>
-            </DialogHeader>
-            <DiffList changes={confirming.changes} />
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setConfirming(null)}>
-                Cancel
-              </Button>
-              <Button
-                onClick={() => handleApprove(confirming)}
-                disabled={approve.isPending}
-                data-testid="button-confirm-approve"
-              >
-                {approve.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Approve and apply
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <ApproveConfirmDialog
+          draft={confirming}
+          applying={approve.isPending}
+          onCancel={() => setConfirming(null)}
+          onConfirm={() => handleApprove(confirming)}
+        />
       )}
     </div>
+  );
+}
+
+function ApproveConfirmDialog({
+  draft,
+  applying,
+  onCancel,
+  onConfirm,
+}: {
+  draft: AdsDraft;
+  applying: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const increases = useMemo(
+    () => findLargeBudgetIncreases(draft.changes),
+    [draft.changes],
+  );
+  const [acknowledged, setAcknowledged] = useState(false);
+  const needsAck = increases.length > 0;
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Apply this change to your ad account?</DialogTitle>
+          <DialogDescription>
+            This will {draft.action === "create" ? "create" : "modify"}{" "}
+            "{draft.targetName}" on{" "}
+            {draft.platform === "meta" ? "Meta" : draft.platform}. The change is
+            verified after it is applied and recorded in the change history.
+          </DialogDescription>
+        </DialogHeader>
+        <DiffList changes={draft.changes} />
+        {needsAck && (
+          <div
+            className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-3"
+            data-testid="warning-budget-increase"
+          >
+            <div className="flex items-start gap-2">
+              <TrendingUp className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-destructive">
+                  Large budget increase
+                </p>
+                {increases.map((inc) => (
+                  <p key={inc.field} className="text-sm">
+                    {inc.field.replace(" (minor units)", "")} jumps from{" "}
+                    {inc.before.toLocaleString()} to {inc.after.toLocaleString()}{" "}
+                    minor units — about {Math.round(inc.factor * 10) / 10}x the
+                    current budget.
+                  </p>
+                ))}
+                <p className="text-sm text-muted-foreground">
+                  Double-check the amount before applying — an extra digit here
+                  spends real money.
+                </p>
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <Checkbox
+                checked={acknowledged}
+                onCheckedChange={(v) => setAcknowledged(v === true)}
+                data-testid="checkbox-acknowledge-budget-increase"
+              />
+              I have checked the new budget and want to spend this much
+            </label>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            onClick={onConfirm}
+            disabled={applying || (needsAck && !acknowledged)}
+            data-testid="button-confirm-approve"
+          >
+            {applying && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Approve and apply
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

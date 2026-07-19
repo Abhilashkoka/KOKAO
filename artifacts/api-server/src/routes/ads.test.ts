@@ -60,6 +60,7 @@ import { requireTenant } from "../middlewares/requireTenant";
 import adsRouter from "./ads";
 import { resetAuthState, actAs } from "../test/authState";
 import { createTenant, deleteTenant } from "../test/dbHelpers";
+import { tenantsTable } from "@workspace/db";
 
 const mockRead = vi.mocked(readObjectState);
 const mockUpdate = vi.mocked(updateObject);
@@ -281,6 +282,126 @@ describe("ads draft creation", () => {
         const res = await req;
         expect(res.status).toBe(503);
       }
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("budget caps", () => {
+  it("rejects a draft whose daily budget exceeds the cap", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      await db
+        .update(tenantsTable)
+        .set({ adsMaxDailyBudget: 6000 })
+        .where(eq(tenantsTable.id, tenant.tenantId));
+      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        dailyBudget: 60000,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/daily budget cap/i);
+      const rows = await db
+        .select()
+        .from(adChangeRequestsTable)
+        .where(eq(adChangeRequestsTable.tenantId, tenant.tenantId));
+      expect(rows.length).toBe(0);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects a create draft whose lifetime budget exceeds the cap", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      await db
+        .update(tenantsTable)
+        .set({ adsMaxLifetimeBudget: 100000 })
+        .where(eq(tenantsTable.id, tenant.tenantId));
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign",
+        action: "create",
+        name: "Big spender",
+        lifetimeBudget: 1000000,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/lifetime budget cap/i);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("allows a draft at exactly the cap and with no caps set", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      await db
+        .update(tenantsTable)
+        .set({ adsMaxDailyBudget: 7000 })
+        .where(eq(tenantsTable.id, tenant.tenantId));
+      const atCap = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        dailyBudget: 7000,
+      });
+      expect(atCap.status).toBe(201);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("only the owner can change caps; members can read them", async () => {
+    const tenant = await createTenant();
+    try {
+      const admin = await addMember(tenant.tenantId, "admin");
+      actAs(admin.clerkUserId);
+      const forbidden = await request(app)
+        .put("/api/ads/budget-caps")
+        .send({ maxDailyBudget: 5000, maxLifetimeBudget: null });
+      expect(forbidden.status).toBe(403);
+
+      actAs(tenant.clerkUserId);
+      const ok = await request(app)
+        .put("/api/ads/budget-caps")
+        .send({ maxDailyBudget: 5000, maxLifetimeBudget: null });
+      expect(ok.status).toBe(200);
+      expect(ok.body).toEqual({ maxDailyBudget: 5000, maxLifetimeBudget: null });
+
+      actAs(admin.clerkUserId);
+      const read = await request(app).get("/api/ads/budget-caps");
+      expect(read.status).toBe(200);
+      expect(read.body.maxDailyBudget).toBe(5000);
+
+      // Clearing caps
+      actAs(tenant.clerkUserId);
+      const cleared = await request(app)
+        .put("/api/ads/budget-caps")
+        .send({ maxDailyBudget: null, maxLifetimeBudget: null });
+      expect(cleared.status).toBe(200);
+      expect(cleared.body).toEqual({ maxDailyBudget: null, maxLifetimeBudget: null });
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects non-positive and fractional cap values", async () => {
+    const tenant = await createTenant();
+    try {
+      actAs(tenant.clerkUserId);
+      const zero = await request(app)
+        .put("/api/ads/budget-caps")
+        .send({ maxDailyBudget: 0, maxLifetimeBudget: null });
+      expect(zero.status).toBe(400);
+      const fractional = await request(app)
+        .put("/api/ads/budget-caps")
+        .send({ maxDailyBudget: 500.5, maxLifetimeBudget: null });
+      expect(fractional.status).toBe(400);
+      const fractionalLifetime = await request(app)
+        .put("/api/ads/budget-caps")
+        .send({ maxDailyBudget: null, maxLifetimeBudget: 99.9 });
+      expect(fractionalLifetime.status).toBe(400);
     } finally {
       await deleteTenant(tenant.tenantId);
     }

@@ -2714,6 +2714,34 @@ export interface AdminAdsSettingsInput {
   enabled: boolean;
 }
 
+export interface AdsBudgetCaps {
+  /**
+     * Maximum allowed daily budget in minor currency units; null = no cap.
+     * @nullable
+     */
+  maxDailyBudget: number | null;
+  /**
+     * Maximum allowed lifetime budget in minor currency units; null = no cap.
+     * @nullable
+     */
+  maxLifetimeBudget: number | null;
+}
+
+export interface AdsBudgetCapsInput {
+  /**
+     * Maximum allowed daily budget in minor currency units; null clears the cap.
+     * @minimum 1
+     * @nullable
+     */
+  maxDailyBudget: number | null;
+  /**
+     * Maximum allowed lifetime budget in minor currency units; null clears the cap.
+     * @minimum 1
+     * @nullable
+     */
+  maxLifetimeBudget: number | null;
+}
+
 /**
  * Start of the reporting window (defaults to 30 days ago).
  */

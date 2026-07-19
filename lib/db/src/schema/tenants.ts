@@ -27,6 +27,12 @@ export const tenantsTable = pgTable("tenants", {
   // Per-tenant override for the canvas-design image prompt skill.
   // null = follow the global design_skill_settings switch.
   designSkillEnabled: boolean("design_skill_enabled"),
+  // Optional spend guardrails for the paid-media module, in minor currency
+  // units. Enforced server-side when an ads draft is created: a draft whose
+  // proposed daily/lifetime budget exceeds the cap is rejected outright.
+  // null = no cap. Only the workspace owner may change these.
+  adsMaxDailyBudget: integer("ads_max_daily_budget"),
+  adsMaxLifetimeBudget: integer("ads_max_lifetime_budget"),
   // Set when a superadmin manually overrides the tenant's plan. While set,
   // Razorpay subscription webhooks must NOT sync the plan (admin override
   // wins). Cleared when the tenant takes a billing action themselves

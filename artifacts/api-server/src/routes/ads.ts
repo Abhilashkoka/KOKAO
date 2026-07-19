@@ -16,6 +16,7 @@ import {
   CreateAdDraftBody,
   SelectMetaAdAccountBody,
   AdminUpdateAdsSettingsBody,
+  UpdateAdsBudgetCapsBody,
 } from "@workspace/api-zod";
 import { requireWorkspaceAdmin } from "../middlewares/requireWorkspaceAdmin";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
@@ -629,6 +630,67 @@ router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// Budget caps (optional per-tenant spend guardrails, minor units)
+// ---------------------------------------------------------------------------
+
+async function loadBudgetCaps(tenantId: number): Promise<{
+  maxDailyBudget: number | null;
+  maxLifetimeBudget: number | null;
+}> {
+  const row = (
+    await db
+      .select({
+        maxDailyBudget: tenantsTable.adsMaxDailyBudget,
+        maxLifetimeBudget: tenantsTable.adsMaxLifetimeBudget,
+      })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, tenantId))
+      .limit(1)
+  )[0];
+  return {
+    maxDailyBudget: row?.maxDailyBudget ?? null,
+    maxLifetimeBudget: row?.maxLifetimeBudget ?? null,
+  };
+}
+
+router.get("/ads/budget-caps", async (req: Request, res: Response) => {
+  if (!(await adsEnabledOr503(res))) return;
+  res.json(await loadBudgetCaps(req.tenantId));
+});
+
+router.put("/ads/budget-caps", async (req: Request, res: Response) => {
+  if (!(await adsEnabledOr503(res))) return;
+  // Owner-only: the cap is the guardrail against everyone else's typos, so
+  // only the workspace owner may raise or clear it.
+  if (req.memberRole !== "owner") {
+    res.status(403).json({
+      error: "Only the workspace owner can change the ads budget caps.",
+    });
+    return;
+  }
+  const parsed = UpdateAdsBudgetCapsBody.safeParse(req.body);
+  if (
+    !parsed.success ||
+    (parsed.data.maxDailyBudget != null && !Number.isInteger(parsed.data.maxDailyBudget)) ||
+    (parsed.data.maxLifetimeBudget != null && !Number.isInteger(parsed.data.maxLifetimeBudget))
+  ) {
+    res.status(400).json({
+      error: "Budget caps must be positive whole amounts in minor units, or null to clear.",
+    });
+    return;
+  }
+  await db
+    .update(tenantsTable)
+    .set({
+      adsMaxDailyBudget: parsed.data.maxDailyBudget ?? null,
+      adsMaxLifetimeBudget: parsed.data.maxLifetimeBudget ?? null,
+      updatedAt: new Date(),
+    })
+    .where(eq(tenantsTable.id, req.tenantId));
+  res.json(await loadBudgetCaps(req.tenantId));
+});
+
+// ---------------------------------------------------------------------------
 // Drafts (the safety engine's front door)
 // ---------------------------------------------------------------------------
 
@@ -674,6 +736,31 @@ router.post(
     }
     if (input.action === "update" && !input.targetId) {
       res.status(400).json({ error: "targetId is required for updates" });
+      return;
+    }
+
+    // Spend guardrail: reject drafts whose proposed budget exceeds the
+    // workspace's caps. Enforced HERE (draft creation) so an over-cap typo
+    // never even reaches the owner's approval queue.
+    const caps = await loadBudgetCaps(req.tenantId);
+    if (
+      caps.maxDailyBudget != null &&
+      input.dailyBudget != null &&
+      input.dailyBudget > caps.maxDailyBudget
+    ) {
+      res.status(400).json({
+        error: `The proposed daily budget (${input.dailyBudget} minor units) exceeds this workspace's daily budget cap of ${caps.maxDailyBudget}. Lower the budget, or ask the workspace owner to raise the cap.`,
+      });
+      return;
+    }
+    if (
+      caps.maxLifetimeBudget != null &&
+      input.lifetimeBudget != null &&
+      input.lifetimeBudget > caps.maxLifetimeBudget
+    ) {
+      res.status(400).json({
+        error: `The proposed lifetime budget (${input.lifetimeBudget} minor units) exceeds this workspace's lifetime budget cap of ${caps.maxLifetimeBudget}. Lower the budget, or ask the workspace owner to raise the cap.`,
+      });
       return;
     }
 

@@ -35,6 +35,8 @@ export * from './adminTenant';
 export * from './adminTenantCounts';
 export * from './adsAd';
 export * from './adsAdSet';
+export * from './adsBudgetCaps';
+export * from './adsBudgetCapsInput';
 export * from './adsCampaign';
 export * from './adsCampaignDetail';
 export * from './adsCampaignList';

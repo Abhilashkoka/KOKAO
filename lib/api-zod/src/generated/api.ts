@@ -6092,6 +6092,33 @@ export const ListAdsChangeLogResponse = zod.array(ListAdsChangeLogResponseItem)
 
 
 /**
+ * @summary Get this workspace's optional ads budget caps (minor units, null = no cap)
+ */
+export const GetAdsBudgetCapsResponse = zod.object({
+  "maxDailyBudget": zod.number().nullable().describe('Maximum allowed daily budget in minor currency units; null = no cap.'),
+  "maxLifetimeBudget": zod.number().nullable().describe('Maximum allowed lifetime budget in minor currency units; null = no cap.')
+})
+
+
+/**
+ * @summary Set or clear the workspace's ads budget caps (workspace OWNER only)
+ */
+
+
+
+
+export const UpdateAdsBudgetCapsBody = zod.object({
+  "maxDailyBudget": zod.number().min(1).nullable().describe('Maximum allowed daily budget in minor currency units; null clears the cap.'),
+  "maxLifetimeBudget": zod.number().min(1).nullable().describe('Maximum allowed lifetime budget in minor currency units; null clears the cap.')
+})
+
+export const UpdateAdsBudgetCapsResponse = zod.object({
+  "maxDailyBudget": zod.number().nullable().describe('Maximum allowed daily budget in minor currency units; null = no cap.'),
+  "maxLifetimeBudget": zod.number().nullable().describe('Maximum allowed lifetime budget in minor currency units; null = no cap.')
+})
+
+
+/**
  * @summary Get the global ads module switch and per-platform credential readiness (superadmin only)
  */
 export const AdminGetAdsSettingsResponse = zod.object({

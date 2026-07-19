@@ -4619,6 +4619,47 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/AdsChangeLogEntry"
+  /ads/budget-caps:
+    get:
+      operationId: getAdsBudgetCaps
+      tags: [ads]
+      summary: Get this workspace's optional ads budget caps (minor units, null = no cap)
+      responses:
+        "200":
+          description: Budget caps
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdsBudgetCaps"
+    put:
+      operationId: updateAdsBudgetCaps
+      tags: [ads]
+      summary: Set or clear the workspace's ads budget caps (workspace OWNER only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdsBudgetCapsInput"
+      responses:
+        "200":
+          description: Updated budget caps
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdsBudgetCaps"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (only the workspace owner can change budget caps)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/ads/settings:
     get:
       operationId: adminGetAdsSettings
@@ -8160,3 +8201,25 @@ components:
       properties:
         enabled:
           type: boolean
+    AdsBudgetCaps:
+      type: object
+      required: [maxDailyBudget, maxLifetimeBudget]
+      properties:
+        maxDailyBudget:
+          type: ["integer", "null"]
+          description: Maximum allowed daily budget in minor currency units; null = no cap.
+        maxLifetimeBudget:
+          type: ["integer", "null"]
+          description: Maximum allowed lifetime budget in minor currency units; null = no cap.
+    AdsBudgetCapsInput:
+      type: object
+      required: [maxDailyBudget, maxLifetimeBudget]
+      properties:
+        maxDailyBudget:
+          type: ["integer", "null"]
+          minimum: 1
+          description: Maximum allowed daily budget in minor currency units; null clears the cap.
+        maxLifetimeBudget:
+          type: ["integer", "null"]
+          minimum: 1
+          description: Maximum allowed lifetime budget in minor currency units; null clears the cap.

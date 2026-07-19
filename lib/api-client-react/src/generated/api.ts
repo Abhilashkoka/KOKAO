@@ -35,6 +35,8 @@ import type {
   AdminStats,
   AdminSweepRunResult,
   AdminTenant,
+  AdsBudgetCaps,
+  AdsBudgetCapsInput,
   AdsCampaignDetail,
   AdsCampaignList,
   AdsChangeLogEntry,
@@ -12979,6 +12981,153 @@ export function useListAdsChangeLog<TData = Awaited<ReturnType<typeof listAdsCha
 
 
 
+
+export const getGetAdsBudgetCapsUrl = () => {
+
+
+
+
+  return `/api/ads/budget-caps`
+}
+
+/**
+ * @summary Get this workspace's optional ads budget caps (minor units, null = no cap)
+ */
+export const getAdsBudgetCaps = async ( options?: RequestInit): Promise<AdsBudgetCaps> => {
+
+  return customFetch<AdsBudgetCaps>(getGetAdsBudgetCapsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAdsBudgetCapsQueryKey = () => {
+    return [
+    `/api/ads/budget-caps`
+    ] as const;
+    }
+
+
+export const getGetAdsBudgetCapsQueryOptions = <TData = Awaited<ReturnType<typeof getAdsBudgetCaps>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdsBudgetCaps>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAdsBudgetCapsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdsBudgetCaps>>> = ({ signal }) => getAdsBudgetCaps({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdsBudgetCaps>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAdsBudgetCapsQueryResult = NonNullable<Awaited<ReturnType<typeof getAdsBudgetCaps>>>
+export type GetAdsBudgetCapsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get this workspace's optional ads budget caps (minor units, null = no cap)
+ */
+
+export function useGetAdsBudgetCaps<TData = Awaited<ReturnType<typeof getAdsBudgetCaps>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdsBudgetCaps>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAdsBudgetCapsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateAdsBudgetCapsUrl = () => {
+
+
+
+
+  return `/api/ads/budget-caps`
+}
+
+/**
+ * @summary Set or clear the workspace's ads budget caps (workspace OWNER only)
+ */
+export const updateAdsBudgetCaps = async (adsBudgetCapsInput: AdsBudgetCapsInput, options?: RequestInit): Promise<AdsBudgetCaps> => {
+
+  return customFetch<AdsBudgetCaps>(getUpdateAdsBudgetCapsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(adsBudgetCapsInput)
+  }
+);}
+
+
+
+
+export const getUpdateAdsBudgetCapsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAdsBudgetCaps>>, TError,{data: BodyType<AdsBudgetCapsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAdsBudgetCaps>>, TError,{data: BodyType<AdsBudgetCapsInput>}, TContext> => {
+
+const mutationKey = ['updateAdsBudgetCaps'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAdsBudgetCaps>>, {data: BodyType<AdsBudgetCapsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateAdsBudgetCaps(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateAdsBudgetCapsMutationResult = NonNullable<Awaited<ReturnType<typeof updateAdsBudgetCaps>>>
+    export type UpdateAdsBudgetCapsMutationBody = BodyType<AdsBudgetCapsInput>
+    export type UpdateAdsBudgetCapsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Set or clear the workspace's ads budget caps (workspace OWNER only)
+ */
+export const useUpdateAdsBudgetCaps = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAdsBudgetCaps>>, TError,{data: BodyType<AdsBudgetCapsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateAdsBudgetCaps>>,
+        TError,
+        {data: BodyType<AdsBudgetCapsInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateAdsBudgetCapsMutationOptions(options));
+    }
 
 export const getAdminGetAdsSettingsUrl = () => {
 
