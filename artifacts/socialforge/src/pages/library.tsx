@@ -94,6 +94,24 @@ export function LibraryPage() {
   // second click would race the scheduled retry and could double-post.
   const { isRetrying: publishRetryPending, run: runPublishWithRetry } = useRestartRetry();
 
+  // True while ANY publish request is in flight (or its automatic retry is
+  // pending). Used to grey out every publish control so a fast double-click
+  // never reaches the server's 409 "already in progress" guard.
+  const publishBusy =
+    publishContent.isPending ||
+    publishInstagram.isPending ||
+    publishLinkedin.isPending ||
+    publishTwitter.isPending ||
+    publishThreads.isPending ||
+    publishRetryPending;
+
+  // The item and platform currently being published, recorded at submit time
+  // (not derived from dialog state, so the spinner survives the dialog being
+  // closed while the request is still in flight). Only shown while
+  // publishBusy is true, so it never lingers after the publish settles.
+  const [publishTarget, setPublishTarget] = useState<{ id: number; platform: string } | null>(null);
+  const activePublish = publishBusy ? publishTarget : null;
+
   // Shared resend actions for incomplete chains, used by the post-publish
   // warning toasts below (the cards/dialog render PendingPostsWarnings).
   const {
@@ -145,6 +163,7 @@ export function LibraryPage() {
 
   const handlePublish = () => {
     if (!publishItem) return;
+    setPublishTarget({ id: publishItem.id, platform: "facebook" });
     runPublishWithRetry(publishContent, { id: publishItem.id }, {
       onSuccess: (res) => {
         track("post_published", { platform: "facebook" });
@@ -173,6 +192,7 @@ export function LibraryPage() {
 
   const handlePublishInstagram = () => {
     if (!instagramItem) return;
+    setPublishTarget({ id: instagramItem.id, platform: "instagram" });
     runPublishWithRetry(publishInstagram, { id: instagramItem.id }, {
       onSuccess: () => {
         track("post_published", { platform: "instagram" });
@@ -204,6 +224,7 @@ export function LibraryPage() {
   // bounded background retry; the card then updates via the polling above.
   const handleRetry = (item: any) => {
     setRetryingId(item.id);
+    setPublishTarget({ id: item.id, platform: "instagram" });
     runPublishWithRetry(publishInstagram, { id: item.id }, {
       onSuccess: () => {
         toast({
@@ -232,6 +253,7 @@ export function LibraryPage() {
 
   const handlePublishLinkedin = () => {
     if (!linkedinItem) return;
+    setPublishTarget({ id: linkedinItem.id, platform: "linkedin" });
     runPublishWithRetry(publishLinkedin, { id: linkedinItem.id }, {
         onSuccess: (res) => {
           track("post_published", { platform: "linkedin" });
@@ -283,6 +305,7 @@ export function LibraryPage() {
 
   const handlePublishTwitter = () => {
     if (!twitterItem) return;
+    setPublishTarget({ id: twitterItem.id, platform: "twitter" });
     runPublishWithRetry(publishTwitter, { id: twitterItem.id }, {
       onSuccess: (res) => {
         track("post_published", { platform: "twitter" });
@@ -327,6 +350,7 @@ export function LibraryPage() {
 
   const handlePublishThreads = () => {
     if (!threadsItem) return;
+    setPublishTarget({ id: threadsItem.id, platform: "threads" });
     runPublishWithRetry(publishThreads, { id: threadsItem.id }, {
         onSuccess: (res) => {
           track("post_published", { platform: "threads" });
@@ -542,11 +566,11 @@ export function LibraryPage() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => openEdit(item)}><Edit className="h-4 w-4 mr-2" /> Edit</DropdownMenuItem>
-                      <DropdownMenuItem disabled={!fbReady} onClick={() => setPublishItem(item)}><Facebook className="h-4 w-4 mr-2" /> Publish to Facebook</DropdownMenuItem>
-                      <DropdownMenuItem disabled={!igReady || item.status === 'publishing'} onClick={() => setInstagramItem(item)}><Instagram className="h-4 w-4 mr-2" /> Publish to Instagram</DropdownMenuItem>
-                      <DropdownMenuItem disabled={!liReady} onClick={() => setLinkedinItem(item)}><Linkedin className="h-4 w-4 mr-2" /> Publish to LinkedIn</DropdownMenuItem>
-                      <DropdownMenuItem disabled={!twReady} onClick={() => setTwitterItem(item)}><Twitter className="h-4 w-4 mr-2" /> Publish to X</DropdownMenuItem>
-                      <DropdownMenuItem disabled={!thReady} onClick={() => setThreadsItem(item)}><AtSign className="h-4 w-4 mr-2" /> Publish to Threads</DropdownMenuItem>
+                      <DropdownMenuItem disabled={!fbReady || publishBusy} onClick={() => setPublishItem(item)}><Facebook className="h-4 w-4 mr-2" /> Publish to Facebook</DropdownMenuItem>
+                      <DropdownMenuItem disabled={!igReady || publishBusy || item.status === 'publishing'} onClick={() => setInstagramItem(item)}><Instagram className="h-4 w-4 mr-2" /> Publish to Instagram</DropdownMenuItem>
+                      <DropdownMenuItem disabled={!liReady || publishBusy} onClick={() => setLinkedinItem(item)}><Linkedin className="h-4 w-4 mr-2" /> Publish to LinkedIn</DropdownMenuItem>
+                      <DropdownMenuItem disabled={!twReady || publishBusy} onClick={() => setTwitterItem(item)}><Twitter className="h-4 w-4 mr-2" /> Publish to X</DropdownMenuItem>
+                      <DropdownMenuItem disabled={!thReady || publishBusy} onClick={() => setThreadsItem(item)}><AtSign className="h-4 w-4 mr-2" /> Publish to Threads</DropdownMenuItem>
                       <DropdownMenuItem className="text-destructive" onClick={() => setDeleteItem(item)}><Trash2 className="h-4 w-4 mr-2" /> Delete</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -593,18 +617,36 @@ export function LibraryPage() {
                     .sort((a, b) => (a.key === item.platform ? -1 : b.key === item.platform ? 1 : 0))
                     .map(({ key, label, Icon, ready, open, title }) => {
                       const alreadyPublished = !!item.publishedPlatforms?.[key];
+                      const isActivePublish =
+                        activePublish?.id === item.id && activePublish.platform === key;
                       return (
                         <Button
                           key={key}
                           size="sm"
                           variant={alreadyPublished ? "default" : "outline"}
                           className="h-7 px-2 text-xs"
-                          disabled={!ready}
+                          disabled={!ready || publishBusy}
                           onClick={open}
-                          title={alreadyPublished && ready ? `Republish to ${label}` : title}
+                          title={
+                            isActivePublish
+                              ? `Publishing to ${label}...`
+                              : publishBusy
+                                ? "Another publish is in progress. Wait for it to finish."
+                                : alreadyPublished && ready
+                                  ? `Republish to ${label}`
+                                  : title
+                          }
                           data-testid={`button-publish-${key}-${item.id}`}
                         >
-                          <Icon className="h-3 w-3 mr-1" /> {alreadyPublished ? `Republish ${label}` : label}
+                          {isActivePublish ? (
+                            <>
+                              <Loader2 className="h-3 w-3 mr-1 animate-spin" /> Publishing...
+                            </>
+                          ) : (
+                            <>
+                              <Icon className="h-3 w-3 mr-1" /> {alreadyPublished ? `Republish ${label}` : label}
+                            </>
+                          )}
                         </Button>
                       );
                     })}
@@ -615,7 +657,7 @@ export function LibraryPage() {
                       size="sm"
                       variant="outline"
                       className="h-7 px-2 text-xs"
-                      disabled={!igReady || !item.imagePath || retryingId === item.id}
+                      disabled={!igReady || !item.imagePath || publishBusy || retryingId === item.id}
                       onClick={() => handleRetry(item)}
                       title={
                         !igReady
