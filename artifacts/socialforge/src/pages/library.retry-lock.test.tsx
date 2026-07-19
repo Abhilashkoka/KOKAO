@@ -36,6 +36,7 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 }
 
 const publishTwitterMutate = vi.fn();
+const publishInstagramMutate = vi.fn();
 
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
@@ -62,6 +63,16 @@ vi.mock("@workspace/api-client-react", async () => {
           status: "draft",
           permalink: null,
         },
+        {
+          id: 8,
+          title: "Failed Instagram post",
+          caption: "IG caption",
+          imagePath: "/objects/tenant/uploads/img.png",
+          platform: "instagram",
+          status: "failed",
+          failureReason: "Instagram rejected the media",
+          permalink: null,
+        },
       ],
       isLoading: false,
     }),
@@ -69,7 +80,12 @@ vi.mock("@workspace/api-client-react", async () => {
       mutate: publishTwitterMutate,
       isPending: false,
     }),
+    usePublishContentToInstagram: () => ({
+      mutate: publishInstagramMutate,
+      isPending: false,
+    }),
     useGetTwitterStatus: () => ({ data: { connected: true, accountName: "tester" } }),
+    useGetInstagramCredentials: () => ({ data: { verifyStatus: "verified" } }),
     getListContentQueryKey: () => ["content"],
   });
 });
@@ -111,6 +127,7 @@ const restartError = () => ({
 beforeEach(() => {
   cleanup();
   publishTwitterMutate.mockReset();
+  publishInstagramMutate.mockReset();
 });
 
 afterEach(() => {
@@ -195,5 +212,92 @@ describe("Library publish button lock during automatic restart retry", () => {
 
     // Success closes the publish dialog — nothing is left locked.
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("Failed-state Instagram Retry button lock during automatic restart retry", () => {
+  it("ignores clicks through the whole retry window and re-enables after the retry fails terminally", async () => {
+    renderPage();
+    const retryButton = (await screen.findByRole("button", {
+      name: /^retry$/i,
+    })) as HTMLButtonElement;
+    expect(retryButton.disabled).toBe(false);
+
+    vi.useFakeTimers();
+    fireEvent.click(retryButton);
+    expect(publishInstagramMutate).toHaveBeenCalledTimes(1);
+
+    // Locked immediately by retryingId, even before any error arrives.
+    const lockedNow = screen.getByRole("button", { name: /retrying/i }) as HTMLButtonElement;
+    expect(lockedNow.disabled).toBe(true);
+    fireEvent.click(lockedNow);
+    expect(publishInstagramMutate).toHaveBeenCalledTimes(1);
+
+    // First attempt fails with the restart 503 → useRestartRetry schedules
+    // the one-shot retry. The mutation is not pending in this window, so
+    // only the retryingId lock keeps the control inert.
+    const firstCallbacks = publishInstagramMutate.mock.calls[0][1] as MutateCallbacks;
+    act(() => {
+      firstCallbacks.onError?.(restartError());
+    });
+
+    const retrying = screen.getByRole("button", { name: /retrying/i }) as HTMLButtonElement;
+    expect(retrying.disabled).toBe(true);
+    fireEvent.click(retrying);
+    expect(publishInstagramMutate).toHaveBeenCalledTimes(1);
+
+    // Still locked just before the retry fires.
+    act(() => {
+      vi.advanceTimersByTime(RESTART_RETRY_DELAY_MS - 1);
+    });
+    expect(
+      (screen.getByRole("button", { name: /retrying/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(publishInstagramMutate).toHaveBeenCalledTimes(1);
+
+    // The scheduled retry fires exactly once after the delay.
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(publishInstagramMutate).toHaveBeenCalledTimes(2);
+
+    // Retry settles with a terminal error → retryingId clears and the
+    // control reads "Retry" and is clickable again.
+    const retryCallbacks = publishInstagramMutate.mock.calls[1][1] as MutateCallbacks;
+    act(() => {
+      retryCallbacks.onError?.(Object.assign(new Error("boom"), { status: 500 }));
+    });
+
+    const revived = screen.getByRole("button", { name: /^retry$/i }) as HTMLButtonElement;
+    expect(revived.disabled).toBe(false);
+  });
+
+  it("re-enables the Retry control after the automatic retry succeeds", async () => {
+    renderPage();
+    const retryButton = (await screen.findByRole("button", {
+      name: /^retry$/i,
+    })) as HTMLButtonElement;
+
+    vi.useFakeTimers();
+    fireEvent.click(retryButton);
+    const firstCallbacks = publishInstagramMutate.mock.calls[0][1] as MutateCallbacks;
+    act(() => {
+      firstCallbacks.onError?.(restartError());
+    });
+    expect(
+      (screen.getByRole("button", { name: /retrying/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(RESTART_RETRY_DELAY_MS);
+    });
+    expect(publishInstagramMutate).toHaveBeenCalledTimes(2);
+    const retryCallbacks = publishInstagramMutate.mock.calls[1][1] as MutateCallbacks;
+    act(() => {
+      retryCallbacks.onSuccess?.({});
+    });
+
+    const revived = screen.getByRole("button", { name: /^retry$/i }) as HTMLButtonElement;
+    expect(revived.disabled).toBe(false);
   });
 });
