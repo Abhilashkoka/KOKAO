@@ -6704,6 +6704,15 @@ components:
           format: date-time
         status:
           type: string
+          enum: [pending, processing, published, failed, cancelled]
+          description: >-
+            pending = waiting for the scheduled time; processing = the
+            background publisher is publishing it right now; published =
+            automatically published; failed = the automatic publish failed
+            (see failureReason); cancelled = called off by the user.
+        failureReason:
+          type: ["string", "null"]
+          description: Why the automatic publish failed, when status is failed.
         createdAt:
           type: string
           format: date-time

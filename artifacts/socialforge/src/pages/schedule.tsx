@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
-import { Calendar as CalendarIcon, Clock, Plus, Trash2, CheckCircle2 } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, Plus, Trash2, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -114,12 +114,12 @@ export function SchedulePage() {
             {sortedItems.map((post) => {
               const contentItem = content?.find(c => c.id === post.contentItemId);
               const postDate = new Date(post.scheduledAt);
-              const isPast = postDate < new Date();
+              const isDone = post.status === "published" || post.status === "failed" || post.status === "cancelled";
               
               return (
-                <div key={post.id} className={cn("p-6 flex flex-col md:flex-row items-start md:items-center gap-6 transition-colors hover:bg-muted/30", isPast && "opacity-60")}>
+                <div key={post.id} className={cn("p-6 flex flex-col md:flex-row items-start md:items-center gap-6 transition-colors hover:bg-muted/30", post.status === "published" && "opacity-60")}>
                   <div className="w-full md:w-48 shrink-0 flex items-center gap-4 border-r border-transparent md:border-border">
-                    <div className={cn("h-14 w-14 rounded-2xl flex flex-col items-center justify-center shrink-0 border", isPast ? "bg-muted text-muted-foreground border-border" : "bg-primary/10 text-primary border-primary/20")}>
+                    <div className={cn("h-14 w-14 rounded-2xl flex flex-col items-center justify-center shrink-0 border", isDone ? "bg-muted text-muted-foreground border-border" : "bg-primary/10 text-primary border-primary/20")}>
                       <span className="text-lg font-bold leading-none">{postDate.getDate()}</span>
                       <span className="text-[10px] uppercase font-bold tracking-wider">{format(postDate, 'MMM')}</span>
                     </div>
@@ -141,10 +141,29 @@ export function SchedulePage() {
                       <h4 className="font-bold text-lg truncate">{contentItem?.title || 'Unknown Post'}</h4>
                       <div className="flex items-center gap-3 mt-1">
                         <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground uppercase tracking-wider">{post.platform}</span>
-                        <span className={cn("text-xs font-semibold flex items-center gap-1", isPast ? "text-green-600" : "text-blue-600")}>
-                          {isPast ? <><CheckCircle2 className="h-3 w-3"/> Published</> : "Pending"}
+                        <span
+                          data-testid={`text-schedule-status-${post.id}`}
+                          className={cn(
+                            "text-xs font-semibold flex items-center gap-1",
+                            post.status === "published" && "text-green-600",
+                            post.status === "failed" && "text-destructive",
+                            post.status === "processing" && "text-amber-600",
+                            post.status === "pending" && "text-blue-600",
+                            post.status === "cancelled" && "text-muted-foreground",
+                          )}
+                        >
+                          {post.status === "published" && <><CheckCircle2 className="h-3 w-3" /> Published</>}
+                          {post.status === "failed" && <><XCircle className="h-3 w-3" /> Failed</>}
+                          {post.status === "processing" && <><Loader2 className="h-3 w-3 animate-spin" /> Publishing</>}
+                          {post.status === "pending" && "Pending"}
+                          {post.status === "cancelled" && "Cancelled"}
                         </span>
                       </div>
+                      {post.status === "failed" && post.failureReason && (
+                        <p className="text-xs text-destructive mt-2" data-testid={`text-schedule-failure-${post.id}`}>
+                          {post.failureReason}
+                        </p>
+                      )}
                       {contentItem && (
                         <div className="mt-3 [&>div]:mb-0 space-y-2">
                           <PendingPostsWarnings item={contentItem} idPrefix="schedule-" />
@@ -190,6 +209,7 @@ export function SchedulePage() {
                   <SelectItem value="facebook">Facebook</SelectItem>
                   <SelectItem value="linkedin">LinkedIn</SelectItem>
                   <SelectItem value="twitter">Twitter / X</SelectItem>
+                  <SelectItem value="threads">Threads</SelectItem>
                 </SelectContent>
               </Select>
             </div>

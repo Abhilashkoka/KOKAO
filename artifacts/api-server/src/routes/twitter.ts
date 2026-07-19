@@ -33,6 +33,8 @@ import {
   PUBLISH_IN_PROGRESS_MESSAGE,
 } from "../lib/resendLock";
 import { resolveSocialConnectionNotifications } from "../lib/notifications";
+import { logger } from "../lib/logger";
+import type { PublishOutcome } from "../lib/publishOutcome";
 
 const router: IRouter = Router();
 
@@ -460,6 +462,278 @@ async function postTweet(opts: {
 }
 
 /**
+ * Core X/Twitter publish flow, free of req/res so both the manual HTTP handler
+ * and the background scheduler can drive it. The caller MUST already hold the
+ * per-item publish lock (tryAcquireResendLock). Owns loading the content item,
+ * the pre-publish token check, the dedupe probe, the tweet-chain write loop,
+ * the content-item status update (published/failed), taste signals, and the
+ * account verifyStatus flip on auth revocation. See lib/publishOutcome.
+ */
+export async function publishTwitterCore(
+  tenantId: number,
+  contentItemId: number,
+): Promise<PublishOutcome> {
+  const id = contentItemId;
+  const item = await loadContentItem(id, tenantId);
+  if (!item) {
+    return { ok: false, errorStatus: 404, error: "Not found" };
+  }
+
+  const app = await getTwitterAppCredentials();
+  if (!app) {
+    return {
+      ok: false,
+      errorStatus: 400,
+      error:
+        "X app credentials have not been configured by an administrator yet.",
+    };
+  }
+
+  const tokenResult = await ensureFreshTwitterToken(tenantId, app);
+  if (!tokenResult.ok) {
+    return { ok: false, errorStatus: 400, error: tokenResult.message };
+  }
+  const { accessToken, accountName } = tokenResult;
+
+  const text = buildPostText(item.title, item.caption);
+  // Long captions are posted as a reply-chained thread instead of being
+  // truncated, so the full message survives.
+  const tweets = splitIntoTweets(text);
+
+  // A publish can commit on X but return a transient-looking error, so a
+  // retry (the user re-clicking, or any future auto-retry) would post the
+  // same content twice. Before (re-)posting, probe the account's recent
+  // tweets and short-circuit any chunk that already landed within the
+  // dedupe window. Best-effort: probe failure means no short-circuit.
+  const dedupeSinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
+  let recentPosts: RecentTweet[] = [];
+  const account = await getTwitterAccount(tenantId);
+  if (account?.providerUserId) {
+    try {
+      recentPosts = await fetchRecentTweets(
+        account.providerUserId,
+        accessToken,
+        dedupeSinceMs,
+      );
+    } catch (err) {
+      logger.warn(
+        { err, tenantId, contentItemId },
+        "X duplicate-post probe failed; proceeding without dedupe",
+      );
+    }
+  }
+
+  try {
+    let mediaId: string | null = null;
+
+    // If the first tweet already landed, its media went with it — skip the
+    // upload entirely.
+    const existingFirstId = takeMatchingRecentPost(
+      recentPosts,
+      tweets[0],
+      dedupeSinceMs,
+    );
+
+    if (!existingFirstId && item.imagePath) {
+      const file = await objectStorageService.getObjectEntityFile(
+        item.imagePath,
+        tenantId,
+      );
+      const [buffer] = await file.download();
+      mediaId = await uploadTwitterMedia({
+        buffer,
+        contentType: "image/png",
+        accessToken,
+      });
+    }
+
+    let firstPostId: string | null = null;
+    let replyToId: string | null = null;
+    let publishWarning: string | null = null;
+    // Set when a follow-up tweet fails mid-thread: how many leading tweets
+    // made it, so a resend can pick up from there.
+    let chainPostedCount: number | null = null;
+
+    for (let i = 0; i < tweets.length; i++) {
+      try {
+        const existingId =
+          i === 0
+            ? existingFirstId
+            : takeMatchingRecentPost(recentPosts, tweets[i], dedupeSinceMs);
+        let postId: string;
+        if (existingId) {
+          logger.warn(
+            { existingId, index: i, tenantId, contentItemId },
+            "X publish: this part of the content already landed recently; reusing the existing post instead of re-posting",
+          );
+          postId = existingId;
+        } else {
+          // The attached image goes on the first tweet only.
+          const attachMedia = i === 0 ? mediaId : null;
+          postId = await postTweet({
+            text: tweets[i],
+            mediaId: attachMedia,
+            replyToId,
+            accessToken,
+          });
+        }
+        if (i === 0) {
+          firstPostId = postId;
+        }
+        replyToId = postId;
+      } catch (tweetError) {
+        // The first tweet failing means nothing was posted — that is a
+        // real publish failure. A follow-up failing leaves the thread
+        // incomplete: keep the item published, surface a warning, and
+        // record what is missing so it can be resent.
+        if (i === 0) throw tweetError;
+        logger.error(
+          { err: tweetError, index: i, tenantId, contentItemId },
+          "X follow-up tweet failed",
+        );
+        // The token died mid-thread: the first tweet is already out, so
+        // keep the item published with a warning, but still flip the
+        // account row so the Accounts page prompts a reconnect.
+        if (tweetError instanceof PublishAuthRevokedError) {
+          try {
+            await markAccountVerifyFailed(
+              tenantId,
+              "twitter",
+              TWITTER_TOKEN_INVALID_MESSAGE,
+            );
+          } catch (markErr) {
+            logger.error(
+              { err: markErr, tenantId, contentItemId },
+              "Failed to flip X account to failed after mid-thread auth error",
+            );
+          }
+        }
+        const remaining = tweets.length - i;
+        publishWarning = `The post was published, but ${remaining} of ${tweets.length - 1} follow-up tweet${remaining === 1 ? "" : "s"} with the rest of the caption could not be posted.`;
+        chainPostedCount = i;
+        break;
+      }
+    }
+
+    const handle = accountName.startsWith("@")
+      ? accountName.slice(1)
+      : accountName;
+    const permalink = firstPostId
+      ? `https://x.com/${encodeURIComponent(handle)}/status/${firstPostId}`
+      : null;
+    await db
+      .update(contentItemsTable)
+      .set({
+        status: "published",
+        failureReason: null,
+        postId: firstPostId,
+        permalink,
+        publishedPlatforms: mergePublishedPlatform("twitter", {
+          postId: firstPostId,
+          permalink,
+        }),
+        // Persist which thread posts made it (with the exact texts, so a
+        // later caption edit can't change what a resend posts) whenever the
+        // thread is incomplete; the resend endpoint picks up from
+        // postedCount, replying to lastPostedId. A complete publish starts
+        // fresh, clearing any stale state from an earlier attempt.
+        twitterChainState:
+          chainPostedCount !== null && firstPostId && replyToId
+            ? {
+                firstPostId,
+                lastPostedId: replyToId,
+                posts: tweets,
+                postedCount: chainPostedCount,
+              }
+            : null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(contentItemsTable.id, id),
+          eq(contentItemsTable.tenantId, tenantId),
+        ),
+      );
+    // Taste memory: a successful publish is the strongest approval signal.
+    void recordTasteSignalFromContent(tenantId, id, "published");
+    return {
+      ok: true,
+      postId: firstPostId,
+      permalink,
+      ...(publishWarning ? { warning: publishWarning } : {}),
+      extra: { tweetCount: tweets.length },
+    };
+  } catch (error) {
+    logger.error({ err: error, tenantId, contentItemId }, "X publish failed");
+
+    // The token died in the window between the pre-publish token check and
+    // the actual write. Surface the same friendly reconnect message the
+    // pre-publish gate uses (never the raw X error) and flip the account
+    // row to "failed" so the Accounts page prompts a reconnect.
+    if (error instanceof PublishAuthRevokedError) {
+      try {
+        await markAccountVerifyFailed(
+          tenantId,
+          "twitter",
+          TWITTER_TOKEN_INVALID_MESSAGE,
+        );
+      } catch (markErr) {
+        logger.error(
+          { err: markErr, tenantId, contentItemId },
+          "Failed to flip X account to failed after mid-publish auth error",
+        );
+      }
+      try {
+        await db
+          .update(contentItemsTable)
+          .set({
+            status: "failed",
+            failureReason: error.message,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(contentItemsTable.id, id),
+              eq(contentItemsTable.tenantId, tenantId),
+            ),
+          );
+      } catch (updateErr) {
+        logger.error(
+          { err: updateErr, contentItemId: id, tenantId },
+          "Failed to record X publish failure",
+        );
+      }
+      return { ok: false, errorStatus: 400, error: error.message };
+    }
+
+    const reason =
+      error instanceof Error && error.message
+        ? `X rejected the post: ${error.message}`
+        : "Failed to publish to X.";
+    // Persist the rejection so it stays reviewable in the Content Library
+    // after the toast is gone. Best-effort: a DB hiccup here must not mask
+    // the original publish error in the response.
+    try {
+      await db
+        .update(contentItemsTable)
+        .set({ status: "failed", failureReason: reason, updatedAt: new Date() })
+        .where(
+          and(
+            eq(contentItemsTable.id, id),
+            eq(contentItemsTable.tenantId, tenantId),
+          ),
+        );
+    } catch (updateErr) {
+      logger.error(
+        { err: updateErr, contentItemId: id, tenantId },
+        "Failed to record X publish failure",
+      );
+    }
+    return { ok: false, errorStatus: 502, error: reason };
+  }
+}
+
+/**
  * POST /content/:id/publish-twitter
  * Publish a content item to the tenant's connected X account using their stored
  * OAuth 2.0 access token (refreshed on demand). Image uploads and tweet
@@ -479,261 +753,17 @@ router.post(
       return;
     }
     try {
-    const item = await loadContentItem(id, req.tenantId);
-    if (!item) {
-      res.status(404).json({ error: "Not found" });
-      return;
-    }
-
-    const app = await getTwitterAppCredentials();
-    if (!app) {
-      res.status(400).json({
-        error:
-          "X app credentials have not been configured by an administrator yet.",
-      });
-      return;
-    }
-
-    const tokenResult = await ensureFreshTwitterToken(req.tenantId, app);
-    if (!tokenResult.ok) {
-      res.status(400).json({ error: tokenResult.message });
-      return;
-    }
-    const { accessToken, accountName } = tokenResult;
-
-    const text = buildPostText(item.title, item.caption);
-    // Long captions are posted as a reply-chained thread instead of being
-    // truncated, so the full message survives.
-    const tweets = splitIntoTweets(text);
-
-    // A publish can commit on X but return a transient-looking error, so a
-    // retry (the user re-clicking, or any future auto-retry) would post the
-    // same content twice. Before (re-)posting, probe the account's recent
-    // tweets and short-circuit any chunk that already landed within the
-    // dedupe window. Best-effort: probe failure means no short-circuit.
-    const dedupeSinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
-    let recentPosts: RecentTweet[] = [];
-    const account = await getTwitterAccount(req.tenantId);
-    if (account?.providerUserId) {
-      try {
-        recentPosts = await fetchRecentTweets(
-          account.providerUserId,
-          accessToken,
-          dedupeSinceMs,
-        );
-      } catch (err) {
-        req.log.warn(
-          { err },
-          "X duplicate-post probe failed; proceeding without dedupe",
-        );
-      }
-    }
-
-    try {
-      let mediaId: string | null = null;
-
-      // If the first tweet already landed, its media went with it — skip the
-      // upload entirely.
-      const existingFirstId = takeMatchingRecentPost(
-        recentPosts,
-        tweets[0],
-        dedupeSinceMs,
-      );
-
-      if (!existingFirstId && item.imagePath) {
-        const file = await objectStorageService.getObjectEntityFile(
-          item.imagePath,
-          req.tenantId,
-        );
-        const [buffer] = await file.download();
-        mediaId = await uploadTwitterMedia({
-          buffer,
-          contentType: "image/png",
-          accessToken,
-        });
-      }
-
-      let firstPostId: string | null = null;
-      let replyToId: string | null = null;
-      let publishWarning: string | null = null;
-      // Set when a follow-up tweet fails mid-thread: how many leading tweets
-      // made it, so a resend can pick up from there.
-      let chainPostedCount: number | null = null;
-
-      for (let i = 0; i < tweets.length; i++) {
-        try {
-          const existingId =
-            i === 0
-              ? existingFirstId
-              : takeMatchingRecentPost(recentPosts, tweets[i], dedupeSinceMs);
-          let postId: string;
-          if (existingId) {
-            req.log.warn(
-              { existingId, index: i },
-              "X publish: this part of the content already landed recently; reusing the existing post instead of re-posting",
-            );
-            postId = existingId;
-          } else {
-            // The attached image goes on the first tweet only.
-            const attachMedia = i === 0 ? mediaId : null;
-            postId = await postTweet({
-              text: tweets[i],
-              mediaId: attachMedia,
-              replyToId,
-              accessToken,
-            });
-          }
-          if (i === 0) {
-            firstPostId = postId;
-          }
-          replyToId = postId;
-        } catch (tweetError) {
-          // The first tweet failing means nothing was posted — that is a
-          // real publish failure. A follow-up failing leaves the thread
-          // incomplete: keep the item published, surface a warning, and
-          // record what is missing so it can be resent.
-          if (i === 0) throw tweetError;
-          req.log.error({ err: tweetError, index: i }, "X follow-up tweet failed");
-          // The token died mid-thread: the first tweet is already out, so
-          // keep the item published with a warning, but still flip the
-          // account row so the Accounts page prompts a reconnect.
-          if (tweetError instanceof PublishAuthRevokedError) {
-            try {
-              await markAccountVerifyFailed(
-                req.tenantId,
-                "twitter",
-                TWITTER_TOKEN_INVALID_MESSAGE,
-              );
-            } catch (markErr) {
-              req.log.error(
-                { err: markErr },
-                "Failed to flip X account to failed after mid-thread auth error",
-              );
-            }
-          }
-          const remaining = tweets.length - i;
-          publishWarning = `The post was published, but ${remaining} of ${tweets.length - 1} follow-up tweet${remaining === 1 ? "" : "s"} with the rest of the caption could not be posted.`;
-          chainPostedCount = i;
-          break;
-        }
-      }
-
-      const handle = accountName.startsWith("@")
-        ? accountName.slice(1)
-        : accountName;
-      const permalink = firstPostId
-        ? `https://x.com/${encodeURIComponent(handle)}/status/${firstPostId}`
-        : null;
-      await db
-        .update(contentItemsTable)
-        .set({
-          status: "published",
-          failureReason: null,
-          postId: firstPostId,
-          permalink,
-          publishedPlatforms: mergePublishedPlatform("twitter", {
-            postId: firstPostId,
-            permalink,
-          }),
-          // Persist which thread posts made it (with the exact texts, so a
-          // later caption edit can't change what a resend posts) whenever the
-          // thread is incomplete; the resend endpoint picks up from
-          // postedCount, replying to lastPostedId. A complete publish starts
-          // fresh, clearing any stale state from an earlier attempt.
-          twitterChainState:
-            chainPostedCount !== null && firstPostId && replyToId
-              ? {
-                  firstPostId,
-                  lastPostedId: replyToId,
-                  posts: tweets,
-                  postedCount: chainPostedCount,
-                }
-              : null,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(contentItemsTable.id, id),
-            eq(contentItemsTable.tenantId, req.tenantId),
-          ),
-        );
-      // Taste memory: a successful publish is the strongest approval signal.
-      void recordTasteSignalFromContent(req.tenantId, id, "published");
-      res.json({
-        postId: firstPostId,
-        permalink,
-        tweetCount: tweets.length,
-        ...(publishWarning ? { publishWarning } : {}),
-      });
-    } catch (error) {
-      req.log.error({ err: error }, "X publish failed");
-
-      // The token died in the window between the pre-publish token check and
-      // the actual write. Surface the same friendly reconnect message the
-      // pre-publish gate uses (never the raw X error) and flip the account
-      // row to "failed" so the Accounts page prompts a reconnect.
-      if (error instanceof PublishAuthRevokedError) {
-        try {
-          await markAccountVerifyFailed(
-            req.tenantId,
-            "twitter",
-            TWITTER_TOKEN_INVALID_MESSAGE,
-          );
-        } catch (markErr) {
-          req.log.error(
-            { err: markErr },
-            "Failed to flip X account to failed after mid-publish auth error",
-          );
-        }
-        try {
-          await db
-            .update(contentItemsTable)
-            .set({
-              status: "failed",
-              failureReason: error.message,
-              updatedAt: new Date(),
-            })
-            .where(
-              and(
-                eq(contentItemsTable.id, id),
-                eq(contentItemsTable.tenantId, req.tenantId),
-              ),
-            );
-        } catch (updateErr) {
-          req.log.error(
-            { err: updateErr, contentItemId: id },
-            "Failed to record X publish failure",
-          );
-        }
-        res.status(400).json({ error: error.message });
+      const outcome = await publishTwitterCore(req.tenantId, id);
+      if (!outcome.ok) {
+        res.status(outcome.errorStatus).json({ error: outcome.error });
         return;
       }
-
-      const reason =
-        error instanceof Error && error.message
-          ? `X rejected the post: ${error.message}`
-          : "Failed to publish to X.";
-      // Persist the rejection so it stays reviewable in the Content Library
-      // after the toast is gone. Best-effort: a DB hiccup here must not mask
-      // the original publish error in the response.
-      try {
-        await db
-          .update(contentItemsTable)
-          .set({ status: "failed", failureReason: reason, updatedAt: new Date() })
-          .where(
-            and(
-              eq(contentItemsTable.id, id),
-              eq(contentItemsTable.tenantId, req.tenantId),
-            ),
-          );
-      } catch (updateErr) {
-        req.log.error(
-          { err: updateErr, contentItemId: id },
-          "Failed to record X publish failure",
-        );
-      }
-      res.status(502).json({ error: reason });
-    }
+      res.json({
+        postId: outcome.postId,
+        permalink: outcome.permalink,
+        ...outcome.extra,
+        ...(outcome.warning ? { publishWarning: outcome.warning } : {}),
+      });
     } finally {
       releasePublishLock();
     }

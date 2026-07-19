@@ -209,6 +209,7 @@ export * from './revenueAnalytics';
 export * from './revenueAnalyticsByCreditPackItem';
 export * from './revenueAnalyticsByPlanItem';
 export * from './scheduledPost';
+export * from './scheduledPostStatus';
 export * from './scheduleInput';
 export * from './scheduleUpdate';
 export * from './scheduleUpdateStatus';

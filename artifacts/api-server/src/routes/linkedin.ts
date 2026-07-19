@@ -32,6 +32,8 @@ import {
   RESEND_IN_PROGRESS_MESSAGE,
   PUBLISH_IN_PROGRESS_MESSAGE,
 } from "../lib/resendLock";
+import { logger } from "../lib/logger";
+import type { PublishOutcome } from "../lib/publishOutcome";
 
 const router: IRouter = Router();
 
@@ -679,6 +681,360 @@ async function createLinkedinPost(opts: {
   );
 }
 
+/**
+ * Full LinkedIn publish flow with no req/res dependency, so it can be driven
+ * both by the manual publish HTTP handler and by the scheduled-publish
+ * executor. The caller MUST hold the per-item publish lock
+ * (tryAcquireResendLock) — the core does not acquire it. Returns a
+ * PublishOutcome the caller translates into an HTTP response (or a scheduled
+ * post row update).
+ */
+export async function publishLinkedinCore(
+  tenantId: number,
+  contentItemId: number,
+): Promise<PublishOutcome> {
+  const id = contentItemId;
+  const item = (
+    await db
+      .select()
+      .from(contentItemsTable)
+      .where(
+        and(
+          eq(contentItemsTable.id, id),
+          eq(contentItemsTable.tenantId, tenantId),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (!item) {
+    return { ok: false, errorStatus: 404, error: "Not found" };
+  }
+
+  let account = await getLinkedinAccount(tenantId);
+  // Re-check the token against LinkedIn right before publishing so a
+  // revoked/expired token is caught here instead of producing a confusing raw
+  // publish error. Force the check regardless of staleness.
+  if (account?.accessToken) {
+    try {
+      account =
+        (await reverifyLinkedin(tenantId, { force: true })) ?? account;
+    } catch (err) {
+      logger.error(
+        { err, tenantId, contentItemId },
+        "LinkedIn pre-publish re-verify failed",
+      );
+    }
+  }
+  const tokenValid =
+    !!account?.accessToken &&
+    account.verifyStatus !== "failed" &&
+    (account.tokenExpiresAt === null ||
+      account.tokenExpiresAt.getTime() > Date.now());
+  if (!account || !tokenValid || !account.providerUserId) {
+    return {
+      ok: false,
+      errorStatus: 400,
+      error:
+        "LinkedIn is not connected or its access token is no longer valid. Reconnect your LinkedIn account on the Accounts page and try again.",
+    };
+  }
+
+  const token = account.accessToken!;
+  const author = `urn:li:person:${account.providerUserId}`;
+  // LinkedIn has no native thread, so a caption over the post limit keeps its
+  // first chunk in the post and the remainder goes out as follow-up comments,
+  // so the full message still reaches readers. Split on the VISIBLE text
+  // BEFORE escaping (the "Little Text" backslashes are formatting markers, not
+  // counted against the limit).
+  const { main, comments: overflowComments } = splitForLinkedin(
+    buildPostText(item.title, item.caption),
+  );
+  const commentary = escapeCommentary(main);
+
+  const baseHeaders = {
+    Authorization: `Bearer ${token}`,
+    "LinkedIn-Version": LINKEDIN_VERSION,
+    "X-Restli-Protocol-Version": "2.0.0",
+  };
+
+  // A publish can commit on LinkedIn but return a transient-looking error
+  // (or the response can be lost entirely), so a retry — the user
+  // re-clicking Publish — would post the same content twice. Before
+  // (re-)posting, probe the member's recent posts and short-circuit when an
+  // identical post already landed within the dedupe window. Best-effort:
+  // probe failure means no short-circuit.
+  let existingPostId: string | null = null;
+  try {
+    const sinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
+    const recent = await fetchRecentLinkedinPosts(
+      author,
+      baseHeaders,
+      sinceMs,
+    );
+    existingPostId = findMatchingRecentPost(recent, commentary, sinceMs);
+  } catch (err) {
+    logger.warn(
+      { err, tenantId, contentItemId },
+      "LinkedIn duplicate-post probe failed; proceeding without dedupe",
+    );
+  }
+
+  // When the dedupe probe matches, work out how many overflow comments the
+  // earlier attempt already posted so a resumed publish never re-posts them:
+  // a persisted resend snapshot for that post is authoritative; an item
+  // already marked published against the same post means the whole sequence
+  // (post + comments) completed earlier.
+  let alreadyPostedComments = 0;
+  if (existingPostId) {
+    const priorState = item.linkedinCommentState;
+    if (priorState && priorState.postUrn === existingPostId) {
+      alreadyPostedComments = Math.min(
+        priorState.postedCount,
+        overflowComments.length,
+      );
+    } else if (item.status === "published" && item.postId === existingPostId) {
+      alreadyPostedComments = overflowComments.length;
+    }
+  }
+
+  try {
+    let postId: string;
+    if (existingPostId) {
+      logger.warn(
+        { existingPostId, tenantId, contentItemId },
+        "LinkedIn publish: identical post already landed recently; reusing the existing post instead of re-posting",
+      );
+      postId = existingPostId;
+    } else {
+      postId = await createLinkedinPost({
+        item,
+        author,
+        commentary,
+        baseHeaders,
+        token,
+        tenantId,
+      });
+    }
+
+    const permalink = postId
+      ? `https://www.linkedin.com/feed/update/${postId}`
+      : null;
+
+    await db
+      .update(contentItemsTable)
+      .set({
+        status: "published",
+        failureReason: null,
+        postId: postId || null,
+        permalink,
+        publishedPlatforms: mergePublishedPlatform("linkedin", {
+          postId: postId || null,
+          permalink,
+        }),
+        // A fresh publish starts a new comment sequence; any resend state
+        // from an earlier publish points at a stale post URN.
+        linkedinCommentState: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(contentItemsTable.id, id),
+          eq(contentItemsTable.tenantId, tenantId),
+        ),
+      );
+
+    // Taste memory: a successful publish is the strongest approval signal.
+    void recordTasteSignalFromContent(tenantId, id, "published");
+
+    // The main post succeeded and is now marked published. Overflow text goes
+    // out as follow-up comments so the full caption reaches readers. A comment
+    // failure must NOT undo the published post — surface it instead of failing
+    // silently. Comments can only be posted when we know the post's URN.
+    let commentsPosted = alreadyPostedComments;
+    let commentWarning: string | null = null;
+    if (overflowComments.length > 0) {
+      if (!postId) {
+        commentWarning =
+          "The post was published, but LinkedIn did not return a post id, so the rest of the caption could not be added as comments.";
+      } else {
+        // When resuming against a post that already landed, the persisted
+        // snapshot count can undercount (a comment landed but its response
+        // was lost). Probe the post's existing comments and skip exact-text
+        // matches so a resumed publish never posts a duplicate. Best-effort:
+        // a probe failure means no skipping.
+        let existingTexts: Set<string> | null = null;
+        if (existingPostId && alreadyPostedComments < overflowComments.length) {
+          try {
+            existingTexts = await fetchExistingCommentTexts(
+              postId,
+              baseHeaders,
+            );
+          } catch (err) {
+            logger.warn(
+              { err, postId, tenantId, contentItemId },
+              "LinkedIn existing-comments probe failed; resuming without dedupe",
+            );
+          }
+        }
+        for (
+          let index = alreadyPostedComments;
+          index < overflowComments.length;
+          index++
+        ) {
+          const text = overflowComments[index]!;
+          if (existingTexts?.has(text)) {
+            logger.warn(
+              { postId, index, tenantId, contentItemId },
+              "LinkedIn comment already exists on the reused post; skipping instead of re-posting",
+            );
+            commentsPosted += 1;
+            continue;
+          }
+          try {
+            await postLinkedinComment(postId, author, text, baseHeaders);
+            commentsPosted += 1;
+          } catch (commentError) {
+            logger.error(
+              { err: commentError, postId, tenantId, contentItemId },
+              "LinkedIn overflow comment failed",
+            );
+            // The token died mid-sequence: the post is already published,
+            // so keep the item published with a warning, but still flip
+            // the account row so the Accounts page prompts a reconnect.
+            if (commentError instanceof PublishAuthRevokedError) {
+              try {
+                await markAccountVerifyFailed(
+                  tenantId,
+                  "linkedin",
+                  LINKEDIN_TOKEN_INVALID_MESSAGE,
+                );
+              } catch (markErr) {
+                logger.error(
+                  { err: markErr, tenantId, contentItemId },
+                  "Failed to flip LinkedIn account to failed after mid-sequence auth error",
+                );
+              }
+            }
+            const remaining = overflowComments.length - index;
+            commentWarning = `The post was published, but ${remaining} of ${overflowComments.length} follow-up comment(s) with the rest of the caption could not be posted.`;
+            break;
+          }
+        }
+        // Persist which numbered comments made it (with the exact texts, so
+        // a later caption edit can't renumber a resend) whenever the
+        // sequence is incomplete; the resend endpoint picks up from
+        // postedCount. Best-effort: a DB hiccup must not fail the publish.
+        if (commentsPosted < overflowComments.length) {
+          try {
+            await db
+              .update(contentItemsTable)
+              .set({
+                linkedinCommentState: {
+                  postUrn: postId,
+                  comments: overflowComments,
+                  postedCount: commentsPosted,
+                },
+                updatedAt: new Date(),
+              })
+              .where(
+                and(
+                  eq(contentItemsTable.id, id),
+                  eq(contentItemsTable.tenantId, tenantId),
+                ),
+              );
+          } catch (stateErr) {
+            logger.error(
+              { err: stateErr, contentItemId: id, tenantId },
+              "Failed to record LinkedIn comment resend state",
+            );
+          }
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      postId,
+      permalink,
+      extra: {
+        commentsPosted,
+        commentsTotal: overflowComments.length,
+        ...(commentWarning ? { commentWarning } : {}),
+      },
+    };
+  } catch (error) {
+    logger.error(
+      { err: error, tenantId, contentItemId },
+      "LinkedIn publish failed",
+    );
+
+    // The token died in the window between the pre-publish re-verify and
+    // the actual write. Surface the same friendly reconnect message the
+    // pre-publish gate uses (never the raw LinkedIn error) and flip the
+    // account row to "failed" so the Accounts page prompts a reconnect.
+    if (error instanceof PublishAuthRevokedError) {
+      try {
+        await markAccountVerifyFailed(
+          tenantId,
+          "linkedin",
+          LINKEDIN_TOKEN_INVALID_MESSAGE,
+        );
+      } catch (markErr) {
+        logger.error(
+          { err: markErr, tenantId, contentItemId },
+          "Failed to flip LinkedIn account to failed after mid-publish auth error",
+        );
+      }
+      try {
+        await db
+          .update(contentItemsTable)
+          .set({
+            status: "failed",
+            failureReason: error.message,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(contentItemsTable.id, id),
+              eq(contentItemsTable.tenantId, tenantId),
+            ),
+          );
+      } catch (updateErr) {
+        logger.error(
+          { err: updateErr, contentItemId: id, tenantId },
+          "Failed to record LinkedIn publish failure",
+        );
+      }
+      return { ok: false, errorStatus: 400, error: error.message };
+    }
+
+    const reason =
+      error instanceof Error && error.message
+        ? `LinkedIn rejected the post: ${error.message}`
+        : "Failed to publish to LinkedIn.";
+    // Persist the rejection so it stays reviewable in the Content Library
+    // after the toast is gone. Best-effort: a DB hiccup here must not mask
+    // the original publish error in the response.
+    try {
+      await db
+        .update(contentItemsTable)
+        .set({ status: "failed", failureReason: reason, updatedAt: new Date() })
+        .where(
+          and(
+            eq(contentItemsTable.id, id),
+            eq(contentItemsTable.tenantId, tenantId),
+          ),
+        );
+    } catch (updateErr) {
+      logger.error(
+        { err: updateErr, contentItemId: id, tenantId },
+        "Failed to record LinkedIn publish failure",
+      );
+    }
+    return { ok: false, errorStatus: 502, error: reason };
+  }
+}
+
 router.post(
   "/content/:id/publish-linkedin",
   trackSyncPublish,
@@ -693,337 +1049,16 @@ router.post(
       return;
     }
     try {
-    const item = (
-      await db
-        .select()
-        .from(contentItemsTable)
-        .where(
-          and(
-            eq(contentItemsTable.id, id),
-            eq(contentItemsTable.tenantId, req.tenantId),
-          ),
-        )
-        .limit(1)
-    )[0];
-    if (!item) {
-      res.status(404).json({ error: "Not found" });
-      return;
-    }
-
-    let account = await getLinkedinAccount(req.tenantId);
-    // Re-check the token against LinkedIn right before publishing so a
-    // revoked/expired token is caught here instead of producing a confusing raw
-    // publish error. Force the check regardless of staleness.
-    if (account?.accessToken) {
-      try {
-        account =
-          (await reverifyLinkedin(req.tenantId, { force: true })) ?? account;
-      } catch (err) {
-        req.log.error({ err }, "LinkedIn pre-publish re-verify failed");
-      }
-    }
-    const tokenValid =
-      !!account?.accessToken &&
-      account.verifyStatus !== "failed" &&
-      (account.tokenExpiresAt === null ||
-        account.tokenExpiresAt.getTime() > Date.now());
-    if (!account || !tokenValid || !account.providerUserId) {
-      res.status(400).json({
-        error:
-          "LinkedIn is not connected or its access token is no longer valid. Reconnect your LinkedIn account on the Accounts page and try again.",
-      });
-      return;
-    }
-
-    const token = account.accessToken!;
-    const author = `urn:li:person:${account.providerUserId}`;
-    // LinkedIn has no native thread, so a caption over the post limit keeps its
-    // first chunk in the post and the remainder goes out as follow-up comments,
-    // so the full message still reaches readers. Split on the VISIBLE text
-    // BEFORE escaping (the "Little Text" backslashes are formatting markers, not
-    // counted against the limit).
-    const { main, comments: overflowComments } = splitForLinkedin(
-      buildPostText(item.title, item.caption),
-    );
-    const commentary = escapeCommentary(main);
-
-    const baseHeaders = {
-      Authorization: `Bearer ${token}`,
-      "LinkedIn-Version": LINKEDIN_VERSION,
-      "X-Restli-Protocol-Version": "2.0.0",
-    };
-
-    // A publish can commit on LinkedIn but return a transient-looking error
-    // (or the response can be lost entirely), so a retry — the user
-    // re-clicking Publish — would post the same content twice. Before
-    // (re-)posting, probe the member's recent posts and short-circuit when an
-    // identical post already landed within the dedupe window. Best-effort:
-    // probe failure means no short-circuit.
-    let existingPostId: string | null = null;
-    try {
-      const sinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
-      const recent = await fetchRecentLinkedinPosts(
-        author,
-        baseHeaders,
-        sinceMs,
-      );
-      existingPostId = findMatchingRecentPost(recent, commentary, sinceMs);
-    } catch (err) {
-      req.log.warn(
-        { err },
-        "LinkedIn duplicate-post probe failed; proceeding without dedupe",
-      );
-    }
-
-    // When the dedupe probe matches, work out how many overflow comments the
-    // earlier attempt already posted so a resumed publish never re-posts them:
-    // a persisted resend snapshot for that post is authoritative; an item
-    // already marked published against the same post means the whole sequence
-    // (post + comments) completed earlier.
-    let alreadyPostedComments = 0;
-    if (existingPostId) {
-      const priorState = item.linkedinCommentState;
-      if (priorState && priorState.postUrn === existingPostId) {
-        alreadyPostedComments = Math.min(
-          priorState.postedCount,
-          overflowComments.length,
-        );
-      } else if (item.status === "published" && item.postId === existingPostId) {
-        alreadyPostedComments = overflowComments.length;
-      }
-    }
-
-    try {
-      let postId: string;
-      if (existingPostId) {
-        req.log.warn(
-          { existingPostId },
-          "LinkedIn publish: identical post already landed recently; reusing the existing post instead of re-posting",
-        );
-        postId = existingPostId;
-      } else {
-        postId = await createLinkedinPost({
-          item,
-          author,
-          commentary,
-          baseHeaders,
-          token,
-          tenantId: req.tenantId,
+      const outcome = await publishLinkedinCore(req.tenantId, id);
+      if (outcome.ok) {
+        res.json({
+          postId: outcome.postId,
+          permalink: outcome.permalink,
+          ...(outcome.extra ?? {}),
         });
+      } else {
+        res.status(outcome.errorStatus).json({ error: outcome.error });
       }
-
-      const permalink = postId
-        ? `https://www.linkedin.com/feed/update/${postId}`
-        : null;
-
-      await db
-        .update(contentItemsTable)
-        .set({
-          status: "published",
-          failureReason: null,
-          postId: postId || null,
-          permalink,
-          publishedPlatforms: mergePublishedPlatform("linkedin", {
-            postId: postId || null,
-            permalink,
-          }),
-          // A fresh publish starts a new comment sequence; any resend state
-          // from an earlier publish points at a stale post URN.
-          linkedinCommentState: null,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(contentItemsTable.id, id),
-            eq(contentItemsTable.tenantId, req.tenantId),
-          ),
-        );
-
-      // Taste memory: a successful publish is the strongest approval signal.
-      void recordTasteSignalFromContent(req.tenantId, id, "published");
-
-      // The main post succeeded and is now marked published. Overflow text goes
-      // out as follow-up comments so the full caption reaches readers. A comment
-      // failure must NOT undo the published post — surface it instead of failing
-      // silently. Comments can only be posted when we know the post's URN.
-      let commentsPosted = alreadyPostedComments;
-      let commentWarning: string | null = null;
-      if (overflowComments.length > 0) {
-        if (!postId) {
-          commentWarning =
-            "The post was published, but LinkedIn did not return a post id, so the rest of the caption could not be added as comments.";
-        } else {
-          // When resuming against a post that already landed, the persisted
-          // snapshot count can undercount (a comment landed but its response
-          // was lost). Probe the post's existing comments and skip exact-text
-          // matches so a resumed publish never posts a duplicate. Best-effort:
-          // a probe failure means no skipping.
-          let existingTexts: Set<string> | null = null;
-          if (existingPostId && alreadyPostedComments < overflowComments.length) {
-            try {
-              existingTexts = await fetchExistingCommentTexts(
-                postId,
-                baseHeaders,
-              );
-            } catch (err) {
-              req.log.warn(
-                { err, postId },
-                "LinkedIn existing-comments probe failed; resuming without dedupe",
-              );
-            }
-          }
-          for (
-            let index = alreadyPostedComments;
-            index < overflowComments.length;
-            index++
-          ) {
-            const text = overflowComments[index]!;
-            if (existingTexts?.has(text)) {
-              req.log.warn(
-                { postId, index },
-                "LinkedIn comment already exists on the reused post; skipping instead of re-posting",
-              );
-              commentsPosted += 1;
-              continue;
-            }
-            try {
-              await postLinkedinComment(postId, author, text, baseHeaders);
-              commentsPosted += 1;
-            } catch (commentError) {
-              req.log.error(
-                { err: commentError, postId },
-                "LinkedIn overflow comment failed",
-              );
-              // The token died mid-sequence: the post is already published,
-              // so keep the item published with a warning, but still flip
-              // the account row so the Accounts page prompts a reconnect.
-              if (commentError instanceof PublishAuthRevokedError) {
-                try {
-                  await markAccountVerifyFailed(
-                    req.tenantId,
-                    "linkedin",
-                    LINKEDIN_TOKEN_INVALID_MESSAGE,
-                  );
-                } catch (markErr) {
-                  req.log.error(
-                    { err: markErr },
-                    "Failed to flip LinkedIn account to failed after mid-sequence auth error",
-                  );
-                }
-              }
-              const remaining = overflowComments.length - index;
-              commentWarning = `The post was published, but ${remaining} of ${overflowComments.length} follow-up comment(s) with the rest of the caption could not be posted.`;
-              break;
-            }
-          }
-          // Persist which numbered comments made it (with the exact texts, so
-          // a later caption edit can't renumber a resend) whenever the
-          // sequence is incomplete; the resend endpoint picks up from
-          // postedCount. Best-effort: a DB hiccup must not fail the publish.
-          if (commentsPosted < overflowComments.length) {
-            try {
-              await db
-                .update(contentItemsTable)
-                .set({
-                  linkedinCommentState: {
-                    postUrn: postId,
-                    comments: overflowComments,
-                    postedCount: commentsPosted,
-                  },
-                  updatedAt: new Date(),
-                })
-                .where(
-                  and(
-                    eq(contentItemsTable.id, id),
-                    eq(contentItemsTable.tenantId, req.tenantId),
-                  ),
-                );
-            } catch (stateErr) {
-              req.log.error(
-                { err: stateErr, contentItemId: id },
-                "Failed to record LinkedIn comment resend state",
-              );
-            }
-          }
-        }
-      }
-
-      res.json({
-        postId,
-        permalink,
-        commentsPosted,
-        commentsTotal: overflowComments.length,
-        ...(commentWarning ? { commentWarning } : {}),
-      });
-    } catch (error) {
-      req.log.error({ err: error }, "LinkedIn publish failed");
-
-      // The token died in the window between the pre-publish re-verify and
-      // the actual write. Surface the same friendly reconnect message the
-      // pre-publish gate uses (never the raw LinkedIn error) and flip the
-      // account row to "failed" so the Accounts page prompts a reconnect.
-      if (error instanceof PublishAuthRevokedError) {
-        try {
-          await markAccountVerifyFailed(
-            req.tenantId,
-            "linkedin",
-            LINKEDIN_TOKEN_INVALID_MESSAGE,
-          );
-        } catch (markErr) {
-          req.log.error(
-            { err: markErr },
-            "Failed to flip LinkedIn account to failed after mid-publish auth error",
-          );
-        }
-        try {
-          await db
-            .update(contentItemsTable)
-            .set({
-              status: "failed",
-              failureReason: error.message,
-              updatedAt: new Date(),
-            })
-            .where(
-              and(
-                eq(contentItemsTable.id, id),
-                eq(contentItemsTable.tenantId, req.tenantId),
-              ),
-            );
-        } catch (updateErr) {
-          req.log.error(
-            { err: updateErr, contentItemId: id },
-            "Failed to record LinkedIn publish failure",
-          );
-        }
-        res.status(400).json({ error: error.message });
-        return;
-      }
-
-      const reason =
-        error instanceof Error && error.message
-          ? `LinkedIn rejected the post: ${error.message}`
-          : "Failed to publish to LinkedIn.";
-      // Persist the rejection so it stays reviewable in the Content Library
-      // after the toast is gone. Best-effort: a DB hiccup here must not mask
-      // the original publish error in the response.
-      try {
-        await db
-          .update(contentItemsTable)
-          .set({ status: "failed", failureReason: reason, updatedAt: new Date() })
-          .where(
-            and(
-              eq(contentItemsTable.id, id),
-              eq(contentItemsTable.tenantId, req.tenantId),
-            ),
-          );
-      } catch (updateErr) {
-        req.log.error(
-          { err: updateErr, contentItemId: id },
-          "Failed to record LinkedIn publish failure",
-        );
-      }
-      res.status(502).json({ error: reason });
-    }
     } finally {
       releasePublishLock();
     }

@@ -5,6 +5,10 @@ import { logger } from "./lib/logger";
 import { recoverStuckPublishingItems } from "./lib/recoverStuckPublishes";
 import { createShutdownHandler } from "./lib/shutdown";
 import { startConnectionSweep, stopConnectionSweep } from "./lib/connectionSweep";
+import {
+  startScheduledPublisher,
+  stopScheduledPublisher,
+} from "./lib/scheduledPublisher";
 
 // Fail loudly before binding if a deployed context is missing required env,
 // rather than booting into a silently-degraded state.
@@ -43,6 +47,10 @@ const server: Server = app.listen(port, (err) => {
   // background so an expired/revoked token triggers the breakage notification
   // even for users who never open the Accounts page.
   startConnectionSweep();
+
+  // Periodically publish scheduled posts whose time has arrived, using the
+  // same per-platform publish cores as the manual publish endpoints.
+  startScheduledPublisher();
 });
 
 // Graceful shutdown: drain in-flight background publish jobs (bounded by a
@@ -52,6 +60,7 @@ const shutdown = createShutdownHandler({ server });
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
     stopConnectionSweep();
+    stopScheduledPublisher();
     void shutdown(signal);
   });
 }

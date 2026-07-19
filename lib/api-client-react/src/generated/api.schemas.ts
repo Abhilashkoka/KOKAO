@@ -1979,12 +1979,32 @@ export interface CampaignResult {
   campaignId?: string;
 }
 
+/**
+ * pending = waiting for the scheduled time; processing = the background publisher is publishing it right now; published = automatically published; failed = the automatic publish failed (see failureReason); cancelled = called off by the user.
+ */
+export type ScheduledPostStatus = typeof ScheduledPostStatus[keyof typeof ScheduledPostStatus];
+
+
+export const ScheduledPostStatus = {
+  pending: 'pending',
+  processing: 'processing',
+  published: 'published',
+  failed: 'failed',
+  cancelled: 'cancelled',
+} as const;
+
 export interface ScheduledPost {
   id: number;
   contentItemId: number;
   platform: string;
   scheduledAt: string;
-  status: string;
+  /** pending = waiting for the scheduled time; processing = the background publisher is publishing it right now; published = automatically published; failed = the automatic publish failed (see failureReason); cancelled = called off by the user. */
+  status: ScheduledPostStatus;
+  /**
+     * Why the automatic publish failed, when status is failed.
+     * @nullable
+     */
+  failureReason?: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -5,11 +5,15 @@ import {
   integer,
   boolean,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
-export const notificationsTable = pgTable("notifications", {
+export const notificationsTable = pgTable(
+  "notifications",
+  {
   id: serial("id").primaryKey(),
   tenantId: integer("tenant_id").notNull(),
   // Machine-readable category, e.g. "social_connection_failed".
@@ -34,7 +38,17 @@ export const notificationsTable = pgTable("notifications", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+  },
+  (t) => ({
+    // Race-free dedupe for the sweep-stalled admin alert: at most ONE unread
+    // sweep_stalled row per tenant, enforced by the database so concurrent
+    // watchdog checks can't double-insert. Scoped to that single type — other
+    // notification types allow multiple unread rows.
+    sweepStalledUnreadUnique: uniqueIndex("notifications_sweep_stalled_unread_uq")
+      .on(t.tenantId)
+      .where(sql`${t.type} = 'sweep_stalled' AND ${t.readAt} IS NULL`),
+  }),
+);
 
 export const insertNotificationSchema = createInsertSchema(notificationsTable).omit({
   id: true,

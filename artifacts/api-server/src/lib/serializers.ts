@@ -62,6 +62,7 @@ export function serializeSchedule(s: ScheduledPost) {
     platform: s.platform,
     scheduledAt: s.scheduledAt.toISOString(),
     status: s.status,
+    failureReason: s.failureReason,
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt.toISOString(),
   };

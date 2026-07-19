@@ -32,6 +32,8 @@ import {
   PUBLISH_IN_PROGRESS_MESSAGE,
 } from "../lib/resendLock";
 import { chunkOnWhitespace, THREADS_MAX_LENGTH } from "@workspace/social-limits";
+import { logger } from "../lib/logger";
+import type { PublishOutcome } from "../lib/publishOutcome";
 
 const router: IRouter = Router();
 
@@ -582,6 +584,289 @@ async function publishOneThread(opts: {
   return publishJson.id;
 }
 
+/**
+ * The req/res-free core of the manual Threads publish handler. Owns loading
+ * the content item, the pre-publish reverify + credential checks, post-text
+ * building, the duplicate-post probe, the reply-chain write loop, content-item
+ * status persistence (published/failed), the chain-state snapshot on a partial
+ * chain, taste signals and the account verifyStatus flip on auth revocation.
+ * Does NOT acquire the per-item publish lock — callers must hold it. Behaviour
+ * mirrors the old inline handler byte-for-byte via the PublishOutcome mapping.
+ */
+export async function publishThreadsCore(
+  tenantId: number,
+  contentItemId: number,
+): Promise<PublishOutcome> {
+  const id = contentItemId;
+  const item = (
+    await db
+      .select()
+      .from(contentItemsTable)
+      .where(
+        and(
+          eq(contentItemsTable.id, id),
+          eq(contentItemsTable.tenantId, tenantId),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (!item) {
+    return { ok: false, errorStatus: 404, error: "Not found" };
+  }
+
+  let account = await getThreadsAccount(tenantId);
+  if (account?.accessToken && account.verifyStatus !== "failed") {
+    account = await maybeRefreshToken(tenantId, account);
+  }
+  const tokenValid =
+    !!account?.accessToken &&
+    account.verifyStatus !== "failed" &&
+    (account.tokenExpiresAt === null ||
+      account.tokenExpiresAt.getTime() > Date.now());
+  if (!account || !tokenValid || !account.providerUserId) {
+    return {
+      ok: false,
+      errorStatus: 400,
+      error:
+        "Threads is not connected or its access is no longer valid. Reconnect your Threads account on the Accounts page and try again.",
+    };
+  }
+
+  const accessToken = account.accessToken!;
+  const userId = account.providerUserId;
+
+  // Long captions become a reply-chained thread (Threads is built for this):
+  // the first post carries the image, follow-ups carry the remaining text.
+  const fullText = buildPostText(item.title, item.caption);
+  const chunks = chunkOnWhitespace(fullText, THREADS_MAX_LENGTH);
+
+  // A publish can commit on Threads but return a transient-looking error,
+  // so a retry (the user re-clicking, or any future auto-retry) would post
+  // the same content twice — and long captions duplicate a whole reply
+  // chain. Before (re-)posting, probe the account's recent posts and
+  // short-circuit any chunk that already landed within the dedupe window.
+  // Best-effort: probe failure means no short-circuit.
+  const dedupeSinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
+  let recentPosts: RecentThreadPost[] = [];
+  try {
+    recentPosts = await fetchRecentThreadPosts(
+      userId,
+      accessToken,
+      dedupeSinceMs,
+    );
+  } catch (err) {
+    logger.warn(
+      { err, tenantId, contentItemId },
+      "Threads duplicate-post probe failed; proceeding without dedupe",
+    );
+  }
+
+  try {
+    let firstPostId: string | null = null;
+    let replyToId: string | null = null;
+    let postsPublished = 0;
+    let publishWarning: string | null = null;
+    // Set when a follow-up reply fails mid-chain: how many leading posts
+    // made it, so a resend can pick up from there.
+    let chainPostedCount: number | null = null;
+
+    // If the first post already landed, its image went with it — skip
+    // minting a signed URL entirely.
+    const existingFirstId = takeMatchingRecentPost(
+      recentPosts,
+      chunks[0],
+      dedupeSinceMs,
+    );
+
+    // Threads fetches the image itself, so hand it a short-lived signed GET
+    // URL for the private object.
+    let imageUrl: string | null = null;
+    if (!existingFirstId && item.imagePath) {
+      imageUrl = await objectStorageService.getSignedDownloadURL(
+        item.imagePath,
+        tenantId,
+      );
+    }
+
+    for (const [index, text] of chunks.entries()) {
+      try {
+        const existingId =
+          index === 0
+            ? existingFirstId
+            : takeMatchingRecentPost(recentPosts, text, dedupeSinceMs);
+        let postId: string;
+        if (existingId) {
+          logger.warn(
+            { existingId, index, tenantId, contentItemId },
+            "Threads publish: this part of the content already landed recently; reusing the existing post instead of re-posting",
+          );
+          postId = existingId;
+        } else {
+          postId = await publishOneThread({
+            userId,
+            accessToken,
+            text,
+            imageUrl: index === 0 ? imageUrl : null,
+            replyToId,
+          });
+          postsPublished += 1;
+        }
+        replyToId = postId;
+        if (index === 0) firstPostId = postId;
+      } catch (chunkError) {
+        if (index === 0) throw chunkError;
+        logger.error(
+          { err: chunkError, index, tenantId, contentItemId },
+          "Threads follow-up reply failed",
+        );
+        // The token died mid-chain: the first post is already out, so keep
+        // the item published with a warning, but still flip the account
+        // row so the Accounts page prompts a reconnect.
+        if (chunkError instanceof PublishAuthRevokedError) {
+          try {
+            await markAccountVerifyFailed(
+              tenantId,
+              "threads",
+              THREADS_TOKEN_INVALID_MESSAGE,
+            );
+          } catch (markErr) {
+            logger.error(
+              { err: markErr, tenantId, contentItemId },
+              "Failed to flip Threads account to failed after mid-chain auth error",
+            );
+          }
+        }
+        const remaining = chunks.length - index;
+        publishWarning = `The post was published, but ${remaining} of ${chunks.length - 1} follow-up repl${remaining === 1 ? "y" : "ies"} with the rest of the caption could not be posted.`;
+        chainPostedCount = index;
+        break;
+      }
+    }
+
+    const permalink = account.accountName?.startsWith("@")
+      ? `https://www.threads.net/${account.accountName}`
+      : null;
+
+    await db
+      .update(contentItemsTable)
+      .set({
+        status: "published",
+        failureReason: null,
+        postId: firstPostId,
+        permalink,
+        publishedPlatforms: mergePublishedPlatform("threads", {
+          postId: firstPostId,
+          permalink,
+        }),
+        // Persist which chain posts made it (with the exact texts, so a
+        // later caption edit can't change what a resend posts) whenever the
+        // chain is incomplete; the resend endpoint picks up from
+        // postedCount, replying to lastPostedId. A complete publish starts
+        // fresh, clearing any stale state from an earlier attempt.
+        threadsChainState:
+          chainPostedCount !== null && firstPostId && replyToId
+            ? {
+                firstPostId,
+                lastPostedId: replyToId,
+                posts: chunks,
+                postedCount: chainPostedCount,
+              }
+            : null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(contentItemsTable.id, id),
+          eq(contentItemsTable.tenantId, tenantId),
+        ),
+      );
+
+    // Taste memory: a successful publish is the strongest approval signal.
+    void recordTasteSignalFromContent(tenantId, id, "published");
+
+    return {
+      ok: true,
+      postId: firstPostId,
+      permalink,
+      ...(publishWarning ? { warning: publishWarning } : {}),
+      extra: {
+        postsPublished,
+        postsTotal: chunks.length,
+      },
+    };
+  } catch (error) {
+    logger.error(
+      { err: error, tenantId, contentItemId },
+      "Threads publish failed",
+    );
+
+    // The token died in the window between the pre-publish check and the
+    // actual write. Surface the same friendly reconnect message the
+    // pre-publish gate uses (never the raw Threads error) and flip the
+    // account row to "failed" so the Accounts page prompts a reconnect.
+    if (error instanceof PublishAuthRevokedError) {
+      try {
+        await markAccountVerifyFailed(
+          tenantId,
+          "threads",
+          THREADS_TOKEN_INVALID_MESSAGE,
+        );
+      } catch (markErr) {
+        logger.error(
+          { err: markErr, tenantId, contentItemId },
+          "Failed to flip Threads account to failed after mid-publish auth error",
+        );
+      }
+      try {
+        await db
+          .update(contentItemsTable)
+          .set({
+            status: "failed",
+            failureReason: error.message,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(contentItemsTable.id, id),
+              eq(contentItemsTable.tenantId, tenantId),
+            ),
+          );
+      } catch (updateErr) {
+        logger.error(
+          { err: updateErr, contentItemId: id, tenantId },
+          "Failed to record Threads publish failure",
+        );
+      }
+      return { ok: false, errorStatus: 400, error: error.message };
+    }
+
+    const reason =
+      error instanceof Error && error.message
+        ? `Threads rejected the post: ${error.message}`
+        : "Failed to publish to Threads.";
+    // Persist the rejection so it stays reviewable in the Content Library
+    // after the toast is gone. Best-effort: a DB hiccup here must not mask
+    // the original publish error in the response.
+    try {
+      await db
+        .update(contentItemsTable)
+        .set({ status: "failed", failureReason: reason, updatedAt: new Date() })
+        .where(
+          and(
+            eq(contentItemsTable.id, id),
+            eq(contentItemsTable.tenantId, tenantId),
+          ),
+        );
+    } catch (updateErr) {
+      logger.error(
+        { err: updateErr, contentItemId: id, tenantId },
+        "Failed to record Threads publish failure",
+      );
+    }
+    return { ok: false, errorStatus: 502, error: reason };
+  }
+}
+
 router.post(
   "/content/:id/publish-threads",
   trackSyncPublish,
@@ -596,268 +881,17 @@ router.post(
       return;
     }
     try {
-    const item = (
-      await db
-        .select()
-        .from(contentItemsTable)
-        .where(
-          and(
-            eq(contentItemsTable.id, id),
-            eq(contentItemsTable.tenantId, req.tenantId),
-          ),
-        )
-        .limit(1)
-    )[0];
-    if (!item) {
-      res.status(404).json({ error: "Not found" });
-      return;
-    }
-
-    let account = await getThreadsAccount(req.tenantId);
-    if (account?.accessToken && account.verifyStatus !== "failed") {
-      account = await maybeRefreshToken(req.tenantId, account);
-    }
-    const tokenValid =
-      !!account?.accessToken &&
-      account.verifyStatus !== "failed" &&
-      (account.tokenExpiresAt === null ||
-        account.tokenExpiresAt.getTime() > Date.now());
-    if (!account || !tokenValid || !account.providerUserId) {
-      res.status(400).json({
-        error:
-          "Threads is not connected or its access is no longer valid. Reconnect your Threads account on the Accounts page and try again.",
-      });
-      return;
-    }
-
-    const accessToken = account.accessToken!;
-    const userId = account.providerUserId;
-
-    // Long captions become a reply-chained thread (Threads is built for this):
-    // the first post carries the image, follow-ups carry the remaining text.
-    const fullText = buildPostText(item.title, item.caption);
-    const chunks = chunkOnWhitespace(fullText, THREADS_MAX_LENGTH);
-
-    // A publish can commit on Threads but return a transient-looking error,
-    // so a retry (the user re-clicking, or any future auto-retry) would post
-    // the same content twice — and long captions duplicate a whole reply
-    // chain. Before (re-)posting, probe the account's recent posts and
-    // short-circuit any chunk that already landed within the dedupe window.
-    // Best-effort: probe failure means no short-circuit.
-    const dedupeSinceMs = Date.now() - PUBLISH_DEDUPE_WINDOW_MS;
-    let recentPosts: RecentThreadPost[] = [];
-    try {
-      recentPosts = await fetchRecentThreadPosts(
-        userId,
-        accessToken,
-        dedupeSinceMs,
-      );
-    } catch (err) {
-      req.log.warn(
-        { err },
-        "Threads duplicate-post probe failed; proceeding without dedupe",
-      );
-    }
-
-    try {
-      let firstPostId: string | null = null;
-      let replyToId: string | null = null;
-      let postsPublished = 0;
-      let publishWarning: string | null = null;
-      // Set when a follow-up reply fails mid-chain: how many leading posts
-      // made it, so a resend can pick up from there.
-      let chainPostedCount: number | null = null;
-
-      // If the first post already landed, its image went with it — skip
-      // minting a signed URL entirely.
-      const existingFirstId = takeMatchingRecentPost(
-        recentPosts,
-        chunks[0],
-        dedupeSinceMs,
-      );
-
-      // Threads fetches the image itself, so hand it a short-lived signed GET
-      // URL for the private object.
-      let imageUrl: string | null = null;
-      if (!existingFirstId && item.imagePath) {
-        imageUrl = await objectStorageService.getSignedDownloadURL(
-          item.imagePath,
-          req.tenantId,
-        );
-      }
-
-      for (const [index, text] of chunks.entries()) {
-        try {
-          const existingId =
-            index === 0
-              ? existingFirstId
-              : takeMatchingRecentPost(recentPosts, text, dedupeSinceMs);
-          let postId: string;
-          if (existingId) {
-            req.log.warn(
-              { existingId, index },
-              "Threads publish: this part of the content already landed recently; reusing the existing post instead of re-posting",
-            );
-            postId = existingId;
-          } else {
-            postId = await publishOneThread({
-              userId,
-              accessToken,
-              text,
-              imageUrl: index === 0 ? imageUrl : null,
-              replyToId,
-            });
-            postsPublished += 1;
-          }
-          replyToId = postId;
-          if (index === 0) firstPostId = postId;
-        } catch (chunkError) {
-          if (index === 0) throw chunkError;
-          req.log.error(
-            { err: chunkError, index },
-            "Threads follow-up reply failed",
-          );
-          // The token died mid-chain: the first post is already out, so keep
-          // the item published with a warning, but still flip the account
-          // row so the Accounts page prompts a reconnect.
-          if (chunkError instanceof PublishAuthRevokedError) {
-            try {
-              await markAccountVerifyFailed(
-                req.tenantId,
-                "threads",
-                THREADS_TOKEN_INVALID_MESSAGE,
-              );
-            } catch (markErr) {
-              req.log.error(
-                { err: markErr },
-                "Failed to flip Threads account to failed after mid-chain auth error",
-              );
-            }
-          }
-          const remaining = chunks.length - index;
-          publishWarning = `The post was published, but ${remaining} of ${chunks.length - 1} follow-up repl${remaining === 1 ? "y" : "ies"} with the rest of the caption could not be posted.`;
-          chainPostedCount = index;
-          break;
-        }
-      }
-
-      const permalink = account.accountName?.startsWith("@")
-        ? `https://www.threads.net/${account.accountName}`
-        : null;
-
-      await db
-        .update(contentItemsTable)
-        .set({
-          status: "published",
-          failureReason: null,
-          postId: firstPostId,
-          permalink,
-          publishedPlatforms: mergePublishedPlatform("threads", {
-            postId: firstPostId,
-            permalink,
-          }),
-          // Persist which chain posts made it (with the exact texts, so a
-          // later caption edit can't change what a resend posts) whenever the
-          // chain is incomplete; the resend endpoint picks up from
-          // postedCount, replying to lastPostedId. A complete publish starts
-          // fresh, clearing any stale state from an earlier attempt.
-          threadsChainState:
-            chainPostedCount !== null && firstPostId && replyToId
-              ? {
-                  firstPostId,
-                  lastPostedId: replyToId,
-                  posts: chunks,
-                  postedCount: chainPostedCount,
-                }
-              : null,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(contentItemsTable.id, id),
-            eq(contentItemsTable.tenantId, req.tenantId),
-          ),
-        );
-
-      // Taste memory: a successful publish is the strongest approval signal.
-      void recordTasteSignalFromContent(req.tenantId, id, "published");
-
-      res.json({
-        postId: firstPostId ?? "",
-        permalink,
-        postsPublished,
-        postsTotal: chunks.length,
-        ...(publishWarning ? { publishWarning } : {}),
-      });
-    } catch (error) {
-      req.log.error({ err: error }, "Threads publish failed");
-
-      // The token died in the window between the pre-publish check and the
-      // actual write. Surface the same friendly reconnect message the
-      // pre-publish gate uses (never the raw Threads error) and flip the
-      // account row to "failed" so the Accounts page prompts a reconnect.
-      if (error instanceof PublishAuthRevokedError) {
-        try {
-          await markAccountVerifyFailed(
-            req.tenantId,
-            "threads",
-            THREADS_TOKEN_INVALID_MESSAGE,
-          );
-        } catch (markErr) {
-          req.log.error(
-            { err: markErr },
-            "Failed to flip Threads account to failed after mid-publish auth error",
-          );
-        }
-        try {
-          await db
-            .update(contentItemsTable)
-            .set({
-              status: "failed",
-              failureReason: error.message,
-              updatedAt: new Date(),
-            })
-            .where(
-              and(
-                eq(contentItemsTable.id, id),
-                eq(contentItemsTable.tenantId, req.tenantId),
-              ),
-            );
-        } catch (updateErr) {
-          req.log.error(
-            { err: updateErr, contentItemId: id },
-            "Failed to record Threads publish failure",
-          );
-        }
-        res.status(400).json({ error: error.message });
+      const outcome = await publishThreadsCore(req.tenantId, id);
+      if (!outcome.ok) {
+        res.status(outcome.errorStatus).json({ error: outcome.error });
         return;
       }
-
-      const reason =
-        error instanceof Error && error.message
-          ? `Threads rejected the post: ${error.message}`
-          : "Failed to publish to Threads.";
-      // Persist the rejection so it stays reviewable in the Content Library
-      // after the toast is gone. Best-effort: a DB hiccup here must not mask
-      // the original publish error in the response.
-      try {
-        await db
-          .update(contentItemsTable)
-          .set({ status: "failed", failureReason: reason, updatedAt: new Date() })
-          .where(
-            and(
-              eq(contentItemsTable.id, id),
-              eq(contentItemsTable.tenantId, req.tenantId),
-            ),
-          );
-      } catch (updateErr) {
-        req.log.error(
-          { err: updateErr, contentItemId: id },
-          "Failed to record Threads publish failure",
-        );
-      }
-      res.status(502).json({ error: reason });
-    }
+      res.json({
+        postId: outcome.postId ?? "",
+        permalink: outcome.permalink,
+        ...outcome.extra,
+        ...(outcome.warning ? { publishWarning: outcome.warning } : {}),
+      });
     } finally {
       releasePublishLock();
     }

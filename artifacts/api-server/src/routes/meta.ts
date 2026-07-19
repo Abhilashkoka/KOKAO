@@ -24,6 +24,7 @@ import {
 import { trackSyncPublish } from "../middlewares/trackSyncPublish";
 import { logger } from "../lib/logger";
 import { platformFetch, PlatformTimeoutError } from "../lib/platformFetch";
+import type { PublishOutcome } from "../lib/publishOutcome";
 import {
   getImageDimensions,
   dimensionsCompatible,
@@ -700,7 +701,7 @@ async function fetchInstagramPermalink(
  */
 async function runInstagramPublish(
   params: InstagramPublishParams,
-): Promise<void> {
+): Promise<PublishOutcome> {
   const { id, tenantId, igUserId, pageToken, imagePath, caption } = params;
   let delay = IG_PUBLISH_RETRY.initialDelayMs;
 
@@ -741,7 +742,7 @@ async function runInstagramPublish(
     try {
       const { postId, permalink } = await attemptInstagramPublish(params);
       await markPublished(id, tenantId, "instagram", { postId, permalink });
-      return;
+      return { ok: true, postId, permalink };
     } catch (error) {
       // Unknown (non-classified) errors — e.g. a network blip or a storage
       // hiccup — are treated as transient so they get the bounded retry rather
@@ -783,7 +784,7 @@ async function runInstagramPublish(
               postId: existingId,
               permalink,
             });
-            return;
+            return { ok: true, postId: existingId, permalink };
           }
         } catch (probeErr) {
           logger.warn(
@@ -835,12 +836,12 @@ async function runInstagramPublish(
 
       // Flip the item to "failed" so the UI can surface it instead of leaving it
       // stuck on "publishing" forever.
+      const reason = authError
+        ? (error as InstagramPublishError).message
+        : error instanceof Error && error.message
+          ? `Instagram rejected the post: ${error.message}`
+          : "Instagram rejected the post.";
       try {
-        const reason = authError
-          ? (error as InstagramPublishError).message
-          : error instanceof Error && error.message
-            ? `Instagram rejected the post: ${error.message}`
-            : "Instagram rejected the post.";
         await setContentStatus(id, tenantId, "failed", reason);
       } catch (updateErr) {
         logger.error(
@@ -848,54 +849,50 @@ async function runInstagramPublish(
           "Failed to mark Instagram content item as failed",
         );
       }
-      return;
+      return { ok: false, errorStatus: authError ? 400 : 502, error: reason };
     }
   }
+  // Unreachable: the loop always returns, but TypeScript can't prove it.
+  return {
+    ok: false,
+    errorStatus: 502,
+    error: "Instagram rejected the post.",
+  };
 }
 
 /**
- * POST /content/:id/publish-facebook
- * Publish to the tenant's connected Facebook Page using their stored,
- * encrypted Page token + Page ID.
+ * Full Facebook publish flow, free of req/res so both the manual endpoint and
+ * the scheduled-publish executor can drive it. See lib/publishOutcome.ts for
+ * the contract: this owns content-item status persistence and account
+ * verifyStatus flips; the caller owns the publish lock and translating the
+ * outcome.
  */
-router.post(
-  "/content/:id/publish-facebook",
-  trackSyncPublish,
-  async (req: Request, res: Response) => {
-    const id = Number(req.params.id);
-    // Guard against two truly simultaneous publish clicks: both would read
-    // the item and run the dedupe probe before either has posted, so the
-    // probe can't see the other's writes — without the lock both could post.
-    const releasePublishLock = tryAcquireResendLock("facebook", id);
-    if (!releasePublishLock) {
-      res.status(409).json({ error: PUBLISH_IN_PROGRESS_MESSAGE });
-      return;
-    }
-    try {
-    const item = await loadContentItem(id, req.tenantId);
+export async function publishFacebookCore(
+  tenantId: number,
+  id: number,
+): Promise<PublishOutcome> {
+    const item = await loadContentItem(id, tenantId);
     if (!item) {
-      res.status(404).json({ error: "Not found" });
-      return;
+      return { ok: false, errorStatus: 404, error: "Not found" };
     }
 
     // Re-check the stored token against Meta right before publishing so an
     // expired/revoked token is caught here (and flipped to "failed") instead of
     // producing a confusing raw publish error.
     try {
-      await reverifyFacebook(req.tenantId, { force: true });
+      await reverifyFacebook(tenantId, { force: true });
     } catch (err) {
-      req.log.error({ err }, "Facebook pre-publish re-verify failed");
+      logger.error(
+        { err, tenantId, contentItemId: id },
+        "Facebook pre-publish re-verify failed",
+      );
     }
     const fb = await getTenantCredentials<FacebookCredentials>(
-      req.tenantId,
+      tenantId,
       "facebook",
     );
     if (!fb || !fb.verified) {
-      res.status(400).json({
-        error:
-          "Facebook is not connected or its access token is no longer valid. Reconnect your Page on the Accounts page and try again.",
-      });
-      return;
+      return { ok: false, errorStatus: 400, error: FB_RECONNECT_MESSAGE };
     }
 
     const { pageId, pageAccessToken } = fb.creds;
@@ -924,7 +921,7 @@ router.post(
       if (item.imagePath) {
         const file = await objectStorageService.getObjectEntityFile(
           item.imagePath,
-          req.tenantId,
+          tenantId,
         );
         const [buffer] = await file.download();
         if (!message) {
@@ -973,10 +970,13 @@ router.post(
       }
 
       const permalink = postId ? `https://www.facebook.com/${postId}` : null;
-      await markPublished(id, req.tenantId, "facebook", { postId, permalink });
-      res.json({ postId, permalink });
+      await markPublished(id, tenantId, "facebook", { postId, permalink });
+      return { ok: true, postId: postId || null, permalink };
     } catch (error) {
-      req.log.error({ err: error }, "Facebook publish failed");
+      logger.error(
+        { err: error, tenantId, contentItemId: id },
+        "Facebook publish failed",
+      );
 
       // The token died in the window between the pre-publish re-verify and
       // the actual write. Surface the same friendly reconnect message the
@@ -985,26 +985,25 @@ router.post(
       if (error instanceof GraphAuthRevokedError) {
         try {
           await markAccountVerifyFailed(
-            req.tenantId,
+            tenantId,
             "facebook",
             "Facebook rejected the Page access token. Reconnect your Page.",
           );
         } catch (markErr) {
-          req.log.error(
-            { err: markErr },
+          logger.error(
+            { err: markErr, tenantId },
             "Failed to flip Facebook account to failed after mid-publish auth error",
           );
         }
         try {
-          await setContentStatus(id, req.tenantId, "failed", error.message);
+          await setContentStatus(id, tenantId, "failed", error.message);
         } catch (updateErr) {
-          req.log.error(
-            { err: updateErr, contentItemId: id },
+          logger.error(
+            { err: updateErr, contentItemId: id, tenantId },
             "Failed to record Facebook publish failure",
           );
         }
-        res.status(400).json({ error: error.message });
-        return;
+        return { ok: false, errorStatus: 400, error: error.message };
       }
 
       const reason =
@@ -1015,20 +1014,142 @@ router.post(
       // after the toast is gone. Best-effort: a DB hiccup here must not mask
       // the original publish error in the response.
       try {
-        await setContentStatus(id, req.tenantId, "failed", reason);
+        await setContentStatus(id, tenantId, "failed", reason);
       } catch (updateErr) {
-        req.log.error(
-          { err: updateErr, contentItemId: id },
+        logger.error(
+          { err: updateErr, contentItemId: id, tenantId },
           "Failed to record Facebook publish failure",
         );
       }
-      res.status(502).json({ error: reason });
+      return { ok: false, errorStatus: 502, error: reason };
     }
+}
+
+/**
+ * POST /content/:id/publish-facebook
+ * Publish to the tenant's connected Facebook Page using their stored,
+ * encrypted Page token + Page ID.
+ */
+router.post(
+  "/content/:id/publish-facebook",
+  trackSyncPublish,
+  async (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    // Guard against two truly simultaneous publish clicks: both would read
+    // the item and run the dedupe probe before either has posted, so the
+    // probe can't see the other's writes — without the lock both could post.
+    const releasePublishLock = tryAcquireResendLock("facebook", id);
+    if (!releasePublishLock) {
+      res.status(409).json({ error: PUBLISH_IN_PROGRESS_MESSAGE });
+      return;
+    }
+    try {
+      const outcome = await publishFacebookCore(req.tenantId, id);
+      if (outcome.ok) {
+        res.json({ postId: outcome.postId ?? "", permalink: outcome.permalink });
+      } else {
+        res.status(outcome.errorStatus).json({ error: outcome.error });
+      }
     } finally {
       releasePublishLock();
     }
   },
 );
+
+/**
+ * Everything the Instagram publish needs before any write happens: the
+ * content item, verified credentials, and the assembled publish params.
+ * Shared by the manual endpoint (which then enqueues a background job) and
+ * publishInstagramCore (which awaits the flow inline for the scheduler).
+ */
+async function prepareInstagramPublish(
+  tenantId: number,
+  id: number,
+): Promise<
+  | { ok: false; errorStatus: number; error: string }
+  | {
+      ok: true;
+      params: InstagramPublishParams;
+      previousStatus: string;
+      previousFailureReason: string | null;
+    }
+> {
+  const item = await loadContentItem(id, tenantId);
+  if (!item) {
+    return { ok: false, errorStatus: 404, error: "Not found" };
+  }
+
+  if (!item.imagePath) {
+    return {
+      ok: false,
+      errorStatus: 400,
+      error:
+        "Instagram posts require an image. Add an image to this content first.",
+    };
+  }
+
+  // Re-check the stored credentials against Meta right before publishing so an
+  // expired/revoked token is caught here (and flipped to "failed") instead of
+  // producing a confusing raw publish error. Facebook first, since Instagram
+  // publishing rides on the Page token.
+  try {
+    await reverifyFacebook(tenantId, { force: true });
+    await reverifyInstagram(tenantId, { force: true });
+  } catch (err) {
+    logger.error(
+      { err, tenantId, contentItemId: id },
+      "Instagram pre-publish re-verify failed",
+    );
+  }
+  const [ig, fb] = await Promise.all([
+    getTenantCredentials<InstagramCredentials>(tenantId, "instagram"),
+    getTenantCredentials<FacebookCredentials>(tenantId, "facebook"),
+  ]);
+  if (!ig || !ig.verified) {
+    return {
+      ok: false,
+      errorStatus: 400,
+      error:
+        "Instagram is not connected or its connection is no longer valid. Reconnect your Instagram Business account on the Accounts page and try again.",
+    };
+  }
+  if (!fb || !fb.verified) {
+    return { ok: false, errorStatus: 400, error: IG_PAGE_RECONNECT_MESSAGE };
+  }
+
+  return {
+    ok: true,
+    params: {
+      id,
+      tenantId,
+      igUserId: ig.creds.igUserId,
+      pageToken: fb.creds.pageAccessToken,
+      imagePath: item.imagePath,
+      caption: buildPostText(item.title, item.caption),
+    },
+    previousStatus: item.status,
+    previousFailureReason: item.failureReason ?? null,
+  };
+}
+
+/**
+ * Full Instagram publish flow, free of req/res, AWAITED to completion —
+ * unlike the manual endpoint, which enqueues the create -> poll -> publish
+ * flow as a background job and responds 202. The scheduled-publish executor
+ * is already a background context, so it wants the final outcome. See
+ * lib/publishOutcome.ts for the contract; the caller owns the publish lock.
+ */
+export async function publishInstagramCore(
+  tenantId: number,
+  id: number,
+): Promise<PublishOutcome> {
+  const prep = await prepareInstagramPublish(tenantId, id);
+  if (!prep.ok) {
+    return { ok: false, errorStatus: prep.errorStatus, error: prep.error };
+  }
+  await setContentStatus(id, tenantId, "publishing");
+  return runInstagramPublish(prep.params);
+}
 
 /**
  * POST /content/:id/publish-instagram
@@ -1051,52 +1172,11 @@ router.post(
     }
     let lockHandedOffToJob = false;
     try {
-    const item = await loadContentItem(id, req.tenantId);
-    if (!item) {
-      res.status(404).json({ error: "Not found" });
+    const prep = await prepareInstagramPublish(req.tenantId, id);
+    if (!prep.ok) {
+      res.status(prep.errorStatus).json({ error: prep.error });
       return;
     }
-
-    if (!item.imagePath) {
-      res.status(400).json({
-        error: "Instagram posts require an image. Add an image to this content first.",
-      });
-      return;
-    }
-
-    // Re-check the stored credentials against Meta right before publishing so an
-    // expired/revoked token is caught here (and flipped to "failed") instead of
-    // producing a confusing raw publish error. Facebook first, since Instagram
-    // publishing rides on the Page token.
-    try {
-      await reverifyFacebook(req.tenantId, { force: true });
-      await reverifyInstagram(req.tenantId, { force: true });
-    } catch (err) {
-      req.log.error({ err }, "Instagram pre-publish re-verify failed");
-    }
-    const [ig, fb] = await Promise.all([
-      getTenantCredentials<InstagramCredentials>(req.tenantId, "instagram"),
-      getTenantCredentials<FacebookCredentials>(req.tenantId, "facebook"),
-    ]);
-    if (!ig || !ig.verified) {
-      res.status(400).json({
-        error:
-          "Instagram is not connected or its connection is no longer valid. Reconnect your Instagram Business account on the Accounts page and try again.",
-      });
-      return;
-    }
-    if (!fb || !fb.verified) {
-      res.status(400).json({
-        error:
-          "Instagram publishing needs a valid Facebook Page connection, but the Page token is no longer valid. Reconnect Facebook and try again.",
-      });
-      return;
-    }
-
-    const pageToken = fb.creds.pageAccessToken;
-    const igUserId = ig.creds.igUserId;
-    const caption = buildPostText(item.title, item.caption);
-    const imagePath = item.imagePath;
 
     // Instagram fetches the image asynchronously, so the container can stay
     // IN_PROGRESS for tens of seconds — long enough to risk proxy/client
@@ -1116,19 +1196,13 @@ router.post(
       });
       return;
     }
-    const previousStatus = item.status;
     await setContentStatus(id, req.tenantId, "publishing");
 
-    const tenantId = req.tenantId;
     const accepted = enqueueBackgroundJob(() =>
-      runInstagramPublish({
-        id,
-        tenantId,
-        igUserId,
-        pageToken,
-        imagePath,
-        caption,
-      }).finally(releasePublishLock),
+      runInstagramPublish(prep.params).then(
+        () => undefined,
+        () => undefined,
+      ).finally(releasePublishLock),
     );
     if (accepted) lockHandedOffToJob = true;
     if (!accepted) {
@@ -1140,8 +1214,8 @@ router.post(
         await setContentStatus(
           id,
           req.tenantId,
-          previousStatus,
-          item.failureReason ?? null,
+          prep.previousStatus,
+          prep.previousFailureReason,
         );
       } catch (err) {
         req.log.error(

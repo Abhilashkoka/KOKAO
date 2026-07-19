@@ -4090,7 +4090,8 @@ export const ListSchedulesResponseItem = zod.object({
   "contentItemId": zod.number(),
   "platform": zod.string(),
   "scheduledAt": zod.coerce.date(),
-  "status": zod.string(),
+  "status": zod.enum(['pending', 'processing', 'published', 'failed', 'cancelled']).describe('pending = waiting for the scheduled time; processing = the background publisher is publishing it right now; published = automatically published; failed = the automatic publish failed (see failureReason); cancelled = called off by the user.'),
+  "failureReason": zod.string().nullish().describe('Why the automatic publish failed, when status is failed.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -4114,7 +4115,8 @@ export const CreateScheduleResponse = zod.object({
   "contentItemId": zod.number(),
   "platform": zod.string(),
   "scheduledAt": zod.coerce.date(),
-  "status": zod.string(),
+  "status": zod.enum(['pending', 'processing', 'published', 'failed', 'cancelled']).describe('pending = waiting for the scheduled time; processing = the background publisher is publishing it right now; published = automatically published; failed = the automatic publish failed (see failureReason); cancelled = called off by the user.'),
+  "failureReason": zod.string().nullish().describe('Why the automatic publish failed, when status is failed.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -4141,7 +4143,8 @@ export const UpdateScheduleResponse = zod.object({
   "contentItemId": zod.number(),
   "platform": zod.string(),
   "scheduledAt": zod.coerce.date(),
-  "status": zod.string(),
+  "status": zod.enum(['pending', 'processing', 'published', 'failed', 'cancelled']).describe('pending = waiting for the scheduled time; processing = the background publisher is publishing it right now; published = automatically published; failed = the automatic publish failed (see failureReason); cancelled = called off by the user.'),
+  "failureReason": zod.string().nullish().describe('Why the automatic publish failed, when status is failed.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })

@@ -23,6 +23,8 @@ import { isSuperadminEmail } from "./superadmins";
 
 export const SOCIAL_CONNECTION_FAILED = "social_connection_failed";
 export const PUBLISH_INTERRUPTED = "publish_interrupted";
+export const SCHEDULED_POST_PUBLISHED = "scheduled_post_published";
+export const SCHEDULED_PUBLISH_FAILED = "scheduled_publish_failed";
 export const SEAT_REQUEST_DECIDED = "seat_request_decided";
 export const SEAT_REQUEST_SUBMITTED = "seat_request_submitted";
 
@@ -815,6 +817,95 @@ export async function notifyPublishInterrupted(
 }
 
 /**
+ * Tell a tenant their scheduled post went out. In-app only (routine good
+ * news; the effective settings for the type still apply). Never throws.
+ */
+export async function notifyScheduledPostPublished(
+  tenantId: number,
+  title: string,
+  platform: string,
+): Promise<void> {
+  try {
+    const effective = await getEffectiveSetting(
+      tenantId,
+      SCHEDULED_POST_PUBLISHED,
+    );
+    if (!effective.enabled) return;
+    await db.insert(notificationsTable).values({
+      tenantId,
+      type: SCHEDULED_POST_PUBLISHED,
+      platform,
+      title: "Scheduled post published",
+      message: `"${title}" was published to ${platformLabel(platform)} as scheduled.`,
+      linkUrl: "/library",
+      inApp: effective.inApp,
+    });
+  } catch (err) {
+    logger.error(
+      { err, tenantId },
+      "Failed to record scheduled-post-published notification",
+    );
+  }
+}
+
+/**
+ * Tell a tenant a scheduled publish failed and needs their attention. In-app
+ * plus best-effort email (per the tenant's effective settings) — the whole
+ * point of scheduling is that the user is away when it runs, so a silent
+ * in-app-only failure could go unseen for days. Never throws.
+ */
+export async function notifyScheduledPublishFailed(
+  tenantId: number,
+  clerkUserId: string | null,
+  title: string,
+  platform: string,
+  reason: string,
+): Promise<void> {
+  try {
+    const effective = await getEffectiveSetting(
+      tenantId,
+      SCHEDULED_PUBLISH_FAILED,
+    );
+    if (!effective.enabled) return;
+
+    const message = `"${title}" could not be published to ${platformLabel(platform)} as scheduled. ${reason}`;
+    await db.insert(notificationsTable).values({
+      tenantId,
+      type: SCHEDULED_PUBLISH_FAILED,
+      platform,
+      title: "Scheduled publish failed",
+      message,
+      linkUrl: "/library",
+      inApp: effective.inApp,
+    });
+
+    if (effective.email && clerkUserId) {
+      try {
+        const email = await fetchVerifiedEmail(clerkUserId);
+        if (email) {
+          await sendEmail({
+            to: email,
+            subject: "A scheduled post could not be published",
+            text: message,
+            html: `<p>${escapeHtml(message)}</p>`,
+          });
+        }
+      } catch (err) {
+        logger.error(
+          { err, tenantId },
+          "Failed to email scheduled-publish-failed alert",
+        );
+      }
+    }
+  } catch (err) {
+    logger.error(
+      { err, tenantId },
+      "Failed to record scheduled-publish-failed notification",
+    );
+  }
+}
+
+/**
  * Alert every superadmin that the background connection sweep has stopped
  * running (its last recorded run is older than the stale threshold). This is
  * an operational alert for platform admins, NOT a tenant-facing notification.
@@ -881,15 +972,23 @@ export async function notifySweepStalled(
       const effective = await getEffectiveSetting(tenant.id, SWEEP_STALLED);
       if (!effective.enabled) continue;
 
-      await db.insert(notificationsTable).values({
-        tenantId: tenant.id,
-        type: SWEEP_STALLED,
-        platform: null,
-        title: "Background safety check stalled",
-        message,
-        linkUrl: "/admin",
-        inApp: effective.inApp,
-      });
+      // Insert is race-free: a partial unique index allows at most one
+      // unread sweep_stalled row per tenant, so a concurrent watchdog check
+      // simply no-ops here instead of double-alerting.
+      const inserted = await db
+        .insert(notificationsTable)
+        .values({
+          tenantId: tenant.id,
+          type: SWEEP_STALLED,
+          platform: null,
+          title: "Background safety check stalled",
+          message,
+          linkUrl: "/admin",
+          inApp: effective.inApp,
+        })
+        .onConflictDoNothing()
+        .returning({ id: notificationsTable.id });
+      if (inserted.length === 0) continue;
 
       // Fresh alert only (past the dedupe guard) -> best-effort email,
       // gated on this admin's own email-channel choice.

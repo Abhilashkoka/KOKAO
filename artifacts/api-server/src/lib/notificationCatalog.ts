@@ -73,6 +73,18 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
       "One workspace's social connection check has failed many sweeps in a row — a chronic breakage worth reviewing. Only platform admins receive this.",
   },
   {
+    type: "scheduled_post_published",
+    label: "Scheduled posts published",
+    description:
+      "A post you scheduled was automatically published to the platform at its scheduled time.",
+  },
+  {
+    type: "scheduled_publish_failed",
+    label: "Scheduled publish failures",
+    description:
+      "A post you scheduled could not be published automatically and needs your attention.",
+  },
+  {
     type: "publish_interrupted",
     label: "Interrupted publishes",
     description:
