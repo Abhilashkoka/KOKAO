@@ -1192,6 +1192,99 @@ describe("sweep history trimmed alerts", () => {
   });
 });
 
+describe("sweep failure-ratio alerts", () => {
+  const ratioOutcome = (accountsChecked: number, errorCount: number) => ({
+    accountsChecked,
+    errorCount,
+    lastError: errorCount > 0 ? "boom" : null,
+    recentFailures: [],
+    failStreaks: {},
+    droppedStreaks: 0,
+  });
+
+  it("alerts a superadmin above the threshold, dedupes while the outage continues, and resolves below it", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const regular = await createTenant();
+    try {
+      // 50 of 60 checks failing (83%) is above the 50% threshold and past
+      // the minimum sample size — one superadmin alert fires.
+      await recordSweepRun(new Date(), 500, ratioOutcome(60, 50));
+      let adminNotifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_fail_ratio",
+      );
+      expect(adminNotifs).toHaveLength(1);
+      expect(adminNotifs[0]!.readAt).toBeNull();
+      expect(adminNotifs[0]!.linkUrl).toBe("/admin");
+      expect(adminNotifs[0]!.message).toContain("50 of 60");
+      expect(adminNotifs[0]!.message).toContain("83%");
+
+      // Regular tenants never see this operational alert.
+      const regularNotifs = (await getNotifications(regular.tenantId)).filter(
+        (n) => n.type === "sweep_fail_ratio",
+      );
+      expect(regularNotifs).toHaveLength(0);
+
+      // Outage continues: no new row, no re-email; the unread banner is
+      // refreshed in place with the latest counts.
+      const emailLookupsBefore = vi.mocked(fetchVerifiedEmail).mock.calls
+        .length;
+      await recordSweepRun(new Date(), 500, ratioOutcome(60, 55));
+      expect(vi.mocked(fetchVerifiedEmail).mock.calls.length).toBe(
+        emailLookupsBefore,
+      );
+      adminNotifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_fail_ratio",
+      );
+      expect(adminNotifs).toHaveLength(1);
+      expect(adminNotifs[0]!.readAt).toBeNull();
+      expect(adminNotifs[0]!.message).toContain("55 of 60");
+
+      // A run with too small a sample carries no signal: it neither alerts
+      // nor resolves — the unread banner stays.
+      await recordSweepRun(new Date(), 500, ratioOutcome(3, 3));
+      adminNotifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_fail_ratio",
+      );
+      expect(adminNotifs).toHaveLength(1);
+      expect(adminNotifs[0]!.readAt).toBeNull();
+
+      // A run below the threshold resolves the alert (marks it read)...
+      await recordSweepRun(new Date(), 500, ratioOutcome(60, 2));
+      adminNotifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_fail_ratio",
+      );
+      expect(adminNotifs).toHaveLength(1);
+      expect(adminNotifs[0]!.readAt).not.toBeNull();
+
+      // ...and re-arms the dedupe: a later mass outage alerts afresh.
+      await recordSweepRun(new Date(), 500, ratioOutcome(20, 15));
+      adminNotifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_fail_ratio",
+      );
+      expect(adminNotifs).toHaveLength(2);
+      const unread = adminNotifs.filter((n) => n.readAt === null);
+      expect(unread).toHaveLength(1);
+      expect(unread[0]!.message).toContain("15 of 20");
+    } finally {
+      await deleteTenant(admin.tenantId);
+      await deleteTenant(regular.tenantId);
+    }
+  });
+
+  it("never alerts when a high ratio comes from too few checks", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      await recordSweepRun(new Date(), 500, ratioOutcome(3, 2));
+      const adminNotifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_fail_ratio",
+      );
+      expect(adminNotifs).toHaveLength(0);
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
+});
+
 describe("triggerSweepNow", () => {
   it("returns immediately, runs in the background, and respects the overlap guard", async () => {
     // First trigger starts a background sweep synchronously.

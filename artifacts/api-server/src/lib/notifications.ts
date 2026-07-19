@@ -1328,6 +1328,151 @@ export async function notifySweepHistoryTrimmed(
   }
 }
 
+export const SWEEP_FAIL_RATIO = "sweep_fail_ratio";
+
+/**
+ * Alert every superadmin that a completed sweep run's failure ratio
+ * (errorCount / accountsChecked) crossed the mass-outage threshold. Unlike
+ * sweep_history_trimmed this catches platform-wide outages of ANY size —
+ * e.g. 50 of 60 checks failing on a modest install never overflows the
+ * fail-streak cap, yet is clearly a mass outage. Like the other sweep alerts
+ * this is an operational platform-admin alert in the notification catalog:
+ * each superadmin's own effective settings for `sweep_fail_ratio` decide the
+ * channels (defaults: in-app + best-effort email).
+ *
+ * Deduped per recipient on an existing UNREAD sweep_fail_ratio row — while
+ * the outage continues run after run, the unread row's message is refreshed
+ * in place (no stacked banners, no re-emails). The dedupe re-arms once a run
+ * completes below the threshold (see resolveSweepFailRatioNotifications).
+ * Never throws.
+ */
+export async function notifySweepFailRatio(
+  errorCount: number,
+  accountsChecked: number,
+  thresholdPercent: number,
+): Promise<void> {
+  try {
+    const candidates = await db
+      .select({
+        id: tenantsTable.id,
+        clerkUserId: tenantsTable.clerkUserId,
+        email: tenantsTable.email,
+        isSuperadmin: tenantsTable.isSuperadmin,
+      })
+      .from(tenantsTable)
+      .where(
+        or(eq(tenantsTable.isSuperadmin, true), isNotNull(tenantsTable.email)),
+      );
+    const recipients = candidates.filter(
+      (t) => t.isSuperadmin || isSuperadminEmail(t.email),
+    );
+    if (recipients.length === 0) return;
+
+    const percent =
+      accountsChecked > 0
+        ? Math.round((errorCount / accountsChecked) * 100)
+        : 0;
+    const title = "Mass connection outage suspected";
+    const message =
+      `The latest connection safety sweep saw ${errorCount} of ` +
+      `${accountsChecked} connection checks fail (${percent}%), above the ` +
+      `${thresholdPercent}% mass-outage threshold. This usually means a ` +
+      `platform-wide outage is breaking many workspaces' connections at ` +
+      `once — review the admin dashboard now.`;
+
+    for (const recipient of recipients) {
+      try {
+        const existing = await db
+          .select({ id: notificationsTable.id })
+          .from(notificationsTable)
+          .where(
+            and(
+              eq(notificationsTable.tenantId, recipient.id),
+              eq(notificationsTable.type, SWEEP_FAIL_RATIO),
+              isNull(notificationsTable.readAt),
+            ),
+          )
+          .limit(1);
+        if (existing.length > 0) {
+          // Outage continues — refresh the unread banner with the latest
+          // counts instead of stacking rows or re-emailing.
+          await db
+            .update(notificationsTable)
+            .set({ title, message, createdAt: new Date() })
+            .where(eq(notificationsTable.id, existing[0].id));
+          continue;
+        }
+
+        const effective = await getEffectiveSetting(
+          recipient.id,
+          SWEEP_FAIL_RATIO,
+        );
+        if (!effective.enabled) continue;
+
+        await db.insert(notificationsTable).values({
+          tenantId: recipient.id,
+          type: SWEEP_FAIL_RATIO,
+          platform: null,
+          title,
+          message,
+          linkUrl: "/admin",
+          inApp: effective.inApp,
+        });
+
+        // Fresh alert only (past the dedupe guard) -> best-effort email,
+        // gated on this admin's own email-channel choice.
+        try {
+          if (effective.email) {
+            const email = await fetchVerifiedEmail(recipient.clerkUserId);
+            if (email) {
+              await sendEmail({
+                to: email,
+                subject: title,
+                text: message,
+                html: `<p>${escapeHtml(message)}</p>`,
+              });
+            }
+          }
+        } catch (err) {
+          logger.error(
+            { err, recipientTenantId: recipient.id },
+            "Failed to email sweep-fail-ratio alert",
+          );
+        }
+      } catch (err) {
+        logger.error(
+          { err, recipientTenantId: recipient.id },
+          "Failed to notify a superadmin about a sweep failure-ratio outage",
+        );
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "Failed to record sweep-fail-ratio notifications");
+  }
+}
+
+/**
+ * Mark every unread sweep_fail_ratio notification read once a sweep run
+ * completes below the failure-ratio threshold. This both clears the banner
+ * and re-arms the dedupe so a future mass outage produces a fresh alert.
+ * Never throws.
+ */
+export async function resolveSweepFailRatioNotifications(): Promise<void> {
+  try {
+    await db
+      .update(notificationsTable)
+      .set({ readAt: new Date() })
+      .where(
+        and(
+          eq(notificationsTable.type, SWEEP_FAIL_RATIO),
+          isNull(notificationsTable.readAt),
+        ),
+      );
+  } catch (err) {
+    logger.error({ err }, "Failed to resolve sweep-fail-ratio notifications");
+  }
+}
+
 /**
  * Mark every unread sweep_history_trimmed notification read once a sweep run
  * completes with no trimming. This both clears the banner and re-arms the

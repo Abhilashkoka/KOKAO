@@ -88,6 +88,13 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     adminOnly: true,
   },
   {
+    type: "sweep_fail_ratio",
+    label: "Widespread connection failures (platform admins)",
+    description:
+      "A large share of connection checks failed in a single safety sweep — likely a platform-wide outage, even if the failure history did not overflow. Only platform admins receive this.",
+    adminOnly: true,
+  },
+  {
     type: "scheduled_post_published",
     label: "Scheduled posts published",
     description:

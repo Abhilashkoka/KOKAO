@@ -22,9 +22,11 @@ import {
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import {
+  notifySweepFailRatio,
   notifySweepFailStreak,
   notifySweepHistoryTrimmed,
   notifySweepStalled,
+  resolveSweepFailRatioNotifications,
   resolveSweepFailStreakNotifications,
   resolveSweepHistoryTrimmedNotifications,
   resolveSweepStalledNotifications,
@@ -164,6 +166,22 @@ export function capFailStreaks(streaks: Record<string, SweepStreak>): {
 export const SWEEP_FAIL_STREAK_ALERT_THRESHOLD = (() => {
   const raw = Number(process.env.SWEEP_FAIL_STREAK_ALERT_THRESHOLD);
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 4;
+})();
+
+/** A completed run whose failure ratio (errorCount / accountsChecked) is at
+ * or above this fraction looks like a platform-wide outage even when the
+ * fail-streak history never overflows its cap. Overridable for tests/ops. */
+export const SWEEP_FAIL_RATIO_ALERT_THRESHOLD = (() => {
+  const raw = Number(process.env.SWEEP_FAIL_RATIO_ALERT_THRESHOLD);
+  return Number.isFinite(raw) && raw > 0 && raw <= 1 ? raw : 0.5;
+})();
+
+/** Minimum accountsChecked before the failure-ratio alert can fire — a tiny
+ * install where 2 of 3 checks fail is not a mass outage signal.
+ * Overridable for tests/ops. */
+export const SWEEP_FAIL_RATIO_MIN_CHECKS = (() => {
+  const raw = Number(process.env.SWEEP_FAIL_RATIO_MIN_CHECKS);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 10;
 })();
 
 /** Outcome of one full sweep, persisted for admin-dashboard visibility. */
@@ -453,6 +471,25 @@ export async function recordSweepRun(
     );
   } else {
     await resolveSweepHistoryTrimmedNotifications();
+  }
+  // Ratio-based mass-outage escalation: catches platform-wide outages of any
+  // size (e.g. 50 of 60 checks failing) that never overflow the fail-streak
+  // cap. Requires a minimum sample so tiny installs don't false-positive.
+  // Deduped while the outage continues; a run below the threshold resolves
+  // the alert and re-arms the dedupe. Runs that checked too few accounts
+  // (including bookkeeping-failure runs with accountsChecked=0) neither
+  // alert nor resolve — they carry no signal either way.
+  if (outcome.accountsChecked >= SWEEP_FAIL_RATIO_MIN_CHECKS) {
+    const ratio = outcome.errorCount / outcome.accountsChecked;
+    if (ratio >= SWEEP_FAIL_RATIO_ALERT_THRESHOLD) {
+      await notifySweepFailRatio(
+        outcome.errorCount,
+        outcome.accountsChecked,
+        Math.round(SWEEP_FAIL_RATIO_ALERT_THRESHOLD * 100),
+      );
+    } else {
+      await resolveSweepFailRatioNotifications();
+    }
   }
 }
 
