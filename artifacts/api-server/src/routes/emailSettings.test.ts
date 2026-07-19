@@ -743,6 +743,58 @@ describe("POST /admin/email-settings/test", () => {
     }
   });
 
+  it("reading the audit trail finalizes stale pending rows even when no further test emails are sent", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(admin.clerkUserId, "admin@example.com");
+
+      // Simulate a crash between reserve and finalize: a "pending" audit row
+      // whose window has already expired. No further POST /test happens.
+      const stale = new Date(Date.now() - 10 * 60_000);
+      const [abandoned] = await db
+        .insert(adminAuditLogsTable)
+        .values({
+          action: "email_test_send",
+          actorTenantId: admin.tenantId,
+          actorEmail: "admin@example.com",
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: null,
+          newValue: JSON.stringify({
+            recipient: "victim@example.com",
+            outcome: "pending",
+            error: null,
+          }),
+          createdAt: stale,
+        })
+        .returning({ id: adminAuditLogsTable.id });
+
+      // Merely READING the trail must sweep the stale row.
+      const res = await request(app)
+        .get("/api/admin/audit-logs")
+        .query({ action: "email_test_send", limit: 200 });
+      expect(res.status).toBe(200);
+
+      const served = (
+        res.body.items as Array<{ id: number; newValue: string | null }>
+      ).find((i) => i.id === abandoned.id);
+      expect(served).toBeDefined();
+      expect(JSON.parse(served!.newValue!)).toMatchObject({
+        recipient: "victim@example.com",
+        outcome: "abandoned",
+      });
+
+      // And the rewrite is persisted, not just presentational.
+      const [staleRow] = await db
+        .select({ newValue: adminAuditLogsTable.newValue })
+        .from(adminAuditLogsTable)
+        .where(eq(adminAuditLogsTable.id, abandoned.id));
+      expect(JSON.parse(staleRow.newValue!).outcome).toBe("abandoned");
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
   it("in-window pending reservations still count against the cap (throttle unchanged)", async () => {
     const admin = await createTenant({ isSuperadmin: true });
     try {

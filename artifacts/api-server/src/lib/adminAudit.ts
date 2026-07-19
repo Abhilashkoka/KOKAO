@@ -1,4 +1,5 @@
 import { db, adminAuditLogsTable } from "@workspace/db";
+import { and, eq, lte, like, sql } from "drizzle-orm";
 
 export type AdminAuditAction =
   | "plan_change"
@@ -53,4 +54,43 @@ export async function recordAdminAction(
     oldValue: input.oldValue,
     newValue: input.newValue,
   });
+}
+
+/**
+ * Per-actor throttle window for test emails (see routes/emailSettings.ts).
+ * Lives here because both the test-send reservation path and the audit-trail
+ * read path use it to decide when a "pending" reservation is stale.
+ */
+export const TEST_EMAIL_WINDOW_MS = 60_000;
+
+/**
+ * Finalize ABANDONED test-email reservations: if a request crashed or was
+ * aborted between reserving a throttle slot (a provisional `email_test_send`
+ * row with outcome "pending") and writing the real outcome, its row would
+ * otherwise linger as "pending" forever in the append-only trail and mislead
+ * admin views. Rows older than the throttle window no longer count against
+ * the cap, so rewriting them to "abandoned" cannot change throttle behavior —
+ * it only makes the trail honest.
+ *
+ * Safe to run from any caller (row updates take row locks and never touch
+ * in-window rows). Accepts an optional transaction handle so the reservation
+ * path can run it inside its serialized transaction.
+ */
+export async function sweepAbandonedEmailTestSends(
+  executor: Pick<typeof db, "update"> = db,
+  now = Date.now(),
+): Promise<void> {
+  const cutoff = new Date(now - TEST_EMAIL_WINDOW_MS);
+  await executor
+    .update(adminAuditLogsTable)
+    .set({
+      newValue: sql`replace(${adminAuditLogsTable.newValue}, '"outcome":"pending"', '"outcome":"abandoned"')`,
+    })
+    .where(
+      and(
+        eq(adminAuditLogsTable.action, "email_test_send"),
+        lte(adminAuditLogsTable.createdAt, cutoff),
+        like(adminAuditLogsTable.newValue, '%"outcome":"pending"%'),
+      ),
+    );
 }

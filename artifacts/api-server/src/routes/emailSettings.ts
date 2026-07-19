@@ -5,7 +5,7 @@ import {
   adminAuditLogsTable,
   type EmailSettings,
 } from "@workspace/db";
-import { and, eq, gt, lte, like, notLike, count, sql } from "drizzle-orm";
+import { and, eq, gt, notLike, count, sql } from "drizzle-orm";
 import {
   AdminUpdateEmailSettingsBody,
   AdminSendTestEmailBody,
@@ -18,7 +18,11 @@ import {
   isEncryptionConfigured,
 } from "../lib/secretCrypto";
 import { isConnectorEmailAvailable, sendTestEmail } from "../lib/email";
-import { recordAdminAction } from "../lib/adminAudit";
+import {
+  recordAdminAction,
+  sweepAbandonedEmailTestSends,
+  TEST_EMAIL_WINDOW_MS,
+} from "../lib/adminAudit";
 
 /**
  * Auditable summary of an email-settings row: the pause switch, from address,
@@ -57,7 +61,7 @@ function auditSummary(row: EmailSettings | undefined) {
  * so the throttle itself is testable.
  */
 export const TEST_EMAIL_LIMIT = 3;
-export const TEST_EMAIL_WINDOW_MS = 60_000;
+export { TEST_EMAIL_WINDOW_MS };
 
 /**
  * Namespace (classid) for the per-actor advisory lock that serializes the
@@ -90,26 +94,13 @@ async function reserveTestSend(
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(${TEST_EMAIL_LOCK_NS}, ${actorTenantId})`,
     );
-    // Housekeeping: finalize ABANDONED reservations. If a previous request
-    // crashed or was aborted between reserving a slot and writing the real
-    // outcome, its "pending" row would otherwise linger forever in the
-    // append-only trail and mislead admin views. Rows older than the window
-    // no longer count against the cap, so rewriting them to "abandoned"
-    // cannot change throttle behavior — it only makes the trail honest.
-    // Swept for ALL actors (any request cleans up), which is safe: row
-    // updates take row locks and never touch in-window rows.
-    await tx
-      .update(adminAuditLogsTable)
-      .set({
-        newValue: sql`replace(${adminAuditLogsTable.newValue}, '"outcome":"pending"', '"outcome":"abandoned"')`,
-      })
-      .where(
-        and(
-          eq(adminAuditLogsTable.action, "email_test_send"),
-          lte(adminAuditLogsTable.createdAt, cutoff),
-          like(adminAuditLogsTable.newValue, '%"outcome":"pending"%'),
-        ),
-      );
+    // Housekeeping: finalize ABANDONED reservations (see the shared helper
+    // for the rationale). Swept for ALL actors (any request cleans up),
+    // which is safe: row updates take row locks and never touch in-window
+    // rows. The same sweep also runs when the audit trail is read, so a
+    // crashed attempt never looks "pending" forever even if no further test
+    // emails are ever sent.
+    await sweepAbandonedEmailTestSends(tx, now);
     const [row] = await tx
       .select({ value: count() })
       .from(adminAuditLogsTable)

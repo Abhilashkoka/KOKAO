@@ -13,7 +13,10 @@ import {
 } from "@workspace/db";
 import { eq, sql, desc, gte, lte, and, or, ilike, inArray } from "drizzle-orm";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
-import { recordAdminAction } from "../lib/adminAudit";
+import {
+  recordAdminAction,
+  sweepAbandonedEmailTestSends,
+} from "../lib/adminAudit";
 import {
   ASR_PROVIDERS,
   getProviderDef,
@@ -1589,6 +1592,16 @@ router.get("/admin/audit-logs", async (req: Request, res: Response) => {
   }
   const where = parsed.where;
 
+  // Housekeeping: finalize stale "pending" test-email reservations before
+  // serving the trail, so a crashed test-send attempt never appears as
+  // in-progress forever even if no further test emails are sent. Best-effort:
+  // a sweep failure must never block reading the audit trail.
+  try {
+    await sweepAbandonedEmailTestSends();
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to sweep stale test-email rows");
+  }
+
   const [rows, [{ count }]] = await Promise.all([
     db
       .select()
@@ -1665,6 +1678,14 @@ router.get(
       return;
     }
     const where = parsed.where;
+
+    // Same housekeeping as GET /admin/audit-logs: never export a stale
+    // "pending" test-email reservation as in-progress. Best-effort.
+    try {
+      await sweepAbandonedEmailTestSends();
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to sweep stale test-email rows");
+    }
 
     const stamp = new Date().toISOString().slice(0, 10);
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
