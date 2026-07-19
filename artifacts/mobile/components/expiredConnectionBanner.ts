@@ -15,5 +15,9 @@ export function buildExpiredNames(flags: ExpiredFlags): string[] {
 export function buildExpiredBannerText(names: string[]): string | null {
   if (names.length === 0) return null;
   const plural = names.length > 1;
-  return `Your ${names.join(" and ")} connection${plural ? "s" : ""} expired. Reconnect ${plural ? "them" : "it"} from KOKAO on the web.`;
+  const joined =
+    names.length <= 2
+      ? names.join(" and ")
+      : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `Your ${joined} connection${plural ? "s" : ""} expired. Reconnect ${plural ? "them" : "it"} from KOKAO on the web.`;
 }

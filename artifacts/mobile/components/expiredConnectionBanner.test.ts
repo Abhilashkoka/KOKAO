@@ -52,9 +52,9 @@ describe("buildExpiredBannerText", () => {
     );
   });
 
-  it("joins three expired platforms with 'and' separators", () => {
+  it("joins three expired platforms as 'A, B and C'", () => {
     expect(buildExpiredBannerText(["LinkedIn", "X", "Threads"])).toBe(
-      "Your LinkedIn and X and Threads connections expired. Reconnect them from KOKAO on the web.",
+      "Your LinkedIn, X and Threads connections expired. Reconnect them from KOKAO on the web.",
     );
   });
 });
