@@ -54,6 +54,8 @@ import {
   readObjectState,
   updateObject,
   createCampaign,
+  readAdAccount,
+  MetaAdsApiError,
 } from "../lib/metaAdsApi";
 import { encryptJson } from "../lib/secretCrypto";
 import { requireTenant } from "../middlewares/requireTenant";
@@ -65,6 +67,7 @@ import { tenantsTable } from "@workspace/db";
 const mockRead = vi.mocked(readObjectState);
 const mockUpdate = vi.mocked(updateObject);
 const mockCreate = vi.mocked(createCampaign);
+const mockReadAdAccount = vi.mocked(readAdAccount);
 
 function createAdsTestApp(): Express {
   const app = express();
@@ -147,6 +150,11 @@ beforeEach(async () => {
   mockUpdate.mockReset();
   mockCreate.mockReset();
   mockRead.mockResolvedValue({ ...REMOTE_STATE });
+  mockReadAdAccount.mockReset();
+  mockReadAdAccount.mockResolvedValue({
+    name: "Test Ad Account",
+    currency: "INR",
+  });
   mockUpdate.mockResolvedValue(undefined as never);
   mockCreate.mockResolvedValue("camp_new_1");
   // The module switch defaults to enabled when no row exists; force-enable to
@@ -847,6 +855,64 @@ describe("ad set and ad drafts", () => {
         name: "New ad set",
       });
       expect(res.status).toBe(400);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("GET /ads/connections auto re-verify", () => {
+  it("flips a stale connection with a rejected token to failed on page load", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertMetaAdConnection(tenant.tenantId); // verifiedAt null => stale
+      mockReadAdAccount.mockRejectedValue(
+        new MetaAdsApiError("token expired", 401, true),
+      );
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/connections");
+      expect(res.status).toBe(200);
+      const meta = res.body.find(
+        (c: { platform: string }) => c.platform === "meta",
+      );
+      expect(meta.verifyStatus).toBe("failed");
+      expect(mockReadAdAccount).toHaveBeenCalledTimes(1);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("skips the re-check when the connection was verified recently", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      await db
+        .update(adAccountConnectionsTable)
+        .set({ verifiedAt: new Date() })
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/connections");
+      expect(res.status).toBe(200);
+      expect(mockReadAdAccount).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("keeps a verified status when the re-check fails transiently", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertMetaAdConnection(tenant.tenantId);
+      mockReadAdAccount.mockRejectedValue(
+        new MetaAdsApiError("Graph is down", 500, false),
+      );
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/connections");
+      expect(res.status).toBe(200);
+      const meta = res.body.find(
+        (c: { platform: string }) => c.platform === "meta",
+      );
+      expect(meta.verifyStatus).toBe("verified");
     } finally {
       await deleteTenant(tenant.tenantId);
     }
