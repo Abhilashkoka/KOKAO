@@ -1108,6 +1108,75 @@ describe("recordSweepRun", () => {
   });
 });
 
+describe("sweep history trimmed alerts", () => {
+  const runOutcome = (droppedStreaks: number) => ({
+    accountsChecked: 1,
+    errorCount: droppedStreaks > 0 ? 1 : 0,
+    lastError: droppedStreaks > 0 ? "boom" : null,
+    recentFailures: [],
+    failStreaks: {},
+    droppedStreaks,
+  });
+
+  it("alerts a superadmin when a run trims streaks, dedupes while trimming continues, and resolves on a clean run", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const regular = await createTenant();
+    try {
+      // A run that trimmed history fires exactly one superadmin alert.
+      await recordSweepRun(new Date(), 500, runOutcome(7));
+      let adminNotifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_history_trimmed",
+      );
+      expect(adminNotifs).toHaveLength(1);
+      expect(adminNotifs[0]!.readAt).toBeNull();
+      expect(adminNotifs[0]!.linkUrl).toBe("/admin");
+      expect(adminNotifs[0]!.message).toContain("7 failure");
+
+      // Regular tenants never see this operational alert.
+      const regularNotifs = (await getNotifications(regular.tenantId)).filter(
+        (n) => n.type === "sweep_history_trimmed",
+      );
+      expect(regularNotifs).toHaveLength(0);
+
+      // Trimming continues: no new row, no re-email; the unread banner is
+      // refreshed in place with the latest dropped count.
+      const emailLookupsBefore = vi.mocked(fetchVerifiedEmail).mock.calls
+        .length;
+      await recordSweepRun(new Date(), 500, runOutcome(12));
+      expect(vi.mocked(fetchVerifiedEmail).mock.calls.length).toBe(
+        emailLookupsBefore,
+      );
+      adminNotifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_history_trimmed",
+      );
+      expect(adminNotifs).toHaveLength(1);
+      expect(adminNotifs[0]!.readAt).toBeNull();
+      expect(adminNotifs[0]!.message).toContain("12 failure");
+
+      // A clean run resolves the alert (marks it read)...
+      await recordSweepRun(new Date(), 500, runOutcome(0));
+      adminNotifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_history_trimmed",
+      );
+      expect(adminNotifs).toHaveLength(1);
+      expect(adminNotifs[0]!.readAt).not.toBeNull();
+
+      // ...and re-arms the dedupe: a later trim alerts afresh.
+      await recordSweepRun(new Date(), 500, runOutcome(3));
+      adminNotifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_history_trimmed",
+      );
+      expect(adminNotifs).toHaveLength(2);
+      const unread = adminNotifs.filter((n) => n.readAt === null);
+      expect(unread).toHaveLength(1);
+      expect(unread[0]!.message).toContain("3 failure");
+    } finally {
+      await deleteTenant(admin.tenantId);
+      await deleteTenant(regular.tenantId);
+    }
+  });
+});
+
 describe("triggerSweepNow", () => {
   it("returns immediately, runs in the background, and respects the overlap guard", async () => {
     // First trigger starts a background sweep synchronously.

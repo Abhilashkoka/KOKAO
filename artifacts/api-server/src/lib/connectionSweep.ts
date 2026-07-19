@@ -22,8 +22,10 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import {
   notifySweepFailStreak,
+  notifySweepHistoryTrimmed,
   notifySweepStalled,
   resolveSweepFailStreakNotifications,
+  resolveSweepHistoryTrimmedNotifications,
   resolveSweepStalledNotifications,
 } from "./notifications";
 import {
@@ -372,6 +374,18 @@ export async function recordSweepRun(
   // above the threshold (deduped per streak, so a continuing streak stays
   // silent), and clear alerts for streaks that reset so the dedupe re-arms.
   await processFailStreakAlerts(outcome.failStreaks);
+  // Mass-outage escalation: a trimmed fail-streak history means MORE broken
+  // connections than the cap can hold — almost always a platform-wide
+  // outage. Alert superadmins proactively (deduped while trimming
+  // continues); a clean run resolves the alert and re-arms the dedupe.
+  if (outcome.droppedStreaks > 0) {
+    await notifySweepHistoryTrimmed(
+      outcome.droppedStreaks,
+      SWEEP_FAIL_STREAKS_CAP,
+    );
+  } else {
+    await resolveSweepHistoryTrimmedNotifications();
+  }
 }
 
 /**

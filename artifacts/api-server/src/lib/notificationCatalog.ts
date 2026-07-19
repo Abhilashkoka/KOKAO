@@ -81,6 +81,13 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     adminOnly: true,
   },
   {
+    type: "sweep_history_trimmed",
+    label: "Mass connection outages (platform admins)",
+    description:
+      "So many connections failed at once that the safety check's failure history overflowed and was trimmed — usually a platform-wide outage. Only platform admins receive this.",
+    adminOnly: true,
+  },
+  {
     type: "scheduled_post_published",
     label: "Scheduled posts published",
     description:

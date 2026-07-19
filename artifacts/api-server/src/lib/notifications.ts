@@ -1201,6 +1201,152 @@ export async function resolveSweepFailStreakNotifications(
   }
 }
 
+export const SWEEP_HISTORY_TRIMMED = "sweep_history_trimmed";
+
+/**
+ * Alert every superadmin that a sweep run recorded so many simultaneous
+ * connection failures that the persisted fail-streak history overflowed its
+ * cap and was trimmed (droppedStreaks > 0). A trim almost always means a
+ * platform-wide outage, so this surfaces proactively instead of waiting for
+ * an admin to open the dashboard. Like the other sweep alerts this is an
+ * operational platform-admin alert in the notification catalog: each
+ * superadmin's own effective settings for `sweep_history_trimmed` decide the
+ * channels (defaults: in-app + best-effort email).
+ *
+ * Deduped per recipient on an existing UNREAD sweep_history_trimmed row —
+ * while trimming continues run after run, the unread row's message is
+ * refreshed in place (no stacked banners, no re-emails). The dedupe re-arms
+ * once a run completes with no trimming
+ * (see resolveSweepHistoryTrimmedNotifications). Never throws.
+ */
+export async function notifySweepHistoryTrimmed(
+  droppedStreaks: number,
+  cap: number,
+): Promise<void> {
+  try {
+    const candidates = await db
+      .select({
+        id: tenantsTable.id,
+        clerkUserId: tenantsTable.clerkUserId,
+        email: tenantsTable.email,
+        isSuperadmin: tenantsTable.isSuperadmin,
+      })
+      .from(tenantsTable)
+      .where(
+        or(eq(tenantsTable.isSuperadmin, true), isNotNull(tenantsTable.email)),
+      );
+    const recipients = candidates.filter(
+      (t) => t.isSuperadmin || isSuperadminEmail(t.email),
+    );
+    if (recipients.length === 0) return;
+
+    const title = "Mass connection outage suspected";
+    const message =
+      `The latest connection safety sweep recorded more failing connections ` +
+      `than the failure history can hold: ${droppedStreaks} failure ` +
+      `record(s) beyond the ${cap}-entry cap were trimmed. This usually ` +
+      `means a platform-wide outage is breaking many workspaces' ` +
+      `connections at once. The admin dashboard's failure history is ` +
+      `incomplete — review it now.`;
+
+    for (const recipient of recipients) {
+      try {
+        const existing = await db
+          .select({ id: notificationsTable.id })
+          .from(notificationsTable)
+          .where(
+            and(
+              eq(notificationsTable.tenantId, recipient.id),
+              eq(notificationsTable.type, SWEEP_HISTORY_TRIMMED),
+              isNull(notificationsTable.readAt),
+            ),
+          )
+          .limit(1);
+        if (existing.length > 0) {
+          // Still overflowing — refresh the unread banner with the latest
+          // dropped count instead of stacking rows or re-emailing.
+          await db
+            .update(notificationsTable)
+            .set({ title, message, createdAt: new Date() })
+            .where(eq(notificationsTable.id, existing[0].id));
+          continue;
+        }
+
+        const effective = await getEffectiveSetting(
+          recipient.id,
+          SWEEP_HISTORY_TRIMMED,
+        );
+        if (!effective.enabled) continue;
+
+        await db.insert(notificationsTable).values({
+          tenantId: recipient.id,
+          type: SWEEP_HISTORY_TRIMMED,
+          platform: null,
+          title,
+          message,
+          linkUrl: "/admin",
+          inApp: effective.inApp,
+        });
+
+        // Fresh alert only (past the dedupe guard) -> best-effort email,
+        // gated on this admin's own email-channel choice.
+        try {
+          if (effective.email) {
+            const email = await fetchVerifiedEmail(recipient.clerkUserId);
+            if (email) {
+              await sendEmail({
+                to: email,
+                subject: title,
+                text: message,
+                html: `<p>${escapeHtml(message)}</p>`,
+              });
+            }
+          }
+        } catch (err) {
+          logger.error(
+            { err, recipientTenantId: recipient.id },
+            "Failed to email sweep-history-trimmed alert",
+          );
+        }
+      } catch (err) {
+        logger.error(
+          { err, recipientTenantId: recipient.id },
+          "Failed to notify a superadmin about trimmed sweep history",
+        );
+      }
+    }
+  } catch (err) {
+    logger.error(
+      { err },
+      "Failed to record sweep-history-trimmed notifications",
+    );
+  }
+}
+
+/**
+ * Mark every unread sweep_history_trimmed notification read once a sweep run
+ * completes with no trimming. This both clears the banner and re-arms the
+ * dedupe so a future overflow produces a fresh alert. Never throws.
+ */
+export async function resolveSweepHistoryTrimmedNotifications(): Promise<void> {
+  try {
+    await db
+      .update(notificationsTable)
+      .set({ readAt: new Date() })
+      .where(
+        and(
+          eq(notificationsTable.type, SWEEP_HISTORY_TRIMMED),
+          isNull(notificationsTable.readAt),
+        ),
+      );
+  } catch (err) {
+    logger.error(
+      { err },
+      "Failed to resolve sweep-history-trimmed notifications",
+    );
+  }
+}
+
 /**
  * Mark every unread sweep_stalled notification read once the sweep completes
  * a run again. This both clears the banner and re-arms the dedupe so a future
