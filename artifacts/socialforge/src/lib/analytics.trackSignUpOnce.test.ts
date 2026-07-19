@@ -43,16 +43,21 @@ afterEach(() => {
 });
 
 describe("trackSignUpOnce", () => {
-  it("fires sign_up once for a freshly created user and stores the device marker", () => {
+  it("fires sign_up once for a freshly created user and stores the device marker", async () => {
     primeQueue(MAX_QUEUE - 1);
     analytics.trackSignUpOnce("user_fresh", new Date());
-    expect(window.localStorage.getItem(SIGN_UP_KEY)).toBe("user_fresh");
+    // The dedupe marker is committed only after the server accepts the send.
+    await vi.waitFor(() =>
+      expect(window.localStorage.getItem(SIGN_UP_KEY)).toBe("user_fresh"),
+    );
     expect(signUpEventsSent()).toBe(1);
   });
 
-  it("dedupes a second call for the same user id", () => {
+  it("dedupes a second call for the same user id", async () => {
     analytics.trackSignUpOnce("user_dupe", new Date());
-    expect(window.localStorage.getItem(SIGN_UP_KEY)).toBe("user_dupe");
+    await vi.waitFor(() =>
+      expect(window.localStorage.getItem(SIGN_UP_KEY)).toBe("user_dupe"),
+    );
     // Drain the queue (which contains the first sign_up), then reset the spy.
     primeQueue(MAX_QUEUE - 1);
     fetchMock.mockClear();
@@ -64,9 +69,13 @@ describe("trackSignUpOnce", () => {
 
   it("dedupes across module reloads via the localStorage marker (same device)", async () => {
     analytics.trackSignUpOnce("user_reload", new Date());
-    expect(window.localStorage.getItem(SIGN_UP_KEY)).toBe("user_reload");
+    await vi.waitFor(() =>
+      expect(window.localStorage.getItem(SIGN_UP_KEY)).toBe("user_reload"),
+    );
 
-    // Simulate a page reload: fresh module state, same localStorage.
+    // Simulate a page reload: fresh module state, same localStorage. Ignore
+    // the first call's own (delivered) send when counting after the reload.
+    fetchMock.mockClear();
     vi.resetModules();
     analytics = await import("./analytics");
     primeQueue(MAX_QUEUE - 1);
@@ -85,13 +94,16 @@ describe("trackSignUpOnce", () => {
     expect(signUpEventsSent()).toBe(0);
   });
 
-  it("fires for an account created exactly at the freshness boundary", () => {
+  it("fires for an account created exactly at the freshness boundary", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-18T12:00:00Z"));
     analytics.trackSignUpOnce(
       "user_boundary",
       new Date(Date.now() - FRESH_WINDOW_MS),
     );
+    // The marker commits asynchronously after the mocked send resolves; fake
+    // timers don't block microtasks, so drain them explicitly.
+    await vi.advanceTimersByTimeAsync(0);
     expect(window.localStorage.getItem(SIGN_UP_KEY)).toBe("user_boundary");
   });
 
