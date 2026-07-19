@@ -7,6 +7,7 @@ import {
   type HealthCategorySummary,
   type HealthReportOverview,
 } from "@workspace/api-client-react";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,8 @@ import {
   HelpCircle,
   MinusCircle,
   ArrowRight,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -117,17 +120,32 @@ const STATUS_META: Record<
 function FindingRow({ finding }: { finding: HealthCheckFinding }) {
   const meta = STATUS_META[finding.status] ?? STATUS_META.unknown;
   const Icon = meta.icon;
+  // Findings that need attention start open; everything else starts collapsed.
+  const [open, setOpen] = useState(finding.status === "fail");
+  const Chevron = open ? ChevronDown : ChevronRight;
   return (
     <div
-      className="flex items-start gap-3 py-3 border-b border-border last:border-b-0"
+      className="py-3 border-b border-border last:border-b-0"
       data-testid={`finding-${finding.id}`}
     >
-      <Icon className={`h-5 w-5 mt-0.5 shrink-0 ${meta.className}`} />
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium">{finding.title}</span>
-          <span className="text-xs text-muted-foreground">{meta.label}</span>
-        </div>
+      <button
+        type="button"
+        className="flex w-full items-start gap-3 text-left"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        data-testid={`finding-toggle-${finding.id}`}
+      >
+        <Icon className={`h-5 w-5 mt-0.5 shrink-0 ${meta.className}`} />
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="font-medium">{finding.title}</span>
+            <span className="text-xs text-muted-foreground">{meta.label}</span>
+          </span>
+        </span>
+        <Chevron className="h-4 w-4 mt-1 shrink-0 text-muted-foreground" />
+      </button>
+      {open && (
+      <div className="min-w-0 flex-1 pl-8">
         <p className="text-sm text-muted-foreground mt-0.5">{finding.explanation}</p>
         {finding.evidence.length > 0 && (
           <ul className="text-xs text-muted-foreground mt-1 list-disc pl-4 space-y-0.5">
@@ -149,6 +167,7 @@ function FindingRow({ finding }: { finding: HealthCheckFinding }) {
           </p>
         )}
       </div>
+      )}
     </div>
   );
 }

@@ -282,14 +282,14 @@ function connectionChecks(data: AuditData): HealthCheckResult[] {
         actionPath: "/accounts",
       }),
     );
-  } else if (verified.length > 0) {
+  } else if (verified.length > 0 && untested.length === 0) {
     out.push(
       check({
         id: "connections_verified",
         category: "connections",
         title: "Connections verified and healthy",
         status: "pass",
-        explanation: "Every tested connection passed its last automatic check.",
+        explanation: "Every connection passed its last automatic check.",
         evidence: verified.map(
           (a) => `${a.platform}: verified${a.verifiedAt ? ` on ${fmtDate(a.verifiedAt)}` : ""}`,
         ),
@@ -302,7 +302,10 @@ function connectionChecks(data: AuditData): HealthCheckResult[] {
         category: "connections",
         title: "Connections verified and healthy",
         status: "unknown",
-        explanation: `${untested.length} connection${untested.length === 1 ? " has" : "s have"} not been automatically tested yet.`,
+        explanation:
+          verified.length > 0
+            ? `${verified.length} connection${verified.length === 1 ? "" : "s"} verified, but ${untested.length} ${untested.length === 1 ? "has" : "have"} not been automatically tested yet.`
+            : `${untested.length} connection${untested.length === 1 ? " has" : "s have"} not been automatically tested yet.`,
         recommendation: "Open the Accounts page to trigger a verification.",
         actionPath: "/accounts",
       }),

@@ -31,6 +31,7 @@ import {
   db,
   healthReportsTable,
   tenantMembersTable,
+  connectedAccountsTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
@@ -182,6 +183,33 @@ describe("health report routes", () => {
     );
     expect(finding).toBeDefined();
     expect(finding.status).toBe("pass");
+  });
+
+  it("mixed verified and untested connections read as unknown, not pass", async () => {
+    const t = await newTenant();
+    await insertConnectedAccount(
+      t.tenantId,
+      "facebook",
+      { pageAccessToken: "tok", pageId: "1" },
+      "verified",
+    );
+    // Untested account: verifyStatus deliberately null (helper always sets one).
+    await db.insert(connectedAccountsTable).values({
+      tenantId: t.tenantId,
+      platform: "instagram",
+      accountName: "Untested Account",
+      status: "connected",
+      encryptedCredentials: "",
+      verifyStatus: null,
+    });
+    actAs(t.clerkUserId);
+    const res = await request(app).post("/api/health-report/run");
+    expect(res.status).toBe(200);
+    const finding = res.body.latest.checks.find(
+      (c: { id: string }) => c.id === "connections_verified",
+    );
+    expect(finding).toBeDefined();
+    expect(finding.status).toBe("unknown");
   });
 
   it("caps stored history at the limit", async () => {
