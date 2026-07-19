@@ -327,21 +327,66 @@ export function setConsentState(state: ConsentState | null, isSignedIn: boolean)
   }
 }
 
+/**
+ * Fire "first_open" exactly once per install. Like sign_up, the event is
+ * sent IMMEDIATELY and the AsyncStorage marker is only committed after the
+ * server accepts the delivery — an offline/failed first launch retries on
+ * the next launch instead of being lost forever. An in-memory guard dedupes
+ * concurrent sends within a session.
+ */
+let firstOpenInFlight = false;
+
+async function trackFirstOpenOnce(): Promise<void> {
+  if (firstOpenInFlight) return;
+  try {
+    if (await AsyncStorage.getItem(FIRST_OPEN_KEY)) return;
+  } catch {
+    // Storage unavailable: we can't tell whether first_open was already
+    // reported, so skip rather than risk duplicates on every launch.
+    return;
+  }
+  if (signedIn && consent !== null && !consent.analytics) return;
+  if (!INGEST_URL) return;
+  firstOpenInFlight = true;
+  let delivered = false;
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const token = authToken ? await authToken() : null;
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(INGEST_URL, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        anonymousId: await getAnonymousId(),
+        sessionId: getSessionId().id,
+        context: buildContext(),
+        events: [
+          { name: "first_open", params: {}, clientTimestamp: new Date().toISOString() },
+        ],
+      }),
+    });
+    delivered = res.ok;
+  } catch {
+    delivered = false;
+  }
+  if (delivered) {
+    // Commit the marker only once the server accepted the event.
+    try {
+      await AsyncStorage.setItem(FIRST_OPEN_KEY, new Date().toISOString());
+    } catch {
+      // best effort; the in-flight guard still dedupes this session
+    }
+  } else {
+    // Allow the next launch (or a later init) to retry.
+    firstOpenInFlight = false;
+  }
+}
+
 /** Initialize: first-open/session events, startup timing, telemetry probes. */
 export function initAnalytics(appStartedAt: number): void {
   if (flushTimer) return;
 
-  void (async () => {
-    try {
-      const firstOpen = await AsyncStorage.getItem(FIRST_OPEN_KEY);
-      if (!firstOpen) {
-        await AsyncStorage.setItem(FIRST_OPEN_KEY, new Date().toISOString());
-        track("first_open", {});
-      }
-    } catch {
-      // best effort
-    }
-  })();
+  void trackFirstOpenOnce();
 
   if (getSessionId().isNew) {
     track("session_start", {});
