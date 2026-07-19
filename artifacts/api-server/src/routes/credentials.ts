@@ -9,6 +9,7 @@ import {
   AdminSaveLinkedinCredentialsBody,
   AdminSaveYoutubeCredentialsBody,
   AdminSaveThreadsCredentialsBody,
+  AdminSaveTiktokCredentialsBody,
   AdminSaveRazorpayCredentialsBody,
 } from "@workspace/api-zod";
 import type {
@@ -17,6 +18,7 @@ import type {
   LinkedinAppCredentials,
   YoutubeAppCredentials,
   ThreadsAppCredentials,
+  TiktokAppCredentials,
   RazorpayAppCredentials,
 } from "@workspace/db";
 import { testRazorpayCredentials } from "../lib/razorpay";
@@ -722,6 +724,135 @@ router.put(
 
     const row = await loadThreadsRow();
     res.json(serializeThreadsStatus(req, row));
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Admin: app-level TikTok for Business credentials (superadmin only)
+// ---------------------------------------------------------------------------
+
+async function loadTiktokRow() {
+  return (
+    await db
+      .select()
+      .from(appCredentialsTable)
+      .where(eq(appCredentialsTable.provider, "tiktok"))
+      .limit(1)
+  )[0];
+}
+
+function tiktokRedirectUri(req: Request): string {
+  const proto =
+    (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0] ||
+    req.protocol ||
+    "https";
+  const host =
+    (req.headers["x-forwarded-host"] as string | undefined) || req.headers.host;
+  return `${proto}://${host}/api/ads/tiktok/auth/callback`;
+}
+
+function serializeTiktokStatus(
+  req: Request,
+  row: Awaited<ReturnType<typeof loadTiktokRow>> | undefined,
+) {
+  const redirectUri = tiktokRedirectUri(req);
+  if (!row) {
+    return {
+      configured: false,
+      appIdMasked: null,
+      appSecretMasked: null,
+      redirectUri,
+      savedAt: null,
+    };
+  }
+  let creds: TiktokAppCredentials | null = null;
+  try {
+    creds = decryptJson<TiktokAppCredentials>(row.encryptedCredentials);
+  } catch {
+    creds = null;
+  }
+  return {
+    configured: true,
+    appIdMasked: maskSecret(creds?.appId, 4),
+    appSecretMasked: maskSecret(creds?.appSecret, 4),
+    redirectUri,
+    savedAt: row.updatedAt ? row.updatedAt.toISOString() : null,
+  };
+}
+
+router.get(
+  "/admin/platform-credentials/tiktok",
+  requireSuperadmin,
+  async (req: Request, res: Response) => {
+    const row = await loadTiktokRow();
+    res.json(serializeTiktokStatus(req, row));
+  },
+);
+
+router.put(
+  "/admin/platform-credentials/tiktok",
+  requireSuperadmin,
+  async (req: Request, res: Response) => {
+    if (!isEncryptionConfigured()) {
+      res
+        .status(400)
+        .json({ error: "Server is missing SESSION_SECRET; cannot store secrets." });
+      return;
+    }
+    const parsed = AdminSaveTiktokCredentialsBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+
+    const { appId, appSecret } = parsed.data;
+    // TikTok app credentials cannot be validated without a full advertiser
+    // authorization, so there is no live pre-test — we store them and treat
+    // the row's presence as "configured".
+    const encrypted = encryptJson({
+      appId: appId.trim(),
+      appSecret: appSecret.trim(),
+    });
+
+    const existing = await loadTiktokRow();
+    let oldAppIdMasked: string | null = null;
+    if (existing) {
+      try {
+        const oldCreds = decryptJson<TiktokAppCredentials>(
+          existing.encryptedCredentials,
+        );
+        oldAppIdMasked = maskSecret(oldCreds.appId, 4);
+      } catch {
+        oldAppIdMasked = null;
+      }
+    }
+    if (existing) {
+      await db
+        .update(appCredentialsTable)
+        .set({
+          encryptedCredentials: encrypted,
+          lastTestStatus: null,
+          lastTestedAt: null,
+          lastTestError: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(appCredentialsTable.id, existing.id));
+    } else {
+      await db.insert(appCredentialsTable).values({
+        provider: "tiktok",
+        encryptedCredentials: encrypted,
+      });
+    }
+
+    await auditCredentialChange(
+      req,
+      "tiktok",
+      oldAppIdMasked,
+      maskSecret(appId.trim(), 4),
+    );
+
+    const row = await loadTiktokRow();
+    res.json(serializeTiktokStatus(req, row));
   },
 );
 

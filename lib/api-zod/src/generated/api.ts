@@ -5161,6 +5161,39 @@ export const AdminSaveYoutubeCredentialsResponse = zod.object({
 
 
 /**
+ * @summary Get masked app-level TikTok for Business credentials (superadmin only)
+ */
+export const AdminGetTiktokCredentialsResponse = zod.object({
+  "configured": zod.boolean().describe('Whether TikTok for Business app credentials have been saved.'),
+  "appIdMasked": zod.string().nullish(),
+  "appSecretMasked": zod.string().nullish(),
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the TikTok for Business developer app.'),
+  "savedAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Save app-level TikTok for Business credentials (superadmin only)
+ */
+
+
+
+
+export const AdminSaveTiktokCredentialsBody = zod.object({
+  "appId": zod.string().min(1),
+  "appSecret": zod.string().min(1)
+})
+
+export const AdminSaveTiktokCredentialsResponse = zod.object({
+  "configured": zod.boolean().describe('Whether TikTok for Business app credentials have been saved.'),
+  "appIdMasked": zod.string().nullish(),
+  "appSecretMasked": zod.string().nullish(),
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the TikTok for Business developer app.'),
+  "savedAt": zod.coerce.date().nullish()
+})
+
+
+/**
  * @summary Get the X (Twitter) OAuth 2.0 PKCE authorization URL to begin connecting
  */
 export const GetTwitterAuthUrlResponse = zod.object({
@@ -5895,6 +5928,50 @@ export const ListLinkedinCampaignGroupsResponse = zod.object({
   "results": zod.number().describe('Total result actions reported by the platform for the range.')
 })
 }))
+})
+
+
+/**
+ * @summary Get the TikTok for Business OAuth URL to grant ads access (owner/admin only)
+ */
+export const GetAdsTiktokAuthUrlResponse = zod.object({
+  "url": zod.string()
+})
+
+
+/**
+ * @summary List the advertiser accounts granted to the stored TikTok ads token
+ */
+export const ListTiktokAdvertiserChoicesResponseItem = zod.object({
+  "adAccountId": zod.string(),
+  "name": zod.string(),
+  "currency": zod.string().nullish(),
+  "accountStatus": zod.string().nullish()
+})
+export const ListTiktokAdvertiserChoicesResponse = zod.array(ListTiktokAdvertiserChoicesResponseItem)
+
+
+/**
+ * @summary Pick which TikTok advertiser account this workspace manages (owner/admin only)
+ */
+
+
+
+export const SelectTiktokAdvertiserBody = zod.object({
+  "adAccountId": zod.string().min(1).describe('The TikTok advertiser id to manage.')
+})
+
+export const SelectTiktokAdvertiserResponse = zod.object({
+  "id": zod.number(),
+  "platform": zod.string(),
+  "adAccountId": zod.string(),
+  "adAccountName": zod.string(),
+  "currency": zod.string().nullish(),
+  "status": zod.string().describe('connected | pending_selection'),
+  "verifyStatus": zod.string().nullish(),
+  "verifyError": zod.string().nullish(),
+  "verifiedAt": zod.coerce.date().nullish(),
+  "createdAt": zod.coerce.date()
 })
 
 

@@ -47,6 +47,8 @@ import type {
   AdsMetaAuthUrlResult,
   AdsMetaSelectInput,
   AdsModuleStatus,
+  AdsTiktokAuthUrlResult,
+  AdsTiktokSelectInput,
   AnalyticsIngestInput,
   AnalyticsIngestResult,
   AppBrand,
@@ -174,6 +176,8 @@ import type {
   ThreadsAppCredentialStatus,
   ThreadsAuthUrlResult,
   ThreadsStatus,
+  TiktokAppCredentialInput,
+  TiktokAppCredentialStatus,
   TopicIdeasRequest,
   TopicIdeasResult,
   TranscriptionResult,
@@ -10236,6 +10240,153 @@ export const useAdminSaveYoutubeCredentials = <TError = ErrorType<ErrorEnvelope>
       return useMutation(getAdminSaveYoutubeCredentialsMutationOptions(options));
     }
 
+export const getAdminGetTiktokCredentialsUrl = () => {
+
+
+
+
+  return `/api/admin/platform-credentials/tiktok`
+}
+
+/**
+ * @summary Get masked app-level TikTok for Business credentials (superadmin only)
+ */
+export const adminGetTiktokCredentials = async ( options?: RequestInit): Promise<TiktokAppCredentialStatus> => {
+
+  return customFetch<TiktokAppCredentialStatus>(getAdminGetTiktokCredentialsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetTiktokCredentialsQueryKey = () => {
+    return [
+    `/api/admin/platform-credentials/tiktok`
+    ] as const;
+    }
+
+
+export const getAdminGetTiktokCredentialsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetTiktokCredentials>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetTiktokCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetTiktokCredentialsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetTiktokCredentials>>> = ({ signal }) => adminGetTiktokCredentials({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetTiktokCredentials>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetTiktokCredentialsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetTiktokCredentials>>>
+export type AdminGetTiktokCredentialsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get masked app-level TikTok for Business credentials (superadmin only)
+ */
+
+export function useAdminGetTiktokCredentials<TData = Awaited<ReturnType<typeof adminGetTiktokCredentials>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetTiktokCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetTiktokCredentialsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminSaveTiktokCredentialsUrl = () => {
+
+
+
+
+  return `/api/admin/platform-credentials/tiktok`
+}
+
+/**
+ * @summary Save app-level TikTok for Business credentials (superadmin only)
+ */
+export const adminSaveTiktokCredentials = async (tiktokAppCredentialInput: TiktokAppCredentialInput, options?: RequestInit): Promise<TiktokAppCredentialStatus> => {
+
+  return customFetch<TiktokAppCredentialStatus>(getAdminSaveTiktokCredentialsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(tiktokAppCredentialInput)
+  }
+);}
+
+
+
+
+export const getAdminSaveTiktokCredentialsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveTiktokCredentials>>, TError,{data: BodyType<TiktokAppCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSaveTiktokCredentials>>, TError,{data: BodyType<TiktokAppCredentialInput>}, TContext> => {
+
+const mutationKey = ['adminSaveTiktokCredentials'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSaveTiktokCredentials>>, {data: BodyType<TiktokAppCredentialInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminSaveTiktokCredentials(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSaveTiktokCredentialsMutationResult = NonNullable<Awaited<ReturnType<typeof adminSaveTiktokCredentials>>>
+    export type AdminSaveTiktokCredentialsMutationBody = BodyType<TiktokAppCredentialInput>
+    export type AdminSaveTiktokCredentialsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save app-level TikTok for Business credentials (superadmin only)
+ */
+export const useAdminSaveTiktokCredentials = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveTiktokCredentials>>, TError,{data: BodyType<TiktokAppCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSaveTiktokCredentials>>,
+        TError,
+        {data: BodyType<TiktokAppCredentialInput>},
+        TContext
+      > => {
+      return useMutation(getAdminSaveTiktokCredentialsMutationOptions(options));
+    }
+
 export const getGetTwitterAuthUrlUrl = () => {
 
 
@@ -12760,6 +12911,230 @@ export function useListLinkedinCampaignGroups<TData = Awaited<ReturnType<typeof 
 
 
 
+
+export const getGetAdsTiktokAuthUrlUrl = () => {
+
+
+
+
+  return `/api/ads/tiktok/auth/url`
+}
+
+/**
+ * @summary Get the TikTok for Business OAuth URL to grant ads access (owner/admin only)
+ */
+export const getAdsTiktokAuthUrl = async ( options?: RequestInit): Promise<AdsTiktokAuthUrlResult> => {
+
+  return customFetch<AdsTiktokAuthUrlResult>(getGetAdsTiktokAuthUrlUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAdsTiktokAuthUrlQueryKey = () => {
+    return [
+    `/api/ads/tiktok/auth/url`
+    ] as const;
+    }
+
+
+export const getGetAdsTiktokAuthUrlQueryOptions = <TData = Awaited<ReturnType<typeof getAdsTiktokAuthUrl>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdsTiktokAuthUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAdsTiktokAuthUrlQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdsTiktokAuthUrl>>> = ({ signal }) => getAdsTiktokAuthUrl({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdsTiktokAuthUrl>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAdsTiktokAuthUrlQueryResult = NonNullable<Awaited<ReturnType<typeof getAdsTiktokAuthUrl>>>
+export type GetAdsTiktokAuthUrlQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the TikTok for Business OAuth URL to grant ads access (owner/admin only)
+ */
+
+export function useGetAdsTiktokAuthUrl<TData = Awaited<ReturnType<typeof getAdsTiktokAuthUrl>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdsTiktokAuthUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAdsTiktokAuthUrlQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListTiktokAdvertiserChoicesUrl = () => {
+
+
+
+
+  return `/api/ads/connections/tiktok/accounts`
+}
+
+/**
+ * @summary List the advertiser accounts granted to the stored TikTok ads token
+ */
+export const listTiktokAdvertiserChoices = async ( options?: RequestInit): Promise<AdAccountChoice[]> => {
+
+  return customFetch<AdAccountChoice[]>(getListTiktokAdvertiserChoicesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListTiktokAdvertiserChoicesQueryKey = () => {
+    return [
+    `/api/ads/connections/tiktok/accounts`
+    ] as const;
+    }
+
+
+export const getListTiktokAdvertiserChoicesQueryOptions = <TData = Awaited<ReturnType<typeof listTiktokAdvertiserChoices>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listTiktokAdvertiserChoices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListTiktokAdvertiserChoicesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listTiktokAdvertiserChoices>>> = ({ signal }) => listTiktokAdvertiserChoices({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listTiktokAdvertiserChoices>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListTiktokAdvertiserChoicesQueryResult = NonNullable<Awaited<ReturnType<typeof listTiktokAdvertiserChoices>>>
+export type ListTiktokAdvertiserChoicesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List the advertiser accounts granted to the stored TikTok ads token
+ */
+
+export function useListTiktokAdvertiserChoices<TData = Awaited<ReturnType<typeof listTiktokAdvertiserChoices>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listTiktokAdvertiserChoices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListTiktokAdvertiserChoicesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSelectTiktokAdvertiserUrl = () => {
+
+
+
+
+  return `/api/ads/connections/tiktok/select`
+}
+
+/**
+ * @summary Pick which TikTok advertiser account this workspace manages (owner/admin only)
+ */
+export const selectTiktokAdvertiser = async (adsTiktokSelectInput: AdsTiktokSelectInput, options?: RequestInit): Promise<AdAccountConnection> => {
+
+  return customFetch<AdAccountConnection>(getSelectTiktokAdvertiserUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(adsTiktokSelectInput)
+  }
+);}
+
+
+
+
+export const getSelectTiktokAdvertiserMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof selectTiktokAdvertiser>>, TError,{data: BodyType<AdsTiktokSelectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof selectTiktokAdvertiser>>, TError,{data: BodyType<AdsTiktokSelectInput>}, TContext> => {
+
+const mutationKey = ['selectTiktokAdvertiser'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof selectTiktokAdvertiser>>, {data: BodyType<AdsTiktokSelectInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  selectTiktokAdvertiser(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SelectTiktokAdvertiserMutationResult = NonNullable<Awaited<ReturnType<typeof selectTiktokAdvertiser>>>
+    export type SelectTiktokAdvertiserMutationBody = BodyType<AdsTiktokSelectInput>
+    export type SelectTiktokAdvertiserMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Pick which TikTok advertiser account this workspace manages (owner/admin only)
+ */
+export const useSelectTiktokAdvertiser = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof selectTiktokAdvertiser>>, TError,{data: BodyType<AdsTiktokSelectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof selectTiktokAdvertiser>>,
+        TError,
+        {data: BodyType<AdsTiktokSelectInput>},
+        TContext
+      > => {
+      return useMutation(getSelectTiktokAdvertiserMutationOptions(options));
+    }
 
 export const getListAdCampaignsUrl = (params: ListAdCampaignsParams,) => {
   const normalizedParams = new URLSearchParams();

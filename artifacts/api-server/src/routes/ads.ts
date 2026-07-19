@@ -68,6 +68,23 @@ import {
   LINKEDIN_TOKEN_URL,
 } from "../lib/linkedinApp";
 import {
+  TiktokAdsApiError,
+  TIKTOK_AUTH_PORTAL,
+  getTiktokAppCredentials,
+  isTiktokAppConfigured,
+  exchangeAuthCode as exchangeTiktokAuthCode,
+  listAdvertisers as listTiktokAdvertisers,
+  readAdvertiser as readTiktokAdvertiser,
+  listCampaigns as listTiktokCampaigns,
+  getCampaign as getTiktokCampaign,
+  listAdGroups as listTiktokAdGroups,
+  listAdsForCampaign as listTiktokAds,
+  getInsightsByLevel as getTiktokInsightsByLevel,
+  readCampaignState as readTiktokCampaignState,
+  EMPTY_TIKTOK_INSIGHTS,
+  type TiktokAdsCredentials,
+} from "../lib/tiktokAdsApi";
+import {
   getAdsModuleEnabled,
   setAdsModuleEnabled,
   getAdsPlatformAvailability,
@@ -468,6 +485,248 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
+// TikTok connect: advertiser OAuth via the TikTok for Business portal
+// ---------------------------------------------------------------------------
+
+function tiktokAdsRedirectUri(req: Request): string {
+  const proto =
+    (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0] ||
+    req.protocol ||
+    "https";
+  const host =
+    (req.headers["x-forwarded-host"] as string | undefined) || req.headers.host;
+  return `${proto}://${host}/api/ads/tiktok/auth/callback`;
+}
+
+router.get(
+  "/ads/tiktok/auth/url",
+  requireWorkspaceAdmin,
+  async (req: Request, res: Response) => {
+    if (!(await adsEnabledOr503(res))) return;
+    const creds = await getTiktokAppCredentials();
+    if (!creds || !process.env.SESSION_SECRET) {
+      res.status(503).json({
+        error:
+          "TikTok Ads is not configured. Ask an administrator to save the TikTok for Business app credentials on the Admin page.",
+      });
+      return;
+    }
+    const params = new URLSearchParams({
+      app_id: creds.appId,
+      state: signOAuthState(req.tenantId, randomNonce()),
+      redirect_uri: tiktokAdsRedirectUri(req),
+    });
+    res.json({ url: `${TIKTOK_AUTH_PORTAL}?${params.toString()}` });
+  },
+);
+
+/**
+ * PUBLIC callback (mounted before the session gate): a top-level browser
+ * redirect from tiktok.com authenticated by the HMAC-signed `state`.
+ */
+adsCallbackRouter.get(
+  "/ads/tiktok/auth/callback",
+  async (req: Request, res: Response) => {
+    const webBase = "/ads";
+    const fail = (reason: string) =>
+      res.redirect(`${webBase}?tiktok=error&reason=${encodeURIComponent(reason)}`);
+
+    const creds = await getTiktokAppCredentials();
+    if (!creds || !process.env.SESSION_SECRET) {
+      fail("not_configured");
+      return;
+    }
+    const { auth_code: authCode, code, state } = req.query as {
+      auth_code?: string;
+      code?: string;
+      state?: string;
+    };
+    const grantCode = authCode || code;
+    const verified = state ? verifySignedOAuthState(state) : null;
+    if (!grantCode || !verified) {
+      fail("invalid_state");
+      return;
+    }
+
+    try {
+      const tiktokCreds = await exchangeTiktokAuthCode(creds, grantCode);
+      await upsertPendingTiktokConnection(verified.tenantId, tiktokCreds);
+      res.redirect(`${webBase}?tiktok=connected`);
+    } catch (err) {
+      req.log.error({ err }, "TikTok ads OAuth callback failed");
+      fail("token_exchange");
+    }
+  },
+);
+
+async function upsertPendingTiktokConnection(
+  tenantId: number,
+  creds: TiktokAdsCredentials,
+): Promise<AdAccountConnection> {
+  const encrypted = encryptJson(creds);
+  const existing = (
+    await db
+      .select()
+      .from(adAccountConnectionsTable)
+      .where(
+        and(
+          eq(adAccountConnectionsTable.tenantId, tenantId),
+          eq(adAccountConnectionsTable.platform, "tiktok"),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (existing) {
+    return (
+      await db
+        .update(adAccountConnectionsTable)
+        .set({
+          encryptedCredentials: encrypted,
+          status: "pending_selection",
+          adAccountId: "",
+          adAccountName: "",
+          currency: null,
+          verifyStatus: null,
+          verifyError: null,
+          verifiedAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(adAccountConnectionsTable.id, existing.id))
+        .returning()
+    )[0]!;
+  }
+  return (
+    await db
+      .insert(adAccountConnectionsTable)
+      .values({
+        tenantId,
+        platform: "tiktok",
+        status: "pending_selection",
+        encryptedCredentials: encrypted,
+      })
+      .returning()
+  )[0]!;
+}
+
+async function getTiktokConnection(
+  tenantId: number,
+): Promise<AdAccountConnection | null> {
+  const row = (
+    await db
+      .select()
+      .from(adAccountConnectionsTable)
+      .where(
+        and(
+          eq(adAccountConnectionsTable.tenantId, tenantId),
+          eq(adAccountConnectionsTable.platform, "tiktok"),
+        ),
+      )
+      .limit(1)
+  )[0];
+  return row ?? null;
+}
+
+function getTiktokAdvertiserIds(conn: AdAccountConnection): string[] {
+  try {
+    return (
+      decryptJson<TiktokAdsCredentials>(conn.encryptedCredentials ?? "")
+        .advertiserIds ?? []
+    );
+  } catch {
+    return [];
+  }
+}
+
+router.get(
+  "/ads/connections/tiktok/accounts",
+  async (req: Request, res: Response) => {
+    if (!(await adsEnabledOr503(res))) return;
+    const conn = await getTiktokConnection(req.tenantId);
+    const token = conn ? getConnectionToken(conn) : null;
+    if (!conn || !token) {
+      res.status(400).json({
+        error: "Connect TikTok Ads first, then pick an advertiser account.",
+      });
+      return;
+    }
+    try {
+      const advertisers = await listTiktokAdvertisers(
+        token,
+        getTiktokAdvertiserIds(conn),
+      );
+      res.json(
+        advertisers.map((a) => ({
+          adAccountId: a.advertiserId,
+          name: a.name,
+          currency: a.currency,
+          accountStatus: a.status,
+        })),
+      );
+    } catch (err) {
+      if (err instanceof TiktokAdsApiError && err.authFailed) {
+        await markAdConnectionFailed(conn.id, err.message);
+      }
+      res.status(502).json({
+        error:
+          err instanceof Error ? err.message : "Could not list advertiser accounts.",
+      });
+    }
+  },
+);
+
+router.post(
+  "/ads/connections/tiktok/select",
+  requireWorkspaceAdmin,
+  async (req: Request, res: Response) => {
+    if (!(await adsEnabledOr503(res))) return;
+    const parsed = SelectMetaAdAccountBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "adAccountId is required" });
+      return;
+    }
+    const conn = await getTiktokConnection(req.tenantId);
+    const token = conn ? getConnectionToken(conn) : null;
+    if (!conn || !token) {
+      res.status(400).json({ error: "Connect TikTok Ads first." });
+      return;
+    }
+    if (!getTiktokAdvertiserIds(conn).includes(parsed.data.adAccountId)) {
+      res.status(400).json({
+        error: "That advertiser account is not part of this TikTok grant.",
+      });
+      return;
+    }
+    try {
+      const info = await readTiktokAdvertiser(token, parsed.data.adAccountId);
+      const updated = (
+        await db
+          .update(adAccountConnectionsTable)
+          .set({
+            adAccountId: parsed.data.adAccountId,
+            adAccountName: info.name,
+            currency: info.currency,
+            status: "connected",
+            verifyStatus: "verified",
+            verifyError: null,
+            verifiedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(adAccountConnectionsTable.id, conn.id))
+          .returning()
+      )[0]!;
+      res.json(serializeConnection(updated));
+    } catch (err) {
+      res.status(400).json({
+        error:
+          err instanceof Error
+            ? `That advertiser account could not be verified: ${err.message}`
+            : "That advertiser account could not be verified.",
+      });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
 // Ad account selection
 // ---------------------------------------------------------------------------
 
@@ -857,15 +1116,29 @@ router.get("/ads/campaigns", async (req: Request, res: Response) => {
       });
       return;
     }
-    const [campaigns, insights] = await Promise.all([
-      listCampaigns(ct.token, ct.conn.adAccountId),
-      getInsightsByLevel(ct.token, ct.conn.adAccountId, "campaign", datePreset),
-    ]);
+
+    const [campaigns, insights] =
+      ct.conn.platform === "tiktok"
+        ? await Promise.all([
+            listTiktokCampaigns(ct.token, ct.conn.adAccountId),
+            getTiktokInsightsByLevel(
+              ct.token,
+              ct.conn.adAccountId,
+              "campaign",
+              datePreset,
+            ),
+          ])
+        : await Promise.all([
+            listCampaigns(ct.token, ct.conn.adAccountId),
+            getInsightsByLevel(ct.token, ct.conn.adAccountId, "campaign", datePreset),
+          ]);
+    const empty =
+      ct.conn.platform === "tiktok" ? EMPTY_TIKTOK_INSIGHTS : EMPTY_INSIGHTS;
     res.json({
       currency: ct.conn.currency ?? null,
       campaigns: campaigns.map((c) => ({
         ...c,
-        metrics: insights.get(c.id) ?? EMPTY_INSIGHTS,
+        metrics: insights.get(c.id) ?? empty,
       })),
     });
   } catch (err) {
@@ -904,6 +1177,33 @@ router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
       });
       return;
     }
+    if (ct.conn.platform === "tiktok") {
+      const advertiserId = ct.conn.adAccountId;
+      const [campaign, adGroups, ads, cIns, gIns, aIns] = await Promise.all([
+        getTiktokCampaign(ct.token, advertiserId, campaignId),
+        listTiktokAdGroups(ct.token, advertiserId, campaignId),
+        listTiktokAds(ct.token, advertiserId, campaignId),
+        getTiktokInsightsByLevel(ct.token, advertiserId, "campaign", datePreset),
+        getTiktokInsightsByLevel(ct.token, advertiserId, "adgroup", datePreset),
+        getTiktokInsightsByLevel(ct.token, advertiserId, "ad", datePreset),
+      ]);
+      res.json({
+        currency: ct.conn.currency ?? null,
+        campaign: {
+          ...campaign,
+          metrics: cIns.get(campaign.id) ?? EMPTY_TIKTOK_INSIGHTS,
+        },
+        adSets: adGroups.map((g) => ({
+          ...g,
+          metrics: gIns.get(g.id) ?? EMPTY_TIKTOK_INSIGHTS,
+        })),
+        ads: ads.map((a) => ({
+          ...a,
+          metrics: aIns.get(a.id) ?? EMPTY_TIKTOK_INSIGHTS,
+        })),
+      });
+      return;
+    }
     const [campaign, adSets, ads, cIns, sIns, aIns] = await Promise.all([
       getCampaign(ct.token, campaignId),
       listAdSets(ct.token, campaignId),
@@ -919,11 +1219,13 @@ router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
       ads: ads.map((a) => ({ ...a, metrics: aIns.get(a.id) ?? EMPTY_INSIGHTS })),
     });
   } catch (err) {
-    if (err instanceof MetaAdsApiError && err.authFailed) {
-      await markAdConnectionFailed(ct.conn.id, err.message);
+    if (isAdsAuthError(err)) {
+      await markAdConnectionFailed(ct.conn.id, (err as Error).message);
     }
-    const status = err instanceof MetaAdsApiError && err.status === 404 ? 404 : 502;
-    res.status(status).json({
+    const notFound =
+      (err instanceof MetaAdsApiError || err instanceof TiktokAdsApiError) &&
+      err.status === 404;
+    res.status(notFound ? 404 : 502).json({
       error: err instanceof Error ? err.message : "Could not load the campaign.",
     });
   }
@@ -1038,6 +1340,25 @@ router.post(
       res.status(400).json({ error: "targetId is required for updates" });
       return;
     }
+
+    if (conn.platform === "tiktok") {
+      // TikTok drafts are campaign-only for now, and TikTok campaigns carry
+      // no schedule (start/end dates live on ad groups).
+      if (input.targetType !== "campaign") {
+        res.status(400).json({
+          error: "Only campaign changes are supported for TikTok Ads in this phase.",
+        });
+        return;
+      }
+      if (input.startTime != null || input.stopTime != null) {
+        res.status(400).json({
+          error:
+            "TikTok campaigns do not have a schedule — start and end dates are set on ad groups.",
+        });
+        return;
+      }
+    }
+
     if (input.targetType === "ad" &&
       (input.dailyBudget != null || input.lifetimeBudget != null ||
         input.startTime != null || input.stopTime != null)) {
@@ -1110,12 +1431,15 @@ router.post(
     if (input.action === "update") {
       let current;
       try {
-        current = await readRemoteState(
-          conn,
-          token,
-          input.targetId!,
-          asTargetType(input.targetType),
-        );
+        current =
+          conn.platform === "tiktok"
+            ? await readTiktokCampaignState(token, conn.adAccountId, input.targetId!)
+            : await readRemoteState(
+                conn,
+                token,
+                input.targetId!,
+                asTargetType(input.targetType),
+              );
       } catch (err) {
         if (isAdsAuthError(err)) {
           await markAdConnectionFailed(conn.id, (err as Error).message);
@@ -1166,7 +1490,8 @@ router.post(
         objective:
           conn.platform === "linkedin"
             ? undefined
-            : input.objective ?? "OUTCOME_TRAFFIC",
+            : input.objective ??
+              (conn.platform === "tiktok" ? "TRAFFIC" : "OUTCOME_TRAFFIC"),
         status: input.status ?? "PAUSED",
         dailyBudget: input.dailyBudget,
         lifetimeBudget: input.lifetimeBudget,
@@ -1335,7 +1660,9 @@ async function adminSettingsPayload() {
           ? "Reuses the Meta app credentials saved under Platform credentials."
           : p.platform === "linkedin"
             ? "Reuses the LinkedIn app credentials saved under Platform credentials."
-            : "Coming later — no credential slot yet.",
+            : p.platform === "tiktok"
+              ? "Uses the TikTok for Business app credentials saved under Platform credentials."
+              : "Coming later — no credential slot yet.",
     })),
   };
 }

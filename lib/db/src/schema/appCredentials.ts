@@ -82,6 +82,18 @@ export const threadsAppCredentialsSchema = z.object({
 export type ThreadsAppCredentials = z.infer<typeof threadsAppCredentialsSchema>;
 
 /**
+ * TikTok for Business app credentials — the "App ID" and "Secret" of a TikTok
+ * Marketing API developer app. They drive the authorization-code flow tenants
+ * use to connect their TikTok advertiser account for the paid-media module.
+ * Superadmin managed, stored encrypted; no env fallback.
+ */
+export const tiktokAppCredentialsSchema = z.object({
+  appId: z.string(),
+  appSecret: z.string(),
+});
+export type TiktokAppCredentials = z.infer<typeof tiktokAppCredentialsSchema>;
+
+/**
  * Razorpay API credentials (Key ID + Key Secret from the Razorpay dashboard)
  * plus the webhook signing secret configured for the webhook endpoint. They
  * drive subscription billing and one-time credit-pack payments. Superadmin

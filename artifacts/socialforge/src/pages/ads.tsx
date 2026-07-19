@@ -15,6 +15,10 @@ import {
   useSelectLinkedinAdAccount,
   useListLinkedinCampaignGroups,
   getListLinkedinCampaignGroupsQueryKey,
+  useGetAdsTiktokAuthUrl,
+  getGetAdsTiktokAuthUrlQueryKey,
+  useListTiktokAdvertiserChoices,
+  useSelectTiktokAdvertiser,
   useListAdCampaigns,
   useGetAdCampaignDetail,
   useListAdDrafts,
@@ -205,6 +209,7 @@ export function AdsPage() {
 
   const metaConn = connections?.find((c) => c.platform === "meta");
   const linkedinConn = connections?.find((c) => c.platform === "linkedin");
+  const tiktokConn = connections?.find((c) => c.platform === "tiktok");
   const connectedConns = (connections ?? []).filter((c) => c.status === "connected");
   const [activeConnId, setActiveConnId] = useState<number | null>(null);
   const connectedConn =
@@ -242,25 +247,31 @@ export function AdsPage() {
         </p>
       </div>
 
-      <ConnectionSection
-        metaConn={metaConn}
-        metaAvailable={status?.platforms.find((p) => p.platform === "meta")?.available ?? false}
-        canManage={canManage}
-      />
-
-      {connectedConn && <BudgetCapsCard isOwner={isOwner} currency={connectedConn.currency ?? null} />}
-
-      <LinkedinConnectionSection
-        linkedinConn={linkedinConn}
-        available={
-          status?.platforms.find((p) => p.platform === "linkedin")?.available ?? false
-        }
-        canManage={canManage}
-      />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ConnectionSection
+          metaConn={metaConn}
+          metaAvailable={status?.platforms.find((p) => p.platform === "meta")?.available ?? false}
+          canManage={canManage}
+        />
+        <TiktokConnectionSection
+          tiktokConn={tiktokConn}
+          tiktokAvailable={
+            status?.platforms.find((p) => p.platform === "tiktok")?.available ?? false
+          }
+          canManage={canManage}
+        />
+        <LinkedinConnectionSection
+          linkedinConn={linkedinConn}
+          available={
+            status?.platforms.find((p) => p.platform === "linkedin")?.available ?? false
+          }
+          canManage={canManage}
+        />
+      </div>
 
       {connectedConns.length > 1 && connectedConn && (
         <div className="flex items-center gap-3">
-          <Label>Showing</Label>
+          <Label>Manage platform</Label>
           <Select
             value={String(connectedConn.id)}
             onValueChange={(v) => setActiveConnId(Number(v))}
@@ -271,14 +282,20 @@ export function AdsPage() {
             <SelectContent>
               {connectedConns.map((c) => (
                 <SelectItem key={c.id} value={String(c.id)}>
-                  {c.platform === "meta" ? "Meta" : "LinkedIn"} —{" "}
-                  {c.adAccountName || c.adAccountId}
+                  {c.platform === "meta"
+                    ? "Meta Ads"
+                    : c.platform === "tiktok"
+                      ? "TikTok Ads"
+                      : "LinkedIn Ads"}{" "}
+                  — {c.adAccountName || c.adAccountId}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
       )}
+
+      {connectedConn && <BudgetCapsCard isOwner={isOwner} currency={connectedConn.currency ?? null} />}
 
       {connectedConn && (
         <Tabs defaultValue="campaigns">
@@ -325,8 +342,10 @@ function ConnectionSection({
   const fromFacebook = useConnectMetaAdsFromFacebook();
   const disconnect = useDeleteAdConnection();
 
-  const invalidate = () =>
+  const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getListAdConnectionsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetAdsBudgetCapsQueryKey() });
+  };
 
   const startOAuth = async () => {
     const res = await authUrl.refetch();
@@ -869,6 +888,206 @@ function BudgetCapsCard({
   );
 }
 
+function TiktokConnectionSection({
+  tiktokConn,
+  tiktokAvailable,
+  canManage,
+}: {
+  tiktokConn: AdAccountConnection | undefined;
+  tiktokAvailable: boolean;
+  canManage: boolean;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const authUrl = useGetAdsTiktokAuthUrl({
+    query: { enabled: false, queryKey: getGetAdsTiktokAuthUrlQueryKey() },
+  });
+  const disconnect = useDeleteAdConnection();
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: getListAdConnectionsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetAdsBudgetCapsQueryKey() });
+  };
+
+  const startOAuth = async () => {
+    const res = await authUrl.refetch();
+    if (res.data?.url) {
+      window.location.href = res.data.url;
+    } else {
+      toast({
+        variant: "destructive",
+        title: "TikTok Ads sign-in unavailable",
+        description:
+          (res.error as { payload?: { error?: string } } | null)?.payload?.error ??
+          "Could not start the TikTok Ads sign-in. Try again later.",
+      });
+    }
+  };
+
+  const handleDisconnect = (id: number) => {
+    disconnect.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          invalidate();
+          toast({ title: "Advertiser account disconnected" });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <TrendingUp className="h-5 w-5" /> TikTok Ads
+        </CardTitle>
+        <CardDescription>
+          Connect the TikTok for Business advertiser account behind your TikTok
+          campaigns.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!tiktokConn && (
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Button
+              onClick={startOAuth}
+              disabled={!canManage || !tiktokAvailable || authUrl.isFetching}
+              data-testid="button-connect-tiktok-ads"
+            >
+              {authUrl.isFetching && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Connect TikTok Ads
+            </Button>
+          </div>
+        )}
+        {!tiktokAvailable && !tiktokConn && (
+          <p className="text-sm text-muted-foreground">
+            TikTok Ads is not yet available. The platform administrator has not
+            configured TikTok app credentials.
+          </p>
+        )}
+        {tiktokConn?.status === "pending_selection" && (
+          <TiktokAdvertiserPicker canManage={canManage} />
+        )}
+        {tiktokConn?.status === "connected" && (
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              {tiktokConn.verifyStatus === "failed" ? (
+                <AlertCircle className="h-5 w-5 text-destructive" />
+              ) : (
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              )}
+              <div>
+                <div className="font-medium" data-testid="text-tiktok-advertiser-name">
+                  {tiktokConn.adAccountName || tiktokConn.adAccountId}
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  {tiktokConn.adAccountId}
+                  {tiktokConn.currency ? ` · ${tiktokConn.currency}` : ""}
+                  {tiktokConn.verifyStatus === "failed"
+                    ? " · Access lost — reconnect to continue"
+                    : ""}
+                </div>
+              </div>
+            </div>
+            {canManage && (
+              <div className="flex gap-2">
+                {tiktokConn.verifyStatus === "failed" && (
+                  <Button
+                    size="sm"
+                    onClick={startOAuth}
+                    data-testid="button-reconnect-tiktok-ads"
+                  >
+                    Reconnect
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDisconnect(tiktokConn.id)}
+                  disabled={disconnect.isPending}
+                  data-testid="button-disconnect-tiktok-ads"
+                >
+                  Disconnect
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TiktokAdvertiserPicker({ canManage }: { canManage: boolean }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: choices, isLoading, error } = useListTiktokAdvertiserChoices();
+  const select = useSelectTiktokAdvertiser();
+  const [picked, setPicked] = useState("");
+
+  const confirm = () => {
+    if (!picked) return;
+    select.mutate(
+      { data: { adAccountId: picked } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListAdConnectionsQueryKey() });
+          toast({ title: "Advertiser account connected" });
+        },
+        onError: (err) => {
+          toast({
+            variant: "destructive",
+            title: "Could not select that advertiser account",
+            description:
+              (err as { payload?: { error?: string } }).payload?.error ?? undefined,
+          });
+        },
+      },
+    );
+  };
+
+  if (isLoading) return <Skeleton className="h-10 w-full" />;
+  if (error) {
+    return (
+      <p className="text-sm text-destructive">
+        Could not list your advertiser accounts. Reconnect TikTok Ads and try
+        again.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        Access granted. Pick which advertiser account this workspace manages:
+      </p>
+      <div className="flex flex-col sm:flex-row gap-3">
+        <Select value={picked} onValueChange={setPicked}>
+          <SelectTrigger className="sm:w-96" data-testid="select-tiktok-advertiser">
+            <SelectValue placeholder="Choose an advertiser account" />
+          </SelectTrigger>
+          <SelectContent>
+            {(choices ?? []).map((c) => (
+              <SelectItem key={c.adAccountId} value={c.adAccountId}>
+                {c.name} ({c.adAccountId}
+                {c.currency ? `, ${c.currency}` : ""})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          onClick={confirm}
+          disabled={!canManage || !picked || select.isPending}
+          data-testid="button-select-tiktok-advertiser"
+        >
+          {select.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+          Use this account
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function CampaignsSection({
   connection,
   canManage,
@@ -1223,7 +1442,12 @@ function DraftDialog({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const createDraft = useCreateAdDraft();
-  const [state, setState] = useState(form);
+  const isTiktok = platform === "tiktok";
+  const [state, setState] = useState(() =>
+    isTiktok && form.action === "create" && form.objective === "OUTCOME_TRAFFIC"
+      ? { ...form, objective: "TRAFFIC" }
+      : form,
+  );
   const [campaignGroupId, setCampaignGroupId] = useState("");
   const idempotencyKey = useMemo(() => crypto.randomUUID(), []);
 
@@ -1260,8 +1484,8 @@ function DraftDialog({
     if (showBudgets && state.lifetimeBudget) {
       data.lifetimeBudget = Number(state.lifetimeBudget);
     }
-    if (showSchedule && state.startTime) data.startTime = state.startTime;
-    if (showSchedule && state.stopTime) data.stopTime = state.stopTime;
+    if (!isTiktok && showSchedule && state.startTime) data.startTime = state.startTime;
+    if (!isTiktok && showSchedule && state.stopTime) data.stopTime = state.stopTime;
 
     createDraft.mutate(
       { data: data as never },
@@ -1339,12 +1563,25 @@ function DraftDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="OUTCOME_TRAFFIC">Traffic</SelectItem>
-                  <SelectItem value="OUTCOME_AWARENESS">Awareness</SelectItem>
-                  <SelectItem value="OUTCOME_ENGAGEMENT">Engagement</SelectItem>
-                  <SelectItem value="OUTCOME_LEADS">Leads</SelectItem>
-                  <SelectItem value="OUTCOME_SALES">Sales</SelectItem>
-                  <SelectItem value="OUTCOME_APP_PROMOTION">App promotion</SelectItem>
+                  {isTiktok ? (
+                    <>
+                      <SelectItem value="TRAFFIC">Traffic</SelectItem>
+                      <SelectItem value="REACH">Reach</SelectItem>
+                      <SelectItem value="VIDEO_VIEWS">Video views</SelectItem>
+                      <SelectItem value="LEAD_GENERATION">Lead generation</SelectItem>
+                      <SelectItem value="CONVERSIONS">Conversions</SelectItem>
+                      <SelectItem value="APP_PROMOTION">App promotion</SelectItem>
+                    </>
+                  ) : (
+                    <>
+                      <SelectItem value="OUTCOME_TRAFFIC">Traffic</SelectItem>
+                      <SelectItem value="OUTCOME_AWARENESS">Awareness</SelectItem>
+                      <SelectItem value="OUTCOME_ENGAGEMENT">Engagement</SelectItem>
+                      <SelectItem value="OUTCOME_LEADS">Leads</SelectItem>
+                      <SelectItem value="OUTCOME_SALES">Sales</SelectItem>
+                      <SelectItem value="OUTCOME_APP_PROMOTION">App promotion</SelectItem>
+                    </>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -1365,54 +1602,54 @@ function DraftDialog({
             </Select>
           </div>
           {showBudgets && (
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="draft-daily-budget">Daily budget (minor units)</Label>
-              <Input
-                id="draft-daily-budget"
-                type="number"
-                min="0"
-                value={state.dailyBudget}
-                onChange={(e) => setState({ ...state, dailyBudget: e.target.value })}
-                data-testid="input-draft-daily-budget"
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="draft-daily-budget">Daily budget (minor units)</Label>
+                <Input
+                  id="draft-daily-budget"
+                  type="number"
+                  min="0"
+                  value={state.dailyBudget}
+                  onChange={(e) => setState({ ...state, dailyBudget: e.target.value })}
+                  data-testid="input-draft-daily-budget"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="draft-lifetime-budget">Lifetime budget (minor units)</Label>
+                <Input
+                  id="draft-lifetime-budget"
+                  type="number"
+                  min="0"
+                  value={state.lifetimeBudget}
+                  onChange={(e) => setState({ ...state, lifetimeBudget: e.target.value })}
+                  data-testid="input-draft-lifetime-budget"
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="draft-lifetime-budget">Lifetime budget (minor units)</Label>
-              <Input
-                id="draft-lifetime-budget"
-                type="number"
-                min="0"
-                value={state.lifetimeBudget}
-                onChange={(e) => setState({ ...state, lifetimeBudget: e.target.value })}
-                data-testid="input-draft-lifetime-budget"
-              />
-            </div>
-          </div>
           )}
-          {showSchedule && (
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="draft-start">Start (ISO time, optional)</Label>
-              <Input
-                id="draft-start"
-                placeholder="2026-08-01T00:00:00+0000"
-                value={state.startTime}
-                onChange={(e) => setState({ ...state, startTime: e.target.value })}
-                data-testid="input-draft-start"
-              />
+          {!isTiktok && showSchedule && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="draft-start">Start (ISO time, optional)</Label>
+                <Input
+                  id="draft-start"
+                  placeholder="2026-08-01T00:00:00+0000"
+                  value={state.startTime}
+                  onChange={(e) => setState({ ...state, startTime: e.target.value })}
+                  data-testid="input-draft-start"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="draft-stop">End (ISO time, optional)</Label>
+                <Input
+                  id="draft-stop"
+                  placeholder="2026-08-31T00:00:00+0000"
+                  value={state.stopTime}
+                  onChange={(e) => setState({ ...state, stopTime: e.target.value })}
+                  data-testid="input-draft-stop"
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="draft-stop">End (ISO time, optional)</Label>
-              <Input
-                id="draft-stop"
-                placeholder="2026-08-31T00:00:00+0000"
-                value={state.stopTime}
-                onChange={(e) => setState({ ...state, stopTime: e.target.value })}
-                data-testid="input-draft-stop"
-              />
-            </div>
-          </div>
           )}
         </div>
         <DialogFooter>

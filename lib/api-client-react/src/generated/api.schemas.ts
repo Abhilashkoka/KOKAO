@@ -1730,6 +1730,26 @@ export interface TwitterAppCredentialStatus {
   savedAt?: string | null;
 }
 
+export interface TiktokAppCredentialInput {
+  /** @minLength 1 */
+  appId: string;
+  /** @minLength 1 */
+  appSecret: string;
+}
+
+export interface TiktokAppCredentialStatus {
+  /** Whether TikTok for Business app credentials have been saved. */
+  configured: boolean;
+  /** @nullable */
+  appIdMasked?: string | null;
+  /** @nullable */
+  appSecretMasked?: string | null;
+  /** The exact OAuth redirect URL to register in the TikTok for Business developer app. */
+  redirectUri: string;
+  /** @nullable */
+  savedAt?: string | null;
+}
+
 export interface TwitterAuthUrlResult {
   url: string;
 }
@@ -2501,6 +2521,18 @@ export interface AdsMetaAuthUrlResult {
 export interface AdsLinkedinSelectInput {
   /** @minLength 1 */
   adAccountId: string;
+}
+
+export interface AdsTiktokSelectInput {
+  /**
+     * The TikTok advertiser id to manage.
+     * @minLength 1
+     */
+  adAccountId: string;
+}
+
+export interface AdsTiktokAuthUrlResult {
+  url: string;
 }
 
 export interface AdsMetrics {

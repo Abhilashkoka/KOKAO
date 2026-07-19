@@ -3746,6 +3746,53 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /admin/platform-credentials/tiktok:
+    get:
+      operationId: adminGetTiktokCredentials
+      tags: [platform-credentials]
+      summary: Get masked app-level TikTok for Business credentials (superadmin only)
+      responses:
+        "200":
+          description: TikTok app credential status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TiktokAppCredentialStatus"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminSaveTiktokCredentials
+      tags: [platform-credentials]
+      summary: Save app-level TikTok for Business credentials (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TiktokAppCredentialInput"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TiktokAppCredentialStatus"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /twitter/auth/url:
     get:
       operationId: getTwitterAuthUrl
@@ -4522,6 +4569,86 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "502":
           description: Platform error (expired token, missing permissions, API failure)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/tiktok/auth/url:
+    get:
+      operationId: getAdsTiktokAuthUrl
+      tags: [ads]
+      summary: Get the TikTok for Business OAuth URL to grant ads access (owner/admin only)
+      responses:
+        "200":
+          description: Authorization URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdsTiktokAuthUrlResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Ads not available (module off or platform credentials missing)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/connections/tiktok/accounts:
+    get:
+      operationId: listTiktokAdvertiserChoices
+      tags: [ads]
+      summary: List the advertiser accounts granted to the stored TikTok ads token
+      responses:
+        "200":
+          description: Advertiser account choices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdAccountChoice"
+        "400":
+          description: No pending TikTok ads connection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: TikTok API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/connections/tiktok/select:
+    post:
+      operationId: selectTiktokAdvertiser
+      tags: [ads]
+      summary: Pick which TikTok advertiser account this workspace manages (owner/admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdsTiktokSelectInput"
+      responses:
+        "200":
+          description: Connection completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdAccountConnection"
+        "400":
+          description: Invalid selection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -6926,6 +7053,33 @@ components:
         savedAt:
           type: ["string", "null"]
           format: date-time
+    TiktokAppCredentialInput:
+      type: object
+      required: [appId, appSecret]
+      properties:
+        appId:
+          type: string
+          minLength: 1
+        appSecret:
+          type: string
+          minLength: 1
+    TiktokAppCredentialStatus:
+      type: object
+      required: [configured, redirectUri]
+      properties:
+        configured:
+          type: boolean
+          description: Whether TikTok for Business app credentials have been saved.
+        appIdMasked:
+          type: ["string", "null"]
+        appSecretMasked:
+          type: ["string", "null"]
+        redirectUri:
+          type: string
+          description: The exact OAuth redirect URL to register in the TikTok for Business developer app.
+        savedAt:
+          type: ["string", "null"]
+          format: date-time
     TwitterAuthUrlResult:
       type: object
       required: [url]
@@ -8048,6 +8202,20 @@ components:
         adAccountId:
           type: string
           minLength: 1
+    AdsTiktokSelectInput:
+      type: object
+      required: [adAccountId]
+      properties:
+        adAccountId:
+          type: string
+          minLength: 1
+          description: The TikTok advertiser id to manage.
+    AdsTiktokAuthUrlResult:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
     AdsCampaignGroup:
       type: object
       required: [id, name, status, metrics]

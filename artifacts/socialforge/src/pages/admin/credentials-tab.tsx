@@ -15,6 +15,9 @@ import {
   useAdminGetThreadsCredentials,
   useAdminSaveThreadsCredentials,
   getAdminGetThreadsCredentialsQueryKey,
+  useAdminGetTiktokCredentials,
+  useAdminSaveTiktokCredentials,
+  getAdminGetTiktokCredentialsQueryKey,
   useAdminGetRazorpayCredentials,
   useAdminSaveRazorpayCredentials,
   getAdminGetRazorpayCredentialsQueryKey,
@@ -932,6 +935,155 @@ function ThreadsCredentialsCard() {
   );
 }
 
+function TiktokCredentialsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useAdminGetTiktokCredentials();
+  const saveTiktok = useAdminSaveTiktokCredentials();
+
+  const [appId, setAppId] = useState("");
+  const [appSecret, setAppSecret] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (data && !dirty) {
+      setAppId(data.appIdMasked ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const copyRedirect = () => {
+    if (!data?.redirectUri) return;
+    navigator.clipboard.writeText(data.redirectUri);
+    toast({ title: "Callback URL copied" });
+  };
+
+  const handleSave = () => {
+    if (!appId.trim() || !appSecret.trim()) return;
+    saveTiktok.mutate(
+      { data: { appId: appId.trim(), appSecret: appSecret.trim() } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetTiktokCredentialsQueryKey(),
+          });
+          setAppSecret("");
+          setDirty(false);
+          toast({
+            title: "TikTok credentials saved",
+            description:
+              "Workspaces can now connect their TikTok advertiser account on the Ads page.",
+          });
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description: err?.response?.data?.error || "Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>TikTok for Business app credentials</CardTitle>
+        <CardDescription>
+          One-time platform setup for TikTok Ads. Enter the App ID and Secret
+          of a TikTok for Business developer app with the Ads Management scopes
+          approved. Every workspace then connects their own advertiser account
+          on the Ads page. Secrets are encrypted at rest and never shown again.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-xl">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (
+          <>
+            {data?.configured && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-green-600 flex items-center gap-1">
+                  <CheckCircle2 className="h-4 w-4" /> Saved
+                </span>
+              </div>
+            )}
+            {data?.redirectUri && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Callback URL (register this in the TikTok for Business app)
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input readOnly value={data.redirectUri} />
+                  <Button type="button" variant="outline" onClick={copyRedirect}>
+                    Copy
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Add this exact URL as the Advertiser redirect URL in your
+                  TikTok for Business developer app settings.
+                </p>
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">TikTok App ID</label>
+              <Input
+                value={appId}
+                onChange={(e) => {
+                  setAppId(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="TikTok App ID"
+                data-testid="input-tiktok-app-id"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">TikTok App Secret</label>
+              <Input
+                type="password"
+                value={appSecret}
+                onChange={(e) => {
+                  setAppSecret(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder={
+                  data?.configured
+                    ? "Enter to replace the saved secret"
+                    : "TikTok App Secret"
+                }
+                data-testid="input-tiktok-app-secret"
+              />
+              <p className="text-xs text-muted-foreground">
+                Find both values in the TikTok for Business developer portal
+                under your app's Basic Information.
+              </p>
+            </div>
+            <Button
+              onClick={handleSave}
+              disabled={
+                saveTiktok.isPending || !appId.trim() || !appSecret.trim()
+              }
+              data-testid="button-save-tiktok-credentials"
+            >
+              {saveTiktok.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                </>
+              ) : (
+                "Save"
+              )}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function AdsSettingsCard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -1022,6 +1174,7 @@ export function CredentialsTab() {
       <LinkedinCredentialsCard />
       <YoutubeCredentialsCard />
       <ThreadsCredentialsCard />
+      <TiktokCredentialsCard />
       <RazorpayCredentialsCard />
     </div>
   );
