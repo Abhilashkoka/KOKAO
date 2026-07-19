@@ -188,12 +188,15 @@ export interface LinkedinCampaignGroup {
   id: string;
   name: string;
   status: string;
+  /** Minor units; groups only carry a total (lifetime) budget. */
+  lifetimeBudget: number | null;
 }
 
 interface RawCampaignGroup {
   id?: number | string;
   name?: string;
   status?: string;
+  totalBudget?: RawMoney;
 }
 
 export async function listLinkedinCampaignGroups(
@@ -208,6 +211,7 @@ export async function listLinkedinCampaignGroups(
     id: g.id != null ? String(g.id) : "",
     name: g.name ?? "",
     status: g.status ?? "UNKNOWN",
+    lifetimeBudget: moneyToMinor(g.totalBudget),
   }));
 }
 
@@ -561,6 +565,46 @@ export async function readLinkedinCampaignGroupState(
     startTime: msToIso(json.runSchedule?.start),
     stopTime: msToIso(json.runSchedule?.end),
   };
+}
+
+export interface UpdateLinkedinCampaignGroupParams {
+  name?: string;
+  status?: "ACTIVE" | "PAUSED";
+  /** Minor units; groups only support a total (lifetime) budget. */
+  lifetimeBudget?: number | null;
+  currency: string;
+}
+
+/** Partial-update a campaign group in place (Restli PARTIAL_UPDATE with $set). */
+export async function updateLinkedinCampaignGroup(
+  token: string,
+  adAccountId: string,
+  groupId: string,
+  params: UpdateLinkedinCampaignGroupParams,
+): Promise<void> {
+  const set: Record<string, unknown> = {};
+  if (params.name != null) set.name = params.name;
+  if (params.status != null) set.status = params.status;
+  if (params.lifetimeBudget != null) {
+    set.totalBudget = {
+      amount: minorToAmount(params.lifetimeBudget),
+      currencyCode: params.currency,
+    };
+  }
+
+  const res = await platformFetch(
+    `${restBase()}/adAccounts/${encodeURIComponent(adAccountId)}/adCampaignGroups/${encodeURIComponent(groupId)}`,
+    {
+      method: "POST",
+      headers: {
+        ...baseHeaders(token),
+        "Content-Type": "application/json",
+        "X-RestLi-Method": "PARTIAL_UPDATE",
+      },
+      body: JSON.stringify({ patch: { $set: set } }),
+    },
+  );
+  if (!res.ok) throw await toError(res);
 }
 
 export interface UpdateLinkedinCampaignParams {

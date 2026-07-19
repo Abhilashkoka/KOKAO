@@ -11,5 +11,10 @@ export interface AdsCampaignGroup {
   id: string;
   name: string;
   status: string;
+  /**
+     * Total (lifetime) budget in minor units, if the group has one.
+     * @nullable
+     */
+  lifetimeBudget?: number | null;
   metrics: AdsMetrics;
 }

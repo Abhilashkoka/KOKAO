@@ -8385,6 +8385,9 @@ components:
           type: string
         status:
           type: string
+        lifetimeBudget:
+          type: ["integer", "null"]
+          description: Total (lifetime) budget in minor units, if the group has one.
         metrics:
           $ref: "#/components/schemas/AdsMetrics"
     AdsCampaignGroupList:
@@ -8638,7 +8641,7 @@ components:
         targetType:
           type: string
           enum: [campaign, adset, ad, campaign_group, creative]
-          description: campaign_group and creative are LinkedIn create-only.
+          description: campaign_group is LinkedIn-only (create and update); creative is LinkedIn create-only.
         action:
           type: string
           enum: [create, update]

@@ -37,6 +37,7 @@ import {
   createLinkedinCampaign,
   createLinkedinCampaignGroup,
   updateLinkedinCampaign,
+  updateLinkedinCampaignGroup,
   readLinkedinCampaignState,
   readLinkedinCampaignGroupState,
   type LinkedinAdsCredentials,
@@ -249,7 +250,7 @@ interface PlatformOps {
   update(
     conn: AdAccountConnection,
     targetId: string,
-    params: UpdateParams & { targetType?: AdsTargetType },
+    params: UpdateParams & { targetType?: AdsDraftTargetType },
   ): Promise<void>;
   create(conn: AdAccountConnection, params: CreateParams): Promise<string>;
   defaultObjective: string;
@@ -341,6 +342,17 @@ const linkedinOps: PlatformOps = {
     return readLinkedinCampaignState(linkedinToken(conn), conn.adAccountId, targetId);
   },
   update: async (conn, targetId, params) => {
+    if (params.targetType === "campaign_group") {
+      // Groups only carry a name, status, and total (lifetime) budget; the
+      // adapter converts minor units to LinkedIn's major-unit strings.
+      await updateLinkedinCampaignGroup(linkedinToken(conn), conn.adAccountId, targetId, {
+        name: params.name,
+        status: params.status,
+        lifetimeBudget: params.lifetimeBudget ?? undefined,
+        currency: conn.currency ?? "USD",
+      });
+      return;
+    }
     await updateLinkedinCampaign(linkedinToken(conn), conn.adAccountId, targetId, {
       name: params.name,
       status: params.status,
@@ -454,7 +466,7 @@ function getPlatformOps(platform: string): PlatformOps | null {
 export async function readAdTargetState(
   conn: AdAccountConnection,
   targetId: string,
-  targetType: AdsTargetType,
+  targetType: AdsDraftTargetType,
 ): Promise<RemoteSnapshot> {
   const ops = getPlatformOps(conn.platform);
   if (!ops) {
@@ -898,7 +910,7 @@ export async function approveAndApplyDraft(
           targetingLocations: payload.targetingLocations?.length
             ? [...new Set(payload.targetingLocations.map((l) => l.urn))].sort()
             : undefined,
-          targetType: asTargetType(claimed.targetType),
+          targetType: asDraftTargetType(claimed.targetType),
         });
 
         // Post-apply verification: read back and confirm the fields we set.

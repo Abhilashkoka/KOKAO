@@ -6008,6 +6008,7 @@ export const ListLinkedinCampaignGroupsResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "status": zod.string(),
+  "lifetimeBudget": zod.number().nullish().describe('Total (lifetime) budget in minor units, if the group has one.'),
   "metrics": zod.object({
   "impressions": zod.number(),
   "clicks": zod.number(),
@@ -6228,7 +6229,7 @@ export const createAdDraftBodyTargetingLocationsMax = 50;
 
 export const CreateAdDraftBody = zod.object({
   "connectionId": zod.number(),
-  "targetType": zod.enum(['campaign', 'adset', 'ad', 'campaign_group', 'creative']).describe('campaign_group and creative are LinkedIn create-only.'),
+  "targetType": zod.enum(['campaign', 'adset', 'ad', 'campaign_group', 'creative']).describe('campaign_group is LinkedIn-only (create and update); creative is LinkedIn create-only.'),
   "action": zod.enum(['create', 'update']),
   "targetId": zod.string().optional().describe('Remote object id (required for update).'),
   "idempotencyKey": zod.string().max(createAdDraftBodyIdempotencyKeyMax).optional().describe('Client-supplied key to make retries safe; server generates one when omitted.'),

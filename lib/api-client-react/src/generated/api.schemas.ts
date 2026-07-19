@@ -2550,6 +2550,11 @@ export interface AdsCampaignGroup {
   id: string;
   name: string;
   status: string;
+  /**
+     * Total (lifetime) budget in minor units, if the group has one.
+     * @nullable
+     */
+  lifetimeBudget?: number | null;
   metrics: AdsMetrics;
 }
 
@@ -2722,7 +2727,7 @@ export interface AdsDraft {
 }
 
 /**
- * campaign_group and creative are LinkedIn create-only.
+ * campaign_group is LinkedIn-only (create and update); creative is LinkedIn create-only.
  */
 export type AdsDraftCreateInputTargetType = typeof AdsDraftCreateInputTargetType[keyof typeof AdsDraftCreateInputTargetType];
 
@@ -2759,7 +2764,7 @@ export interface AdsTargetingLocation {
 
 export interface AdsDraftCreateInput {
   connectionId: number;
-  /** campaign_group and creative are LinkedIn create-only. */
+  /** campaign_group is LinkedIn-only (create and update); creative is LinkedIn create-only. */
   targetType: AdsDraftCreateInputTargetType;
   action: AdsDraftCreateInputAction;
   /** Remote object id (required for update). */

@@ -12,7 +12,7 @@ import type { AdsTargetingLocation } from './adsTargetingLocation';
 
 export interface AdsDraftCreateInput {
   connectionId: number;
-  /** campaign_group and creative are LinkedIn create-only. */
+  /** campaign_group is LinkedIn-only (create and update); creative is LinkedIn create-only. */
   targetType: AdsDraftCreateInputTargetType;
   action: AdsDraftCreateInputAction;
   /** Remote object id (required for update). */

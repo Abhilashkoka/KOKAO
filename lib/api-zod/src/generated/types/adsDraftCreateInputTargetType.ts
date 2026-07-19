@@ -7,7 +7,7 @@
  */
 
 /**
- * campaign_group and creative are LinkedIn create-only.
+ * campaign_group is LinkedIn-only (create and update); creative is LinkedIn create-only.
  */
 export type AdsDraftCreateInputTargetType = typeof AdsDraftCreateInputTargetType[keyof typeof AdsDraftCreateInputTargetType];
 

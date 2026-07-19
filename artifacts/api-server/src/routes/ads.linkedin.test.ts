@@ -41,6 +41,7 @@ vi.mock("../lib/linkedinAdsApi", async (importOriginal) => {
     createLinkedinCampaign: vi.fn(),
     createLinkedinCampaignGroup: vi.fn(),
     updateLinkedinCampaign: vi.fn(),
+    updateLinkedinCampaignGroup: vi.fn(),
     readLinkedinCampaignState: vi.fn(),
     readLinkedinCampaignGroupState: vi.fn(),
     readLinkedinCreativeState: vi.fn(),
@@ -73,6 +74,7 @@ import {
   createLinkedinCampaign,
   createLinkedinCampaignGroup,
   updateLinkedinCampaign,
+  updateLinkedinCampaignGroup,
   readLinkedinCampaignState,
   readLinkedinCampaignGroupState,
   readLinkedinCreativeState,
@@ -98,6 +100,7 @@ const mockAnalytics = vi.mocked(getLinkedinAnalytics);
 const mockCreate = vi.mocked(createLinkedinCampaign);
 const mockCreateGroup = vi.mocked(createLinkedinCampaignGroup);
 const mockUpdate = vi.mocked(updateLinkedinCampaign);
+const mockUpdateGroup = vi.mocked(updateLinkedinCampaignGroup);
 const mockReadState = vi.mocked(readLinkedinCampaignState);
 const mockReadGroupState = vi.mocked(readLinkedinCampaignGroupState);
 const mockGetCampaign = vi.mocked(getLinkedinCampaign);
@@ -193,6 +196,15 @@ beforeEach(async () => {
   vi.clearAllMocks();
   mockReadState.mockResolvedValue({ ...REMOTE_STATE });
   mockUpdate.mockResolvedValue(undefined as never);
+  mockUpdateGroup.mockResolvedValue(undefined as never);
+  mockReadGroupState.mockResolvedValue({
+    name: "Always On",
+    status: "ACTIVE",
+    dailyBudget: null,
+    lifetimeBudget: 200000,
+    startTime: null,
+    stopTime: null,
+  });
   mockCreate.mockResolvedValue("cmp_new_1");
   mockListAccounts.mockResolvedValue([
     { adAccountId: "512345678", name: "Test LinkedIn Account", currency: "USD", accountStatus: "ACTIVE" },
@@ -603,29 +615,188 @@ describe("LinkedIn draft apply", () => {
     }
   });
 
-  it("rejects campaign-group updates and campaign-only fields on group creates", async () => {
+  it("rejects campaign-only fields on group drafts (create and update)", async () => {
     const tenant = await createTenant();
     try {
       const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
       actAs(tenant.clerkUserId);
-      const update = await request(app).post("/api/ads/drafts").send({
-        connectionId,
-        targetType: "campaign_group",
-        action: "update",
-        targetId: "grp_1",
-        name: "Renamed",
-      });
-      expect(update.status).toBe(400);
-
-      const badFields = await request(app).post("/api/ads/drafts").send({
+      const badCreate = await request(app).post("/api/ads/drafts").send({
         connectionId,
         targetType: "campaign_group",
         action: "create",
         name: "Q3 Group",
         dailyBudget: 1000,
       });
-      expect(badFields.status).toBe(400);
-      expect(badFields.body.error).toContain("lifetime budget");
+      expect(badCreate.status).toBe(400);
+      expect(badCreate.body.error).toContain("lifetime budget");
+
+      const badUpdate = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign_group",
+        action: "update",
+        targetId: "grp_1",
+        startTime: "2026-08-01T00:00:00.000Z",
+      });
+      expect(badUpdate.status).toBe(400);
+      expect(badUpdate.body.error).toContain("lifetime budget");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects campaign-group drafts on non-LinkedIn connections", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId, {
+        platform: "meta",
+        adAccountId: "act_123",
+      });
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign_group",
+        action: "update",
+        targetId: "grp_1",
+        name: "Renamed",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("LinkedIn");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("drafts a campaign-group update with a before/after diff from the group reader", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign_group",
+        action: "update",
+        targetId: "grp_1",
+        name: "Evergreen",
+        status: "PAUSED",
+        lifetimeBudget: 300000,
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.targetType).toBe("campaign_group");
+      expect(res.body.changes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ field: "Name", before: "Always On", after: "Evergreen" }),
+          expect.objectContaining({ field: "Status", before: "ACTIVE", after: "PAUSED" }),
+          expect.objectContaining({
+            field: "Lifetime budget (minor units)",
+            before: "200000",
+            after: "300000",
+          }),
+        ]),
+      );
+      expect(mockReadGroupState).toHaveBeenCalledWith("li-ads-token", "512345678", "grp_1");
+      expect(mockReadState).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("applies a campaign-group update end to end via the group adapter", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign_group",
+        action: "update",
+        targetId: "grp_1",
+        name: "Evergreen",
+        status: "PAUSED",
+        lifetimeBudget: 300000,
+      });
+      expect(draftRes.status).toBe(201);
+
+      // Drift check sees the unchanged group; read-back sees the applied one.
+      mockReadGroupState.mockResolvedValueOnce({
+        name: "Always On",
+        status: "ACTIVE",
+        dailyBudget: null,
+        lifetimeBudget: 200000,
+        startTime: null,
+        stopTime: null,
+      });
+      mockReadGroupState.mockResolvedValue({
+        name: "Evergreen",
+        status: "PAUSED",
+        dailyBudget: null,
+        lifetimeBudget: 300000,
+        startTime: null,
+        stopTime: null,
+      });
+
+      const res = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("applied");
+      expect(res.body.verifyStatus).toBe("verified");
+      expect(mockUpdateGroup).toHaveBeenCalledTimes(1);
+      expect(mockUpdateGroup).toHaveBeenCalledWith(
+        "li-ads-token",
+        "512345678",
+        "grp_1",
+        expect.objectContaining({
+          name: "Evergreen",
+          status: "PAUSED",
+          lifetimeBudget: 300000,
+          currency: "USD",
+        }),
+      );
+      expect(mockUpdate).not.toHaveBeenCalled();
+
+      const logs = await db
+        .select()
+        .from(adsChangeLogsTable)
+        .where(eq(adsChangeLogsTable.tenantId, tenant.tenantId));
+      expect(logs.length).toBe(1);
+      expect(logs[0]!.targetType).toBe("campaign_group");
+      expect(logs[0]!.action).toBe("update");
+      expect(logs[0]!.outcome).toBe("applied");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("expires a campaign-group update when the group drifted since drafting", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign_group",
+        action: "update",
+        targetId: "grp_1",
+        status: "PAUSED",
+      });
+      expect(draftRes.status).toBe(201);
+
+      mockReadGroupState.mockResolvedValue({
+        name: "Renamed Elsewhere",
+        status: "ACTIVE",
+        dailyBudget: null,
+        lifetimeBudget: 200000,
+        startTime: null,
+        stopTime: null,
+      });
+
+      const res = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("expired");
+      expect(res.body.failureReason).toContain("campaign group");
+      expect(mockUpdateGroup).not.toHaveBeenCalled();
     } finally {
       await deleteTenant(tenant.tenantId);
     }

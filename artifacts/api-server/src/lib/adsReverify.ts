@@ -202,3 +202,8 @@ export async function reverifyAdConnection(
   });
   return { checked: true, verifyStatus: "verified" };
 }
+
+/** Convenience helper for the Meta-specific connection check used by routes. */
+export async function reverifyMetaAds(tenantId: number): Promise<void> {
+  await reverifyAdConnection(tenantId, "meta");
+}

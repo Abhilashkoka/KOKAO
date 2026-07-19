@@ -118,7 +118,7 @@ import {
   defaultAdsObjective,
   isAdsAuthError,
   adsApiErrorStatus,
-  asTargetType,
+  asDraftTargetType,
   ADS_APPLY_IN_PROGRESS_MESSAGE,
   type TargetingLocation,
 } from "../lib/adsEngine";
@@ -1670,13 +1670,7 @@ router.post(
     // object actually has.
     if (input.targetType === "campaign_group") {
       if (conn.platform !== "linkedin") {
-        res.status(400).json({ error: "Campaign groups can only be created on LinkedIn." });
-        return;
-      }
-      if (input.action !== "create") {
-        res.status(400).json({
-          error: "Campaign groups can only be created here — edit existing groups in Campaign Manager.",
-        });
+        res.status(400).json({ error: "Campaign groups are only supported on LinkedIn." });
         return;
       }
       if (input.dailyBudget != null || input.startTime != null || input.stopTime != null) {
@@ -1949,7 +1943,7 @@ router.post(
     if (input.action === "update") {
       let current;
       try {
-        current = await readAdTargetState(conn, input.targetId!, asTargetType(input.targetType));
+        current = await readAdTargetState(conn, input.targetId!, asDraftTargetType(input.targetType));
       } catch (err) {
         if (isAdsAuthError(err)) {
           await markAdConnectionFailed(conn.id, (err as Error).message);

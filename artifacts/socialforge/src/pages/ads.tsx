@@ -1527,6 +1527,16 @@ function CampaignsSection({
         </Card>
       )}
 
+      {connection.platform === "linkedin" && (
+        <LinkedinGroupsCard
+          connectionId={connection.id}
+          datePreset={datePreset}
+          currency={currency}
+          canManage={canManage}
+          onEdit={(form) => setDraftForm(form)}
+        />
+      )}
+
       {detailCampaignId && (
         <CampaignDetailDialog
           connectionId={connection.id}
@@ -1734,6 +1744,110 @@ function CampaignDetailDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function LinkedinGroupsCard({
+  connectionId,
+  datePreset,
+  currency,
+  canManage,
+  onEdit,
+}: {
+  connectionId: number;
+  datePreset: string;
+  currency: string | null;
+  canManage: boolean;
+  onEdit: (form: DraftFormState) => void;
+}) {
+  const { data, isLoading, error } = useListLinkedinCampaignGroups({
+    connectionId,
+    datePreset: datePreset as never,
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Campaign groups</CardTitle>
+        <CardDescription>
+          Rename, pause, or adjust a group's lifetime budget — every change is
+          drafted for the workspace owner to approve first.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        {isLoading && <Skeleton className="h-24 w-full" />}
+        {error && (
+          <p className="text-sm text-destructive">
+            {(error as { payload?: { error?: string } }).payload?.error ??
+              "Could not load campaign groups."}
+          </p>
+        )}
+        {data && data.groups.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No campaign groups in this ad account yet.
+          </p>
+        )}
+        {data && data.groups.length > 0 && (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Group</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Lifetime budget</TableHead>
+                <TableHead className="text-right">Impressions</TableHead>
+                <TableHead className="text-right">Clicks</TableHead>
+                <TableHead className="text-right">Spend</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.groups.map((g) => (
+                <TableRow key={g.id} data-testid={`row-campaign-group-${g.id}`}>
+                  <TableCell className="font-medium">{g.name}</TableCell>
+                  <TableCell>{statusBadge(g.status)}</TableCell>
+                  <TableCell className="text-right whitespace-nowrap">
+                    {formatMoneyMinor(g.lifetimeBudget ?? null, currency)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {g.metrics.impressions.toLocaleString()}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {g.metrics.clicks.toLocaleString()}
+                  </TableCell>
+                  <TableCell className="text-right whitespace-nowrap">
+                    {formatSpend(g.metrics.spend, currency)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {canManage && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          onEdit({
+                            ...EMPTY_FORM,
+                            action: "update",
+                            targetType: "campaign_group",
+                            targetId: g.id,
+                            currentName: g.name,
+                            name: g.name,
+                            status: g.status,
+                            lifetimeBudget:
+                              g.lifetimeBudget != null ? String(g.lifetimeBudget) : "",
+                          })
+                        }
+                        data-testid={`button-edit-campaign-group-${g.id}`}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
