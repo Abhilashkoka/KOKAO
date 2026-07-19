@@ -19,6 +19,14 @@ import { render, screen, fireEvent, cleanup, act } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const publishTwitterMutate = vi.fn();
+const publishInstagramMutate = vi.fn();
+
+// Per-test switch: "draft" renders the normal publish buttons (X path);
+// "failed" renders the failed-state "Retry Instagram publish" control.
+const mockContent = {
+  status: "draft" as "draft" | "failed",
+  imagePath: null as string | null,
+};
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("./apiClientMock");
@@ -35,9 +43,9 @@ vi.mock("@workspace/api-client-react", async () => {
         id: 7,
         title: "Locked while retrying",
         caption: "A caption",
-        imagePath: null,
+        imagePath: mockContent.imagePath,
         platform: "x",
-        status: "draft",
+        status: mockContent.status,
         permalink: null,
         failureReason: null,
         createdAt: new Date("2026-01-01T00:00:00Z").toISOString(),
@@ -49,6 +57,10 @@ vi.mock("@workspace/api-client-react", async () => {
     }),
     usePublishContentToTwitter: () => ({
       mutate: publishTwitterMutate,
+      isPending: false,
+    }),
+    usePublishContentToInstagram: () => ({
+      mutate: publishInstagramMutate,
       isPending: false,
     }),
     useGetTwitterStatus: () => ({
@@ -133,6 +145,9 @@ function xPublishLocked(): boolean {
 beforeEach(() => {
   cleanup();
   publishTwitterMutate.mockReset();
+  publishInstagramMutate.mockReset();
+  mockContent.status = "draft";
+  mockContent.imagePath = null;
 });
 
 afterEach(() => {
@@ -213,5 +228,100 @@ describe("Mobile content detail publish lock during automatic restart retry", ()
     expect(xPublishLocked()).toBe(false);
     fireEvent.click(xPublishLabel());
     expect(publishTwitterMutate).toHaveBeenCalledTimes(3);
+  });
+});
+
+/**
+ * Failed-state control: when the item is status "failed" the screen shows a
+ * separate "Retry Instagram publish" button (handleRetryInstagram). It shares
+ * the same anyPublishPending gate as the normal publish buttons, so it must
+ * also ignore taps during useRestartRetry's automatic retry window.
+ */
+function igRetryLabel(): HTMLElement {
+  return screen.getByText("Retry Instagram publish");
+}
+
+function igRetryLocked(): boolean {
+  return igRetryLabel().closest('[aria-disabled="true"]') !== null;
+}
+
+describe("Mobile failed-state 'Retry Instagram publish' lock during automatic restart retry", () => {
+  beforeEach(() => {
+    mockContent.status = "failed";
+    mockContent.imagePath = "/objects/t1/uploads/img.png";
+  });
+
+  it("ignores taps through the retry window and re-enables after the retry settles", () => {
+    renderScreen();
+
+    expect(igRetryLocked()).toBe(false);
+
+    vi.useFakeTimers();
+    fireEvent.click(igRetryLabel());
+    expect(publishInstagramMutate).toHaveBeenCalledTimes(1);
+
+    // First attempt fails with the restart 503 → the hook schedules the
+    // one-shot retry. The mutation is no longer pending, so only the
+    // isRetrying wiring can keep the retry button locked.
+    const firstCallbacks = publishInstagramMutate.mock.calls[0][1] as MutateCallbacks;
+    act(() => {
+      firstCallbacks.onError?.(restartError());
+    });
+
+    expect(igRetryLocked()).toBe(true);
+
+    // A double-tap during the window must not re-run the Instagram publish.
+    fireEvent.click(igRetryLabel());
+    expect(publishInstagramMutate).toHaveBeenCalledTimes(1);
+
+    // Still locked (and still tap-proof) just before the retry fires.
+    act(() => {
+      vi.advanceTimersByTime(RESTART_RETRY_DELAY_MS - 1);
+    });
+    expect(igRetryLocked()).toBe(true);
+    fireEvent.click(igRetryLabel());
+    expect(publishInstagramMutate).toHaveBeenCalledTimes(1);
+
+    // The scheduled retry fires exactly once after the delay.
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(publishInstagramMutate).toHaveBeenCalledTimes(2);
+
+    // Retry settles with a terminal error → the lock lifts and a fresh tap
+    // retries again.
+    const retryCallbacks = publishInstagramMutate.mock.calls[1][1] as MutateCallbacks;
+    act(() => {
+      retryCallbacks.onError?.(Object.assign(new Error("boom"), { status: 500 }));
+    });
+
+    expect(igRetryLocked()).toBe(false);
+    fireEvent.click(igRetryLabel());
+    expect(publishInstagramMutate).toHaveBeenCalledTimes(3);
+  });
+
+  it("unlocks the retry button when the automatic retry succeeds", () => {
+    renderScreen();
+    vi.useFakeTimers();
+    fireEvent.click(igRetryLabel());
+
+    const firstCallbacks = publishInstagramMutate.mock.calls[0][1] as MutateCallbacks;
+    act(() => {
+      firstCallbacks.onError?.(restartError());
+    });
+    expect(igRetryLocked()).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(RESTART_RETRY_DELAY_MS);
+    });
+    expect(publishInstagramMutate).toHaveBeenCalledTimes(2);
+    const retryCallbacks = publishInstagramMutate.mock.calls[1][1] as MutateCallbacks;
+    act(() => {
+      retryCallbacks.onSuccess?.({});
+    });
+
+    expect(igRetryLocked()).toBe(false);
+    fireEvent.click(igRetryLabel());
+    expect(publishInstagramMutate).toHaveBeenCalledTimes(3);
   });
 });
