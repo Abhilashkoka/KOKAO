@@ -33,8 +33,10 @@ import {
   getGetThreadsStatusQueryKey,
   getGetFacebookCredentialsQueryKey,
   getGetInstagramCredentialsQueryKey,
-  getGetTwitterStatusQueryKey
+  getGetTwitterStatusQueryKey,
+  useListAdConnections
 } from "@workspace/api-client-react";
+import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -46,6 +48,13 @@ import { Share2, Plus, Trash2, CheckCircle2, Instagram, Facebook, Linkedin, Yout
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ReconnectHelpDialog } from "@/components/reconnect-help-dialog";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+
+function adPlatformLabel(platform: string) {
+  if (platform === "meta") return "Meta Ads";
+  if (platform === "linkedin") return "LinkedIn Ads";
+  if (platform === "tiktok") return "TikTok Ads";
+  return `${platform} Ads`;
+}
 
 function StatusPill({ status }: { status?: string | null }) {
   if (status === "verified") {
@@ -739,6 +748,7 @@ export function AccountsPage() {
   const disconnectYoutube = useDisconnectYoutube();
   const retestYoutube = useRetestYoutube();
   const { data: threadsStatus } = useGetThreadsStatus();
+  const { data: adConnections } = useListAdConnections();
   const disconnectThreads = useDisconnectThreads();
   const retestThreads = useRetestThreads();
   const queryClient = useQueryClient();
@@ -1151,6 +1161,9 @@ export function AccountsPage() {
   }
 
   const items = accounts || [];
+  const failedAdConnections = (adConnections || []).filter(
+    (c) => c.status === "connected" && c.verifyStatus === "failed",
+  );
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-4xl mx-auto">
@@ -1163,6 +1176,33 @@ export function AccountsPage() {
           <Plus className="h-4 w-4 mr-2" /> Connect
         </Button>
       </div>
+
+      {failedAdConnections.length > 0 && (
+        <div
+          className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 flex items-start gap-3"
+          data-testid="banner-ads-connection-failed"
+        >
+          <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0 space-y-2">
+            <p className="text-sm font-semibold text-destructive">
+              Ad account connection lost
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {failedAdConnections
+                .map(
+                  (c) =>
+                    `${adPlatformLabel(c.platform)}${c.adAccountName ? ` (${c.adAccountName})` : ""}`,
+                )
+                .join(", ")}{" "}
+              {failedAdConnections.length === 1 ? "has" : "have"} lost access. Scheduled and pending
+              ad changes will fail until the connection is restored.
+            </p>
+            <Button asChild size="sm" variant="destructive" data-testid="link-reconnect-ads">
+              <Link href="/ads">Reconnect on the Ads page</Link>
+            </Button>
+          </div>
+        </div>
+      )}
 
       <Card className="overflow-hidden border-border">
         <CardContent className="p-6">

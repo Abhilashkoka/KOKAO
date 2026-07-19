@@ -25,6 +25,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // generated OpenAPI types, so a spec rename/reshape of these fields breaks
 // this suite at compile time instead of letting the mocks drift silently.
 import type {
+  AdAccountConnection,
   ConnectedAccount,
   LinkedInStatus,
   TwitterStatus,
@@ -65,6 +66,7 @@ const mockState: {
   twitter: TwitterStatus;
   youtube: YoutubeStatus;
   threads: ThreadsStatus;
+  adConnections: AdAccountConnection[];
 } = {
   accounts: { data: [], isLoading: false },
   linkedin: oauthStatus(),
@@ -73,7 +75,24 @@ const mockState: {
   twitter: oauthStatus(),
   youtube: oauthStatus(),
   threads: oauthStatus(),
+  adConnections: [],
 };
+
+function adConnection(overrides: Partial<AdAccountConnection> = {}): AdAccountConnection {
+  return {
+    id: 1,
+    platform: "meta",
+    adAccountId: "act_123",
+    adAccountName: "Brand Ads",
+    currency: "USD",
+    status: "connected",
+    verifyStatus: "verified",
+    verifyError: null,
+    verifiedAt: new Date("2026-01-01T00:00:00Z").toISOString(),
+    createdAt: new Date("2026-01-01T00:00:00Z").toISOString(),
+    ...overrides,
+  };
+}
 
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
@@ -96,6 +115,7 @@ vi.mock("@workspace/api-client-react", async () => {
     useGetTwitterStatus: () => ({ data: mockState.twitter, isLoading: false }),
     useGetYoutubeStatus: () => ({ data: mockState.youtube, isLoading: false }),
     useGetThreadsStatus: () => ({ data: mockState.threads, isLoading: false }),
+    useListAdConnections: () => ({ data: mockState.adConnections, isLoading: false }),
     getYoutubeAuthUrl: async () => ({ url: "https://youtube.example/auth" }),
     getThreadsAuthUrl: async () => ({ url: "https://threads.example/auth" }),
     getLinkedinAuthUrl: async () => ({ url: "https://linkedin.example/auth" }),
@@ -139,6 +159,7 @@ beforeEach(() => {
   mockState.twitter = oauthStatus({ configured: false });
   mockState.youtube = oauthStatus({ configured: false });
   mockState.threads = oauthStatus({ configured: false });
+  mockState.adConnections = [];
 });
 
 describe("Accounts page reconnect prompts", () => {
@@ -400,6 +421,68 @@ describe("Accounts page reconnect prompts", () => {
     ).toBeTruthy();
     expect(th.queryByText("Reconnect needed")).toBeNull();
     expect(th.queryByText("Connected")).toBeNull();
+  });
+});
+
+/**
+ * Regression guard: a failed ad account connection must be visible on the
+ * Accounts page (the social connection health surface), not just on /ads,
+ * so a user who never opens the Ads page still sees the breakage and a link
+ * to reconnect there.
+ */
+describe("Accounts page ad connection health banner", () => {
+  it("shows a warning with a link to /ads when an ad connection has failed", () => {
+    mockState.adConnections = [
+      adConnection({
+        platform: "meta",
+        adAccountName: "Brand Ads",
+        verifyStatus: "failed",
+        verifyError: "Token expired",
+      }),
+    ];
+
+    renderPage();
+
+    const banner = screen.getByTestId("banner-ads-connection-failed");
+    expect(within(banner).getByText("Ad account connection lost")).toBeTruthy();
+    expect(within(banner).getByText(/Meta Ads \(Brand Ads\)/)).toBeTruthy();
+    const link = within(banner).getByTestId("link-reconnect-ads");
+    expect(link.getAttribute("href")).toBe("/ads");
+  });
+
+  it("lists every failed ad platform in the banner", () => {
+    mockState.adConnections = [
+      adConnection({ id: 1, platform: "meta", adAccountName: "Meta Acct", verifyStatus: "failed" }),
+      adConnection({ id: 2, platform: "tiktok", adAccountName: "TikTok Acct", verifyStatus: "failed" }),
+      adConnection({ id: 3, platform: "linkedin", adAccountName: "LI Acct", verifyStatus: "verified" }),
+    ];
+
+    renderPage();
+
+    const banner = screen.getByTestId("banner-ads-connection-failed");
+    const text = banner.textContent || "";
+    expect(text).toContain("Meta Ads (Meta Acct)");
+    expect(text).toContain("TikTok Ads (TikTok Acct)");
+    expect(text).not.toContain("LinkedIn Ads");
+  });
+
+  it("shows no banner when ad connections are healthy or absent", () => {
+    mockState.adConnections = [adConnection({ verifyStatus: "verified" })];
+    renderPage();
+    expect(screen.queryByTestId("banner-ads-connection-failed")).toBeNull();
+
+    cleanup();
+    mockState.adConnections = [];
+    renderPage();
+    expect(screen.queryByTestId("banner-ads-connection-failed")).toBeNull();
+  });
+
+  it("ignores pending_selection connections that have not finished setup", () => {
+    mockState.adConnections = [
+      adConnection({ status: "pending_selection", verifyStatus: "failed" }),
+    ];
+    renderPage();
+    expect(screen.queryByTestId("banner-ads-connection-failed")).toBeNull();
   });
 });
 
