@@ -1858,7 +1858,7 @@ function LinkedinGroupsCard({
   );
 }
 
-function DraftDialog({
+export function DraftDialog({
   connectionId,
   platform,
   form,
@@ -2505,7 +2505,7 @@ function TargetingDraftDialog({
   );
 }
 
-function DraftsSection({
+export function DraftsSection({
   isOwner,
   canManage,
 }: {
