@@ -33,7 +33,11 @@ vi.mock("../lib/tiktokAdsApi", async (importOriginal) => {
   return {
     ...actual,
     readCampaignState: vi.fn(),
+    readAdGroupState: vi.fn(),
+    readAdState: vi.fn(),
     updateCampaign: vi.fn(),
+    updateAdGroup: vi.fn(),
+    updateAd: vi.fn(),
     createCampaign: vi.fn(),
     listAdvertisers: vi.fn(),
     readAdvertiser: vi.fn(),
@@ -51,7 +55,11 @@ import {
 import { eq } from "drizzle-orm";
 import {
   readCampaignState,
+  readAdGroupState,
+  readAdState,
   updateCampaign,
+  updateAdGroup,
+  updateAd,
   createCampaign,
   listAdvertisers,
   readAdvertiser,
@@ -64,7 +72,11 @@ import { resetAuthState, actAs } from "../test/authState";
 import { createTenant, deleteTenant } from "../test/dbHelpers";
 
 const mockRead = vi.mocked(readCampaignState);
+const mockReadAdGroup = vi.mocked(readAdGroupState);
+const mockReadAd = vi.mocked(readAdState);
 const mockUpdate = vi.mocked(updateCampaign);
+const mockUpdateAdGroup = vi.mocked(updateAdGroup);
+const mockUpdateAd = vi.mocked(updateAd);
 const mockCreate = vi.mocked(createCampaign);
 const mockListAdvertisers = vi.mocked(listAdvertisers);
 const mockReadAdvertiser = vi.mocked(readAdvertiser);
@@ -91,6 +103,24 @@ const REMOTE_STATE = {
   name: "Spring Push",
   status: "PAUSED",
   dailyBudget: 5000,
+  lifetimeBudget: null,
+  startTime: null,
+  stopTime: null,
+};
+
+const ADGROUP_STATE = {
+  name: "Prospecting AG",
+  status: "PAUSED",
+  dailyBudget: 3000,
+  lifetimeBudget: null,
+  startTime: null,
+  stopTime: null,
+};
+
+const AD_STATE = {
+  name: "Video Ad A",
+  status: "ACTIVE",
+  dailyBudget: null,
   lifetimeBudget: null,
   startTime: null,
   stopTime: null,
@@ -146,8 +176,16 @@ beforeEach(async () => {
   mockCreate.mockReset();
   mockListAdvertisers.mockReset();
   mockReadAdvertiser.mockReset();
+  mockReadAdGroup.mockReset();
+  mockReadAd.mockReset();
+  mockUpdateAdGroup.mockReset();
+  mockUpdateAd.mockReset();
   mockRead.mockResolvedValue({ ...REMOTE_STATE });
+  mockReadAdGroup.mockResolvedValue({ ...ADGROUP_STATE });
+  mockReadAd.mockResolvedValue({ ...AD_STATE });
   mockUpdate.mockResolvedValue(undefined as never);
+  mockUpdateAdGroup.mockResolvedValue(undefined as never);
+  mockUpdateAd.mockResolvedValue(undefined as never);
   mockCreate.mockResolvedValue("tt_camp_new_1");
   await db.delete(adsSettingsTable);
 });
@@ -194,15 +232,63 @@ describe("tiktok draft rules", () => {
     }
   });
 
-  it("rejects non-campaign drafts for TikTok", async () => {
+  it("captures a before/after diff for a TikTok ad group update", async () => {
     const tenant = await createTenant();
     try {
       const connectionId = await insertTiktokConnection(tenant.tenantId);
       const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
         targetType: "adset",
         targetId: "ag_1",
+        status: "ACTIVE",
+        name: "Prospecting AG v2",
+        dailyBudget: undefined,
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.targetType).toBe("adset");
+      expect(res.body.changes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ field: "Status", before: "PAUSED", after: "ACTIVE" }),
+          expect.objectContaining({
+            field: "Name",
+            before: "Prospecting AG",
+            after: "Prospecting AG v2",
+          }),
+        ]),
+      );
+      expect(mockReadAdGroup).toHaveBeenCalledWith("tiktok-token", "adv_123", "ag_1");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects budget changes on TikTok ad groups and ads", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "adset",
+        targetId: "ag_1",
+        dailyBudget: 9000,
       });
       expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/name and status only/i);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects schedule fields on TikTok ad groups", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "adset",
+        targetId: "ag_1",
+        dailyBudget: undefined,
+        startTime: "2026-08-01T00:00:00+0000",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/schedule/i);
     } finally {
       await deleteTenant(tenant.tenantId);
     }
@@ -239,6 +325,117 @@ describe("tiktok approve → apply → verify", () => {
         .where(eq(adsChangeLogsTable.tenantId, tenant.tenantId));
       expect(logs.length).toBe(1);
       expect(logs[0]!.outcome).toBe("applied");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("applies an ad group status/name update end to end with change log", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      const draftRes = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "adset",
+        targetId: "ag_1",
+        status: "ACTIVE",
+        name: "Prospecting AG v2",
+        dailyBudget: undefined,
+      });
+      expect(draftRes.status).toBe(201);
+      const draftId = draftRes.body.id as number;
+
+      mockReadAdGroup.mockResolvedValueOnce({ ...ADGROUP_STATE }); // drift check
+      mockReadAdGroup.mockResolvedValue({
+        ...ADGROUP_STATE,
+        status: "ACTIVE",
+        name: "Prospecting AG v2",
+      });
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post(`/api/ads/drafts/${draftId}/approve`);
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("applied");
+      expect(res.body.verifyStatus).toBe("verified");
+      expect(mockUpdateAdGroup).toHaveBeenCalledTimes(1);
+      expect(mockUpdateAdGroup).toHaveBeenCalledWith("tiktok-token", "adv_123", "ag_1", {
+        name: "Prospecting AG v2",
+        status: "ACTIVE",
+      });
+      expect(mockUpdate).not.toHaveBeenCalled();
+
+      const logs = await db
+        .select()
+        .from(adsChangeLogsTable)
+        .where(eq(adsChangeLogsTable.tenantId, tenant.tenantId));
+      expect(logs.length).toBe(1);
+      expect(logs[0]!.outcome).toBe("applied");
+      expect(logs[0]!.targetType).toBe("adset");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("applies an ad pause end to end and verifies the read-back", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      const draftRes = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "ad",
+        targetId: "ad_9",
+        status: "PAUSED",
+        dailyBudget: undefined,
+      });
+      expect(draftRes.status).toBe(201);
+      const draftId = draftRes.body.id as number;
+
+      mockReadAd.mockResolvedValueOnce({ ...AD_STATE }); // drift check
+      mockReadAd.mockResolvedValue({ ...AD_STATE, status: "PAUSED" });
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post(`/api/ads/drafts/${draftId}/approve`);
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("applied");
+      expect(res.body.verifyStatus).toBe("verified");
+      expect(mockUpdateAd).toHaveBeenCalledWith("tiktok-token", "adv_123", "ad_9", {
+        name: undefined,
+        status: "PAUSED",
+      });
+
+      const logs = await db
+        .select()
+        .from(adsChangeLogsTable)
+        .where(eq(adsChangeLogsTable.tenantId, tenant.tenantId));
+      expect(logs.length).toBe(1);
+      expect(logs[0]!.targetType).toBe("ad");
+      expect(logs[0]!.outcome).toBe("applied");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("expires an ad group draft when the remote ad group drifted", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      const draftRes = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "adset",
+        targetId: "ag_1",
+        status: "ACTIVE",
+        dailyBudget: undefined,
+      });
+      const draftId = draftRes.body.id as number;
+
+      mockReadAdGroup.mockResolvedValue({
+        ...ADGROUP_STATE,
+        name: "Renamed Elsewhere",
+      });
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post(`/api/ads/drafts/${draftId}/approve`);
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("expired");
+      expect(res.body.failureReason).toMatch(/ad set/i);
+      expect(mockUpdateAdGroup).not.toHaveBeenCalled();
     } finally {
       await deleteTenant(tenant.tenantId);
     }

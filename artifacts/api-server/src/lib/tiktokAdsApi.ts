@@ -333,36 +333,38 @@ export interface TiktokAdGroup {
   lifetimeBudget: number | null;
 }
 
+interface RawTiktokAdGroup {
+  adgroup_id?: string | number;
+  adgroup_name?: string;
+  operation_status?: string;
+  secondary_status?: string;
+  budget?: number | string;
+  budget_mode?: string;
+}
+
+function mapAdGroup(g: RawTiktokAdGroup): TiktokAdGroup {
+  const minor = toMinor(g.budget);
+  return {
+    id: String(g.adgroup_id ?? ""),
+    name: g.adgroup_name ?? "",
+    status: mapOperationStatus(g.operation_status),
+    effectiveStatus: g.secondary_status ?? mapOperationStatus(g.operation_status),
+    dailyBudget: g.budget_mode === "BUDGET_MODE_DAY" ? minor : null,
+    lifetimeBudget: g.budget_mode === "BUDGET_MODE_TOTAL" ? minor : null,
+  };
+}
+
 export async function listAdGroups(
   token: string,
   advertiserId: string,
   campaignId: string,
 ): Promise<TiktokAdGroup[]> {
-  const data = await apiGet<{
-    list?: {
-      adgroup_id?: string | number;
-      adgroup_name?: string;
-      operation_status?: string;
-      secondary_status?: string;
-      budget?: number | string;
-      budget_mode?: string;
-    }[];
-  }>("adgroup/get/", token, {
+  const data = await apiGet<{ list?: RawTiktokAdGroup[] }>("adgroup/get/", token, {
     advertiser_id: advertiserId,
     filtering: JSON.stringify({ campaign_ids: [campaignId] }),
     page_size: "100",
   });
-  return (data.list ?? []).map((g) => {
-    const minor = toMinor(g.budget);
-    return {
-      id: String(g.adgroup_id ?? ""),
-      name: g.adgroup_name ?? "",
-      status: mapOperationStatus(g.operation_status),
-      effectiveStatus: g.secondary_status ?? mapOperationStatus(g.operation_status),
-      dailyBudget: g.budget_mode === "BUDGET_MODE_DAY" ? minor : null,
-      lifetimeBudget: g.budget_mode === "BUDGET_MODE_TOTAL" ? minor : null,
-    };
-  });
+  return (data.list ?? []).map(mapAdGroup);
 }
 
 export interface TiktokAd {
@@ -373,31 +375,71 @@ export interface TiktokAd {
   adGroupId: string | null;
 }
 
-export async function listAdsForCampaign(
-  token: string,
-  advertiserId: string,
-  campaignId: string,
-): Promise<TiktokAd[]> {
-  const data = await apiGet<{
-    list?: {
-      ad_id?: string | number;
-      ad_name?: string;
-      operation_status?: string;
-      secondary_status?: string;
-      adgroup_id?: string | number;
-    }[];
-  }>("ad/get/", token, {
-    advertiser_id: advertiserId,
-    filtering: JSON.stringify({ campaign_ids: [campaignId] }),
-    page_size: "100",
-  });
-  return (data.list ?? []).map((a) => ({
+interface RawTiktokAd {
+  ad_id?: string | number;
+  ad_name?: string;
+  operation_status?: string;
+  secondary_status?: string;
+  adgroup_id?: string | number;
+}
+
+function mapAd(a: RawTiktokAd): TiktokAd {
+  return {
     id: String(a.ad_id ?? ""),
     name: a.ad_name ?? "",
     status: mapOperationStatus(a.operation_status),
     effectiveStatus: a.secondary_status ?? mapOperationStatus(a.operation_status),
     adGroupId: a.adgroup_id != null ? String(a.adgroup_id) : null,
-  }));
+  };
+}
+
+export async function listAdsForCampaign(
+  token: string,
+  advertiserId: string,
+  campaignId: string,
+): Promise<TiktokAd[]> {
+  const data = await apiGet<{ list?: RawTiktokAd[] }>("ad/get/", token, {
+    advertiser_id: advertiserId,
+    filtering: JSON.stringify({ campaign_ids: [campaignId] }),
+    page_size: "100",
+  });
+  return (data.list ?? []).map(mapAd);
+}
+
+/** Fetch a single ad group by id (draft snapshot + verify read-back). */
+export async function getAdGroup(
+  token: string,
+  advertiserId: string,
+  adGroupId: string,
+): Promise<TiktokAdGroup> {
+  const data = await apiGet<{ list?: RawTiktokAdGroup[] }>("adgroup/get/", token, {
+    advertiser_id: advertiserId,
+    filtering: JSON.stringify({ adgroup_ids: [adGroupId] }),
+    page_size: "10",
+  });
+  const hit = (data.list ?? []).map(mapAdGroup).find((g) => g.id === adGroupId);
+  if (!hit) {
+    throw new TiktokAdsApiError("TikTok ad group not found.", 404, -1);
+  }
+  return hit;
+}
+
+/** Fetch a single ad by id (draft snapshot + verify read-back). */
+export async function getAd(
+  token: string,
+  advertiserId: string,
+  adId: string,
+): Promise<TiktokAd> {
+  const data = await apiGet<{ list?: RawTiktokAd[] }>("ad/get/", token, {
+    advertiser_id: advertiserId,
+    filtering: JSON.stringify({ ad_ids: [adId] }),
+    page_size: "10",
+  });
+  const hit = (data.list ?? []).map(mapAd).find((a) => a.id === adId);
+  if (!hit) {
+    throw new TiktokAdsApiError("TikTok ad not found.", 404, -1);
+  }
+  return hit;
 }
 
 // ---------------------------------------------------------------------------
@@ -618,6 +660,127 @@ export async function readCampaignState(
     status: c.status,
     dailyBudget: c.dailyBudget,
     lifetimeBudget: c.lifetimeBudget,
+    startTime: null,
+    stopTime: null,
+  };
+}
+
+export interface TiktokUpdateAdGroupParams {
+  name?: string;
+  status?: "ACTIVE" | "PAUSED";
+}
+
+/**
+ * Update an ad group in place (name/status only in this phase). Rename goes
+ * through adgroup/update/; the pause/resume flip uses adgroup/status/update/.
+ */
+export async function updateAdGroup(
+  token: string,
+  advertiserId: string,
+  adGroupId: string,
+  params: TiktokUpdateAdGroupParams,
+): Promise<void> {
+  if (params.name != null) {
+    await apiPost("adgroup/update/", token, {
+      advertiser_id: advertiserId,
+      adgroup_id: adGroupId,
+      adgroup_name: params.name,
+    });
+  }
+  if (params.status != null) {
+    await apiPost("adgroup/status/update/", token, {
+      advertiser_id: advertiserId,
+      adgroup_ids: [adGroupId],
+      operation_status: toOperationStatus(params.status),
+    });
+  }
+}
+
+export interface TiktokUpdateAdParams {
+  name?: string;
+  status?: "ACTIVE" | "PAUSED";
+}
+
+/**
+ * Update an ad in place (name/status only). Rename goes through ad/update/,
+ * which is keyed by the parent ad group, so the ad is fetched first to learn
+ * its adgroup_id. The pause/resume flip uses ad/status/update/.
+ */
+export async function updateAd(
+  token: string,
+  advertiserId: string,
+  adId: string,
+  params: TiktokUpdateAdParams,
+): Promise<void> {
+  if (params.name != null) {
+    const ad = await getAd(token, advertiserId, adId);
+    if (!ad.adGroupId) {
+      throw new TiktokAdsApiError(
+        "TikTok did not report the ad's parent ad group; the ad cannot be renamed.",
+        502,
+        -1,
+      );
+    }
+    await apiPost("ad/update/", token, {
+      advertiser_id: advertiserId,
+      adgroup_id: ad.adGroupId,
+      creatives: [{ ad_id: adId, ad_name: params.name }],
+    });
+  }
+  if (params.status != null) {
+    await apiPost("ad/status/update/", token, {
+      advertiser_id: advertiserId,
+      ad_ids: [adId],
+      operation_status: toOperationStatus(params.status),
+    });
+  }
+}
+
+/** Read the current state of an ad group (drift check + post-apply verify). */
+export async function readAdGroupState(
+  token: string,
+  advertiserId: string,
+  adGroupId: string,
+): Promise<{
+  name: string;
+  status: string;
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
+  startTime: string | null;
+  stopTime: string | null;
+}> {
+  const g = await getAdGroup(token, advertiserId, adGroupId);
+  return {
+    name: g.name,
+    status: g.status,
+    dailyBudget: g.dailyBudget,
+    lifetimeBudget: g.lifetimeBudget,
+    // Ad group schedule editing is not supported yet; keep the snapshot
+    // schedule-free so drafts never expire on schedule drift we don't manage.
+    startTime: null,
+    stopTime: null,
+  };
+}
+
+/** Read the current state of an ad (drift check + post-apply verify). */
+export async function readAdState(
+  token: string,
+  advertiserId: string,
+  adId: string,
+): Promise<{
+  name: string;
+  status: string;
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
+  startTime: string | null;
+  stopTime: string | null;
+}> {
+  const a = await getAd(token, advertiserId, adId);
+  return {
+    name: a.name,
+    status: a.status,
+    dailyBudget: null,
+    lifetimeBudget: null,
     startTime: null,
     stopTime: null,
   };

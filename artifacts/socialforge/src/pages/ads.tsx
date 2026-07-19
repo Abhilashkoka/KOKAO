@@ -1461,7 +1461,12 @@ function DraftDialog({
         : isGroupCreate
           ? "campaign group"
           : "campaign";
-  const showBudgets = state.targetType !== "ad";
+  // TikTok ad group changes are name/status-only for now; budgets stay on
+  // the campaign there.
+  const showBudgets =
+    state.targetType === "campaign" ||
+    isGroupCreate ||
+    (state.targetType === "adset" && !isTiktok);
   const showDailyBudget = showBudgets && !isGroupCreate;
   const showSchedule = state.targetType === "campaign";
 

@@ -80,7 +80,6 @@ import {
   listAdGroups as listTiktokAdGroups,
   listAdsForCampaign as listTiktokAds,
   getInsightsByLevel as getTiktokInsightsByLevel,
-  readCampaignState as readTiktokCampaignState,
   EMPTY_TIKTOK_INSIGHTS,
   type TiktokAdsCredentials,
 } from "../lib/tiktokAdsApi";
@@ -1360,18 +1359,25 @@ router.post(
     }
 
     if (conn.platform === "tiktok") {
-      // TikTok drafts are campaign-only for now, and TikTok campaigns carry
-      // no schedule (start/end dates live on ad groups).
-      if (input.targetType !== "campaign") {
-        res.status(400).json({
-          error: "Only campaign changes are supported for TikTok Ads in this phase.",
-        });
-        return;
-      }
+      // TikTok campaigns carry no schedule (dates live on ad groups), and
+      // schedule editing isn't wired up for TikTok yet at any level.
       if (input.startTime != null || input.stopTime != null) {
         res.status(400).json({
           error:
-            "TikTok campaigns do not have a schedule — start and end dates are set on ad groups.",
+            input.targetType === "campaign"
+              ? "TikTok campaigns do not have a schedule — start and end dates are set on ad groups."
+              : "TikTok schedule changes are not supported yet — only name and status.",
+        });
+        return;
+      }
+      // Ad group and ad drafts are name/status-only in this phase.
+      if (
+        input.targetType !== "campaign" &&
+        (input.dailyBudget != null || input.lifetimeBudget != null)
+      ) {
+        res.status(400).json({
+          error:
+            "TikTok ad group and ad changes support name and status only in this phase — budgets stay on the campaign.",
         });
         return;
       }
@@ -1449,15 +1455,12 @@ router.post(
     if (input.action === "update") {
       let current;
       try {
-        current =
-          conn.platform === "tiktok"
-            ? await readTiktokCampaignState(token, conn.adAccountId, input.targetId!)
-            : await readRemoteState(
-                conn,
-                token,
-                input.targetId!,
-                asTargetType(input.targetType),
-              );
+        current = await readRemoteState(
+          conn,
+          token,
+          input.targetId!,
+          asTargetType(input.targetType),
+        );
       } catch (err) {
         if (isAdsAuthError(err)) {
           await markAdConnectionFailed(conn.id, (err as Error).message);

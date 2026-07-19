@@ -25,7 +25,11 @@ import {
   isTiktokAppConfigured,
   createCampaign as createTiktokCampaign,
   updateCampaign as updateTiktokCampaign,
+  updateAdGroup as updateTiktokAdGroup,
+  updateAd as updateTiktokAd,
   readCampaignState as readTiktokCampaignState,
+  readAdGroupState as readTiktokAdGroupState,
+  readAdState as readTiktokAdState,
 } from "./tiktokAdsApi";
 import {
   LinkedinAdsApiError,
@@ -313,6 +317,12 @@ export async function readRemoteState(
   targetType: AdsDraftTargetType = "campaign",
 ): Promise<RemoteSnapshot> {
   if (conn.platform === "tiktok") {
+    if (targetType === "adset") {
+      return readTiktokAdGroupState(token, conn.adAccountId, targetId);
+    }
+    if (targetType === "ad") {
+      return readTiktokAdState(token, conn.adAccountId, targetId);
+    }
     return readTiktokCampaignState(token, conn.adAccountId, targetId);
   }
   if (conn.platform === "linkedin") {
@@ -329,8 +339,23 @@ async function applyUpdate(
   token: string,
   targetId: string,
   payload: ApplyPayload,
+  targetType: AdsTargetType = "campaign",
 ): Promise<void> {
   if (conn.platform === "tiktok") {
+    if (targetType === "adset") {
+      await updateTiktokAdGroup(token, conn.adAccountId, targetId, {
+        name: payload.name,
+        status: payload.status,
+      });
+      return;
+    }
+    if (targetType === "ad") {
+      await updateTiktokAd(token, conn.adAccountId, targetId, {
+        name: payload.name,
+        status: payload.status,
+      });
+      return;
+    }
     await updateTiktokCampaign(token, conn.adAccountId, targetId, {
       name: payload.name,
       status: payload.status,
@@ -430,65 +455,6 @@ export function asDraftTargetType(value: string): AdsDraftTargetType {
 
 export function asTargetType(value: string): AdsTargetType {
   return value === "adset" || value === "ad" ? value : "campaign";
-}
-
-/**
- * Per-platform operations the shared apply pipeline dispatches to. The
- * pipeline's semantics (drift check, verify, change log) stay identical; only
- * the platform calls differ.
- */
-interface PlatformOps {
-  readState(token: string, targetId: string, targetType: AdsTargetType): Promise<RemoteSnapshot>;
-  update(token: string, targetId: string, payload: ApplyPayload): Promise<void>;
-  create(token: string, targetName: string, payload: ApplyPayload): Promise<string>;
-}
-
-function getPlatformOps(platform: string, conn: AdAccountConnection): PlatformOps {
-  if (platform === "tiktok") {
-    const advertiserId = conn.adAccountId;
-    return {
-      readState: (token, targetId) =>
-        readTiktokCampaignState(token, advertiserId, targetId),
-      update: (token, targetId, payload) =>
-        updateTiktokCampaign(token, advertiserId, targetId, {
-          name: payload.name,
-          status: payload.status,
-          dailyBudget: payload.dailyBudget ?? undefined,
-          lifetimeBudget: payload.lifetimeBudget ?? undefined,
-        }),
-      create: (token, targetName, payload) =>
-        createTiktokCampaign(token, advertiserId, {
-          name: payload.name ?? targetName,
-          objective: payload.objective ?? "TRAFFIC",
-          status: payload.status ?? "PAUSED",
-          dailyBudget: payload.dailyBudget ?? null,
-          lifetimeBudget: payload.lifetimeBudget ?? null,
-        }),
-    };
-  }
-  // Default: Meta.
-  return {
-    readState: (token, targetId, targetType) => readObjectState(token, targetId, targetType),
-    update: (token, targetId, payload) =>
-      updateObject(token, targetId, {
-        name: payload.name,
-        status: payload.status,
-        dailyBudget: payload.dailyBudget ?? undefined,
-        lifetimeBudget: payload.lifetimeBudget ?? undefined,
-        startTime: payload.startTime ?? undefined,
-        stopTime: payload.stopTime ?? undefined,
-      }),
-    create: (token, targetName, payload) =>
-      createCampaign(token, conn.adAccountId, {
-        name: payload.name ?? targetName,
-        objective: payload.objective ?? "OUTCOME_TRAFFIC",
-        status: payload.status ?? "PAUSED",
-        dailyBudget: payload.dailyBudget ?? null,
-        lifetimeBudget: payload.lifetimeBudget ?? null,
-        startTime: payload.startTime ?? null,
-        stopTime: payload.stopTime ?? null,
-      }),
-  };
 }
 
 /** True when the platform says the grant is expired/revoked (any platform). */
@@ -631,7 +597,13 @@ export async function approveAndApplyDraft(
           return { kind: "expired", draft: expired };
         }
 
-        await applyUpdate(conn, token, claimed.targetId, payload);
+        await applyUpdate(
+          conn,
+          token,
+          claimed.targetId,
+          payload,
+          asTargetType(claimed.targetType),
+        );
 
         // Post-apply verification: read back and confirm the fields we set.
         const verifyStatus = await verifyApplied(
