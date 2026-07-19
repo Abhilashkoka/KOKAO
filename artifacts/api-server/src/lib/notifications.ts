@@ -23,6 +23,9 @@ import { isSuperadminEmail } from "./superadmins";
 
 export const SOCIAL_CONNECTION_FAILED = "social_connection_failed";
 export const PUBLISH_INTERRUPTED = "publish_interrupted";
+export const ADS_DRAFT_PENDING = "ads_draft_pending";
+export const ADS_CHANGE_APPLIED = "ads_change_applied";
+export const ADS_CHANGE_FAILED = "ads_change_failed";
 export const SCHEDULED_POST_PUBLISHED = "scheduled_post_published";
 export const SCHEDULED_PUBLISH_FAILED = "scheduled_publish_failed";
 export const SEAT_REQUEST_DECIDED = "seat_request_decided";
@@ -1431,5 +1434,124 @@ export async function notifySocialConnectionFailed(
       { err, tenantId, platform },
       "Failed to record social connection notification",
     );
+  }
+}
+
+/**
+ * Tell the workspace owner a teammate drafted an ads change that needs their
+ * approval. In-app plus best-effort email per effective settings — approval
+ * is a blocking step, so the owner should hear about it. Never throws.
+ */
+export async function notifyAdsDraftPending(
+  tenantId: number,
+  ownerClerkUserId: string | null,
+  targetName: string,
+  platform: string,
+): Promise<void> {
+  try {
+    const effective = await getEffectiveSetting(tenantId, ADS_DRAFT_PENDING);
+    if (!effective.enabled) return;
+    const message = `An advertising change to "${targetName}" on ${platformLabel(platform)} is waiting for the workspace owner's approval.`;
+    await db.insert(notificationsTable).values({
+      tenantId,
+      type: ADS_DRAFT_PENDING,
+      platform,
+      title: "Ad change awaiting approval",
+      message,
+      linkUrl: "/ads",
+      inApp: effective.inApp,
+    });
+    if (effective.email && ownerClerkUserId) {
+      try {
+        const email = await fetchVerifiedEmail(ownerClerkUserId);
+        if (email) {
+          await sendEmail({
+            to: email,
+            subject: "An ad change is waiting for your approval",
+            text: message,
+            html: `<p>${escapeHtml(message)}</p>`,
+          });
+        }
+      } catch (err) {
+        logger.error({ err, tenantId }, "Failed to email ads-draft-pending alert");
+      }
+    }
+  } catch (err) {
+    logger.error({ err, tenantId }, "Failed to record ads-draft-pending notification");
+  }
+}
+
+/**
+ * Tell a tenant an approved ads change was applied. In-app only (routine
+ * good news; effective settings still apply). Never throws.
+ */
+export async function notifyAdsChangeApplied(
+  tenantId: number,
+  targetName: string,
+  platform: string,
+): Promise<void> {
+  try {
+    const effective = await getEffectiveSetting(tenantId, ADS_CHANGE_APPLIED);
+    if (!effective.enabled) return;
+    await db.insert(notificationsTable).values({
+      tenantId,
+      type: ADS_CHANGE_APPLIED,
+      platform,
+      title: "Ad change applied",
+      message: `The approved advertising change to "${targetName}" was applied on ${platformLabel(platform)}.`,
+      linkUrl: "/ads",
+      inApp: effective.inApp,
+    });
+  } catch (err) {
+    logger.error({ err, tenantId }, "Failed to record ads-change-applied notification");
+  }
+}
+
+/**
+ * Tell a tenant an approved ads change could NOT be applied. In-app plus
+ * best-effort email per effective settings. Never throws.
+ */
+export async function notifyAdsChangeFailed(
+  tenantId: number,
+  targetName: string,
+  platform: string,
+  reason: string,
+): Promise<void> {
+  try {
+    const effective = await getEffectiveSetting(tenantId, ADS_CHANGE_FAILED);
+    if (!effective.enabled) return;
+    const message = `The approved advertising change to "${targetName}" could not be applied on ${platformLabel(platform)}. ${reason}`;
+    await db.insert(notificationsTable).values({
+      tenantId,
+      type: ADS_CHANGE_FAILED,
+      platform,
+      title: "Ad change failed",
+      message,
+      linkUrl: "/ads",
+      inApp: effective.inApp,
+    });
+    const owner = await db
+      .select({ clerkUserId: tenantsTable.clerkUserId })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, tenantId))
+      .limit(1);
+    const ownerClerkUserId = owner[0]?.clerkUserId ?? null;
+    if (effective.email && ownerClerkUserId) {
+      try {
+        const email = await fetchVerifiedEmail(ownerClerkUserId);
+        if (email) {
+          await sendEmail({
+            to: email,
+            subject: "An approved ad change could not be applied",
+            text: message,
+            html: `<p>${escapeHtml(message)}</p>`,
+          });
+        }
+      } catch (err) {
+        logger.error({ err, tenantId }, "Failed to email ads-change-failed alert");
+      }
+    }
+  } catch (err) {
+    logger.error({ err, tenantId }, "Failed to record ads-change-failed notification");
   }
 }

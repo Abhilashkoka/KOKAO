@@ -1,0 +1,960 @@
+import { Router, type IRouter, type Request, type Response } from "express";
+import { randomUUID } from "node:crypto";
+import {
+  db,
+  adAccountConnectionsTable,
+  adChangeRequestsTable,
+  adsChangeLogsTable,
+  tenantsTable,
+  connectedAccountsTable,
+  type AdAccountConnection,
+  type AdChangeRequest,
+  type AdsChangeLog,
+} from "@workspace/db";
+import { and, desc, eq } from "drizzle-orm";
+import {
+  CreateAdDraftBody,
+  SelectMetaAdAccountBody,
+  AdminUpdateAdsSettingsBody,
+} from "@workspace/api-zod";
+import { requireWorkspaceAdmin } from "../middlewares/requireWorkspaceAdmin";
+import { requireSuperadmin } from "../middlewares/requireSuperadmin";
+import { recordAdminAction } from "../lib/adminAudit";
+import { encryptJson, decryptJson } from "../lib/secretCrypto";
+import {
+  signOAuthState,
+  verifySignedOAuthState,
+  randomNonce,
+} from "../lib/oauthState";
+import { platformFetch } from "../lib/platformFetch";
+import {
+  getMetaAppCredentials,
+  isMetaAppConfigured,
+  GRAPH_BASE,
+  GRAPH_VERSION,
+  type FacebookCredentials,
+} from "../lib/metaApi";
+import {
+  MetaAdsApiError,
+  listAdAccounts,
+  readAdAccount,
+  listCampaigns,
+  getCampaign,
+  listAdSets,
+  listAds,
+  getInsightsByLevel,
+  readObjectState,
+  ADS_DATE_PRESETS,
+  EMPTY_INSIGHTS,
+  type AdsDatePreset,
+  type MetaAdsCredentials,
+} from "../lib/metaAdsApi";
+import {
+  getAdsModuleEnabled,
+  setAdsModuleEnabled,
+  getAdsPlatformAvailability,
+  getAdConnection,
+  getConnectionToken,
+  markAdConnectionFailed,
+  buildUpdateDiff,
+  buildCreateDiff,
+  snapshotForCompare,
+  approveAndApplyDraft,
+  ADS_APPLY_IN_PROGRESS_MESSAGE,
+} from "../lib/adsEngine";
+import { notifyAdsDraftPending } from "../lib/notifications";
+
+const router: IRouter = Router();
+
+// ---------------------------------------------------------------------------
+// Serializers
+// ---------------------------------------------------------------------------
+
+function serializeConnection(c: AdAccountConnection) {
+  return {
+    id: c.id,
+    platform: c.platform,
+    adAccountId: c.adAccountId,
+    adAccountName: c.adAccountName,
+    currency: c.currency ?? null,
+    status: c.status,
+    verifyStatus: c.verifyStatus ?? null,
+    verifyError: c.verifyError ?? null,
+    verifiedAt: c.verifiedAt ? c.verifiedAt.toISOString() : null,
+    createdAt: c.createdAt.toISOString(),
+  };
+}
+
+function serializeDraft(d: AdChangeRequest) {
+  return {
+    id: d.id,
+    connectionId: d.connectionId,
+    platform: d.platform,
+    targetType: d.targetType,
+    targetId: d.targetId ?? null,
+    targetName: d.targetName,
+    action: d.action,
+    changes: d.changes,
+    status: d.status,
+    idempotencyKey: d.idempotencyKey,
+    createdByEmail: d.createdByEmail ?? null,
+    approvedByEmail: d.approvedByEmail ?? null,
+    appliedAt: d.appliedAt ? d.appliedAt.toISOString() : null,
+    resultTargetId: d.resultTargetId ?? null,
+    verifyStatus: d.verifyStatus ?? null,
+    failureReason: d.failureReason ?? null,
+    createdAt: d.createdAt.toISOString(),
+  };
+}
+
+function serializeLogEntry(l: AdsChangeLog) {
+  return {
+    id: l.id,
+    platform: l.platform,
+    targetType: l.targetType,
+    targetId: l.targetId ?? null,
+    targetName: l.targetName,
+    action: l.action,
+    changes: l.changes,
+    outcome: l.outcome,
+    verifyStatus: l.verifyStatus ?? null,
+    failureReason: l.failureReason ?? null,
+    approvedByEmail: l.approvedByEmail ?? null,
+    createdAt: l.createdAt.toISOString(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Module gate
+// ---------------------------------------------------------------------------
+
+const ADS_DISABLED_MESSAGE =
+  "Paid media features are currently turned off by the platform administrator.";
+
+async function adsEnabledOr503(res: Response): Promise<boolean> {
+  if (await getAdsModuleEnabled()) return true;
+  res.status(503).json({ error: ADS_DISABLED_MESSAGE });
+  return false;
+}
+
+router.param("id", (req, res, next, value) => {
+  const id = Number(value);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  next();
+});
+
+// ---------------------------------------------------------------------------
+// Status + connections
+// ---------------------------------------------------------------------------
+
+router.get("/ads/status", async (_req: Request, res: Response) => {
+  const [enabled, platforms] = await Promise.all([
+    getAdsModuleEnabled(),
+    getAdsPlatformAvailability(),
+  ]);
+  res.json({ enabled, platforms });
+});
+
+router.get("/ads/connections", async (req: Request, res: Response) => {
+  if (!(await adsEnabledOr503(res))) return;
+  const rows = await db
+    .select()
+    .from(adAccountConnectionsTable)
+    .where(eq(adAccountConnectionsTable.tenantId, req.tenantId))
+    .orderBy(adAccountConnectionsTable.platform);
+  res.json(rows.map(serializeConnection));
+});
+
+router.delete(
+  "/ads/connections/:id",
+  requireWorkspaceAdmin,
+  async (req: Request, res: Response) => {
+    if (!(await adsEnabledOr503(res))) return;
+    const id = Number(req.params.id);
+    const deleted = await db
+      .delete(adAccountConnectionsTable)
+      .where(
+        and(
+          eq(adAccountConnectionsTable.id, id),
+          eq(adAccountConnectionsTable.tenantId, req.tenantId),
+        ),
+      )
+      .returning({ id: adAccountConnectionsTable.id });
+    if (deleted.length === 0) {
+      res.status(404).json({ error: "Connection not found" });
+      return;
+    }
+    res.status(204).end();
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Meta connect: fresh OAuth grant with ads scopes
+// ---------------------------------------------------------------------------
+
+/**
+ * Ads needs a USER access token carrying ads_management/ads_read — a
+ * different grant than the Page token used for organic publishing, so the
+ * connect flow runs its own OAuth dialog with ads scopes.
+ */
+const ADS_OAUTH_SCOPE = "ads_management,ads_read,business_management";
+
+function adsRedirectUri(req: Request): string {
+  const proto =
+    (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0] ||
+    req.protocol ||
+    "https";
+  const host =
+    (req.headers["x-forwarded-host"] as string | undefined) || req.headers.host;
+  return `${proto}://${host}/api/ads/meta/auth/callback`;
+}
+
+router.get(
+  "/ads/meta/auth/url",
+  requireWorkspaceAdmin,
+  async (req: Request, res: Response) => {
+    if (!(await adsEnabledOr503(res))) return;
+    const creds = await getMetaAppCredentials();
+    if (!creds || !process.env.SESSION_SECRET || !(await isMetaAppConfigured())) {
+      res.status(503).json({
+        error:
+          "Meta Ads is not configured. Ask an administrator to save and verify the Meta app credentials on the Admin page.",
+      });
+      return;
+    }
+    const params = new URLSearchParams({
+      client_id: creds.appId,
+      redirect_uri: adsRedirectUri(req),
+      scope: ADS_OAUTH_SCOPE,
+      response_type: "code",
+      state: signOAuthState(req.tenantId, randomNonce()),
+    });
+    res.json({
+      url: `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth?${params.toString()}`,
+    });
+  },
+);
+
+/**
+ * PUBLIC callback (mounted before the session gate): a top-level browser
+ * redirect from facebook.com authenticated by the HMAC-signed `state`.
+ */
+export const adsCallbackRouter: IRouter = Router();
+
+adsCallbackRouter.get(
+  "/ads/meta/auth/callback",
+  async (req: Request, res: Response) => {
+    const webBase = "/ads";
+    const fail = (reason: string) =>
+      res.redirect(`${webBase}?meta=error&reason=${encodeURIComponent(reason)}`);
+
+    const creds = await getMetaAppCredentials();
+    if (!creds || !process.env.SESSION_SECRET) {
+      fail("not_configured");
+      return;
+    }
+    const { code, state, error: oauthError } = req.query as {
+      code?: string;
+      state?: string;
+      error?: string;
+    };
+    if (oauthError) {
+      fail(oauthError);
+      return;
+    }
+    const verified = state ? verifySignedOAuthState(state) : null;
+    if (!code || !verified) {
+      fail("invalid_state");
+      return;
+    }
+    const tenantId = verified.tenantId;
+
+    try {
+      // Exchange the code for a user token (secret in POST body, never URL).
+      const tokenRes = await platformFetch(`${GRAPH_BASE}/oauth/access_token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: creds.appId,
+          client_secret: creds.appSecret,
+          redirect_uri: adsRedirectUri(req),
+          code,
+        }).toString(),
+      });
+      const tokenJson = (await tokenRes.json()) as {
+        access_token?: string;
+        error?: { message?: string };
+      };
+      if (!tokenRes.ok || !tokenJson.access_token) {
+        req.log.error(
+          { status: tokenRes.status, error: tokenJson.error?.message },
+          "Meta ads token exchange failed",
+        );
+        fail("token_exchange");
+        return;
+      }
+
+      // Exchange for a long-lived (~60 day) user token.
+      let accessToken = tokenJson.access_token;
+      try {
+        const longRes = await platformFetch(`${GRAPH_BASE}/oauth/access_token`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "fb_exchange_token",
+            client_id: creds.appId,
+            client_secret: creds.appSecret,
+            fb_exchange_token: accessToken,
+          }).toString(),
+        });
+        const longJson = (await longRes.json()) as { access_token?: string };
+        if (longRes.ok && longJson.access_token) accessToken = longJson.access_token;
+      } catch {
+        // Long-lived exchange is best-effort; the short token still works now.
+      }
+
+      await upsertPendingMetaConnection(tenantId, accessToken);
+      res.redirect(`${webBase}?meta=connected`);
+    } catch (err) {
+      req.log.error({ err }, "Meta ads OAuth callback failed");
+      fail("callback_error");
+    }
+  },
+);
+
+async function upsertPendingMetaConnection(
+  tenantId: number,
+  accessToken: string,
+): Promise<AdAccountConnection> {
+  const encrypted = encryptJson({ accessToken } satisfies MetaAdsCredentials);
+  const existing = (
+    await db
+      .select()
+      .from(adAccountConnectionsTable)
+      .where(
+        and(
+          eq(adAccountConnectionsTable.tenantId, tenantId),
+          eq(adAccountConnectionsTable.platform, "meta"),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (existing) {
+    return (
+      await db
+        .update(adAccountConnectionsTable)
+        .set({
+          encryptedCredentials: encrypted,
+          status: "pending_selection",
+          adAccountId: "",
+          adAccountName: "",
+          currency: null,
+          verifyStatus: null,
+          verifyError: null,
+          verifiedAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(adAccountConnectionsTable.id, existing.id))
+        .returning()
+    )[0]!;
+  }
+  return (
+    await db
+      .insert(adAccountConnectionsTable)
+      .values({
+        tenantId,
+        platform: "meta",
+        status: "pending_selection",
+        encryptedCredentials: encrypted,
+      })
+      .returning()
+  )[0]!;
+}
+
+// ---------------------------------------------------------------------------
+// Meta connect: reuse the stored Facebook connection's token (best-effort)
+// ---------------------------------------------------------------------------
+
+router.post(
+  "/ads/connections/meta/from-facebook",
+  requireWorkspaceAdmin,
+  async (req: Request, res: Response) => {
+    if (!(await adsEnabledOr503(res))) return;
+    const fbRow = (
+      await db
+        .select()
+        .from(connectedAccountsTable)
+        .where(
+          and(
+            eq(connectedAccountsTable.tenantId, req.tenantId),
+            eq(connectedAccountsTable.platform, "facebook"),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (!fbRow?.encryptedCredentials) {
+      res.status(400).json({
+        error:
+          "No Facebook connection found. Connect your Facebook Page first, or use the direct Meta Ads sign-in.",
+      });
+      return;
+    }
+    let token: string | null = null;
+    try {
+      token = decryptJson<FacebookCredentials>(fbRow.encryptedCredentials)
+        .pageAccessToken ?? null;
+    } catch {
+      token = null;
+    }
+    if (!token) {
+      res.status(400).json({
+        error:
+          "The stored Facebook credentials could not be read. Use the direct Meta Ads sign-in instead.",
+      });
+      return;
+    }
+    try {
+      const accounts = await listAdAccounts(token);
+      if (accounts.length === 0) {
+        res.status(400).json({
+          error:
+            "Your Facebook connection works, but its access does not include any ad accounts. Use the direct Meta Ads sign-in to grant ads access.",
+        });
+        return;
+      }
+      const conn = await upsertPendingMetaConnection(req.tenantId, token);
+      res.json(serializeConnection(conn));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Meta rejected the token.";
+      res.status(400).json({
+        error: `The stored Facebook token cannot access ad accounts (${message}). Use the direct Meta Ads sign-in to grant ads access.`,
+      });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Ad account selection
+// ---------------------------------------------------------------------------
+
+async function getMetaConnection(tenantId: number): Promise<AdAccountConnection | null> {
+  const row = (
+    await db
+      .select()
+      .from(adAccountConnectionsTable)
+      .where(
+        and(
+          eq(adAccountConnectionsTable.tenantId, tenantId),
+          eq(adAccountConnectionsTable.platform, "meta"),
+        ),
+      )
+      .limit(1)
+  )[0];
+  return row ?? null;
+}
+
+router.get(
+  "/ads/connections/meta/accounts",
+  async (req: Request, res: Response) => {
+    if (!(await adsEnabledOr503(res))) return;
+    const conn = await getMetaConnection(req.tenantId);
+    const token = conn ? getConnectionToken(conn) : null;
+    if (!conn || !token) {
+      res.status(400).json({
+        error: "Connect Meta Ads first, then pick an ad account.",
+      });
+      return;
+    }
+    try {
+      const accounts = await listAdAccounts(token);
+      res.json(
+        accounts.map((a) => ({
+          adAccountId: a.adAccountId,
+          name: a.name,
+          currency: a.currency,
+          accountStatus: a.accountStatus,
+        })),
+      );
+    } catch (err) {
+      if (err instanceof MetaAdsApiError && err.authFailed) {
+        await markAdConnectionFailed(conn.id, err.message);
+      }
+      res.status(502).json({
+        error: err instanceof Error ? err.message : "Could not list ad accounts.",
+      });
+    }
+  },
+);
+
+router.post(
+  "/ads/connections/meta/select",
+  requireWorkspaceAdmin,
+  async (req: Request, res: Response) => {
+    if (!(await adsEnabledOr503(res))) return;
+    const parsed = SelectMetaAdAccountBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "adAccountId is required" });
+      return;
+    }
+    const conn = await getMetaConnection(req.tenantId);
+    const token = conn ? getConnectionToken(conn) : null;
+    if (!conn || !token) {
+      res.status(400).json({ error: "Connect Meta Ads first." });
+      return;
+    }
+    try {
+      const info = await readAdAccount(token, parsed.data.adAccountId);
+      const updated = (
+        await db
+          .update(adAccountConnectionsTable)
+          .set({
+            adAccountId: parsed.data.adAccountId,
+            adAccountName: info.name,
+            currency: info.currency,
+            status: "connected",
+            verifyStatus: "verified",
+            verifyError: null,
+            verifiedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(adAccountConnectionsTable.id, conn.id))
+          .returning()
+      )[0]!;
+      res.json(serializeConnection(updated));
+    } catch (err) {
+      res.status(400).json({
+        error:
+          err instanceof Error
+            ? `That ad account could not be verified: ${err.message}`
+            : "That ad account could not be verified.",
+      });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Campaign reads + insights
+// ---------------------------------------------------------------------------
+
+function parseDatePreset(value: unknown): AdsDatePreset {
+  return ADS_DATE_PRESETS.includes(value as AdsDatePreset)
+    ? (value as AdsDatePreset)
+    : "last_30d";
+}
+
+async function requireConnectedConnection(
+  req: Request,
+  res: Response,
+): Promise<{ conn: AdAccountConnection; token: string } | null> {
+  const connectionId = Number(req.query.connectionId);
+  if (!Number.isInteger(connectionId) || connectionId <= 0) {
+    res.status(400).json({ error: "connectionId is required" });
+    return null;
+  }
+  const conn = await getAdConnection(req.tenantId, connectionId);
+  const token = conn ? getConnectionToken(conn) : null;
+  if (!conn || !token || conn.status !== "connected") {
+    res.status(400).json({
+      error: "This ad account connection is missing or needs reconnecting.",
+    });
+    return null;
+  }
+  return { conn, token };
+}
+
+router.get("/ads/campaigns", async (req: Request, res: Response) => {
+  if (!(await adsEnabledOr503(res))) return;
+  const ct = await requireConnectedConnection(req, res);
+  if (!ct) return;
+  const datePreset = parseDatePreset(req.query.datePreset);
+  try {
+    const [campaigns, insights] = await Promise.all([
+      listCampaigns(ct.token, ct.conn.adAccountId),
+      getInsightsByLevel(ct.token, ct.conn.adAccountId, "campaign", datePreset),
+    ]);
+    res.json({
+      currency: ct.conn.currency ?? null,
+      campaigns: campaigns.map((c) => ({
+        ...c,
+        metrics: insights.get(c.id) ?? EMPTY_INSIGHTS,
+      })),
+    });
+  } catch (err) {
+    if (err instanceof MetaAdsApiError && err.authFailed) {
+      await markAdConnectionFailed(ct.conn.id, err.message);
+    }
+    res.status(502).json({
+      error: err instanceof Error ? err.message : "Could not load campaigns.",
+    });
+  }
+});
+
+router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
+  if (!(await adsEnabledOr503(res))) return;
+  const ct = await requireConnectedConnection(req, res);
+  if (!ct) return;
+  const campaignId = String(req.query.campaignId ?? "");
+  if (!campaignId) {
+    res.status(400).json({ error: "campaignId is required" });
+    return;
+  }
+  const datePreset = parseDatePreset(req.query.datePreset);
+  try {
+    const [campaign, adSets, ads, cIns, sIns, aIns] = await Promise.all([
+      getCampaign(ct.token, campaignId),
+      listAdSets(ct.token, campaignId),
+      listAds(ct.token, campaignId),
+      getInsightsByLevel(ct.token, ct.conn.adAccountId, "campaign", datePreset),
+      getInsightsByLevel(ct.token, ct.conn.adAccountId, "adset", datePreset),
+      getInsightsByLevel(ct.token, ct.conn.adAccountId, "ad", datePreset),
+    ]);
+    res.json({
+      currency: ct.conn.currency ?? null,
+      campaign: { ...campaign, metrics: cIns.get(campaign.id) ?? EMPTY_INSIGHTS },
+      adSets: adSets.map((s) => ({ ...s, metrics: sIns.get(s.id) ?? EMPTY_INSIGHTS })),
+      ads: ads.map((a) => ({ ...a, metrics: aIns.get(a.id) ?? EMPTY_INSIGHTS })),
+    });
+  } catch (err) {
+    if (err instanceof MetaAdsApiError && err.authFailed) {
+      await markAdConnectionFailed(ct.conn.id, err.message);
+    }
+    const status = err instanceof MetaAdsApiError && err.status === 404 ? 404 : 502;
+    res.status(status).json({
+      error: err instanceof Error ? err.message : "Could not load the campaign.",
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Drafts (the safety engine's front door)
+// ---------------------------------------------------------------------------
+
+router.get("/ads/drafts", async (req: Request, res: Response) => {
+  if (!(await adsEnabledOr503(res))) return;
+  const rows = await db
+    .select()
+    .from(adChangeRequestsTable)
+    .where(eq(adChangeRequestsTable.tenantId, req.tenantId))
+    .orderBy(desc(adChangeRequestsTable.createdAt))
+    .limit(100);
+  const pending = rows.filter((r) => r.status === "draft");
+  const rest = rows.filter((r) => r.status !== "draft");
+  res.json([...pending, ...rest].map(serializeDraft));
+});
+
+router.post(
+  "/ads/drafts",
+  requireWorkspaceAdmin,
+  async (req: Request, res: Response) => {
+    if (!(await adsEnabledOr503(res))) return;
+    const parsed = CreateAdDraftBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid draft", details: parsed.error.issues });
+      return;
+    }
+    const input = parsed.data;
+
+    const conn = await getAdConnection(req.tenantId, input.connectionId);
+    const token = conn ? getConnectionToken(conn) : null;
+    if (!conn || !token || conn.status !== "connected") {
+      res.status(400).json({
+        error: "This ad account connection is missing or needs reconnecting.",
+      });
+      return;
+    }
+
+    // Phase 1 supports campaign create/update; ad set and ad drafts are
+    // update-only (status/name).
+    if (input.action === "create" && input.targetType !== "campaign") {
+      res.status(400).json({ error: "Only campaigns can be created in this phase." });
+      return;
+    }
+    if (input.action === "update" && !input.targetId) {
+      res.status(400).json({ error: "targetId is required for updates" });
+      return;
+    }
+
+    const idempotencyKey = input.idempotencyKey?.trim() || randomUUID();
+    const existing = (
+      await db
+        .select()
+        .from(adChangeRequestsTable)
+        .where(
+          and(
+            eq(adChangeRequestsTable.tenantId, req.tenantId),
+            eq(adChangeRequestsTable.idempotencyKey, idempotencyKey),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (existing) {
+      res.status(409).json(serializeDraft(existing));
+      return;
+    }
+
+    let changes;
+    let beforeSnapshot: Record<string, unknown> | null = null;
+    let targetName: string;
+    const payload: Record<string, unknown> = {};
+    if (input.name != null) payload.name = input.name;
+    if (input.status != null) payload.status = input.status;
+    if (input.dailyBudget != null) payload.dailyBudget = input.dailyBudget;
+    if (input.lifetimeBudget != null) payload.lifetimeBudget = input.lifetimeBudget;
+    if (input.startTime != null) payload.startTime = input.startTime;
+    if (input.stopTime != null) payload.stopTime = input.stopTime;
+
+    if (input.action === "update") {
+      let current;
+      try {
+        current = await readObjectState(token, input.targetId!);
+      } catch (err) {
+        if (err instanceof MetaAdsApiError && err.authFailed) {
+          await markAdConnectionFailed(conn.id, err.message);
+        }
+        res.status(502).json({
+          error:
+            err instanceof Error
+              ? `Could not read the current state: ${err.message}`
+              : "Could not read the current state.",
+        });
+        return;
+      }
+      targetName = current.name || (input.name ?? "");
+      changes = buildUpdateDiff(current, {
+        name: input.name,
+        status: input.status,
+        dailyBudget: input.dailyBudget,
+        lifetimeBudget: input.lifetimeBudget,
+        startTime: input.startTime,
+        stopTime: input.stopTime,
+      });
+      if (changes.length === 0) {
+        res.status(400).json({
+          error: "Nothing would change — the proposed values match the current state.",
+        });
+        return;
+      }
+      beforeSnapshot = snapshotForCompare(current);
+    } else {
+      if (!input.name?.trim()) {
+        res.status(400).json({ error: "name is required to create a campaign" });
+        return;
+      }
+      if (input.objective != null) payload.objective = input.objective;
+      targetName = input.name.trim();
+      changes = buildCreateDiff({
+        name: targetName,
+        objective: input.objective ?? "OUTCOME_TRAFFIC",
+        status: input.status ?? "PAUSED",
+        dailyBudget: input.dailyBudget,
+        lifetimeBudget: input.lifetimeBudget,
+        startTime: input.startTime,
+        stopTime: input.stopTime,
+      });
+    }
+
+    const draft = (
+      await db
+        .insert(adChangeRequestsTable)
+        .values({
+          tenantId: req.tenantId,
+          connectionId: conn.id,
+          platform: conn.platform,
+          targetType: input.targetType,
+          targetId: input.action === "update" ? input.targetId : null,
+          targetName,
+          action: input.action,
+          changes,
+          payload,
+          beforeSnapshot,
+          status: "draft",
+          idempotencyKey,
+          createdByClerkUserId: req.clerkUserId,
+          createdByEmail: req.tenantEmail ?? null,
+        })
+        .returning()
+    )[0]!;
+
+    // Approval is owner-only; when someone else drafts, ping the owner.
+    if (req.memberRole !== "owner") {
+      const owner = (
+        await db
+          .select({ clerkUserId: tenantsTable.clerkUserId })
+          .from(tenantsTable)
+          .where(eq(tenantsTable.id, req.tenantId))
+          .limit(1)
+      )[0];
+      await notifyAdsDraftPending(
+        req.tenantId,
+        owner?.clerkUserId ?? null,
+        targetName,
+        conn.platform,
+      );
+    }
+
+    res.status(201).json(serializeDraft(draft));
+  },
+);
+
+router.post("/ads/drafts/:id/approve", async (req: Request, res: Response) => {
+  if (!(await adsEnabledOr503(res))) return;
+  if (req.memberRole !== "owner") {
+    res.status(403).json({
+      error: "Only the workspace owner can approve and apply advertising changes.",
+    });
+    return;
+  }
+  const result = await approveAndApplyDraft(req.tenantId, Number(req.params.id), {
+    clerkUserId: req.clerkUserId,
+    email: req.tenantEmail ?? null,
+  });
+  switch (result.kind) {
+    case "not_found":
+      res.status(404).json({ error: "Draft not found" });
+      return;
+    case "conflict":
+      res.status(409).json({ error: ADS_APPLY_IN_PROGRESS_MESSAGE });
+      return;
+    case "bad_status": {
+      // Idempotent replay: return the draft in its final state.
+      const row = (
+        await db
+          .select()
+          .from(adChangeRequestsTable)
+          .where(
+            and(
+              eq(adChangeRequestsTable.id, Number(req.params.id)),
+              eq(adChangeRequestsTable.tenantId, req.tenantId),
+            ),
+          )
+          .limit(1)
+      )[0];
+      if (!row) {
+        res.status(404).json({ error: "Draft not found" });
+        return;
+      }
+      res.json(serializeDraft(row));
+      return;
+    }
+    default:
+      res.json(serializeDraft(result.draft));
+  }
+});
+
+router.post(
+  "/ads/drafts/:id/reject",
+  requireWorkspaceAdmin,
+  async (req: Request, res: Response) => {
+    if (!(await adsEnabledOr503(res))) return;
+    const updated = (
+      await db
+        .update(adChangeRequestsTable)
+        .set({ status: "rejected", updatedAt: new Date() })
+        .where(
+          and(
+            eq(adChangeRequestsTable.id, Number(req.params.id)),
+            eq(adChangeRequestsTable.tenantId, req.tenantId),
+            eq(adChangeRequestsTable.status, "draft"),
+          ),
+        )
+        .returning()
+    )[0];
+    if (!updated) {
+      const row = (
+        await db
+          .select()
+          .from(adChangeRequestsTable)
+          .where(
+            and(
+              eq(adChangeRequestsTable.id, Number(req.params.id)),
+              eq(adChangeRequestsTable.tenantId, req.tenantId),
+            ),
+          )
+          .limit(1)
+      )[0];
+      if (!row) {
+        res.status(404).json({ error: "Draft not found" });
+        return;
+      }
+      res.status(400).json({ error: `This draft is already ${row.status}.` });
+      return;
+    }
+    res.json(serializeDraft(updated));
+  },
+);
+
+router.get("/ads/change-log", async (req: Request, res: Response) => {
+  if (!(await adsEnabledOr503(res))) return;
+  const rows = await db
+    .select()
+    .from(adsChangeLogsTable)
+    .where(eq(adsChangeLogsTable.tenantId, req.tenantId))
+    .orderBy(desc(adsChangeLogsTable.createdAt))
+    .limit(200);
+  res.json(rows.map(serializeLogEntry));
+});
+
+// ---------------------------------------------------------------------------
+// Admin: global switch + platform readiness (superadmin only, audited)
+// ---------------------------------------------------------------------------
+
+async function adminSettingsPayload() {
+  const [enabled, platforms] = await Promise.all([
+    getAdsModuleEnabled(),
+    getAdsPlatformAvailability(),
+  ]);
+  return {
+    enabled,
+    platforms: platforms.map((p) => ({
+      platform: p.platform,
+      configured: p.available,
+      note:
+        p.platform === "meta"
+          ? "Reuses the Meta app credentials saved under Platform credentials."
+          : "Coming later — no credential slot yet.",
+    })),
+  };
+}
+
+router.get(
+  "/admin/ads/settings",
+  requireSuperadmin,
+  async (_req: Request, res: Response) => {
+    res.json(await adminSettingsPayload());
+  },
+);
+
+router.put(
+  "/admin/ads/settings",
+  requireSuperadmin,
+  async (req: Request, res: Response) => {
+    const parsed = AdminUpdateAdsSettingsBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "enabled must be a boolean" });
+      return;
+    }
+    const before = await getAdsModuleEnabled();
+    if (before !== parsed.data.enabled) {
+      await setAdsModuleEnabled(parsed.data.enabled);
+      try {
+        await recordAdminAction({
+          action: "ads_module_toggled",
+          actorTenantId: req.tenantId,
+          actorEmail: req.tenantEmail ?? null,
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: before ? "enabled" : "disabled",
+          newValue: parsed.data.enabled ? "enabled" : "disabled",
+        });
+      } catch (err) {
+        req.log.error({ err }, "Failed to audit ads settings change");
+      }
+    }
+    res.json(await adminSettingsPayload());
+  },
+);
+
+export default router;

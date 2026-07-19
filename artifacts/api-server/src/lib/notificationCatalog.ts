@@ -100,6 +100,24 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
       "A post you scheduled could not be published automatically and needs your attention.",
   },
   {
+    type: "ads_draft_pending",
+    label: "Ad changes awaiting approval",
+    description:
+      "A teammate drafted an advertising change that needs the workspace owner's approval before it is applied.",
+  },
+  {
+    type: "ads_change_applied",
+    label: "Ad changes applied",
+    description:
+      "An approved advertising change was successfully applied to your ad account.",
+  },
+  {
+    type: "ads_change_failed",
+    label: "Ad change failures",
+    description:
+      "An approved advertising change could not be applied to your ad account and needs your attention.",
+  },
+  {
     type: "publish_interrupted",
     label: "Interrupted publishes",
     description:

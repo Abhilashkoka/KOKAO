@@ -11,6 +11,7 @@ import { SettingsPage } from "@/pages/settings";
 import { AdminPage } from "@/pages/admin";
 import { AnalyticsPage } from "@/pages/analytics";
 import { HealthPage } from "@/pages/health";
+import { AdsPage } from "@/pages/ads";
 import { BrandProvider } from "@/lib/brand";
 
 import { Switch, Route, Redirect, useLocation, Router as WouterRouter } from "wouter";
@@ -157,6 +158,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/schedule" component={() => <ProtectedRoute component={SchedulePage} />} />
             <Route path="/brand-kits" component={() => <ProtectedRoute component={BrandKitsPage} />} />
             <Route path="/accounts" component={() => <ProtectedRoute component={AccountsPage} />} />
+            <Route path="/ads" component={() => <ProtectedRoute component={AdsPage} />} />
             <Route path="/settings" component={() => <ProtectedRoute component={SettingsPage} />} />
             <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} />} />
             <Route path="/analytics" component={() => <ProtectedRoute component={AnalyticsPage} />} />

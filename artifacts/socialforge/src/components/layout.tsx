@@ -7,6 +7,7 @@ import {
   Calendar, 
   Palette, 
   Share2, 
+  Megaphone,
   Settings,
   Shield,
   BarChart3,
@@ -31,6 +32,7 @@ const NAV_ITEMS = [
   { href: "/schedule", label: "Schedule", icon: Calendar },
   { href: "/brand-kits", label: "Brand Kits", icon: Palette },
   { href: "/accounts", label: "Accounts", icon: Share2 },
+  { href: "/ads", label: "Ads", icon: Megaphone },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

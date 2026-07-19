@@ -15,6 +15,7 @@ export type AdminAuditAction =
   | "design_skill_change"
   | "asr_provider_change"
   | "asr_key_change"
+  | "ads_module_toggled"
   | "imagegen_provider_change"
   | "imagegen_key_change"
   | "email_test_send"

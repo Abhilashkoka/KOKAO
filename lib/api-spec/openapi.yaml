@@ -32,6 +32,8 @@ tags:
     description: Consent-gated event analytics, ingestion, and reporting.
   - name: health-report
     description: On-demand social health audit reports and score history.
+  - name: ads
+    description: Paid media - ad account connections, campaign management, and the draft-and-approve change flow.
 paths:
   /healthz:
     get:
@@ -4267,6 +4269,398 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /ads/status:
+    get:
+      operationId: getAdsStatus
+      tags: [ads]
+      summary: Get the ads module status for this tenant (module switch + per-platform availability)
+      responses:
+        "200":
+          description: Ads module status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdsModuleStatus"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/connections:
+    get:
+      operationId: listAdConnections
+      tags: [ads]
+      summary: List this workspace's ad account connections
+      responses:
+        "200":
+          description: Connections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdAccountConnection"
+  /ads/connections/{id}:
+    delete:
+      operationId: deleteAdConnection
+      tags: [ads]
+      summary: Disconnect an ad account (owner/admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Disconnected
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/meta/auth/url:
+    get:
+      operationId: getAdsMetaAuthUrl
+      tags: [ads]
+      summary: Get the Meta OAuth URL to grant ads access (owner/admin only)
+      responses:
+        "200":
+          description: Authorization URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdsMetaAuthUrlResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Ads not available (module off or platform credentials missing)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/connections/meta/from-facebook:
+    post:
+      operationId: connectMetaAdsFromFacebook
+      tags: [ads]
+      summary: Try connecting Meta Ads using the stored Facebook connection's token (owner/admin only)
+      responses:
+        "200":
+          description: Connection created (pending ad account selection)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdAccountConnection"
+        "400":
+          description: The stored Facebook token cannot access ad accounts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/connections/meta/accounts:
+    get:
+      operationId: listMetaAdAccountChoices
+      tags: [ads]
+      summary: List the ad accounts reachable with the stored Meta ads token
+      responses:
+        "200":
+          description: Ad account choices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdAccountChoice"
+        "400":
+          description: No pending Meta ads connection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/connections/meta/select:
+    post:
+      operationId: selectMetaAdAccount
+      tags: [ads]
+      summary: Pick which Meta ad account this workspace manages (owner/admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdsMetaSelectInput"
+      responses:
+        "200":
+          description: Connection completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdAccountConnection"
+        "400":
+          description: Invalid selection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/campaigns:
+    get:
+      operationId: listAdCampaigns
+      tags: [ads]
+      summary: List campaigns with delivery status and metrics for a date range
+      parameters:
+        - $ref: "#/components/parameters/AdsConnectionId"
+        - $ref: "#/components/parameters/AdsDatePreset"
+      responses:
+        "200":
+          description: Campaigns with metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdsCampaignList"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Platform error (expired token, missing permissions, API failure)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/campaign-detail:
+    get:
+      operationId: getAdCampaignDetail
+      tags: [ads]
+      summary: Campaign detail with its ad sets and ads (metrics per row)
+      parameters:
+        - name: campaignId
+          in: query
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/AdsConnectionId"
+        - $ref: "#/components/parameters/AdsDatePreset"
+      responses:
+        "200":
+          description: Campaign detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdsCampaignDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Platform error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/drafts:
+    get:
+      operationId: listAdDrafts
+      tags: [ads]
+      summary: List draft change requests (pending first)
+      responses:
+        "200":
+          description: Drafts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdsDraft"
+    post:
+      operationId: createAdDraft
+      tags: [ads]
+      summary: Create a draft change request with a before/after preview (owner/admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdsDraftCreateInput"
+      responses:
+        "201":
+          description: Draft created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdsDraft"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: A draft with this idempotency key already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdsDraft"
+        "502":
+          description: Platform error while reading current state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/drafts/{id}/approve:
+    post:
+      operationId: approveAdDraft
+      tags: [ads]
+      summary: Approve and apply a draft to the ad account (workspace OWNER only; idempotent)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The draft after the apply attempt (applied, failed, or expired)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdsDraft"
+        "403":
+          description: Forbidden (only the workspace owner can approve)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: An apply for this draft is already in progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/drafts/{id}/reject:
+    post:
+      operationId: rejectAdDraft
+      tags: [ads]
+      summary: Reject a draft so it can never be applied (owner/admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The rejected draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdsDraft"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/change-log:
+    get:
+      operationId: listAdsChangeLog
+      tags: [ads]
+      summary: Append-only history of applied ads changes for this workspace
+      responses:
+        "200":
+          description: Change log entries, most recent first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdsChangeLogEntry"
+  /admin/ads/settings:
+    get:
+      operationId: adminGetAdsSettings
+      tags: [admin]
+      summary: Get the global ads module switch and per-platform credential readiness (superadmin only)
+      responses:
+        "200":
+          description: Ads module settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAdsSettings"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminUpdateAdsSettings
+      tags: [admin]
+      summary: Enable or disable the ads module globally (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminAdsSettingsInput"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAdsSettings"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
 components:
   parameters:
     AnalyticsFrom:
@@ -4292,6 +4686,21 @@ components:
       schema:
         type: integer
       description: Superadmin-only per-tenant drilldown; ignored otherwise.
+    AdsConnectionId:
+      name: connectionId
+      in: query
+      required: true
+      schema:
+        type: integer
+      description: The ad account connection to read from.
+    AdsDatePreset:
+      name: datePreset
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [today, yesterday, last_7d, last_14d, last_30d, last_90d, maximum]
+      description: Reporting date range (defaults to last_30d).
   schemas:
     HealthStatus:
       type: object
@@ -7415,3 +7824,339 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/HealthScoreHistoryEntry"
+
+    AdsPlatformAvailability:
+      type: object
+      required: [platform, available]
+      properties:
+        platform:
+          type: string
+        available:
+          type: boolean
+        reason:
+          type: ["string", "null"]
+          description: Human-readable reason when unavailable (e.g. credentials not configured yet).
+    AdsModuleStatus:
+      type: object
+      required: [enabled, platforms]
+      properties:
+        enabled:
+          type: boolean
+          description: Global ads module switch (superadmin controlled).
+        platforms:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdsPlatformAvailability"
+    AdAccountConnection:
+      type: object
+      required: [id, platform, adAccountId, adAccountName, status, createdAt]
+      properties:
+        id:
+          type: integer
+        platform:
+          type: string
+        adAccountId:
+          type: string
+        adAccountName:
+          type: string
+        currency:
+          type: ["string", "null"]
+        status:
+          type: string
+          description: connected | pending_selection
+        verifyStatus:
+          type: ["string", "null"]
+        verifyError:
+          type: ["string", "null"]
+        verifiedAt:
+          type: ["string", "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+    AdAccountChoice:
+      type: object
+      required: [adAccountId, name]
+      properties:
+        adAccountId:
+          type: string
+        name:
+          type: string
+        currency:
+          type: ["string", "null"]
+        accountStatus:
+          type: ["string", "null"]
+    AdsMetaSelectInput:
+      type: object
+      required: [adAccountId]
+      properties:
+        adAccountId:
+          type: string
+          minLength: 1
+    AdsMetaAuthUrlResult:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+    AdsMetrics:
+      type: object
+      required: [impressions, clicks, ctr, spend, results]
+      properties:
+        impressions:
+          type: number
+        clicks:
+          type: number
+        ctr:
+          type: number
+          description: Click-through rate in percent.
+        spend:
+          type: number
+          description: Spend in the ad account's currency (major units).
+        results:
+          type: number
+          description: Total result actions reported by the platform for the range.
+    AdsCampaign:
+      type: object
+      required: [id, name, status, effectiveStatus, metrics]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+        effectiveStatus:
+          type: string
+        objective:
+          type: ["string", "null"]
+        dailyBudget:
+          type: ["integer", "null"]
+          description: Daily budget in the account currency's minor units.
+        lifetimeBudget:
+          type: ["integer", "null"]
+          description: Lifetime budget in the account currency's minor units.
+        startTime:
+          type: ["string", "null"]
+        stopTime:
+          type: ["string", "null"]
+        metrics:
+          $ref: "#/components/schemas/AdsMetrics"
+    AdsCampaignList:
+      type: object
+      required: [campaigns]
+      properties:
+        currency:
+          type: ["string", "null"]
+        campaigns:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdsCampaign"
+    AdsAdSet:
+      type: object
+      required: [id, name, status, effectiveStatus, metrics]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+        effectiveStatus:
+          type: string
+        dailyBudget:
+          type: ["integer", "null"]
+        lifetimeBudget:
+          type: ["integer", "null"]
+        metrics:
+          $ref: "#/components/schemas/AdsMetrics"
+    AdsAd:
+      type: object
+      required: [id, name, status, effectiveStatus, metrics]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+        effectiveStatus:
+          type: string
+        adSetId:
+          type: ["string", "null"]
+        metrics:
+          $ref: "#/components/schemas/AdsMetrics"
+    AdsCampaignDetail:
+      type: object
+      required: [campaign, adSets, ads]
+      properties:
+        currency:
+          type: ["string", "null"]
+        campaign:
+          $ref: "#/components/schemas/AdsCampaign"
+        adSets:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdsAdSet"
+        ads:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdsAd"
+    AdsChangeField:
+      type: object
+      required: [field]
+      properties:
+        field:
+          type: string
+        before:
+          type: ["string", "null"]
+        after:
+          type: ["string", "null"]
+    AdsDraft:
+      type: object
+      required:
+        [id, connectionId, platform, targetType, targetName, action, changes, status, createdAt]
+      properties:
+        id:
+          type: integer
+        connectionId:
+          type: integer
+        platform:
+          type: string
+        targetType:
+          type: string
+          description: campaign | adset | ad
+        targetId:
+          type: ["string", "null"]
+        targetName:
+          type: string
+        action:
+          type: string
+          description: create | update
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdsChangeField"
+        status:
+          type: string
+          description: draft | approved | applied | failed | rejected | expired
+        idempotencyKey:
+          type: string
+        createdByEmail:
+          type: ["string", "null"]
+        approvedByEmail:
+          type: ["string", "null"]
+        appliedAt:
+          type: ["string", "null"]
+          format: date-time
+        resultTargetId:
+          type: ["string", "null"]
+        verifyStatus:
+          type: ["string", "null"]
+          description: verified | mismatch | unverified (post-apply remote check)
+        failureReason:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+    AdsDraftCreateInput:
+      type: object
+      required: [connectionId, targetType, action]
+      properties:
+        connectionId:
+          type: integer
+        targetType:
+          type: string
+          enum: [campaign, adset, ad]
+        action:
+          type: string
+          enum: [create, update]
+        targetId:
+          type: string
+          description: Remote object id (required for update).
+        idempotencyKey:
+          type: string
+          maxLength: 128
+          description: Client-supplied key to make retries safe; server generates one when omitted.
+        name:
+          type: string
+          maxLength: 400
+        status:
+          type: string
+          enum: [ACTIVE, PAUSED]
+        objective:
+          type: string
+          description: Campaign objective (create only), e.g. OUTCOME_TRAFFIC.
+        dailyBudget:
+          type: ["integer", "null"]
+          minimum: 0
+          description: Daily budget in minor currency units.
+        lifetimeBudget:
+          type: ["integer", "null"]
+          minimum: 0
+          description: Lifetime budget in minor currency units.
+        startTime:
+          type: ["string", "null"]
+          description: ISO-8601 schedule start.
+        stopTime:
+          type: ["string", "null"]
+          description: ISO-8601 schedule end.
+    AdsChangeLogEntry:
+      type: object
+      required: [id, platform, targetType, targetName, action, changes, outcome, createdAt]
+      properties:
+        id:
+          type: integer
+        platform:
+          type: string
+        targetType:
+          type: string
+        targetId:
+          type: ["string", "null"]
+        targetName:
+          type: string
+        action:
+          type: string
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdsChangeField"
+        outcome:
+          type: string
+          description: applied | failed
+        verifyStatus:
+          type: ["string", "null"]
+        failureReason:
+          type: ["string", "null"]
+        approvedByEmail:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+    AdminAdsPlatformSlot:
+      type: object
+      required: [platform, configured]
+      properties:
+        platform:
+          type: string
+        configured:
+          type: boolean
+        note:
+          type: ["string", "null"]
+          description: Where this platform's credentials come from (e.g. reuses the Meta app credentials).
+    AdminAdsSettings:
+      type: object
+      required: [enabled, platforms]
+      properties:
+        enabled:
+          type: boolean
+        platforms:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminAdsPlatformSlot"
+    AdminAdsSettingsInput:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean

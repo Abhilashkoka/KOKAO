@@ -2446,6 +2446,274 @@ export interface HealthReportOverview {
   history: HealthScoreHistoryEntry[];
 }
 
+export interface AdsPlatformAvailability {
+  platform: string;
+  available: boolean;
+  /**
+     * Human-readable reason when unavailable (e.g. credentials not configured yet).
+     * @nullable
+     */
+  reason?: string | null;
+}
+
+export interface AdsModuleStatus {
+  /** Global ads module switch (superadmin controlled). */
+  enabled: boolean;
+  platforms: AdsPlatformAvailability[];
+}
+
+export interface AdAccountConnection {
+  id: number;
+  platform: string;
+  adAccountId: string;
+  adAccountName: string;
+  /** @nullable */
+  currency?: string | null;
+  /** connected | pending_selection */
+  status: string;
+  /** @nullable */
+  verifyStatus?: string | null;
+  /** @nullable */
+  verifyError?: string | null;
+  /** @nullable */
+  verifiedAt?: string | null;
+  createdAt: string;
+}
+
+export interface AdAccountChoice {
+  adAccountId: string;
+  name: string;
+  /** @nullable */
+  currency?: string | null;
+  /** @nullable */
+  accountStatus?: string | null;
+}
+
+export interface AdsMetaSelectInput {
+  /** @minLength 1 */
+  adAccountId: string;
+}
+
+export interface AdsMetaAuthUrlResult {
+  url: string;
+}
+
+export interface AdsMetrics {
+  impressions: number;
+  clicks: number;
+  /** Click-through rate in percent. */
+  ctr: number;
+  /** Spend in the ad account's currency (major units). */
+  spend: number;
+  /** Total result actions reported by the platform for the range. */
+  results: number;
+}
+
+export interface AdsCampaign {
+  id: string;
+  name: string;
+  status: string;
+  effectiveStatus: string;
+  /** @nullable */
+  objective?: string | null;
+  /**
+     * Daily budget in the account currency's minor units.
+     * @nullable
+     */
+  dailyBudget?: number | null;
+  /**
+     * Lifetime budget in the account currency's minor units.
+     * @nullable
+     */
+  lifetimeBudget?: number | null;
+  /** @nullable */
+  startTime?: string | null;
+  /** @nullable */
+  stopTime?: string | null;
+  metrics: AdsMetrics;
+}
+
+export interface AdsCampaignList {
+  /** @nullable */
+  currency?: string | null;
+  campaigns: AdsCampaign[];
+}
+
+export interface AdsAdSet {
+  id: string;
+  name: string;
+  status: string;
+  effectiveStatus: string;
+  /** @nullable */
+  dailyBudget?: number | null;
+  /** @nullable */
+  lifetimeBudget?: number | null;
+  metrics: AdsMetrics;
+}
+
+export interface AdsAd {
+  id: string;
+  name: string;
+  status: string;
+  effectiveStatus: string;
+  /** @nullable */
+  adSetId?: string | null;
+  metrics: AdsMetrics;
+}
+
+export interface AdsCampaignDetail {
+  /** @nullable */
+  currency?: string | null;
+  campaign: AdsCampaign;
+  adSets: AdsAdSet[];
+  ads: AdsAd[];
+}
+
+export interface AdsChangeField {
+  field: string;
+  /** @nullable */
+  before?: string | null;
+  /** @nullable */
+  after?: string | null;
+}
+
+export interface AdsDraft {
+  id: number;
+  connectionId: number;
+  platform: string;
+  /** campaign | adset | ad */
+  targetType: string;
+  /** @nullable */
+  targetId?: string | null;
+  targetName: string;
+  /** create | update */
+  action: string;
+  changes: AdsChangeField[];
+  /** draft | approved | applied | failed | rejected | expired */
+  status: string;
+  idempotencyKey?: string;
+  /** @nullable */
+  createdByEmail?: string | null;
+  /** @nullable */
+  approvedByEmail?: string | null;
+  /** @nullable */
+  appliedAt?: string | null;
+  /** @nullable */
+  resultTargetId?: string | null;
+  /**
+     * verified | mismatch | unverified (post-apply remote check)
+     * @nullable
+     */
+  verifyStatus?: string | null;
+  /** @nullable */
+  failureReason?: string | null;
+  createdAt: string;
+}
+
+export type AdsDraftCreateInputTargetType = typeof AdsDraftCreateInputTargetType[keyof typeof AdsDraftCreateInputTargetType];
+
+
+export const AdsDraftCreateInputTargetType = {
+  campaign: 'campaign',
+  adset: 'adset',
+  ad: 'ad',
+} as const;
+
+export type AdsDraftCreateInputAction = typeof AdsDraftCreateInputAction[keyof typeof AdsDraftCreateInputAction];
+
+
+export const AdsDraftCreateInputAction = {
+  create: 'create',
+  update: 'update',
+} as const;
+
+export type AdsDraftCreateInputStatus = typeof AdsDraftCreateInputStatus[keyof typeof AdsDraftCreateInputStatus];
+
+
+export const AdsDraftCreateInputStatus = {
+  ACTIVE: 'ACTIVE',
+  PAUSED: 'PAUSED',
+} as const;
+
+export interface AdsDraftCreateInput {
+  connectionId: number;
+  targetType: AdsDraftCreateInputTargetType;
+  action: AdsDraftCreateInputAction;
+  /** Remote object id (required for update). */
+  targetId?: string;
+  /**
+     * Client-supplied key to make retries safe; server generates one when omitted.
+     * @maxLength 128
+     */
+  idempotencyKey?: string;
+  /** @maxLength 400 */
+  name?: string;
+  status?: AdsDraftCreateInputStatus;
+  /** Campaign objective (create only), e.g. OUTCOME_TRAFFIC. */
+  objective?: string;
+  /**
+     * Daily budget in minor currency units.
+     * @minimum 0
+     * @nullable
+     */
+  dailyBudget?: number | null;
+  /**
+     * Lifetime budget in minor currency units.
+     * @minimum 0
+     * @nullable
+     */
+  lifetimeBudget?: number | null;
+  /**
+     * ISO-8601 schedule start.
+     * @nullable
+     */
+  startTime?: string | null;
+  /**
+     * ISO-8601 schedule end.
+     * @nullable
+     */
+  stopTime?: string | null;
+}
+
+export interface AdsChangeLogEntry {
+  id: number;
+  platform: string;
+  targetType: string;
+  /** @nullable */
+  targetId?: string | null;
+  targetName: string;
+  action: string;
+  changes: AdsChangeField[];
+  /** applied | failed */
+  outcome: string;
+  /** @nullable */
+  verifyStatus?: string | null;
+  /** @nullable */
+  failureReason?: string | null;
+  /** @nullable */
+  approvedByEmail?: string | null;
+  createdAt: string;
+}
+
+export interface AdminAdsPlatformSlot {
+  platform: string;
+  configured: boolean;
+  /**
+     * Where this platform's credentials come from (e.g. reuses the Meta app credentials).
+     * @nullable
+     */
+  note?: string | null;
+}
+
+export interface AdminAdsSettings {
+  enabled: boolean;
+  platforms: AdminAdsPlatformSlot[];
+}
+
+export interface AdminAdsSettingsInput {
+  enabled: boolean;
+}
+
 /**
  * Start of the reporting window (defaults to 30 days ago).
  */
@@ -2460,6 +2728,24 @@ export type AnalyticsToParameter = string;
  * Superadmin-only per-tenant drilldown; ignored otherwise.
  */
 export type AnalyticsTenantIdParameter = number;
+
+/**
+ * The ad account connection to read from.
+ */
+export type AdsConnectionIdParameter = number;
+
+export type AdsDatePresetParameter = typeof AdsDatePresetParameter[keyof typeof AdsDatePresetParameter];
+
+
+export const AdsDatePresetParameter = {
+  today: 'today',
+  yesterday: 'yesterday',
+  last_7d: 'last_7d',
+  last_14d: 'last_14d',
+  last_30d: 'last_30d',
+  last_90d: 'last_90d',
+  maximum: 'maximum',
+} as const;
 
 export type AdminListAuditLogsParams = {
 /**
@@ -2715,5 +3001,28 @@ to?: AnalyticsToParameter;
  * Superadmin-only per-tenant drilldown; ignored otherwise.
  */
 tenantId?: AnalyticsTenantIdParameter;
+};
+
+export type ListAdCampaignsParams = {
+/**
+ * The ad account connection to read from.
+ */
+connectionId: AdsConnectionIdParameter;
+/**
+ * Reporting date range (defaults to last_30d).
+ */
+datePreset?: AdsDatePresetParameter;
+};
+
+export type GetAdCampaignDetailParams = {
+campaignId: string;
+/**
+ * The ad account connection to read from.
+ */
+connectionId: AdsConnectionIdParameter;
+/**
+ * Reporting date range (defaults to last_30d).
+ */
+datePreset?: AdsDatePresetParameter;
 };
 

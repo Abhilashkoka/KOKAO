@@ -17,6 +17,7 @@ import credentialsRouter from "./credentials";
 import linkedinRouter, { linkedinCallbackRouter } from "./linkedin";
 import youtubeRouter, { youtubeCallbackRouter } from "./youtube";
 import threadsRouter, { threadsCallbackRouter } from "./threads";
+import adsRouter, { adsCallbackRouter } from "./ads";
 import notificationsRouter from "./notifications";
 import notificationSettingsRouter from "./notificationSettings";
 import tasteProfileRouter from "./tasteProfile";
@@ -53,10 +54,12 @@ router.use("/twitter", sensitiveLimiter);
 router.use("/linkedin", sensitiveLimiter);
 router.use("/youtube", sensitiveLimiter);
 router.use("/threads", sensitiveLimiter);
+router.use("/ads/meta/auth", sensitiveLimiter);
 router.use(twitterCallbackRouter);
 router.use(linkedinCallbackRouter);
 router.use(youtubeCallbackRouter);
 router.use(threadsCallbackRouter);
+router.use(adsCallbackRouter);
 
 // Everything below requires an authenticated tenant
 router.use(requireTenant);
@@ -83,6 +86,7 @@ router.use(credentialsRouter);
 router.use(linkedinRouter);
 router.use(youtubeRouter);
 router.use(threadsRouter);
+router.use(adsRouter);
 router.use(notificationsRouter);
 router.use(notificationSettingsRouter);
 router.use(tasteProfileRouter);

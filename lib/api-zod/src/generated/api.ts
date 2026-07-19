@@ -5727,3 +5727,397 @@ export const RunHealthReportResponse = zod.object({
 })
 
 
+/**
+ * @summary Get the ads module status for this tenant (module switch + per-platform availability)
+ */
+export const GetAdsStatusResponse = zod.object({
+  "enabled": zod.boolean().describe('Global ads module switch (superadmin controlled).'),
+  "platforms": zod.array(zod.object({
+  "platform": zod.string(),
+  "available": zod.boolean(),
+  "reason": zod.string().nullish().describe('Human-readable reason when unavailable (e.g. credentials not configured yet).')
+}))
+})
+
+
+/**
+ * @summary List this workspace's ad account connections
+ */
+export const ListAdConnectionsResponseItem = zod.object({
+  "id": zod.number(),
+  "platform": zod.string(),
+  "adAccountId": zod.string(),
+  "adAccountName": zod.string(),
+  "currency": zod.string().nullish(),
+  "status": zod.string().describe('connected | pending_selection'),
+  "verifyStatus": zod.string().nullish(),
+  "verifyError": zod.string().nullish(),
+  "verifiedAt": zod.coerce.date().nullish(),
+  "createdAt": zod.coerce.date()
+})
+export const ListAdConnectionsResponse = zod.array(ListAdConnectionsResponseItem)
+
+
+/**
+ * @summary Disconnect an ad account (owner/admin only)
+ */
+export const DeleteAdConnectionParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const DeleteAdConnectionResponse = zod.void()
+
+
+/**
+ * @summary Get the Meta OAuth URL to grant ads access (owner/admin only)
+ */
+export const GetAdsMetaAuthUrlResponse = zod.object({
+  "url": zod.string()
+})
+
+
+/**
+ * @summary Try connecting Meta Ads using the stored Facebook connection's token (owner/admin only)
+ */
+export const ConnectMetaAdsFromFacebookResponse = zod.object({
+  "id": zod.number(),
+  "platform": zod.string(),
+  "adAccountId": zod.string(),
+  "adAccountName": zod.string(),
+  "currency": zod.string().nullish(),
+  "status": zod.string().describe('connected | pending_selection'),
+  "verifyStatus": zod.string().nullish(),
+  "verifyError": zod.string().nullish(),
+  "verifiedAt": zod.coerce.date().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List the ad accounts reachable with the stored Meta ads token
+ */
+export const ListMetaAdAccountChoicesResponseItem = zod.object({
+  "adAccountId": zod.string(),
+  "name": zod.string(),
+  "currency": zod.string().nullish(),
+  "accountStatus": zod.string().nullish()
+})
+export const ListMetaAdAccountChoicesResponse = zod.array(ListMetaAdAccountChoicesResponseItem)
+
+
+/**
+ * @summary Pick which Meta ad account this workspace manages (owner/admin only)
+ */
+
+
+
+export const SelectMetaAdAccountBody = zod.object({
+  "adAccountId": zod.string().min(1)
+})
+
+export const SelectMetaAdAccountResponse = zod.object({
+  "id": zod.number(),
+  "platform": zod.string(),
+  "adAccountId": zod.string(),
+  "adAccountName": zod.string(),
+  "currency": zod.string().nullish(),
+  "status": zod.string().describe('connected | pending_selection'),
+  "verifyStatus": zod.string().nullish(),
+  "verifyError": zod.string().nullish(),
+  "verifiedAt": zod.coerce.date().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List campaigns with delivery status and metrics for a date range
+ */
+export const ListAdCampaignsQueryParams = zod.object({
+  "connectionId": zod.coerce.number().describe('The ad account connection to read from.'),
+  "datePreset": zod.enum(['today', 'yesterday', 'last_7d', 'last_14d', 'last_30d', 'last_90d', 'maximum']).optional().describe('Reporting date range (defaults to last_30d).')
+})
+
+export const ListAdCampaignsResponse = zod.object({
+  "currency": zod.string().nullish(),
+  "campaigns": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "status": zod.string(),
+  "effectiveStatus": zod.string(),
+  "objective": zod.string().nullish(),
+  "dailyBudget": zod.number().nullish().describe('Daily budget in the account currency\'s minor units.'),
+  "lifetimeBudget": zod.number().nullish().describe('Lifetime budget in the account currency\'s minor units.'),
+  "startTime": zod.string().nullish(),
+  "stopTime": zod.string().nullish(),
+  "metrics": zod.object({
+  "impressions": zod.number(),
+  "clicks": zod.number(),
+  "ctr": zod.number().describe('Click-through rate in percent.'),
+  "spend": zod.number().describe('Spend in the ad account\'s currency (major units).'),
+  "results": zod.number().describe('Total result actions reported by the platform for the range.')
+})
+}))
+})
+
+
+/**
+ * @summary Campaign detail with its ad sets and ads (metrics per row)
+ */
+export const GetAdCampaignDetailQueryParams = zod.object({
+  "campaignId": zod.coerce.string(),
+  "connectionId": zod.coerce.number().describe('The ad account connection to read from.'),
+  "datePreset": zod.enum(['today', 'yesterday', 'last_7d', 'last_14d', 'last_30d', 'last_90d', 'maximum']).optional().describe('Reporting date range (defaults to last_30d).')
+})
+
+export const GetAdCampaignDetailResponse = zod.object({
+  "currency": zod.string().nullish(),
+  "campaign": zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "status": zod.string(),
+  "effectiveStatus": zod.string(),
+  "objective": zod.string().nullish(),
+  "dailyBudget": zod.number().nullish().describe('Daily budget in the account currency\'s minor units.'),
+  "lifetimeBudget": zod.number().nullish().describe('Lifetime budget in the account currency\'s minor units.'),
+  "startTime": zod.string().nullish(),
+  "stopTime": zod.string().nullish(),
+  "metrics": zod.object({
+  "impressions": zod.number(),
+  "clicks": zod.number(),
+  "ctr": zod.number().describe('Click-through rate in percent.'),
+  "spend": zod.number().describe('Spend in the ad account\'s currency (major units).'),
+  "results": zod.number().describe('Total result actions reported by the platform for the range.')
+})
+}),
+  "adSets": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "status": zod.string(),
+  "effectiveStatus": zod.string(),
+  "dailyBudget": zod.number().nullish(),
+  "lifetimeBudget": zod.number().nullish(),
+  "metrics": zod.object({
+  "impressions": zod.number(),
+  "clicks": zod.number(),
+  "ctr": zod.number().describe('Click-through rate in percent.'),
+  "spend": zod.number().describe('Spend in the ad account\'s currency (major units).'),
+  "results": zod.number().describe('Total result actions reported by the platform for the range.')
+})
+})),
+  "ads": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "status": zod.string(),
+  "effectiveStatus": zod.string(),
+  "adSetId": zod.string().nullish(),
+  "metrics": zod.object({
+  "impressions": zod.number(),
+  "clicks": zod.number(),
+  "ctr": zod.number().describe('Click-through rate in percent.'),
+  "spend": zod.number().describe('Spend in the ad account\'s currency (major units).'),
+  "results": zod.number().describe('Total result actions reported by the platform for the range.')
+})
+}))
+})
+
+
+/**
+ * @summary List draft change requests (pending first)
+ */
+export const ListAdDraftsResponseItem = zod.object({
+  "id": zod.number(),
+  "connectionId": zod.number(),
+  "platform": zod.string(),
+  "targetType": zod.string().describe('campaign | adset | ad'),
+  "targetId": zod.string().nullish(),
+  "targetName": zod.string(),
+  "action": zod.string().describe('create | update'),
+  "changes": zod.array(zod.object({
+  "field": zod.string(),
+  "before": zod.string().nullish(),
+  "after": zod.string().nullish()
+})),
+  "status": zod.string().describe('draft | approved | applied | failed | rejected | expired'),
+  "idempotencyKey": zod.string().optional(),
+  "createdByEmail": zod.string().nullish(),
+  "approvedByEmail": zod.string().nullish(),
+  "appliedAt": zod.coerce.date().nullish(),
+  "resultTargetId": zod.string().nullish(),
+  "verifyStatus": zod.string().nullish().describe('verified | mismatch | unverified (post-apply remote check)'),
+  "failureReason": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+export const ListAdDraftsResponse = zod.array(ListAdDraftsResponseItem)
+
+
+/**
+ * @summary Create a draft change request with a before/after preview (owner/admin only)
+ */
+export const createAdDraftBodyIdempotencyKeyMax = 128;
+
+export const createAdDraftBodyNameMax = 400;
+
+export const createAdDraftBodyDailyBudgetMin = 0;
+
+export const createAdDraftBodyLifetimeBudgetMin = 0;
+
+
+
+export const CreateAdDraftBody = zod.object({
+  "connectionId": zod.number(),
+  "targetType": zod.enum(['campaign', 'adset', 'ad']),
+  "action": zod.enum(['create', 'update']),
+  "targetId": zod.string().optional().describe('Remote object id (required for update).'),
+  "idempotencyKey": zod.string().max(createAdDraftBodyIdempotencyKeyMax).optional().describe('Client-supplied key to make retries safe; server generates one when omitted.'),
+  "name": zod.string().max(createAdDraftBodyNameMax).optional(),
+  "status": zod.enum(['ACTIVE', 'PAUSED']).optional(),
+  "objective": zod.string().optional().describe('Campaign objective (create only), e.g. OUTCOME_TRAFFIC.'),
+  "dailyBudget": zod.number().min(createAdDraftBodyDailyBudgetMin).nullish().describe('Daily budget in minor currency units.'),
+  "lifetimeBudget": zod.number().min(createAdDraftBodyLifetimeBudgetMin).nullish().describe('Lifetime budget in minor currency units.'),
+  "startTime": zod.string().nullish().describe('ISO-8601 schedule start.'),
+  "stopTime": zod.string().nullish().describe('ISO-8601 schedule end.')
+})
+
+export const CreateAdDraftResponse = zod.object({
+  "id": zod.number(),
+  "connectionId": zod.number(),
+  "platform": zod.string(),
+  "targetType": zod.string().describe('campaign | adset | ad'),
+  "targetId": zod.string().nullish(),
+  "targetName": zod.string(),
+  "action": zod.string().describe('create | update'),
+  "changes": zod.array(zod.object({
+  "field": zod.string(),
+  "before": zod.string().nullish(),
+  "after": zod.string().nullish()
+})),
+  "status": zod.string().describe('draft | approved | applied | failed | rejected | expired'),
+  "idempotencyKey": zod.string().optional(),
+  "createdByEmail": zod.string().nullish(),
+  "approvedByEmail": zod.string().nullish(),
+  "appliedAt": zod.coerce.date().nullish(),
+  "resultTargetId": zod.string().nullish(),
+  "verifyStatus": zod.string().nullish().describe('verified | mismatch | unverified (post-apply remote check)'),
+  "failureReason": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Approve and apply a draft to the ad account (workspace OWNER only; idempotent)
+ */
+export const ApproveAdDraftParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ApproveAdDraftResponse = zod.object({
+  "id": zod.number(),
+  "connectionId": zod.number(),
+  "platform": zod.string(),
+  "targetType": zod.string().describe('campaign | adset | ad'),
+  "targetId": zod.string().nullish(),
+  "targetName": zod.string(),
+  "action": zod.string().describe('create | update'),
+  "changes": zod.array(zod.object({
+  "field": zod.string(),
+  "before": zod.string().nullish(),
+  "after": zod.string().nullish()
+})),
+  "status": zod.string().describe('draft | approved | applied | failed | rejected | expired'),
+  "idempotencyKey": zod.string().optional(),
+  "createdByEmail": zod.string().nullish(),
+  "approvedByEmail": zod.string().nullish(),
+  "appliedAt": zod.coerce.date().nullish(),
+  "resultTargetId": zod.string().nullish(),
+  "verifyStatus": zod.string().nullish().describe('verified | mismatch | unverified (post-apply remote check)'),
+  "failureReason": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Reject a draft so it can never be applied (owner/admin only)
+ */
+export const RejectAdDraftParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RejectAdDraftResponse = zod.object({
+  "id": zod.number(),
+  "connectionId": zod.number(),
+  "platform": zod.string(),
+  "targetType": zod.string().describe('campaign | adset | ad'),
+  "targetId": zod.string().nullish(),
+  "targetName": zod.string(),
+  "action": zod.string().describe('create | update'),
+  "changes": zod.array(zod.object({
+  "field": zod.string(),
+  "before": zod.string().nullish(),
+  "after": zod.string().nullish()
+})),
+  "status": zod.string().describe('draft | approved | applied | failed | rejected | expired'),
+  "idempotencyKey": zod.string().optional(),
+  "createdByEmail": zod.string().nullish(),
+  "approvedByEmail": zod.string().nullish(),
+  "appliedAt": zod.coerce.date().nullish(),
+  "resultTargetId": zod.string().nullish(),
+  "verifyStatus": zod.string().nullish().describe('verified | mismatch | unverified (post-apply remote check)'),
+  "failureReason": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Append-only history of applied ads changes for this workspace
+ */
+export const ListAdsChangeLogResponseItem = zod.object({
+  "id": zod.number(),
+  "platform": zod.string(),
+  "targetType": zod.string(),
+  "targetId": zod.string().nullish(),
+  "targetName": zod.string(),
+  "action": zod.string(),
+  "changes": zod.array(zod.object({
+  "field": zod.string(),
+  "before": zod.string().nullish(),
+  "after": zod.string().nullish()
+})),
+  "outcome": zod.string().describe('applied | failed'),
+  "verifyStatus": zod.string().nullish(),
+  "failureReason": zod.string().nullish(),
+  "approvedByEmail": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+export const ListAdsChangeLogResponse = zod.array(ListAdsChangeLogResponseItem)
+
+
+/**
+ * @summary Get the global ads module switch and per-platform credential readiness (superadmin only)
+ */
+export const AdminGetAdsSettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "platforms": zod.array(zod.object({
+  "platform": zod.string(),
+  "configured": zod.boolean(),
+  "note": zod.string().nullish().describe('Where this platform\'s credentials come from (e.g. reuses the Meta app credentials).')
+}))
+})
+
+
+/**
+ * @summary Enable or disable the ads module globally (superadmin only)
+ */
+export const AdminUpdateAdsSettingsBody = zod.object({
+  "enabled": zod.boolean()
+})
+
+export const AdminUpdateAdsSettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "platforms": zod.array(zod.object({
+  "platform": zod.string(),
+  "configured": zod.boolean(),
+  "note": zod.string().nullish().describe('Where this platform\'s credentials come from (e.g. reuses the Meta app credentials).')
+}))
+})
+
+

@@ -23,6 +23,10 @@ import type {
   AccountInput,
   AcquisitionAnalytics,
   ActivateVersionInput,
+  AdAccountChoice,
+  AdAccountConnection,
+  AdminAdsSettings,
+  AdminAdsSettingsInput,
   AdminAuditLogPage,
   AdminExportAuditLogsParams,
   AdminGrantCredits200,
@@ -31,6 +35,14 @@ import type {
   AdminStats,
   AdminSweepRunResult,
   AdminTenant,
+  AdsCampaignDetail,
+  AdsCampaignList,
+  AdsChangeLogEntry,
+  AdsDraft,
+  AdsDraftCreateInput,
+  AdsMetaAuthUrlResult,
+  AdsMetaSelectInput,
+  AdsModuleStatus,
   AnalyticsIngestInput,
   AnalyticsIngestResult,
   AppBrand,
@@ -86,6 +98,7 @@ import type {
   FacebookCredentialInput,
   FunnelAnalytics,
   GetAcquisitionAnalyticsParams,
+  GetAdCampaignDetailParams,
   GetAudienceAnalyticsParams,
   GetConsentAnalyticsParams,
   GetDataConsumptionAnalyticsParams,
@@ -105,6 +118,7 @@ import type {
   LinkedInStatus,
   LinkedinAppCredentialInput,
   LinkedinAppCredentialStatus,
+  ListAdCampaignsParams,
   ListBrandKitsParams,
   MeProfile,
   MetaAppCredentialInput,
@@ -11914,5 +11928,1202 @@ export const useRunHealthReport = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getRunHealthReportMutationOptions(options));
+    }
+
+export const getGetAdsStatusUrl = () => {
+
+
+
+
+  return `/api/ads/status`
+}
+
+/**
+ * @summary Get the ads module status for this tenant (module switch + per-platform availability)
+ */
+export const getAdsStatus = async ( options?: RequestInit): Promise<AdsModuleStatus> => {
+
+  return customFetch<AdsModuleStatus>(getGetAdsStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAdsStatusQueryKey = () => {
+    return [
+    `/api/ads/status`
+    ] as const;
+    }
+
+
+export const getGetAdsStatusQueryOptions = <TData = Awaited<ReturnType<typeof getAdsStatus>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdsStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAdsStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdsStatus>>> = ({ signal }) => getAdsStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdsStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAdsStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getAdsStatus>>>
+export type GetAdsStatusQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the ads module status for this tenant (module switch + per-platform availability)
+ */
+
+export function useGetAdsStatus<TData = Awaited<ReturnType<typeof getAdsStatus>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdsStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAdsStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListAdConnectionsUrl = () => {
+
+
+
+
+  return `/api/ads/connections`
+}
+
+/**
+ * @summary List this workspace's ad account connections
+ */
+export const listAdConnections = async ( options?: RequestInit): Promise<AdAccountConnection[]> => {
+
+  return customFetch<AdAccountConnection[]>(getListAdConnectionsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAdConnectionsQueryKey = () => {
+    return [
+    `/api/ads/connections`
+    ] as const;
+    }
+
+
+export const getListAdConnectionsQueryOptions = <TData = Awaited<ReturnType<typeof listAdConnections>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdConnections>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAdConnectionsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAdConnections>>> = ({ signal }) => listAdConnections({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAdConnections>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAdConnectionsQueryResult = NonNullable<Awaited<ReturnType<typeof listAdConnections>>>
+export type ListAdConnectionsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List this workspace's ad account connections
+ */
+
+export function useListAdConnections<TData = Awaited<ReturnType<typeof listAdConnections>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdConnections>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAdConnectionsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDeleteAdConnectionUrl = (id: number,) => {
+
+
+
+
+  return `/api/ads/connections/${id}`
+}
+
+/**
+ * @summary Disconnect an ad account (owner/admin only)
+ */
+export const deleteAdConnection = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteAdConnectionUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteAdConnectionMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteAdConnection>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteAdConnection>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteAdConnection'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteAdConnection>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteAdConnection(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteAdConnectionMutationResult = NonNullable<Awaited<ReturnType<typeof deleteAdConnection>>>
+
+    export type DeleteAdConnectionMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Disconnect an ad account (owner/admin only)
+ */
+export const useDeleteAdConnection = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteAdConnection>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteAdConnection>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteAdConnectionMutationOptions(options));
+    }
+
+export const getGetAdsMetaAuthUrlUrl = () => {
+
+
+
+
+  return `/api/ads/meta/auth/url`
+}
+
+/**
+ * @summary Get the Meta OAuth URL to grant ads access (owner/admin only)
+ */
+export const getAdsMetaAuthUrl = async ( options?: RequestInit): Promise<AdsMetaAuthUrlResult> => {
+
+  return customFetch<AdsMetaAuthUrlResult>(getGetAdsMetaAuthUrlUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAdsMetaAuthUrlQueryKey = () => {
+    return [
+    `/api/ads/meta/auth/url`
+    ] as const;
+    }
+
+
+export const getGetAdsMetaAuthUrlQueryOptions = <TData = Awaited<ReturnType<typeof getAdsMetaAuthUrl>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdsMetaAuthUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAdsMetaAuthUrlQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdsMetaAuthUrl>>> = ({ signal }) => getAdsMetaAuthUrl({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdsMetaAuthUrl>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAdsMetaAuthUrlQueryResult = NonNullable<Awaited<ReturnType<typeof getAdsMetaAuthUrl>>>
+export type GetAdsMetaAuthUrlQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the Meta OAuth URL to grant ads access (owner/admin only)
+ */
+
+export function useGetAdsMetaAuthUrl<TData = Awaited<ReturnType<typeof getAdsMetaAuthUrl>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdsMetaAuthUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAdsMetaAuthUrlQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getConnectMetaAdsFromFacebookUrl = () => {
+
+
+
+
+  return `/api/ads/connections/meta/from-facebook`
+}
+
+/**
+ * @summary Try connecting Meta Ads using the stored Facebook connection's token (owner/admin only)
+ */
+export const connectMetaAdsFromFacebook = async ( options?: RequestInit): Promise<AdAccountConnection> => {
+
+  return customFetch<AdAccountConnection>(getConnectMetaAdsFromFacebookUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getConnectMetaAdsFromFacebookMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof connectMetaAdsFromFacebook>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof connectMetaAdsFromFacebook>>, TError,void, TContext> => {
+
+const mutationKey = ['connectMetaAdsFromFacebook'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof connectMetaAdsFromFacebook>>, void> = () => {
+
+
+          return  connectMetaAdsFromFacebook(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ConnectMetaAdsFromFacebookMutationResult = NonNullable<Awaited<ReturnType<typeof connectMetaAdsFromFacebook>>>
+
+    export type ConnectMetaAdsFromFacebookMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Try connecting Meta Ads using the stored Facebook connection's token (owner/admin only)
+ */
+export const useConnectMetaAdsFromFacebook = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof connectMetaAdsFromFacebook>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof connectMetaAdsFromFacebook>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getConnectMetaAdsFromFacebookMutationOptions(options));
+    }
+
+export const getListMetaAdAccountChoicesUrl = () => {
+
+
+
+
+  return `/api/ads/connections/meta/accounts`
+}
+
+/**
+ * @summary List the ad accounts reachable with the stored Meta ads token
+ */
+export const listMetaAdAccountChoices = async ( options?: RequestInit): Promise<AdAccountChoice[]> => {
+
+  return customFetch<AdAccountChoice[]>(getListMetaAdAccountChoicesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListMetaAdAccountChoicesQueryKey = () => {
+    return [
+    `/api/ads/connections/meta/accounts`
+    ] as const;
+    }
+
+
+export const getListMetaAdAccountChoicesQueryOptions = <TData = Awaited<ReturnType<typeof listMetaAdAccountChoices>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMetaAdAccountChoices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListMetaAdAccountChoicesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listMetaAdAccountChoices>>> = ({ signal }) => listMetaAdAccountChoices({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listMetaAdAccountChoices>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListMetaAdAccountChoicesQueryResult = NonNullable<Awaited<ReturnType<typeof listMetaAdAccountChoices>>>
+export type ListMetaAdAccountChoicesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List the ad accounts reachable with the stored Meta ads token
+ */
+
+export function useListMetaAdAccountChoices<TData = Awaited<ReturnType<typeof listMetaAdAccountChoices>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMetaAdAccountChoices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListMetaAdAccountChoicesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSelectMetaAdAccountUrl = () => {
+
+
+
+
+  return `/api/ads/connections/meta/select`
+}
+
+/**
+ * @summary Pick which Meta ad account this workspace manages (owner/admin only)
+ */
+export const selectMetaAdAccount = async (adsMetaSelectInput: AdsMetaSelectInput, options?: RequestInit): Promise<AdAccountConnection> => {
+
+  return customFetch<AdAccountConnection>(getSelectMetaAdAccountUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(adsMetaSelectInput)
+  }
+);}
+
+
+
+
+export const getSelectMetaAdAccountMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof selectMetaAdAccount>>, TError,{data: BodyType<AdsMetaSelectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof selectMetaAdAccount>>, TError,{data: BodyType<AdsMetaSelectInput>}, TContext> => {
+
+const mutationKey = ['selectMetaAdAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof selectMetaAdAccount>>, {data: BodyType<AdsMetaSelectInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  selectMetaAdAccount(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SelectMetaAdAccountMutationResult = NonNullable<Awaited<ReturnType<typeof selectMetaAdAccount>>>
+    export type SelectMetaAdAccountMutationBody = BodyType<AdsMetaSelectInput>
+    export type SelectMetaAdAccountMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Pick which Meta ad account this workspace manages (owner/admin only)
+ */
+export const useSelectMetaAdAccount = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof selectMetaAdAccount>>, TError,{data: BodyType<AdsMetaSelectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof selectMetaAdAccount>>,
+        TError,
+        {data: BodyType<AdsMetaSelectInput>},
+        TContext
+      > => {
+      return useMutation(getSelectMetaAdAccountMutationOptions(options));
+    }
+
+export const getListAdCampaignsUrl = (params: ListAdCampaignsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ads/campaigns?${stringifiedParams}` : `/api/ads/campaigns`
+}
+
+/**
+ * @summary List campaigns with delivery status and metrics for a date range
+ */
+export const listAdCampaigns = async (params: ListAdCampaignsParams, options?: RequestInit): Promise<AdsCampaignList> => {
+
+  return customFetch<AdsCampaignList>(getListAdCampaignsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAdCampaignsQueryKey = (params?: ListAdCampaignsParams,) => {
+    return [
+    `/api/ads/campaigns`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListAdCampaignsQueryOptions = <TData = Awaited<ReturnType<typeof listAdCampaigns>>, TError = ErrorType<ErrorEnvelope>>(params: ListAdCampaignsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdCampaigns>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAdCampaignsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAdCampaigns>>> = ({ signal }) => listAdCampaigns(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAdCampaigns>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAdCampaignsQueryResult = NonNullable<Awaited<ReturnType<typeof listAdCampaigns>>>
+export type ListAdCampaignsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List campaigns with delivery status and metrics for a date range
+ */
+
+export function useListAdCampaigns<TData = Awaited<ReturnType<typeof listAdCampaigns>>, TError = ErrorType<ErrorEnvelope>>(
+ params: ListAdCampaignsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdCampaigns>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAdCampaignsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetAdCampaignDetailUrl = (params: GetAdCampaignDetailParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ads/campaign-detail?${stringifiedParams}` : `/api/ads/campaign-detail`
+}
+
+/**
+ * @summary Campaign detail with its ad sets and ads (metrics per row)
+ */
+export const getAdCampaignDetail = async (params: GetAdCampaignDetailParams, options?: RequestInit): Promise<AdsCampaignDetail> => {
+
+  return customFetch<AdsCampaignDetail>(getGetAdCampaignDetailUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAdCampaignDetailQueryKey = (params?: GetAdCampaignDetailParams,) => {
+    return [
+    `/api/ads/campaign-detail`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetAdCampaignDetailQueryOptions = <TData = Awaited<ReturnType<typeof getAdCampaignDetail>>, TError = ErrorType<ErrorEnvelope>>(params: GetAdCampaignDetailParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdCampaignDetail>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAdCampaignDetailQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdCampaignDetail>>> = ({ signal }) => getAdCampaignDetail(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdCampaignDetail>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAdCampaignDetailQueryResult = NonNullable<Awaited<ReturnType<typeof getAdCampaignDetail>>>
+export type GetAdCampaignDetailQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Campaign detail with its ad sets and ads (metrics per row)
+ */
+
+export function useGetAdCampaignDetail<TData = Awaited<ReturnType<typeof getAdCampaignDetail>>, TError = ErrorType<ErrorEnvelope>>(
+ params: GetAdCampaignDetailParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdCampaignDetail>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAdCampaignDetailQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListAdDraftsUrl = () => {
+
+
+
+
+  return `/api/ads/drafts`
+}
+
+/**
+ * @summary List draft change requests (pending first)
+ */
+export const listAdDrafts = async ( options?: RequestInit): Promise<AdsDraft[]> => {
+
+  return customFetch<AdsDraft[]>(getListAdDraftsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAdDraftsQueryKey = () => {
+    return [
+    `/api/ads/drafts`
+    ] as const;
+    }
+
+
+export const getListAdDraftsQueryOptions = <TData = Awaited<ReturnType<typeof listAdDrafts>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdDrafts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAdDraftsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAdDrafts>>> = ({ signal }) => listAdDrafts({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAdDrafts>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAdDraftsQueryResult = NonNullable<Awaited<ReturnType<typeof listAdDrafts>>>
+export type ListAdDraftsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List draft change requests (pending first)
+ */
+
+export function useListAdDrafts<TData = Awaited<ReturnType<typeof listAdDrafts>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdDrafts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAdDraftsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateAdDraftUrl = () => {
+
+
+
+
+  return `/api/ads/drafts`
+}
+
+/**
+ * @summary Create a draft change request with a before/after preview (owner/admin only)
+ */
+export const createAdDraft = async (adsDraftCreateInput: AdsDraftCreateInput, options?: RequestInit): Promise<AdsDraft> => {
+
+  return customFetch<AdsDraft>(getCreateAdDraftUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(adsDraftCreateInput)
+  }
+);}
+
+
+
+
+export const getCreateAdDraftMutationOptions = <TError = ErrorType<ErrorEnvelope | AdsDraft>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAdDraft>>, TError,{data: BodyType<AdsDraftCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAdDraft>>, TError,{data: BodyType<AdsDraftCreateInput>}, TContext> => {
+
+const mutationKey = ['createAdDraft'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAdDraft>>, {data: BodyType<AdsDraftCreateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createAdDraft(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateAdDraftMutationResult = NonNullable<Awaited<ReturnType<typeof createAdDraft>>>
+    export type CreateAdDraftMutationBody = BodyType<AdsDraftCreateInput>
+    export type CreateAdDraftMutationError = ErrorType<ErrorEnvelope | AdsDraft>
+
+    /**
+ * @summary Create a draft change request with a before/after preview (owner/admin only)
+ */
+export const useCreateAdDraft = <TError = ErrorType<ErrorEnvelope | AdsDraft>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAdDraft>>, TError,{data: BodyType<AdsDraftCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createAdDraft>>,
+        TError,
+        {data: BodyType<AdsDraftCreateInput>},
+        TContext
+      > => {
+      return useMutation(getCreateAdDraftMutationOptions(options));
+    }
+
+export const getApproveAdDraftUrl = (id: number,) => {
+
+
+
+
+  return `/api/ads/drafts/${id}/approve`
+}
+
+/**
+ * @summary Approve and apply a draft to the ad account (workspace OWNER only; idempotent)
+ */
+export const approveAdDraft = async (id: number, options?: RequestInit): Promise<AdsDraft> => {
+
+  return customFetch<AdsDraft>(getApproveAdDraftUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getApproveAdDraftMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveAdDraft>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveAdDraft>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['approveAdDraft'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveAdDraft>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  approveAdDraft(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApproveAdDraftMutationResult = NonNullable<Awaited<ReturnType<typeof approveAdDraft>>>
+
+    export type ApproveAdDraftMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Approve and apply a draft to the ad account (workspace OWNER only; idempotent)
+ */
+export const useApproveAdDraft = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveAdDraft>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof approveAdDraft>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getApproveAdDraftMutationOptions(options));
+    }
+
+export const getRejectAdDraftUrl = (id: number,) => {
+
+
+
+
+  return `/api/ads/drafts/${id}/reject`
+}
+
+/**
+ * @summary Reject a draft so it can never be applied (owner/admin only)
+ */
+export const rejectAdDraft = async (id: number, options?: RequestInit): Promise<AdsDraft> => {
+
+  return customFetch<AdsDraft>(getRejectAdDraftUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRejectAdDraftMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectAdDraft>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof rejectAdDraft>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['rejectAdDraft'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof rejectAdDraft>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  rejectAdDraft(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RejectAdDraftMutationResult = NonNullable<Awaited<ReturnType<typeof rejectAdDraft>>>
+
+    export type RejectAdDraftMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Reject a draft so it can never be applied (owner/admin only)
+ */
+export const useRejectAdDraft = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectAdDraft>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof rejectAdDraft>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRejectAdDraftMutationOptions(options));
+    }
+
+export const getListAdsChangeLogUrl = () => {
+
+
+
+
+  return `/api/ads/change-log`
+}
+
+/**
+ * @summary Append-only history of applied ads changes for this workspace
+ */
+export const listAdsChangeLog = async ( options?: RequestInit): Promise<AdsChangeLogEntry[]> => {
+
+  return customFetch<AdsChangeLogEntry[]>(getListAdsChangeLogUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAdsChangeLogQueryKey = () => {
+    return [
+    `/api/ads/change-log`
+    ] as const;
+    }
+
+
+export const getListAdsChangeLogQueryOptions = <TData = Awaited<ReturnType<typeof listAdsChangeLog>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdsChangeLog>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAdsChangeLogQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAdsChangeLog>>> = ({ signal }) => listAdsChangeLog({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAdsChangeLog>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAdsChangeLogQueryResult = NonNullable<Awaited<ReturnType<typeof listAdsChangeLog>>>
+export type ListAdsChangeLogQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Append-only history of applied ads changes for this workspace
+ */
+
+export function useListAdsChangeLog<TData = Awaited<ReturnType<typeof listAdsChangeLog>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdsChangeLog>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAdsChangeLogQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminGetAdsSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/ads/settings`
+}
+
+/**
+ * @summary Get the global ads module switch and per-platform credential readiness (superadmin only)
+ */
+export const adminGetAdsSettings = async ( options?: RequestInit): Promise<AdminAdsSettings> => {
+
+  return customFetch<AdminAdsSettings>(getAdminGetAdsSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetAdsSettingsQueryKey = () => {
+    return [
+    `/api/admin/ads/settings`
+    ] as const;
+    }
+
+
+export const getAdminGetAdsSettingsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetAdsSettings>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetAdsSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetAdsSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetAdsSettings>>> = ({ signal }) => adminGetAdsSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetAdsSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetAdsSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetAdsSettings>>>
+export type AdminGetAdsSettingsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the global ads module switch and per-platform credential readiness (superadmin only)
+ */
+
+export function useAdminGetAdsSettings<TData = Awaited<ReturnType<typeof adminGetAdsSettings>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetAdsSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetAdsSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateAdsSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/ads/settings`
+}
+
+/**
+ * @summary Enable or disable the ads module globally (superadmin only)
+ */
+export const adminUpdateAdsSettings = async (adminAdsSettingsInput: AdminAdsSettingsInput, options?: RequestInit): Promise<AdminAdsSettings> => {
+
+  return customFetch<AdminAdsSettings>(getAdminUpdateAdsSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(adminAdsSettingsInput)
+  }
+);}
+
+
+
+
+export const getAdminUpdateAdsSettingsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAdsSettings>>, TError,{data: BodyType<AdminAdsSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAdsSettings>>, TError,{data: BodyType<AdminAdsSettingsInput>}, TContext> => {
+
+const mutationKey = ['adminUpdateAdsSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateAdsSettings>>, {data: BodyType<AdminAdsSettingsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateAdsSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateAdsSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateAdsSettings>>>
+    export type AdminUpdateAdsSettingsMutationBody = BodyType<AdminAdsSettingsInput>
+    export type AdminUpdateAdsSettingsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Enable or disable the ads module globally (superadmin only)
+ */
+export const useAdminUpdateAdsSettings = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAdsSettings>>, TError,{data: BodyType<AdminAdsSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateAdsSettings>>,
+        TError,
+        {data: BodyType<AdminAdsSettingsInput>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateAdsSettingsMutationOptions(options));
     }
 
