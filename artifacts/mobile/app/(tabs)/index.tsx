@@ -112,6 +112,13 @@ export default function HomeScreen() {
         </View>
         <View style={{ flexDirection: "row", gap: 10 }}>
           <Pressable
+            onPress={() => router.push("/notification-settings")}
+            accessibilityLabel="Notification settings"
+            style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <Feather name="bell" size={18} color={c.mutedForeground} />
+          </Pressable>
+          <Pressable
             onPress={() => router.push("/privacy")}
             accessibilityLabel="Privacy settings"
             style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.7 : 1 }]}
