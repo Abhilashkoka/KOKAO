@@ -44,7 +44,24 @@ export function ConsentPrompt() {
     let cancelled = false;
     AsyncStorage.getItem(ackKey(userId))
       .then((seen) => {
-        if (!cancelled && !seen) setOpen(true);
+        if (cancelled) return;
+        if (!seen) {
+          setOpen(true);
+          return;
+        }
+        // One-time backfill: the user dismissed the prompt before dismissals
+        // were stored server-side (local ack exists but the server still says
+        // promptDismissed: false). Silently record it so other devices never
+        // re-prompt. Best-effort: on failure the local ack keeps this device
+        // quiet and the sync retries on a later launch.
+        dismissMutation.mutate(undefined, {
+          onSuccess: (data) => {
+            queryClient.setQueryData(getGetConsentQueryKey(), data);
+          },
+          onError: () => {
+            // Best-effort; retried on next launch.
+          },
+        });
       })
       .catch(() => {
         // Storage unavailable — skip the prompt rather than loop it.
@@ -52,6 +69,7 @@ export function ConsentPrompt() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, responded, promptDismissed]);
 
   if (!open) return null;

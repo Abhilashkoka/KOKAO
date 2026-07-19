@@ -167,6 +167,39 @@ describe("ConsentPrompt one-time behavior", () => {
     expect(screen.queryByText("Your privacy choices")).toBeNull();
   });
 
+  it("backfills a pre-existing local ack to the server without showing the prompt", async () => {
+    // User dismissed the prompt before dismissals were persisted server-side:
+    // local ack exists, but the server still says promptDismissed: false.
+    storage.set("kokao-consent-prompt-user_prompt_test", "1");
+    mountPrompt();
+    // The dismissal is silently synced to the server...
+    await waitFor(() => expect(serverConsent.promptDismissed).toBe(true));
+    expect(
+      fetchMock.mock.calls.some(([input, init]) =>
+        String(input).includes("/consent/dismiss-prompt") &&
+        (init?.method ?? "GET").toUpperCase() === "POST",
+      ),
+    ).toBe(true);
+    // ...with no visible prompt at any point.
+    expect(screen.queryByText("Your privacy choices")).toBeNull();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText("Your privacy choices")).toBeNull();
+  });
+
+  it("does not fire the backfill when the server already has promptDismissed: true", async () => {
+    storage.set("kokao-consent-prompt-user_prompt_test", "1");
+    serverConsent.promptDismissed = true;
+    mountPrompt();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).includes("/consent/dismiss-prompt"),
+      ),
+    ).toBe(false);
+    expect(screen.queryByText("Your privacy choices")).toBeNull();
+  });
+
   it("never shows for a user whose server record already has promptDismissed: true", async () => {
     serverConsent.promptDismissed = true;
     mountPrompt();
