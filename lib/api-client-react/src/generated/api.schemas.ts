@@ -2559,6 +2559,57 @@ export interface AdsCampaignGroupList {
   groups: AdsCampaignGroup[];
 }
 
+export interface GoogleAdCustomerChoice {
+  customerId: string;
+  name: string;
+  /** @nullable */
+  currency: string | null;
+  manager: boolean;
+  /** @nullable */
+  loginCustomerId: string | null;
+}
+
+export interface AdsGoogleSelectInput {
+  /** @minLength 1 */
+  customerId: string;
+  /** @nullable */
+  loginCustomerId?: string | null;
+}
+
+export interface GoogleAdsAppCredentialStatus {
+  configured: boolean;
+  /** @nullable */
+  clientIdMasked: string | null;
+  /** @nullable */
+  clientSecretMasked: string | null;
+  /** @nullable */
+  developerTokenMasked: string | null;
+  /** @nullable */
+  testStatus: string | null;
+  /** @nullable */
+  testedAt: string | null;
+  /** @nullable */
+  testError: string | null;
+}
+
+export interface GoogleAdsAppCredentialInput {
+  /**
+     * @minLength 1
+     * @maxLength 300
+     */
+  clientId: string;
+  /**
+     * @minLength 1
+     * @maxLength 300
+     */
+  clientSecret: string;
+  /**
+     * @minLength 1
+     * @maxLength 300
+     */
+  developerToken: string;
+}
+
 export interface AdsCampaign {
   id: string;
   name: string;

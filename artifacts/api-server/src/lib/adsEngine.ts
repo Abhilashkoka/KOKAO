@@ -30,6 +30,7 @@ import {
   readCampaignState as readTiktokCampaignState,
   readAdGroupState as readTiktokAdGroupState,
   readAdState as readTiktokAdState,
+  type TiktokAdsCredentials,
 } from "./tiktokAdsApi";
 import {
   LinkedinAdsApiError,
@@ -38,8 +39,17 @@ import {
   updateLinkedinCampaign,
   readLinkedinCampaignState,
   readLinkedinCampaignGroupState,
+  type LinkedinAdsCredentials,
 } from "./linkedinAdsApi";
 import { isLinkedinAppConfigured } from "./linkedinApp";
+import {
+  GoogleAdsApiError,
+  getGoogleAdsAuth,
+  isGoogleAdsConfigured,
+  readGoogleCampaignState,
+  updateGoogleCampaign,
+  createGoogleCampaign,
+} from "./googleAdsApi";
 import { tryAcquireResendLock } from "./resendLock";
 import { notifyAdsChangeApplied, notifyAdsChangeFailed } from "./notifications";
 import { logger } from "./logger";
@@ -89,10 +99,16 @@ export interface AdsPlatformAvailability {
   reason: string | null;
 }
 
-/** Platforms the ads module knows about; Meta, TikTok, and LinkedIn are live. */
+/** Platforms the ads module knows about; Meta, Google, TikTok, and LinkedIn are live. */
 export async function getAdsPlatformAvailability(): Promise<AdsPlatformAvailability[]> {
-  const [metaConfigured, tiktokConfigured, linkedinConfigured] = await Promise.all([
+  const [
+    metaConfigured,
+    googleConfigured,
+    tiktokConfigured,
+    linkedinConfigured,
+  ] = await Promise.all([
     isMetaAppConfigured(),
+    isGoogleAdsConfigured(),
     isTiktokAppConfigured(),
     isLinkedinAppConfigured(),
   ]);
@@ -105,13 +121,19 @@ export async function getAdsPlatformAvailability(): Promise<AdsPlatformAvailabil
         : "Meta Ads is not yet available. The platform's Meta app credentials have not been configured.",
     },
     {
+      platform: "google",
+      available: googleConfigured,
+      reason: googleConfigured
+        ? null
+        : "Google Ads is not yet available. The platform's Google Ads credentials have not been configured.",
+    },
+    {
       platform: "tiktok",
       available: tiktokConfigured,
       reason: tiktokConfigured
         ? null
         : "TikTok Ads is not yet available. The platform's TikTok for Business app credentials have not been configured.",
     },
-    { platform: "google", available: false, reason: "Google Ads is not yet available." },
     {
       platform: "linkedin",
       available: linkedinConfigured,
@@ -152,6 +174,286 @@ export function getConnectionToken(conn: AdAccountConnection): string | null {
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Per-platform adapter dispatch
+// ---------------------------------------------------------------------------
+
+/** True when a platform API error means the grant is dead → reconnect. */
+export function isAdsAuthError(err: unknown): boolean {
+  return (
+    (err instanceof MetaAdsApiError ||
+      err instanceof GoogleAdsApiError ||
+      err instanceof TiktokAdsApiError ||
+      err instanceof LinkedinAdsApiError) &&
+    err.authFailed
+  );
+}
+
+/** HTTP-ish status carried by a platform API error, if any. */
+export function adsApiErrorStatus(err: unknown): number | null {
+  if (
+    err instanceof MetaAdsApiError ||
+    err instanceof GoogleAdsApiError ||
+    err instanceof TiktokAdsApiError ||
+    err instanceof LinkedinAdsApiError
+  ) {
+    return err.status;
+  }
+  return null;
+}
+
+interface CreateParams {
+  name: string;
+  objective: string;
+  status: "ACTIVE" | "PAUSED";
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
+  startTime: string | null;
+  stopTime: string | null;
+  /** LinkedIn only: the campaign group a new campaign is created in. */
+  campaignGroupId?: string;
+  /** What kind of object to create (campaigns everywhere; campaign groups on LinkedIn). */
+  targetType?: AdsDraftTargetType;
+}
+
+interface UpdateParams {
+  name?: string;
+  status?: "ACTIVE" | "PAUSED";
+  dailyBudget?: number;
+  lifetimeBudget?: number;
+  startTime?: string;
+  stopTime?: string;
+}
+
+/**
+ * The engine's per-platform surface. Adapters own auth resolution (including
+ * token refresh) and unit/status normalization so the shared pipeline speaks
+ * one vocabulary: minor currency units and ACTIVE/PAUSED statuses.
+ */
+interface PlatformOps {
+  readState(
+    conn: AdAccountConnection,
+    targetId: string,
+    targetType: AdsDraftTargetType,
+  ): Promise<RemoteSnapshot>;
+  update(
+    conn: AdAccountConnection,
+    targetId: string,
+    params: UpdateParams & { targetType?: AdsTargetType },
+  ): Promise<void>;
+  create(conn: AdAccountConnection, params: CreateParams): Promise<string>;
+  defaultObjective: string;
+}
+
+function metaToken(conn: AdAccountConnection): string {
+  const token = getConnectionToken(conn);
+  if (!token) {
+    throw new MetaAdsApiError(
+      "The Meta Ads connection needs reconnecting.",
+      401,
+      true,
+    );
+  }
+  return token;
+}
+
+const metaOps: PlatformOps = {
+  defaultObjective: "OUTCOME_TRAFFIC",
+  readState: (conn, targetId, targetType) =>
+    readObjectState(metaToken(conn), targetId, asTargetType(targetType)),
+  update: (conn, targetId, params) => updateObject(metaToken(conn), targetId, params),
+  create: (conn, params) =>
+    createCampaign(metaToken(conn), conn.adAccountId, params),
+};
+
+const googleOps: PlatformOps = {
+  defaultObjective: "SEARCH",
+  readState: async (conn, targetId, targetType) => {
+    if (targetType !== "campaign") {
+      throw new GoogleAdsApiError(
+        "Only campaigns can be managed for Google Ads in this phase.",
+        400,
+      );
+    }
+    const auth = await getGoogleAdsAuth(conn);
+    return readGoogleCampaignState(auth, targetId);
+  },
+  update: async (conn, targetId, params) => {
+    if (params.lifetimeBudget != null) {
+      throw new GoogleAdsApiError(
+        "Lifetime budgets are not supported for Google Ads campaigns. Use a daily budget instead.",
+        400,
+      );
+    }
+    const auth = await getGoogleAdsAuth(conn);
+    await updateGoogleCampaign(auth, targetId, params);
+  },
+  create: async (conn, params) => {
+    if (params.lifetimeBudget != null) {
+      throw new GoogleAdsApiError(
+        "Lifetime budgets are not supported for Google Ads campaigns. Use a daily budget instead.",
+        400,
+      );
+    }
+    const auth = await getGoogleAdsAuth(conn);
+    return createGoogleCampaign(auth, params);
+  },
+};
+
+function linkedinToken(conn: AdAccountConnection): string {
+  if (!conn.encryptedCredentials) {
+    throw new LinkedinAdsApiError("The LinkedIn Ads connection needs reconnecting.", 401, true);
+  }
+  try {
+    const creds = decryptJson<LinkedinAdsCredentials>(conn.encryptedCredentials);
+    if (!creds.accessToken) throw new Error("missing token");
+    return creds.accessToken;
+  } catch {
+    throw new LinkedinAdsApiError("The LinkedIn Ads connection needs reconnecting.", 401, true);
+  }
+}
+
+const linkedinOps: PlatformOps = {
+  defaultObjective: "WEBSITE_VISIT",
+  readState: async (conn, targetId, targetType) => {
+    if (targetType === "campaign_group") {
+      return readLinkedinCampaignGroupState(linkedinToken(conn), conn.adAccountId, targetId);
+    }
+    if (targetType !== "campaign") {
+      throw new LinkedinAdsApiError(
+        "Only campaigns and campaign groups can be managed for LinkedIn Ads in this phase.",
+        400,
+      );
+    }
+    return readLinkedinCampaignState(linkedinToken(conn), conn.adAccountId, targetId);
+  },
+  update: async (conn, targetId, params) => {
+    await updateLinkedinCampaign(linkedinToken(conn), conn.adAccountId, targetId, {
+      name: params.name,
+      status: params.status,
+      dailyBudget: params.dailyBudget ?? undefined,
+      lifetimeBudget: params.lifetimeBudget ?? undefined,
+      startTime: params.startTime ?? undefined,
+      stopTime: params.stopTime ?? undefined,
+      currency: conn.currency ?? "USD",
+    });
+  },
+  create: async (conn, params) => {
+    if (params.targetType === "campaign_group") {
+      return createLinkedinCampaignGroup(linkedinToken(conn), conn.adAccountId, {
+        name: params.name,
+        status: params.status,
+        lifetimeBudget: params.lifetimeBudget,
+        currency: conn.currency ?? "USD",
+      });
+    }
+    if (!params.campaignGroupId) {
+      throw new LinkedinAdsApiError(
+        "A campaign group is required to create a LinkedIn campaign.",
+        400,
+      );
+    }
+    return createLinkedinCampaign(linkedinToken(conn), conn.adAccountId, {
+      name: params.name,
+      campaignGroupId: params.campaignGroupId,
+      status: params.status,
+      dailyBudget: params.dailyBudget,
+      lifetimeBudget: params.lifetimeBudget,
+      startTime: params.startTime,
+      stopTime: params.stopTime,
+      currency: conn.currency ?? "USD",
+    });
+  },
+};
+
+function tiktokToken(conn: AdAccountConnection): string {
+  if (!conn.encryptedCredentials) {
+    throw new TiktokAdsApiError("The TikTok Ads connection needs reconnecting.", 401, 0, true);
+  }
+  try {
+    const creds = decryptJson<TiktokAdsCredentials>(conn.encryptedCredentials);
+    if (!creds.accessToken) throw new Error("missing token");
+    return creds.accessToken;
+  } catch {
+    throw new TiktokAdsApiError("The TikTok Ads connection needs reconnecting.", 401, 0, true);
+  }
+}
+
+const tiktokOps: PlatformOps = {
+  defaultObjective: "TRAFFIC",
+  readState: async (conn, targetId, targetType) => {
+    if (conn.platform === "tiktok") {
+      if (targetType === "adset") {
+        return readTiktokAdGroupState(tiktokToken(conn), conn.adAccountId, targetId);
+      }
+      if (targetType === "ad") {
+        return readTiktokAdState(tiktokToken(conn), conn.adAccountId, targetId);
+      }
+    }
+    return readTiktokCampaignState(tiktokToken(conn), conn.adAccountId, targetId);
+  },
+  update: async (conn, targetId, params) => {
+    const targetType = params.targetType ?? "campaign";
+    if (conn.platform === "tiktok") {
+      if (targetType === "adset") {
+        await updateTiktokAdGroup(tiktokToken(conn), conn.adAccountId, targetId, {
+          name: params.name,
+          status: params.status,
+        });
+        return;
+      }
+      if (targetType === "ad") {
+        await updateTiktokAd(tiktokToken(conn), conn.adAccountId, targetId, {
+          name: params.name,
+          status: params.status,
+        });
+        return;
+      }
+    }
+    await updateTiktokCampaign(tiktokToken(conn), conn.adAccountId, targetId, {
+      name: params.name,
+      status: params.status,
+      dailyBudget: params.dailyBudget ?? undefined,
+      lifetimeBudget: params.lifetimeBudget ?? undefined,
+    });
+  },
+  create: async (conn, params) => {
+    return createTiktokCampaign(tiktokToken(conn), conn.adAccountId, {
+      name: params.name,
+      objective: params.objective,
+      status: params.status,
+      dailyBudget: params.dailyBudget ?? null,
+      lifetimeBudget: params.lifetimeBudget ?? null,
+    });
+  },
+};
+
+function getPlatformOps(platform: string): PlatformOps | null {
+  if (platform === "meta") return metaOps;
+  if (platform === "google") return googleOps;
+  if (platform === "linkedin") return linkedinOps;
+  if (platform === "tiktok") return tiktokOps;
+  return null;
+}
+
+/** Read a draft target's current remote state (platform-dispatched). */
+export async function readAdTargetState(
+  conn: AdAccountConnection,
+  targetId: string,
+  targetType: AdsTargetType,
+): Promise<RemoteSnapshot> {
+  const ops = getPlatformOps(conn.platform);
+  if (!ops) {
+    throw new Error(`Unsupported ads platform: ${conn.platform}`);
+  }
+  return ops.readState(conn, targetId, targetType);
+}
+
+/** The default create objective per platform (shown in drafts). */
+export function defaultAdsObjective(platform: string): string {
+  return getPlatformOps(platform)?.defaultObjective ?? "OUTCOME_TRAFFIC";
 }
 
 /** Flip a connection to failed so the UI shows a reconnect prompt. */
@@ -293,152 +595,6 @@ interface ApplyPayload {
   campaignGroupId?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Platform dispatch (Meta Graph vs LinkedIn REST)
-// ---------------------------------------------------------------------------
-
-/** True when an adapter error means the token is dead/permissions revoked. */
-export function isAdsAuthError(err: unknown): boolean {
-  return (
-    (err instanceof MetaAdsApiError && err.authFailed) ||
-    (err instanceof TiktokAdsApiError && err.authFailed) ||
-    (err instanceof LinkedinAdsApiError && err.authFailed)
-  );
-}
-
-/** Draft target types the engine understands across platforms. */
-export type AdsDraftTargetType = AdsTargetType | "campaign_group";
-
-/** Read the current remote state of a draft target on either platform. */
-export async function readRemoteState(
-  conn: AdAccountConnection,
-  token: string,
-  targetId: string,
-  targetType: AdsDraftTargetType = "campaign",
-): Promise<RemoteSnapshot> {
-  if (conn.platform === "tiktok") {
-    if (targetType === "adset") {
-      return readTiktokAdGroupState(token, conn.adAccountId, targetId);
-    }
-    if (targetType === "ad") {
-      return readTiktokAdState(token, conn.adAccountId, targetId);
-    }
-    return readTiktokCampaignState(token, conn.adAccountId, targetId);
-  }
-  if (conn.platform === "linkedin") {
-    if (targetType === "campaign_group") {
-      return readLinkedinCampaignGroupState(token, conn.adAccountId, targetId);
-    }
-    return readLinkedinCampaignState(token, conn.adAccountId, targetId);
-  }
-  return readObjectState(token, targetId, asTargetType(targetType));
-}
-
-async function applyUpdate(
-  conn: AdAccountConnection,
-  token: string,
-  targetId: string,
-  payload: ApplyPayload,
-  targetType: AdsTargetType = "campaign",
-): Promise<void> {
-  if (conn.platform === "tiktok") {
-    if (targetType === "adset") {
-      await updateTiktokAdGroup(token, conn.adAccountId, targetId, {
-        name: payload.name,
-        status: payload.status,
-      });
-      return;
-    }
-    if (targetType === "ad") {
-      await updateTiktokAd(token, conn.adAccountId, targetId, {
-        name: payload.name,
-        status: payload.status,
-      });
-      return;
-    }
-    await updateTiktokCampaign(token, conn.adAccountId, targetId, {
-      name: payload.name,
-      status: payload.status,
-      dailyBudget: payload.dailyBudget ?? undefined,
-      lifetimeBudget: payload.lifetimeBudget ?? undefined,
-    });
-    return;
-  }
-  if (conn.platform === "linkedin") {
-    await updateLinkedinCampaign(token, conn.adAccountId, targetId, {
-      name: payload.name,
-      status: payload.status,
-      dailyBudget: payload.dailyBudget ?? undefined,
-      lifetimeBudget: payload.lifetimeBudget ?? undefined,
-      startTime: payload.startTime ?? undefined,
-      stopTime: payload.stopTime ?? undefined,
-      currency: conn.currency ?? "USD",
-    });
-    return;
-  }
-  await updateObject(token, targetId, {
-    name: payload.name,
-    status: payload.status,
-    dailyBudget: payload.dailyBudget ?? undefined,
-    lifetimeBudget: payload.lifetimeBudget ?? undefined,
-    startTime: payload.startTime ?? undefined,
-    stopTime: payload.stopTime ?? undefined,
-  });
-}
-
-async function applyCreate(
-  conn: AdAccountConnection,
-  token: string,
-  targetType: string,
-  targetName: string,
-  payload: ApplyPayload,
-): Promise<string> {
-  if (conn.platform === "tiktok") {
-    return createTiktokCampaign(token, conn.adAccountId, {
-      name: payload.name ?? targetName,
-      objective: payload.objective ?? "TRAFFIC",
-      status: payload.status ?? "PAUSED",
-      dailyBudget: payload.dailyBudget ?? null,
-      lifetimeBudget: payload.lifetimeBudget ?? null,
-    });
-  }
-  if (conn.platform === "linkedin") {
-    if (targetType === "campaign_group") {
-      return createLinkedinCampaignGroup(token, conn.adAccountId, {
-        name: payload.name ?? targetName,
-        status: payload.status ?? "PAUSED",
-        lifetimeBudget: payload.lifetimeBudget ?? null,
-        currency: conn.currency ?? "USD",
-      });
-    }
-    if (!payload.campaignGroupId) {
-      throw new LinkedinAdsApiError(
-        "A campaign group is required to create a LinkedIn campaign.",
-        400,
-      );
-    }
-    return createLinkedinCampaign(token, conn.adAccountId, {
-      name: payload.name ?? targetName,
-      campaignGroupId: payload.campaignGroupId,
-      status: payload.status ?? "PAUSED",
-      dailyBudget: payload.dailyBudget ?? null,
-      lifetimeBudget: payload.lifetimeBudget ?? null,
-      startTime: payload.startTime ?? null,
-      stopTime: payload.stopTime ?? null,
-      currency: conn.currency ?? "USD",
-    });
-  }
-  return createCampaign(token, conn.adAccountId, {
-    name: payload.name ?? targetName,
-    objective: payload.objective ?? "OUTCOME_TRAFFIC",
-    status: payload.status ?? "PAUSED",
-    dailyBudget: payload.dailyBudget ?? null,
-    lifetimeBudget: payload.lifetimeBudget ?? null,
-    startTime: payload.startTime ?? null,
-    stopTime: payload.stopTime ?? null,
-  });
-}
-
 /** Human-readable label for a draft's target type (error/expiry messages). */
 export function targetTypeLabel(targetType: string): string {
   if (targetType === "adset") return "ad set";
@@ -457,11 +613,16 @@ export function asTargetType(value: string): AdsTargetType {
   return value === "adset" || value === "ad" ? value : "campaign";
 }
 
+/** Draft target types the engine understands across platforms. */
+export type AdsDraftTargetType = AdsTargetType | "campaign_group";
+
 /** True when the platform says the grant is expired/revoked (any platform). */
 export function isPlatformAuthError(err: unknown): boolean {
   return (
     (err instanceof MetaAdsApiError && err.authFailed) ||
-    (err instanceof TiktokAdsApiError && err.authFailed)
+    (err instanceof GoogleAdsApiError && err.authFailed) ||
+    (err instanceof TiktokAdsApiError && err.authFailed) ||
+    (err instanceof LinkedinAdsApiError && err.authFailed)
   );
 }
 
@@ -561,8 +722,8 @@ export async function approveAndApplyDraft(
     if (!claimed) return { kind: "conflict" };
 
     const conn = await getAdConnection(tenantId, draft.connectionId);
-    const token = conn ? getConnectionToken(conn) : null;
-    if (!conn || !token || conn.status !== "connected") {
+    const ops = conn ? getPlatformOps(conn.platform) : null;
+    if (!conn || !ops || conn.status !== "connected") {
       return await finishFailed(claimed, "The ad account connection is missing or needs reconnecting.", approver);
     }
 
@@ -576,9 +737,8 @@ export async function approveAndApplyDraft(
         // Drift check: the remote object must still look like it did when the
         // draft was created, or the before/after preview the owner approved
         // is no longer truthful.
-        const current = await readRemoteState(
+        const current = await ops.readState(
           conn,
-          token,
           claimed.targetId,
           asDraftTargetType(claimed.targetType),
         );
@@ -597,18 +757,20 @@ export async function approveAndApplyDraft(
           return { kind: "expired", draft: expired };
         }
 
-        await applyUpdate(
-          conn,
-          token,
-          claimed.targetId,
-          payload,
-          asTargetType(claimed.targetType),
-        );
+        await ops.update(conn, claimed.targetId, {
+          name: payload.name,
+          status: payload.status,
+          dailyBudget: payload.dailyBudget ?? undefined,
+          lifetimeBudget: payload.lifetimeBudget ?? undefined,
+          startTime: payload.startTime ?? undefined,
+          stopTime: payload.stopTime ?? undefined,
+          targetType: asTargetType(claimed.targetType),
+        });
 
         // Post-apply verification: read back and confirm the fields we set.
         const verifyStatus = await verifyApplied(
+          ops,
           conn,
-          token,
           claimed.targetId,
           payload,
           asDraftTargetType(claimed.targetType),
@@ -629,10 +791,20 @@ export async function approveAndApplyDraft(
           approver,
         );
       }
-      const newId = await applyCreate(conn, token, claimed.targetType, claimed.targetName, payload);
+      const newId = await ops.create(conn, {
+        name: payload.name ?? claimed.targetName,
+        objective: payload.objective ?? ops.defaultObjective,
+        status: payload.status ?? "PAUSED",
+        dailyBudget: payload.dailyBudget ?? null,
+        lifetimeBudget: payload.lifetimeBudget ?? null,
+        startTime: payload.startTime ?? null,
+        stopTime: payload.stopTime ?? null,
+        campaignGroupId: payload.campaignGroupId,
+        targetType: asDraftTargetType(claimed.targetType),
+      });
       const verifyStatus = await verifyApplied(
+        ops,
         conn,
-        token,
         newId,
         payload,
         asDraftTargetType(claimed.targetType),
@@ -665,14 +837,14 @@ function timesEqual(a: string | null, b: string): boolean {
 
 /** Best-effort read-back verification that the applied fields stuck. */
 async function verifyApplied(
+  ops: PlatformOps,
   conn: AdAccountConnection,
-  token: string,
   objectId: string,
   payload: ApplyPayload,
   targetType: AdsDraftTargetType,
 ): Promise<string> {
   try {
-    const state = await readRemoteState(conn, token, objectId, targetType);
+    const state = await ops.readState(conn, objectId, targetType);
     const mismatches: string[] = [];
     if (payload.name != null && state.name !== payload.name) mismatches.push("name");
     if (payload.status != null && state.status !== payload.status) mismatches.push("status");

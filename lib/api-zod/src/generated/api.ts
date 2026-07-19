@@ -4862,6 +4862,48 @@ export const AdminSaveRazorpayCredentialsResponse = zod.object({
 
 
 /**
+ * @summary Get masked Google Ads platform credentials (superadmin only)
+ */
+export const AdminGetGoogleAdsCredentialsResponse = zod.object({
+  "configured": zod.boolean(),
+  "clientIdMasked": zod.string().nullable(),
+  "clientSecretMasked": zod.string().nullable(),
+  "developerTokenMasked": zod.string().nullable(),
+  "testStatus": zod.string().nullable(),
+  "testedAt": zod.string().nullable(),
+  "testError": zod.string().nullable()
+})
+
+
+/**
+ * @summary Save Google Ads platform credentials (superadmin only)
+ */
+export const adminSaveGoogleAdsCredentialsBodyClientIdMax = 300;
+
+export const adminSaveGoogleAdsCredentialsBodyClientSecretMax = 300;
+
+export const adminSaveGoogleAdsCredentialsBodyDeveloperTokenMax = 300;
+
+
+
+export const AdminSaveGoogleAdsCredentialsBody = zod.object({
+  "clientId": zod.string().min(1).max(adminSaveGoogleAdsCredentialsBodyClientIdMax),
+  "clientSecret": zod.string().min(1).max(adminSaveGoogleAdsCredentialsBodyClientSecretMax),
+  "developerToken": zod.string().min(1).max(adminSaveGoogleAdsCredentialsBodyDeveloperTokenMax)
+})
+
+export const AdminSaveGoogleAdsCredentialsResponse = zod.object({
+  "configured": zod.boolean(),
+  "clientIdMasked": zod.string().nullable(),
+  "clientSecretMasked": zod.string().nullable(),
+  "developerTokenMasked": zod.string().nullable(),
+  "testStatus": zod.string().nullable(),
+  "testedAt": zod.string().nullable(),
+  "testError": zod.string().nullable()
+})
+
+
+/**
  * @summary List all credit packs, including inactive (superadmin only)
  */
 export const AdminListCreditPacksResponseItem = zod.object({
@@ -5871,6 +5913,14 @@ export const GetAdsLinkedinAuthUrlResponse = zod.object({
 
 
 /**
+ * @summary Get the Google OAuth URL to grant Google Ads access (owner/admin only)
+ */
+export const GetAdsGoogleAuthUrlResponse = zod.object({
+  "url": zod.string()
+})
+
+
+/**
  * @summary List the ad accounts reachable with the stored LinkedIn ads token
  */
 export const ListLinkedinAdAccountChoicesResponseItem = zod.object({
@@ -5880,6 +5930,19 @@ export const ListLinkedinAdAccountChoicesResponseItem = zod.object({
   "accountStatus": zod.string().nullish()
 })
 export const ListLinkedinAdAccountChoicesResponse = zod.array(ListLinkedinAdAccountChoicesResponseItem)
+
+
+/**
+ * @summary List the Google Ads accounts reachable with the stored grant (incl. MCC clients)
+ */
+export const ListGoogleAdCustomerChoicesResponseItem = zod.object({
+  "customerId": zod.string(),
+  "name": zod.string(),
+  "currency": zod.string().nullable(),
+  "manager": zod.boolean(),
+  "loginCustomerId": zod.string().nullable()
+})
+export const ListGoogleAdCustomerChoicesResponse = zod.array(ListGoogleAdCustomerChoicesResponseItem)
 
 
 /**
@@ -5893,6 +5956,31 @@ export const SelectLinkedinAdAccountBody = zod.object({
 })
 
 export const SelectLinkedinAdAccountResponse = zod.object({
+  "id": zod.number(),
+  "platform": zod.string(),
+  "adAccountId": zod.string(),
+  "adAccountName": zod.string(),
+  "currency": zod.string().nullish(),
+  "status": zod.string().describe('connected | pending_selection'),
+  "verifyStatus": zod.string().nullish(),
+  "verifyError": zod.string().nullish(),
+  "verifiedAt": zod.coerce.date().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Pick which Google Ads account this workspace manages (owner/admin only)
+ */
+
+
+
+export const SelectGoogleAdAccountBody = zod.object({
+  "customerId": zod.string().min(1),
+  "loginCustomerId": zod.string().nullish()
+})
+
+export const SelectGoogleAdAccountResponse = zod.object({
   "id": zod.number(),
   "platform": zod.string(),
   "adAccountId": zod.string(),

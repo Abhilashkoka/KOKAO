@@ -16,6 +16,7 @@ import {
   CreateAdDraftBody,
   SelectMetaAdAccountBody,
   SelectLinkedinAdAccountBody,
+  SelectGoogleAdAccountBody,
   AdminUpdateAdsSettingsBody,
   UpdateAdsBudgetCapsBody,
 } from "@workspace/api-zod";
@@ -68,6 +69,22 @@ import {
   LINKEDIN_TOKEN_URL,
 } from "../lib/linkedinApp";
 import {
+  GoogleAdsApiError,
+  isGoogleAdsConfigured,
+  getGoogleAdsAppCredentials,
+  buildGoogleAdsAuthUrl,
+  exchangeGoogleAdsCode,
+  getGoogleAdsAuth,
+  listCustomerChoices,
+  readCustomer,
+  normalizeCustomerId,
+  listGoogleCampaigns,
+  getGoogleCampaign,
+  listGoogleAdGroups,
+  listGoogleAds,
+  type GoogleAdsCredentials,
+} from "../lib/googleAdsApi";
+import {
   TiktokAdsApiError,
   TIKTOK_AUTH_PORTAL,
   getTiktokAppCredentials,
@@ -94,8 +111,10 @@ import {
   buildCreateDiff,
   snapshotForCompare,
   approveAndApplyDraft,
-  readRemoteState,
+  readAdTargetState,
+  defaultAdsObjective,
   isAdsAuthError,
+  adsApiErrorStatus,
   asTargetType,
   ADS_APPLY_IN_PROGRESS_MESSAGE,
 } from "../lib/adsEngine";
@@ -729,7 +748,26 @@ router.post(
 // Ad account selection
 // ---------------------------------------------------------------------------
 
-async function getMetaConnection(tenantId: number): Promise<AdAccountConnection | null> {
+async function getPlatformConnection(
+  tenantId: number,
+  platform: "meta" | "google" | "linkedin" | "tiktok",
+): Promise<AdAccountConnection | null> {
+  const row = (
+    await db
+      .select()
+      .from(adAccountConnectionsTable)
+      .where(
+        and(
+          eq(adAccountConnectionsTable.tenantId, tenantId),
+          eq(adAccountConnectionsTable.platform, platform),
+        ),
+      )
+      .limit(1)
+  )[0];
+  return row ?? null;
+}
+
+function getMetaConnection(tenantId: number): Promise<AdAccountConnection | null> {
   return getPlatformConnection(tenantId, "meta");
 }
 
@@ -857,6 +895,43 @@ router.get(
   },
 );
 
+// ---------------------------------------------------------------------------
+// Google Ads connect: OAuth grant with the AdWords scope
+// ---------------------------------------------------------------------------
+
+function googleAdsRedirectUri(req: Request): string {
+  const proto =
+    (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0] ||
+    req.protocol ||
+    "https";
+  const host =
+    (req.headers["x-forwarded-host"] as string | undefined) || req.headers.host;
+  return `${proto}://${host}/api/ads/google/auth/callback`;
+}
+
+router.get(
+  "/ads/google/auth/url",
+  requireWorkspaceAdmin,
+  async (req: Request, res: Response) => {
+    if (!(await adsEnabledOr503(res))) return;
+    const creds = await getGoogleAdsAppCredentials();
+    if (!creds || !process.env.SESSION_SECRET) {
+      res.status(503).json({
+        error:
+          "Google Ads is not configured. Ask an administrator to save the Google Ads credentials on the Admin page.",
+      });
+      return;
+    }
+    res.json({
+      url: buildGoogleAdsAuthUrl(
+        creds.clientId,
+        googleAdsRedirectUri(req),
+        signOAuthState(req.tenantId, randomNonce()),
+      ),
+    });
+  },
+);
+
 /**
  * PUBLIC callback (mounted before the session gate): a top-level browser
  * redirect from linkedin.com authenticated by the HMAC-signed `state`.
@@ -889,9 +964,9 @@ adsCallbackRouter.get(
       fail("invalid_state");
       return;
     }
+    const tenantId = verified.tenantId;
 
     try {
-      // Exchange the code for a member token (secret in POST body, never URL).
       const tokenRes = await platformFetch(LINKEDIN_TOKEN_URL, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -916,7 +991,7 @@ adsCallbackRouter.get(
         fail("token_exchange");
         return;
       }
-      await upsertPendingAdsConnection(verified.tenantId, "linkedin", {
+      await upsertPendingAdsConnection(tenantId, "linkedin", {
         accessToken: tokenJson.access_token,
         expiresAt:
           tokenJson.expires_in != null
@@ -931,23 +1006,94 @@ adsCallbackRouter.get(
   },
 );
 
-async function getPlatformConnection(
+/**
+ * PUBLIC callback (mounted before the session gate): a top-level browser
+ * redirect from accounts.google.com authenticated by the HMAC-signed `state`.
+ */
+adsCallbackRouter.get(
+  "/ads/google/auth/callback",
+  async (req: Request, res: Response) => {
+    const webBase = "/ads";
+    const fail = (reason: string) =>
+      res.redirect(`${webBase}?google=error&reason=${encodeURIComponent(reason)}`);
+
+    if (!(await isGoogleAdsConfigured()) || !process.env.SESSION_SECRET) {
+      fail("not_configured");
+      return;
+    }
+    const { code, state, error: oauthError } = req.query as {
+      code?: string;
+      state?: string;
+      error?: string;
+    };
+    if (oauthError) {
+      fail(oauthError);
+      return;
+    }
+    const verified = state ? verifySignedOAuthState(state) : null;
+    if (!code || !verified) {
+      fail("invalid_state");
+      return;
+    }
+    const tenantId = verified.tenantId;
+
+    try {
+      const tokens = await exchangeGoogleAdsCode(code, googleAdsRedirectUri(req));
+      if (!tokens.refreshToken) {
+        fail("no_refresh_token");
+        return;
+      }
+      await upsertPendingGoogleConnection(tenantId, {
+        refreshToken: tokens.refreshToken,
+        accessToken: tokens.accessToken,
+        accessTokenExpiresAt: new Date(
+          Date.now() + tokens.expiresIn * 1000,
+        ).toISOString(),
+      });
+      res.redirect(`${webBase}?google=connected`);
+    } catch (err) {
+      req.log.error({ err }, "Google Ads OAuth callback failed");
+      fail("callback_error");
+    }
+  },
+);
+
+async function upsertPendingGoogleConnection(
   tenantId: number,
-  platform: "meta" | "linkedin",
-): Promise<AdAccountConnection | null> {
-  const row = (
+  creds: GoogleAdsCredentials,
+): Promise<AdAccountConnection> {
+  const encrypted = encryptJson(creds);
+  const existing = await getPlatformConnection(tenantId, "google");
+  if (existing) {
+    return (
+      await db
+        .update(adAccountConnectionsTable)
+        .set({
+          encryptedCredentials: encrypted,
+          status: "pending_selection",
+          adAccountId: "",
+          adAccountName: "",
+          currency: null,
+          verifyStatus: null,
+          verifyError: null,
+          verifiedAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(adAccountConnectionsTable.id, existing.id))
+        .returning()
+    )[0]!;
+  }
+  return (
     await db
-      .select()
-      .from(adAccountConnectionsTable)
-      .where(
-        and(
-          eq(adAccountConnectionsTable.tenantId, tenantId),
-          eq(adAccountConnectionsTable.platform, platform),
-        ),
-      )
-      .limit(1)
-  )[0];
-  return row ?? null;
+      .insert(adAccountConnectionsTable)
+      .values({
+        tenantId,
+        platform: "google",
+        status: "pending_selection",
+        encryptedCredentials: encrypted,
+      })
+      .returning()
+  )[0]!;
 }
 
 router.get(
@@ -978,6 +1124,32 @@ router.get(
       }
       res.status(502).json({
         error: err instanceof Error ? err.message : "Could not list ad accounts.",
+      });
+    }
+  },
+);
+
+router.get(
+  "/ads/connections/google/accounts",
+  async (req: Request, res: Response) => {
+    if (!(await adsEnabledOr503(res))) return;
+    const conn = await getPlatformConnection(req.tenantId, "google");
+    if (!conn?.encryptedCredentials) {
+      res.status(400).json({
+        error: "Connect Google Ads first, then pick an ad account.",
+      });
+      return;
+    }
+    try {
+      const auth = await getGoogleAdsAuth(conn);
+      const choices = await listCustomerChoices(auth);
+      res.json(choices);
+    } catch (err) {
+      if (isAdsAuthError(err)) {
+        await markAdConnectionFailed(conn.id, (err as Error).message);
+      }
+      res.status(502).json({
+        error: err instanceof Error ? err.message : "Could not list Google Ads accounts.",
       });
     }
   },
@@ -1029,6 +1201,70 @@ router.post(
   },
 );
 
+router.post(
+  "/ads/connections/google/select",
+  requireWorkspaceAdmin,
+  async (req: Request, res: Response) => {
+    if (!(await adsEnabledOr503(res))) return;
+    const parsed = SelectGoogleAdAccountBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "customerId is required" });
+      return;
+    }
+    const conn = await getPlatformConnection(req.tenantId, "google");
+    if (!conn?.encryptedCredentials) {
+      res.status(400).json({ error: "Connect Google Ads first." });
+      return;
+    }
+    const customerId = normalizeCustomerId(parsed.data.customerId);
+    if (!customerId) {
+      res.status(400).json({ error: "customerId is required" });
+      return;
+    }
+    const loginCustomerId = parsed.data.loginCustomerId
+      ? normalizeCustomerId(parsed.data.loginCustomerId)
+      : null;
+    try {
+      const stored = decryptJson<GoogleAdsCredentials>(conn.encryptedCredentials);
+      const next: GoogleAdsCredentials = { ...stored, loginCustomerId };
+      await db
+        .update(adAccountConnectionsTable)
+        .set({
+          encryptedCredentials: encryptJson(next),
+          adAccountId: customerId,
+          updatedAt: new Date(),
+        })
+        .where(eq(adAccountConnectionsTable.id, conn.id));
+      const fresh = await getAdConnection(req.tenantId, conn.id);
+      const auth = await getGoogleAdsAuth(fresh!);
+      const info = await readCustomer(auth);
+      const updated = (
+        await db
+          .update(adAccountConnectionsTable)
+          .set({
+            adAccountName: info.name,
+            currency: info.currency,
+            status: "connected",
+            verifyStatus: "verified",
+            verifyError: null,
+            verifiedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(adAccountConnectionsTable.id, conn.id))
+          .returning()
+      )[0]!;
+      res.json(serializeConnection(updated));
+    } catch (err) {
+      res.status(400).json({
+        error:
+          err instanceof Error
+            ? `That Google Ads account could not be verified: ${err.message}`
+            : "That Google Ads account could not be verified.",
+      });
+    }
+  },
+);
+
 // ---------------------------------------------------------------------------
 // Campaign reads + insights
 // ---------------------------------------------------------------------------
@@ -1049,14 +1285,34 @@ async function requireConnectedConnection(
     return null;
   }
   const conn = await getAdConnection(req.tenantId, connectionId);
-  const token = conn ? getConnectionToken(conn) : null;
-  if (!conn || !token || conn.status !== "connected") {
+  if (!conn || conn.status !== "connected" || !conn.encryptedCredentials) {
     res.status(400).json({
       error: "This ad account connection is missing or needs reconnecting.",
     });
     return null;
   }
-  return { conn, token };
+  // LinkedIn reads need the raw member token here; Meta/TikTok branches fetch
+  // their token via requireMetaToken and Google reads its own credentials.
+  const token = conn.platform === "linkedin" ? getConnectionToken(conn) : null;
+  if (conn.platform === "linkedin" && !token) {
+    res.status(400).json({
+      error: "This ad account connection is missing or needs reconnecting.",
+    });
+    return null;
+  }
+  return { conn, token: token ?? "" };
+}
+
+/** Meta reads still need the raw user token. */
+function requireMetaToken(conn: AdAccountConnection, res: Response): string | null {
+  const token = getConnectionToken(conn);
+  if (!token) {
+    res.status(400).json({
+      error: "This ad account connection is missing or needs reconnecting.",
+    });
+    return null;
+  }
+  return token;
 }
 
 router.get("/ads/linkedin/campaign-groups", async (req: Request, res: Response) => {
@@ -1094,6 +1350,7 @@ router.get("/ads/campaigns", async (req: Request, res: Response) => {
   if (!(await adsEnabledOr503(res))) return;
   const ct = await requireConnectedConnection(req, res);
   if (!ct) return;
+  const { conn } = ct;
   const datePreset = parseDatePreset(req.query.datePreset);
   try {
     if (ct.conn.platform === "linkedin") {
@@ -1116,25 +1373,35 @@ router.get("/ads/campaigns", async (req: Request, res: Response) => {
       return;
     }
 
+    if (conn.platform === "google") {
+      const auth = await getGoogleAdsAuth(conn);
+      const campaigns = await listGoogleCampaigns(auth, datePreset);
+      res.json({ currency: conn.currency ?? null, campaigns });
+      return;
+    }
+
+    const token = requireMetaToken(conn, res);
+    if (!token) return;
+
     const [campaigns, insights] =
       ct.conn.platform === "tiktok"
         ? await Promise.all([
-            listTiktokCampaigns(ct.token, ct.conn.adAccountId),
+            listTiktokCampaigns(token, ct.conn.adAccountId),
             getTiktokInsightsByLevel(
-              ct.token,
+              token,
               ct.conn.adAccountId,
               "campaign",
               datePreset,
             ),
           ])
         : await Promise.all([
-            listCampaigns(ct.token, ct.conn.adAccountId),
-            getInsightsByLevel(ct.token, ct.conn.adAccountId, "campaign", datePreset),
+            listCampaigns(token, ct.conn.adAccountId),
+            getInsightsByLevel(token, ct.conn.adAccountId, "campaign", datePreset),
           ]);
     const empty =
       ct.conn.platform === "tiktok" ? EMPTY_TIKTOK_INSIGHTS : EMPTY_INSIGHTS;
     res.json({
-      currency: ct.conn.currency ?? null,
+      currency: conn.currency ?? null,
       campaigns: campaigns.map((c) => ({
         ...c,
         metrics: insights.get(c.id) ?? empty,
@@ -1142,7 +1409,7 @@ router.get("/ads/campaigns", async (req: Request, res: Response) => {
     });
   } catch (err) {
     if (isAdsAuthError(err)) {
-      await markAdConnectionFailed(ct.conn.id, (err as Error).message);
+      await markAdConnectionFailed(conn.id, (err as Error).message);
     }
     res.status(502).json({
       error: err instanceof Error ? err.message : "Could not load campaigns.",
@@ -1154,6 +1421,7 @@ router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
   if (!(await adsEnabledOr503(res))) return;
   const ct = await requireConnectedConnection(req, res);
   if (!ct) return;
+  const { conn } = ct;
   const campaignId = String(req.query.campaignId ?? "");
   if (!campaignId) {
     res.status(400).json({ error: "campaignId is required" });
@@ -1162,8 +1430,6 @@ router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
   const datePreset = parseDatePreset(req.query.datePreset);
   try {
     if (ct.conn.platform === "linkedin") {
-      // Creatives are out of scope for LinkedIn in this phase, so detail is
-      // the campaign itself with empty ad set/ad lists.
       const [campaign, metrics] = await Promise.all([
         getLinkedinCampaign(ct.token, ct.conn.adAccountId, campaignId),
         getLinkedinAnalytics(ct.token, ct.conn.adAccountId, "CAMPAIGN", datePreset),
@@ -1176,15 +1442,38 @@ router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
       });
       return;
     }
+    if (conn.platform === "google") {
+      const auth = await getGoogleAdsAuth(conn);
+      const [campaign, adGroups, googleAds] = await Promise.all([
+        getGoogleCampaign(auth, campaignId, datePreset),
+        listGoogleAdGroups(auth, campaignId, datePreset),
+        listGoogleAds(auth, campaignId, datePreset),
+      ]);
+      if (!campaign) {
+        res.status(404).json({ error: "Campaign not found in this Google Ads account." });
+        return;
+      }
+      res.json({
+        currency: conn.currency ?? null,
+        campaign,
+        adSets: adGroups,
+        ads: googleAds,
+      });
+      return;
+    }
+
+    const token = requireMetaToken(conn, res);
+    if (!token) return;
+
     if (ct.conn.platform === "tiktok") {
       const advertiserId = ct.conn.adAccountId;
       const [campaign, adGroups, ads, cIns, gIns, aIns] = await Promise.all([
-        getTiktokCampaign(ct.token, advertiserId, campaignId),
-        listTiktokAdGroups(ct.token, advertiserId, campaignId),
-        listTiktokAds(ct.token, advertiserId, campaignId),
-        getTiktokInsightsByLevel(ct.token, advertiserId, "campaign", datePreset),
-        getTiktokInsightsByLevel(ct.token, advertiserId, "adgroup", datePreset),
-        getTiktokInsightsByLevel(ct.token, advertiserId, "ad", datePreset),
+        getTiktokCampaign(token, advertiserId, campaignId),
+        listTiktokAdGroups(token, advertiserId, campaignId),
+        listTiktokAds(token, advertiserId, campaignId),
+        getTiktokInsightsByLevel(token, advertiserId, "campaign", datePreset),
+        getTiktokInsightsByLevel(token, advertiserId, "adgroup", datePreset),
+        getTiktokInsightsByLevel(token, advertiserId, "ad", datePreset),
       ]);
       res.json({
         currency: ct.conn.currency ?? null,
@@ -1204,27 +1493,25 @@ router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
       return;
     }
     const [campaign, adSets, ads, cIns, sIns, aIns] = await Promise.all([
-      getCampaign(ct.token, campaignId),
-      listAdSets(ct.token, campaignId),
-      listAds(ct.token, campaignId),
-      getInsightsByLevel(ct.token, ct.conn.adAccountId, "campaign", datePreset),
-      getInsightsByLevel(ct.token, ct.conn.adAccountId, "adset", datePreset),
-      getInsightsByLevel(ct.token, ct.conn.adAccountId, "ad", datePreset),
+      getCampaign(token, campaignId),
+      listAdSets(token, campaignId),
+      listAds(token, campaignId),
+      getInsightsByLevel(token, conn.adAccountId, "campaign", datePreset),
+      getInsightsByLevel(token, conn.adAccountId, "adset", datePreset),
+      getInsightsByLevel(token, conn.adAccountId, "ad", datePreset),
     ]);
     res.json({
-      currency: ct.conn.currency ?? null,
+      currency: conn.currency ?? null,
       campaign: { ...campaign, metrics: cIns.get(campaign.id) ?? EMPTY_INSIGHTS },
       adSets: adSets.map((s) => ({ ...s, metrics: sIns.get(s.id) ?? EMPTY_INSIGHTS })),
       ads: ads.map((a) => ({ ...a, metrics: aIns.get(a.id) ?? EMPTY_INSIGHTS })),
     });
   } catch (err) {
     if (isAdsAuthError(err)) {
-      await markAdConnectionFailed(ct.conn.id, (err as Error).message);
+      await markAdConnectionFailed(conn.id, (err as Error).message);
     }
-    const notFound =
-      (err instanceof MetaAdsApiError || err instanceof TiktokAdsApiError) &&
-      err.status === 404;
-    res.status(notFound ? 404 : 502).json({
+    const status = adsApiErrorStatus(err) === 404 ? 404 : 502;
+    res.status(status).json({
       error: err instanceof Error ? err.message : "Could not load the campaign.",
     });
   }
@@ -1321,8 +1608,7 @@ router.post(
     const input = parsed.data;
 
     const conn = await getAdConnection(req.tenantId, input.connectionId);
-    const token = conn ? getConnectionToken(conn) : null;
-    if (!conn || !token || conn.status !== "connected") {
+    if (!conn || conn.status !== "connected" || !conn.encryptedCredentials) {
       res.status(400).json({
         error: "This ad account connection is missing or needs reconnecting.",
       });
@@ -1357,7 +1643,6 @@ router.post(
       res.status(400).json({ error: "targetId is required for updates" });
       return;
     }
-
     if (conn.platform === "tiktok") {
       // TikTok campaigns carry no schedule (dates live on ad groups), and
       // schedule editing isn't wired up for TikTok yet at any level.
@@ -1383,6 +1668,19 @@ router.post(
       }
     }
 
+    if (conn.platform === "google" && input.targetType !== "campaign") {
+      res.status(400).json({
+        error: "Only campaigns can be managed for Google Ads in this phase.",
+      });
+      return;
+    }
+    if (conn.platform === "google" && input.lifetimeBudget != null) {
+      res.status(400).json({
+        error:
+          "Lifetime budgets are not supported for Google Ads campaigns. Use a daily budget instead.",
+      });
+      return;
+    }
     if (input.targetType === "ad" &&
       (input.dailyBudget != null || input.lifetimeBudget != null ||
         input.startTime != null || input.stopTime != null)) {
@@ -1455,12 +1753,7 @@ router.post(
     if (input.action === "update") {
       let current;
       try {
-        current = await readRemoteState(
-          conn,
-          token,
-          input.targetId!,
-          asTargetType(input.targetType),
-        );
+        current = await readAdTargetState(conn, input.targetId!, asTargetType(input.targetType));
       } catch (err) {
         if (isAdsAuthError(err)) {
           await markAdConnectionFailed(conn.id, (err as Error).message);
@@ -1474,14 +1767,7 @@ router.post(
         return;
       }
       targetName = current.name || (input.name ?? "");
-      changes = buildUpdateDiff(current, {
-        name: input.name,
-        status: input.status,
-        dailyBudget: input.dailyBudget,
-        lifetimeBudget: input.lifetimeBudget,
-        startTime: input.startTime,
-        stopTime: input.stopTime,
-      });
+      changes = buildUpdateDiff(current, payload);
       if (changes.length === 0) {
         res.status(400).json({
           error: "Nothing would change — the proposed values match the current state.",
@@ -1515,8 +1801,7 @@ router.post(
         objective:
           conn.platform === "linkedin" || input.targetType === "campaign_group"
             ? undefined
-            : input.objective ??
-              (conn.platform === "tiktok" ? "TRAFFIC" : "OUTCOME_TRAFFIC"),
+            : input.objective ?? defaultAdsObjective(conn.platform),
         status: input.status ?? "PAUSED",
         dailyBudget: input.dailyBudget,
         lifetimeBudget: input.lifetimeBudget,
@@ -1685,9 +1970,11 @@ async function adminSettingsPayload() {
           ? "Reuses the Meta app credentials saved under Platform credentials."
           : p.platform === "linkedin"
             ? "Reuses the LinkedIn app credentials saved under Platform credentials."
-            : p.platform === "tiktok"
-              ? "Uses the TikTok for Business app credentials saved under Platform credentials."
-              : "Coming later — no credential slot yet.",
+            : p.platform === "google"
+              ? "Uses the Google Ads credentials (OAuth client + developer token) saved under Platform credentials."
+              : p.platform === "tiktok"
+                ? "Uses the TikTok for Business app credentials saved under Platform credentials."
+                : "Coming later — no credential slot yet.",
     })),
   };
 }

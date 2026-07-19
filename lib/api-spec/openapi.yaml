@@ -3268,6 +3268,54 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /admin/platform-credentials/google-ads:
+    get:
+      operationId: adminGetGoogleAdsCredentials
+      tags: [ads]
+      summary: Get masked Google Ads platform credentials (superadmin only)
+      responses:
+        "200":
+          description: Google Ads credential status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleAdsAppCredentialStatus"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminSaveGoogleAdsCredentials
+      tags: [ads]
+      summary: Save Google Ads platform credentials (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleAdsAppCredentialInput"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleAdsAppCredentialStatus"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /admin/credit-packs:
     get:
       operationId: adminListCreditPacks
@@ -4479,6 +4527,25 @@ paths:
       summary: Get the LinkedIn OAuth URL to grant ads access (owner/admin only)
       responses:
         "200":
+          description: LinkedIn auth URL result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedInAuthUrlResult"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /ads/google/auth/url:
+    get:
+      operationId: getAdsGoogleAuthUrl
+      tags: [ads]
+      summary: Get the Google OAuth URL to grant Google Ads access (owner/admin only)
+      responses:
+        "200":
           description: Authorization URL
           content:
             application/json:
@@ -4516,6 +4583,40 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Platform error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /ads/connections/google/accounts:
+    get:
+      operationId: listGoogleAdCustomerChoices
+      tags: [ads]
+      summary: List the Google Ads accounts reachable with the stored grant (incl. MCC clients)
+      responses:
+        "200":
+          description: Google Ads customer choices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GoogleAdCustomerChoice"
+        "400":
+          description: No pending Google Ads connection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Platform error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /ads/connections/linkedin/select:
     post:
       operationId: selectLinkedinAdAccount
@@ -4527,6 +4628,31 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/AdsLinkedinSelectInput"
+      responses:
+        "200":
+          description: Updated ad account connection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdAccountConnection"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /ads/connections/google/select:
+    post:
+      operationId: selectGoogleAdAccount
+      tags: [ads]
+      summary: Pick which Google Ads account this workspace manages (owner/admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdsGoogleSelectInput"
       responses:
         "200":
           description: Connection completed
@@ -8238,6 +8364,72 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdsCampaignGroup"
+    GoogleAdCustomerChoice:
+      type: object
+      required: [customerId, name, currency, manager, loginCustomerId]
+      properties:
+        customerId:
+          type: string
+        name:
+          type: string
+        currency:
+          type: ["string", "null"]
+        manager:
+          type: boolean
+        loginCustomerId:
+          type: ["string", "null"]
+    AdsGoogleSelectInput:
+      type: object
+      required: [customerId]
+      properties:
+        customerId:
+          type: string
+          minLength: 1
+        loginCustomerId:
+          type: ["string", "null"]
+    GoogleAdsAppCredentialStatus:
+      type: object
+      required:
+        [
+          configured,
+          clientIdMasked,
+          clientSecretMasked,
+          developerTokenMasked,
+          testStatus,
+          testedAt,
+          testError,
+        ]
+      properties:
+        configured:
+          type: boolean
+        clientIdMasked:
+          type: ["string", "null"]
+        clientSecretMasked:
+          type: ["string", "null"]
+        developerTokenMasked:
+          type: ["string", "null"]
+        testStatus:
+          type: ["string", "null"]
+        testedAt:
+          type: ["string", "null"]
+        testError:
+          type: ["string", "null"]
+    GoogleAdsAppCredentialInput:
+      type: object
+      required: [clientId, clientSecret, developerToken]
+      properties:
+        clientId:
+          type: string
+          minLength: 1
+          maxLength: 300
+        clientSecret:
+          type: string
+          minLength: 1
+          maxLength: 300
+        developerToken:
+          type: string
+          minLength: 1
+          maxLength: 300
     AdsMetrics:
       type: object
       required: [impressions, clicks, ctr, spend, results]

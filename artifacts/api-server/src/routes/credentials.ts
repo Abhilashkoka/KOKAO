@@ -11,9 +11,11 @@ import {
   AdminSaveThreadsCredentialsBody,
   AdminSaveTiktokCredentialsBody,
   AdminSaveRazorpayCredentialsBody,
+  AdminSaveGoogleAdsCredentialsBody,
 } from "@workspace/api-zod";
 import type {
   MetaAppCredentials,
+  GoogleAdsAppCredentials,
   TwitterAppCredentials,
   LinkedinAppCredentials,
   YoutubeAppCredentials,
@@ -192,6 +194,141 @@ router.put(
 
     const row = await loadMetaRow();
     res.json(serializeMetaStatus(row));
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Admin: app-level Google Ads credentials (superadmin only)
+// ---------------------------------------------------------------------------
+
+async function loadGoogleAdsRow() {
+  return (
+    await db
+      .select()
+      .from(appCredentialsTable)
+      .where(eq(appCredentialsTable.provider, "google_ads"))
+      .limit(1)
+  )[0];
+}
+
+function serializeGoogleAdsStatus(
+  row: Awaited<ReturnType<typeof loadGoogleAdsRow>> | undefined,
+) {
+  if (!row) {
+    return {
+      configured: false,
+      clientIdMasked: null,
+      clientSecretMasked: null,
+      developerTokenMasked: null,
+      testStatus: null,
+      testedAt: null,
+      testError: null,
+    };
+  }
+  let creds: GoogleAdsAppCredentials | null = null;
+  try {
+    creds = decryptJson<GoogleAdsAppCredentials>(row.encryptedCredentials);
+  } catch {
+    creds = null;
+  }
+  return {
+    configured: true,
+    clientIdMasked: maskSecret(creds?.clientId, 6),
+    clientSecretMasked: maskSecret(creds?.clientSecret, 4),
+    developerTokenMasked: maskSecret(creds?.developerToken, 4),
+    testStatus: row.lastTestStatus ?? null,
+    testedAt: row.lastTestedAt ? row.lastTestedAt.toISOString() : null,
+    testError: row.lastTestError ?? null,
+  };
+}
+
+router.get(
+  "/admin/platform-credentials/google-ads",
+  requireSuperadmin,
+  async (_req: Request, res: Response) => {
+    const row = await loadGoogleAdsRow();
+    res.json(serializeGoogleAdsStatus(row));
+  },
+);
+
+router.put(
+  "/admin/platform-credentials/google-ads",
+  requireSuperadmin,
+  async (req: Request, res: Response) => {
+    if (!isEncryptionConfigured()) {
+      res
+        .status(400)
+        .json({ error: "Server is missing SESSION_SECRET; cannot store secrets." });
+      return;
+    }
+    const parsed = AdminSaveGoogleAdsCredentialsBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+
+    const clientId = parsed.data.clientId.trim();
+    const clientSecret = parsed.data.clientSecret.trim();
+    const developerToken = parsed.data.developerToken.trim();
+    if (!clientId || !clientSecret || !developerToken) {
+      res.status(400).json({
+        error: "clientId, clientSecret, and developerToken are all required.",
+      });
+      return;
+    }
+
+    const now = new Date();
+    const encrypted = encryptJson({
+      clientId,
+      clientSecret,
+      developerToken,
+    } satisfies GoogleAdsAppCredentials);
+
+    // These credentials cannot be verified without a user OAuth grant, so
+    // they are stored as saved-but-untested; the first tenant connect flow
+    // exercises them for real.
+    const existing = await loadGoogleAdsRow();
+    let oldClientIdMasked: string | null = null;
+    if (existing) {
+      try {
+        const oldCreds = decryptJson<GoogleAdsAppCredentials>(
+          existing.encryptedCredentials,
+        );
+        oldClientIdMasked = maskSecret(oldCreds.clientId, 6);
+      } catch {
+        oldClientIdMasked = null;
+      }
+    }
+    if (existing) {
+      await db
+        .update(appCredentialsTable)
+        .set({
+          encryptedCredentials: encrypted,
+          lastTestStatus: "saved",
+          lastTestedAt: now,
+          lastTestError: null,
+          updatedAt: now,
+        })
+        .where(eq(appCredentialsTable.id, existing.id));
+    } else {
+      await db.insert(appCredentialsTable).values({
+        provider: "google_ads",
+        encryptedCredentials: encrypted,
+        lastTestStatus: "saved",
+        lastTestedAt: now,
+        lastTestError: null,
+      });
+    }
+
+    await auditCredentialChange(
+      req,
+      "google_ads",
+      oldClientIdMasked,
+      maskSecret(clientId, 6),
+    );
+
+    const row = await loadGoogleAdsRow();
+    res.json(serializeGoogleAdsStatus(row));
   },
 );
 

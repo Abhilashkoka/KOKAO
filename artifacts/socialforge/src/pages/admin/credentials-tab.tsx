@@ -24,6 +24,9 @@ import {
   useAdminGetAdsSettings,
   useAdminUpdateAdsSettings,
   getAdminGetAdsSettingsQueryKey,
+  useAdminGetGoogleAdsCredentials,
+  useAdminSaveGoogleAdsCredentials,
+  getAdminGetGoogleAdsCredentialsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
@@ -174,6 +177,169 @@ function MetaCredentialsCard() {
                 </>
               ) : (
                 "Save and test"
+              )}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function GoogleAdsCredentialsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useAdminGetGoogleAdsCredentials();
+  const save = useAdminSaveGoogleAdsCredentials();
+
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [developerToken, setDeveloperToken] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (data && !dirty) {
+      setClientId(data.clientIdMasked ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const canSave =
+    clientId.trim() && clientSecret.trim() && developerToken.trim();
+
+  const handleSave = () => {
+    if (!canSave) return;
+    save.mutate(
+      {
+        data: {
+          clientId: clientId.trim(),
+          clientSecret: clientSecret.trim(),
+          developerToken: developerToken.trim(),
+        },
+      },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetGoogleAdsCredentialsQueryKey(),
+          });
+          setClientSecret("");
+          setDeveloperToken("");
+          setDirty(false);
+          toast({
+            title: "Google Ads credentials saved",
+            description:
+              "They will be verified the first time a workspace connects a Google Ads account.",
+          });
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description: err?.payload?.error || "Please try again.",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Google Ads credentials</CardTitle>
+        <CardDescription>
+          One-time platform setup for paid media on Google. Enter the OAuth
+          Client ID and Client Secret of a Google Cloud project with the Google
+          Ads API enabled, plus your Google Ads API developer token. Each
+          workspace then connects its own Google Ads account on the Ads page.
+          Secrets are encrypted at rest and never shown again.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-xl">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (
+          <>
+            {data?.configured && (
+              <div className="flex items-center gap-2 text-sm">
+                {data.testStatus === "failed" ? (
+                  <span className="text-destructive flex items-center gap-1">
+                    <AlertCircle className="h-4 w-4" /> Verification failed
+                    {data.testError ? `: ${data.testError}` : ""}
+                  </span>
+                ) : (
+                  <span className="text-green-600 flex items-center gap-1">
+                    <CheckCircle2 className="h-4 w-4" /> Saved — verified on
+                    first workspace connect
+                  </span>
+                )}
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">OAuth Client ID</label>
+              <Input
+                value={clientId}
+                onChange={(e) => {
+                  setClientId(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="1234567890-abc.apps.googleusercontent.com"
+                data-testid="input-google-ads-client-id"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">OAuth Client Secret</label>
+              <Input
+                type="password"
+                value={clientSecret}
+                onChange={(e) => {
+                  setClientSecret(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder={
+                  data?.configured
+                    ? "Enter to replace the saved secret"
+                    : "Client Secret"
+                }
+                data-testid="input-google-ads-client-secret"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Developer token</label>
+              <Input
+                type="password"
+                value={developerToken}
+                onChange={(e) => {
+                  setDeveloperToken(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder={
+                  data?.configured
+                    ? "Enter to replace the saved token"
+                    : "Developer token"
+                }
+                data-testid="input-google-ads-developer-token"
+              />
+              <p className="text-xs text-muted-foreground">
+                Create the OAuth client in the Google Cloud console (Web
+                application; add /api/ads/google/auth/callback on your domain
+                as an authorized redirect URI). The developer token is under
+                API Center in your Google Ads manager account.
+              </p>
+            </div>
+            <Button
+              onClick={handleSave}
+              disabled={save.isPending || !canSave}
+              data-testid="button-save-google-ads-credentials"
+            >
+              {save.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                </>
+              ) : (
+                "Save"
               )}
             </Button>
           </>
@@ -1170,6 +1336,7 @@ export function CredentialsTab() {
     <div className="space-y-8">
       <AdsSettingsCard />
       <MetaCredentialsCard />
+      <GoogleAdsCredentialsCard />
       <TwitterCredentialsCard />
       <LinkedinCredentialsCard />
       <YoutubeCredentialsCard />

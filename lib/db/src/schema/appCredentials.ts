@@ -69,6 +69,21 @@ export const youtubeAppCredentialsSchema = z.object({
 export type YoutubeAppCredentials = z.infer<typeof youtubeAppCredentialsSchema>;
 
 /**
+ * Google Ads API app credentials: a Google Cloud OAuth 2.0 web client
+ * (Client ID + Client Secret) plus the Google Ads developer token from the
+ * MCC's API Center. They drive the tenant OAuth connect flow and every Google
+ * Ads API call. Superadmin managed, stored encrypted; no env fallback. This is
+ * a separate slot from the YouTube Google client — Ads needs the
+ * `https://www.googleapis.com/auth/adwords` scope and a developer token.
+ */
+export const googleAdsAppCredentialsSchema = z.object({
+  clientId: z.string(),
+  clientSecret: z.string(),
+  developerToken: z.string(),
+});
+export type GoogleAdsAppCredentials = z.infer<typeof googleAdsAppCredentialsSchema>;
+
+/**
  * Threads (by Meta) OAuth 2.0 app credentials — the "Threads App ID" and
  * "Threads App Secret" from a Meta app with the "Access the Threads API" use
  * case. NOTE: these are distinct from the regular Facebook App ID/Secret, even

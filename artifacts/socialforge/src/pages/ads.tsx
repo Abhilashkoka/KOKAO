@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useGetMe,
   useGetAdsStatus,
@@ -19,6 +19,10 @@ import {
   getGetAdsTiktokAuthUrlQueryKey,
   useListTiktokAdvertiserChoices,
   useSelectTiktokAdvertiser,
+  useGetAdsGoogleAuthUrl,
+  getGetAdsGoogleAuthUrlQueryKey,
+  useListGoogleAdCustomerChoices,
+  useSelectGoogleAdAccount,
   useListAdCampaigns,
   useGetAdCampaignDetail,
   useListAdDrafts,
@@ -200,20 +204,50 @@ const EMPTY_FORM: DraftFormState = {
 };
 
 export function AdsPage() {
+  const { toast } = useToast();
   const { data: me } = useGetMe();
   const { data: status, isLoading: statusLoading } = useGetAdsStatus();
   const { data: connections, isLoading: connectionsLoading } = useListAdConnections();
+  const [pickedConnId, setPickedConnId] = useState<number | null>(null);
 
   const isOwner = !me?.team || me.team.role === "owner";
   const canManage = isOwner || me?.team?.role === "admin";
 
   const metaConn = connections?.find((c) => c.platform === "meta");
   const linkedinConn = connections?.find((c) => c.platform === "linkedin");
+  const googleConn = connections?.find((c) => c.platform === "google");
   const tiktokConn = connections?.find((c) => c.platform === "tiktok");
   const connectedConns = (connections ?? []).filter((c) => c.status === "connected");
   const [activeConnId, setActiveConnId] = useState<number | null>(null);
   const connectedConn =
-    connectedConns.find((c) => c.id === activeConnId) ?? connectedConns[0];
+    connectedConns.find((c) => c.id === (activeConnId ?? pickedConnId)) ?? connectedConns[0];
+
+  // Surface the OAuth redirect outcome once, then clean the URL.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const google = params.get("google");
+    const meta = params.get("meta");
+    const linkedin = params.get("linkedin");
+    if (!google && !meta && !linkedin) return;
+    if (google === "connected" || meta === "connected" || linkedin === "connected") {
+      toast({
+        title: `${google ? "Google" : meta ? "Meta" : "LinkedIn"} Ads access granted`,
+        description: "Now pick which ad account this workspace manages.",
+      });
+    } else if (google === "error" || meta === "error" || linkedin === "error") {
+      const reason = params.get("reason");
+      toast({
+        variant: "destructive",
+        title: `Could not connect ${google ? "Google" : meta ? "Meta" : "LinkedIn"} Ads`,
+        description:
+          reason === "no_refresh_token"
+            ? "Google did not grant offline access. Remove the app's access in your Google account settings, then try connecting again."
+            : reason ?? undefined,
+      });
+    }
+    window.history.replaceState({}, "", window.location.pathname);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (statusLoading || connectionsLoading) {
     return (
@@ -251,6 +285,10 @@ export function AdsPage() {
         <ConnectionSection
           metaConn={metaConn}
           metaAvailable={status?.platforms.find((p) => p.platform === "meta")?.available ?? false}
+          googleConn={googleConn}
+          googleAvailable={
+            status?.platforms.find((p) => p.platform === "google")?.available ?? false
+          }
           canManage={canManage}
         />
         <TiktokConnectionSection
@@ -271,10 +309,13 @@ export function AdsPage() {
 
       {connectedConns.length > 1 && connectedConn && (
         <div className="flex items-center gap-3">
-          <Label>Manage platform</Label>
+          <Label>Viewing</Label>
           <Select
             value={String(connectedConn.id)}
-            onValueChange={(v) => setActiveConnId(Number(v))}
+            onValueChange={(v) => {
+              setActiveConnId(Number(v));
+              setPickedConnId(Number(v));
+            }}
           >
             <SelectTrigger className="w-72" data-testid="select-active-connection">
               <SelectValue />
@@ -282,11 +323,13 @@ export function AdsPage() {
             <SelectContent>
               {connectedConns.map((c) => (
                 <SelectItem key={c.id} value={String(c.id)}>
-                  {c.platform === "meta"
-                    ? "Meta Ads"
-                    : c.platform === "tiktok"
-                      ? "TikTok Ads"
-                      : "LinkedIn Ads"}{" "}
+                  {c.platform === "google"
+                    ? "Google Ads"
+                    : c.platform === "meta"
+                      ? "Meta Ads"
+                      : c.platform === "tiktok"
+                        ? "TikTok Ads"
+                        : "LinkedIn Ads"}{" "}
                   — {c.adAccountName || c.adAccountId}
                 </SelectItem>
               ))}
@@ -328,10 +371,14 @@ export function AdsPage() {
 function ConnectionSection({
   metaConn,
   metaAvailable,
+  googleConn,
+  googleAvailable,
   canManage,
 }: {
   metaConn: AdAccountConnection | undefined;
   metaAvailable: boolean;
+  googleConn: AdAccountConnection | undefined;
+  googleAvailable: boolean;
   canManage: boolean;
 }) {
   const { toast } = useToast();
@@ -396,6 +443,7 @@ function ConnectionSection({
   };
 
   return (
+    <div className="grid gap-4 lg:grid-cols-2">
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
@@ -482,6 +530,212 @@ function ConnectionSection({
         )}
       </CardContent>
     </Card>
+    <GoogleConnectionCard
+      googleConn={googleConn}
+      googleAvailable={googleAvailable}
+      canManage={canManage}
+      onDisconnect={handleDisconnect}
+      disconnectPending={disconnect.isPending}
+    />
+    </div>
+  );
+}
+
+function GoogleConnectionCard({
+  googleConn,
+  googleAvailable,
+  canManage,
+  onDisconnect,
+  disconnectPending,
+}: {
+  googleConn: AdAccountConnection | undefined;
+  googleAvailable: boolean;
+  canManage: boolean;
+  onDisconnect: (id: number) => void;
+  disconnectPending: boolean;
+}) {
+  const { toast } = useToast();
+  const authUrl = useGetAdsGoogleAuthUrl({
+    query: { enabled: false, queryKey: getGetAdsGoogleAuthUrlQueryKey() },
+  });
+
+  const startOAuth = async () => {
+    const res = await authUrl.refetch();
+    if (res.data?.url) {
+      window.location.href = res.data.url;
+    } else {
+      toast({
+        variant: "destructive",
+        title: "Google Ads sign-in unavailable",
+        description:
+          (res.error as { payload?: { error?: string } } | null)?.payload?.error ??
+          "Could not start the Google Ads sign-in. Try again later.",
+      });
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Megaphone className="h-5 w-5" /> Google Ads
+        </CardTitle>
+        <CardDescription>
+          Connect the Google Ads account (or a client account under your
+          manager account) this workspace manages.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!googleConn && (
+          <Button
+            onClick={startOAuth}
+            disabled={!canManage || !googleAvailable || authUrl.isFetching}
+            data-testid="button-connect-google-ads"
+          >
+            {authUrl.isFetching && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Connect Google Ads
+          </Button>
+        )}
+        {!googleAvailable && !googleConn && (
+          <p className="text-sm text-muted-foreground">
+            Google Ads is not yet available. The platform administrator has not
+            configured Google Ads credentials.
+          </p>
+        )}
+        {googleConn?.status === "pending_selection" && (
+          <GoogleAccountPicker canManage={canManage} />
+        )}
+        {googleConn?.status === "connected" && (
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              {googleConn.verifyStatus === "failed" ? (
+                <AlertCircle className="h-5 w-5 text-destructive" />
+              ) : (
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              )}
+              <div>
+                <div className="font-medium" data-testid="text-google-account-name">
+                  {googleConn.adAccountName || googleConn.adAccountId}
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  {googleConn.adAccountId}
+                  {googleConn.currency ? ` · ${googleConn.currency}` : ""}
+                  {googleConn.verifyStatus === "failed"
+                    ? " · Access lost — reconnect to continue"
+                    : ""}
+                </div>
+              </div>
+            </div>
+            {canManage && (
+              <div className="flex gap-2">
+                {googleConn.verifyStatus === "failed" && (
+                  <Button
+                    size="sm"
+                    onClick={startOAuth}
+                    data-testid="button-reconnect-google-ads"
+                  >
+                    Reconnect
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onDisconnect(googleConn.id)}
+                  disabled={disconnectPending}
+                  data-testid="button-disconnect-google-ads"
+                >
+                  Disconnect
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function GoogleAccountPicker({ canManage }: { canManage: boolean }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: choices, isLoading, error } = useListGoogleAdCustomerChoices();
+  const select = useSelectGoogleAdAccount();
+  const [picked, setPicked] = useState("");
+
+  const confirm = () => {
+    if (!picked) return;
+    const choice = (choices ?? []).find((c) => c.customerId === picked);
+    select.mutate(
+      {
+        data: {
+          customerId: picked,
+          loginCustomerId: choice?.loginCustomerId ?? null,
+        },
+      },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListAdConnectionsQueryKey() });
+          toast({ title: "Google Ads account connected" });
+        },
+        onError: (err) => {
+          toast({
+            variant: "destructive",
+            title: "Could not select that Google Ads account",
+            description:
+              (err as { payload?: { error?: string } }).payload?.error ?? undefined,
+          });
+        },
+      },
+    );
+  };
+
+  if (isLoading) return <Skeleton className="h-10 w-full" />;
+  if (error) {
+    return (
+      <p className="text-sm text-destructive">
+        Could not list your Google Ads accounts. Reconnect Google Ads and try
+        again.
+      </p>
+    );
+  }
+  const pickable = (choices ?? []).filter((c) => !c.manager);
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        Access granted. Pick which Google Ads account this workspace manages
+        (client accounts under a manager account are included):
+      </p>
+      {pickable.length === 0 && (
+        <p className="text-sm text-destructive">
+          No advertising accounts are reachable with this Google sign-in.
+          Manager (MCC) accounts themselves cannot run campaigns.
+        </p>
+      )}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <Select value={picked} onValueChange={setPicked}>
+          <SelectTrigger className="sm:w-96" data-testid="select-google-account">
+            <SelectValue placeholder="Choose a Google Ads account" />
+          </SelectTrigger>
+          <SelectContent>
+            {pickable.map((c) => (
+              <SelectItem key={c.customerId} value={c.customerId}>
+                {c.name} ({c.customerId}
+                {c.currency ? `, ${c.currency}` : ""}
+                {c.loginCustomerId ? ", via manager" : ""})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          onClick={confirm}
+          disabled={!canManage || !picked || select.isPending}
+          data-testid="button-select-google-account"
+        >
+          {select.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+          Use this account
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -1122,7 +1376,14 @@ function CampaignsSection({
         </Select>
         {canManage && (
           <Button
-            onClick={() => setDraftForm({ ...EMPTY_FORM, action: "create" })}
+            onClick={() =>
+              setDraftForm({
+                ...EMPTY_FORM,
+                action: "create",
+                objective:
+                  connection.platform === "google" ? "SEARCH" : "OUTCOME_TRAFFIC",
+              })
+            }
             data-testid="button-new-campaign"
           >
             <Plus className="h-4 w-4 mr-2" /> Draft new campaign
@@ -1439,6 +1700,7 @@ function DraftDialog({
   form: DraftFormState;
   onClose: () => void;
 }) {
+  const isGoogle = platform === "google";
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const createDraft = useCreateAdDraft();
@@ -1639,6 +1901,14 @@ function DraftDialog({
                       <SelectItem value="CONVERSIONS">Conversions</SelectItem>
                       <SelectItem value="APP_PROMOTION">App promotion</SelectItem>
                     </>
+                  ) : isGoogle ? (
+                    <>
+                      <SelectItem value="SEARCH">Search</SelectItem>
+                      <SelectItem value="DISPLAY">Display</SelectItem>
+                      <SelectItem value="VIDEO">Video</SelectItem>
+                      <SelectItem value="SHOPPING">Shopping</SelectItem>
+                      <SelectItem value="PERFORMANCE_MAX">Performance Max</SelectItem>
+                    </>
                   ) : (
                     <>
                       <SelectItem value="OUTCOME_TRAFFIC">Traffic</SelectItem>
@@ -1683,17 +1953,19 @@ function DraftDialog({
                   />
                 </div>
               )}
-              <div className="space-y-2">
-                <Label htmlFor="draft-lifetime-budget">Lifetime budget (minor units)</Label>
-                <Input
-                  id="draft-lifetime-budget"
-                  type="number"
-                  min="0"
-                  value={state.lifetimeBudget}
-                  onChange={(e) => setState({ ...state, lifetimeBudget: e.target.value })}
-                  data-testid="input-draft-lifetime-budget"
-                />
-              </div>
+              {!isGoogle && (
+                <div className="space-y-2">
+                  <Label htmlFor="draft-lifetime-budget">Lifetime budget (minor units)</Label>
+                  <Input
+                    id="draft-lifetime-budget"
+                    type="number"
+                    min="0"
+                    value={state.lifetimeBudget}
+                    onChange={(e) => setState({ ...state, lifetimeBudget: e.target.value })}
+                    data-testid="input-draft-lifetime-budget"
+                  />
+                </div>
+              )}
             </div>
           )}
           {!isTiktok && showSchedule && (

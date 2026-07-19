@@ -43,6 +43,7 @@ import type {
   AdsChangeLogEntry,
   AdsDraft,
   AdsDraftCreateInput,
+  AdsGoogleSelectInput,
   AdsLinkedinSelectInput,
   AdsMetaAuthUrlResult,
   AdsMetaSelectInput,
@@ -112,6 +113,9 @@ import type {
   GetFunnelAnalyticsParams,
   GetReliabilityAnalyticsParams,
   GetRevenueAnalyticsParams,
+  GoogleAdCustomerChoice,
+  GoogleAdsAppCredentialInput,
+  GoogleAdsAppCredentialStatus,
   GrantCreditsInput,
   HealthReportOverview,
   HealthStatus,
@@ -9237,6 +9241,153 @@ export const useAdminSaveRazorpayCredentials = <TError = ErrorType<ErrorEnvelope
       return useMutation(getAdminSaveRazorpayCredentialsMutationOptions(options));
     }
 
+export const getAdminGetGoogleAdsCredentialsUrl = () => {
+
+
+
+
+  return `/api/admin/platform-credentials/google-ads`
+}
+
+/**
+ * @summary Get masked Google Ads platform credentials (superadmin only)
+ */
+export const adminGetGoogleAdsCredentials = async ( options?: RequestInit): Promise<GoogleAdsAppCredentialStatus> => {
+
+  return customFetch<GoogleAdsAppCredentialStatus>(getAdminGetGoogleAdsCredentialsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetGoogleAdsCredentialsQueryKey = () => {
+    return [
+    `/api/admin/platform-credentials/google-ads`
+    ] as const;
+    }
+
+
+export const getAdminGetGoogleAdsCredentialsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetGoogleAdsCredentials>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetGoogleAdsCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetGoogleAdsCredentialsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetGoogleAdsCredentials>>> = ({ signal }) => adminGetGoogleAdsCredentials({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetGoogleAdsCredentials>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetGoogleAdsCredentialsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetGoogleAdsCredentials>>>
+export type AdminGetGoogleAdsCredentialsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get masked Google Ads platform credentials (superadmin only)
+ */
+
+export function useAdminGetGoogleAdsCredentials<TData = Awaited<ReturnType<typeof adminGetGoogleAdsCredentials>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetGoogleAdsCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetGoogleAdsCredentialsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminSaveGoogleAdsCredentialsUrl = () => {
+
+
+
+
+  return `/api/admin/platform-credentials/google-ads`
+}
+
+/**
+ * @summary Save Google Ads platform credentials (superadmin only)
+ */
+export const adminSaveGoogleAdsCredentials = async (googleAdsAppCredentialInput: GoogleAdsAppCredentialInput, options?: RequestInit): Promise<GoogleAdsAppCredentialStatus> => {
+
+  return customFetch<GoogleAdsAppCredentialStatus>(getAdminSaveGoogleAdsCredentialsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(googleAdsAppCredentialInput)
+  }
+);}
+
+
+
+
+export const getAdminSaveGoogleAdsCredentialsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveGoogleAdsCredentials>>, TError,{data: BodyType<GoogleAdsAppCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSaveGoogleAdsCredentials>>, TError,{data: BodyType<GoogleAdsAppCredentialInput>}, TContext> => {
+
+const mutationKey = ['adminSaveGoogleAdsCredentials'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSaveGoogleAdsCredentials>>, {data: BodyType<GoogleAdsAppCredentialInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminSaveGoogleAdsCredentials(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSaveGoogleAdsCredentialsMutationResult = NonNullable<Awaited<ReturnType<typeof adminSaveGoogleAdsCredentials>>>
+    export type AdminSaveGoogleAdsCredentialsMutationBody = BodyType<GoogleAdsAppCredentialInput>
+    export type AdminSaveGoogleAdsCredentialsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save Google Ads platform credentials (superadmin only)
+ */
+export const useAdminSaveGoogleAdsCredentials = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveGoogleAdsCredentials>>, TError,{data: BodyType<GoogleAdsAppCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSaveGoogleAdsCredentials>>,
+        TError,
+        {data: BodyType<GoogleAdsAppCredentialInput>},
+        TContext
+      > => {
+      return useMutation(getAdminSaveGoogleAdsCredentialsMutationOptions(options));
+    }
+
 export const getAdminListCreditPacksUrl = () => {
 
 
@@ -12615,9 +12766,9 @@ export const getGetAdsLinkedinAuthUrlUrl = () => {
 /**
  * @summary Get the LinkedIn OAuth URL to grant ads access (owner/admin only)
  */
-export const getAdsLinkedinAuthUrl = async ( options?: RequestInit): Promise<AdsMetaAuthUrlResult> => {
+export const getAdsLinkedinAuthUrl = async ( options?: RequestInit): Promise<LinkedInAuthUrlResult> => {
 
-  return customFetch<AdsMetaAuthUrlResult>(getGetAdsLinkedinAuthUrlUrl(),
+  return customFetch<LinkedInAuthUrlResult>(getGetAdsLinkedinAuthUrlUrl(),
   {
     ...options,
     method: 'GET'
@@ -12669,6 +12820,83 @@ export function useGetAdsLinkedinAuthUrl<TData = Awaited<ReturnType<typeof getAd
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetAdsLinkedinAuthUrlQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetAdsGoogleAuthUrlUrl = () => {
+
+
+
+
+  return `/api/ads/google/auth/url`
+}
+
+/**
+ * @summary Get the Google OAuth URL to grant Google Ads access (owner/admin only)
+ */
+export const getAdsGoogleAuthUrl = async ( options?: RequestInit): Promise<AdsMetaAuthUrlResult> => {
+
+  return customFetch<AdsMetaAuthUrlResult>(getGetAdsGoogleAuthUrlUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAdsGoogleAuthUrlQueryKey = () => {
+    return [
+    `/api/ads/google/auth/url`
+    ] as const;
+    }
+
+
+export const getGetAdsGoogleAuthUrlQueryOptions = <TData = Awaited<ReturnType<typeof getAdsGoogleAuthUrl>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdsGoogleAuthUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAdsGoogleAuthUrlQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdsGoogleAuthUrl>>> = ({ signal }) => getAdsGoogleAuthUrl({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdsGoogleAuthUrl>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAdsGoogleAuthUrlQueryResult = NonNullable<Awaited<ReturnType<typeof getAdsGoogleAuthUrl>>>
+export type GetAdsGoogleAuthUrlQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the Google OAuth URL to grant Google Ads access (owner/admin only)
+ */
+
+export function useGetAdsGoogleAuthUrl<TData = Awaited<ReturnType<typeof getAdsGoogleAuthUrl>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdsGoogleAuthUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAdsGoogleAuthUrlQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -12758,6 +12986,83 @@ export function useListLinkedinAdAccountChoices<TData = Awaited<ReturnType<typeo
 
 
 
+export const getListGoogleAdCustomerChoicesUrl = () => {
+
+
+
+
+  return `/api/ads/connections/google/accounts`
+}
+
+/**
+ * @summary List the Google Ads accounts reachable with the stored grant (incl. MCC clients)
+ */
+export const listGoogleAdCustomerChoices = async ( options?: RequestInit): Promise<GoogleAdCustomerChoice[]> => {
+
+  return customFetch<GoogleAdCustomerChoice[]>(getListGoogleAdCustomerChoicesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListGoogleAdCustomerChoicesQueryKey = () => {
+    return [
+    `/api/ads/connections/google/accounts`
+    ] as const;
+    }
+
+
+export const getListGoogleAdCustomerChoicesQueryOptions = <TData = Awaited<ReturnType<typeof listGoogleAdCustomerChoices>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGoogleAdCustomerChoices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListGoogleAdCustomerChoicesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listGoogleAdCustomerChoices>>> = ({ signal }) => listGoogleAdCustomerChoices({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listGoogleAdCustomerChoices>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListGoogleAdCustomerChoicesQueryResult = NonNullable<Awaited<ReturnType<typeof listGoogleAdCustomerChoices>>>
+export type ListGoogleAdCustomerChoicesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List the Google Ads accounts reachable with the stored grant (incl. MCC clients)
+ */
+
+export function useListGoogleAdCustomerChoices<TData = Awaited<ReturnType<typeof listGoogleAdCustomerChoices>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGoogleAdCustomerChoices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListGoogleAdCustomerChoicesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getSelectLinkedinAdAccountUrl = () => {
 
 
@@ -12826,6 +13131,76 @@ export const useSelectLinkedinAdAccount = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getSelectLinkedinAdAccountMutationOptions(options));
+    }
+
+export const getSelectGoogleAdAccountUrl = () => {
+
+
+
+
+  return `/api/ads/connections/google/select`
+}
+
+/**
+ * @summary Pick which Google Ads account this workspace manages (owner/admin only)
+ */
+export const selectGoogleAdAccount = async (adsGoogleSelectInput: AdsGoogleSelectInput, options?: RequestInit): Promise<AdAccountConnection> => {
+
+  return customFetch<AdAccountConnection>(getSelectGoogleAdAccountUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(adsGoogleSelectInput)
+  }
+);}
+
+
+
+
+export const getSelectGoogleAdAccountMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof selectGoogleAdAccount>>, TError,{data: BodyType<AdsGoogleSelectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof selectGoogleAdAccount>>, TError,{data: BodyType<AdsGoogleSelectInput>}, TContext> => {
+
+const mutationKey = ['selectGoogleAdAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof selectGoogleAdAccount>>, {data: BodyType<AdsGoogleSelectInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  selectGoogleAdAccount(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SelectGoogleAdAccountMutationResult = NonNullable<Awaited<ReturnType<typeof selectGoogleAdAccount>>>
+    export type SelectGoogleAdAccountMutationBody = BodyType<AdsGoogleSelectInput>
+    export type SelectGoogleAdAccountMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Pick which Google Ads account this workspace manages (owner/admin only)
+ */
+export const useSelectGoogleAdAccount = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof selectGoogleAdAccount>>, TError,{data: BodyType<AdsGoogleSelectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof selectGoogleAdAccount>>,
+        TError,
+        {data: BodyType<AdsGoogleSelectInput>},
+        TContext
+      > => {
+      return useMutation(getSelectGoogleAdAccountMutationOptions(options));
     }
 
 export const getListLinkedinCampaignGroupsUrl = (params: ListLinkedinCampaignGroupsParams,) => {
