@@ -8,17 +8,37 @@ import {
   vi,
 } from "vitest";
 
-// Stub only the live-network Meta Ads read; DB-backed helpers stay real.
+// Stub only the live-network ads reads; DB-backed helpers stay real.
 vi.mock("./metaAdsApi", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./metaAdsApi")>();
   return {
     ...actual,
-    readAdAccount: vi.fn(async () => ({ name: "Test Ad Account", currency: "USD" })),
+    readAdAccount: vi.fn(async () => ({ name: "Acct", currency: "USD" })),
   };
 });
-
-// A verified->failed transition emails the tenant via Clerk + SendGrid. Keep
-// this DB-focused test hermetic: no live Clerk lookups, no real sends.
+vi.mock("./tiktokAdsApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./tiktokAdsApi")>();
+  return {
+    ...actual,
+    readAdvertiser: vi.fn(async () => ({ name: "Adv", currency: "USD" })),
+  };
+});
+// The sweep also walks every social connection in the shared dev DB; stub
+// the social reverifiers so this ads-focused test never hits live networks
+// (REVERIFY_STALE_MS and the rest of the module stay real for adsReverify).
+vi.mock("./socialReverify", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./socialReverify")>();
+  return {
+    ...actual,
+    reverifyFacebook: vi.fn(async () => undefined),
+    reverifyInstagram: vi.fn(async () => undefined),
+    reverifyLinkedin: vi.fn(async () => undefined),
+    reverifyTwitter: vi.fn(async () => undefined),
+    reverifyThreads: vi.fn(async () => undefined),
+    reverifyYoutube: vi.fn(async () => undefined),
+  };
+});
+// No live Clerk lookups or real emails in this DB-focused test.
 vi.mock("./clerkUser", () => ({
   fetchVerifiedEmail: vi.fn(async () => null),
 }));
@@ -26,37 +46,25 @@ vi.mock("./email", () => ({
   sendEmail: vi.fn(async () => true),
 }));
 
-// The sweep-integration tests below run the real sweep, which also visits
-// other tenants' leftover social rows in the shared dev DB. Stub the social
-// reverifiers so those rows never trigger live network calls; keep the real
-// REVERIFY_STALE_MS since adsReverify's staleness gate depends on it.
-vi.mock("./socialReverify", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./socialReverify")>();
-  return {
-    ...actual,
-    reverifyFacebook: vi.fn(async () => null),
-    reverifyInstagram: vi.fn(async () => null),
-    reverifyLinkedin: vi.fn(async () => null),
-    reverifyTwitter: vi.fn(async () => null),
-    reverifyThreads: vi.fn(async () => null),
-    reverifyYoutube: vi.fn(async () => null),
-  };
-});
-
-import { pool, db, adAccountConnectionsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
-import { readAdAccount, MetaAdsApiError } from "./metaAdsApi";
-import { reverifyMetaAds } from "./adsReverify";
-import { sweepDeadConnections } from "./connectionSweep";
+import { db, adAccountConnectionsTable, pool } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
+import { MetaAdsApiError, readAdAccount } from "./metaAdsApi";
+import { TiktokAdsApiError, readAdvertiser } from "./tiktokAdsApi";
 import { encryptJson } from "./secretCrypto";
+import {
+  reverifyAdConnection,
+  ADS_CREDENTIALS_UNREADABLE_MESSAGE,
+  type AdSweepPlatform,
+} from "./adsReverify";
+import { sweepDeadConnections } from "./connectionSweep";
 import {
   createTenant,
   deleteTenant,
   getNotifications,
-  type TestTenant,
 } from "../test/dbHelpers";
 
-const mockRead = vi.mocked(readAdAccount);
+const mockReadAdAccount = vi.mocked(readAdAccount);
+const mockReadAdvertiser = vi.mocked(readAdvertiser);
 
 /** More than REVERIFY_STALE_MS (15 min) in the past. */
 function staleDate(): Date {
@@ -65,43 +73,46 @@ function staleDate(): Date {
 
 async function insertAdConnection(
   tenantId: number,
-  opts: {
-    verifyStatus?: string | null;
-    verifiedAt?: Date | null;
-    adAccountId?: string;
-  } = {},
-): Promise<number> {
+  platform: AdSweepPlatform,
+  overrides: Partial<typeof adAccountConnectionsTable.$inferInsert> = {},
+) {
   const [row] = await db
     .insert(adAccountConnectionsTable)
     .values({
       tenantId,
-      platform: "meta",
-      adAccountId: opts.adAccountId ?? "act_123",
-      adAccountName: "Old Name",
+      platform,
+      adAccountId: platform === "meta" ? "act_123" : "adv_123",
+      adAccountName: "Test Account",
       status: "connected",
-      encryptedCredentials: encryptJson({ accessToken: "ads_tok" }),
-      verifyStatus: opts.verifyStatus === undefined ? "verified" : opts.verifyStatus,
-      verifiedAt: opts.verifiedAt === undefined ? staleDate() : opts.verifiedAt,
+      encryptedCredentials: encryptJson({ accessToken: "tok_ads" }),
+      verifyStatus: "verified",
+      verifiedAt: staleDate(),
+      ...overrides,
     })
-    .returning({ id: adAccountConnectionsTable.id });
-  return row.id;
+    .returning();
+  return row;
 }
 
-async function getAdConnection(id: number) {
+async function getAdConnectionRow(tenantId: number, platform: string) {
   return (
     await db
       .select()
       .from(adAccountConnectionsTable)
-      .where(eq(adAccountConnectionsTable.id, id))
+      .where(
+        and(
+          eq(adAccountConnectionsTable.tenantId, tenantId),
+          eq(adAccountConnectionsTable.platform, platform),
+        ),
+      )
       .limit(1)
   )[0];
 }
 
-async function cleanupTenant(tenant: TestTenant): Promise<void> {
+async function cleanupTenant(tenantId: number) {
   await db
     .delete(adAccountConnectionsTable)
-    .where(eq(adAccountConnectionsTable.tenantId, tenant.tenantId));
-  await deleteTenant(tenant.tenantId);
+    .where(eq(adAccountConnectionsTable.tenantId, tenantId));
+  await deleteTenant(tenantId);
 }
 
 beforeAll(() => {
@@ -115,171 +126,248 @@ afterAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockRead.mockResolvedValue({ name: "Test Ad Account", currency: "USD" });
+  mockReadAdAccount.mockResolvedValue({ name: "Acct", currency: "USD" });
+  mockReadAdvertiser.mockResolvedValue({ name: "Adv", currency: "USD" });
 });
 
-describe("reverifyMetaAds", () => {
-  it("flips a stale connection with a dead token to failed and records one deduped notification", async () => {
+describe("reverifyAdConnection", () => {
+  it("flips a stale Meta connection with a revoked token to failed and notifies once", async () => {
     const tenant = await createTenant();
     try {
-      const id = await insertAdConnection(tenant.tenantId);
-      mockRead.mockRejectedValue(
-        new MetaAdsApiError("Error validating access token: expired.", 400, true),
+      await insertAdConnection(tenant.tenantId, "meta");
+      mockReadAdAccount.mockRejectedValue(
+        new MetaAdsApiError("Error validating access token", 401, true),
       );
 
-      const first = await reverifyMetaAds(tenant.tenantId);
-      expect(first).toEqual({ checked: true, verifyStatus: "failed" });
+      const outcome = await reverifyAdConnection(tenant.tenantId, "meta");
+      expect(outcome).toEqual({ checked: true, verifyStatus: "failed" });
 
-      const row = await getAdConnection(id);
+      const row = await getAdConnectionRow(tenant.tenantId, "meta");
       expect(row?.verifyStatus).toBe("failed");
-      expect(row?.verifyError).toContain("expired");
+      expect(row?.verifyError).toContain("Error validating access token");
 
-      const notes = (await getNotifications(tenant.tenantId)).filter(
+      const notifications = await getNotifications(tenant.tenantId);
+      const alerts = notifications.filter(
         (n) => n.type === "ads_connection_failed",
       );
-      expect(notes).toHaveLength(1);
-      expect(notes[0].platform).toBe("meta");
-      expect(notes[0].linkUrl).toBe("/ads");
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0].platform).toBe("meta");
+      expect(alerts[0].linkUrl).toBe("/ads");
 
-      // Second check while still broken: no duplicate notification.
-      await reverifyMetaAds(tenant.tenantId, true);
+      // A repeat check while still broken stays deduped (already failed, and
+      // the unread notification guards a second insert either way).
+      await db
+        .update(adAccountConnectionsTable)
+        .set({ verifiedAt: staleDate() })
+        .where(eq(adAccountConnectionsTable.tenantId, tenant.tenantId));
+      await reverifyAdConnection(tenant.tenantId, "meta");
       const after = (await getNotifications(tenant.tenantId)).filter(
         (n) => n.type === "ads_connection_failed",
       );
       expect(after).toHaveLength(1);
     } finally {
-      await cleanupTenant(tenant);
+      await cleanupTenant(tenant.tenantId);
     }
   });
 
-  it("does not flip on a transient error; only touches the checked clock", async () => {
+  it("flips a TikTok connection to failed when the advertiser grant is revoked (auth error)", async () => {
     const tenant = await createTenant();
     try {
-      const id = await insertAdConnection(tenant.tenantId);
-      mockRead.mockRejectedValue(new MetaAdsApiError("Service temporarily unavailable", 503, false));
-
-      await expect(reverifyMetaAds(tenant.tenantId)).rejects.toThrow(
-        "Service temporarily unavailable",
+      await insertAdConnection(tenant.tenantId, "tiktok");
+      mockReadAdvertiser.mockRejectedValue(
+        new TiktokAdsApiError("Access token expired", 200, 40105, true),
       );
 
-      const row = await getAdConnection(id);
-      expect(row?.verifyStatus).toBe("verified");
-      expect(row?.verifiedAt && row.verifiedAt.getTime()).toBeGreaterThan(
-        Date.now() - 60 * 1000,
+      const outcome = await reverifyAdConnection(tenant.tenantId, "tiktok");
+      expect(outcome).toEqual({ checked: true, verifyStatus: "failed" });
+      const row = await getAdConnectionRow(tenant.tenantId, "tiktok");
+      expect(row?.verifyStatus).toBe("failed");
+      const alerts = (await getNotifications(tenant.tenantId)).filter(
+        (n) => n.type === "ads_connection_failed",
       );
-      expect(
-        (await getNotifications(tenant.tenantId)).filter(
-          (n) => n.type === "ads_connection_failed",
-        ),
-      ).toHaveLength(0);
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0].platform).toBe("tiktok");
     } finally {
-      await cleanupTenant(tenant);
+      await cleanupTenant(tenant.tenantId);
     }
   });
 
-  it("skips fresh connections unless forced, and skips pending selections entirely", async () => {
+  it("treats TikTok no-longer-returning the advertiser (404) as a definitive failure", async () => {
     const tenant = await createTenant();
     try {
-      const freshId = await insertAdConnection(tenant.tenantId, {
+      await insertAdConnection(tenant.tenantId, "tiktok");
+      mockReadAdvertiser.mockRejectedValue(
+        new TiktokAdsApiError(
+          "TikTok did not return that advertiser account for this grant.",
+          404,
+          -1,
+        ),
+      );
+
+      const outcome = await reverifyAdConnection(tenant.tenantId, "tiktok");
+      expect(outcome).toEqual({ checked: true, verifyStatus: "failed" });
+      const row = await getAdConnectionRow(tenant.tenantId, "tiktok");
+      expect(row?.verifyStatus).toBe("failed");
+    } finally {
+      await cleanupTenant(tenant.tenantId);
+    }
+  });
+
+  it("does not flip status on a transient failure, only touches the clock and rethrows", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertAdConnection(tenant.tenantId, "meta");
+      mockReadAdAccount.mockRejectedValue(
+        new MetaAdsApiError("Service temporarily unavailable", 503, false),
+      );
+
+      await expect(
+        reverifyAdConnection(tenant.tenantId, "meta"),
+      ).rejects.toThrow("Service temporarily unavailable");
+
+      const row = await getAdConnectionRow(tenant.tenantId, "meta");
+      expect(row?.verifyStatus).toBe("verified");
+      // Clock was reset so the next sweep cycle won't hammer during an outage.
+      expect(row?.verifiedAt && Date.now() - row.verifiedAt.getTime()).toBeLessThan(
+        60 * 1000,
+      );
+      expect(await getNotifications(tenant.tenantId)).toHaveLength(0);
+    } finally {
+      await cleanupTenant(tenant.tenantId);
+    }
+  });
+
+  it("skips fresh connections unless forced", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertAdConnection(tenant.tenantId, "meta", {
         verifiedAt: new Date(),
       });
-      expect(await reverifyMetaAds(tenant.tenantId)).toEqual({
-        checked: false,
-        verifyStatus: "verified",
-      });
-      expect(mockRead).not.toHaveBeenCalled();
+      const outcome = await reverifyAdConnection(tenant.tenantId, "meta");
+      expect(outcome).toEqual({ checked: false, reason: "fresh" });
+      expect(mockReadAdAccount).not.toHaveBeenCalled();
 
-      // Forced check bypasses the staleness gate.
-      expect(await reverifyMetaAds(tenant.tenantId, true)).toEqual({
-        checked: true,
-        verifyStatus: "verified",
+      const forced = await reverifyAdConnection(tenant.tenantId, "meta", {
+        force: true,
       });
-
-      // No ad account picked yet -> nothing verifiable.
-      await db
-        .update(adAccountConnectionsTable)
-        .set({ adAccountId: "" })
-        .where(eq(adAccountConnectionsTable.id, freshId));
-      mockRead.mockClear();
-      expect((await reverifyMetaAds(tenant.tenantId, true)).checked).toBe(false);
-      expect(mockRead).not.toHaveBeenCalled();
+      expect(forced).toEqual({ checked: true, verifyStatus: "verified" });
+      expect(mockReadAdAccount).toHaveBeenCalledTimes(1);
     } finally {
-      await cleanupTenant(tenant);
+      await cleanupTenant(tenant.tenantId);
     }
   });
 
-  it("re-verifying successfully refreshes the name and resolves the breakage notification", async () => {
+  it("skips pending-selection rows (no ad account picked yet)", async () => {
     const tenant = await createTenant();
     try {
-      const id = await insertAdConnection(tenant.tenantId, {
-        verifyStatus: "failed",
+      await insertAdConnection(tenant.tenantId, "meta", {
+        status: "pending_selection",
+        adAccountId: "",
+        verifyStatus: null,
+        verifiedAt: null,
       });
-      // Seed an unread breakage notification as if a prior sweep flagged it.
-      const { notifyAdsConnectionFailed } = await import("./notifications");
-      await notifyAdsConnectionFailed(tenant.tenantId, "meta", "token dead");
+      const outcome = await reverifyAdConnection(tenant.tenantId, "meta");
+      expect(outcome).toEqual({ checked: false, reason: "pending_selection" });
+      expect(mockReadAdAccount).not.toHaveBeenCalled();
+    } finally {
+      await cleanupTenant(tenant.tenantId);
+    }
+  });
 
-      const outcome = await reverifyMetaAds(tenant.tenantId);
+  it("fails a connection whose stored credentials cannot be decrypted", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertAdConnection(tenant.tenantId, "meta", {
+        encryptedCredentials: "v1:garbage",
+      });
+      const outcome = await reverifyAdConnection(tenant.tenantId, "meta");
+      expect(outcome).toEqual({ checked: true, verifyStatus: "failed" });
+      const row = await getAdConnectionRow(tenant.tenantId, "meta");
+      expect(row?.verifyError).toBe(ADS_CREDENTIALS_UNREADABLE_MESSAGE);
+    } finally {
+      await cleanupTenant(tenant.tenantId);
+    }
+  });
+
+  it("resolves the reconnect notification when the grant verifies again", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertAdConnection(tenant.tenantId, "meta");
+      mockReadAdAccount.mockRejectedValueOnce(
+        new MetaAdsApiError("token revoked", 401, true),
+      );
+      await reverifyAdConnection(tenant.tenantId, "meta");
+      let alerts = (await getNotifications(tenant.tenantId)).filter(
+        (n) => n.type === "ads_connection_failed" && n.readAt == null,
+      );
+      expect(alerts).toHaveLength(1);
+
+      // Grant works again (e.g. user reconnected) — next stale check clears it.
+      await db
+        .update(adAccountConnectionsTable)
+        .set({ verifiedAt: staleDate() })
+        .where(eq(adAccountConnectionsTable.tenantId, tenant.tenantId));
+      const outcome = await reverifyAdConnection(tenant.tenantId, "meta");
       expect(outcome).toEqual({ checked: true, verifyStatus: "verified" });
 
-      const row = await getAdConnection(id);
-      expect(row?.verifyStatus).toBe("verified");
-      expect(row?.adAccountName).toBe("Test Ad Account");
-      expect(row?.verifyError).toBeNull();
-
-      const unread = (await getNotifications(tenant.tenantId)).filter(
-        (n) => n.type === "ads_connection_failed" && n.readAt === null,
+      alerts = (await getNotifications(tenant.tenantId)).filter(
+        (n) => n.type === "ads_connection_failed" && n.readAt == null,
       );
-      expect(unread).toHaveLength(0);
+      expect(alerts).toHaveLength(0);
     } finally {
-      await cleanupTenant(tenant);
+      await cleanupTenant(tenant.tenantId);
     }
   });
 });
 
-describe("connection sweep covers ad account connections", () => {
-  it("the sweep flips a stale dead ads token to failed and notifies the tenant", async () => {
+describe("sweep integration", () => {
+  it("checks connected ad connections during a sweep and flips revoked grants", async () => {
     const tenant = await createTenant();
     try {
-      const id = await insertAdConnection(tenant.tenantId);
-      mockRead.mockRejectedValue(
-        new MetaAdsApiError("Error validating access token: expired.", 400, true),
+      await insertAdConnection(tenant.tenantId, "meta");
+      await insertAdConnection(tenant.tenantId, "tiktok");
+      mockReadAdAccount.mockRejectedValue(
+        new MetaAdsApiError("token revoked", 401, true),
       );
 
-      const result = await sweepDeadConnections();
-      // A definitive auth rejection is handled INSIDE the reverify (row
-      // flipped + tenant notified) — it is not a sweep-level error.
-      expect(result.accountsChecked).toBeGreaterThanOrEqual(1);
+      await sweepDeadConnections();
 
-      const row = await getAdConnection(id);
-      expect(row?.verifyStatus).toBe("failed");
+      const metaRow = await getAdConnectionRow(tenant.tenantId, "meta");
+      expect(metaRow?.verifyStatus).toBe("failed");
+      const tiktokRow = await getAdConnectionRow(tenant.tenantId, "tiktok");
+      expect(tiktokRow?.verifyStatus).toBe("verified");
 
-      const notes = (await getNotifications(tenant.tenantId)).filter(
+      const alerts = (await getNotifications(tenant.tenantId)).filter(
         (n) => n.type === "ads_connection_failed",
       );
-      expect(notes).toHaveLength(1);
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0].platform).toBe("meta");
     } finally {
-      await cleanupTenant(tenant);
+      await cleanupTenant(tenant.tenantId);
     }
   });
 
-  it("a transient ads failure is recorded in the sweep's failure bookkeeping under meta_ads", async () => {
+  it("records a transient ads failure in the sweep error bookkeeping with an -ads key", async () => {
     const tenant = await createTenant();
     try {
-      const id = await insertAdConnection(tenant.tenantId);
-      mockRead.mockRejectedValue(new MetaAdsApiError("Timeout talking to Meta", 504, false));
-
-      const result = await sweepDeadConnections();
-      const failure = result.recentFailures.find(
-        (f) => f.tenantId === tenant.tenantId && f.platform === "meta_ads",
+      await insertAdConnection(tenant.tenantId, "tiktok");
+      mockReadAdvertiser.mockRejectedValue(
+        new TiktokAdsApiError("TikTok is unavailable", 503, 50000),
       );
-      expect(failure).toBeDefined();
-      expect(result.failStreaks[`${tenant.tenantId}:meta_ads`]?.count).toBe(1);
 
-      // Transient: row stays verified.
-      const row = await getAdConnection(id);
+      const outcome = await sweepDeadConnections();
+
+      const key = `${tenant.tenantId}:tiktok-ads`;
+      expect(outcome.failStreaks[key]?.count).toBeGreaterThanOrEqual(1);
+      expect(
+        outcome.recentFailures.some(
+          (f) => f.tenantId === tenant.tenantId && f.platform === "tiktok-ads",
+        ),
+      ).toBe(true);
+      const row = await getAdConnectionRow(tenant.tenantId, "tiktok");
       expect(row?.verifyStatus).toBe("verified");
     } finally {
-      await cleanupTenant(tenant);
+      await cleanupTenant(tenant.tenantId);
     }
   });
 });

@@ -19,7 +19,7 @@ import {
   type SweepFailure,
   type SweepStreak,
 } from "@workspace/db";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import {
   notifySweepFailStreak,
@@ -37,7 +37,7 @@ import {
   reverifyThreads,
   reverifyYoutube,
 } from "./socialReverify";
-import { reverifyMetaAds } from "./adsReverify";
+import { AD_SWEEP_PLATFORMS, reverifyAdConnection } from "./adsReverify";
 
 /** How often the sweep runs. Matches the reverify staleness window so each
  * cycle re-checks anything whose last verification has gone stale. */
@@ -96,27 +96,13 @@ async function withSweepTimeout<T>(
   }
 }
 
-/** Organic social platforms, matched against connected_accounts rows. */
-const SOCIAL_SWEEP_PLATFORMS = [
+const SWEEP_PLATFORMS = [
   "facebook",
   "instagram",
   "linkedin",
   "twitter",
   "threads",
   "youtube",
-] as const;
-
-/**
- * Ad-platform pseudo-keys used inside the sweep. They never collide with
- * connected_accounts platform values: ad connections live in
- * ad_account_connections (platform "meta"), and the sweep tracks them under
- * the distinct "meta_ads" key so streaks/failure history stay unambiguous.
- */
-const ADS_SWEEP_PLATFORMS = ["meta_ads"] as const;
-
-const SWEEP_PLATFORMS = [
-  ...SOCIAL_SWEEP_PLATFORMS,
-  ...ADS_SWEEP_PLATFORMS,
 ] as const;
 
 const REVERIFIERS: Record<
@@ -129,13 +115,7 @@ const REVERIFIERS: Record<
   twitter: (tenantId) => reverifyTwitter(tenantId),
   threads: (tenantId) => reverifyThreads(tenantId),
   youtube: (tenantId) => reverifyYoutube(tenantId),
-  meta_ads: (tenantId) => reverifyMetaAds(tenantId),
 };
-
-/** Map an ad_account_connections platform value to its sweep pseudo-key. */
-function adsSweepKey(platform: string): (typeof ADS_SWEEP_PLATFORMS)[number] | null {
-  return platform === "meta" ? "meta_ads" : null;
-}
 
 /** How many of the most recent failed checks to keep for the admin card. */
 export const SWEEP_RECENT_FAILURES_CAP = 10;
@@ -248,9 +228,7 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
         platform: connectedAccountsTable.platform,
       })
       .from(connectedAccountsTable)
-      .where(
-        inArray(connectedAccountsTable.platform, [...SOCIAL_SWEEP_PLATFORMS]),
-      );
+      .where(inArray(connectedAccountsTable.platform, [...SWEEP_PLATFORMS]));
   } catch (err) {
     logger.error({ err }, "Connection sweep failed to list connected accounts");
     result.errorCount = 1;
@@ -275,34 +253,43 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
     set.add(row.platform);
   }
 
-  // Ad account connections live in their own table; fold them into the same
-  // per-tenant plan under distinct pseudo-keys ("meta_ads"). Individually
-  // guarded: a bookkeeping failure here still lets the social sweep proceed.
-  try {
-    const adRows = await db
-      .select({
-        tenantId: adAccountConnectionsTable.tenantId,
-        platform: adAccountConnectionsTable.platform,
-      })
-      .from(adAccountConnectionsTable);
-    for (const row of adRows) {
-      const key = adsSweepKey(row.platform);
-      if (!key) continue;
-      let set = byTenant.get(row.tenantId);
-      if (!set) {
-        set = new Set();
-        byTenant.set(row.tenantId, set);
-      }
-      set.add(key);
-    }
-  } catch (err) {
+  // Shared failure bookkeeping for both the social and the ads loops:
+  // continue (or start) this check's consecutive-failure streak. Successful
+  // checks never write a key, so a recovery resets the tally automatically —
+  // result.failStreaks starts empty each run.
+  const recordCheckFailure = (
+    tenantId: number,
+    platform: string,
+    err: unknown,
+  ): void => {
     logger.error(
-      { err },
-      "Connection sweep failed to list ad account connections",
+      { err, tenantId, platform },
+      "Connection sweep re-verify failed",
     );
     result.errorCount += 1;
     result.lastError = err instanceof Error ? err.message : String(err);
-  }
+    const streakKey = `${tenantId}:${platform}`;
+    const prior = priorStreaks[streakKey];
+    const nowIso = new Date().toISOString();
+    const streak: SweepStreak = {
+      count: (prior?.count ?? 0) + 1,
+      firstFailedAt: prior?.firstFailedAt ?? nowIso,
+      lastError: result.lastError,
+      lastAt: nowIso,
+    };
+    result.failStreaks[streakKey] = streak;
+    // Keep the newest offenders at the front. The cap is applied AFTER
+    // the sweep completes (see below) so a chronic long-streak offender
+    // can never be pushed out mid-run by fresher one-off failures.
+    result.recentFailures.unshift({
+      tenantId,
+      platform,
+      error: result.lastError,
+      at: nowIso,
+      consecutiveFailures: streak.count,
+      firstFailedAt: streak.firstFailedAt,
+    });
+  };
 
   for (const [tenantId, platforms] of byTenant) {
     for (const platform of SWEEP_PLATFORMS) {
@@ -311,38 +298,49 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
       try {
         await withSweepTimeout(platform, () => REVERIFIERS[platform](tenantId));
       } catch (err) {
-        logger.error(
-          { err, tenantId, platform },
-          "Connection sweep re-verify failed",
-        );
-        result.errorCount += 1;
-        result.lastError = err instanceof Error ? err.message : String(err);
-        // Continue (or start) this check's consecutive-failure streak.
-        // Successful checks never write a key, so a recovery resets the
-        // tally automatically — result.failStreaks starts empty each run.
-        const streakKey = `${tenantId}:${platform}`;
-        const prior = priorStreaks[streakKey];
-        const nowIso = new Date().toISOString();
-        const streak: SweepStreak = {
-          count: (prior?.count ?? 0) + 1,
-          firstFailedAt: prior?.firstFailedAt ?? nowIso,
-          lastError: result.lastError,
-          lastAt: nowIso,
-        };
-        result.failStreaks[streakKey] = streak;
-        // Keep the newest offenders at the front. The cap is applied AFTER
-        // the sweep completes (see below) so a chronic long-streak offender
-        // can never be pushed out mid-run by fresher one-off failures.
-        result.recentFailures.unshift({
-          tenantId,
-          platform,
-          error: result.lastError,
-          at: nowIso,
-          consecutiveFailures: streak.count,
-          firstFailedAt: streak.firstFailedAt,
-        });
+        recordCheckFailure(tenantId, platform, err);
       }
     }
+  }
+
+  // Ad account connections (Meta/TikTok ads grants) ride the same sweep so a
+  // revoked ads token surfaces a Reconnect prompt + tenant notification
+  // BEFORE an owner tries to approve a drafted change. Only fully connected
+  // rows are worth checking — a pending selection has nothing to verify.
+  // Streak/failure keys use a "<platform>-ads" suffix so they can never
+  // collide with organic social platform keys.
+  try {
+    const adRows = await db
+      .select({
+        tenantId: adAccountConnectionsTable.tenantId,
+        platform: adAccountConnectionsTable.platform,
+      })
+      .from(adAccountConnectionsTable)
+      .where(
+        and(
+          inArray(adAccountConnectionsTable.platform, [...AD_SWEEP_PLATFORMS]),
+          eq(adAccountConnectionsTable.status, "connected"),
+        ),
+      );
+    for (const row of adRows) {
+      const platform = row.platform as (typeof AD_SWEEP_PLATFORMS)[number];
+      const sweepKey = `${platform}-ads`;
+      result.accountsChecked += 1;
+      try {
+        await withSweepTimeout(sweepKey, () =>
+          reverifyAdConnection(row.tenantId, platform),
+        );
+      } catch (err) {
+        recordCheckFailure(row.tenantId, sweepKey, err);
+      }
+    }
+  } catch (err) {
+    logger.error(
+      { err },
+      "Connection sweep failed to list ad account connections",
+    );
+    result.errorCount += 1;
+    result.lastError = err instanceof Error ? err.message : String(err);
   }
   // Cap the persisted failure list so the sweep_status row stays small even
   // on a very broken run — but when trimming, keep the LONGEST consecutive
