@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -15,6 +15,10 @@ import {
   useDeleteContent,
   useListBrandKits,
   useGetMe,
+  useGetFacebookCredentials,
+  useGetInstagramCredentials,
+  useGetLinkedinStatus,
+  useGetTwitterStatus,
   getListContentQueryKey,
   getGetMeQueryKey,
   type BrandKit,
@@ -168,6 +172,28 @@ export function StudioPage() {
   ]);
 
   const { data: brandKits } = useListBrandKits();
+
+  const { data: fbStatus, isLoading: fbLoading } = useGetFacebookCredentials();
+  const { data: igStatus, isLoading: igLoading } = useGetInstagramCredentials();
+  const { data: liStatus, isLoading: liLoading } = useGetLinkedinStatus();
+  const { data: twStatus, isLoading: twLoading } = useGetTwitterStatus();
+  const connectionsLoading = fbLoading || igLoading || liLoading || twLoading;
+  const fbLive = !!fbStatus && fbStatus.appConfigured && fbStatus.verifyStatus === "verified";
+  const platformLive: Record<string, boolean> = {
+    facebook: fbLive,
+    // Instagram publishing rides on the Facebook Page token, so it needs both.
+    instagram:
+      fbLive && !!igStatus && igStatus.appConfigured && igStatus.verifyStatus === "verified",
+    linkedin: !!liStatus && liStatus.configured && liStatus.connected && !liStatus.expired,
+    twitter: !!twStatus && twStatus.configured && twStatus.connected && !twStatus.expired,
+  };
+
+  // Once connection statuses load, drop any preselected platform that isn't live.
+  useEffect(() => {
+    if (connectionsLoading) return;
+    setCampaignPlatforms((prev) => prev.filter((p) => platformLive[p]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionsLoading, fbLive, platformLive.instagram, platformLive.linkedin, platformLive.twitter]);
 
   const generateCaption = useGenerateCaption();
   const generateImage = useGenerateImage();
@@ -954,25 +980,45 @@ export function StudioPage() {
                       <Layers className="h-4 w-4" /> Campaign platforms
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      For multi-platform generation, choose which platforms to tailor for.
+                      For multi-platform generation, choose which platforms to tailor for. Only
+                      connected accounts can be selected.
                     </p>
                     <ToggleGroup
                       type="multiple"
                       variant="outline"
                       value={campaignPlatforms}
-                      onValueChange={(val) => setCampaignPlatforms(val)}
+                      onValueChange={(val) => setCampaignPlatforms(val.filter((p) => platformLive[p]))}
                       className="flex flex-wrap justify-start gap-2"
                     >
                       {CAMPAIGN_PLATFORMS.map((p) => (
                         <ToggleGroupItem
                           key={p.value}
                           value={p.value}
-                          className="text-xs px-3 cursor-pointer border-foreground/25 text-foreground shadow-sm hover:border-foreground/40 hover:bg-accent hover:text-accent-foreground data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90 data-[state=on]:hover:text-primary-foreground disabled:cursor-not-allowed"
+                          disabled={connectionsLoading || !platformLive[p.value]}
+                          title={
+                            connectionsLoading
+                              ? "Checking connections..."
+                              : platformLive[p.value]
+                                ? undefined
+                                : `${p.label} is not connected. Connect it on the Accounts page first.`
+                          }
+                          data-testid={`toggle-campaign-${p.value}`}
+                          className="text-xs px-3 cursor-pointer border-foreground/25 text-foreground shadow-sm hover:border-foreground/40 hover:bg-accent hover:text-accent-foreground data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90 data-[state=on]:hover:text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           {p.label}
                         </ToggleGroupItem>
                       ))}
                     </ToggleGroup>
+                    {!connectionsLoading &&
+                      CAMPAIGN_PLATFORMS.every((p) => !platformLive[p.value]) && (
+                        <p className="text-xs text-muted-foreground" data-testid="text-no-campaign-platforms">
+                          No social accounts are connected yet.{" "}
+                          <a href="/accounts" className="underline" onClick={(e) => { e.preventDefault(); navigate("/accounts"); }}>
+                            Connect accounts
+                          </a>{" "}
+                          to enable campaign generation.
+                        </p>
+                      )}
                   </div>
 
                   <div className="pt-2 flex flex-col gap-3">
@@ -988,7 +1034,7 @@ export function StudioPage() {
                     <Button
                       type="button"
                       onClick={form.handleSubmit(onGenerateCampaign)}
-                      disabled={isPending}
+                      disabled={isPending || campaignPlatforms.length === 0}
                       className="w-full"
                       data-testid="button-generate-campaign"
                     >

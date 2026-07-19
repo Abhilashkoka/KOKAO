@@ -52,6 +52,12 @@ const mockState: {
   lastCampaignVars: any;
   me: any;
   campaignError: any;
+  connections: {
+    facebook: any;
+    instagram: any;
+    linkedin: any;
+    twitter: any;
+  };
 } = {
   caption: "",
   lastCaptionVars: null,
@@ -59,7 +65,17 @@ const mockState: {
   lastCampaignVars: null,
   me: defaultMe(),
   campaignError: null,
+  connections: defaultConnections(),
 };
+
+function defaultConnections() {
+  return {
+    facebook: { appConfigured: true, saved: true, verifyStatus: "verified" },
+    instagram: { appConfigured: true, saved: true, verifyStatus: "verified" },
+    linkedin: { configured: true, connected: true, expired: false },
+    twitter: { configured: true, connected: true, expired: false },
+  };
+}
 
 const toastSpy = vi.fn();
 vi.mock("@/hooks/use-toast", () => ({
@@ -109,6 +125,10 @@ vi.mock("@workspace/api-client-react", async () => {
     }),
     useGetMe: () => ({ data: mockState.me }),
     useListBrandKits: () => ({ data: [] }),
+    useGetFacebookCredentials: () => ({ data: mockState.connections.facebook, isLoading: false }),
+    useGetInstagramCredentials: () => ({ data: mockState.connections.instagram, isLoading: false }),
+    useGetLinkedinStatus: () => ({ data: mockState.connections.linkedin, isLoading: false }),
+    useGetTwitterStatus: () => ({ data: mockState.connections.twitter, isLoading: false }),
   });
 });
 
@@ -145,6 +165,7 @@ beforeEach(() => {
   mockState.lastCampaignVars = null;
   mockState.me = defaultMe();
   mockState.campaignError = null;
+  mockState.connections = defaultConnections();
   toastSpy.mockClear();
   cleanup();
 });
@@ -382,6 +403,65 @@ describe("Studio campaign generation quota-relevant variables", () => {
     );
     await Promise.resolve();
     expect(mockState.lastCampaignVars).toBeNull();
+  });
+});
+
+describe("Studio campaign platform toggles gated by connection status", () => {
+  it("disables a platform whose tenant connection is missing and drops it from the default selection", async () => {
+    mockState.connections.twitter = { configured: true, connected: false, expired: false };
+    renderPage();
+    expect(screen.getByTestId("toggle-campaign-twitter")).toHaveProperty("disabled", true);
+    fireEvent.change(screen.getByLabelText("Prompt"), {
+      target: { value: "A campaign prompt long enough to pass validation" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-campaign"));
+    await waitFor(() => expect(mockState.lastCampaignVars).toBeTruthy());
+    expect(mockState.lastCampaignVars.data.platforms).toEqual([
+      "instagram",
+      "facebook",
+      "linkedin",
+    ]);
+  });
+
+  it("disables a platform whose app-level credentials are not configured", async () => {
+    mockState.connections.linkedin = { configured: false, connected: true, expired: false };
+    renderPage();
+    expect(screen.getByTestId("toggle-campaign-linkedin")).toHaveProperty("disabled", true);
+    fireEvent.change(screen.getByLabelText("Prompt"), {
+      target: { value: "A campaign prompt long enough to pass validation" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-campaign"));
+    await waitFor(() => expect(mockState.lastCampaignVars).toBeTruthy());
+    expect(mockState.lastCampaignVars.data.platforms).toEqual([
+      "instagram",
+      "facebook",
+      "twitter",
+    ]);
+  });
+
+  it("disables Instagram when Facebook is not verified, even if Instagram itself is verified", () => {
+    mockState.connections.facebook = { appConfigured: true, saved: true, verifyStatus: "failed" };
+    renderPage();
+    expect(screen.getByTestId("toggle-campaign-instagram")).toHaveProperty("disabled", true);
+    expect(screen.getByTestId("toggle-campaign-facebook")).toHaveProperty("disabled", true);
+    expect(screen.getByTestId("toggle-campaign-linkedin")).toHaveProperty("disabled", false);
+  });
+
+  it("disables an expired connection", () => {
+    mockState.connections.twitter = { configured: true, connected: true, expired: true };
+    renderPage();
+    expect(screen.getByTestId("toggle-campaign-twitter")).toHaveProperty("disabled", true);
+  });
+
+  it("shows the connect-accounts hint when nothing is connected", () => {
+    mockState.connections = {
+      facebook: { appConfigured: false, saved: false, verifyStatus: null },
+      instagram: { appConfigured: false, saved: false, verifyStatus: null },
+      linkedin: { configured: false, connected: false, expired: false },
+      twitter: { configured: false, connected: false, expired: false },
+    };
+    renderPage();
+    expect(screen.getByTestId("text-no-campaign-platforms")).toBeTruthy();
   });
 });
 
