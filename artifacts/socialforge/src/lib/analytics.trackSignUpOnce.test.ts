@@ -120,6 +120,52 @@ describe("trackSignUpOnce", () => {
     expect(window.localStorage.getItem(SIGN_UP_KEY)).toBeNull();
   });
 
+  it("does NOT commit the marker when the send fails, and retries on the next visit", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("network down"));
+    analytics.trackSignUpOnce("user_retry", new Date());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    // Give the failure path a chance to run; the marker must stay absent.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(window.localStorage.getItem(SIGN_UP_KEY)).toBeNull();
+
+    // Simulate the next visit: fresh module state, same (empty-marker) storage.
+    vi.resetModules();
+    analytics = await import("./analytics");
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(new Response(null, { status: 202 }));
+    analytics.trackSignUpOnce("user_retry", new Date());
+    await vi.waitFor(() =>
+      expect(window.localStorage.getItem(SIGN_UP_KEY)).toBe("user_retry"),
+    );
+    expect(signUpEventsSent()).toBe(1);
+  });
+
+  it("does NOT commit the marker on a non-ok server response, allowing a later retry in the same session", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 500 }));
+    analytics.trackSignUpOnce("user_500", new Date());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(window.localStorage.getItem(SIGN_UP_KEY)).toBeNull();
+
+    // The in-memory guard was released, so a later call retries without a reload.
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(new Response(null, { status: 202 }));
+    analytics.trackSignUpOnce("user_500", new Date());
+    await vi.waitFor(() =>
+      expect(window.localStorage.getItem(SIGN_UP_KEY)).toBe("user_500"),
+    );
+    expect(signUpEventsSent()).toBe(1);
+  });
+
+  it("does not fire again once the marker exists after a successful retry", async () => {
+    window.localStorage.setItem(SIGN_UP_KEY, "user_done");
+    primeQueue(MAX_QUEUE - 1);
+    analytics.trackSignUpOnce("user_done", new Date());
+    expect(signUpEventsSent()).toBe(0);
+  });
+
   it("still fires once and dedupes in memory when localStorage is unavailable", () => {
     const original = window.localStorage;
     Object.defineProperty(window, "localStorage", {
