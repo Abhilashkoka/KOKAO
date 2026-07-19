@@ -364,7 +364,11 @@ export function AdsPage() {
             <CampaignsSection connection={connectedConn} canManage={canManage} />
           </TabsContent>
           <TabsContent value="approvals" className="mt-6">
-            <DraftsSection isOwner={isOwner} canManage={canManage} />
+            <DraftsSection
+              isOwner={isOwner}
+              canManage={canManage}
+              currency={connectedConn.currency ?? null}
+            />
           </TabsContent>
           <TabsContent value="history" className="mt-6">
             <ChangeLogSection />
@@ -1024,16 +1028,18 @@ function BudgetCapsCard({
   const [lifetime, setLifetime] = useState("");
 
   const startEditing = () => {
-    setDaily(caps?.maxDailyBudget != null ? String(caps.maxDailyBudget) : "");
-    setLifetime(caps?.maxLifetimeBudget != null ? String(caps.maxLifetimeBudget) : "");
+    setDaily(caps?.maxDailyBudget != null ? String(caps.maxDailyBudget / 100) : "");
+    setLifetime(caps?.maxLifetimeBudget != null ? String(caps.maxLifetimeBudget / 100) : "");
     setEditing(true);
   };
 
   const save = () => {
     const parse = (v: string): number | null | undefined => {
       if (!v.trim()) return null;
-      const n = Number(v);
-      return Number.isInteger(n) && n > 0 ? n : undefined;
+      const major = Number(v);
+      if (!Number.isFinite(major) || major <= 0) return undefined;
+      const minor = Math.round(major * 100);
+      return minor > 0 ? minor : undefined;
     };
     const maxDailyBudget = parse(daily);
     const maxLifetimeBudget = parse(lifetime);
@@ -1041,7 +1047,7 @@ function BudgetCapsCard({
       toast({
         variant: "destructive",
         title: "Invalid cap",
-        description: "Caps must be positive whole amounts in minor units, or left empty for no cap.",
+        description: `Caps must be positive amounts${currency ? ` in ${currency}` : ""} (e.g. 500 or 500.00), or left empty for no cap.`,
       });
       return;
     }
@@ -1066,7 +1072,7 @@ function BudgetCapsCard({
   };
 
   const fmtCap = (v: number | null | undefined) =>
-    v != null ? `${formatMoneyMinor(v, currency)} (${v.toLocaleString()} minor units)` : "No cap";
+    v != null ? formatMoneyMinor(v, currency) : "No cap";
 
   return (
     <Card>
@@ -1087,11 +1093,14 @@ function BudgetCapsCard({
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="cap-daily">Max daily budget (minor units)</Label>
+                <Label htmlFor="cap-daily">
+                  Max daily budget{currency ? ` (${currency})` : ""}
+                </Label>
                 <Input
                   id="cap-daily"
                   type="number"
-                  min="1"
+                  min="0.01"
+                  step="0.01"
                   placeholder="No cap"
                   value={daily}
                   onChange={(e) => setDaily(e.target.value)}
@@ -1099,11 +1108,14 @@ function BudgetCapsCard({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cap-lifetime">Max lifetime budget (minor units)</Label>
+                <Label htmlFor="cap-lifetime">
+                  Max lifetime budget{currency ? ` (${currency})` : ""}
+                </Label>
                 <Input
                   id="cap-lifetime"
                   type="number"
-                  min="1"
+                  min="0.01"
+                  step="0.01"
                   placeholder="No cap"
                   value={lifetime}
                   onChange={(e) => setLifetime(e.target.value)}
@@ -2508,9 +2520,11 @@ function TargetingDraftDialog({
 export function DraftsSection({
   isOwner,
   canManage,
+  currency = null,
 }: {
   isOwner: boolean;
   canManage: boolean;
+  currency?: string | null;
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -2689,6 +2703,7 @@ export function DraftsSection({
       {confirming && (
         <ApproveConfirmDialog
           draft={confirming}
+          currency={currency}
           applying={approve.isPending}
           onCancel={() => setConfirming(null)}
           onConfirm={() => handleApprove(confirming)}
@@ -2700,11 +2715,13 @@ export function DraftsSection({
 
 function ApproveConfirmDialog({
   draft,
+  currency,
   applying,
   onCancel,
   onConfirm,
 }: {
   draft: AdsDraft;
+  currency: string | null;
   applying: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -2743,9 +2760,9 @@ function ApproveConfirmDialog({
                 {increases.map((inc) => (
                   <p key={inc.field} className="text-sm">
                     {inc.field.replace(" (minor units)", "")} jumps from{" "}
-                    {inc.before.toLocaleString()} to {inc.after.toLocaleString()}{" "}
-                    minor units — about {Math.round(inc.factor * 10) / 10}x the
-                    current budget.
+                    {formatMoneyMinor(inc.before, currency)} to{" "}
+                    {formatMoneyMinor(inc.after, currency)} — about{" "}
+                    {Math.round(inc.factor * 10) / 10}x the current budget.
                   </p>
                 ))}
                 <p className="text-sm text-muted-foreground">
