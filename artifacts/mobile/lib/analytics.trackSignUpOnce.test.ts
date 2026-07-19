@@ -131,4 +131,46 @@ describe("mobile trackSignUpOnce retry-vs-exactly-once", () => {
     expect(store.get(SIGN_UP_KEY)).toBeUndefined();
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("dedupes a second sequential call for the same user id in the same session", async () => {
+    await analytics.trackSignUpOnce("user_dupe", new Date());
+    expect(signUpEventsSent()).toBe(1);
+    await analytics.trackSignUpOnce("user_dupe", new Date());
+    expect(signUpEventsSent()).toBe(1);
+    expect(store.get(SIGN_UP_KEY)).toBe("user_dupe");
+  });
+
+  it("is a no-op when createdAt is missing or userId is empty", async () => {
+    await analytics.trackSignUpOnce("user_no_created_at", null);
+    await analytics.trackSignUpOnce("user_no_created_at", undefined);
+    await analytics.trackSignUpOnce("", new Date());
+    expect(store.get(SIGN_UP_KEY)).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("still fires once and dedupes in memory when AsyncStorage is unavailable", async () => {
+    const storage = (
+      await import("@react-native-async-storage/async-storage")
+    ).default;
+    const getSpy = vi
+      .spyOn(storage, "getItem")
+      .mockRejectedValue(new Error("storage disabled"));
+    const setSpy = vi
+      .spyOn(storage, "setItem")
+      .mockRejectedValue(new Error("storage disabled"));
+    try {
+      await expect(
+        analytics.trackSignUpOnce("user_no_storage", new Date()),
+      ).resolves.toBeUndefined();
+      expect(signUpEventsSent()).toBe(1);
+      expect(store.get(SIGN_UP_KEY)).toBeUndefined();
+
+      // Second call in the same session: the in-memory marker still dedupes.
+      await analytics.trackSignUpOnce("user_no_storage", new Date());
+      expect(signUpEventsSent()).toBe(1);
+    } finally {
+      getSpy.mockRestore();
+      setSpy.mockRestore();
+    }
+  });
 });
