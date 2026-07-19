@@ -964,7 +964,11 @@ export function StudioPage() {
                       className="flex flex-wrap justify-start gap-2"
                     >
                       {CAMPAIGN_PLATFORMS.map((p) => (
-                        <ToggleGroupItem key={p.value} value={p.value} className="text-xs px-3">
+                        <ToggleGroupItem
+                          key={p.value}
+                          value={p.value}
+                          className="text-xs px-3 cursor-pointer border-foreground/25 text-foreground shadow-sm hover:border-foreground/40 hover:bg-accent hover:text-accent-foreground data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90 data-[state=on]:hover:text-primary-foreground disabled:cursor-not-allowed"
+                        >
                           {p.label}
                         </ToggleGroupItem>
                       ))}
