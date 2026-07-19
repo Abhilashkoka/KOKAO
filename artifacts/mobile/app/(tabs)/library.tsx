@@ -17,20 +17,11 @@ import { ContentImage } from "@/components/ContentImage";
 import { Badge, Chip, EmptyState, ErrorState, Skeleton } from "@/components/ui";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
+import { hasPendingPieces, PENDING_TEXT } from "@/lib/contentPending";
 
 const c = colors.light;
 
 const FILTERS = ["all", "draft", "scheduled", "published"] as const;
-
-const PENDING_TEXT = "#92600a";
-
-function hasPendingPieces(item: ContentItem): boolean {
-  return (
-    (item.linkedinCommentsPending ?? 0) > 0 ||
-    (item.threadsPostsPending ?? 0) > 0 ||
-    (item.twitterPostsPending ?? 0) > 0
-  );
-}
 
 function statusTone(status: string): "muted" | "success" | "accent" {
   if (status === "published") return "success";

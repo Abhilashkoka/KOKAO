@@ -22,6 +22,7 @@ import {
 } from "@/components/TeamMembership";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
+import { hasPendingPieces, PENDING_TEXT } from "@/lib/contentPending";
 
 const c = colors.light;
 
@@ -228,6 +229,12 @@ export default function HomeScreen() {
                       <Text style={styles.recentCaption} numberOfLines={1}>
                         {item.caption || "No caption"}
                       </Text>
+                      {hasPendingPieces(item) ? (
+                        <View style={styles.pendingRow}>
+                          <Feather name="alert-circle" size={12} color={PENDING_TEXT} />
+                          <Text style={styles.pendingText}>Some pieces missing</Text>
+                        </View>
+                      ) : null}
                     </View>
                     <Badge
                       label={item.status}
@@ -305,5 +312,7 @@ const styles = StyleSheet.create({
   },
   recentTitle: { fontFamily: fonts.semiBold, fontSize: 14, color: c.foreground },
   recentCaption: { fontFamily: fonts.regular, fontSize: 12, color: c.mutedForeground, marginTop: 2 },
+  pendingRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
+  pendingText: { fontFamily: fonts.medium, fontSize: 11, color: PENDING_TEXT },
   emptyText: { fontFamily: fonts.regular, fontSize: 13, color: c.mutedForeground },
 });
