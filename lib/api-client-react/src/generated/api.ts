@@ -43,6 +43,7 @@ import type {
   AdsChangeLogEntry,
   AdsDraft,
   AdsDraftCreateInput,
+  AdsGeoSearchResult,
   AdsGoogleSelectInput,
   AdsLinkedinSelectInput,
   AdsMetaAuthUrlResult,
@@ -160,6 +161,7 @@ import type {
   ScheduleInput,
   ScheduleUpdate,
   ScheduledPost,
+  SearchLinkedinGeoTargetsParams,
   SeatRequestCreateInput,
   SeatRequestDecisionInput,
   SendTestEmailInput,
@@ -13510,6 +13512,90 @@ export const useSelectTiktokAdvertiser = <TError = ErrorType<ErrorEnvelope>,
       > => {
       return useMutation(getSelectTiktokAdvertiserMutationOptions(options));
     }
+
+export const getSearchLinkedinGeoTargetsUrl = (params: SearchLinkedinGeoTargetsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ads/linkedin/geo-search?${stringifiedParams}` : `/api/ads/linkedin/geo-search`
+}
+
+/**
+ * @summary Typeahead search for LinkedIn location targeting entities (geo URNs)
+ */
+export const searchLinkedinGeoTargets = async (params: SearchLinkedinGeoTargetsParams, options?: RequestInit): Promise<AdsGeoSearchResult> => {
+
+  return customFetch<AdsGeoSearchResult>(getSearchLinkedinGeoTargetsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getSearchLinkedinGeoTargetsQueryKey = (params?: SearchLinkedinGeoTargetsParams,) => {
+    return [
+    `/api/ads/linkedin/geo-search`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getSearchLinkedinGeoTargetsQueryOptions = <TData = Awaited<ReturnType<typeof searchLinkedinGeoTargets>>, TError = ErrorType<ErrorEnvelope>>(params: SearchLinkedinGeoTargetsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchLinkedinGeoTargets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getSearchLinkedinGeoTargetsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof searchLinkedinGeoTargets>>> = ({ signal }) => searchLinkedinGeoTargets(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof searchLinkedinGeoTargets>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type SearchLinkedinGeoTargetsQueryResult = NonNullable<Awaited<ReturnType<typeof searchLinkedinGeoTargets>>>
+export type SearchLinkedinGeoTargetsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Typeahead search for LinkedIn location targeting entities (geo URNs)
+ */
+
+export function useSearchLinkedinGeoTargets<TData = Awaited<ReturnType<typeof searchLinkedinGeoTargets>>, TError = ErrorType<ErrorEnvelope>>(
+ params: SearchLinkedinGeoTargetsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchLinkedinGeoTargets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getSearchLinkedinGeoTargetsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getListAdCampaignsUrl = (params: ListAdCampaignsParams,) => {
   const normalizedParams = new URLSearchParams();

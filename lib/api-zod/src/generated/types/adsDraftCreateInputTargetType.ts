@@ -7,7 +7,7 @@
  */
 
 /**
- * campaign_group is LinkedIn create-only.
+ * campaign_group and creative are LinkedIn create-only.
  */
 export type AdsDraftCreateInputTargetType = typeof AdsDraftCreateInputTargetType[keyof typeof AdsDraftCreateInputTargetType];
 
@@ -17,4 +17,5 @@ export const AdsDraftCreateInputTargetType = {
   adset: 'adset',
   ad: 'ad',
   campaign_group: 'campaign_group',
+  creative: 'creative',
 } as const;

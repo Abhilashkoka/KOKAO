@@ -43,6 +43,13 @@ vi.mock("../lib/linkedinAdsApi", async (importOriginal) => {
     updateLinkedinCampaign: vi.fn(),
     readLinkedinCampaignState: vi.fn(),
     readLinkedinCampaignGroupState: vi.fn(),
+    readLinkedinCreativeState: vi.fn(),
+    getLinkedinAdAccountReference: vi.fn(),
+    uploadLinkedinAdImage: vi.fn(),
+    createLinkedinAdPost: vi.fn(),
+    createLinkedinCreative: vi.fn(),
+    listLinkedinCreatives: vi.fn(),
+    searchLinkedinGeoLocations: vi.fn(),
   };
 });
 
@@ -61,12 +68,20 @@ import {
   readLinkedinAdAccount,
   listLinkedinCampaignGroups,
   listLinkedinCampaigns,
+  getLinkedinCampaign,
   getLinkedinAnalytics,
   createLinkedinCampaign,
   createLinkedinCampaignGroup,
   updateLinkedinCampaign,
   readLinkedinCampaignState,
   readLinkedinCampaignGroupState,
+  readLinkedinCreativeState,
+  getLinkedinAdAccountReference,
+  uploadLinkedinAdImage,
+  createLinkedinAdPost,
+  createLinkedinCreative,
+  listLinkedinCreatives,
+  searchLinkedinGeoLocations,
   LinkedinAdsApiError,
 } from "../lib/linkedinAdsApi";
 import { encryptJson } from "../lib/secretCrypto";
@@ -85,6 +100,14 @@ const mockCreateGroup = vi.mocked(createLinkedinCampaignGroup);
 const mockUpdate = vi.mocked(updateLinkedinCampaign);
 const mockReadState = vi.mocked(readLinkedinCampaignState);
 const mockReadGroupState = vi.mocked(readLinkedinCampaignGroupState);
+const mockGetCampaign = vi.mocked(getLinkedinCampaign);
+const mockReadCreativeState = vi.mocked(readLinkedinCreativeState);
+const mockGetAccountRef = vi.mocked(getLinkedinAdAccountReference);
+const mockUploadImage = vi.mocked(uploadLinkedinAdImage);
+const mockCreatePost = vi.mocked(createLinkedinAdPost);
+const mockCreateCreative = vi.mocked(createLinkedinCreative);
+const mockListCreatives = vi.mocked(listLinkedinCreatives);
+const mockGeoSearch = vi.mocked(searchLinkedinGeoLocations);
 
 function createAdsTestApp(): Express {
   const app = express();
@@ -111,6 +134,7 @@ const REMOTE_STATE = {
   lifetimeBudget: null,
   startTime: null,
   stopTime: null,
+  targetingLocations: [] as string[],
 };
 
 async function insertLinkedinAdConnection(
@@ -506,6 +530,7 @@ describe("LinkedIn draft apply", () => {
         lifetimeBudget: null,
         startTime: null,
         stopTime: null,
+        targetingLocations: [] as string[],
       });
       const res = await request(app).post(
         `/api/ads/drafts/${draftRes.body.id}/approve`,
@@ -627,6 +652,240 @@ describe("LinkedIn draft apply", () => {
         .where(eq(adsChangeLogsTable.tenantId, tenant.tenantId));
       expect(logs.length).toBe(1);
       expect(logs[0]!.outcome).toBe("failed");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("LinkedIn creative drafts", () => {
+  it("creates and applies a text-only creative draft end to end", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      mockGetCampaign.mockResolvedValue({
+        id: "cmp_1",
+        name: "Brand Push",
+        status: "PAUSED",
+        effectiveStatus: "PAUSED",
+      } as never);
+      mockGetAccountRef.mockResolvedValue("urn:li:organization:987");
+      mockCreatePost.mockResolvedValue("urn:li:share:555");
+      mockCreateCreative.mockResolvedValue("urn:li:sponsoredCreative:777");
+      mockReadCreativeState.mockResolvedValue({
+        name: "urn:li:share:555",
+        status: "PAUSED",
+        dailyBudget: null,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "creative",
+        action: "create",
+        campaignId: "cmp_1",
+        text: "Try KOKAO for on-brand social content.",
+        landingUrl: "https://example.com/offer",
+      });
+      expect(draftRes.status).toBe(201);
+      expect(draftRes.body.targetType).toBe("creative");
+      expect(
+        (draftRes.body.changes as { field: string }[]).map((c) => c.field),
+      ).toEqual(expect.arrayContaining(["Campaign", "Ad text", "Landing page"]));
+
+      const res = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("applied");
+      expect(res.body.resultTargetId).toBe("urn:li:sponsoredCreative:777");
+      expect(res.body.verifyStatus).toBe("verified");
+      expect(mockUploadImage).not.toHaveBeenCalled();
+      expect(mockCreatePost).toHaveBeenCalledWith(
+        "li-ads-token",
+        "urn:li:organization:987",
+        "Try KOKAO for on-brand social content.",
+        null,
+        "https://example.com/offer",
+      );
+      expect(mockCreateCreative).toHaveBeenCalledWith(
+        "li-ads-token",
+        "512345678",
+        "cmp_1",
+        "urn:li:share:555",
+        "PAUSED",
+      );
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects a creative draft whose imagePath belongs to another tenant", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "creative",
+        action: "create",
+        campaignId: "cmp_1",
+        text: "Sneaky",
+        imagePath: `/objects/${tenant.tenantId + 999}/uploads/some-image`,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("content library");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects creative drafts on non-LinkedIn connections and non-https landing URLs", async () => {
+    const tenant = await createTenant();
+    try {
+      const metaConnId = await insertLinkedinAdConnection(tenant.tenantId, {
+        platform: "meta",
+        adAccountId: "act_123",
+      });
+      actAs(tenant.clerkUserId);
+      const metaRes = await request(app).post("/api/ads/drafts").send({
+        connectionId: metaConnId,
+        targetType: "creative",
+        action: "create",
+        campaignId: "cmp_1",
+        text: "Nope",
+      });
+      expect(metaRes.status).toBe(400);
+
+      const liConnId = await insertLinkedinAdConnection(tenant.tenantId);
+      const httpRes = await request(app).post("/api/ads/drafts").send({
+        connectionId: liConnId,
+        targetType: "creative",
+        action: "create",
+        campaignId: "cmp_1",
+        text: "Bad link",
+        landingUrl: "http://insecure.example.com",
+      });
+      expect(httpRes.status).toBe(400);
+      expect(httpRes.body.error).toContain("https");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("lists creatives in the campaign detail ads array", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      mockGetCampaign.mockResolvedValue({
+        id: "cmp_1",
+        name: "Brand Push",
+        status: "PAUSED",
+        effectiveStatus: "PAUSED",
+        objective: null,
+        dailyBudget: 5000,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+        campaignGroupId: "grp_1",
+        metrics: undefined,
+      } as never);
+      mockListCreatives.mockResolvedValue([
+        { id: "urn:li:sponsoredCreative:777", status: "PAUSED", reviewStatus: "PENDING" } as never,
+      ]);
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .get("/api/ads/campaign-detail")
+        .query({ connectionId, campaignId: "cmp_1" });
+      expect(res.status).toBe(200);
+      expect(res.body.ads).toHaveLength(1);
+      expect(res.body.ads[0].id).toBe("urn:li:sponsoredCreative:777");
+      expect(res.body.ads[0].status).toBe("PAUSED");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("LinkedIn location targeting", () => {
+  it("searches geo locations through the typeahead endpoint", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      mockGeoSearch.mockResolvedValue([
+        { urn: "urn:li:geo:102713980", name: "India" },
+      ]);
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .get("/api/ads/linkedin/geo-search")
+        .query({ connectionId, q: "ind" });
+      expect(res.status).toBe(200);
+      expect(res.body.results).toEqual([
+        { urn: "urn:li:geo:102713980", name: "India" },
+      ]);
+
+      const shortQ = await request(app)
+        .get("/api/ads/linkedin/geo-search")
+        .query({ connectionId, q: "i" });
+      expect(shortQ.status).toBe(400);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("drafts and applies a targeting change with valid geo URNs", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign",
+        action: "update",
+        targetId: "cmp_1",
+        targetingLocations: [
+          { urn: "urn:li:geo:102713980", name: "India" },
+          { urn: "urn:li:geo:103644278", name: "United States" },
+        ],
+      });
+      expect(draftRes.status).toBe(201);
+      const changes = draftRes.body.changes as { field: string; after: string }[];
+      const loc = changes.find((c) => c.field === "Target locations");
+      expect(loc?.after).toBe("India, United States");
+
+      const res = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("applied");
+      expect(mockUpdate).toHaveBeenCalledTimes(1);
+      const params = mockUpdate.mock.calls[0]![3] as unknown as Record<string, unknown>;
+      expect(params.targetingLocations).toEqual([
+        "urn:li:geo:102713980",
+        "urn:li:geo:103644278",
+      ]);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects malformed geo URNs", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign",
+        action: "update",
+        targetId: "cmp_1",
+        targetingLocations: [{ urn: "urn:li:organization:1", name: "Nope" }],
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("geo URN");
     } finally {
       await deleteTenant(tenant.tenantId);
     }

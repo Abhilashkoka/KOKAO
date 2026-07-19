@@ -4779,6 +4779,39 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/linkedin/geo-search:
+    get:
+      operationId: searchLinkedinGeoTargets
+      tags: [ads]
+      summary: Typeahead search for LinkedIn location targeting entities (geo URNs)
+      parameters:
+        - $ref: "#/components/parameters/AdsConnectionId"
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+      responses:
+        "200":
+          description: Matching locations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdsGeoSearchResult"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Platform error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ads/campaigns:
     get:
       operationId: listAdCampaigns
@@ -8604,8 +8637,8 @@ components:
           type: integer
         targetType:
           type: string
-          enum: [campaign, adset, ad, campaign_group]
-          description: campaign_group is LinkedIn create-only.
+          enum: [campaign, adset, ad, campaign_group, creative]
+          description: campaign_group and creative are LinkedIn create-only.
         action:
           type: string
           enum: [create, update]
@@ -8642,6 +8675,42 @@ components:
         stopTime:
           type: ["string", "null"]
           description: ISO-8601 schedule end.
+        campaignId:
+          type: string
+          description: LinkedIn creative creates — the campaign the creative attaches to.
+        text:
+          type: string
+          maxLength: 3000
+          description: LinkedIn creative creates — the sponsored post's text.
+        imagePath:
+          type: ["string", "null"]
+          description: LinkedIn creative creates — content library image path (`/objects/<tenantId>/uploads/<uuid>`).
+        landingUrl:
+          type: ["string", "null"]
+          description: LinkedIn creative creates — click-through landing page URL (https).
+        targetingLocations:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/AdsTargetingLocation"
+          description: LinkedIn campaigns — replacement location targeting (geo URNs picked via geo search).
+    AdsTargetingLocation:
+      type: object
+      required: [urn, name]
+      properties:
+        urn:
+          type: string
+          description: LinkedIn geo URN, e.g. urn:li:geo:103644278.
+        name:
+          type: string
+    AdsGeoSearchResult:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdsTargetingLocation"
     AdsChangeLogEntry:
       type: object
       required: [id, platform, targetType, targetName, action, changes, outcome, createdAt]

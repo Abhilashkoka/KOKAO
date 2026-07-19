@@ -159,6 +159,27 @@ export async function readLinkedinAdAccount(
   return { name: json.name ?? adAccountId, currency: json.currency ?? null };
 }
 
+/**
+ * The organization URN the ad account advertises for (`reference`). Sponsored
+ * content posts and uploaded images must be owned/authored by this org.
+ */
+export async function getLinkedinAdAccountReference(
+  token: string,
+  adAccountId: string,
+): Promise<string> {
+  const json = await restGet<RawAdAccount & { reference?: string }>(
+    `adAccounts/${encodeURIComponent(adAccountId)}`,
+    token,
+  );
+  if (!json.reference) {
+    throw new LinkedinAdsApiError(
+      "This LinkedIn ad account has no associated organization, so sponsored creatives cannot be created for it.",
+      400,
+    );
+  }
+  return json.reference;
+}
+
 // ---------------------------------------------------------------------------
 // Campaign groups + campaigns
 // ---------------------------------------------------------------------------
@@ -201,6 +222,14 @@ export interface LinkedinCampaign {
   startTime: string | null;
   stopTime: string | null;
   campaignGroupId: string | null;
+  /** Targeted location geo URNs (sorted). */
+  targetingLocations: string[];
+}
+
+interface RawTargetingCriteria {
+  include?: {
+    and?: { or?: Record<string, string[]> }[];
+  };
 }
 
 interface RawCampaign {
@@ -212,6 +241,28 @@ interface RawCampaign {
   totalBudget?: RawMoney;
   runSchedule?: { start?: number; end?: number };
   campaignGroup?: string;
+  targetingCriteria?: RawTargetingCriteria;
+}
+
+const LOCATIONS_FACET = "urn:li:adTargetingFacet:locations";
+
+/** Extract the targeted location geo URNs (sorted for stable comparison). */
+function extractTargetingLocations(tc: RawTargetingCriteria | undefined): string[] {
+  const out: string[] = [];
+  for (const clause of tc?.include?.and ?? []) {
+    const urns = clause.or?.[LOCATIONS_FACET];
+    if (Array.isArray(urns)) out.push(...urns);
+  }
+  return [...new Set(out)].sort();
+}
+
+/** Build LinkedIn targetingCriteria that includes the given location URNs. */
+function buildTargetingCriteria(locationUrns: string[]): RawTargetingCriteria {
+  return {
+    include: {
+      and: [{ or: { [LOCATIONS_FACET]: locationUrns } }],
+    },
+  };
 }
 
 function mapCampaign(c: RawCampaign): LinkedinCampaign {
@@ -226,6 +277,7 @@ function mapCampaign(c: RawCampaign): LinkedinCampaign {
     startTime: msToIso(c.runSchedule?.start),
     stopTime: msToIso(c.runSchedule?.end),
     campaignGroupId: idFromUrn(c.campaignGroup),
+    targetingLocations: extractTargetingLocations(c.targetingCriteria),
   };
 }
 
@@ -361,6 +413,8 @@ export interface CreateLinkedinCampaignParams {
   startTime?: string | null;
   stopTime?: string | null;
   currency: string;
+  /** Location geo URNs; defaults to worldwide when omitted/empty. */
+  targetingLocations?: string[] | null;
 }
 
 /** Create a campaign in the given group; returns the new campaign id. */
@@ -385,19 +439,13 @@ export async function createLinkedinCampaign(
     unitCost: { amount: "0", currencyCode: params.currency },
     runSchedule,
     locale: { country: "US", language: "en" },
-    // Minimal worldwide targeting so the campaign is valid; advertisers
-    // refine targeting in Campaign Manager (targeting is out of scope here).
-    targetingCriteria: {
-      include: {
-        and: [
-          {
-            or: {
-              "urn:li:adTargetingFacet:locations": ["urn:li:geo:92000000"],
-            },
-          },
-        ],
-      },
-    },
+    // Location targeting is required for a campaign to be valid; default to
+    // worldwide when the draft does not specify locations.
+    targetingCriteria: buildTargetingCriteria(
+      params.targetingLocations?.length
+        ? params.targetingLocations
+        : ["urn:li:geo:92000000"],
+    ),
   };
   if (params.dailyBudget != null) {
     body.dailyBudget = {
@@ -524,6 +572,8 @@ export interface UpdateLinkedinCampaignParams {
   startTime?: string | null;
   stopTime?: string | null;
   currency: string;
+  /** Replace location targeting with these geo URNs (must be non-empty). */
+  targetingLocations?: string[] | null;
 }
 
 /** Partial-update a campaign in place (Restli PARTIAL_UPDATE with $set). */
@@ -556,6 +606,9 @@ export async function updateLinkedinCampaign(
     if (endMs != null) runSchedule.end = endMs;
     set.runSchedule = runSchedule;
   }
+  if (params.targetingLocations != null && params.targetingLocations.length > 0) {
+    set.targetingCriteria = buildTargetingCriteria(params.targetingLocations);
+  }
 
   const res = await platformFetch(
     `${restBase()}/adAccounts/${encodeURIComponent(adAccountId)}/adCampaigns/${encodeURIComponent(campaignId)}`,
@@ -587,6 +640,7 @@ export async function readLinkedinCampaignState(
   lifetimeBudget: number | null;
   startTime: string | null;
   stopTime: string | null;
+  targetingLocations: string[];
 }> {
   const c = await getLinkedinCampaign(token, adAccountId, campaignId);
   return {
@@ -596,5 +650,232 @@ export async function readLinkedinCampaignState(
     lifetimeBudget: c.lifetimeBudget,
     startTime: c.startTime,
     stopTime: c.stopTime,
+    targetingLocations: c.targetingLocations,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Geo targeting typeahead
+// ---------------------------------------------------------------------------
+
+interface RawTargetingEntity {
+  urn?: string;
+  name?: string;
+}
+
+/** Typeahead search for location targeting entities (geo URNs). */
+export async function searchLinkedinGeoLocations(
+  token: string,
+  query: string,
+): Promise<{ urn: string; name: string }[]> {
+  const qs =
+    `q=typeahead&queryVersion=QUERY_USES_URNS` +
+    `&facet=${encodeURIComponent(LOCATIONS_FACET)}` +
+    `&query=${encodeURIComponent(query)}`;
+  const json = await restGet<{ elements?: RawTargetingEntity[] }>(
+    `adTargetingEntities?${qs}`,
+    token,
+  );
+  return (json.elements ?? [])
+    .filter((e) => !!e.urn && !!e.name)
+    .map((e) => ({ urn: e.urn!, name: e.name! }))
+    .slice(0, 20);
+}
+
+// ---------------------------------------------------------------------------
+// Creatives (sponsored content: upload image -> dark post -> creative)
+// ---------------------------------------------------------------------------
+
+/**
+ * Upload an image owned by the given organization; returns the image URN.
+ * Two steps: initializeUpload for a signed URL, then a raw PUT of the bytes.
+ */
+export async function uploadLinkedinAdImage(
+  token: string,
+  ownerUrn: string,
+  bytes: Buffer,
+  contentType: string,
+): Promise<string> {
+  const initRes = await platformFetch(
+    `${restBase()}/images?action=initializeUpload`,
+    {
+      method: "POST",
+      headers: { ...baseHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ initializeUploadRequest: { owner: ownerUrn } }),
+    },
+  );
+  if (!initRes.ok) throw await toError(initRes);
+  const initJson = (await initRes.json()) as {
+    value?: { uploadUrl?: string; image?: string };
+  };
+  const uploadUrl = initJson.value?.uploadUrl;
+  const imageUrn = initJson.value?.image;
+  if (!uploadUrl || !imageUrn) {
+    throw new LinkedinAdsApiError(
+      "LinkedIn did not return an image upload URL.",
+      502,
+    );
+  }
+  const putRes = await platformFetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": contentType || "application/octet-stream",
+    },
+    body: new Uint8Array(bytes),
+  });
+  if (!putRes.ok) {
+    throw new LinkedinAdsApiError(
+      `LinkedIn image upload failed (HTTP ${putRes.status}).`,
+      putRes.status,
+    );
+  }
+  return imageUrn;
+}
+
+/**
+ * Create a sponsored-content ("dark") post authored by the organization.
+ * Returns the post URN. `imageUrn` is optional (text-only sponsored post).
+ */
+export async function createLinkedinAdPost(
+  token: string,
+  authorUrn: string,
+  text: string,
+  imageUrn?: string | null,
+  landingUrl?: string | null,
+): Promise<string> {
+  const body: Record<string, unknown> = {
+    author: authorUrn,
+    commentary: text,
+    visibility: "PUBLIC",
+    distribution: {
+      feedDistribution: "NONE",
+      targetEntities: [],
+      thirdPartyDistributionChannels: [],
+    },
+    lifecycleState: "PUBLISHED",
+    isReshareDisabledByAuthor: false,
+    adContext: { dscStatus: "ACTIVE", dscName: text.slice(0, 100) || "Sponsored post" },
+  };
+  if (imageUrn) {
+    body.content = {
+      media: { id: imageUrn, ...(landingUrl ? { landingPage: landingUrl } : {}) },
+    };
+  } else if (landingUrl) {
+    body.content = { article: { source: landingUrl } };
+  }
+  const res = await platformFetch(`${restBase()}/posts`, {
+    method: "POST",
+    headers: { ...baseHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await toError(res);
+  const postUrn = res.headers.get("x-restli-id") ?? res.headers.get("x-linkedin-id");
+  if (!postUrn) {
+    throw new LinkedinAdsApiError("LinkedIn did not return a post id.", 502);
+  }
+  return postUrn;
+}
+
+/**
+ * Attach the sponsored post to a campaign as a creative; returns the creative
+ * id (numeric part of the sponsoredCreative URN when available).
+ */
+export async function createLinkedinCreative(
+  token: string,
+  adAccountId: string,
+  campaignId: string,
+  postUrn: string,
+  status: "ACTIVE" | "PAUSED",
+): Promise<string> {
+  const res = await platformFetch(
+    `${restBase()}/adAccounts/${encodeURIComponent(adAccountId)}/creatives`,
+    {
+      method: "POST",
+      headers: { ...baseHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        campaign: `urn:li:sponsoredCampaign:${campaignId}`,
+        content: { reference: postUrn },
+        intendedStatus: status,
+      }),
+    },
+  );
+  if (!res.ok) throw await toError(res);
+  const created = res.headers.get("x-restli-id") ?? res.headers.get("x-linkedin-id");
+  if (!created) {
+    throw new LinkedinAdsApiError("LinkedIn did not return a creative id.", 502);
+  }
+  return idFromUrn(created) ?? created;
+}
+
+interface RawCreative {
+  id?: string;
+  intendedStatus?: string;
+  isServing?: boolean;
+  review?: { status?: string };
+  campaign?: string;
+  content?: { reference?: string };
+}
+
+export interface LinkedinCreative {
+  id: string;
+  status: string;
+  reviewStatus: string | null;
+  campaignId: string | null;
+  postUrn: string | null;
+}
+
+function mapCreative(c: RawCreative): LinkedinCreative {
+  return {
+    id: idFromUrn(c.id) ?? (c.id != null ? String(c.id) : ""),
+    status: c.intendedStatus ?? "UNKNOWN",
+    reviewStatus: c.review?.status ?? null,
+    campaignId: idFromUrn(c.campaign),
+    postUrn: c.content?.reference ?? null,
+  };
+}
+
+/** Read one creative in the engine's snapshot-compatible shape. */
+export async function readLinkedinCreativeState(
+  token: string,
+  adAccountId: string,
+  creativeId: string,
+): Promise<{
+  name: string;
+  status: string;
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
+  startTime: string | null;
+  stopTime: string | null;
+}> {
+  const urn = `urn:li:sponsoredCreative:${creativeId}`;
+  const json = await restGet<RawCreative>(
+    `adAccounts/${encodeURIComponent(adAccountId)}/creatives/${encodeURIComponent(urn)}`,
+    token,
+  );
+  const c = mapCreative(json);
+  return {
+    name: c.postUrn ?? c.id,
+    status: c.status,
+    dailyBudget: null,
+    lifetimeBudget: null,
+    startTime: null,
+    stopTime: null,
+  };
+}
+
+/** List the creatives attached to a campaign. */
+export async function listLinkedinCreatives(
+  token: string,
+  adAccountId: string,
+  campaignId: string,
+): Promise<LinkedinCreative[]> {
+  const campaignUrn = encodeURIComponent(
+    `urn:li:sponsoredCampaign:${campaignId}`,
+  );
+  const json = await restGet<{ elements?: RawCreative[] }>(
+    `adAccounts/${encodeURIComponent(adAccountId)}/creatives?q=criteria&campaigns=List(${campaignUrn})&pageSize=100`,
+    token,
+  );
+  return (json.elements ?? []).map(mapCreative);
 }

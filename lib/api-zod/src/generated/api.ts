@@ -6064,6 +6064,27 @@ export const SelectTiktokAdvertiserResponse = zod.object({
 
 
 /**
+ * @summary Typeahead search for LinkedIn location targeting entities (geo URNs)
+ */
+export const searchLinkedinGeoTargetsQueryQMin = 2;
+export const searchLinkedinGeoTargetsQueryQMax = 100;
+
+
+
+export const SearchLinkedinGeoTargetsQueryParams = zod.object({
+  "connectionId": zod.coerce.number().describe('The ad account connection to read from.'),
+  "q": zod.coerce.string().min(searchLinkedinGeoTargetsQueryQMin).max(searchLinkedinGeoTargetsQueryQMax)
+})
+
+export const SearchLinkedinGeoTargetsResponse = zod.object({
+  "results": zod.array(zod.object({
+  "urn": zod.string().describe('LinkedIn geo URN, e.g. urn:li:geo:103644278.'),
+  "name": zod.string()
+}))
+})
+
+
+/**
  * @summary List campaigns with delivery status and metrics for a date range
  */
 export const ListAdCampaignsQueryParams = zod.object({
@@ -6199,11 +6220,15 @@ export const createAdDraftBodyDailyBudgetMin = 0;
 
 export const createAdDraftBodyLifetimeBudgetMin = 0;
 
+export const createAdDraftBodyTextMax = 3000;
+
+export const createAdDraftBodyTargetingLocationsMax = 50;
+
 
 
 export const CreateAdDraftBody = zod.object({
   "connectionId": zod.number(),
-  "targetType": zod.enum(['campaign', 'adset', 'ad', 'campaign_group']).describe('campaign_group is LinkedIn create-only.'),
+  "targetType": zod.enum(['campaign', 'adset', 'ad', 'campaign_group', 'creative']).describe('campaign_group and creative are LinkedIn create-only.'),
   "action": zod.enum(['create', 'update']),
   "targetId": zod.string().optional().describe('Remote object id (required for update).'),
   "idempotencyKey": zod.string().max(createAdDraftBodyIdempotencyKeyMax).optional().describe('Client-supplied key to make retries safe; server generates one when omitted.'),
@@ -6214,7 +6239,15 @@ export const CreateAdDraftBody = zod.object({
   "dailyBudget": zod.number().min(createAdDraftBodyDailyBudgetMin).nullish().describe('Daily budget in minor currency units.'),
   "lifetimeBudget": zod.number().min(createAdDraftBodyLifetimeBudgetMin).nullish().describe('Lifetime budget in minor currency units.'),
   "startTime": zod.string().nullish().describe('ISO-8601 schedule start.'),
-  "stopTime": zod.string().nullish().describe('ISO-8601 schedule end.')
+  "stopTime": zod.string().nullish().describe('ISO-8601 schedule end.'),
+  "campaignId": zod.string().optional().describe('LinkedIn creative creates — the campaign the creative attaches to.'),
+  "text": zod.string().max(createAdDraftBodyTextMax).optional().describe('LinkedIn creative creates — the sponsored post\'s text.'),
+  "imagePath": zod.string().nullish().describe('LinkedIn creative creates — content library image path (`\/objects\/<tenantId>\/uploads\/<uuid>`).'),
+  "landingUrl": zod.string().nullish().describe('LinkedIn creative creates — click-through landing page URL (https).'),
+  "targetingLocations": zod.array(zod.object({
+  "urn": zod.string().describe('LinkedIn geo URN, e.g. urn:li:geo:103644278.'),
+  "name": zod.string()
+})).max(createAdDraftBodyTargetingLocationsMax).optional().describe('LinkedIn campaigns — replacement location targeting (geo URNs picked via geo search).')
 })
 
 export const CreateAdDraftResponse = zod.object({

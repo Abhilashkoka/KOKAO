@@ -60,6 +60,8 @@ import {
   listLinkedinCampaigns,
   getLinkedinCampaign,
   getLinkedinAnalytics,
+  listLinkedinCreatives,
+  searchLinkedinGeoLocations,
   type LinkedinAdsCredentials,
 } from "../lib/linkedinAdsApi";
 import {
@@ -109,6 +111,7 @@ import {
   markAdConnectionFailed,
   buildUpdateDiff,
   buildCreateDiff,
+  buildCreativeCreateDiff,
   snapshotForCompare,
   approveAndApplyDraft,
   readAdTargetState,
@@ -117,6 +120,7 @@ import {
   adsApiErrorStatus,
   asTargetType,
   ADS_APPLY_IN_PROGRESS_MESSAGE,
+  type TargetingLocation,
 } from "../lib/adsEngine";
 import { notifyAdsDraftPending } from "../lib/notifications";
 import { reverifyMetaAds } from "../lib/adsReverify";
@@ -1355,6 +1359,32 @@ router.get("/ads/linkedin/campaign-groups", async (req: Request, res: Response) 
   }
 });
 
+router.get("/ads/linkedin/geo-search", async (req: Request, res: Response) => {
+  if (!(await adsEnabledOr503(res))) return;
+  const ct = await requireConnectedConnection(req, res);
+  if (!ct) return;
+  if (ct.conn.platform !== "linkedin") {
+    res.status(400).json({ error: "This connection is not a LinkedIn ad account." });
+    return;
+  }
+  const q = String(req.query.q ?? "").trim();
+  if (q.length < 2 || q.length > 100) {
+    res.status(400).json({ error: "q must be between 2 and 100 characters." });
+    return;
+  }
+  try {
+    const results = await searchLinkedinGeoLocations(ct.token, q);
+    res.json({ results });
+  } catch (err) {
+    if (isAdsAuthError(err)) {
+      await markAdConnectionFailed(ct.conn.id, (err as Error).message);
+    }
+    res.status(502).json({
+      error: err instanceof Error ? err.message : "Could not search locations.",
+    });
+  }
+});
+
 router.get("/ads/campaigns", async (req: Request, res: Response) => {
   if (!(await adsEnabledOr503(res))) return;
   const ct = await requireConnectedConnection(req, res);
@@ -1439,15 +1469,25 @@ router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
   const datePreset = parseDatePreset(req.query.datePreset);
   try {
     if (ct.conn.platform === "linkedin") {
-      const [campaign, metrics] = await Promise.all([
+      // LinkedIn has no ad-set layer; creatives attached to the campaign are
+      // surfaced through the shared `ads` list.
+      const [campaign, creatives, metrics] = await Promise.all([
         getLinkedinCampaign(ct.token, ct.conn.adAccountId, campaignId),
+        listLinkedinCreatives(ct.token, ct.conn.adAccountId, campaignId),
         getLinkedinAnalytics(ct.token, ct.conn.adAccountId, "CAMPAIGN", datePreset),
       ]);
       res.json({
         currency: ct.conn.currency ?? null,
         campaign: { ...campaign, metrics: metrics.get(campaign.id) ?? EMPTY_INSIGHTS },
         adSets: [],
-        ads: [],
+        ads: creatives.map((c) => ({
+          id: c.id,
+          name: c.reviewStatus ? `Creative ${c.id} (review: ${c.reviewStatus})` : `Creative ${c.id}`,
+          status: c.status,
+          effectiveStatus: c.status,
+          adSetId: null,
+          metrics: EMPTY_INSIGHTS,
+        })),
       });
       return;
     }
@@ -1625,8 +1665,9 @@ router.post(
     }
 
     // Campaigns can be created and fully edited; LinkedIn additionally
-    // supports creating campaign groups. Ad sets and ads are update-only,
-    // each restricted to the fields the object actually has.
+    // supports creating campaign groups and creatives (sponsored content).
+    // Ad sets and ads are update-only, each restricted to the fields the
+    // object actually has.
     if (input.targetType === "campaign_group") {
       if (conn.platform !== "linkedin") {
         res.status(400).json({ error: "Campaign groups can only be created on LinkedIn." });
@@ -1644,9 +1685,43 @@ router.post(
         });
         return;
       }
+    } else if (input.targetType === "creative") {
+      if (conn.platform !== "linkedin") {
+        res.status(400).json({ error: "Creatives can only be created on LinkedIn." });
+        return;
+      }
+      if (input.action !== "create") {
+        res.status(400).json({ error: "Creatives can only be created, not edited." });
+        return;
+      }
     } else if (input.action === "create" && input.targetType !== "campaign") {
       res.status(400).json({ error: "Only campaigns can be created in this phase." });
       return;
+    }
+    if (
+      input.targetingLocations != null &&
+      input.targetingLocations.length > 0 &&
+      (conn.platform !== "linkedin" || input.targetType !== "campaign")
+    ) {
+      res.status(400).json({
+        error: "Location targeting is only supported on LinkedIn campaigns.",
+      });
+      return;
+    }
+    const targetingLocations: TargetingLocation[] | null =
+      input.targetingLocations?.length
+        ? input.targetingLocations.map((l) => ({ urn: l.urn.trim(), name: l.name.trim() }))
+        : null;
+    if (targetingLocations) {
+      const bad = targetingLocations.find(
+        (l) => !/^urn:li:geo:\d+$/.test(l.urn) || !l.name,
+      );
+      if (bad) {
+        res.status(400).json({
+          error: "Each target location needs a valid LinkedIn geo URN and a name. Pick locations from the search results.",
+        });
+        return;
+      }
     }
     if (input.action === "update" && !input.targetId) {
       res.status(400).json({ error: "targetId is required for updates" });
@@ -1758,6 +1833,118 @@ router.post(
     if (input.lifetimeBudget != null) payload.lifetimeBudget = input.lifetimeBudget;
     if (input.startTime != null) payload.startTime = input.startTime;
     if (input.stopTime != null) payload.stopTime = input.stopTime;
+    if (targetingLocations) payload.targetingLocations = targetingLocations;
+
+    if (input.targetType === "creative") {
+      // Creative create: attach sponsored content (text + optional library
+      // image + optional landing URL) to an existing LinkedIn campaign.
+      const campaignId = input.campaignId?.trim();
+      if (!campaignId) {
+        res.status(400).json({ error: "campaignId is required to create a creative" });
+        return;
+      }
+      const text = input.text?.trim();
+      if (!text) {
+        res.status(400).json({ error: "text is required to create a creative" });
+        return;
+      }
+      const imagePath = input.imagePath?.trim() || null;
+      if (imagePath && !imagePath.startsWith(`/objects/${req.tenantId}/`)) {
+        // Tenant boundary: the path must belong to this workspace's storage
+        // namespace; anything else is rejected without confirming existence.
+        res.status(400).json({ error: "imagePath must be an image from your content library." });
+        return;
+      }
+      const landingUrl = input.landingUrl?.trim() || null;
+      if (landingUrl) {
+        let parsed: URL;
+        try {
+          parsed = new URL(landingUrl);
+        } catch {
+          res.status(400).json({ error: "landingUrl must be a valid URL." });
+          return;
+        }
+        if (parsed.protocol !== "https:") {
+          res.status(400).json({ error: "landingUrl must use https." });
+          return;
+        }
+      }
+      let campaignName = campaignId;
+      const liToken = getConnectionToken(conn);
+      if (!liToken) {
+        res.status(400).json({
+          error: "This ad account connection is missing or needs reconnecting.",
+        });
+        return;
+      }
+      try {
+        const campaign = await getLinkedinCampaign(liToken, conn.adAccountId, campaignId);
+        campaignName = campaign.name || campaignId;
+      } catch (err) {
+        if (isAdsAuthError(err)) {
+          await markAdConnectionFailed(conn.id, (err as Error).message);
+        }
+        res.status(502).json({
+          error:
+            err instanceof Error
+              ? `Could not read the campaign: ${err.message}`
+              : "Could not read the campaign.",
+        });
+        return;
+      }
+      payload.campaignId = campaignId;
+      payload.text = text;
+      if (imagePath) payload.imagePath = imagePath;
+      if (landingUrl) payload.landingUrl = landingUrl;
+      if (payload.status == null) payload.status = "PAUSED";
+      const targetName =
+        text.length > 60 ? `${text.slice(0, 57)}...` : text;
+      const changes = buildCreativeCreateDiff({
+        campaignName,
+        text,
+        imagePath,
+        landingUrl,
+        status: (payload.status as string) ?? "PAUSED",
+      });
+      const draft = (
+        await db
+          .insert(adChangeRequestsTable)
+          .values({
+            tenantId: req.tenantId,
+            connectionId: conn.id,
+            platform: conn.platform,
+            targetType: "creative",
+            targetId: null,
+            targetName,
+            action: "create",
+            changes,
+            payload,
+            beforeSnapshot: null,
+            status: "draft",
+            idempotencyKey,
+            createdByClerkUserId: req.clerkUserId,
+            createdByEmail: req.tenantEmail ?? null,
+          })
+          .returning()
+      )[0]!;
+      if (req.memberRole !== "owner") {
+        const owner = (
+          await db
+            .select({ clerkUserId: tenantsTable.clerkUserId })
+            .from(tenantsTable)
+            .where(eq(tenantsTable.id, req.tenantId))
+            .limit(1)
+        )[0];
+        await notifyAdsDraftPending(
+          req.tenantId,
+          owner?.clerkUserId ?? null,
+          targetName,
+          conn.platform,
+        );
+      }
+      res.status(201).json(serializeDraft(draft));
+      return;
+    }
 
     if (input.action === "update") {
       let current;
@@ -1776,7 +1963,15 @@ router.post(
         return;
       }
       targetName = current.name || (input.name ?? "");
-      changes = buildUpdateDiff(current, payload);
+      changes = buildUpdateDiff(current, {
+        name: input.name,
+        status: input.status,
+        dailyBudget: input.dailyBudget,
+        lifetimeBudget: input.lifetimeBudget,
+        startTime: input.startTime,
+        stopTime: input.stopTime,
+        targetingLocations,
+      });
       if (changes.length === 0) {
         res.status(400).json({
           error: "Nothing would change — the proposed values match the current state.",

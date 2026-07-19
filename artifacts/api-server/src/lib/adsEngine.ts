@@ -40,7 +40,13 @@ import {
   readLinkedinCampaignState,
   readLinkedinCampaignGroupState,
   type LinkedinAdsCredentials,
+  readLinkedinCreativeState,
+  getLinkedinAdAccountReference,
+  uploadLinkedinAdImage,
+  createLinkedinAdPost,
+  createLinkedinCreative,
 } from "./linkedinAdsApi";
+import { ObjectStorageService } from "./objectStorage";
 import { isLinkedinAppConfigured } from "./linkedinApp";
 import {
   GoogleAdsApiError,
@@ -225,6 +231,8 @@ interface UpdateParams {
   lifetimeBudget?: number;
   startTime?: string;
   stopTime?: string;
+  /** LinkedIn only: replacement location targeting URNs (deduped + sorted). */
+  targetingLocations?: string[];
 }
 
 /**
@@ -321,6 +329,9 @@ const linkedinOps: PlatformOps = {
     if (targetType === "campaign_group") {
       return readLinkedinCampaignGroupState(linkedinToken(conn), conn.adAccountId, targetId);
     }
+    if (targetType === "creative") {
+      return readLinkedinCreativeState(linkedinToken(conn), conn.adAccountId, targetId);
+    }
     if (targetType !== "campaign") {
       throw new LinkedinAdsApiError(
         "Only campaigns and campaign groups can be managed for LinkedIn Ads in this phase.",
@@ -338,6 +349,7 @@ const linkedinOps: PlatformOps = {
       startTime: params.startTime ?? undefined,
       stopTime: params.stopTime ?? undefined,
       currency: conn.currency ?? "USD",
+      targetingLocations: params.targetingLocations,
     });
   },
   create: async (conn, params) => {
@@ -478,6 +490,22 @@ export interface RemoteSnapshot {
   lifetimeBudget: number | null;
   startTime: string | null;
   stopTime: string | null;
+  /** LinkedIn campaigns only: targeted location geo URNs (sorted). */
+  targetingLocations?: string[];
+}
+
+/** A named targeting location as picked from the typeahead. */
+export interface TargetingLocation {
+  urn: string;
+  name: string;
+}
+
+function sortedUrns(locations: TargetingLocation[]): string[] {
+  return [...new Set(locations.map((l) => l.urn))].sort();
+}
+
+function locationNames(locations: TargetingLocation[]): string {
+  return locations.map((l) => l.name).join(", ");
 }
 
 function fmtBudget(minor: number | null): string | null {
@@ -494,6 +522,7 @@ export function buildUpdateDiff(
     lifetimeBudget?: number | null;
     startTime?: string | null;
     stopTime?: string | null;
+    targetingLocations?: TargetingLocation[] | null;
   },
 ): AdChangeField[] {
   const fields: AdChangeField[] = [];
@@ -522,6 +551,40 @@ export function buildUpdateDiff(
   }
   if (proposed.stopTime != null && proposed.stopTime !== before.stopTime) {
     fields.push({ field: "End time", before: before.stopTime, after: proposed.stopTime });
+  }
+  if (
+    proposed.targetingLocations != null &&
+    proposed.targetingLocations.length > 0 &&
+    JSON.stringify(sortedUrns(proposed.targetingLocations)) !==
+      JSON.stringify(before.targetingLocations ?? [])
+  ) {
+    fields.push({
+      field: "Target locations",
+      before: (before.targetingLocations ?? []).join(", ") || null,
+      after: locationNames(proposed.targetingLocations),
+    });
+  }
+  return fields;
+}
+
+/** Human-readable diff for a creative (sponsored content) create draft. */
+export function buildCreativeCreateDiff(proposed: {
+  campaignName: string;
+  text: string;
+  imagePath?: string | null;
+  landingUrl?: string | null;
+  status: string;
+}): AdChangeField[] {
+  const fields: AdChangeField[] = [
+    { field: "Campaign", before: null, after: proposed.campaignName },
+    { field: "Ad text", before: null, after: proposed.text },
+    { field: "Status", before: null, after: proposed.status },
+  ];
+  if (proposed.imagePath) {
+    fields.push({ field: "Image", before: null, after: proposed.imagePath });
+  }
+  if (proposed.landingUrl) {
+    fields.push({ field: "Landing page", before: null, after: proposed.landingUrl });
   }
   return fields;
 }
@@ -555,7 +618,7 @@ export function buildCreateDiff(proposed: {
 
 /** The snapshot fields a draft compares at apply time (drift detection). */
 export function snapshotForCompare(s: RemoteSnapshot): Record<string, unknown> {
-  return {
+  const out: Record<string, unknown> = {
     name: s.name,
     status: s.status,
     dailyBudget: s.dailyBudget,
@@ -563,6 +626,10 @@ export function snapshotForCompare(s: RemoteSnapshot): Record<string, unknown> {
     startTime: s.startTime,
     stopTime: s.stopTime,
   };
+  // Only present for LinkedIn campaigns; older snapshots without the key are
+  // still comparable (snapshotsMatch only compares shared keys).
+  if (s.targetingLocations != null) out.targetingLocations = s.targetingLocations;
+  return out;
 }
 
 function snapshotsMatch(
@@ -593,6 +660,69 @@ interface ApplyPayload {
   stopTime?: string | null;
   /** LinkedIn only: the campaign group a new campaign is created in. */
   campaignGroupId?: string;
+  /** LinkedIn only: replacement location targeting for a campaign update. */
+  targetingLocations?: TargetingLocation[];
+  /** LinkedIn creative creates: the campaign the creative attaches to. */
+  campaignId?: string;
+  /** LinkedIn creative creates: the sponsored post's text. */
+  text?: string;
+  /** LinkedIn creative creates: tenant-scoped library image path (optional). */
+  imagePath?: string | null;
+  /** LinkedIn creative creates: click-through landing page URL (optional). */
+  landingUrl?: string | null;
+}
+
+/**
+ * Create a LinkedIn creative: fetch the (tenant-scoped) library image, upload
+ * it as the advertiser org, publish a sponsored ("dark") post, then attach it
+ * to the campaign. Returns the new creative id.
+ */
+async function applyCreativeCreate(
+  conn: AdAccountConnection,
+  payload: ApplyPayload,
+): Promise<string> {
+  if (!payload.campaignId) {
+    throw new LinkedinAdsApiError(
+      "A campaign is required to create a LinkedIn creative.",
+      400,
+    );
+  }
+  if (!payload.text?.trim()) {
+    throw new LinkedinAdsApiError("Ad text is required to create a creative.", 400);
+  }
+  const token = linkedinToken(conn);
+  const orgUrn = await getLinkedinAdAccountReference(token, conn.adAccountId);
+
+  let imageUrn: string | null = null;
+  if (payload.imagePath) {
+    // The stored path is attacker-influenceable free-form text; the storage
+    // service re-asserts the `/objects/<tenantId>/` prefix before serving.
+    const storage = new ObjectStorageService();
+    const file = await storage.getObjectEntityFile(payload.imagePath, conn.tenantId);
+    const [metadata] = await file.getMetadata();
+    const [bytes] = await file.download();
+    imageUrn = await uploadLinkedinAdImage(
+      token,
+      orgUrn,
+      bytes,
+      (metadata.contentType as string) || "image/jpeg",
+    );
+  }
+
+  const postUrn = await createLinkedinAdPost(
+    token,
+    orgUrn,
+    payload.text.trim(),
+    imageUrn,
+    payload.landingUrl ?? null,
+  );
+  return createLinkedinCreative(
+    token,
+    conn.adAccountId,
+    payload.campaignId,
+    postUrn,
+    payload.status ?? "PAUSED",
+  );
 }
 
 /** Human-readable label for a draft's target type (error/expiry messages). */
@@ -600,11 +730,12 @@ export function targetTypeLabel(targetType: string): string {
   if (targetType === "adset") return "ad set";
   if (targetType === "ad") return "ad";
   if (targetType === "campaign_group") return "campaign group";
+  if (targetType === "creative") return "creative";
   return "campaign";
 }
 
 export function asDraftTargetType(value: string): AdsDraftTargetType {
-  return value === "adset" || value === "ad" || value === "campaign_group"
+  return value === "adset" || value === "ad" || value === "campaign_group" || value === "creative"
     ? value
     : "campaign";
 }
@@ -613,8 +744,8 @@ export function asTargetType(value: string): AdsTargetType {
   return value === "adset" || value === "ad" ? value : "campaign";
 }
 
-/** Draft target types the engine understands across platforms. */
-export type AdsDraftTargetType = AdsTargetType | "campaign_group";
+/** Draft target types the engine understands across platforms (campaign_group and creative are LinkedIn-only). */
+export type AdsDraftTargetType = AdsTargetType | "campaign_group" | "creative";
 
 /** True when the platform says the grant is expired/revoked (any platform). */
 export function isPlatformAuthError(err: unknown): boolean {
@@ -764,6 +895,9 @@ export async function approveAndApplyDraft(
           lifetimeBudget: payload.lifetimeBudget ?? undefined,
           startTime: payload.startTime ?? undefined,
           stopTime: payload.stopTime ?? undefined,
+          targetingLocations: payload.targetingLocations?.length
+            ? [...new Set(payload.targetingLocations.map((l) => l.urn))].sort()
+            : undefined,
           targetType: asTargetType(claimed.targetType),
         });
 
@@ -778,7 +912,19 @@ export async function approveAndApplyDraft(
         return await finishApplied(claimed, claimed.targetId, verifyStatus, approver);
       }
 
-      // Create: campaigns everywhere; campaign groups on LinkedIn only.
+      // Create: campaigns everywhere; campaign groups and creatives on LinkedIn only.
+      if (claimed.targetType === "creative") {
+        if (conn.platform !== "linkedin") {
+          return await finishFailed(
+            claimed,
+            "Creatives can only be created for LinkedIn campaigns in this phase.",
+            approver,
+          );
+        }
+        const newId = await applyCreativeCreate(conn, payload);
+        const verifyStatus = await verifyCreativeApplied(ops, conn, newId, payload);
+        return await finishApplied(claimed, newId, verifyStatus, approver);
+      }
       const creatable =
         claimed.targetType === "campaign" ||
         (claimed.targetType === "campaign_group" && conn.platform === "linkedin");
@@ -833,6 +979,26 @@ function timesEqual(a: string | null, b: string): boolean {
   const ta = Date.parse(a);
   const tb = Date.parse(b);
   return Number.isFinite(ta) && Number.isFinite(tb) && ta === tb;
+}
+
+/**
+ * Read-back verification for a freshly created creative: it must exist and
+ * carry the intended status. Other snapshot fields do not apply to creatives.
+ */
+async function verifyCreativeApplied(
+  ops: PlatformOps,
+  conn: AdAccountConnection,
+  creativeId: string,
+  payload: ApplyPayload,
+): Promise<string> {
+  try {
+    const state = await ops.readState(conn, creativeId, "creative");
+    if (payload.status != null && state.status !== payload.status) return "mismatch";
+    return "verified";
+  } catch {
+    // The write landed; only the read-back failed. Not a failure.
+    return "unverified";
+  }
 }
 
 /** Best-effort read-back verification that the applied fields stuck. */

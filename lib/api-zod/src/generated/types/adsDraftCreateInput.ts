@@ -8,10 +8,11 @@
 import type { AdsDraftCreateInputAction } from './adsDraftCreateInputAction';
 import type { AdsDraftCreateInputStatus } from './adsDraftCreateInputStatus';
 import type { AdsDraftCreateInputTargetType } from './adsDraftCreateInputTargetType';
+import type { AdsTargetingLocation } from './adsTargetingLocation';
 
 export interface AdsDraftCreateInput {
   connectionId: number;
-  /** campaign_group is LinkedIn create-only. */
+  /** campaign_group and creative are LinkedIn create-only. */
   targetType: AdsDraftCreateInputTargetType;
   action: AdsDraftCreateInputAction;
   /** Remote object id (required for update). */
@@ -50,4 +51,26 @@ export interface AdsDraftCreateInput {
      * @nullable
      */
   stopTime?: string | null;
+  /** LinkedIn creative creates — the campaign the creative attaches to. */
+  campaignId?: string;
+  /**
+     * LinkedIn creative creates — the sponsored post's text.
+     * @maxLength 3000
+     */
+  text?: string;
+  /**
+     * LinkedIn creative creates — content library image path (`/objects/<tenantId>/uploads/<uuid>`).
+     * @nullable
+     */
+  imagePath?: string | null;
+  /**
+     * LinkedIn creative creates — click-through landing page URL (https).
+     * @nullable
+     */
+  landingUrl?: string | null;
+  /**
+     * LinkedIn campaigns — replacement location targeting (geo URNs picked via geo search).
+     * @maxItems 50
+     */
+  targetingLocations?: AdsTargetingLocation[];
 }

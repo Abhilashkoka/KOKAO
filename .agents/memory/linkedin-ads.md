@@ -9,7 +9,10 @@ description: How LinkedIn paid-media support hangs off the shared ads engine; bu
 - Campaign groups are draftable too, but create-only and LinkedIn-only (`targetType: campaign_group`, name/status/lifetimeBudget only; no daily budget or schedule). Group creates POST `adAccounts/{id}/adCampaignGroups` with `runSchedule.start=now`; id comes from the `x-restli-id` header. Engine-wide draft types use `AdsDraftTargetType` (= AdsTargetType | campaign_group).
 - OAuth reuses the same LinkedIn app creds as organic publishing (`r_ads rw_ads r_ads_reporting`, space-separated scopes); callback lands the connection in `pending_selection` until the tenant picks an ad account.
 - `LinkedinAdsApiError` only counts as an auth failure when constructed with `authFailed=true` (third arg) — status 401 alone is not enough for `isAdsAuthError`.
-- Tests mirror ads.test.ts: vi.mock `../lib/linkedinAdsApi` with importOriginal spread, real dev DB, mocks for list/read/create/update/state fns.
+- Tests mirror ads.test.ts: vi.mock `../lib/linkedinAdsApi` with importOriginal spread, real dev DB, mocks for list/read/create/update/state fns. Every adapter fn touched by routes/engine must be in the mock list or the spread hits the real network.
+- **Creatives are create-only** through the engine (org URN → optional image upload → dark post → creative); the creative verify step is status-only because LinkedIn's creative read-back doesn't echo text/image — a read-back failure marks "unverified", not failed.
+- Creative image inputs must be tenant-scoped storage paths (`/objects/<tenantId>/...`, 400 otherwise) and landing URLs must be https — validated at draft-create time, not apply time.
+- **Location targeting** rides the normal campaign update draft: `targetingLocations` [{urn,name}] validated against `^urn:li:geo:\d+$`, diffed as "Target locations", applied as sorted URNs; geo typeahead endpoint is LinkedIn-only and marks the connection failed on auth errors.
 
 **Why:** unit mismatches and silent non-auth 401 handling were the two easiest ways to corrupt drift checks or miss reconnect prompts.
 **How to apply:** any new LinkedIn ads surface (creatives, targeting, groups) must convert budgets at the adapter and set authFailed explicitly on token errors.

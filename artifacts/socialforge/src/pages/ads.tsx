@@ -23,6 +23,9 @@ import {
   getGetAdsGoogleAuthUrlQueryKey,
   useListGoogleAdCustomerChoices,
   useSelectGoogleAdAccount,
+  useSearchLinkedinGeoTargets,
+  getSearchLinkedinGeoTargetsQueryKey,
+  useListContent,
   useListAdCampaigns,
   useGetAdCampaignDetail,
   useListAdDrafts,
@@ -38,6 +41,7 @@ import {
   getListAdsChangeLogQueryKey,
   type AdsDraft,
   type AdAccountConnection,
+  type AdsTargetingLocation,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -83,9 +87,12 @@ import {
   CheckCircle2,
   AlertCircle,
   ArrowRight,
+  ImagePlus,
+  MapPin,
   Pencil,
   Plus,
   ShieldCheck,
+  X,
   TrendingUp,
   Wallet,
 } from "lucide-react";
@@ -1356,7 +1363,10 @@ function CampaignsSection({
   });
   const [draftForm, setDraftForm] = useState<DraftFormState | null>(null);
   const [detailCampaignId, setDetailCampaignId] = useState<string | null>(null);
+  const [creativeCampaign, setCreativeCampaign] = useState<{ id: string; name: string } | null>(null);
+  const [targetingCampaign, setTargetingCampaign] = useState<{ id: string; name: string } | null>(null);
 
+  const isLinkedin = connection.platform === "linkedin";
   const currency = data?.currency ?? connection.currency ?? null;
 
   return (
@@ -1460,7 +1470,29 @@ function CampaignsSection({
                     <TableCell className="text-right">
                       {c.metrics.results.toLocaleString()}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right whitespace-nowrap">
+                      {canManage && isLinkedin && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="Add creative"
+                            onClick={() => setCreativeCampaign({ id: c.id, name: c.name })}
+                            data-testid={`button-add-creative-${c.id}`}
+                          >
+                            <ImagePlus className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="Edit targeting"
+                            onClick={() => setTargetingCampaign({ id: c.id, name: c.name })}
+                            data-testid={`button-edit-targeting-${c.id}`}
+                          >
+                            <MapPin className="h-4 w-4" />
+                          </Button>
+                        </>
+                      )}
                       {canManage && (
                         <Button
                           variant="ghost"
@@ -1513,6 +1545,22 @@ function CampaignsSection({
           platform={connection.platform}
           form={draftForm}
           onClose={() => setDraftForm(null)}
+        />
+      )}
+
+      {creativeCampaign && (
+        <CreativeDraftDialog
+          connectionId={connection.id}
+          campaign={creativeCampaign}
+          onClose={() => setCreativeCampaign(null)}
+        />
+      )}
+
+      {targetingCampaign && (
+        <TargetingDraftDialog
+          connectionId={connection.id}
+          campaign={targetingCampaign}
+          onClose={() => setTargetingCampaign(null)}
         />
       )}
     </div>
@@ -2005,6 +2053,309 @@ function DraftDialog({
               (isCreate && isLinkedin && !isGroupCreate && !campaignGroupId)
             }
             data-testid="button-submit-draft"
+          >
+            {createDraft.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Save draft
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CreativeDraftDialog({
+  connectionId,
+  campaign,
+  onClose,
+}: {
+  connectionId: number;
+  campaign: { id: string; name: string };
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const createDraft = useCreateAdDraft();
+  const idempotencyKey = useMemo(() => crypto.randomUUID(), []);
+  const [text, setText] = useState("");
+  const [landingUrl, setLandingUrl] = useState("");
+  const [imagePath, setImagePath] = useState<string | null>(null);
+
+  const { data: content } = useListContent();
+  const imageItems = (content ?? []).filter((i) => i.imagePath);
+
+  const submit = () => {
+    createDraft.mutate(
+      {
+        data: {
+          connectionId,
+          targetType: "creative",
+          action: "create",
+          idempotencyKey,
+          campaignId: campaign.id,
+          text: text.trim(),
+          imagePath: imagePath ?? undefined,
+          landingUrl: landingUrl.trim() || undefined,
+        } as never,
+      },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListAdDraftsQueryKey() });
+          toast({
+            title: "Creative draft created",
+            description:
+              "The creative is saved as a draft. The workspace owner can review and approve it under Approvals.",
+          });
+          onClose();
+        },
+        onError: (err) => {
+          toast({
+            variant: "destructive",
+            title: "Could not create the draft",
+            description:
+              (err as { payload?: { error?: string } }).payload?.error ?? undefined,
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Add a creative to "{campaign.name}"</DialogTitle>
+          <DialogDescription>
+            The ad text and image are saved as a draft the workspace owner must
+            approve before anything reaches LinkedIn.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="creative-text">Ad text</Label>
+            <textarea
+              id="creative-text"
+              className="w-full min-h-24 rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              maxLength={3000}
+              placeholder="What should this sponsored post say?"
+              data-testid="input-creative-text"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="creative-landing">Landing page URL (optional, https)</Label>
+            <Input
+              id="creative-landing"
+              placeholder="https://example.com/offer"
+              value={landingUrl}
+              onChange={(e) => setLandingUrl(e.target.value)}
+              data-testid="input-creative-landing"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Image from your content library (optional)</Label>
+            {imageItems.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No images in your library yet. Generate one in the studio first,
+                or draft the creative as text-only.
+              </p>
+            ) : (
+              <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto">
+                {imageItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`relative rounded-md border-2 overflow-hidden ${
+                      imagePath === item.imagePath
+                        ? "border-primary"
+                        : "border-transparent hover:border-muted-foreground/40"
+                    }`}
+                    onClick={() =>
+                      setImagePath(
+                        imagePath === item.imagePath ? null : (item.imagePath ?? null),
+                      )
+                    }
+                    data-testid={`button-creative-image-${item.id}`}
+                  >
+                    <img
+                      src={`/api/storage${item.imagePath}`}
+                      alt=""
+                      className="h-20 w-full object-cover"
+                    />
+                    {imagePath === item.imagePath && (
+                      <span className="absolute top-1 right-1 rounded-full bg-primary text-primary-foreground p-0.5">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            onClick={submit}
+            disabled={createDraft.isPending || !text.trim()}
+            data-testid="button-submit-creative-draft"
+          >
+            {createDraft.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Save draft
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TargetingDraftDialog({
+  connectionId,
+  campaign,
+  onClose,
+}: {
+  connectionId: number;
+  campaign: { id: string; name: string };
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const createDraft = useCreateAdDraft();
+  const idempotencyKey = useMemo(() => crypto.randomUUID(), []);
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<AdsTargetingLocation[]>([]);
+
+  const trimmed = query.trim();
+  const { data: searchData, isFetching } = useSearchLinkedinGeoTargets(
+    { connectionId, q: trimmed },
+    {
+      query: {
+        enabled: trimmed.length >= 2,
+        queryKey: getSearchLinkedinGeoTargetsQueryKey({ connectionId, q: trimmed }),
+      },
+    },
+  );
+
+  const addLocation = (loc: AdsTargetingLocation) => {
+    if (!selected.some((s) => s.urn === loc.urn)) {
+      setSelected([...selected, loc]);
+    }
+    setQuery("");
+  };
+
+  const submit = () => {
+    createDraft.mutate(
+      {
+        data: {
+          connectionId,
+          targetType: "campaign",
+          action: "update",
+          targetId: campaign.id,
+          idempotencyKey,
+          targetingLocations: selected,
+        } as never,
+      },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListAdDraftsQueryKey() });
+          toast({
+            title: "Targeting draft created",
+            description:
+              "The targeting change is saved as a draft. The workspace owner can review and approve it under Approvals.",
+          });
+          onClose();
+        },
+        onError: (err) => {
+          toast({
+            variant: "destructive",
+            title: "Could not create the draft",
+            description:
+              (err as { payload?: { error?: string } }).payload?.error ?? undefined,
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit targeting for "{campaign.name}"</DialogTitle>
+          <DialogDescription>
+            Pick the locations this campaign should target. The change is saved
+            as a draft the workspace owner must approve; it replaces the
+            campaign's current location targeting.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="targeting-search">Search locations</Label>
+            <Input
+              id="targeting-search"
+              placeholder="Type a country, region, or city"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              data-testid="input-targeting-search"
+            />
+            {trimmed.length >= 2 && (
+              <div className="rounded-md border max-h-40 overflow-y-auto">
+                {isFetching && (
+                  <div className="p-2 text-sm text-muted-foreground">Searching...</div>
+                )}
+                {!isFetching && (searchData?.results ?? []).length === 0 && (
+                  <div className="p-2 text-sm text-muted-foreground">No matches.</div>
+                )}
+                {(searchData?.results ?? []).map((loc) => (
+                  <button
+                    key={loc.urn}
+                    type="button"
+                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted"
+                    onClick={() => addLocation(loc)}
+                    data-testid={`button-geo-result-${loc.urn}`}
+                  >
+                    {loc.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label>Selected locations</Label>
+            {selected.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No locations selected yet.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {selected.map((loc) => (
+                  <Badge key={loc.urn} variant="secondary" className="gap-1">
+                    {loc.name}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelected(selected.filter((s) => s.urn !== loc.urn))
+                      }
+                      data-testid={`button-remove-location-${loc.urn}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            onClick={submit}
+            disabled={createDraft.isPending || selected.length === 0}
+            data-testid="button-submit-targeting-draft"
           >
             {createDraft.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             Save draft

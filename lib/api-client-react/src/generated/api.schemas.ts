@@ -2722,7 +2722,7 @@ export interface AdsDraft {
 }
 
 /**
- * campaign_group is LinkedIn create-only.
+ * campaign_group and creative are LinkedIn create-only.
  */
 export type AdsDraftCreateInputTargetType = typeof AdsDraftCreateInputTargetType[keyof typeof AdsDraftCreateInputTargetType];
 
@@ -2732,6 +2732,7 @@ export const AdsDraftCreateInputTargetType = {
   adset: 'adset',
   ad: 'ad',
   campaign_group: 'campaign_group',
+  creative: 'creative',
 } as const;
 
 export type AdsDraftCreateInputAction = typeof AdsDraftCreateInputAction[keyof typeof AdsDraftCreateInputAction];
@@ -2750,9 +2751,15 @@ export const AdsDraftCreateInputStatus = {
   PAUSED: 'PAUSED',
 } as const;
 
+export interface AdsTargetingLocation {
+  /** LinkedIn geo URN, e.g. urn:li:geo:103644278. */
+  urn: string;
+  name: string;
+}
+
 export interface AdsDraftCreateInput {
   connectionId: number;
-  /** campaign_group is LinkedIn create-only. */
+  /** campaign_group and creative are LinkedIn create-only. */
   targetType: AdsDraftCreateInputTargetType;
   action: AdsDraftCreateInputAction;
   /** Remote object id (required for update). */
@@ -2791,6 +2798,32 @@ export interface AdsDraftCreateInput {
      * @nullable
      */
   stopTime?: string | null;
+  /** LinkedIn creative creates — the campaign the creative attaches to. */
+  campaignId?: string;
+  /**
+     * LinkedIn creative creates — the sponsored post's text.
+     * @maxLength 3000
+     */
+  text?: string;
+  /**
+     * LinkedIn creative creates — content library image path (`/objects/<tenantId>/uploads/<uuid>`).
+     * @nullable
+     */
+  imagePath?: string | null;
+  /**
+     * LinkedIn creative creates — click-through landing page URL (https).
+     * @nullable
+     */
+  landingUrl?: string | null;
+  /**
+     * LinkedIn campaigns — replacement location targeting (geo URNs picked via geo search).
+     * @maxItems 50
+     */
+  targetingLocations?: AdsTargetingLocation[];
+}
+
+export interface AdsGeoSearchResult {
+  results: AdsTargetingLocation[];
 }
 
 export interface AdsChangeLogEntry {
@@ -3158,6 +3191,18 @@ connectionId: AdsConnectionIdParameter;
  * Reporting date range (defaults to last_30d).
  */
 datePreset?: AdsDatePresetParameter;
+};
+
+export type SearchLinkedinGeoTargetsParams = {
+/**
+ * The ad account connection to read from.
+ */
+connectionId: AdsConnectionIdParameter;
+/**
+ * @minLength 2
+ * @maxLength 100
+ */
+q: string;
 };
 
 export type ListAdCampaignsParams = {
