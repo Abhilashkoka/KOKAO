@@ -38,7 +38,8 @@ vi.mock("../lib/connectionSweep", () => ({
   checkSweepStaleness: vi.fn(async () => undefined),
 }));
 
-import { pool } from "@workspace/db";
+import { pool, db, adminAuditLogsTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import { triggerSweepNow } from "../lib/connectionSweep";
 import { createAdminTestApp } from "../test/testApp";
 import { resetAuthState, actAs } from "../test/authState";
@@ -928,6 +929,63 @@ describe("Audit trail — privileged actions are recorded", () => {
     } finally {
       await deleteTenant(actor.tenantId);
       await deleteTenant(target.tenantId);
+    }
+  });
+
+  it("exports a stale pending email_test_send row as 'abandoned' in the CSV", async () => {
+    const actor = await createTenant({
+      isSuperadmin: true,
+      email: `granted-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(actor.clerkUserId, actor.email);
+
+      // Simulate a crash between reserve and finalize: a "pending" audit row
+      // whose throttle window has already expired.
+      const stale = new Date(Date.now() - 10 * 60_000);
+      const [abandoned] = await db
+        .insert(adminAuditLogsTable)
+        .values({
+          action: "email_test_send",
+          actorTenantId: actor.tenantId,
+          actorEmail: actor.email,
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: null,
+          newValue: JSON.stringify({
+            recipient: "victim@example.com",
+            outcome: "pending",
+            error: null,
+          }),
+          createdAt: stale,
+        })
+        .returning({ id: adminAuditLogsTable.id });
+
+      const res = await request(app).get(
+        "/api/admin/audit-logs/export?action=email_test_send",
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toContain("text/csv");
+
+      const line = res.text
+        .trim()
+        .split(/\r\n/)
+        .find((l) => l.startsWith(`${abandoned.id},`));
+      expect(line).toBeDefined();
+      expect(line).toContain("abandoned");
+      expect(line).not.toContain("pending");
+
+      // The rewrite is persisted, not just presentational.
+      const [staleRow] = await db
+        .select({ newValue: adminAuditLogsTable.newValue })
+        .from(adminAuditLogsTable)
+        .where(eq(adminAuditLogsTable.id, abandoned.id));
+      expect(JSON.parse(staleRow.newValue!)).toMatchObject({
+        recipient: "victim@example.com",
+        outcome: "abandoned",
+      });
+    } finally {
+      await deleteTenant(actor.tenantId);
     }
   });
 
