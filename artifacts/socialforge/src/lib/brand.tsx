@@ -11,6 +11,41 @@ type BrandContextValue = {
   iconUrl: string | null;
 };
 
+const BRAND_CACHE_KEY = "kokao-app-brand-cache";
+
+/**
+ * Last-known branding persisted locally so a page reload shows the custom
+ * logo/name immediately instead of flashing the bundled default while the
+ * /app-brand fetch is in flight.
+ */
+function readCachedBrand(): Partial<AppBrand> | null {
+  try {
+    const raw = localStorage.getItem(BRAND_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? (parsed as Partial<AppBrand>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedBrand(brand: AppBrand) {
+  try {
+    localStorage.setItem(
+      BRAND_CACHE_KEY,
+      JSON.stringify({
+        appName: brand.appName ?? null,
+        logoUrl: brand.logoUrl ?? null,
+        iconUrl: brand.iconUrl ?? null,
+        primaryColor: brand.primaryColor ?? null,
+        backgroundColor: brand.backgroundColor ?? null,
+      }),
+    );
+  } catch {
+    // Storage unavailable (private mode/quota) — flash-avoidance is best-effort.
+  }
+}
+
 const BrandContext = createContext<BrandContextValue>({
   appName: DEFAULT_APP_NAME,
   logoUrl: kokaoLockup,
@@ -115,7 +150,14 @@ function setFavicon(href: string | null) {
  */
 export function BrandProvider({ children }: { children: React.ReactNode }) {
   const { data } = useGetAppBrand();
-  const brand = data as AppBrand | undefined;
+  const fetched = data as AppBrand | undefined;
+  // Until the fetch resolves, fall back to the last-known branding cached in
+  // localStorage so reloads don't flash the bundled default logo.
+  const brand = fetched ?? readCachedBrand() ?? undefined;
+
+  useEffect(() => {
+    if (fetched) writeCachedBrand(fetched);
+  }, [fetched]);
 
   const appName = brand?.appName || DEFAULT_APP_NAME;
   const logoUrl = brand?.logoUrl || kokaoLockup;
