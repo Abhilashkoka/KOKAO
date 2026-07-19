@@ -27,6 +27,21 @@ vi.mock("@clerk/express", async () => {
   };
 });
 
+// Token-refresh network path (used by the auth-failure gate).
+vi.mock("../lib/platformFetch", () => ({
+  platformFetch: vi.fn(),
+}));
+vi.mock("../lib/linkedinApp", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/linkedinApp")>();
+  return {
+    ...actual,
+    getLinkedinAppCredentials: vi.fn(async () => ({
+      clientId: "app-id",
+      clientSecret: "app-secret",
+    })),
+  };
+});
+
 // Stub only the LinkedIn network functions; DB-backed engine logic stays real.
 vi.mock("../lib/linkedinAdsApi", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/linkedinAdsApi")>();
@@ -86,6 +101,8 @@ import {
   searchLinkedinGeoLocations,
   LinkedinAdsApiError,
 } from "../lib/linkedinAdsApi";
+import { platformFetch } from "../lib/platformFetch";
+import { LINKEDIN_ADS_REFRESH_WINDOW_MS } from "../lib/linkedinAdsRefresh";
 import { encryptJson } from "../lib/secretCrypto";
 import { requireTenant } from "../middlewares/requireTenant";
 import adsRouter from "./ads";
@@ -111,6 +128,7 @@ const mockCreatePost = vi.mocked(createLinkedinAdPost);
 const mockCreateCreative = vi.mocked(createLinkedinCreative);
 const mockListCreatives = vi.mocked(listLinkedinCreatives);
 const mockGeoSearch = vi.mocked(searchLinkedinGeoLocations);
+const mockPlatformFetch = vi.mocked(platformFetch);
 
 function createAdsTestApp(): Express {
   const app = express();
@@ -1057,6 +1075,116 @@ describe("LinkedIn location targeting", () => {
       });
       expect(res.status).toBe(400);
       expect(res.body.error).toContain("geo URN");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("LinkedIn campaign-detail auth-failure gating", () => {
+  function farFutureCreds(refresh?: { refreshToken: string }) {
+    return {
+      accessToken: "li-ads-token",
+      expiresAt: Date.now() + LINKEDIN_ADS_REFRESH_WINDOW_MS + 10 * 24 * 60 * 60 * 1000,
+      ...(refresh ?? {}),
+    };
+  }
+
+  function refreshResponse(status: number, body: unknown): Response {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => body,
+    } as unknown as Response;
+  }
+
+  it("does NOT mark the connection failed on API 401 when the refresh attempt fails transiently", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId, {
+        encryptedCredentials: encryptJson(
+          farFutureCreds({ refreshToken: "still-valid-refresh" }),
+        ),
+      });
+      mockGetCampaign.mockRejectedValue(
+        new LinkedinAdsApiError("Token expired", 401, true),
+      );
+      mockPlatformFetch.mockResolvedValue(refreshResponse(503, {}));
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .get("/api/ads/campaign-detail")
+        .query({ connectionId: String(connectionId), campaignId: "cmp_1" });
+      expect(res.status).toBe(502);
+
+      const [conn] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(conn!.verifyStatus).toBe("verified");
+      expect(mockPlatformFetch).toHaveBeenCalledTimes(1);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("marks the connection failed on API 401 when the refresh token is definitively rejected", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId, {
+        encryptedCredentials: encryptJson(
+          farFutureCreds({ refreshToken: "dead-refresh" }),
+        ),
+      });
+      mockGetCampaign.mockRejectedValue(
+        new LinkedinAdsApiError("Token revoked", 401, true),
+      );
+      mockPlatformFetch.mockResolvedValue(
+        refreshResponse(400, { error: "invalid_grant" }),
+      );
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .get("/api/ads/campaign-detail")
+        .query({ connectionId: String(connectionId), campaignId: "cmp_1" });
+      expect(res.status).toBe(502);
+
+      const [conn] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(conn!.verifyStatus).toBe("failed");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("renews the token instead of failing when the refresh succeeds after an API 401", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId, {
+        encryptedCredentials: encryptJson(
+          farFutureCreds({ refreshToken: "good-refresh" }),
+        ),
+      });
+      mockGetCampaign.mockRejectedValue(
+        new LinkedinAdsApiError("Token expired", 401, true),
+      );
+      mockPlatformFetch.mockResolvedValue(
+        refreshResponse(200, { access_token: "renewed", expires_in: 5184000 }),
+      );
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .get("/api/ads/campaign-detail")
+        .query({ connectionId: String(connectionId), campaignId: "cmp_1" });
+      expect(res.status).toBe(502);
+
+      const [conn] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(conn!.verifyStatus).toBe("verified");
     } finally {
       await deleteTenant(tenant.tenantId);
     }

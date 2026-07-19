@@ -70,6 +70,7 @@ import {
   LINKEDIN_AUTH_BASE,
   LINKEDIN_TOKEN_URL,
 } from "../lib/linkedinApp";
+import { maybeRefreshLinkedinAdsToken } from "../lib/linkedinAdsRefresh";
 import {
   GoogleAdsApiError,
   isGoogleAdsConfigured,
@@ -109,6 +110,7 @@ import {
   getAdConnection,
   getConnectionToken,
   markAdConnectionFailed,
+  markAdConnectionAuthFailed,
   buildUpdateDiff,
   buildCreateDiff,
   buildCreativeCreateDiff,
@@ -123,7 +125,7 @@ import {
   type TargetingLocation,
 } from "../lib/adsEngine";
 import { notifyAdsDraftPending } from "../lib/notifications";
-import { reverifyMetaAds } from "../lib/adsReverify";
+import { reverifyAdConnection } from "../lib/adsReverify";
 
 const router: IRouter = Router();
 
@@ -225,7 +227,7 @@ router.get("/ads/connections", async (req: Request, res: Response) => {
   // expired/revoked one flips to "failed" the moment the page loads, mirroring
   // the Accounts page behavior. Transient errors are logged, never surfaced.
   try {
-    await reverifyMetaAds(req.tenantId);
+    await reverifyAdConnection(req.tenantId, "meta");
   } catch (err) {
     req.log.error({ err }, "Meta Ads auto re-verify failed");
   }
@@ -777,7 +779,9 @@ async function getPlatformConnection(
       )
       .limit(1)
   )[0];
-  return row ?? null;
+  if (!row) return null;
+  // Silent on-demand token refresh for LinkedIn (no-op for other platforms).
+  return await maybeRefreshLinkedinAdsToken(row);
 }
 
 function getMetaConnection(tenantId: number): Promise<AdAccountConnection | null> {
@@ -994,6 +998,8 @@ adsCallbackRouter.get(
       const tokenJson = (await tokenRes.json()) as {
         access_token?: string;
         expires_in?: number;
+        refresh_token?: string;
+        refresh_token_expires_in?: number;
         error_description?: string;
       };
       if (!tokenRes.ok || !tokenJson.access_token) {
@@ -1004,11 +1010,21 @@ adsCallbackRouter.get(
         fail("token_exchange");
         return;
       }
+      const now = Date.now();
       await upsertPendingAdsConnection(tenantId, "linkedin", {
         accessToken: tokenJson.access_token,
         expiresAt:
           tokenJson.expires_in != null
-            ? Date.now() + tokenJson.expires_in * 1000
+            ? now + tokenJson.expires_in * 1000
+            : undefined,
+        // Store the programmatic refresh token (when LinkedIn issues one) so
+        // the background refresher can renew the access token silently
+        // instead of forcing the tenant to reconnect every ~60 days.
+        refreshToken: tokenJson.refresh_token,
+        refreshTokenExpiresAt:
+          tokenJson.refresh_token != null &&
+          tokenJson.refresh_token_expires_in != null
+            ? now + tokenJson.refresh_token_expires_in * 1000
             : undefined,
       } satisfies LinkedinAdsCredentials);
       res.redirect(`${webBase}?linkedin=connected`);
@@ -1133,7 +1149,7 @@ router.get(
       );
     } catch (err) {
       if (err instanceof LinkedinAdsApiError && err.authFailed) {
-        await markAdConnectionFailed(conn.id, err.message);
+        await markAdConnectionAuthFailed(conn, err.message);
       }
       res.status(502).json({
         error: err instanceof Error ? err.message : "Could not list ad accounts.",
@@ -1351,7 +1367,7 @@ router.get("/ads/linkedin/campaign-groups", async (req: Request, res: Response) 
     });
   } catch (err) {
     if (isAdsAuthError(err)) {
-      await markAdConnectionFailed(ct.conn.id, (err as Error).message);
+      await markAdConnectionAuthFailed(ct.conn, (err as Error).message);
     }
     res.status(502).json({
       error: err instanceof Error ? err.message : "Could not load campaign groups.",
@@ -1448,7 +1464,7 @@ router.get("/ads/campaigns", async (req: Request, res: Response) => {
     });
   } catch (err) {
     if (isAdsAuthError(err)) {
-      await markAdConnectionFailed(conn.id, (err as Error).message);
+      await markAdConnectionAuthFailed(ct.conn, (err as Error).message);
     }
     res.status(502).json({
       error: err instanceof Error ? err.message : "Could not load campaigns.",
@@ -1557,7 +1573,7 @@ router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
     });
   } catch (err) {
     if (isAdsAuthError(err)) {
-      await markAdConnectionFailed(conn.id, (err as Error).message);
+      await markAdConnectionAuthFailed(ct.conn, (err as Error).message);
     }
     const status = adsApiErrorStatus(err) === 404 ? 404 : 502;
     res.status(status).json({
@@ -1946,7 +1962,7 @@ router.post(
         current = await readAdTargetState(conn, input.targetId!, asDraftTargetType(input.targetType));
       } catch (err) {
         if (isAdsAuthError(err)) {
-          await markAdConnectionFailed(conn.id, (err as Error).message);
+          await markAdConnectionAuthFailed(conn, (err as Error).message);
         }
         res.status(502).json({
           error:

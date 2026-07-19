@@ -57,6 +57,10 @@ import {
   updateGoogleCampaign,
   createGoogleCampaign,
 } from "./googleAdsApi";
+import {
+  maybeRefreshLinkedinAdsToken,
+  handleLinkedinAdsAuthFailure,
+} from "./linkedinAdsRefresh";
 import { tryAcquireResendLock } from "./resendLock";
 import { notifyAdsChangeApplied, notifyAdsChangeFailed } from "./notifications";
 import { logger } from "./logger";
@@ -171,7 +175,11 @@ export async function getAdConnection(
       )
       .limit(1)
   )[0];
-  return row ?? null;
+  if (!row) return null;
+  // On-demand silent refresh: if this is a LinkedIn connection whose access
+  // token is due to expire, renew it (via the stored refresh token) before
+  // the caller uses the token. No-op for other platforms; never throws.
+  return await maybeRefreshLinkedinAdsToken(row);
 }
 
 export function getConnectionToken(conn: AdAccountConnection): string | null {
@@ -478,6 +486,24 @@ export async function readAdTargetState(
 /** The default create objective per platform (shown in drafts). */
 export function defaultAdsObjective(platform: string): string {
   return getPlatformOps(platform)?.defaultObjective ?? "OUTCOME_TRAFFIC";
+}
+
+/**
+ * Handle a downstream ad-platform auth failure (401/403) for a connection.
+ * For LinkedIn, the reconnect prompt must only appear when the refresh token
+ * itself is dead — so this first tries a silent token refresh and only marks
+ * the row failed on a definitive rejection (or when no refresh token is
+ * stored). Other platforms are marked failed immediately, as before.
+ */
+export async function markAdConnectionAuthFailed(
+  conn: AdAccountConnection,
+  message: string,
+): Promise<void> {
+  if (conn.platform === "linkedin") {
+    await handleLinkedinAdsAuthFailure(conn, message);
+    return;
+  }
+  await markAdConnectionFailed(conn.id, message);
 }
 
 /** Flip a connection to failed so the UI shows a reconnect prompt. */
@@ -972,7 +998,7 @@ export async function approveAndApplyDraft(
       const message =
         err instanceof Error ? err.message : "The ad platform rejected the change.";
       if (isAdsAuthError(err)) {
-        await markAdConnectionFailed(conn.id, message);
+        await markAdConnectionAuthFailed(conn, message);
       }
       return await finishFailed(claimed, message, approver);
     }

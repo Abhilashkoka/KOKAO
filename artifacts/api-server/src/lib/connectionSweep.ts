@@ -29,6 +29,7 @@ import {
   resolveSweepHistoryTrimmedNotifications,
   resolveSweepStalledNotifications,
 } from "./notifications";
+import { refreshDueLinkedinAdsTokens } from "./linkedinAdsRefresh";
 import {
   reverifyFacebook,
   reverifyInstagram,
@@ -342,6 +343,22 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
     result.errorCount += 1;
     result.lastError = err instanceof Error ? err.message : String(err);
   }
+
+  // Silent LinkedIn ads token refresh: renew any ads connection whose access
+  // token expires soon (the OAuth callback stored a refresh token), so ads
+  // tenants never see a reconnect prompt for a routine ~60-day expiry. The
+  // helper never throws and handles per-row failures internally.
+  try {
+    const ads = await refreshDueLinkedinAdsTokens();
+    result.accountsChecked += ads.checked;
+    if (ads.errors > 0) {
+      result.errorCount += ads.errors;
+      result.lastError = "LinkedIn ads token refresh errored";
+    }
+  } catch (err) {
+    logger.error({ err }, "LinkedIn ads token refresh phase crashed");
+  }
+
   // Cap the persisted failure list so the sweep_status row stays small even
   // on a very broken run — but when trimming, keep the LONGEST consecutive
   // streaks first (ties broken by recency, since the list is newest-first

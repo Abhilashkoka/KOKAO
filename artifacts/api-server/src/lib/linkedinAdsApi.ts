@@ -21,6 +21,10 @@ export interface LinkedinAdsCredentials {
   accessToken: string;
   /** Epoch ms when LinkedIn says the token expires (~60 days). */
   expiresAt?: number;
+  /** Programmatic-refresh token issued at OAuth time (valid up to ~1 year). */
+  refreshToken?: string;
+  /** Epoch ms when the refresh token itself expires. */
+  refreshTokenExpiresAt?: number;
 }
 
 export class LinkedinAdsApiError extends Error {
