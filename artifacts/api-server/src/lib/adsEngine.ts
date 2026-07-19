@@ -17,6 +17,7 @@ import {
   getCampaign,
   readObjectState,
   updateObject,
+  type AdsTargetType,
   type MetaAdsCredentials,
 } from "./metaAdsApi";
 import { tryAcquireResendLock } from "./resendLock";
@@ -254,6 +255,17 @@ interface ApplyPayload {
   stopTime?: string | null;
 }
 
+/** Human-readable label for a draft's target type (error/expiry messages). */
+export function targetTypeLabel(targetType: string): string {
+  if (targetType === "adset") return "ad set";
+  if (targetType === "ad") return "ad";
+  return "campaign";
+}
+
+function asTargetType(value: string): AdsTargetType {
+  return value === "adset" || value === "ad" ? value : "campaign";
+}
+
 async function loadDraft(tenantId: number, draftId: number): Promise<AdChangeRequest | null> {
   const row = (
     await db
@@ -365,15 +377,18 @@ export async function approveAndApplyDraft(
         // Drift check: the remote object must still look like it did when the
         // draft was created, or the before/after preview the owner approved
         // is no longer truthful.
-        const current = await readObjectState(token, claimed.targetId);
+        const current = await readObjectState(
+          token,
+          claimed.targetId,
+          asTargetType(claimed.targetType),
+        );
         if (!snapshotsMatch(claimed.beforeSnapshot, snapshotForCompare(current))) {
           const expired = (
             await db
               .update(adChangeRequestsTable)
               .set({
                 status: "expired",
-                failureReason:
-                  "The campaign changed on the ad platform after this draft was created. Review the current state and create a fresh draft.",
+                failureReason: `The ${targetTypeLabel(claimed.targetType)} changed on the ad platform after this draft was created. Review the current state and create a fresh draft.`,
                 updatedAt: new Date(),
               })
               .where(eq(adChangeRequestsTable.id, claimed.id))
@@ -392,7 +407,12 @@ export async function approveAndApplyDraft(
         });
 
         // Post-apply verification: read back and confirm the fields we set.
-        const verifyStatus = await verifyApplied(token, claimed.targetId, payload);
+        const verifyStatus = await verifyApplied(
+          token,
+          claimed.targetId,
+          payload,
+          asTargetType(claimed.targetType),
+        );
         return await finishApplied(claimed, claimed.targetId, verifyStatus, approver);
       }
 
@@ -409,7 +429,7 @@ export async function approveAndApplyDraft(
         startTime: payload.startTime ?? null,
         stopTime: payload.stopTime ?? null,
       });
-      const verifyStatus = await verifyApplied(token, newId, payload);
+      const verifyStatus = await verifyApplied(token, newId, payload, "campaign");
       return await finishApplied(claimed, newId, verifyStatus, approver);
     } catch (err) {
       const message =
@@ -441,9 +461,10 @@ async function verifyApplied(
   token: string,
   objectId: string,
   payload: ApplyPayload,
+  targetType: AdsTargetType,
 ): Promise<string> {
   try {
-    const state = await readObjectState(token, objectId);
+    const state = await readObjectState(token, objectId, targetType);
     const mismatches: string[] = [];
     if (payload.name != null && state.name !== payload.name) mismatches.push("name");
     if (payload.status != null && state.status !== payload.status) mismatches.push("status");

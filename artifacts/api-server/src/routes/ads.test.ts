@@ -663,3 +663,192 @@ describe("campaign creation drafts", () => {
     }
   });
 });
+
+describe("ad set and ad drafts", () => {
+  it("creates an update draft for an ad set and reads state with the adset field set", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      mockRead.mockResolvedValue({
+        name: "Retargeting",
+        status: "PAUSED",
+        dailyBudget: 2000,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "update",
+        targetId: "adset_1",
+        status: "ACTIVE",
+        dailyBudget: 3000,
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.targetType).toBe("adset");
+      expect(mockRead).toHaveBeenCalledWith("ads-token", "adset_1", "adset");
+      expect(res.body.changes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ field: "Status", before: "PAUSED", after: "ACTIVE" }),
+          expect.objectContaining({
+            field: "Daily budget (minor units)",
+            before: "2000",
+            after: "3000",
+          }),
+        ]),
+      );
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("applies an approved ad draft and passes the ad target type to reads", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      mockRead.mockResolvedValue({
+        name: "Blue creative",
+        status: "ACTIVE",
+        dailyBudget: null,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "ad",
+        action: "update",
+        targetId: "ad_1",
+        status: "PAUSED",
+      });
+      expect(draftRes.status).toBe(201);
+
+      mockRead.mockResolvedValueOnce({
+        name: "Blue creative",
+        status: "ACTIVE",
+        dailyBudget: null,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+      mockRead.mockResolvedValueOnce({
+        name: "Blue creative",
+        status: "PAUSED",
+        dailyBudget: null,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+      const applied = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(applied.status).toBe(200);
+      expect(applied.body.status).toBe("applied");
+      expect(applied.body.verifyStatus).toBe("verified");
+      expect(mockRead).toHaveBeenCalledWith("ads-token", "ad_1", "ad");
+      expect(mockUpdate).toHaveBeenCalledTimes(1);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("expires an ad set draft when the remote object drifted, with an ad set message", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      mockRead.mockResolvedValue({
+        name: "Retargeting",
+        status: "PAUSED",
+        dailyBudget: 2000,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "update",
+        targetId: "adset_1",
+        status: "ACTIVE",
+      });
+      expect(draftRes.status).toBe(201);
+
+      // Someone changed the budget on the platform after drafting.
+      mockRead.mockResolvedValue({
+        name: "Retargeting",
+        status: "PAUSED",
+        dailyBudget: 9999,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+      const applied = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(applied.status).toBe(200);
+      expect(applied.body.status).toBe("expired");
+      expect(applied.body.failureReason).toContain("ad set changed");
+      expect(mockUpdate).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects budget or schedule fields on an ad draft", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "ad",
+        action: "update",
+        targetId: "ad_1",
+        dailyBudget: 1000,
+      });
+      expect(res.status).toBe(400);
+      expect(mockRead).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects schedule fields on an ad set draft", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "update",
+        targetId: "adset_1",
+        startTime: "2026-08-01T00:00:00+0000",
+      });
+      expect(res.status).toBe(400);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("still refuses to create ad sets or ads", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "create",
+        name: "New ad set",
+      });
+      expect(res.status).toBe(400);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});

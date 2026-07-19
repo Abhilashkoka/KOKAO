@@ -728,14 +728,28 @@ router.post(
       return;
     }
 
-    // Phase 1 supports campaign create/update; ad set and ad drafts are
-    // update-only (status/name).
+    // Campaigns can be created and fully edited; ad sets and ads are
+    // update-only, each restricted to the fields the object actually has.
     if (input.action === "create" && input.targetType !== "campaign") {
       res.status(400).json({ error: "Only campaigns can be created in this phase." });
       return;
     }
     if (input.action === "update" && !input.targetId) {
       res.status(400).json({ error: "targetId is required for updates" });
+      return;
+    }
+    if (input.targetType === "ad" &&
+      (input.dailyBudget != null || input.lifetimeBudget != null ||
+        input.startTime != null || input.stopTime != null)) {
+      res.status(400).json({
+        error: "Ads only support name and status changes — budgets and schedules live on the ad set.",
+      });
+      return;
+    }
+    if (input.targetType === "adset" && (input.startTime != null || input.stopTime != null)) {
+      res.status(400).json({
+        error: "Ad set schedule changes are not supported yet — only name, status, and budgets.",
+      });
       return;
     }
 
@@ -796,7 +810,7 @@ router.post(
     if (input.action === "update") {
       let current;
       try {
-        current = await readObjectState(token, input.targetId!);
+        current = await readObjectState(token, input.targetId!, input.targetType);
       } catch (err) {
         if (err instanceof MetaAdsApiError && err.authFailed) {
           await markAdConnectionFailed(conn.id, err.message);

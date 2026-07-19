@@ -401,10 +401,24 @@ export async function updateObject(
   await graphPost<{ success?: boolean }>(encodeURIComponent(objectId), token, body);
 }
 
+export type AdsTargetType = "campaign" | "adset" | "ad";
+
+/**
+ * Graph fields readable per object type. Requesting a field an object type
+ * does not have (e.g. budgets on an ad, stop_time on an ad set) makes the
+ * Graph API reject the whole read, so each type gets its own field list.
+ */
+const OBJECT_STATE_FIELDS: Record<AdsTargetType, string> = {
+  campaign: "id,name,status,daily_budget,lifetime_budget,start_time,stop_time",
+  adset: "id,name,status,daily_budget,lifetime_budget",
+  ad: "id,name,status",
+};
+
 /** Read the current status/name of any ad object (post-apply verification). */
 export async function readObjectState(
   token: string,
   objectId: string,
+  targetType: AdsTargetType = "campaign",
 ): Promise<{
   name: string;
   status: string;
@@ -414,7 +428,7 @@ export async function readObjectState(
   stopTime: string | null;
 }> {
   const json = await graphGet<RawCampaign>(encodeURIComponent(objectId), token, {
-    fields: "id,name,status,daily_budget,lifetime_budget,start_time,stop_time",
+    fields: OBJECT_STATE_FIELDS[targetType] ?? OBJECT_STATE_FIELDS.campaign,
   });
   return {
     name: json.name ?? "",

@@ -787,6 +787,8 @@ function CampaignsSection({
           campaignId={detailCampaignId}
           datePreset={datePreset}
           currency={currency}
+          canManage={canManage}
+          onEdit={(form) => setDraftForm(form)}
           onClose={() => setDetailCampaignId(null)}
         />
       )}
@@ -807,12 +809,16 @@ function CampaignDetailDialog({
   campaignId,
   datePreset,
   currency,
+  canManage,
+  onEdit,
   onClose,
 }: {
   connectionId: number;
   campaignId: string;
   datePreset: string;
   currency: string | null;
+  canManage: boolean;
+  onEdit: (form: DraftFormState) => void;
   onClose: () => void;
 }) {
   const { data, isLoading, error } = useGetAdCampaignDetail({
@@ -852,11 +858,12 @@ function CampaignDetailDialog({
                       <TableHead className="text-right">Budget</TableHead>
                       <TableHead className="text-right">Impressions</TableHead>
                       <TableHead className="text-right">Spend</TableHead>
+                      <TableHead />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {data.adSets.map((s) => (
-                      <TableRow key={s.id}>
+                      <TableRow key={s.id} data-testid={`row-adset-${s.id}`}>
                         <TableCell className="font-medium">{s.name}</TableCell>
                         <TableCell>{statusBadge(s.effectiveStatus)}</TableCell>
                         <TableCell className="text-right whitespace-nowrap">
@@ -869,6 +876,32 @@ function CampaignDetailDialog({
                         </TableCell>
                         <TableCell className="text-right whitespace-nowrap">
                           {formatSpend(s.metrics.spend, currency)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {canManage && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                onEdit({
+                                  ...EMPTY_FORM,
+                                  action: "update",
+                                  targetType: "adset",
+                                  targetId: s.id,
+                                  currentName: s.name,
+                                  name: s.name,
+                                  status: s.status,
+                                  dailyBudget:
+                                    s.dailyBudget != null ? String(s.dailyBudget) : "",
+                                  lifetimeBudget:
+                                    s.lifetimeBudget != null ? String(s.lifetimeBudget) : "",
+                                })
+                              }
+                              data-testid={`button-edit-adset-${s.id}`}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -889,11 +922,12 @@ function CampaignDetailDialog({
                       <TableHead className="text-right">Impressions</TableHead>
                       <TableHead className="text-right">Clicks</TableHead>
                       <TableHead className="text-right">Spend</TableHead>
+                      <TableHead />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {data.ads.map((a) => (
-                      <TableRow key={a.id}>
+                      <TableRow key={a.id} data-testid={`row-ad-${a.id}`}>
                         <TableCell className="font-medium">{a.name}</TableCell>
                         <TableCell>{statusBadge(a.effectiveStatus)}</TableCell>
                         <TableCell className="text-right">
@@ -904,6 +938,28 @@ function CampaignDetailDialog({
                         </TableCell>
                         <TableCell className="text-right whitespace-nowrap">
                           {formatSpend(a.metrics.spend, currency)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {canManage && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                onEdit({
+                                  ...EMPTY_FORM,
+                                  action: "update",
+                                  targetType: "ad",
+                                  targetId: a.id,
+                                  currentName: a.name,
+                                  name: a.name,
+                                  status: a.status,
+                                })
+                              }
+                              data-testid={`button-edit-ad-${a.id}`}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -934,11 +990,15 @@ function DraftDialog({
   const idempotencyKey = useMemo(() => crypto.randomUUID(), []);
 
   const isCreate = state.action === "create";
+  const targetLabel =
+    state.targetType === "adset" ? "ad set" : state.targetType === "ad" ? "ad" : "campaign";
+  const showBudgets = state.targetType !== "ad";
+  const showSchedule = state.targetType === "campaign";
 
   const submit = () => {
     const data: Record<string, unknown> = {
       connectionId,
-      targetType: "campaign",
+      targetType: state.targetType,
       action: state.action,
       idempotencyKey,
     };
@@ -946,10 +1006,12 @@ function DraftDialog({
     if (isCreate || state.name !== state.currentName) data.name = state.name;
     if (state.status) data.status = state.status;
     if (isCreate && state.objective) data.objective = state.objective;
-    if (state.dailyBudget) data.dailyBudget = Number(state.dailyBudget);
-    if (state.lifetimeBudget) data.lifetimeBudget = Number(state.lifetimeBudget);
-    if (state.startTime) data.startTime = state.startTime;
-    if (state.stopTime) data.stopTime = state.stopTime;
+    if (showBudgets && state.dailyBudget) data.dailyBudget = Number(state.dailyBudget);
+    if (showBudgets && state.lifetimeBudget) {
+      data.lifetimeBudget = Number(state.lifetimeBudget);
+    }
+    if (showSchedule && state.startTime) data.startTime = state.startTime;
+    if (showSchedule && state.stopTime) data.stopTime = state.stopTime;
 
     createDraft.mutate(
       { data: data as never },
@@ -980,7 +1042,9 @@ function DraftDialog({
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {isCreate ? "Draft a new campaign" : `Draft changes to "${state.currentName}"`}
+            {isCreate
+              ? "Draft a new campaign"
+              : `Draft changes to ${targetLabel} "${state.currentName}"`}
           </DialogTitle>
           <DialogDescription>
             Nothing touches your ad account yet — this creates a draft the
@@ -1033,6 +1097,7 @@ function DraftDialog({
               </SelectContent>
             </Select>
           </div>
+          {showBudgets && (
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="draft-daily-budget">Daily budget (minor units)</Label>
@@ -1057,6 +1122,8 @@ function DraftDialog({
               />
             </div>
           </div>
+          )}
+          {showSchedule && (
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="draft-start">Start (ISO time, optional)</Label>
@@ -1079,6 +1146,7 @@ function DraftDialog({
               />
             </div>
           </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
@@ -1119,7 +1187,8 @@ function DraftsSection({
       predicate: (q) =>
         Array.isArray(q.queryKey) &&
         typeof q.queryKey[0] === "string" &&
-        q.queryKey[0].includes("/ads/campaigns"),
+        (q.queryKey[0].includes("/ads/campaigns") ||
+          q.queryKey[0].includes("/ads/campaign-detail")),
     });
   };
 
@@ -1144,7 +1213,7 @@ function DraftsSection({
               title: "Draft expired",
               description:
                 res.failureReason ??
-                "The campaign changed on the ad platform since this draft was created.",
+                "The target changed on the ad platform since this draft was created.",
             });
           } else {
             toast({
