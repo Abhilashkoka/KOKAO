@@ -341,6 +341,12 @@ export default function StudioScreen() {
 
   const imagePending = genImage.isPending;
   const me = meQuery.data;
+  const captionsLeft =
+    me && me.limits.captions !== -1 ? Math.max(0, me.limits.captions - me.usage.captions) : null;
+  const imagesLeft =
+    me && me.limits.images !== -1 ? Math.max(0, me.limits.images - me.usage.images) : null;
+  const captionCredits = me?.credits?.captionCredits ?? 0;
+  const imageCredits = me?.credits?.imageCredits ?? 0;
   const imagesExhausted =
     !!me &&
     me.limits.images !== -1 &&
@@ -368,6 +374,61 @@ export default function StudioScreen() {
         <Text style={styles.subtitle}>
           Generate on-brand captions and images for your next post
         </Text>
+
+        {me ? (
+          <View style={styles.quotaStrip}>
+            <View
+              style={[
+                styles.quotaPill,
+                captionsLeft === 0 && captionCredits === 0 && styles.quotaPillEmpty,
+              ]}
+            >
+              <Feather
+                name="edit-3"
+                size={12}
+                color={
+                  captionsLeft === 0 && captionCredits === 0 ? c.destructive : c.primary
+                }
+              />
+              <Text
+                style={[
+                  styles.quotaPillText,
+                  captionsLeft === 0 && captionCredits === 0 && styles.quotaPillTextEmpty,
+                ]}
+              >
+                {captionsLeft === null
+                  ? "Unlimited captions"
+                  : `${captionsLeft} caption${captionsLeft === 1 ? "" : "s"} left${
+                      captionCredits > 0 ? ` +${captionCredits} credits` : ""
+                    }`}
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.quotaPill,
+                imagesLeft === 0 && imageCredits === 0 && styles.quotaPillEmpty,
+              ]}
+            >
+              <Feather
+                name="image"
+                size={12}
+                color={imagesLeft === 0 && imageCredits === 0 ? c.destructive : c.primary}
+              />
+              <Text
+                style={[
+                  styles.quotaPillText,
+                  imagesLeft === 0 && imageCredits === 0 && styles.quotaPillTextEmpty,
+                ]}
+              >
+                {imagesLeft === null
+                  ? "Unlimited images"
+                  : `${imagesLeft} image${imagesLeft === 1 ? "" : "s"} left${
+                      imageCredits > 0 ? ` +${imageCredits} credits` : ""
+                    }`}
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         <Card style={{ marginTop: 18 }}>
           <Text style={styles.cardTitle}>Need ideas?</Text>
@@ -770,6 +831,32 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: c.mutedForeground,
     marginTop: 4,
+  },
+  quotaStrip: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 12,
+  },
+  quotaPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: `${c.primary}1a`,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  quotaPillEmpty: {
+    backgroundColor: `${c.destructive}1a`,
+  },
+  quotaPillText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: c.primary,
+  },
+  quotaPillTextEmpty: {
+    color: c.destructive,
   },
   cardTitle: { fontFamily: fonts.semiBold, fontSize: 14, color: c.foreground },
   ideaRow: { flexDirection: "row", gap: 10, marginTop: 10, alignItems: "center" },
