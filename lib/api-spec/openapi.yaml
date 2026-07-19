@@ -30,6 +30,8 @@ tags:
     description: In-app and email notification preferences and policies.
   - name: analytics
     description: Consent-gated event analytics, ingestion, and reporting.
+  - name: health-report
+    description: On-demand social health audit reports and score history.
 paths:
   /healthz:
     get:
@@ -4205,6 +4207,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /health-report:
+    get:
+      operationId: getHealthReport
+      tags: [health-report]
+      summary: Latest social health report and score history (owner/admin only)
+      responses:
+        "200":
+          description: Latest report (null when never run) plus score history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthReportOverview"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /health-report/run:
+    post:
+      operationId: runHealthReport
+      tags: [health-report]
+      summary: Run a new social health audit for this workspace (owner/admin only)
+      responses:
+        "200":
+          description: The freshly computed report plus updated history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthReportOverview"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
 components:
   parameters:
     AnalyticsFrom:
@@ -7237,3 +7276,96 @@ components:
                 type: integer
               optOuts:
                 type: integer
+
+    HealthCheckFinding:
+      type: object
+      required: [id, category, title, status, explanation, evidence]
+      properties:
+        id:
+          type: string
+        category:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+          enum: [pass, fail, unknown, not_applicable]
+        explanation:
+          type: string
+        evidence:
+          type: array
+          items:
+            type: string
+        recommendation:
+          type: [string, "null"]
+        actionPath:
+          type: [string, "null"]
+    HealthCategorySummary:
+      type: object
+      required: [category, label, passed, failed, unknown, notApplicable]
+      properties:
+        category:
+          type: string
+        label:
+          type: string
+        score:
+          type: [integer, "null"]
+        passed:
+          type: integer
+        failed:
+          type: integer
+        unknown:
+          type: integer
+        notApplicable:
+          type: integer
+    HealthReportDetail:
+      type: object
+      required: [id, coverage, coverageGrade, createdAt, checks, categories]
+      properties:
+        id:
+          type: integer
+        score:
+          type: [integer, "null"]
+        coverage:
+          type: integer
+        coverageGrade:
+          type: string
+          enum: [graded, provisional, insufficient]
+        createdAt:
+          type: string
+          format: date-time
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthCheckFinding"
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthCategorySummary"
+    HealthScoreHistoryEntry:
+      type: object
+      required: [id, coverage, coverageGrade, createdAt]
+      properties:
+        id:
+          type: integer
+        score:
+          type: [integer, "null"]
+        coverage:
+          type: integer
+        coverageGrade:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    HealthReportOverview:
+      type: object
+      required: [history]
+      properties:
+        latest:
+          oneOf:
+            - $ref: "#/components/schemas/HealthReportDetail"
+            - type: "null"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthScoreHistoryEntry"

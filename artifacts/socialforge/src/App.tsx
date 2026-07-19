@@ -10,6 +10,7 @@ import { AccountsPage } from "@/pages/accounts";
 import { SettingsPage } from "@/pages/settings";
 import { AdminPage } from "@/pages/admin";
 import { AnalyticsPage } from "@/pages/analytics";
+import { HealthPage } from "@/pages/health";
 import { BrandProvider } from "@/lib/brand";
 
 import { Switch, Route, Redirect, useLocation, Router as WouterRouter } from "wouter";
@@ -159,6 +160,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/settings" component={() => <ProtectedRoute component={SettingsPage} />} />
             <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} />} />
             <Route path="/analytics" component={() => <ProtectedRoute component={AnalyticsPage} />} />
+            <Route path="/health" component={() => <ProtectedRoute component={HealthPage} />} />
             {/* Branding moved into Settings; keep old links working. */}
             <Route path="/app-brand" component={() => <Redirect to="/settings" />} />
             

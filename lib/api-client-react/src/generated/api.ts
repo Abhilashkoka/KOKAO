@@ -94,6 +94,7 @@ import type {
   GetReliabilityAnalyticsParams,
   GetRevenueAnalyticsParams,
   GrantCreditsInput,
+  HealthReportOverview,
   HealthStatus,
   ImageGenSettingsView,
   ImageRequest,
@@ -11696,4 +11697,151 @@ export function useGetConsentAnalytics<TData = Awaited<ReturnType<typeof getCons
 
 
 
+
+export const getGetHealthReportUrl = () => {
+
+
+
+
+  return `/api/health-report`
+}
+
+/**
+ * @summary Latest social health report and score history (owner/admin only)
+ */
+export const getHealthReport = async ( options?: RequestInit): Promise<HealthReportOverview> => {
+
+  return customFetch<HealthReportOverview>(getGetHealthReportUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHealthReportQueryKey = () => {
+    return [
+    `/api/health-report`
+    ] as const;
+    }
+
+
+export const getGetHealthReportQueryOptions = <TData = Awaited<ReturnType<typeof getHealthReport>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHealthReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHealthReportQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHealthReport>>> = ({ signal }) => getHealthReport({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHealthReport>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHealthReportQueryResult = NonNullable<Awaited<ReturnType<typeof getHealthReport>>>
+export type GetHealthReportQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Latest social health report and score history (owner/admin only)
+ */
+
+export function useGetHealthReport<TData = Awaited<ReturnType<typeof getHealthReport>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHealthReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHealthReportQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRunHealthReportUrl = () => {
+
+
+
+
+  return `/api/health-report/run`
+}
+
+/**
+ * @summary Run a new social health audit for this workspace (owner/admin only)
+ */
+export const runHealthReport = async ( options?: RequestInit): Promise<HealthReportOverview> => {
+
+  return customFetch<HealthReportOverview>(getRunHealthReportUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRunHealthReportMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runHealthReport>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runHealthReport>>, TError,void, TContext> => {
+
+const mutationKey = ['runHealthReport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runHealthReport>>, void> = () => {
+
+
+          return  runHealthReport(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunHealthReportMutationResult = NonNullable<Awaited<ReturnType<typeof runHealthReport>>>
+
+    export type RunHealthReportMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Run a new social health audit for this workspace (owner/admin only)
+ */
+export const useRunHealthReport = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runHealthReport>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof runHealthReport>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getRunHealthReportMutationOptions(options));
+    }
 

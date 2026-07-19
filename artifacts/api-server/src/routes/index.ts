@@ -27,6 +27,7 @@ import adminRouter from "./admin";
 import consentRouter from "./consent";
 import analyticsIngestRouter from "./analyticsIngest";
 import analyticsRouter from "./analytics";
+import healthReportRouter from "./healthReport";
 import { publicAppBrandRouter, protectedAppBrandRouter } from "./appBrand";
 import { requireTenant } from "../middlewares/requireTenant";
 import { aiLimiter, sensitiveLimiter } from "../middlewares/rateLimit";
@@ -91,5 +92,6 @@ router.use(adminRouter);
 router.use(protectedAppBrandRouter);
 router.use(consentRouter);
 router.use(analyticsRouter);
+router.use(healthReportRouter);
 
 export default router;

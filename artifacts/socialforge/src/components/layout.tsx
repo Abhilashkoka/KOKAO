@@ -10,6 +10,7 @@ import {
   Settings,
   Shield,
   BarChart3,
+  HeartPulse,
   Menu,
   LogOut
 } from "lucide-react";
@@ -34,6 +35,7 @@ const NAV_ITEMS = [
 ];
 
 const ANALYTICS_NAV_ITEM = { href: "/analytics", label: "Analytics", icon: BarChart3 };
+const HEALTH_NAV_ITEM = { href: "/health", label: "Health", icon: HeartPulse };
 
 const ADMIN_NAV_ITEMS = [
   { href: "/admin", label: "Admin", icon: Shield },
@@ -75,7 +77,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   );
   const navItems = [
     ...NAV_ITEMS,
-    ...(canSeeAnalytics ? [ANALYTICS_NAV_ITEM] : []),
+    ...(canSeeAnalytics ? [ANALYTICS_NAV_ITEM, HEALTH_NAV_ITEM] : []),
     ...(me?.isSuperadmin ? ADMIN_NAV_ITEMS : []),
   ];
   

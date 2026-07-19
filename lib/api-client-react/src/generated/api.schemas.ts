@@ -2354,6 +2354,74 @@ export interface ConsentAnalytics {
   trends: ConsentAnalyticsTrendsItem[];
 }
 
+export type HealthCheckFindingStatus = typeof HealthCheckFindingStatus[keyof typeof HealthCheckFindingStatus];
+
+
+export const HealthCheckFindingStatus = {
+  pass: 'pass',
+  fail: 'fail',
+  unknown: 'unknown',
+  not_applicable: 'not_applicable',
+} as const;
+
+export interface HealthCheckFinding {
+  id: string;
+  category: string;
+  title: string;
+  status: HealthCheckFindingStatus;
+  explanation: string;
+  evidence: string[];
+  /** @nullable */
+  recommendation?: string | null;
+  /** @nullable */
+  actionPath?: string | null;
+}
+
+export interface HealthCategorySummary {
+  category: string;
+  label: string;
+  /** @nullable */
+  score?: number | null;
+  passed: number;
+  failed: number;
+  unknown: number;
+  notApplicable: number;
+}
+
+export type HealthReportDetailCoverageGrade = typeof HealthReportDetailCoverageGrade[keyof typeof HealthReportDetailCoverageGrade];
+
+
+export const HealthReportDetailCoverageGrade = {
+  graded: 'graded',
+  provisional: 'provisional',
+  insufficient: 'insufficient',
+} as const;
+
+export interface HealthReportDetail {
+  id: number;
+  /** @nullable */
+  score?: number | null;
+  coverage: number;
+  coverageGrade: HealthReportDetailCoverageGrade;
+  createdAt: string;
+  checks: HealthCheckFinding[];
+  categories: HealthCategorySummary[];
+}
+
+export interface HealthScoreHistoryEntry {
+  id: number;
+  /** @nullable */
+  score?: number | null;
+  coverage: number;
+  coverageGrade: string;
+  createdAt: string;
+}
+
+export interface HealthReportOverview {
+  latest?: HealthReportDetail | null;
+  history: HealthScoreHistoryEntry[];
+}
+
 /**
  * Start of the reporting window (defaults to 30 days ago).
  */

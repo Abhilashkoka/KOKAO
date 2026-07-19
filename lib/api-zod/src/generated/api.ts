@@ -5626,3 +5626,83 @@ export const GetConsentAnalyticsResponse = zod.object({
 })
 
 
+/**
+ * @summary Latest social health report and score history (owner/admin only)
+ */
+export const GetHealthReportResponse = zod.object({
+  "latest": zod.union([zod.object({
+  "id": zod.number(),
+  "score": zod.number().nullish(),
+  "coverage": zod.number(),
+  "coverageGrade": zod.enum(['graded', 'provisional', 'insufficient']),
+  "createdAt": zod.coerce.date(),
+  "checks": zod.array(zod.object({
+  "id": zod.string(),
+  "category": zod.string(),
+  "title": zod.string(),
+  "status": zod.enum(['pass', 'fail', 'unknown', 'not_applicable']),
+  "explanation": zod.string(),
+  "evidence": zod.array(zod.string()),
+  "recommendation": zod.string().nullish(),
+  "actionPath": zod.string().nullish()
+})),
+  "categories": zod.array(zod.object({
+  "category": zod.string(),
+  "label": zod.string(),
+  "score": zod.number().nullish(),
+  "passed": zod.number(),
+  "failed": zod.number(),
+  "unknown": zod.number(),
+  "notApplicable": zod.number()
+}))
+}),zod.null()]).optional(),
+  "history": zod.array(zod.object({
+  "id": zod.number(),
+  "score": zod.number().nullish(),
+  "coverage": zod.number(),
+  "coverageGrade": zod.string(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary Run a new social health audit for this workspace (owner/admin only)
+ */
+export const RunHealthReportResponse = zod.object({
+  "latest": zod.union([zod.object({
+  "id": zod.number(),
+  "score": zod.number().nullish(),
+  "coverage": zod.number(),
+  "coverageGrade": zod.enum(['graded', 'provisional', 'insufficient']),
+  "createdAt": zod.coerce.date(),
+  "checks": zod.array(zod.object({
+  "id": zod.string(),
+  "category": zod.string(),
+  "title": zod.string(),
+  "status": zod.enum(['pass', 'fail', 'unknown', 'not_applicable']),
+  "explanation": zod.string(),
+  "evidence": zod.array(zod.string()),
+  "recommendation": zod.string().nullish(),
+  "actionPath": zod.string().nullish()
+})),
+  "categories": zod.array(zod.object({
+  "category": zod.string(),
+  "label": zod.string(),
+  "score": zod.number().nullish(),
+  "passed": zod.number(),
+  "failed": zod.number(),
+  "unknown": zod.number(),
+  "notApplicable": zod.number()
+}))
+}),zod.null()]).optional(),
+  "history": zod.array(zod.object({
+  "id": zod.number(),
+  "score": zod.number().nullish(),
+  "coverage": zod.number(),
+  "coverageGrade": zod.string(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
