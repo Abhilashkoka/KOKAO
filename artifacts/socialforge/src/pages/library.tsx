@@ -219,31 +219,102 @@ export function LibraryPage() {
     });
   };
 
-  // One-click retry for a failed publish. Re-uses the same Instagram publish
-  // endpoint, which flips the item back to "publishing" and re-runs the
-  // bounded background retry; the card then updates via the polling above.
+  // Per-platform config for the failed-state one-click Retry, so the retry
+  // re-publishes to the platform the item actually failed on (not always
+  // Instagram). Each publish endpoint flips the item's status server-side
+  // and the card updates via the content list refetch.
+  const retryTargets: Record<
+    string,
+    {
+      label: string;
+      mutation: { mutate: any; isPending: boolean };
+      ready: boolean;
+      needsImage: boolean;
+      connectHint: string;
+      errorFallback: string;
+      successDescription: string;
+    }
+  > = {
+    facebook: {
+      label: "Facebook",
+      mutation: publishContent,
+      ready: fbReady,
+      needsImage: false,
+      connectHint: "Connect and verify your Facebook Page on the Accounts page first.",
+      errorFallback:
+        "Could not publish to Facebook. Connect and verify your Facebook Page on the Accounts page first.",
+      successDescription: "Publishing to Facebook again. This card will update when it's live.",
+    },
+    instagram: {
+      label: "Instagram",
+      mutation: publishInstagram,
+      ready: igReady,
+      needsImage: true,
+      connectHint: "Connect and verify your Instagram account on the Accounts page first.",
+      errorFallback:
+        "Could not publish to Instagram. Connect and verify your Instagram account on the Accounts page first.",
+      successDescription:
+        "Instagram is processing your image again. This card will update to Published when it's live.",
+    },
+    twitter: {
+      label: "X",
+      mutation: publishTwitter,
+      ready: twReady,
+      needsImage: false,
+      connectHint: "Connect your X account on the Accounts page first.",
+      errorFallback:
+        "Could not publish to X. Connect and verify your X account on the Accounts page first.",
+      successDescription: "Publishing to X again. This card will update when it's live.",
+    },
+    linkedin: {
+      label: "LinkedIn",
+      mutation: publishLinkedin,
+      ready: liReady,
+      needsImage: false,
+      connectHint: "Connect your LinkedIn account on the Accounts page first.",
+      errorFallback:
+        "Could not publish to LinkedIn. Connect your LinkedIn account on the Accounts page and try again.",
+      successDescription: "Publishing to LinkedIn again. This card will update when it's live.",
+    },
+    threads: {
+      label: "Threads",
+      mutation: publishThreads,
+      ready: thReady,
+      needsImage: false,
+      connectHint: "Connect your Threads profile on the Accounts page first.",
+      errorFallback:
+        "Could not publish to Threads. Connect your Threads profile on the Accounts page first.",
+      successDescription: "Publishing to Threads again. This card will update when it's live.",
+    },
+  };
+
+  // Resolve the retry target for a failed item from its platform. Unknown or
+  // missing platforms fall back to Instagram (the historical behavior).
+  const retryTargetFor = (item: any) =>
+    retryTargets[item?.platform as string] ?? retryTargets.instagram;
+
+  // One-click retry for a failed publish. Re-uses the publish endpoint for
+  // the platform the item failed on, which flips the item back through the
+  // normal publish flow; the card then updates via the polling above.
   const handleRetry = (item: any) => {
+    const target = retryTargetFor(item);
+    const platformKey = retryTargets[item?.platform as string] ? item.platform : "instagram";
     setRetryingId(item.id);
-    setPublishTarget({ id: item.id, platform: "instagram" });
-    runPublishWithRetry(publishInstagram, { id: item.id }, {
+    setPublishTarget({ id: item.id, platform: platformKey });
+    runPublishWithRetry(target.mutation, { id: item.id }, {
       onSuccess: () => {
         toast({
           title: "Retrying publish",
-          description:
-            "Instagram is processing your image again. This card will update to Published when it's live.",
+          description: target.successDescription,
         });
         queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
         setRetryingId(null);
       },
-      onRetrying: (reason) => restartRetryToast("Instagram", reason),
+      onRetrying: (reason) => restartRetryToast(target.label, reason),
       onError: (err: any, { retried }) => {
         toast({
           title: "Retry failed",
-          description: publishErrorDescription(
-            err,
-            "Could not publish to Instagram. Connect and verify your Instagram account on the Accounts page first.",
-            retried,
-          ),
+          description: publishErrorDescription(err, target.errorFallback, retried),
           variant: "destructive",
         });
         setRetryingId(null);
@@ -652,25 +723,29 @@ export function LibraryPage() {
                     })}
                 </div>
                 <div className="flex justify-end items-center gap-2">
-                  {item.status === 'failed' && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-2 text-xs"
-                      disabled={!igReady || !item.imagePath || publishBusy || retryingId === item.id}
-                      onClick={() => handleRetry(item)}
-                      title={
-                        !igReady
-                          ? "Connect and verify your Instagram account on the Accounts page first."
-                          : !item.imagePath
-                            ? "Instagram posts require an image."
-                            : "Retry publishing to Instagram"
-                      }
-                    >
-                      <RotateCw className={`h-3 w-3 mr-1 ${retryingId === item.id ? 'animate-spin' : ''}`} />
-                      {retryingId === item.id ? "Retrying..." : "Retry"}
-                    </Button>
-                  )}
+                  {item.status === 'failed' && (() => {
+                    const target = retryTargetFor(item);
+                    const missingImage = target.needsImage && !item.imagePath;
+                    return (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs"
+                        disabled={!target.ready || missingImage || publishBusy || retryingId === item.id}
+                        onClick={() => handleRetry(item)}
+                        title={
+                          !target.ready
+                            ? target.connectHint
+                            : missingImage
+                              ? `${target.label} posts require an image.`
+                              : `Retry publishing to ${target.label}`
+                        }
+                      >
+                        <RotateCw className={`h-3 w-3 mr-1 ${retryingId === item.id ? 'animate-spin' : ''}`} />
+                        {retryingId === item.id ? "Retrying..." : "Retry"}
+                      </Button>
+                    );
+                  })()}
                   {item.status === 'published' && Object.keys(item.publishedPlatforms ?? {}).length > 0 ? (
                     Object.entries(item.publishedPlatforms ?? {}).map(([p, info]) =>
                       info.permalink ? (
