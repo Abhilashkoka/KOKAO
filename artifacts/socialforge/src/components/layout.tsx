@@ -107,7 +107,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen w-full bg-background flex flex-col md:flex-row">
       {/* Mobile Header */}
       <div className="md:hidden flex items-center justify-between p-4 border-b border-border bg-card sticky top-0 z-50">
-        <img src={logoUrl} alt={appName} className="h-7 w-auto" />
+        {logoUrl ? (
+          <img src={logoUrl} alt={appName} className="h-7 w-auto" />
+        ) : (
+          <div className="h-7" aria-hidden="true" />
+        )}
         <div className="flex items-center gap-3">
           <UserButton />
           <Sheet>
@@ -117,7 +121,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               </Button>
             </SheetTrigger>
             <SheetContent side="left" className="w-64 p-6 flex flex-col gap-8">
-              <img src={logoUrl} alt={appName} className="h-7 w-auto" />
+              {logoUrl ? (
+                <img src={logoUrl} alt={appName} className="h-7 w-auto" />
+              ) : (
+                <div className="h-7" aria-hidden="true" />
+              )}
               <NavLinks />
             </SheetContent>
           </Sheet>
@@ -127,7 +135,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Desktop Sidebar */}
       <div className="hidden md:flex w-64 flex-col border-r border-border bg-card p-6 h-screen sticky top-0">
         <div className="flex items-center mb-10 px-2">
-          <img src={logoUrl} alt={appName} className="h-9 w-auto" />
+          {logoUrl ? (
+            <img src={logoUrl} alt={appName} className="h-9 w-auto" />
+          ) : (
+            <div className="h-9" aria-hidden="true" />
+          )}
         </div>
         
         <div className="flex-1">

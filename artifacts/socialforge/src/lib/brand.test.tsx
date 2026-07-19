@@ -2,14 +2,22 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { BrandProvider, useBrand } from "./brand";
 
-const mockState: { brand: Record<string, unknown> | undefined } = {
+const mockState: {
+  brand: Record<string, unknown> | undefined;
+  isError: boolean;
+} = {
   brand: undefined,
+  isError: false,
 };
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("../test/apiClientMock");
   return createApiClientMock({
-    useGetAppBrand: () => ({ data: mockState.brand, isLoading: !mockState.brand }),
+    useGetAppBrand: () => ({
+      data: mockState.brand,
+      isLoading: !mockState.brand && !mockState.isError,
+      isError: mockState.isError,
+    }),
   });
 });
 
@@ -41,9 +49,24 @@ describe("BrandProvider brand caching", () => {
   beforeEach(() => {
     localStorage.clear();
     mockState.brand = undefined;
+    mockState.isError = false;
   });
 
-  it("falls back to the bundled default with no fetch and no cache", () => {
+  it("falls back to the bundled default when the fetch fails and no cache exists", () => {
+    mockState.isError = true;
+    renderProbe();
+    expect(screen.getByTestId("app-name").textContent).toBe("KOKAO");
+    expect(screen.getByTestId("logo-url").textContent).toBe("default-lockup.svg");
+  });
+
+  it("stays blank (no default flash) with no fetch and no cache", () => {
+    renderProbe();
+    expect(screen.getByTestId("app-name").textContent).toBe("");
+    expect(screen.getByTestId("logo-url").textContent).toBe("");
+  });
+
+  it("uses the bundled default once the server confirms no custom brand", () => {
+    mockState.brand = { appName: null, logoUrl: null, iconUrl: null };
     renderProbe();
     expect(screen.getByTestId("app-name").textContent).toBe("KOKAO");
     expect(screen.getByTestId("logo-url").textContent).toBe("default-lockup.svg");
@@ -85,9 +108,9 @@ describe("BrandProvider brand caching", () => {
     expect(cached.appName).toBeNull();
   });
 
-  it("survives corrupt cache contents", () => {
+  it("survives corrupt cache contents (treated as no cache: blank until fetch)", () => {
     localStorage.setItem(CACHE_KEY, "{not json");
     renderProbe();
-    expect(screen.getByTestId("app-name").textContent).toBe("KOKAO");
+    expect(screen.getByTestId("app-name").textContent).toBe("");
   });
 });

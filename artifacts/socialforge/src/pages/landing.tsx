@@ -9,7 +9,11 @@ export function LandingPage() {
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <header className="py-6 px-4 md:px-8 max-w-7xl mx-auto w-full flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <img src={logoUrl} alt={appName} className="h-9 w-auto" />
+          {logoUrl ? (
+            <img src={logoUrl} alt={appName} className="h-9 w-auto" />
+          ) : (
+            <div className="h-9" aria-hidden="true" />
+          )}
         </div>
         <div className="flex items-center gap-4">
           <Link href="/sign-in">
@@ -90,7 +94,11 @@ export function LandingPage() {
       
       <footer className="py-12 border-t border-border text-center text-muted-foreground">
         <div className="flex items-center justify-center mb-4">
-          <img src={logoUrl} alt={appName} className="h-7 w-auto" />
+          {logoUrl ? (
+            <img src={logoUrl} alt={appName} className="h-7 w-auto" />
+          ) : (
+            <div className="h-7" aria-hidden="true" />
+          )}
         </div>
         <p>&copy; {new Date().getFullYear()} KOKAO Inc. All rights reserved.</p>
       </footer>

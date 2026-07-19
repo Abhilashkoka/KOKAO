@@ -5,7 +5,11 @@ function AuthHeader({ subtitle }: { subtitle: string }) {
   const { logoUrl, appName } = useBrand();
   return (
     <div className="text-center mb-8 flex flex-col items-center">
-      <img src={logoUrl} alt={appName} className="h-10 w-auto mb-3" />
+      {logoUrl ? (
+        <img src={logoUrl} alt={appName} className="h-10 w-auto mb-3" />
+      ) : (
+        <div className="h-10 mb-3" aria-hidden="true" />
+      )}
       <p className="text-muted-foreground mt-2">{subtitle}</p>
     </div>
   );

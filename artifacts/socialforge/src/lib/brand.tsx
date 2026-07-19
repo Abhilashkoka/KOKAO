@@ -149,22 +149,29 @@ function setFavicon(href: string | null) {
  * the bundled KOKAO lockup when nothing has been configured).
  */
 export function BrandProvider({ children }: { children: React.ReactNode }) {
-  const { data } = useGetAppBrand();
+  const { data, isError } = useGetAppBrand();
   const fetched = data as AppBrand | undefined;
   // Until the fetch resolves, fall back to the last-known branding cached in
   // localStorage so reloads don't flash the bundled default logo.
-  const brand = fetched ?? readCachedBrand() ?? undefined;
+  const cached = fetched ? null : readCachedBrand();
+  const brand = fetched ?? cached ?? undefined;
+  // Unresolved = no server answer yet AND nothing cached (first visit in a
+  // fresh browser). In that state render a blank logo/name instead of
+  // flashing the bundled default, which may not match the configured brand.
+  // A failed fetch counts as resolved so an outage never leaves the UI
+  // permanently blank — it falls back to the bundled default instead.
+  const resolved = fetched !== undefined || isError || cached !== null;
 
   useEffect(() => {
     if (fetched) writeCachedBrand(fetched);
   }, [fetched]);
 
-  const appName = brand?.appName || DEFAULT_APP_NAME;
-  const logoUrl = brand?.logoUrl || kokaoLockup;
+  const appName = resolved ? brand?.appName || DEFAULT_APP_NAME : "";
+  const logoUrl = resolved ? brand?.logoUrl || kokaoLockup : "";
   const iconUrl = brand?.iconUrl ?? null;
 
   useEffect(() => {
-    document.title = appName;
+    if (appName) document.title = appName;
   }, [appName]);
 
   useEffect(() => {
