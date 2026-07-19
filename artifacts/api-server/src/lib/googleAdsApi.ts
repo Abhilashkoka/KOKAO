@@ -661,12 +661,17 @@ export async function listGoogleAdGroups(
   const clause = dateClause(datePreset);
   const cond = `campaign.id = ${Number(campaignId)}`;
   const query =
-    "SELECT ad_group.id, ad_group.name, ad_group.status, " +
+    "SELECT ad_group.id, ad_group.name, ad_group.status, ad_group.cpc_bid_micros, " +
     "metrics.impressions, metrics.clicks, metrics.ctr, metrics.cost_micros, " +
     "metrics.conversions FROM ad_group" +
     (clause ? `${clause} AND ${cond}` : ` WHERE ${cond}`);
   const rows = await gaqlSearch<{
-    adGroup?: { id?: string | number; name?: string; status?: string };
+    adGroup?: {
+      id?: string | number;
+      name?: string;
+      status?: string;
+      cpcBidMicros?: string | number;
+    };
     metrics?: RawMetrics;
   }>(auth, query);
   return rows
@@ -676,7 +681,12 @@ export async function listGoogleAdGroups(
       name: r.adGroup!.name ?? "",
       status: statusToShared(r.adGroup!.status),
       effectiveStatus: statusToShared(r.adGroup!.status),
-      dailyBudget: null,
+      // Google ad groups have no budget of their own; the tunable money
+      // knob is the default max CPC bid, surfaced in the shared
+      // dailyBudget slot (minor units).
+      dailyBudget: microsToMinor(
+        r.adGroup!.cpcBidMicros != null ? Number(r.adGroup!.cpcBidMicros) : null,
+      ),
       lifetimeBudget: null,
       metrics: mapMetrics(r.metrics),
     }));
@@ -759,6 +769,177 @@ export async function readGoogleCampaignState(
     startTime: mapped.startTime,
     stopTime: mapped.stopTime,
   };
+}
+
+/**
+ * Read an ad group's editable state in the shared snapshot shape. Google ad
+ * groups have no budget; the default max CPC bid rides in the dailyBudget
+ * slot (minor units) so drafting, drift checks, and verification all work.
+ */
+export async function readGoogleAdGroupState(
+  auth: GoogleAdsAuth,
+  adGroupId: string,
+): Promise<{
+  name: string;
+  status: string;
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
+  startTime: string | null;
+  stopTime: string | null;
+}> {
+  const rows = await gaqlSearch<{
+    adGroup?: {
+      id?: string | number;
+      name?: string;
+      status?: string;
+      cpcBidMicros?: string | number;
+    };
+  }>(
+    auth,
+    "SELECT ad_group.id, ad_group.name, ad_group.status, ad_group.cpc_bid_micros " +
+      `FROM ad_group WHERE ad_group.id = ${Number(adGroupId)}`,
+  );
+  const row = rows[0];
+  if (!row?.adGroup?.id) {
+    throw new GoogleAdsApiError("Ad group not found in this Google Ads account.", 404);
+  }
+  return {
+    name: row.adGroup.name ?? "",
+    status: statusToShared(row.adGroup.status),
+    dailyBudget: microsToMinor(
+      row.adGroup.cpcBidMicros != null ? Number(row.adGroup.cpcBidMicros) : null,
+    ),
+    lifetimeBudget: null,
+    startTime: null,
+    stopTime: null,
+  };
+}
+
+export interface GoogleAdGroupUpdateParams {
+  name?: string;
+  status?: "ACTIVE" | "PAUSED";
+  /** Default max CPC bid in minor units; converted to micros here. */
+  dailyBudget?: number | null;
+}
+
+/** Update an ad group's name, status, and/or default max CPC bid. */
+export async function updateGoogleAdGroup(
+  auth: GoogleAdsAuth,
+  adGroupId: string,
+  params: GoogleAdGroupUpdateParams,
+): Promise<void> {
+  const fields: Record<string, unknown> = {};
+  const mask: string[] = [];
+  if (params.name != null) {
+    fields.name = params.name;
+    mask.push("name");
+  }
+  if (params.status != null) {
+    fields.status = statusToGoogle(params.status);
+    mask.push("status");
+  }
+  if (params.dailyBudget != null) {
+    fields.cpcBidMicros = String(minorToMicros(params.dailyBudget));
+    mask.push("cpc_bid_micros");
+  }
+  if (mask.length === 0) return;
+  await adsRequest(
+    `customers/${encodeURIComponent(auth.customerId)}/adGroups:mutate`,
+    auth,
+    {
+      method: "POST",
+      body: {
+        operations: [
+          {
+            updateMask: mask.join(","),
+            update: {
+              resourceName: `customers/${auth.customerId}/adGroups/${Number(adGroupId)}`,
+              ...fields,
+            },
+          },
+        ],
+      },
+    },
+  );
+}
+
+interface RawAdGroupAdRow {
+  adGroupAd?: {
+    status?: string;
+    ad?: { id?: string | number; name?: string };
+  };
+  adGroup?: { id?: string | number };
+}
+
+async function findAdGroupAd(
+  auth: GoogleAdsAuth,
+  adId: string,
+): Promise<RawAdGroupAdRow | null> {
+  const rows = await gaqlSearch<RawAdGroupAdRow>(
+    auth,
+    "SELECT ad_group_ad.ad.id, ad_group_ad.ad.name, ad_group_ad.status, ad_group.id " +
+      `FROM ad_group_ad WHERE ad_group_ad.ad.id = ${Number(adId)}`,
+  );
+  const row = rows.find((r) => r.adGroupAd?.ad?.id != null);
+  return row ?? null;
+}
+
+/** Read an ad's editable state (status only; name is read-only here). */
+export async function readGoogleAdState(
+  auth: GoogleAdsAuth,
+  adId: string,
+): Promise<{
+  name: string;
+  status: string;
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
+  startTime: string | null;
+  stopTime: string | null;
+}> {
+  const row = await findAdGroupAd(auth, adId);
+  if (!row) {
+    throw new GoogleAdsApiError("Ad not found in this Google Ads account.", 404);
+  }
+  return {
+    name: row.adGroupAd!.ad!.name || `Ad ${row.adGroupAd!.ad!.id}`,
+    status: statusToShared(row.adGroupAd!.status),
+    dailyBudget: null,
+    lifetimeBudget: null,
+    startTime: null,
+    stopTime: null,
+  };
+}
+
+/** Pause or activate an ad (Google ads cannot be renamed via this surface). */
+export async function updateGoogleAd(
+  auth: GoogleAdsAuth,
+  adId: string,
+  params: { status?: "ACTIVE" | "PAUSED" },
+): Promise<void> {
+  if (params.status == null) return;
+  const row = await findAdGroupAd(auth, adId);
+  const adGroupId = row?.adGroup?.id;
+  if (!row || adGroupId == null) {
+    throw new GoogleAdsApiError("Ad not found in this Google Ads account.", 404);
+  }
+  await adsRequest(
+    `customers/${encodeURIComponent(auth.customerId)}/adGroupAds:mutate`,
+    auth,
+    {
+      method: "POST",
+      body: {
+        operations: [
+          {
+            updateMask: "status",
+            update: {
+              resourceName: `customers/${auth.customerId}/adGroupAds/${Number(adGroupId)}~${Number(adId)}`,
+              status: statusToGoogle(params.status),
+            },
+          },
+        ],
+      },
+    },
+  );
 }
 
 async function getCampaignBudgetResource(

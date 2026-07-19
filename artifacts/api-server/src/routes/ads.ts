@@ -1762,16 +1762,21 @@ router.post(
       }
     }
 
-    if (conn.platform === "google" && input.targetType !== "campaign") {
-      res.status(400).json({
-        error: "Only campaigns can be managed for Google Ads in this phase.",
-      });
-      return;
-    }
     if (conn.platform === "google" && input.lifetimeBudget != null) {
       res.status(400).json({
         error:
-          "Lifetime budgets are not supported for Google Ads campaigns. Use a daily budget instead.",
+          "Lifetime budgets are not supported on Google Ads. Use a daily budget instead.",
+      });
+      return;
+    }
+    if (
+      conn.platform === "google" &&
+      input.targetType === "ad" &&
+      input.name != null
+    ) {
+      res.status(400).json({
+        error:
+          "Google ads can only be paused or activated here — renaming an ad is not supported.",
       });
       return;
     }

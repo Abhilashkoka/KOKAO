@@ -36,6 +36,10 @@ vi.mock("../lib/googleAdsApi", async (importOriginal) => {
     readGoogleCampaignState: vi.fn(),
     updateGoogleCampaign: vi.fn(),
     createGoogleCampaign: vi.fn(),
+    readGoogleAdGroupState: vi.fn(),
+    updateGoogleAdGroup: vi.fn(),
+    readGoogleAdState: vi.fn(),
+    updateGoogleAd: vi.fn(),
     listCustomerChoices: vi.fn(),
     readCustomer: vi.fn(),
     isGoogleAdsConfigured: vi.fn(),
@@ -56,6 +60,10 @@ import {
   readGoogleCampaignState,
   updateGoogleCampaign,
   createGoogleCampaign,
+  readGoogleAdGroupState,
+  updateGoogleAdGroup,
+  readGoogleAdState,
+  updateGoogleAd,
   listCustomerChoices,
   readCustomer,
   isGoogleAdsConfigured,
@@ -71,6 +79,10 @@ const mockAuth = vi.mocked(getGoogleAdsAuth);
 const mockRead = vi.mocked(readGoogleCampaignState);
 const mockUpdate = vi.mocked(updateGoogleCampaign);
 const mockCreate = vi.mocked(createGoogleCampaign);
+const mockReadAdGroup = vi.mocked(readGoogleAdGroupState);
+const mockUpdateAdGroup = vi.mocked(updateGoogleAdGroup);
+const mockReadAd = vi.mocked(readGoogleAdState);
+const mockUpdateAd = vi.mocked(updateGoogleAd);
 const mockChoices = vi.mocked(listCustomerChoices);
 const mockReadCustomer = vi.mocked(readCustomer);
 const mockConfigured = vi.mocked(isGoogleAdsConfigured);
@@ -157,6 +169,12 @@ beforeEach(async () => {
   mockRead.mockReset();
   mockUpdate.mockReset();
   mockCreate.mockReset();
+  mockReadAdGroup.mockReset();
+  mockUpdateAdGroup.mockReset();
+  mockReadAd.mockReset();
+  mockUpdateAd.mockReset();
+  mockUpdateAdGroup.mockResolvedValue(undefined as never);
+  mockUpdateAd.mockResolvedValue(undefined as never);
   mockChoices.mockReset();
   mockReadCustomer.mockReset();
   mockConfigured.mockReset();
@@ -356,6 +374,170 @@ describe("google draft creation and apply", () => {
       expect(res.status).toBe(200);
       expect(res.body.status).toBe("expired");
       expect(mockUpdate).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("drafts, applies, and verifies a google ad group status + CPC bid change", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertGoogleAdConnection(tenant.tenantId);
+      const before = {
+        name: "Ad Group A",
+        status: "ACTIVE",
+        dailyBudget: 1500,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      };
+      mockReadAdGroup.mockResolvedValueOnce({ ...before }); // draft diff
+      const draftRes = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "adset",
+        targetId: "ag_1",
+        status: "PAUSED",
+        dailyBudget: 2000,
+      });
+      expect(draftRes.status).toBe(201);
+      expect(draftRes.body.targetType).toBe("adset");
+
+      mockReadAdGroup.mockResolvedValueOnce({ ...before }); // drift check
+      mockReadAdGroup.mockResolvedValue({
+        ...before,
+        status: "PAUSED",
+        dailyBudget: 2000,
+      }); // verify read-back
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("applied");
+      expect(res.body.verifyStatus).toBe("verified");
+      expect(mockUpdateAdGroup).toHaveBeenCalledWith(expect.anything(), "ag_1", {
+        name: undefined,
+        status: "PAUSED",
+        dailyBudget: 2000,
+      });
+      expect(mockUpdate).not.toHaveBeenCalled();
+
+      const logs = await db
+        .select()
+        .from(adsChangeLogsTable)
+        .where(eq(adsChangeLogsTable.tenantId, tenant.tenantId));
+      expect(logs.length).toBe(1);
+      expect(logs[0]!.targetType).toBe("adset");
+      expect(logs[0]!.outcome).toBe("applied");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("drafts and applies a google ad pause", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertGoogleAdConnection(tenant.tenantId);
+      const before = {
+        name: "Ad 77",
+        status: "ACTIVE",
+        dailyBudget: null,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      };
+      mockReadAd.mockResolvedValueOnce({ ...before });
+      const draftRes = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "ad",
+        targetId: "ad_77",
+        status: "PAUSED",
+        dailyBudget: undefined,
+      });
+      expect(draftRes.status).toBe(201);
+
+      mockReadAd.mockResolvedValueOnce({ ...before }); // drift check
+      mockReadAd.mockResolvedValue({ ...before, status: "PAUSED" });
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("applied");
+      expect(res.body.verifyStatus).toBe("verified");
+      expect(mockUpdateAd).toHaveBeenCalledWith(expect.anything(), "ad_77", {
+        status: "PAUSED",
+      });
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects renaming a google ad with a 400", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertGoogleAdConnection(tenant.tenantId);
+      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "ad",
+        targetId: "ad_77",
+        name: "New Ad Name",
+        status: "PAUSED",
+        dailyBudget: undefined,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/renam/i);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects a lifetime budget on a google ad group draft", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertGoogleAdConnection(tenant.tenantId);
+      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "adset",
+        targetId: "ag_1",
+        dailyBudget: undefined,
+        lifetimeBudget: 90000,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/lifetime/i);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("expires a google ad group draft when the remote ad group drifted", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertGoogleAdConnection(tenant.tenantId);
+      const before = {
+        name: "Ad Group A",
+        status: "ACTIVE",
+        dailyBudget: 1500,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      };
+      mockReadAdGroup.mockResolvedValueOnce({ ...before });
+      const draftRes = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "adset",
+        targetId: "ag_1",
+        status: "PAUSED",
+        dailyBudget: undefined,
+      });
+      expect(draftRes.status).toBe(201);
+
+      mockReadAdGroup.mockResolvedValue({ ...before, dailyBudget: 9999 });
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("expired");
+      expect(mockUpdateAdGroup).not.toHaveBeenCalled();
     } finally {
       await deleteTenant(tenant.tenantId);
     }

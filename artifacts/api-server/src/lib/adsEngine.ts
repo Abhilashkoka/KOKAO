@@ -56,6 +56,10 @@ import {
   readGoogleCampaignState,
   updateGoogleCampaign,
   createGoogleCampaign,
+  readGoogleAdGroupState,
+  updateGoogleAdGroup,
+  readGoogleAdState,
+  updateGoogleAd,
 } from "./googleAdsApi";
 import {
   maybeRefreshLinkedinAdsToken,
@@ -288,23 +292,44 @@ const metaOps: PlatformOps = {
 const googleOps: PlatformOps = {
   defaultObjective: "SEARCH",
   readState: async (conn, targetId, targetType) => {
-    if (targetType !== "campaign") {
+    if (targetType === "campaign_group") {
       throw new GoogleAdsApiError(
-        "Only campaigns can be managed for Google Ads in this phase.",
+        "Campaign groups are not a Google Ads concept.",
         400,
       );
     }
     const auth = await getGoogleAdsAuth(conn);
+    if (targetType === "adset") return readGoogleAdGroupState(auth, targetId);
+    if (targetType === "ad") return readGoogleAdState(auth, targetId);
     return readGoogleCampaignState(auth, targetId);
   },
   update: async (conn, targetId, params) => {
     if (params.lifetimeBudget != null) {
       throw new GoogleAdsApiError(
-        "Lifetime budgets are not supported for Google Ads campaigns. Use a daily budget instead.",
+        "Lifetime budgets are not supported on Google Ads. Use a daily budget instead.",
         400,
       );
     }
+    const targetType = params.targetType ?? "campaign";
     const auth = await getGoogleAdsAuth(conn);
+    if (targetType === "adset") {
+      await updateGoogleAdGroup(auth, targetId, {
+        name: params.name,
+        status: params.status,
+        dailyBudget: params.dailyBudget ?? undefined,
+      });
+      return;
+    }
+    if (targetType === "ad") {
+      if (params.name != null || params.dailyBudget != null) {
+        throw new GoogleAdsApiError(
+          "Google ads support pausing and activating only — names and budgets can't be changed here.",
+          400,
+        );
+      }
+      await updateGoogleAd(auth, targetId, { status: params.status });
+      return;
+    }
     await updateGoogleCampaign(auth, targetId, params);
   },
   create: async (conn, params) => {

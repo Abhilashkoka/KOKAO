@@ -1540,6 +1540,7 @@ function CampaignsSection({
       {detailCampaignId && (
         <CampaignDetailDialog
           connectionId={connection.id}
+          platform={connection.platform}
           campaignId={detailCampaignId}
           datePreset={datePreset}
           currency={currency}
@@ -1579,6 +1580,7 @@ function CampaignsSection({
 
 function CampaignDetailDialog({
   connectionId,
+  platform,
   campaignId,
   datePreset,
   currency,
@@ -1587,6 +1589,7 @@ function CampaignDetailDialog({
   onClose,
 }: {
   connectionId: number;
+  platform: string;
   campaignId: string;
   datePreset: string;
   currency: string | null;
@@ -1628,7 +1631,9 @@ function CampaignDetailDialog({
                     <TableRow>
                       <TableHead>Name</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Budget</TableHead>
+                      <TableHead className="text-right">
+                        {platform === "google" ? "Default CPC bid" : "Budget"}
+                      </TableHead>
                       <TableHead className="text-right">Impressions</TableHead>
                       <TableHead className="text-right">Spend</TableHead>
                       <TableHead />
@@ -1640,9 +1645,11 @@ function CampaignDetailDialog({
                         <TableCell className="font-medium">{s.name}</TableCell>
                         <TableCell>{statusBadge(s.effectiveStatus)}</TableCell>
                         <TableCell className="text-right whitespace-nowrap">
-                          {s.dailyBudget != null
-                            ? `${formatMoneyMinor(s.dailyBudget, currency)}/day`
-                            : formatMoneyMinor(s.lifetimeBudget, currency)}
+                          {platform === "google"
+                            ? formatMoneyMinor(s.dailyBudget, currency)
+                            : s.dailyBudget != null
+                              ? `${formatMoneyMinor(s.dailyBudget, currency)}/day`
+                              : formatMoneyMinor(s.lifetimeBudget, currency)}
                         </TableCell>
                         <TableCell className="text-right">
                           {s.metrics.impressions.toLocaleString()}
@@ -1893,6 +1900,11 @@ function DraftDialog({
     (state.targetType === "adset" && !isTiktok);
   const showDailyBudget = showBudgets && !isGroupCreate;
   const showSchedule = state.targetType === "campaign";
+  // Google ad groups have no budget; the money knob there is the default
+  // max CPC bid (still sent as dailyBudget in minor units). Google ads can
+  // only be paused/activated — renaming is not supported.
+  const isGoogleAdGroup = isGoogle && state.targetType === "adset";
+  const nameLocked = isGoogle && state.targetType === "ad";
 
   const isLinkedin = platform === "linkedin";
   const { data: groupData } = useListLinkedinCampaignGroups(
@@ -1914,7 +1926,9 @@ function DraftDialog({
       idempotencyKey,
     };
     if (!isCreate) data.targetId = state.targetId;
-    if (isCreate || state.name !== state.currentName) data.name = state.name;
+    if (!nameLocked && (isCreate || state.name !== state.currentName)) {
+      data.name = state.name;
+    }
     if (state.status) data.status = state.status;
     if (isCreate && !isLinkedin && !isGroupCreate && state.objective) {
       data.objective = state.objective;
@@ -1976,8 +1990,15 @@ function DraftDialog({
               id="draft-name"
               value={state.name}
               onChange={(e) => setState({ ...state, name: e.target.value })}
+              disabled={nameLocked}
               data-testid="input-draft-name"
             />
+            {nameLocked && (
+              <p className="text-xs text-muted-foreground">
+                Google ads can only be paused or activated here — renaming is
+                not supported.
+              </p>
+            )}
           </div>
           {isCreate && isLinkedin && !isGroupCreate && (
             <div className="space-y-2">
@@ -2104,7 +2125,11 @@ function DraftDialog({
             <div className="grid grid-cols-2 gap-4">
               {showDailyBudget && (
                 <div className="space-y-2">
-                  <Label htmlFor="draft-daily-budget">Daily budget (minor units)</Label>
+                  <Label htmlFor="draft-daily-budget">
+                    {isGoogleAdGroup
+                      ? "Default CPC bid (minor units)"
+                      : "Daily budget (minor units)"}
+                  </Label>
                   <Input
                     id="draft-daily-budget"
                     type="number"
