@@ -5281,7 +5281,8 @@ export const GetConsentResponse = zod.object({
   "locationCoarse": zod.boolean(),
   "locationPrecise": zod.boolean(),
   "carrier": zod.boolean(),
-  "responded": zod.boolean().describe('Whether the user has answered the consent disclosure.')
+  "responded": zod.boolean().describe('Whether the user has answered the consent disclosure.'),
+  "promptDismissed": zod.boolean().describe('Whether the user has dismissed the one-time privacy prompt (without necessarily responding). Clients should not show the prompt again on any device once true.')
 })
 
 
@@ -5302,7 +5303,23 @@ export const UpdateConsentResponse = zod.object({
   "locationCoarse": zod.boolean(),
   "locationPrecise": zod.boolean(),
   "carrier": zod.boolean(),
-  "responded": zod.boolean().describe('Whether the user has answered the consent disclosure.')
+  "responded": zod.boolean().describe('Whether the user has answered the consent disclosure.'),
+  "promptDismissed": zod.boolean().describe('Whether the user has dismissed the one-time privacy prompt (without necessarily responding). Clients should not show the prompt again on any device once true.')
+})
+
+
+/**
+ * Persists the dismissal server-side so the prompt never reappears on another device or after a reinstall. Does not mark the consent question as answered.
+ * @summary Record that the user dismissed the one-time privacy prompt
+ */
+export const DismissConsentPromptResponse = zod.object({
+  "analytics": zod.boolean(),
+  "deviceDetails": zod.boolean(),
+  "locationCoarse": zod.boolean(),
+  "locationPrecise": zod.boolean(),
+  "carrier": zod.boolean(),
+  "responded": zod.boolean().describe('Whether the user has answered the consent disclosure.'),
+  "promptDismissed": zod.boolean().describe('Whether the user has dismissed the one-time privacy prompt (without necessarily responding). Clients should not show the prompt again on any device once true.')
 })
 
 

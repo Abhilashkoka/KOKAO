@@ -88,6 +88,7 @@ export const userConsentsTable = pgTable(
     locationPrecise: boolean("location_precise").notNull().default(false),
     carrier: boolean("carrier").notNull().default(false),
     respondedAt: timestamp("responded_at", { withTimezone: true }),
+    promptDismissedAt: timestamp("prompt_dismissed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

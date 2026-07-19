@@ -10955,6 +10955,77 @@ export const useUpdateConsent = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getUpdateConsentMutationOptions(options));
     }
 
+export const getDismissConsentPromptUrl = () => {
+
+
+
+
+  return `/api/consent/dismiss-prompt`
+}
+
+/**
+ * Persists the dismissal server-side so the prompt never reappears on another device or after a reinstall. Does not mark the consent question as answered.
+ * @summary Record that the user dismissed the one-time privacy prompt
+ */
+export const dismissConsentPrompt = async ( options?: RequestInit): Promise<ConsentState> => {
+
+  return customFetch<ConsentState>(getDismissConsentPromptUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getDismissConsentPromptMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof dismissConsentPrompt>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof dismissConsentPrompt>>, TError,void, TContext> => {
+
+const mutationKey = ['dismissConsentPrompt'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof dismissConsentPrompt>>, void> = () => {
+
+
+          return  dismissConsentPrompt(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DismissConsentPromptMutationResult = NonNullable<Awaited<ReturnType<typeof dismissConsentPrompt>>>
+
+    export type DismissConsentPromptMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Record that the user dismissed the one-time privacy prompt
+ */
+export const useDismissConsentPrompt = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof dismissConsentPrompt>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof dismissConsentPrompt>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDismissConsentPromptMutationOptions(options));
+    }
+
 export const getIngestAnalyticsEventsUrl = () => {
 
 

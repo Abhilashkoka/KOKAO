@@ -3993,6 +3993,29 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /consent/dismiss-prompt:
+    post:
+      operationId: dismissConsentPrompt
+      tags: [analytics]
+      summary: Record that the user dismissed the one-time privacy prompt
+      description: >-
+        Persists the dismissal server-side so the prompt never reappears on
+        another device or after a reinstall. Does not mark the consent
+        question as answered.
+      responses:
+        "200":
+          description: Updated consent state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsentState"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /analytics/events:
     post:
       operationId: ingestAnalyticsEvents
@@ -6813,7 +6836,7 @@ components:
     ConsentState:
       type: object
       required:
-        [analytics, deviceDetails, locationCoarse, locationPrecise, carrier, responded]
+        [analytics, deviceDetails, locationCoarse, locationPrecise, carrier, responded, promptDismissed]
       properties:
         analytics:
           type: boolean
@@ -6828,6 +6851,12 @@ components:
         responded:
           type: boolean
           description: Whether the user has answered the consent disclosure.
+        promptDismissed:
+          type: boolean
+          description: >-
+            Whether the user has dismissed the one-time privacy prompt
+            (without necessarily responding). Clients should not show the
+            prompt again on any device once true.
     ConsentInput:
       type: object
       properties:

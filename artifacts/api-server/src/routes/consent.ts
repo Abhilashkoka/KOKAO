@@ -22,7 +22,11 @@ const ConsentInput = z.object({
 router.get("/consent", async (req: Request, res: Response) => {
   try {
     const row = await loadConsent(req.clerkUserId);
-    res.json({ ...toConsentFlags(row), responded: Boolean(row?.respondedAt) });
+    res.json({
+      ...toConsentFlags(row),
+      responded: Boolean(row?.respondedAt),
+      promptDismissed: Boolean(row?.promptDismissedAt),
+    });
   } catch (error) {
     req.log.error({ err: error }, "Failed to load consent");
     res.status(500).json({ error: "Failed to load consent" });
@@ -58,10 +62,39 @@ router.put("/consent", async (req: Request, res: Response) => {
     res.json({
       ...toConsentFlags(row[0]),
       responded: Boolean(row[0]?.respondedAt),
+      promptDismissed: Boolean(row[0]?.promptDismissedAt),
     });
   } catch (error) {
     req.log.error({ err: error }, "Failed to save consent");
     res.status(500).json({ error: "Failed to save consent" });
+  }
+});
+
+// Persist the one-time privacy prompt dismissal so it never reappears on
+// another device or after a reinstall. Does NOT mark the question answered.
+router.post("/consent/dismiss-prompt", async (req: Request, res: Response) => {
+  try {
+    const now = new Date();
+    await db
+      .insert(userConsentsTable)
+      .values({
+        clerkUserId: req.clerkUserId,
+        promptDismissedAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: userConsentsTable.clerkUserId,
+        set: { promptDismissedAt: now, updatedAt: now },
+      });
+    const row = await loadConsent(req.clerkUserId);
+    res.json({
+      ...toConsentFlags(row),
+      responded: Boolean(row?.respondedAt),
+      promptDismissed: Boolean(row?.promptDismissedAt),
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to record prompt dismissal");
+    res.status(500).json({ error: "Failed to record prompt dismissal" });
   }
 });
 

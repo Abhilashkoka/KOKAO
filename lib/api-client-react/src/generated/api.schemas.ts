@@ -2096,6 +2096,8 @@ export interface ConsentState {
   carrier: boolean;
   /** Whether the user has answered the consent disclosure. */
   responded: boolean;
+  /** Whether the user has dismissed the one-time privacy prompt (without necessarily responding). Clients should not show the prompt again on any device once true. */
+  promptDismissed: boolean;
 }
 
 export interface ConsentInput {

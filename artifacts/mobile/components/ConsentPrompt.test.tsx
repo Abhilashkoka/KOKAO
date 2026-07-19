@@ -61,7 +61,10 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
   const url = typeof input === "string" ? input : input.toString();
   if (!url.includes("/api/consent")) throw new Error(`unexpected fetch: ${url}`);
   const method = (init?.method ?? "GET").toUpperCase();
-  if (method === "PUT") {
+  if (url.includes("/consent/dismiss-prompt")) {
+    if (method !== "POST") throw new Error(`unexpected method: ${method}`);
+    serverConsent = { ...serverConsent, promptDismissed: true };
+  } else if (method === "PUT") {
     serverConsent = {
       ...serverConsent,
       ...JSON.parse(String(init?.body)),
@@ -98,6 +101,7 @@ beforeEach(() => {
     locationPrecise: false,
     carrier: false,
     responded: false,
+    promptDismissed: false,
   };
 });
 
@@ -143,6 +147,30 @@ describe("ConsentPrompt one-time behavior", () => {
     first.unmount();
 
     mountPrompt();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText("Your privacy choices")).toBeNull();
+  });
+
+  it("persists 'Not now' server-side so a second device never shows the prompt", async () => {
+    const first = mountPrompt();
+    fireEvent.click(await screen.findByLabelText("Not now"));
+    // Dismissal is sent to the server, not just stored locally.
+    await waitFor(() => expect(serverConsent.promptDismissed).toBe(true));
+    first.unmount();
+
+    // Second device / reinstall: no AsyncStorage ack, but the server-side
+    // promptDismissed flag keeps the prompt away.
+    storage.clear();
+    mountPrompt();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText("Your privacy choices")).toBeNull();
+  });
+
+  it("never shows for a user whose server record already has promptDismissed: true", async () => {
+    serverConsent.promptDismissed = true;
+    mountPrompt();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByText("Your privacy choices")).toBeNull();
   });

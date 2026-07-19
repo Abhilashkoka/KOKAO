@@ -7,7 +7,9 @@ import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import {
   useGetConsent,
   getGetConsentQueryKey,
+  useDismissConsentPrompt,
 } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui";
 import colors from "@/constants/colors";
@@ -20,21 +22,25 @@ const ackKey = (userId: string) => `kokao-consent-prompt-${userId}`;
 /**
  * One-time privacy prompt for signed-in users who have never responded to the
  * consent question (GET /consent returns responded: false). Reviewing routes
- * to the Privacy & Data screen; dismissing is remembered per user in
- * AsyncStorage so the prompt never repeats and never blocks usage.
+ * to the Privacy & Data screen; dismissing is persisted server-side (so the
+ * prompt stays away on every device) with a per-user AsyncStorage ack as a
+ * fast local fallback. It never repeats and never blocks usage.
  */
 export function ConsentPrompt() {
   const router = useRouter();
   const { userId } = useAuth();
+  const queryClient = useQueryClient();
   const consentQuery = useGetConsent({
     query: { queryKey: getGetConsentQueryKey() },
   });
+  const dismissMutation = useDismissConsentPrompt();
   const [open, setOpen] = useState(false);
 
   const responded = consentQuery.data?.responded;
+  const promptDismissed = consentQuery.data?.promptDismissed;
 
   useEffect(() => {
-    if (!userId || responded !== false) return;
+    if (!userId || responded !== false || promptDismissed !== false) return;
     let cancelled = false;
     AsyncStorage.getItem(ackKey(userId))
       .then((seen) => {
@@ -46,7 +52,7 @@ export function ConsentPrompt() {
     return () => {
       cancelled = true;
     };
-  }, [userId, responded]);
+  }, [userId, responded, promptDismissed]);
 
   if (!open) return null;
 
@@ -57,6 +63,17 @@ export function ConsentPrompt() {
         // Ignore storage failures; worst case the prompt shows again.
       });
     }
+    // Persist the dismissal server-side so the prompt stays away on other
+    // devices and after reinstalls. Best-effort: the local ack above already
+    // silences it on this device if the network call fails.
+    dismissMutation.mutate(undefined, {
+      onSuccess: (data) => {
+        queryClient.setQueryData(getGetConsentQueryKey(), data);
+      },
+      onError: () => {
+        // Best-effort; AsyncStorage keeps it quiet locally.
+      },
+    });
   };
 
   const review = () => {
