@@ -183,21 +183,36 @@ export async function requireTenant(
                   .limit(1)
               )[0];
               if (membership && membership.tenantId === invite.tenantId) {
-                await db
-                  .update(teamInvitesTable)
-                  .set({ status: "accepted", acceptedAt: new Date() })
-                  .where(eq(teamInvitesTable.id, invite.id));
+                // Atomically flip the invite pending -> accepted. Concurrent
+                // first requests can all reach this point (the member insert
+                // is onConflictDoNothing), so only the request whose UPDATE
+                // actually transitions the row wins the RETURNING row and is
+                // allowed to notify — everyone else joins silently.
+                const flipped = (
+                  await db
+                    .update(teamInvitesTable)
+                    .set({ status: "accepted", acceptedAt: new Date() })
+                    .where(
+                      and(
+                        eq(teamInvitesTable.id, invite.id),
+                        eq(teamInvitesTable.status, "pending"),
+                      ),
+                    )
+                    .returning({ id: teamInvitesTable.id })
+                )[0];
                 tenant = inviteTenant;
                 memberRole =
                   membership.role === "admin" ? "admin" : "member";
-                // Close the invite loop: tell the owner + admin members the
-                // invitee actually joined. Best-effort — never blocks or
-                // fails the join itself.
-                await notifyTeamMemberJoined(invite.tenantId, {
-                  email,
-                  role: membership.role,
-                  clerkUserId,
-                });
+                if (flipped) {
+                  // Close the invite loop: tell the owner + admin members the
+                  // invitee actually joined. Best-effort — never blocks or
+                  // fails the join itself.
+                  await notifyTeamMemberJoined(invite.tenantId, {
+                    email,
+                    role: membership.role,
+                    clerkUserId,
+                  });
+                }
               }
             }
           }

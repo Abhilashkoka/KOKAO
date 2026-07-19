@@ -625,6 +625,53 @@ describe("invite auto-accept join notification", () => {
       await cleanup(owner.tenantId);
     }
   });
+
+  it("notifies exactly once when several first requests race the invite accept", async () => {
+    const { owner, inviteeClerkUserId, inviteeEmail } =
+      await seedPendingInvite();
+    try {
+      emailState.forceEmailOn = true;
+      emailState.verifiedEmails = {
+        [owner.clerkUserId]: "owner@example.com",
+        [inviteeClerkUserId]: inviteeEmail,
+      };
+      actAs(inviteeClerkUserId, inviteeEmail);
+
+      // A brand-new user's browser fires several API requests in parallel on
+      // first load; all of them can pass the membership check before any
+      // finishes the invite flip.
+      const responses = await Promise.all([
+        request(app).get("/api/me"),
+        request(app).get("/api/me"),
+        request(app).get("/api/me"),
+        request(app).get("/api/me"),
+      ]);
+      for (const res of responses) {
+        expect(res.status).toBe(200);
+        expect(res.body.team.role).toBe("member");
+      }
+
+      const notifications = await db
+        .select()
+        .from(notificationsTable)
+        .where(eq(notificationsTable.tenantId, owner.tenantId));
+      expect(
+        notifications.filter((n) => n.type === "team_member_joined"),
+      ).toHaveLength(1);
+      expect(
+        emailState.sent.filter((m) => m.to === "owner@example.com"),
+      ).toHaveLength(1);
+
+      // The member row itself is still a single one.
+      const members = await db
+        .select()
+        .from(tenantMembersTable)
+        .where(eq(tenantMembersTable.clerkUserId, inviteeClerkUserId));
+      expect(members).toHaveLength(1);
+    } finally {
+      await cleanup(owner.tenantId);
+    }
+  });
 });
 
 describe("notifySeatRequestDecided recipient fan-out", () => {
