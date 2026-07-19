@@ -8585,6 +8585,9 @@ components:
           type: ["string", "null"]
         after:
           type: ["string", "null"]
+        afterDetail:
+          type: ["string", "null"]
+          description: Optional secondary text for the proposed value (e.g. the raw platform id behind a display name).
     AdsDraft:
       type: object
       required:

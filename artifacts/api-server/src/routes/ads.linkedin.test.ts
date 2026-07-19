@@ -552,6 +552,16 @@ describe("LinkedIn draft apply", () => {
         dailyBudget: 10000,
       });
       expect(draftRes.status).toBe(201);
+      const groupChange = (
+        draftRes.body.changes as {
+          field: string;
+          after: string | null;
+          afterDetail?: string | null;
+        }[]
+      ).find((c) => c.field === "Campaign group");
+      expect(groupChange).toBeDefined();
+      expect(groupChange!.after).toBe("Always On");
+      expect(groupChange!.afterDetail).toBe("grp_1");
 
       mockReadState.mockResolvedValue({
         name: "LI Launch",

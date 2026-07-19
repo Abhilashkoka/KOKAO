@@ -1660,6 +1660,26 @@ router.get("/ads/drafts", async (req: Request, res: Response) => {
   res.json([...pending, ...rest].map(serializeDraft));
 });
 
+/**
+ * Best-effort lookup of a LinkedIn campaign group's display name so draft
+ * diffs show a name instead of a raw id. Returns null on any failure — the
+ * draft must never be blocked by a cosmetic lookup.
+ */
+async function lookupLinkedinGroupName(
+  conn: AdAccountConnection,
+  campaignGroupId: string,
+): Promise<string | null> {
+  if (conn.platform !== "linkedin") return null;
+  try {
+    const token = getConnectionToken(conn);
+    if (!token) return null;
+    const groups = await listLinkedinCampaignGroups(token, conn.adAccountId);
+    return groups.find((g) => g.id === campaignGroupId)?.name ?? null;
+  } catch {
+    return null;
+  }
+}
+
 router.post(
   "/ads/drafts",
   requireWorkspaceAdmin,
@@ -2016,6 +2036,13 @@ router.post(
       }
       targetName = input.name.trim();
       changes = buildCreateDiff({
+        campaignGroup:
+          typeof payload.campaignGroupId === "string"
+            ? {
+                id: payload.campaignGroupId,
+                name: await lookupLinkedinGroupName(conn, payload.campaignGroupId),
+              }
+            : null,
         name: targetName,
         objective:
           conn.platform === "linkedin" || input.targetType === "campaign_group"

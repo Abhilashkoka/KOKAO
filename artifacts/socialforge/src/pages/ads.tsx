@@ -2785,7 +2785,12 @@ function ApproveConfirmDialog({
 function DiffList({
   changes,
 }: {
-  changes: { field: string; before?: string | null; after?: string | null }[];
+  changes: {
+    field: string;
+    before?: string | null;
+    after?: string | null;
+    afterDetail?: string | null;
+  }[];
 }) {
   return (
     <div className="space-y-1">
@@ -2797,6 +2802,9 @@ function DiffList({
           </span>
           <ArrowRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           <span className="font-medium">{c.after ?? "—"}</span>
+          {c.afterDetail && (
+            <span className="text-xs text-muted-foreground">{c.afterDetail}</span>
+          )}
         </div>
       ))}
     </div>

@@ -660,11 +660,21 @@ export function buildCreateDiff(proposed: {
   lifetimeBudget?: number | null;
   startTime?: string | null;
   stopTime?: string | null;
+  /** LinkedIn campaign creates: the destination campaign group (name is best-effort). */
+  campaignGroup?: { id: string; name: string | null } | null;
 }): AdChangeField[] {
   const fields: AdChangeField[] = [
     { field: "Name", before: null, after: proposed.name },
     { field: "Status", before: null, after: proposed.status },
   ];
+  if (proposed.campaignGroup) {
+    fields.push({
+      field: "Campaign group",
+      before: null,
+      after: proposed.campaignGroup.name ?? proposed.campaignGroup.id,
+      afterDetail: proposed.campaignGroup.name ? proposed.campaignGroup.id : null,
+    });
+  }
   if (proposed.objective) {
     fields.push({ field: "Objective", before: null, after: proposed.objective });
   }

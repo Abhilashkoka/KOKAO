@@ -67,6 +67,8 @@ export interface AdChangeField {
   before: string | null;
   /** Human-readable proposed value. */
   after: string | null;
+  /** Optional secondary text for the proposed value (e.g. a raw platform id). */
+  afterDetail?: string | null;
 }
 
 /**

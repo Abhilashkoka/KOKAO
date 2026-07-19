@@ -6195,7 +6195,8 @@ export const ListAdDraftsResponseItem = zod.object({
   "changes": zod.array(zod.object({
   "field": zod.string(),
   "before": zod.string().nullish(),
-  "after": zod.string().nullish()
+  "after": zod.string().nullish(),
+  "afterDetail": zod.string().nullish().describe('Optional secondary text for the proposed value (e.g. the raw platform id behind a display name).')
 })),
   "status": zod.string().describe('draft | approved | applied | failed | rejected | expired'),
   "idempotencyKey": zod.string().optional(),
@@ -6262,7 +6263,8 @@ export const CreateAdDraftResponse = zod.object({
   "changes": zod.array(zod.object({
   "field": zod.string(),
   "before": zod.string().nullish(),
-  "after": zod.string().nullish()
+  "after": zod.string().nullish(),
+  "afterDetail": zod.string().nullish().describe('Optional secondary text for the proposed value (e.g. the raw platform id behind a display name).')
 })),
   "status": zod.string().describe('draft | approved | applied | failed | rejected | expired'),
   "idempotencyKey": zod.string().optional(),
@@ -6294,7 +6296,8 @@ export const ApproveAdDraftResponse = zod.object({
   "changes": zod.array(zod.object({
   "field": zod.string(),
   "before": zod.string().nullish(),
-  "after": zod.string().nullish()
+  "after": zod.string().nullish(),
+  "afterDetail": zod.string().nullish().describe('Optional secondary text for the proposed value (e.g. the raw platform id behind a display name).')
 })),
   "status": zod.string().describe('draft | approved | applied | failed | rejected | expired'),
   "idempotencyKey": zod.string().optional(),
@@ -6326,7 +6329,8 @@ export const RejectAdDraftResponse = zod.object({
   "changes": zod.array(zod.object({
   "field": zod.string(),
   "before": zod.string().nullish(),
-  "after": zod.string().nullish()
+  "after": zod.string().nullish(),
+  "afterDetail": zod.string().nullish().describe('Optional secondary text for the proposed value (e.g. the raw platform id behind a display name).')
 })),
   "status": zod.string().describe('draft | approved | applied | failed | rejected | expired'),
   "idempotencyKey": zod.string().optional(),
@@ -6353,7 +6357,8 @@ export const ListAdsChangeLogResponseItem = zod.object({
   "changes": zod.array(zod.object({
   "field": zod.string(),
   "before": zod.string().nullish(),
-  "after": zod.string().nullish()
+  "after": zod.string().nullish(),
+  "afterDetail": zod.string().nullish().describe('Optional secondary text for the proposed value (e.g. the raw platform id behind a display name).')
 })),
   "outcome": zod.string().describe('applied | failed'),
   "verifyStatus": zod.string().nullish(),

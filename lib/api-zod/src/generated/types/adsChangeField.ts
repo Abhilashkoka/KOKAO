@@ -12,4 +12,9 @@ export interface AdsChangeField {
   before?: string | null;
   /** @nullable */
   after?: string | null;
+  /**
+     * Optional secondary text for the proposed value (e.g. the raw platform id behind a display name).
+     * @nullable
+     */
+  afterDetail?: string | null;
 }
