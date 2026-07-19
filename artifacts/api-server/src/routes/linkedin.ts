@@ -630,6 +630,11 @@ async function createLinkedinPost(opts: {
       body: new Uint8Array(buffer),
     });
     if (!uploadRes.ok) {
+      // The token died mid-upload (revoked between the pre-publish
+      // re-verify and this write). Never surface the raw LinkedIn error.
+      if (uploadRes.status === 401 || uploadRes.status === 403) {
+        throw new PublishAuthRevokedError(LINKEDIN_RECONNECT_MESSAGE);
+      }
       throw new Error(`Image binary upload failed (${uploadRes.status})`);
     }
     imageUrn = initJson.value.image;

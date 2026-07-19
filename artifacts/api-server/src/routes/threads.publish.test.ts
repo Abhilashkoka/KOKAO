@@ -909,6 +909,60 @@ describe("Threads publish when the token dies MID-publish", () => {
     }
   });
 
+  it("maps a 401 on the image media-container creation to the reconnect message and flips the account", async () => {
+    // The image publish path: the signed download URL resolves fine, but the
+    // token dies on the image container-create write itself.
+    const calls = mockThreadsDeadWrite();
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getSignedDownloadURL",
+    ).mockResolvedValue("https://storage.example.test/signed/img.png");
+
+    const tenant = await createTenant();
+    try {
+      await insertThreadsAccount(tenant.tenantId, {
+        accessToken: TH_TOKEN,
+        providerUserId: TH_USER_ID,
+      });
+      const itemId = await insertContentItem(tenant.tenantId, {
+        caption: "post with picture",
+        imagePath: "/objects/uploads/pic.png",
+      });
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-threads`,
+      );
+
+      // The friendly reconnect message — never the raw Threads error.
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/reconnect/i);
+      expect(res.body.error).not.toContain(RAW_THREADS_ERROR);
+
+      // The failing write really was the IMAGE container creation.
+      const containerCalls = calls.filter(
+        (c) =>
+          c.method === "POST" &&
+          c.url === `${GRAPH_BASE}/${TH_USER_ID}/threads`,
+      );
+      expect(containerCalls.length).toBe(1);
+      expect(containerCalls[0].body).toContain("media_type=IMAGE");
+      expect(containerCalls[0].body).toContain("image_url=");
+
+      // The item records the failure with the friendly message.
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("failed");
+      expect(item.failureReason).toMatch(/reconnect/i);
+      expect(item.failureReason).not.toContain(RAW_THREADS_ERROR);
+
+      // The account row flipped so the Accounts page prompts a reconnect.
+      const row = await getConnectedAccount(tenant.tenantId, "threads");
+      expect(row?.verifyStatus).toBe("failed");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("keeps the item published but flips the account when the token dies on a follow-up reply", async () => {
     // A caption long enough to need a second (reply) post.
     const caption = ("lorem ipsum dolor sit amet ").repeat(30).trim();

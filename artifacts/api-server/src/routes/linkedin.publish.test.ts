@@ -617,6 +617,40 @@ describe("LinkedIn publish when the token dies MID-publish", () => {
     expect(state.accounts[0].verifyStatus).toBe("failed");
   });
 
+  it("maps a 401 on the image binary upload (init passed) to the reconnect message and flips the account", async () => {
+    seedConnectedAccount({ verifyStatus: "verified", verifiedAt: new Date() });
+    seedContentItem({ imagePath: "/objects/uploads/x.png" });
+    fetchHandler = (call) => {
+      if (call.url.includes("/userinfo")) {
+        return makeRes({ json: { sub: "member123", name: "Jane Member" } });
+      }
+      if (call.method === "GET" && call.url.includes("/rest/posts?")) {
+        return makeRes({ json: { elements: [] } });
+      }
+      if (call.url.includes("/rest/images?action=initializeUpload")) {
+        // The init succeeds — the token dies on the binary PUT itself.
+        return makeRes({
+          json: {
+            value: { uploadUrl: UPLOAD_URL, image: "urn:li:image:abc" },
+          },
+        });
+      }
+      if (call.url === UPLOAD_URL) {
+        return makeRes({ status: 401, json: { message: RAW_LINKEDIN_ERROR } });
+      }
+      return makeRes();
+    };
+
+    const res = await drive("POST", "/content/1/publish-linkedin");
+
+    expect(res.status).toBe(400);
+    expect(res.json.error).toMatch(/reconnect/i);
+    expect(res.json.error).not.toContain(RAW_LINKEDIN_ERROR);
+    expect(state.content[0].status).toBe("failed");
+    expect(String(state.content[0].failureReason)).toMatch(/reconnect/i);
+    expect(state.accounts[0].verifyStatus).toBe("failed");
+  });
+
   it("keeps the item published but flips the account when the token dies on a follow-up comment", async () => {
     const caption = "A".repeat(LINKEDIN_MAX_LENGTH + 50);
     seedConnectedAccount({ verifyStatus: "verified", verifiedAt: new Date() });
