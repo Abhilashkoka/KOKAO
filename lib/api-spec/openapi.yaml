@@ -4425,6 +4425,107 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/linkedin/auth/url:
+    get:
+      operationId: getAdsLinkedinAuthUrl
+      tags: [ads]
+      summary: Get the LinkedIn OAuth URL to grant ads access (owner/admin only)
+      responses:
+        "200":
+          description: Authorization URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdsMetaAuthUrlResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Ads not available (module off or platform credentials missing)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/connections/linkedin/accounts:
+    get:
+      operationId: listLinkedinAdAccountChoices
+      tags: [ads]
+      summary: List the ad accounts reachable with the stored LinkedIn ads token
+      responses:
+        "200":
+          description: Ad account choices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdAccountChoice"
+        "400":
+          description: No pending LinkedIn ads connection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/connections/linkedin/select:
+    post:
+      operationId: selectLinkedinAdAccount
+      tags: [ads]
+      summary: Pick which LinkedIn ad account this workspace manages (owner/admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdsLinkedinSelectInput"
+      responses:
+        "200":
+          description: Connection completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdAccountConnection"
+        "400":
+          description: Invalid selection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/linkedin/campaign-groups:
+    get:
+      operationId: listLinkedinCampaignGroups
+      tags: [ads]
+      summary: List LinkedIn campaign groups with spend metrics for a date range
+      parameters:
+        - $ref: "#/components/parameters/AdsConnectionId"
+        - $ref: "#/components/parameters/AdsDatePreset"
+      responses:
+        "200":
+          description: Campaign groups with metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdsCampaignGroupList"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Platform error (expired token, missing permissions, API failure)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ads/campaigns:
     get:
       operationId: listAdCampaigns
@@ -7940,6 +8041,35 @@ components:
       properties:
         url:
           type: string
+    AdsLinkedinSelectInput:
+      type: object
+      required: [adAccountId]
+      properties:
+        adAccountId:
+          type: string
+          minLength: 1
+    AdsCampaignGroup:
+      type: object
+      required: [id, name, status, metrics]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+        metrics:
+          $ref: "#/components/schemas/AdsMetrics"
+    AdsCampaignGroupList:
+      type: object
+      required: [groups]
+      properties:
+        currency:
+          type: ["string", "null"]
+        groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdsCampaignGroup"
     AdsMetrics:
       type: object
       required: [impressions, clicks, ctr, spend, results]
@@ -7981,6 +8111,12 @@ components:
           type: ["string", "null"]
         stopTime:
           type: ["string", "null"]
+        campaignGroupId:
+          type: ["string", "null"]
+          description: LinkedIn only — the campaign group this campaign belongs to.
+        campaignGroupName:
+          type: ["string", "null"]
+          description: LinkedIn only — display name of the campaign group.
         metrics:
           $ref: "#/components/schemas/AdsMetrics"
     AdsCampaignList:
@@ -8127,7 +8263,10 @@ components:
           enum: [ACTIVE, PAUSED]
         objective:
           type: string
-          description: Campaign objective (create only), e.g. OUTCOME_TRAFFIC.
+          description: Campaign objective (Meta create only), e.g. OUTCOME_TRAFFIC.
+        campaignGroupId:
+          type: string
+          description: LinkedIn only — campaign group to create the campaign in (required for LinkedIn creates).
         dailyBudget:
           type: ["integer", "null"]
           minimum: 0

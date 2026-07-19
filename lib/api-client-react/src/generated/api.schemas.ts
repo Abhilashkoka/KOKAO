@@ -2498,6 +2498,11 @@ export interface AdsMetaAuthUrlResult {
   url: string;
 }
 
+export interface AdsLinkedinSelectInput {
+  /** @minLength 1 */
+  adAccountId: string;
+}
+
 export interface AdsMetrics {
   impressions: number;
   clicks: number;
@@ -2507,6 +2512,19 @@ export interface AdsMetrics {
   spend: number;
   /** Total result actions reported by the platform for the range. */
   results: number;
+}
+
+export interface AdsCampaignGroup {
+  id: string;
+  name: string;
+  status: string;
+  metrics: AdsMetrics;
+}
+
+export interface AdsCampaignGroupList {
+  /** @nullable */
+  currency?: string | null;
+  groups: AdsCampaignGroup[];
 }
 
 export interface AdsCampaign {
@@ -2530,6 +2548,16 @@ export interface AdsCampaign {
   startTime?: string | null;
   /** @nullable */
   stopTime?: string | null;
+  /**
+     * LinkedIn only — the campaign group this campaign belongs to.
+     * @nullable
+     */
+  campaignGroupId?: string | null;
+  /**
+     * LinkedIn only — display name of the campaign group.
+     * @nullable
+     */
+  campaignGroupName?: string | null;
   metrics: AdsMetrics;
 }
 
@@ -2649,8 +2677,10 @@ export interface AdsDraftCreateInput {
   /** @maxLength 400 */
   name?: string;
   status?: AdsDraftCreateInputStatus;
-  /** Campaign objective (create only), e.g. OUTCOME_TRAFFIC. */
+  /** Campaign objective (Meta create only), e.g. OUTCOME_TRAFFIC. */
   objective?: string;
+  /** LinkedIn only — campaign group to create the campaign in (required for LinkedIn creates). */
+  campaignGroupId?: string;
   /**
      * Daily budget in minor currency units.
      * @minimum 0
@@ -3029,6 +3059,17 @@ to?: AnalyticsToParameter;
  * Superadmin-only per-tenant drilldown; ignored otherwise.
  */
 tenantId?: AnalyticsTenantIdParameter;
+};
+
+export type ListLinkedinCampaignGroupsParams = {
+/**
+ * The ad account connection to read from.
+ */
+connectionId: AdsConnectionIdParameter;
+/**
+ * Reporting date range (defaults to last_30d).
+ */
+datePreset?: AdsDatePresetParameter;
 };
 
 export type ListAdCampaignsParams = {

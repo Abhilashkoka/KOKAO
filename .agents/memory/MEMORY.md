@@ -43,3 +43,4 @@
 - [Prod deploy env shadowing](prod-deploy-env-shadowing.md) — user-set REPLIT_DOMAINS/REPLIT_DEV_DOMAIN secrets shadow prod values; agents can't delete secrets; CORS allowlist must lowercase hosts.
 - [Ads module](ads-module.md) — all ad-platform writes go through the draft-and-approve engine (owner-only apply, drift expiry, read-back verify, append-only log); never call the adapter from routes.
 - [Image gen providers](imagegen-providers.md) — admin-selected provider like ASR; custom OpenAI-compatible URLs must pass the shared SSRF guard (endpoint AND returned image URL).
+- [LinkedIn Ads module](linkedin-ads.md) — reuses shared ads engine; budgets are MAJOR units on LinkedIn (adapter converts ×100); creates need campaignGroupId; authFailed flag gates reconnect marking.

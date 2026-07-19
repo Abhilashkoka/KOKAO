@@ -38,10 +38,12 @@ import type {
   AdsBudgetCaps,
   AdsBudgetCapsInput,
   AdsCampaignDetail,
+  AdsCampaignGroupList,
   AdsCampaignList,
   AdsChangeLogEntry,
   AdsDraft,
   AdsDraftCreateInput,
+  AdsLinkedinSelectInput,
   AdsMetaAuthUrlResult,
   AdsMetaSelectInput,
   AdsModuleStatus,
@@ -122,6 +124,7 @@ import type {
   LinkedinAppCredentialStatus,
   ListAdCampaignsParams,
   ListBrandKitsParams,
+  ListLinkedinCampaignGroupsParams,
   MeProfile,
   MetaAppCredentialInput,
   MetaAppCredentialStatus,
@@ -12449,6 +12452,314 @@ export const useSelectMetaAdAccount = <TError = ErrorType<ErrorEnvelope>,
       > => {
       return useMutation(getSelectMetaAdAccountMutationOptions(options));
     }
+
+export const getGetAdsLinkedinAuthUrlUrl = () => {
+
+
+
+
+  return `/api/ads/linkedin/auth/url`
+}
+
+/**
+ * @summary Get the LinkedIn OAuth URL to grant ads access (owner/admin only)
+ */
+export const getAdsLinkedinAuthUrl = async ( options?: RequestInit): Promise<AdsMetaAuthUrlResult> => {
+
+  return customFetch<AdsMetaAuthUrlResult>(getGetAdsLinkedinAuthUrlUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAdsLinkedinAuthUrlQueryKey = () => {
+    return [
+    `/api/ads/linkedin/auth/url`
+    ] as const;
+    }
+
+
+export const getGetAdsLinkedinAuthUrlQueryOptions = <TData = Awaited<ReturnType<typeof getAdsLinkedinAuthUrl>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdsLinkedinAuthUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAdsLinkedinAuthUrlQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdsLinkedinAuthUrl>>> = ({ signal }) => getAdsLinkedinAuthUrl({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdsLinkedinAuthUrl>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAdsLinkedinAuthUrlQueryResult = NonNullable<Awaited<ReturnType<typeof getAdsLinkedinAuthUrl>>>
+export type GetAdsLinkedinAuthUrlQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the LinkedIn OAuth URL to grant ads access (owner/admin only)
+ */
+
+export function useGetAdsLinkedinAuthUrl<TData = Awaited<ReturnType<typeof getAdsLinkedinAuthUrl>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdsLinkedinAuthUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAdsLinkedinAuthUrlQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListLinkedinAdAccountChoicesUrl = () => {
+
+
+
+
+  return `/api/ads/connections/linkedin/accounts`
+}
+
+/**
+ * @summary List the ad accounts reachable with the stored LinkedIn ads token
+ */
+export const listLinkedinAdAccountChoices = async ( options?: RequestInit): Promise<AdAccountChoice[]> => {
+
+  return customFetch<AdAccountChoice[]>(getListLinkedinAdAccountChoicesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListLinkedinAdAccountChoicesQueryKey = () => {
+    return [
+    `/api/ads/connections/linkedin/accounts`
+    ] as const;
+    }
+
+
+export const getListLinkedinAdAccountChoicesQueryOptions = <TData = Awaited<ReturnType<typeof listLinkedinAdAccountChoices>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLinkedinAdAccountChoices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListLinkedinAdAccountChoicesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listLinkedinAdAccountChoices>>> = ({ signal }) => listLinkedinAdAccountChoices({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listLinkedinAdAccountChoices>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListLinkedinAdAccountChoicesQueryResult = NonNullable<Awaited<ReturnType<typeof listLinkedinAdAccountChoices>>>
+export type ListLinkedinAdAccountChoicesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List the ad accounts reachable with the stored LinkedIn ads token
+ */
+
+export function useListLinkedinAdAccountChoices<TData = Awaited<ReturnType<typeof listLinkedinAdAccountChoices>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLinkedinAdAccountChoices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListLinkedinAdAccountChoicesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSelectLinkedinAdAccountUrl = () => {
+
+
+
+
+  return `/api/ads/connections/linkedin/select`
+}
+
+/**
+ * @summary Pick which LinkedIn ad account this workspace manages (owner/admin only)
+ */
+export const selectLinkedinAdAccount = async (adsLinkedinSelectInput: AdsLinkedinSelectInput, options?: RequestInit): Promise<AdAccountConnection> => {
+
+  return customFetch<AdAccountConnection>(getSelectLinkedinAdAccountUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(adsLinkedinSelectInput)
+  }
+);}
+
+
+
+
+export const getSelectLinkedinAdAccountMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof selectLinkedinAdAccount>>, TError,{data: BodyType<AdsLinkedinSelectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof selectLinkedinAdAccount>>, TError,{data: BodyType<AdsLinkedinSelectInput>}, TContext> => {
+
+const mutationKey = ['selectLinkedinAdAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof selectLinkedinAdAccount>>, {data: BodyType<AdsLinkedinSelectInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  selectLinkedinAdAccount(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SelectLinkedinAdAccountMutationResult = NonNullable<Awaited<ReturnType<typeof selectLinkedinAdAccount>>>
+    export type SelectLinkedinAdAccountMutationBody = BodyType<AdsLinkedinSelectInput>
+    export type SelectLinkedinAdAccountMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Pick which LinkedIn ad account this workspace manages (owner/admin only)
+ */
+export const useSelectLinkedinAdAccount = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof selectLinkedinAdAccount>>, TError,{data: BodyType<AdsLinkedinSelectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof selectLinkedinAdAccount>>,
+        TError,
+        {data: BodyType<AdsLinkedinSelectInput>},
+        TContext
+      > => {
+      return useMutation(getSelectLinkedinAdAccountMutationOptions(options));
+    }
+
+export const getListLinkedinCampaignGroupsUrl = (params: ListLinkedinCampaignGroupsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ads/linkedin/campaign-groups?${stringifiedParams}` : `/api/ads/linkedin/campaign-groups`
+}
+
+/**
+ * @summary List LinkedIn campaign groups with spend metrics for a date range
+ */
+export const listLinkedinCampaignGroups = async (params: ListLinkedinCampaignGroupsParams, options?: RequestInit): Promise<AdsCampaignGroupList> => {
+
+  return customFetch<AdsCampaignGroupList>(getListLinkedinCampaignGroupsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListLinkedinCampaignGroupsQueryKey = (params?: ListLinkedinCampaignGroupsParams,) => {
+    return [
+    `/api/ads/linkedin/campaign-groups`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListLinkedinCampaignGroupsQueryOptions = <TData = Awaited<ReturnType<typeof listLinkedinCampaignGroups>>, TError = ErrorType<ErrorEnvelope>>(params: ListLinkedinCampaignGroupsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLinkedinCampaignGroups>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListLinkedinCampaignGroupsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listLinkedinCampaignGroups>>> = ({ signal }) => listLinkedinCampaignGroups(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listLinkedinCampaignGroups>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListLinkedinCampaignGroupsQueryResult = NonNullable<Awaited<ReturnType<typeof listLinkedinCampaignGroups>>>
+export type ListLinkedinCampaignGroupsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List LinkedIn campaign groups with spend metrics for a date range
+ */
+
+export function useListLinkedinCampaignGroups<TData = Awaited<ReturnType<typeof listLinkedinCampaignGroups>>, TError = ErrorType<ErrorEnvelope>>(
+ params: ListLinkedinCampaignGroupsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLinkedinCampaignGroups>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListLinkedinCampaignGroupsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getListAdCampaignsUrl = (params: ListAdCampaignsParams,) => {
   const normalizedParams = new URLSearchParams();

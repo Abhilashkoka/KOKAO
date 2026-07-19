@@ -34,6 +34,12 @@ import {
 } from "../lib/resendLock";
 import { logger } from "../lib/logger";
 import type { PublishOutcome } from "../lib/publishOutcome";
+import {
+  getLinkedinAppCredentials,
+  isLinkedinAppConfigured,
+  LINKEDIN_AUTH_BASE,
+  LINKEDIN_TOKEN_URL,
+} from "../lib/linkedinApp";
 
 const router: IRouter = Router();
 
@@ -49,41 +55,13 @@ const objectStorageService = new ObjectStorageService();
 
 const LINKEDIN_VERSION = process.env.LINKEDIN_API_VERSION || "202506";
 const OAUTH_SCOPE = "openid profile w_member_social";
-const AUTH_BASE = "https://www.linkedin.com/oauth/v2/authorization";
-const TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken";
+const AUTH_BASE = LINKEDIN_AUTH_BASE;
+const TOKEN_URL = LINKEDIN_TOKEN_URL;
 const USERINFO_URL = "https://api.linkedin.com/v2/userinfo";
 const REST_BASE = "https://api.linkedin.com/rest";
 
-/**
- * App-level LinkedIn OAuth credentials. The superadmin-managed database row
- * (saved from the admin page, encrypted at rest) wins; the
- * LINKEDIN_CLIENT_ID/LINKEDIN_CLIENT_SECRET env vars remain a fallback for
- * env-based setups. Returns null when neither source is usable.
- */
-async function getCredentials(): Promise<{
-  clientId: string;
-  clientSecret: string;
-} | null> {
-  try {
-    const row = (
-      await db
-        .select()
-        .from(appCredentialsTable)
-        .where(eq(appCredentialsTable.provider, "linkedin"))
-        .limit(1)
-    )[0];
-    if (row) {
-      const creds = decryptJson<LinkedinAppCredentials>(row.encryptedCredentials);
-      if (creds.clientId && creds.clientSecret) return creds;
-    }
-  } catch {
-    // Fall through to the env fallback on read/decrypt failure.
-  }
-  const clientId = process.env.LINKEDIN_CLIENT_ID;
-  const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
-  if (!clientId || !clientSecret) return null;
-  return { clientId, clientSecret };
-}
+/** Shared app-level LinkedIn OAuth credentials (see lib/linkedinApp). */
+const getCredentials = getLinkedinAppCredentials;
 
 function redirectUri(req: Request): string {
   const proto =
@@ -95,9 +73,7 @@ function redirectUri(req: Request): string {
   return `${proto}://${host}/api/linkedin/auth/callback`;
 }
 
-async function isConfigured(): Promise<boolean> {
-  return !!(await getCredentials()) && !!process.env.SESSION_SECRET;
-}
+const isConfigured = isLinkedinAppConfigured;
 
 /**
  * LinkedIn's Posts API commentary uses the "Little Text" format, where a set of

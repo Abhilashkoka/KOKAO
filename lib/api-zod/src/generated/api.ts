@@ -5830,6 +5830,75 @@ export const SelectMetaAdAccountResponse = zod.object({
 
 
 /**
+ * @summary Get the LinkedIn OAuth URL to grant ads access (owner/admin only)
+ */
+export const GetAdsLinkedinAuthUrlResponse = zod.object({
+  "url": zod.string()
+})
+
+
+/**
+ * @summary List the ad accounts reachable with the stored LinkedIn ads token
+ */
+export const ListLinkedinAdAccountChoicesResponseItem = zod.object({
+  "adAccountId": zod.string(),
+  "name": zod.string(),
+  "currency": zod.string().nullish(),
+  "accountStatus": zod.string().nullish()
+})
+export const ListLinkedinAdAccountChoicesResponse = zod.array(ListLinkedinAdAccountChoicesResponseItem)
+
+
+/**
+ * @summary Pick which LinkedIn ad account this workspace manages (owner/admin only)
+ */
+
+
+
+export const SelectLinkedinAdAccountBody = zod.object({
+  "adAccountId": zod.string().min(1)
+})
+
+export const SelectLinkedinAdAccountResponse = zod.object({
+  "id": zod.number(),
+  "platform": zod.string(),
+  "adAccountId": zod.string(),
+  "adAccountName": zod.string(),
+  "currency": zod.string().nullish(),
+  "status": zod.string().describe('connected | pending_selection'),
+  "verifyStatus": zod.string().nullish(),
+  "verifyError": zod.string().nullish(),
+  "verifiedAt": zod.coerce.date().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List LinkedIn campaign groups with spend metrics for a date range
+ */
+export const ListLinkedinCampaignGroupsQueryParams = zod.object({
+  "connectionId": zod.coerce.number().describe('The ad account connection to read from.'),
+  "datePreset": zod.enum(['today', 'yesterday', 'last_7d', 'last_14d', 'last_30d', 'last_90d', 'maximum']).optional().describe('Reporting date range (defaults to last_30d).')
+})
+
+export const ListLinkedinCampaignGroupsResponse = zod.object({
+  "currency": zod.string().nullish(),
+  "groups": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "status": zod.string(),
+  "metrics": zod.object({
+  "impressions": zod.number(),
+  "clicks": zod.number(),
+  "ctr": zod.number().describe('Click-through rate in percent.'),
+  "spend": zod.number().describe('Spend in the ad account\'s currency (major units).'),
+  "results": zod.number().describe('Total result actions reported by the platform for the range.')
+})
+}))
+})
+
+
+/**
  * @summary List campaigns with delivery status and metrics for a date range
  */
 export const ListAdCampaignsQueryParams = zod.object({
@@ -5849,6 +5918,8 @@ export const ListAdCampaignsResponse = zod.object({
   "lifetimeBudget": zod.number().nullish().describe('Lifetime budget in the account currency\'s minor units.'),
   "startTime": zod.string().nullish(),
   "stopTime": zod.string().nullish(),
+  "campaignGroupId": zod.string().nullish().describe('LinkedIn only — the campaign group this campaign belongs to.'),
+  "campaignGroupName": zod.string().nullish().describe('LinkedIn only — display name of the campaign group.'),
   "metrics": zod.object({
   "impressions": zod.number(),
   "clicks": zod.number(),
@@ -5881,6 +5952,8 @@ export const GetAdCampaignDetailResponse = zod.object({
   "lifetimeBudget": zod.number().nullish().describe('Lifetime budget in the account currency\'s minor units.'),
   "startTime": zod.string().nullish(),
   "stopTime": zod.string().nullish(),
+  "campaignGroupId": zod.string().nullish().describe('LinkedIn only — the campaign group this campaign belongs to.'),
+  "campaignGroupName": zod.string().nullish().describe('LinkedIn only — display name of the campaign group.'),
   "metrics": zod.object({
   "impressions": zod.number(),
   "clicks": zod.number(),
@@ -5971,7 +6044,8 @@ export const CreateAdDraftBody = zod.object({
   "idempotencyKey": zod.string().max(createAdDraftBodyIdempotencyKeyMax).optional().describe('Client-supplied key to make retries safe; server generates one when omitted.'),
   "name": zod.string().max(createAdDraftBodyNameMax).optional(),
   "status": zod.enum(['ACTIVE', 'PAUSED']).optional(),
-  "objective": zod.string().optional().describe('Campaign objective (create only), e.g. OUTCOME_TRAFFIC.'),
+  "objective": zod.string().optional().describe('Campaign objective (Meta create only), e.g. OUTCOME_TRAFFIC.'),
+  "campaignGroupId": zod.string().optional().describe('LinkedIn only — campaign group to create the campaign in (required for LinkedIn creates).'),
   "dailyBudget": zod.number().min(createAdDraftBodyDailyBudgetMin).nullish().describe('Daily budget in minor currency units.'),
   "lifetimeBudget": zod.number().min(createAdDraftBodyLifetimeBudgetMin).nullish().describe('Lifetime budget in minor currency units.'),
   "startTime": zod.string().nullish().describe('ISO-8601 schedule start.'),

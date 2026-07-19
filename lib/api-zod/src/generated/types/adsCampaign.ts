@@ -28,5 +28,15 @@ export interface AdsCampaign {
   startTime?: string | null;
   /** @nullable */
   stopTime?: string | null;
+  /**
+     * LinkedIn only — the campaign group this campaign belongs to.
+     * @nullable
+     */
+  campaignGroupId?: string | null;
+  /**
+     * LinkedIn only — display name of the campaign group.
+     * @nullable
+     */
+  campaignGroupName?: string | null;
   metrics: AdsMetrics;
 }

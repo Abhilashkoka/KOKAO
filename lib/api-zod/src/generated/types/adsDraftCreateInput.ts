@@ -23,8 +23,10 @@ export interface AdsDraftCreateInput {
   /** @maxLength 400 */
   name?: string;
   status?: AdsDraftCreateInputStatus;
-  /** Campaign objective (create only), e.g. OUTCOME_TRAFFIC. */
+  /** Campaign objective (Meta create only), e.g. OUTCOME_TRAFFIC. */
   objective?: string;
+  /** LinkedIn only — campaign group to create the campaign in (required for LinkedIn creates). */
+  campaignGroupId?: string;
   /**
      * Daily budget in minor currency units.
      * @minimum 0

@@ -15,6 +15,7 @@ import { and, desc, eq } from "drizzle-orm";
 import {
   CreateAdDraftBody,
   SelectMetaAdAccountBody,
+  SelectLinkedinAdAccountBody,
   AdminUpdateAdsSettingsBody,
   UpdateAdsBudgetCapsBody,
 } from "@workspace/api-zod";
@@ -51,6 +52,22 @@ import {
   type MetaAdsCredentials,
 } from "../lib/metaAdsApi";
 import {
+  LinkedinAdsApiError,
+  listLinkedinAdAccounts,
+  readLinkedinAdAccount,
+  listLinkedinCampaignGroups,
+  listLinkedinCampaigns,
+  getLinkedinCampaign,
+  getLinkedinAnalytics,
+  type LinkedinAdsCredentials,
+} from "../lib/linkedinAdsApi";
+import {
+  getLinkedinAppCredentials,
+  isLinkedinAppConfigured,
+  LINKEDIN_AUTH_BASE,
+  LINKEDIN_TOKEN_URL,
+} from "../lib/linkedinApp";
+import {
   getAdsModuleEnabled,
   setAdsModuleEnabled,
   getAdsPlatformAvailability,
@@ -61,6 +78,9 @@ import {
   buildCreateDiff,
   snapshotForCompare,
   approveAndApplyDraft,
+  readRemoteState,
+  isAdsAuthError,
+  asTargetType,
   ADS_APPLY_IN_PROGRESS_MESSAGE,
 } from "../lib/adsEngine";
 import { notifyAdsDraftPending } from "../lib/notifications";
@@ -330,7 +350,17 @@ async function upsertPendingMetaConnection(
   tenantId: number,
   accessToken: string,
 ): Promise<AdAccountConnection> {
-  const encrypted = encryptJson({ accessToken } satisfies MetaAdsCredentials);
+  return upsertPendingAdsConnection(tenantId, "meta", {
+    accessToken,
+  } satisfies MetaAdsCredentials);
+}
+
+async function upsertPendingAdsConnection(
+  tenantId: number,
+  platform: "meta" | "linkedin",
+  credentials: MetaAdsCredentials | LinkedinAdsCredentials,
+): Promise<AdAccountConnection> {
+  const encrypted = encryptJson(credentials);
   const existing = (
     await db
       .select()
@@ -338,7 +368,7 @@ async function upsertPendingMetaConnection(
       .where(
         and(
           eq(adAccountConnectionsTable.tenantId, tenantId),
-          eq(adAccountConnectionsTable.platform, "meta"),
+          eq(adAccountConnectionsTable.platform, platform),
         ),
       )
       .limit(1)
@@ -367,7 +397,7 @@ async function upsertPendingMetaConnection(
       .insert(adAccountConnectionsTable)
       .values({
         tenantId,
-        platform: "meta",
+        platform,
         status: "pending_selection",
         encryptedCredentials: encrypted,
       })
@@ -442,19 +472,7 @@ router.post(
 // ---------------------------------------------------------------------------
 
 async function getMetaConnection(tenantId: number): Promise<AdAccountConnection | null> {
-  const row = (
-    await db
-      .select()
-      .from(adAccountConnectionsTable)
-      .where(
-        and(
-          eq(adAccountConnectionsTable.tenantId, tenantId),
-          eq(adAccountConnectionsTable.platform, "meta"),
-        ),
-      )
-      .limit(1)
-  )[0];
-  return row ?? null;
+  return getPlatformConnection(tenantId, "meta");
 }
 
 router.get(
@@ -537,6 +555,223 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
+// LinkedIn connect: fresh OAuth grant with ads scopes
+// ---------------------------------------------------------------------------
+
+/**
+ * LinkedIn ads needs a member token carrying the Advertising API scopes — a
+ * different grant than the w_member_social token used for organic publishing,
+ * so the connect flow runs its own OAuth dialog with ads scopes.
+ */
+const LINKEDIN_ADS_OAUTH_SCOPE = "r_ads rw_ads r_ads_reporting";
+
+function linkedinAdsRedirectUri(req: Request): string {
+  const proto =
+    (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0] ||
+    req.protocol ||
+    "https";
+  const host =
+    (req.headers["x-forwarded-host"] as string | undefined) || req.headers.host;
+  return `${proto}://${host}/api/ads/linkedin/auth/callback`;
+}
+
+router.get(
+  "/ads/linkedin/auth/url",
+  requireWorkspaceAdmin,
+  async (req: Request, res: Response) => {
+    if (!(await adsEnabledOr503(res))) return;
+    const creds = await getLinkedinAppCredentials();
+    if (!creds || !(await isLinkedinAppConfigured())) {
+      res.status(503).json({
+        error:
+          "LinkedIn Ads is not configured. Ask an administrator to save the LinkedIn app credentials on the Admin page.",
+      });
+      return;
+    }
+    const params = new URLSearchParams({
+      response_type: "code",
+      client_id: creds.clientId,
+      redirect_uri: linkedinAdsRedirectUri(req),
+      scope: LINKEDIN_ADS_OAUTH_SCOPE,
+      state: signOAuthState(req.tenantId, randomNonce()),
+    });
+    res.json({ url: `${LINKEDIN_AUTH_BASE}?${params.toString()}` });
+  },
+);
+
+/**
+ * PUBLIC callback (mounted before the session gate): a top-level browser
+ * redirect from linkedin.com authenticated by the HMAC-signed `state`.
+ */
+adsCallbackRouter.get(
+  "/ads/linkedin/auth/callback",
+  async (req: Request, res: Response) => {
+    const webBase = "/ads";
+    const fail = (reason: string) =>
+      res.redirect(
+        `${webBase}?linkedin=error&reason=${encodeURIComponent(reason)}`,
+      );
+
+    const creds = await getLinkedinAppCredentials();
+    if (!creds || !process.env.SESSION_SECRET) {
+      fail("not_configured");
+      return;
+    }
+    const { code, state, error: oauthError } = req.query as {
+      code?: string;
+      state?: string;
+      error?: string;
+    };
+    if (oauthError) {
+      fail(oauthError);
+      return;
+    }
+    const verified = state ? verifySignedOAuthState(state) : null;
+    if (!code || !verified) {
+      fail("invalid_state");
+      return;
+    }
+
+    try {
+      // Exchange the code for a member token (secret in POST body, never URL).
+      const tokenRes = await platformFetch(LINKEDIN_TOKEN_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: linkedinAdsRedirectUri(req),
+          client_id: creds.clientId,
+          client_secret: creds.clientSecret,
+        }).toString(),
+      });
+      const tokenJson = (await tokenRes.json()) as {
+        access_token?: string;
+        expires_in?: number;
+        error_description?: string;
+      };
+      if (!tokenRes.ok || !tokenJson.access_token) {
+        req.log.error(
+          { status: tokenRes.status, error: tokenJson.error_description },
+          "LinkedIn ads token exchange failed",
+        );
+        fail("token_exchange");
+        return;
+      }
+      await upsertPendingAdsConnection(verified.tenantId, "linkedin", {
+        accessToken: tokenJson.access_token,
+        expiresAt:
+          tokenJson.expires_in != null
+            ? Date.now() + tokenJson.expires_in * 1000
+            : undefined,
+      } satisfies LinkedinAdsCredentials);
+      res.redirect(`${webBase}?linkedin=connected`);
+    } catch (err) {
+      req.log.error({ err }, "LinkedIn ads OAuth callback failed");
+      fail("callback_error");
+    }
+  },
+);
+
+async function getPlatformConnection(
+  tenantId: number,
+  platform: "meta" | "linkedin",
+): Promise<AdAccountConnection | null> {
+  const row = (
+    await db
+      .select()
+      .from(adAccountConnectionsTable)
+      .where(
+        and(
+          eq(adAccountConnectionsTable.tenantId, tenantId),
+          eq(adAccountConnectionsTable.platform, platform),
+        ),
+      )
+      .limit(1)
+  )[0];
+  return row ?? null;
+}
+
+router.get(
+  "/ads/connections/linkedin/accounts",
+  async (req: Request, res: Response) => {
+    if (!(await adsEnabledOr503(res))) return;
+    const conn = await getPlatformConnection(req.tenantId, "linkedin");
+    const token = conn ? getConnectionToken(conn) : null;
+    if (!conn || !token) {
+      res.status(400).json({
+        error: "Connect LinkedIn Ads first, then pick an ad account.",
+      });
+      return;
+    }
+    try {
+      const accounts = await listLinkedinAdAccounts(token);
+      res.json(
+        accounts.map((a) => ({
+          adAccountId: a.adAccountId,
+          name: a.name,
+          currency: a.currency,
+          accountStatus: a.accountStatus,
+        })),
+      );
+    } catch (err) {
+      if (err instanceof LinkedinAdsApiError && err.authFailed) {
+        await markAdConnectionFailed(conn.id, err.message);
+      }
+      res.status(502).json({
+        error: err instanceof Error ? err.message : "Could not list ad accounts.",
+      });
+    }
+  },
+);
+
+router.post(
+  "/ads/connections/linkedin/select",
+  requireWorkspaceAdmin,
+  async (req: Request, res: Response) => {
+    if (!(await adsEnabledOr503(res))) return;
+    const parsed = SelectLinkedinAdAccountBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "adAccountId is required" });
+      return;
+    }
+    const conn = await getPlatformConnection(req.tenantId, "linkedin");
+    const token = conn ? getConnectionToken(conn) : null;
+    if (!conn || !token) {
+      res.status(400).json({ error: "Connect LinkedIn Ads first." });
+      return;
+    }
+    try {
+      const info = await readLinkedinAdAccount(token, parsed.data.adAccountId);
+      const updated = (
+        await db
+          .update(adAccountConnectionsTable)
+          .set({
+            adAccountId: parsed.data.adAccountId,
+            adAccountName: info.name,
+            currency: info.currency,
+            status: "connected",
+            verifyStatus: "verified",
+            verifyError: null,
+            verifiedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(adAccountConnectionsTable.id, conn.id))
+          .returning()
+      )[0]!;
+      res.json(serializeConnection(updated));
+    } catch (err) {
+      res.status(400).json({
+        error:
+          err instanceof Error
+            ? `That ad account could not be verified: ${err.message}`
+            : "That ad account could not be verified.",
+      });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
 // Campaign reads + insights
 // ---------------------------------------------------------------------------
 
@@ -566,12 +801,62 @@ async function requireConnectedConnection(
   return { conn, token };
 }
 
+router.get("/ads/linkedin/campaign-groups", async (req: Request, res: Response) => {
+  if (!(await adsEnabledOr503(res))) return;
+  const ct = await requireConnectedConnection(req, res);
+  if (!ct) return;
+  if (ct.conn.platform !== "linkedin") {
+    res.status(400).json({ error: "This connection is not a LinkedIn ad account." });
+    return;
+  }
+  const datePreset = parseDatePreset(req.query.datePreset);
+  try {
+    const [groups, metrics] = await Promise.all([
+      listLinkedinCampaignGroups(ct.token, ct.conn.adAccountId),
+      getLinkedinAnalytics(ct.token, ct.conn.adAccountId, "CAMPAIGN_GROUP", datePreset),
+    ]);
+    res.json({
+      currency: ct.conn.currency ?? null,
+      groups: groups.map((g) => ({
+        ...g,
+        metrics: metrics.get(g.id) ?? EMPTY_INSIGHTS,
+      })),
+    });
+  } catch (err) {
+    if (isAdsAuthError(err)) {
+      await markAdConnectionFailed(ct.conn.id, (err as Error).message);
+    }
+    res.status(502).json({
+      error: err instanceof Error ? err.message : "Could not load campaign groups.",
+    });
+  }
+});
+
 router.get("/ads/campaigns", async (req: Request, res: Response) => {
   if (!(await adsEnabledOr503(res))) return;
   const ct = await requireConnectedConnection(req, res);
   if (!ct) return;
   const datePreset = parseDatePreset(req.query.datePreset);
   try {
+    if (ct.conn.platform === "linkedin") {
+      const [campaigns, groups, metrics] = await Promise.all([
+        listLinkedinCampaigns(ct.token, ct.conn.adAccountId),
+        listLinkedinCampaignGroups(ct.token, ct.conn.adAccountId),
+        getLinkedinAnalytics(ct.token, ct.conn.adAccountId, "CAMPAIGN", datePreset),
+      ]);
+      const groupNames = new Map(groups.map((g) => [g.id, g.name]));
+      res.json({
+        currency: ct.conn.currency ?? null,
+        campaigns: campaigns.map((c) => ({
+          ...c,
+          campaignGroupName: c.campaignGroupId
+            ? groupNames.get(c.campaignGroupId) ?? null
+            : null,
+          metrics: metrics.get(c.id) ?? EMPTY_INSIGHTS,
+        })),
+      });
+      return;
+    }
     const [campaigns, insights] = await Promise.all([
       listCampaigns(ct.token, ct.conn.adAccountId),
       getInsightsByLevel(ct.token, ct.conn.adAccountId, "campaign", datePreset),
@@ -584,8 +869,8 @@ router.get("/ads/campaigns", async (req: Request, res: Response) => {
       })),
     });
   } catch (err) {
-    if (err instanceof MetaAdsApiError && err.authFailed) {
-      await markAdConnectionFailed(ct.conn.id, err.message);
+    if (isAdsAuthError(err)) {
+      await markAdConnectionFailed(ct.conn.id, (err as Error).message);
     }
     res.status(502).json({
       error: err instanceof Error ? err.message : "Could not load campaigns.",
@@ -604,6 +889,21 @@ router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
   }
   const datePreset = parseDatePreset(req.query.datePreset);
   try {
+    if (ct.conn.platform === "linkedin") {
+      // Creatives are out of scope for LinkedIn in this phase, so detail is
+      // the campaign itself with empty ad set/ad lists.
+      const [campaign, metrics] = await Promise.all([
+        getLinkedinCampaign(ct.token, ct.conn.adAccountId, campaignId),
+        getLinkedinAnalytics(ct.token, ct.conn.adAccountId, "CAMPAIGN", datePreset),
+      ]);
+      res.json({
+        currency: ct.conn.currency ?? null,
+        campaign: { ...campaign, metrics: metrics.get(campaign.id) ?? EMPTY_INSIGHTS },
+        adSets: [],
+        ads: [],
+      });
+      return;
+    }
     const [campaign, adSets, ads, cIns, sIns, aIns] = await Promise.all([
       getCampaign(ct.token, campaignId),
       listAdSets(ct.token, campaignId),
@@ -810,10 +1110,15 @@ router.post(
     if (input.action === "update") {
       let current;
       try {
-        current = await readObjectState(token, input.targetId!, input.targetType);
+        current = await readRemoteState(
+          conn,
+          token,
+          input.targetId!,
+          asTargetType(input.targetType),
+        );
       } catch (err) {
-        if (err instanceof MetaAdsApiError && err.authFailed) {
-          await markAdConnectionFailed(conn.id, err.message);
+        if (isAdsAuthError(err)) {
+          await markAdConnectionFailed(conn.id, (err as Error).message);
         }
         res.status(502).json({
           error:
@@ -844,11 +1149,24 @@ router.post(
         res.status(400).json({ error: "name is required to create a campaign" });
         return;
       }
-      if (input.objective != null) payload.objective = input.objective;
+      if (conn.platform === "linkedin") {
+        if (!input.campaignGroupId?.trim()) {
+          res.status(400).json({
+            error: "campaignGroupId is required to create a LinkedIn campaign",
+          });
+          return;
+        }
+        payload.campaignGroupId = input.campaignGroupId.trim();
+      } else if (input.objective != null) {
+        payload.objective = input.objective;
+      }
       targetName = input.name.trim();
       changes = buildCreateDiff({
         name: targetName,
-        objective: input.objective ?? "OUTCOME_TRAFFIC",
+        objective:
+          conn.platform === "linkedin"
+            ? undefined
+            : input.objective ?? "OUTCOME_TRAFFIC",
         status: input.status ?? "PAUSED",
         dailyBudget: input.dailyBudget,
         lifetimeBudget: input.lifetimeBudget,
@@ -1015,7 +1333,9 @@ async function adminSettingsPayload() {
       note:
         p.platform === "meta"
           ? "Reuses the Meta app credentials saved under Platform credentials."
-          : "Coming later — no credential slot yet.",
+          : p.platform === "linkedin"
+            ? "Reuses the LinkedIn app credentials saved under Platform credentials."
+            : "Coming later — no credential slot yet.",
     })),
   };
 }

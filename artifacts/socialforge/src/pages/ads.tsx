@@ -6,9 +6,15 @@ import {
   useDeleteAdConnection,
   useGetAdsMetaAuthUrl,
   getGetAdsMetaAuthUrlQueryKey,
+  useGetAdsLinkedinAuthUrl,
+  getGetAdsLinkedinAuthUrlQueryKey,
   useConnectMetaAdsFromFacebook,
   useListMetaAdAccountChoices,
   useSelectMetaAdAccount,
+  useListLinkedinAdAccountChoices,
+  useSelectLinkedinAdAccount,
+  useListLinkedinCampaignGroups,
+  getListLinkedinCampaignGroupsQueryKey,
   useListAdCampaigns,
   useGetAdCampaignDetail,
   useListAdDrafts,
@@ -198,7 +204,11 @@ export function AdsPage() {
   const canManage = isOwner || me?.team?.role === "admin";
 
   const metaConn = connections?.find((c) => c.platform === "meta");
-  const connectedConn = metaConn?.status === "connected" ? metaConn : undefined;
+  const linkedinConn = connections?.find((c) => c.platform === "linkedin");
+  const connectedConns = (connections ?? []).filter((c) => c.status === "connected");
+  const [activeConnId, setActiveConnId] = useState<number | null>(null);
+  const connectedConn =
+    connectedConns.find((c) => c.id === activeConnId) ?? connectedConns[0];
 
   if (statusLoading || connectionsLoading) {
     return (
@@ -239,6 +249,36 @@ export function AdsPage() {
       />
 
       {connectedConn && <BudgetCapsCard isOwner={isOwner} currency={connectedConn.currency ?? null} />}
+
+      <LinkedinConnectionSection
+        linkedinConn={linkedinConn}
+        available={
+          status?.platforms.find((p) => p.platform === "linkedin")?.available ?? false
+        }
+        canManage={canManage}
+      />
+
+      {connectedConns.length > 1 && connectedConn && (
+        <div className="flex items-center gap-3">
+          <Label>Showing</Label>
+          <Select
+            value={String(connectedConn.id)}
+            onValueChange={(v) => setActiveConnId(Number(v))}
+          >
+            <SelectTrigger className="w-72" data-testid="select-active-connection">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {connectedConns.map((c) => (
+                <SelectItem key={c.id} value={String(c.id)}>
+                  {c.platform === "meta" ? "Meta" : "LinkedIn"} —{" "}
+                  {c.adAccountName || c.adAccountId}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {connectedConn && (
         <Tabs defaultValue="campaigns">
@@ -423,6 +463,200 @@ function ConnectionSection({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function LinkedinConnectionSection({
+  linkedinConn,
+  available,
+  canManage,
+}: {
+  linkedinConn: AdAccountConnection | undefined;
+  available: boolean;
+  canManage: boolean;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const authUrl = useGetAdsLinkedinAuthUrl({
+    query: { enabled: false, queryKey: getGetAdsLinkedinAuthUrlQueryKey() },
+  });
+  const disconnect = useDeleteAdConnection();
+
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: getListAdConnectionsQueryKey() });
+
+  const startOAuth = async () => {
+    const res = await authUrl.refetch();
+    if (res.data?.url) {
+      window.location.href = res.data.url;
+    } else {
+      toast({
+        variant: "destructive",
+        title: "LinkedIn Ads sign-in unavailable",
+        description:
+          (res.error as { payload?: { error?: string } } | null)?.payload?.error ??
+          "Could not start the LinkedIn Ads sign-in. Try again later.",
+      });
+    }
+  };
+
+  const handleDisconnect = (id: number) => {
+    disconnect.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          invalidate();
+          toast({ title: "Ad account disconnected" });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Megaphone className="h-5 w-5" /> LinkedIn Ads
+        </CardTitle>
+        <CardDescription>
+          Connect the LinkedIn ad account behind your sponsored campaigns.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!linkedinConn && (
+          <Button
+            onClick={startOAuth}
+            disabled={!canManage || !available || authUrl.isFetching}
+            data-testid="button-connect-linkedin-ads"
+          >
+            {authUrl.isFetching && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Connect LinkedIn Ads
+          </Button>
+        )}
+        {!available && !linkedinConn && (
+          <p className="text-sm text-muted-foreground">
+            LinkedIn Ads is not yet available. The platform administrator has
+            not configured LinkedIn app credentials.
+          </p>
+        )}
+        {linkedinConn?.status === "pending_selection" && (
+          <LinkedinAccountPicker canManage={canManage} />
+        )}
+        {linkedinConn?.status === "connected" && (
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              {linkedinConn.verifyStatus === "failed" ? (
+                <AlertCircle className="h-5 w-5 text-destructive" />
+              ) : (
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              )}
+              <div>
+                <div className="font-medium" data-testid="text-linkedin-ad-account-name">
+                  {linkedinConn.adAccountName || linkedinConn.adAccountId}
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  {linkedinConn.adAccountId}
+                  {linkedinConn.currency ? ` · ${linkedinConn.currency}` : ""}
+                  {linkedinConn.verifyStatus === "failed"
+                    ? " · Access lost — reconnect to continue"
+                    : ""}
+                </div>
+              </div>
+            </div>
+            {canManage && (
+              <div className="flex gap-2">
+                {linkedinConn.verifyStatus === "failed" && (
+                  <Button
+                    size="sm"
+                    onClick={startOAuth}
+                    data-testid="button-reconnect-linkedin-ads"
+                  >
+                    Reconnect
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDisconnect(linkedinConn.id)}
+                  disabled={disconnect.isPending}
+                  data-testid="button-disconnect-linkedin-ads"
+                >
+                  Disconnect
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function LinkedinAccountPicker({ canManage }: { canManage: boolean }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: choices, isLoading, error } = useListLinkedinAdAccountChoices();
+  const select = useSelectLinkedinAdAccount();
+  const [picked, setPicked] = useState("");
+
+  const confirm = () => {
+    if (!picked) return;
+    select.mutate(
+      { data: { adAccountId: picked } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListAdConnectionsQueryKey() });
+          toast({ title: "Ad account connected" });
+        },
+        onError: (err) => {
+          toast({
+            variant: "destructive",
+            title: "Could not select that ad account",
+            description:
+              (err as { payload?: { error?: string } }).payload?.error ?? undefined,
+          });
+        },
+      },
+    );
+  };
+
+  if (isLoading) return <Skeleton className="h-10 w-full" />;
+  if (error) {
+    return (
+      <p className="text-sm text-destructive">
+        Could not list your ad accounts. Reconnect LinkedIn Ads and try again.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        Access granted. Pick which ad account this workspace manages:
+      </p>
+      <div className="flex flex-col sm:flex-row gap-3">
+        <Select value={picked} onValueChange={setPicked}>
+          <SelectTrigger className="sm:w-96" data-testid="select-linkedin-ad-account">
+            <SelectValue placeholder="Choose an ad account" />
+          </SelectTrigger>
+          <SelectContent>
+            {(choices ?? []).map((c) => (
+              <SelectItem key={c.adAccountId} value={c.adAccountId}>
+                {c.name} ({c.adAccountId}
+                {c.currency ? `, ${c.currency}` : ""})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          onClick={confirm}
+          disabled={!canManage || !picked || select.isPending}
+          data-testid="button-select-linkedin-ad-account"
+        >
+          {select.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+          Use this account
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -796,6 +1030,7 @@ function CampaignsSection({
       {draftForm && (
         <DraftDialog
           connectionId={connection.id}
+          platform={connection.platform}
           form={draftForm}
           onClose={() => setDraftForm(null)}
         />
@@ -976,10 +1211,12 @@ function CampaignDetailDialog({
 
 function DraftDialog({
   connectionId,
+  platform,
   form,
   onClose,
 }: {
   connectionId: number;
+  platform: string;
   form: DraftFormState;
   onClose: () => void;
 }) {
@@ -987,6 +1224,7 @@ function DraftDialog({
   const queryClient = useQueryClient();
   const createDraft = useCreateAdDraft();
   const [state, setState] = useState(form);
+  const [campaignGroupId, setCampaignGroupId] = useState("");
   const idempotencyKey = useMemo(() => crypto.randomUUID(), []);
 
   const isCreate = state.action === "create";
@@ -994,6 +1232,17 @@ function DraftDialog({
     state.targetType === "adset" ? "ad set" : state.targetType === "ad" ? "ad" : "campaign";
   const showBudgets = state.targetType !== "ad";
   const showSchedule = state.targetType === "campaign";
+
+  const isLinkedin = platform === "linkedin";
+  const { data: groupData } = useListLinkedinCampaignGroups(
+    { connectionId },
+    {
+      query: {
+        enabled: isLinkedin && isCreate,
+        queryKey: getListLinkedinCampaignGroupsQueryKey({ connectionId }),
+      },
+    },
+  );
 
   const submit = () => {
     const data: Record<string, unknown> = {
@@ -1005,7 +1254,8 @@ function DraftDialog({
     if (!isCreate) data.targetId = state.targetId;
     if (isCreate || state.name !== state.currentName) data.name = state.name;
     if (state.status) data.status = state.status;
-    if (isCreate && state.objective) data.objective = state.objective;
+    if (isCreate && !isLinkedin && state.objective) data.objective = state.objective;
+    if (isCreate && isLinkedin && campaignGroupId) data.campaignGroupId = campaignGroupId;
     if (showBudgets && state.dailyBudget) data.dailyBudget = Number(state.dailyBudget);
     if (showBudgets && state.lifetimeBudget) {
       data.lifetimeBudget = Number(state.lifetimeBudget);
@@ -1061,7 +1311,24 @@ function DraftDialog({
               data-testid="input-draft-name"
             />
           </div>
-          {isCreate && (
+          {isCreate && isLinkedin && (
+            <div className="space-y-2">
+              <Label>Campaign group</Label>
+              <Select value={campaignGroupId} onValueChange={setCampaignGroupId}>
+                <SelectTrigger data-testid="select-draft-campaign-group">
+                  <SelectValue placeholder="Choose a campaign group" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(groupData?.groups ?? []).map((g) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {g.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {isCreate && !isLinkedin && (
             <div className="space-y-2">
               <Label>Objective</Label>
               <Select
@@ -1154,7 +1421,11 @@ function DraftDialog({
           </Button>
           <Button
             onClick={submit}
-            disabled={createDraft.isPending || (isCreate && !state.name.trim())}
+            disabled={
+              createDraft.isPending ||
+              (isCreate && !state.name.trim()) ||
+              (isCreate && isLinkedin && !campaignGroupId)
+            }
             data-testid="button-submit-draft"
           >
             {createDraft.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}

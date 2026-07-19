@@ -20,6 +20,13 @@ import {
   type AdsTargetType,
   type MetaAdsCredentials,
 } from "./metaAdsApi";
+import {
+  LinkedinAdsApiError,
+  createLinkedinCampaign,
+  updateLinkedinCampaign,
+  readLinkedinCampaignState,
+} from "./linkedinAdsApi";
+import { isLinkedinAppConfigured } from "./linkedinApp";
 import { tryAcquireResendLock } from "./resendLock";
 import { notifyAdsChangeApplied, notifyAdsChangeFailed } from "./notifications";
 import { logger } from "./logger";
@@ -69,9 +76,12 @@ export interface AdsPlatformAvailability {
   reason: string | null;
 }
 
-/** Platforms the ads module knows about; only Meta is live so far. */
+/** Platforms the ads module knows about; Meta and LinkedIn are live. */
 export async function getAdsPlatformAvailability(): Promise<AdsPlatformAvailability[]> {
-  const metaConfigured = await isMetaAppConfigured();
+  const [metaConfigured, linkedinConfigured] = await Promise.all([
+    isMetaAppConfigured(),
+    isLinkedinAppConfigured(),
+  ]);
   return [
     {
       platform: "meta",
@@ -81,7 +91,13 @@ export async function getAdsPlatformAvailability(): Promise<AdsPlatformAvailabil
         : "Meta Ads is not yet available. The platform's Meta app credentials have not been configured.",
     },
     { platform: "google", available: false, reason: "Google Ads is not yet available." },
-    { platform: "linkedin", available: false, reason: "LinkedIn Ads is not yet available." },
+    {
+      platform: "linkedin",
+      available: linkedinConfigured,
+      reason: linkedinConfigured
+        ? null
+        : "LinkedIn Ads is not yet available. The platform's LinkedIn app credentials have not been configured.",
+    },
     { platform: "tiktok", available: false, reason: "TikTok Ads is not yet available." },
   ];
 }
@@ -253,6 +269,96 @@ interface ApplyPayload {
   lifetimeBudget?: number | null;
   startTime?: string | null;
   stopTime?: string | null;
+  /** LinkedIn only: the campaign group a new campaign is created in. */
+  campaignGroupId?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Platform dispatch (Meta Graph vs LinkedIn REST)
+// ---------------------------------------------------------------------------
+
+/** True when an adapter error means the token is dead/permissions revoked. */
+export function isAdsAuthError(err: unknown): boolean {
+  return (
+    (err instanceof MetaAdsApiError && err.authFailed) ||
+    (err instanceof LinkedinAdsApiError && err.authFailed)
+  );
+}
+
+/** Read the current remote state of a draft target on either platform. */
+export async function readRemoteState(
+  conn: AdAccountConnection,
+  token: string,
+  targetId: string,
+  targetType: AdsTargetType = "campaign",
+): Promise<RemoteSnapshot> {
+  if (conn.platform === "linkedin") {
+    return readLinkedinCampaignState(token, conn.adAccountId, targetId);
+  }
+  return readObjectState(token, targetId, targetType);
+}
+
+async function applyUpdate(
+  conn: AdAccountConnection,
+  token: string,
+  targetId: string,
+  payload: ApplyPayload,
+): Promise<void> {
+  if (conn.platform === "linkedin") {
+    await updateLinkedinCampaign(token, conn.adAccountId, targetId, {
+      name: payload.name,
+      status: payload.status,
+      dailyBudget: payload.dailyBudget ?? undefined,
+      lifetimeBudget: payload.lifetimeBudget ?? undefined,
+      startTime: payload.startTime ?? undefined,
+      stopTime: payload.stopTime ?? undefined,
+      currency: conn.currency ?? "USD",
+    });
+    return;
+  }
+  await updateObject(token, targetId, {
+    name: payload.name,
+    status: payload.status,
+    dailyBudget: payload.dailyBudget ?? undefined,
+    lifetimeBudget: payload.lifetimeBudget ?? undefined,
+    startTime: payload.startTime ?? undefined,
+    stopTime: payload.stopTime ?? undefined,
+  });
+}
+
+async function applyCreate(
+  conn: AdAccountConnection,
+  token: string,
+  targetName: string,
+  payload: ApplyPayload,
+): Promise<string> {
+  if (conn.platform === "linkedin") {
+    if (!payload.campaignGroupId) {
+      throw new LinkedinAdsApiError(
+        "A campaign group is required to create a LinkedIn campaign.",
+        400,
+      );
+    }
+    return createLinkedinCampaign(token, conn.adAccountId, {
+      name: payload.name ?? targetName,
+      campaignGroupId: payload.campaignGroupId,
+      status: payload.status ?? "PAUSED",
+      dailyBudget: payload.dailyBudget ?? null,
+      lifetimeBudget: payload.lifetimeBudget ?? null,
+      startTime: payload.startTime ?? null,
+      stopTime: payload.stopTime ?? null,
+      currency: conn.currency ?? "USD",
+    });
+  }
+  return createCampaign(token, conn.adAccountId, {
+    name: payload.name ?? targetName,
+    objective: payload.objective ?? "OUTCOME_TRAFFIC",
+    status: payload.status ?? "PAUSED",
+    dailyBudget: payload.dailyBudget ?? null,
+    lifetimeBudget: payload.lifetimeBudget ?? null,
+    startTime: payload.startTime ?? null,
+    stopTime: payload.stopTime ?? null,
+  });
 }
 
 /** Human-readable label for a draft's target type (error/expiry messages). */
@@ -262,7 +368,7 @@ export function targetTypeLabel(targetType: string): string {
   return "campaign";
 }
 
-function asTargetType(value: string): AdsTargetType {
+export function asTargetType(value: string): AdsTargetType {
   return value === "adset" || value === "ad" ? value : "campaign";
 }
 
@@ -377,7 +483,8 @@ export async function approveAndApplyDraft(
         // Drift check: the remote object must still look like it did when the
         // draft was created, or the before/after preview the owner approved
         // is no longer truthful.
-        const current = await readObjectState(
+        const current = await readRemoteState(
+          conn,
           token,
           claimed.targetId,
           asTargetType(claimed.targetType),
@@ -397,17 +504,11 @@ export async function approveAndApplyDraft(
           return { kind: "expired", draft: expired };
         }
 
-        await updateObject(token, claimed.targetId, {
-          name: payload.name,
-          status: payload.status,
-          dailyBudget: payload.dailyBudget ?? undefined,
-          lifetimeBudget: payload.lifetimeBudget ?? undefined,
-          startTime: payload.startTime ?? undefined,
-          stopTime: payload.stopTime ?? undefined,
-        });
+        await applyUpdate(conn, token, claimed.targetId, payload);
 
         // Post-apply verification: read back and confirm the fields we set.
         const verifyStatus = await verifyApplied(
+          conn,
           token,
           claimed.targetId,
           payload,
@@ -420,21 +521,13 @@ export async function approveAndApplyDraft(
       if (claimed.targetType !== "campaign") {
         return await finishFailed(claimed, "Only campaigns can be created in this phase.", approver);
       }
-      const newId = await createCampaign(token, conn.adAccountId, {
-        name: payload.name ?? claimed.targetName,
-        objective: payload.objective ?? "OUTCOME_TRAFFIC",
-        status: payload.status ?? "PAUSED",
-        dailyBudget: payload.dailyBudget ?? null,
-        lifetimeBudget: payload.lifetimeBudget ?? null,
-        startTime: payload.startTime ?? null,
-        stopTime: payload.stopTime ?? null,
-      });
-      const verifyStatus = await verifyApplied(token, newId, payload, "campaign");
+      const newId = await applyCreate(conn, token, claimed.targetName, payload);
+      const verifyStatus = await verifyApplied(conn, token, newId, payload, "campaign");
       return await finishApplied(claimed, newId, verifyStatus, approver);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "The ad platform rejected the change.";
-      if (err instanceof MetaAdsApiError && err.authFailed) {
+      if (isAdsAuthError(err)) {
         await markAdConnectionFailed(conn.id, message);
       }
       return await finishFailed(claimed, message, approver);
@@ -458,13 +551,14 @@ function timesEqual(a: string | null, b: string): boolean {
 
 /** Best-effort read-back verification that the applied fields stuck. */
 async function verifyApplied(
+  conn: AdAccountConnection,
   token: string,
   objectId: string,
   payload: ApplyPayload,
   targetType: AdsTargetType,
 ): Promise<string> {
   try {
-    const state = await readObjectState(token, objectId, targetType);
+    const state = await readRemoteState(conn, token, objectId, targetType);
     const mismatches: string[] = [];
     if (payload.name != null && state.name !== payload.name) mismatches.push("name");
     if (payload.status != null && state.status !== payload.status) mismatches.push("status");
