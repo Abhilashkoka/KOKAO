@@ -24,6 +24,9 @@ import {
   getListContentQueryKey,
   getGetContentQueryKey,
   useRestartRetry,
+  useResendLinkedinComments,
+  useResendThreadsPosts,
+  useResendTwitterPosts,
   useListSchedules,
   useCreateSchedule,
   useDeleteSchedule,
@@ -41,6 +44,12 @@ import { fonts } from "@/constants/fonts";
 const c = colors.light;
 
 const STATUSES = ["draft", "scheduled", "published"] as const;
+
+// Amber tone for the "some pieces are still missing" warning blocks,
+// matching the web app's pending-posts warnings.
+const PENDING_TEXT = "#b45309";
+const PENDING_BG = "#fffbeb";
+const PENDING_BORDER = "#fcd34d";
 
 export default function ContentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -100,6 +109,13 @@ export default function ContentDetailScreen() {
   const [publishMsg, setPublishMsg] = useState<string | null>(null);
   const [publishErr, setPublishErr] = useState<string | null>(null);
   const [publishedLink, setPublishedLink] = useState<string | null>(null);
+
+  const resendLinkedinComments = useResendLinkedinComments();
+  const resendThreadsPosts = useResendThreadsPosts();
+  const resendTwitterPosts = useResendTwitterPosts();
+  const [resendMsg, setResendMsg] = useState<string | null>(null);
+  const [resendErr, setResendErr] = useState<string | null>(null);
+  const [resendLink, setResendLink] = useState<string | null>(null);
 
   const openLink = (url: string) => {
     haptic();
@@ -185,6 +201,14 @@ export default function ContentDetailScreen() {
     twitterExpired: twExpired,
     threadsExpired: thExpired,
   });
+
+  const linkedinPending = data?.linkedinCommentsPending ?? 0;
+  const threadsPending = data?.threadsPostsPending ?? 0;
+  const twitterPending = data?.twitterPostsPending ?? 0;
+  const anyResendPending =
+    resendLinkedinComments.isPending ||
+    resendThreadsPosts.isPending ||
+    resendTwitterPosts.isPending;
 
   const invalidateContent = () => {
     queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
@@ -295,7 +319,7 @@ export default function ContentDetailScreen() {
         if (res?.commentWarning) {
           setPublishMsg(null);
           setPublishErr(
-            `Published to LinkedIn, but some comments failed. ${res.commentWarning} You can resend the missing comments from the web library.`,
+            `Published to LinkedIn, but some comments failed. ${res.commentWarning} You can resend the missing comments below.`,
           );
         } else {
           const extra =
@@ -381,6 +405,108 @@ export default function ContentDetailScreen() {
         );
       },
     });
+  };
+
+  // A 409 means a resend for this post is already running (e.g. a rapid
+  // double tap or another device) — nothing failed, so show a neutral
+  // informational notice. Likewise, code "already_complete" means a
+  // concurrent resend already posted everything — good news, so show a
+  // positive notice and refresh the item so the warning disappears.
+  const resendErrorNotice = (err: unknown, fallback: string) => {
+    const e = err as {
+      status?: number;
+      data?: { error?: string; code?: string };
+    } | null;
+    const message = e?.data?.error;
+    const code = e?.data?.code;
+    if (code === "already_complete") {
+      setResendMsg(
+        "All posts are live — the missing pieces were already resent (possibly from another device or by a teammate).",
+      );
+      invalidateContent();
+      return;
+    }
+    if (e?.status === 409) {
+      setResendMsg(
+        message ||
+          "A resend for this post is already running. Wait for it to finish before trying again.",
+      );
+      return;
+    }
+    setResendErr(message || fallback);
+  };
+
+  const startResend = () => {
+    haptic();
+    setResendMsg(null);
+    setResendErr(null);
+    setResendLink(null);
+  };
+
+  const handleResendLinkedinComments = () => {
+    startResend();
+    resendLinkedinComments.mutate(
+      { id: contentId },
+      {
+        onSuccess: (res) => {
+          if (res?.commentWarning) {
+            setResendErr(res.commentWarning);
+          } else {
+            setResendMsg(
+              `All ${res?.commentsTotal ?? ""} follow-up comment(s) are now posted on LinkedIn.`,
+            );
+          }
+          setResendLink(res?.permalink ?? null);
+          invalidateContent();
+        },
+        onError: (err) =>
+          resendErrorNotice(err, "Could not resend the LinkedIn comments. Try again."),
+      },
+    );
+  };
+
+  const handleResendThreadsPosts = () => {
+    startResend();
+    resendThreadsPosts.mutate(
+      { id: contentId },
+      {
+        onSuccess: (res) => {
+          if (res?.publishWarning) {
+            setResendErr(res.publishWarning);
+          } else {
+            setResendMsg(
+              `All ${res?.postsTotal ?? ""} post(s) of the thread are now live on Threads.`,
+            );
+          }
+          setResendLink(res?.permalink ?? null);
+          invalidateContent();
+        },
+        onError: (err) =>
+          resendErrorNotice(err, "Could not resend the missing Threads posts. Try again."),
+      },
+    );
+  };
+
+  const handleResendTwitterPosts = () => {
+    startResend();
+    resendTwitterPosts.mutate(
+      { id: contentId },
+      {
+        onSuccess: (res) => {
+          if (res?.publishWarning) {
+            setResendErr(res.publishWarning);
+          } else {
+            setResendMsg(
+              `All ${res?.postsTotal ?? ""} post(s) of the thread are now live on X.`,
+            );
+          }
+          setResendLink(res?.permalink ?? null);
+          invalidateContent();
+        },
+        onError: (err) =>
+          resendErrorNotice(err, "Could not resend the missing X posts. Try again."),
+      },
+    );
   };
 
   const handleScheduleConfirm = (platform: string, scheduledAt: Date) => {
@@ -770,6 +896,84 @@ export default function ContentDetailScreen() {
       ) : null}
       {publishErr ? <Text style={styles.error}>{publishErr}</Text> : null}
 
+      {linkedinPending > 0 ? (
+        <View style={styles.pendingBox}>
+          <View style={styles.pendingRow}>
+            <Feather name="alert-circle" size={14} color={PENDING_TEXT} />
+            <Text style={styles.pendingText}>
+              {`${linkedinPending} LinkedIn follow-up comment${linkedinPending === 1 ? "" : "s"} with the rest of the caption ${linkedinPending === 1 ? "is" : "are"} still missing from the published post.`}
+            </Text>
+          </View>
+          <Button
+            title={resendLinkedinComments.isPending ? "Resending..." : "Resend comments"}
+            icon="rotate-cw"
+            variant="outline"
+            onPress={handleResendLinkedinComments}
+            loading={resendLinkedinComments.isPending}
+            disabled={anyResendPending && !resendLinkedinComments.isPending}
+            style={{ marginTop: 10 }}
+          />
+        </View>
+      ) : null}
+
+      {threadsPending > 0 ? (
+        <View style={styles.pendingBox}>
+          <View style={styles.pendingRow}>
+            <Feather name="alert-circle" size={14} color={PENDING_TEXT} />
+            <Text style={styles.pendingText}>
+              {`${threadsPending} Threads follow-up post${threadsPending === 1 ? "" : "s"} with the rest of the caption ${threadsPending === 1 ? "is" : "are"} still missing from the published thread.`}
+            </Text>
+          </View>
+          <Button
+            title={resendThreadsPosts.isPending ? "Resending..." : "Resend posts"}
+            icon="rotate-cw"
+            variant="outline"
+            onPress={handleResendThreadsPosts}
+            loading={resendThreadsPosts.isPending}
+            disabled={anyResendPending && !resendThreadsPosts.isPending}
+            style={{ marginTop: 10 }}
+          />
+        </View>
+      ) : null}
+
+      {twitterPending > 0 ? (
+        <View style={styles.pendingBox}>
+          <View style={styles.pendingRow}>
+            <Feather name="alert-circle" size={14} color={PENDING_TEXT} />
+            <Text style={styles.pendingText}>
+              {`${twitterPending} X follow-up post${twitterPending === 1 ? "" : "s"} with the rest of the caption ${twitterPending === 1 ? "is" : "are"} still missing from the published thread.`}
+            </Text>
+          </View>
+          <Button
+            title={resendTwitterPosts.isPending ? "Resending..." : "Resend posts"}
+            icon="rotate-cw"
+            variant="outline"
+            onPress={handleResendTwitterPosts}
+            loading={resendTwitterPosts.isPending}
+            disabled={anyResendPending && !resendTwitterPosts.isPending}
+            style={{ marginTop: 10 }}
+          />
+        </View>
+      ) : null}
+
+      {resendMsg ? (
+        <View style={styles.messageRow}>
+          <Feather name="check-circle" size={16} color={c.success} />
+          <Text style={styles.messageText}>{resendMsg}</Text>
+        </View>
+      ) : null}
+      {resendErr ? <Text style={styles.error}>{resendErr}</Text> : null}
+
+      {resendLink ? (
+        <Button
+          title="View post"
+          icon="external-link"
+          variant="secondary"
+          onPress={() => openLink(resendLink)}
+          style={{ marginTop: 10 }}
+        />
+      ) : null}
+
       {publishedLink ? (
         <Button
           title="View post"
@@ -900,6 +1104,25 @@ const styles = StyleSheet.create({
     backgroundColor: "#fdecec",
     borderRadius: colors.radius,
     padding: 10,
+  },
+  pendingBox: {
+    marginTop: 12,
+    backgroundColor: PENDING_BG,
+    borderColor: PENDING_BORDER,
+    borderWidth: 1,
+    borderRadius: colors.radius,
+    padding: 10,
+  },
+  pendingRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  pendingText: {
+    flex: 1,
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: PENDING_TEXT,
+    lineHeight: 17,
   },
   brokenText: {
     flex: 1,
