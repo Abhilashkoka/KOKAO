@@ -7,6 +7,7 @@ import {
 import { UpdateNotificationSettingsBody } from "@workspace/api-zod";
 import { isEmailConfigured } from "../lib/email";
 import {
+  ADMIN_ONLY_NOTIFICATION_TYPE_SET,
   NOTIFICATION_TYPES,
   NOTIFICATION_TYPE_SET,
 } from "../lib/notificationCatalog";
@@ -47,7 +48,13 @@ async function buildSettings(req: Request) {
       : getPreferenceMap(req.tenantId),
   ]);
 
-  const types = NOTIFICATION_TYPES.map((def) => {
+  // Regular users can never receive admin-only notifications, so don't show
+  // them toggles for those types. Effective superadmins see everything.
+  const visibleTypes = req.isSuperadmin
+    ? NOTIFICATION_TYPES
+    : NOTIFICATION_TYPES.filter((def) => !def.adminOnly);
+
+  const types = visibleTypes.map((def) => {
     const policy = policyMap.get(def.type) ?? defaultPolicy();
     const preference = prefMap.get(def.type) ?? defaultPreference();
     const effective = resolveEffective(policy, preference);
@@ -95,6 +102,20 @@ router.put(
         .status(400)
         .json({ error: `Unknown notification type(s): ${unknown.join(", ")}` });
       return;
+    }
+
+    // Admin-only types are invisible to regular users, so a non-admin writing
+    // one is a client bug or forged payload — reject rather than silently drop.
+    if (!req.isSuperadmin) {
+      const adminOnly = parsed.data.preferences
+        .map((p) => p.type)
+        .filter((t) => ADMIN_ONLY_NOTIFICATION_TYPE_SET.has(t));
+      if (adminOnly.length > 0) {
+        res.status(403).json({
+          error: `Admin-only notification type(s): ${adminOnly.join(", ")}`,
+        });
+        return;
+      }
     }
 
     const tenantId = req.tenantId;

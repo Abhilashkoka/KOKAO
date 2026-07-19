@@ -15,6 +15,11 @@ export interface NotificationTypeDef {
   type: string;
   label: string;
   description: string;
+  /**
+   * Only effective superadmins can ever receive this notification, so only
+   * they should see (or write) settings toggles for it.
+   */
+  adminOnly?: boolean;
 }
 
 export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
@@ -35,6 +40,7 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     label: "New seat requests (platform admins)",
     description:
       "A workspace submitted a request for more team seats and is waiting for a decision. Only platform admins receive this.",
+    adminOnly: true,
   },
   {
     type: "team_member_joined",
@@ -65,12 +71,14 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     label: "Stalled safety checks (platform admins)",
     description:
       "The background connection safety check has stopped completing runs and expired social connections will go undetected until it recovers. Only platform admins receive this.",
+    adminOnly: true,
   },
   {
     type: "sweep_fail_streak",
     label: "Chronic connection failures (platform admins)",
     description:
       "One workspace's social connection check has failed many sweeps in a row — a chronic breakage worth reviewing. Only platform admins receive this.",
+    adminOnly: true,
   },
   {
     type: "scheduled_post_published",
@@ -94,6 +102,10 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
 
 export const NOTIFICATION_TYPE_SET = new Set(
   NOTIFICATION_TYPES.map((t) => t.type),
+);
+
+export const ADMIN_ONLY_NOTIFICATION_TYPE_SET = new Set(
+  NOTIFICATION_TYPES.filter((t) => t.adminOnly).map((t) => t.type),
 );
 
 export const DEFAULT_EMAIL_POLICY: EmailPolicy = "optional";

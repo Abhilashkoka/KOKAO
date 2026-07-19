@@ -134,9 +134,84 @@ describe("GET /notification-settings", () => {
       await deleteTenant(tenant.tenantId);
     }
   });
+
+  it("hides admin-only types from regular users", async () => {
+    const tenant = await createTenant();
+    try {
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/notification-settings");
+      expect(res.status).toBe(200);
+      const types = res.body.types.map((t: { type: string }) => t.type);
+      expect(types).not.toContain("seat_request_submitted");
+      expect(types).not.toContain("sweep_stalled");
+      expect(types).not.toContain("sweep_fail_streak");
+      expect(types).toContain(SOCIAL_CONNECTION_FAILED);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("shows admin-only types to superadmins", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(admin.clerkUserId);
+      const res = await request(app).get("/api/notification-settings");
+      expect(res.status).toBe(200);
+      const types = res.body.types.map((t: { type: string }) => t.type);
+      expect(types).toContain("seat_request_submitted");
+      expect(types).toContain("sweep_stalled");
+      expect(types).toContain("sweep_fail_streak");
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
 });
 
 describe("PUT /notification-settings", () => {
+  it("rejects admin-only types from non-admin callers with 403 and writes nothing", async () => {
+    const tenant = await createTenant();
+    try {
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .put("/api/notification-settings")
+        .send({
+          preferences: [
+            { type: "sweep_stalled", inApp: true, email: false },
+          ],
+        });
+      expect(res.status).toBe(403);
+      expect(res.body.error).toMatch(/admin-only/i);
+      const stored = await getNotificationPreference(
+        tenant.tenantId,
+        "sweep_stalled",
+      );
+      expect(stored).toBeUndefined();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("lets superadmins tune admin-only types", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(admin.clerkUserId);
+      const res = await request(app)
+        .put("/api/notification-settings")
+        .send({
+          preferences: [
+            { type: "sweep_stalled", inApp: true, email: false },
+          ],
+        });
+      expect(res.status).toBe(200);
+      const type = res.body.types.find(
+        (t: { type: string }) => t.type === "sweep_stalled",
+      );
+      expect(type.preference).toEqual({ inApp: true, email: false });
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
   it("persists a preference and returns the updated settings", async () => {
     const tenant = await createTenant();
     try {
