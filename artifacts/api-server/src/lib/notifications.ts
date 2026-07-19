@@ -48,7 +48,11 @@ export const SEAT_REQUEST_SUBMITTED = "seat_request_submitted";
  */
 export async function fetchWorkspaceEmailRecipients(
   tenantId: number,
-  opts: { excludeClerkUserId?: string; memberOptOutType?: string } = {},
+  // memberOptOutType is deliberately REQUIRED (pass `null` to explicitly
+  // declare "no per-member opt-out applies"): every admin-fanout email must
+  // state which notification type governs an individual admin's personal
+  // "email off" choice, or a new type would silently ignore it.
+  opts: { excludeClerkUserId?: string; memberOptOutType: string | null },
 ): Promise<string[]> {
   const tenant = (
     await db
@@ -122,7 +126,7 @@ export async function fetchWorkspaceEmailRecipients(
 async function emailWorkspaceRecipients(
   tenantId: number,
   message: { subject: string; text: string; html?: string },
-  opts: { excludeClerkUserId?: string; memberOptOutType?: string } = {},
+  opts: { excludeClerkUserId?: string; memberOptOutType: string | null },
 ): Promise<void> {
   const emails = await fetchWorkspaceEmailRecipients(tenantId, opts);
   for (const to of emails) {
