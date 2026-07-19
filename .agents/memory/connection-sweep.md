@@ -31,11 +31,15 @@ every cycle.
   a refresh-token exchange against Google (invalid_grant = dead). The route
   files (`routes/threads.ts`, `routes/youtube.ts`) still carry their own copies
   of the refresh logic — keep behavior in sync if either changes.
-- Ad account connections (Meta + TikTok grants in `ad_account_connections`)
-  ride the same sweep via `lib/adsReverify.ts`: only `status="connected"` rows
-  with a picked account are checked (cheap ad-account/advertiser read),
-  definitive rejections = authFailed errors OR TikTok no longer returning the
-  granted advertiser (404). Failure/streak keys use a `<platform>-ads` suffix
+- Ad account connections (Meta + TikTok + Google grants in
+  `ad_account_connections`) ride the same sweep via `lib/adsReverify.ts`: only
+  `status="connected"` rows with a picked account are checked (cheap
+  ad-account/advertiser/customer read), definitive rejections = authFailed
+  errors OR TikTok no longer returning the granted advertiser (404). Google
+  skips the shared accessToken decrypt — its creds hold a refresh token, so
+  the probe is getGoogleAdsAuth (invalid_grant = revoked) + readCustomer.
+  New ad platforms: add to AD_SWEEP_PLATFORMS + branch in reverifyAdConnection,
+  and update ALL test files that mock ./adsReverify. Failure/streak keys use a `<platform>-ads` suffix
   so they never collide with organic social platform keys. Tenant alerts use
   the deduped `ads_connection_failed` notification (link `/ads`), auto-resolved
   when the grant verifies again.

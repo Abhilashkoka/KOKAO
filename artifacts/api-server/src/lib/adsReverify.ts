@@ -24,13 +24,18 @@ import {
 } from "./metaAdsApi";
 import { TiktokAdsApiError, readAdvertiser } from "./tiktokAdsApi";
 import {
+  GoogleAdsApiError,
+  getGoogleAdsAuth,
+  readCustomer,
+} from "./googleAdsApi";
+import {
   notifyAdsConnectionFailed,
   resolveAdsConnectionNotifications,
 } from "./notifications";
 import { REVERIFY_STALE_MS } from "./socialReverify";
 
 /** Ad platforms the background sweep re-verifies. */
-export const AD_SWEEP_PLATFORMS = ["meta", "tiktok"] as const;
+export const AD_SWEEP_PLATFORMS = ["meta", "tiktok", "google"] as const;
 export type AdSweepPlatform = (typeof AD_SWEEP_PLATFORMS)[number];
 
 export const ADS_CREDENTIALS_UNREADABLE_MESSAGE =
@@ -46,12 +51,16 @@ function isStale(verifiedAt: Date | null): boolean {
  * (expired/revoked token, permissions removed) on either platform, or TikTok
  * no longer returning the selected advertiser for this grant (the
  * advertiser-level access was revoked even though the token still works).
+ * For Google, authFailed covers a revoked refresh token (invalid_grant on
+ * the token exchange), unreadable stored credentials, and lost account
+ * access (401/403/UNAUTHENTICATED/PERMISSION_DENIED).
  */
 function isDefinitiveRejection(err: unknown): boolean {
   if (err instanceof MetaAdsApiError) return err.authFailed;
   if (err instanceof TiktokAdsApiError) {
     return err.authFailed || err.status === 404;
   }
+  if (err instanceof GoogleAdsApiError) return err.authFailed;
   return false;
 }
 
@@ -151,30 +160,43 @@ export async function reverifyAdConnection(
     return { checked: false, reason: "fresh" };
   }
 
+  // Google credentials store a refresh token, not a bearer access token —
+  // getGoogleAdsAuth handles decryption + token refresh itself and throws a
+  // GoogleAdsApiError with authFailed on unreadable creds or a revoked
+  // grant, which the shared catch below classifies as definitive.
   let token: string | null = null;
-  try {
-    token =
-      decryptJson<MetaAdsCredentials>(conn.encryptedCredentials).accessToken ??
-      null;
-  } catch {
-    token = null;
-  }
-  if (!token) {
-    // Unreadable credentials are a definitive breakage: nothing this
-    // connection does can succeed until the tenant reconnects.
-    await writeStatus(conn, {
-      verifyStatus: "failed",
-      verifyError: ADS_CREDENTIALS_UNREADABLE_MESSAGE,
-    });
-    return { checked: true, verifyStatus: "failed" };
+  if (platform !== "google") {
+    try {
+      token =
+        decryptJson<MetaAdsCredentials>(conn.encryptedCredentials)
+          .accessToken ?? null;
+    } catch {
+      token = null;
+    }
+    if (!token) {
+      // Unreadable credentials are a definitive breakage: nothing this
+      // connection does can succeed until the tenant reconnects.
+      await writeStatus(conn, {
+        verifyStatus: "failed",
+        verifyError: ADS_CREDENTIALS_UNREADABLE_MESSAGE,
+      });
+      return { checked: true, verifyStatus: "failed" };
+    }
   }
 
   let info: { name?: string | null; currency?: string | null };
   try {
-    info =
-      platform === "meta"
-        ? await readAdAccount(token, conn.adAccountId)
-        : await readAdvertiser(token, conn.adAccountId);
+    if (platform === "google") {
+      // Aliveness probe = refresh-token exchange (invalid_grant = revoked)
+      // + a cheap customer read (the grant can still see the account).
+      const auth = await getGoogleAdsAuth(conn);
+      info = await readCustomer(auth);
+    } else {
+      info =
+        platform === "meta"
+          ? await readAdAccount(token!, conn.adAccountId)
+          : await readAdvertiser(token!, conn.adAccountId);
+    }
   } catch (err) {
     if (isDefinitiveRejection(err)) {
       await writeStatus(conn, {

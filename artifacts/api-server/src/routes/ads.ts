@@ -125,7 +125,7 @@ import {
   type TargetingLocation,
 } from "../lib/adsEngine";
 import { notifyAdsDraftPending } from "../lib/notifications";
-import { reverifyAdConnection } from "../lib/adsReverify";
+import { AD_SWEEP_PLATFORMS, reverifyAdConnection } from "../lib/adsReverify";
 
 const router: IRouter = Router();
 
@@ -223,13 +223,15 @@ router.get("/ads/status", async (_req: Request, res: Response) => {
 
 router.get("/ads/connections", async (req: Request, res: Response) => {
   if (!(await adsEnabledOr503(res))) return;
-  // Proactively re-check the stored Meta Ads token (staleness-gated) so an
+  // Proactively re-check the stored ads grants (staleness-gated) so an
   // expired/revoked one flips to "failed" the moment the page loads, mirroring
   // the Accounts page behavior. Transient errors are logged, never surfaced.
-  try {
-    await reverifyAdConnection(req.tenantId, "meta");
-  } catch (err) {
-    req.log.error({ err }, "Meta Ads auto re-verify failed");
+  for (const platform of AD_SWEEP_PLATFORMS) {
+    try {
+      await reverifyAdConnection(req.tenantId, platform);
+    } catch (err) {
+      req.log.error({ err, platform }, "Ads auto re-verify failed");
+    }
   }
   const rows = await db
     .select()

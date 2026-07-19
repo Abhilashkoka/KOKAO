@@ -23,6 +23,22 @@ vi.mock("./tiktokAdsApi", async (importOriginal) => {
     readAdvertiser: vi.fn(async () => ({ name: "Adv", currency: "USD" })),
   };
 });
+// Stub only the live-network Google Ads calls; GoogleAdsApiError stays real
+// so authFailed classification is exercised. Leftover google rows from other
+// tests in the shared dev DB must never trigger live token refreshes either.
+vi.mock("./googleAdsApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./googleAdsApi")>();
+  return {
+    ...actual,
+    getGoogleAdsAuth: vi.fn(async () => ({
+      accessToken: "g_tok",
+      developerToken: "dev_tok",
+      customerId: "1234567890",
+      loginCustomerId: null,
+    })),
+    readCustomer: vi.fn(async () => ({ name: "Google Acct", currency: "USD" })),
+  };
+});
 // The sweep also walks every social connection in the shared dev DB; stub
 // the social reverifiers so this ads-focused test never hits live networks
 // (REVERIFY_STALE_MS and the rest of the module stay real for adsReverify).
@@ -50,6 +66,7 @@ import { db, adAccountConnectionsTable, pool } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { MetaAdsApiError, readAdAccount } from "./metaAdsApi";
 import { TiktokAdsApiError, readAdvertiser } from "./tiktokAdsApi";
+import { GoogleAdsApiError, getGoogleAdsAuth, readCustomer } from "./googleAdsApi";
 import { encryptJson } from "./secretCrypto";
 import {
   reverifyAdConnection,
@@ -65,6 +82,8 @@ import {
 
 const mockReadAdAccount = vi.mocked(readAdAccount);
 const mockReadAdvertiser = vi.mocked(readAdvertiser);
+const mockGetGoogleAdsAuth = vi.mocked(getGoogleAdsAuth);
+const mockReadCustomer = vi.mocked(readCustomer);
 
 /** More than REVERIFY_STALE_MS (15 min) in the past. */
 function staleDate(): Date {
@@ -128,6 +147,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockReadAdAccount.mockResolvedValue({ name: "Acct", currency: "USD" });
   mockReadAdvertiser.mockResolvedValue({ name: "Adv", currency: "USD" });
+  mockGetGoogleAdsAuth.mockResolvedValue({
+    accessToken: "g_tok",
+    developerToken: "dev_tok",
+    customerId: "1234567890",
+    loginCustomerId: null,
+  });
+  mockReadCustomer.mockResolvedValue({ name: "Google Acct", currency: "USD" });
 });
 
 describe("reverifyAdConnection", () => {
@@ -208,6 +234,102 @@ describe("reverifyAdConnection", () => {
       expect(outcome).toEqual({ checked: true, verifyStatus: "failed" });
       const row = await getAdConnectionRow(tenant.tenantId, "tiktok");
       expect(row?.verifyStatus).toBe("failed");
+    } finally {
+      await cleanupTenant(tenant.tenantId);
+    }
+  });
+
+  it("flips a Google connection to failed when the refresh token is revoked and notifies", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertAdConnection(tenant.tenantId, "google", {
+        adAccountId: "1234567890",
+        encryptedCredentials: encryptJson({ refreshToken: "rt_revoked" }),
+      });
+      mockGetGoogleAdsAuth.mockRejectedValue(
+        new GoogleAdsApiError(
+          "Google rejected the stored connection (invalid_grant). Reconnect the ad account.",
+          400,
+          true,
+        ),
+      );
+
+      const outcome = await reverifyAdConnection(tenant.tenantId, "google");
+      expect(outcome).toEqual({ checked: true, verifyStatus: "failed" });
+      const row = await getAdConnectionRow(tenant.tenantId, "google");
+      expect(row?.verifyStatus).toBe("failed");
+      expect(row?.verifyError).toContain("invalid_grant");
+
+      const alerts = (await getNotifications(tenant.tenantId)).filter(
+        (n) => n.type === "ads_connection_failed",
+      );
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0].platform).toBe("google");
+      expect(alerts[0].linkUrl).toBe("/ads");
+    } finally {
+      await cleanupTenant(tenant.tenantId);
+    }
+  });
+
+  it("flips a Google connection to failed on lost customer access (authFailed read)", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertAdConnection(tenant.tenantId, "google", {
+        adAccountId: "1234567890",
+        encryptedCredentials: encryptJson({ refreshToken: "rt_ok" }),
+      });
+      mockReadCustomer.mockRejectedValue(
+        new GoogleAdsApiError("PERMISSION_DENIED", 403, true),
+      );
+
+      const outcome = await reverifyAdConnection(tenant.tenantId, "google");
+      expect(outcome).toEqual({ checked: true, verifyStatus: "failed" });
+      const row = await getAdConnectionRow(tenant.tenantId, "google");
+      expect(row?.verifyStatus).toBe("failed");
+    } finally {
+      await cleanupTenant(tenant.tenantId);
+    }
+  });
+
+  it("does not flip a Google connection on a transient failure, only touches the clock", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertAdConnection(tenant.tenantId, "google", {
+        adAccountId: "1234567890",
+        encryptedCredentials: encryptJson({ refreshToken: "rt_ok" }),
+      });
+      mockReadCustomer.mockRejectedValue(
+        new GoogleAdsApiError("Internal error", 500, false),
+      );
+
+      await expect(
+        reverifyAdConnection(tenant.tenantId, "google"),
+      ).rejects.toThrow("Internal error");
+
+      const row = await getAdConnectionRow(tenant.tenantId, "google");
+      expect(row?.verifyStatus).toBe("verified");
+      expect(
+        row?.verifiedAt && Date.now() - row.verifiedAt.getTime(),
+      ).toBeLessThan(60 * 1000);
+      expect(await getNotifications(tenant.tenantId)).toHaveLength(0);
+    } finally {
+      await cleanupTenant(tenant.tenantId);
+    }
+  });
+
+  it("re-verifies a healthy Google grant and refreshes account metadata", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertAdConnection(tenant.tenantId, "google", {
+        adAccountId: "1234567890",
+        adAccountName: "Old Name",
+        encryptedCredentials: encryptJson({ refreshToken: "rt_ok" }),
+      });
+      const outcome = await reverifyAdConnection(tenant.tenantId, "google");
+      expect(outcome).toEqual({ checked: true, verifyStatus: "verified" });
+      const row = await getAdConnectionRow(tenant.tenantId, "google");
+      expect(row?.verifyStatus).toBe("verified");
+      expect(row?.adAccountName).toBe("Google Acct");
     } finally {
       await cleanupTenant(tenant.tenantId);
     }
@@ -326,8 +448,15 @@ describe("sweep integration", () => {
     try {
       await insertAdConnection(tenant.tenantId, "meta");
       await insertAdConnection(tenant.tenantId, "tiktok");
+      await insertAdConnection(tenant.tenantId, "google", {
+        adAccountId: "1234567890",
+        encryptedCredentials: encryptJson({ refreshToken: "rt_ok" }),
+      });
       mockReadAdAccount.mockRejectedValue(
         new MetaAdsApiError("token revoked", 401, true),
+      );
+      mockGetGoogleAdsAuth.mockRejectedValue(
+        new GoogleAdsApiError("invalid_grant", 400, true),
       );
 
       await sweepDeadConnections();
@@ -336,12 +465,14 @@ describe("sweep integration", () => {
       expect(metaRow?.verifyStatus).toBe("failed");
       const tiktokRow = await getAdConnectionRow(tenant.tenantId, "tiktok");
       expect(tiktokRow?.verifyStatus).toBe("verified");
+      const googleRow = await getAdConnectionRow(tenant.tenantId, "google");
+      expect(googleRow?.verifyStatus).toBe("failed");
 
       const alerts = (await getNotifications(tenant.tenantId)).filter(
         (n) => n.type === "ads_connection_failed",
       );
-      expect(alerts).toHaveLength(1);
-      expect(alerts[0].platform).toBe("meta");
+      expect(alerts).toHaveLength(2);
+      expect(alerts.map((a) => a.platform).sort()).toEqual(["google", "meta"]);
     } finally {
       await cleanupTenant(tenant.tenantId);
     }
