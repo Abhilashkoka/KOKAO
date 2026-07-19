@@ -46,6 +46,14 @@ function googleTokenUrl(): string {
   );
 }
 
+function googleAuthUrl(): string {
+  return (
+    (process.env.NODE_ENV !== "production" &&
+      process.env.GOOGLE_ADS_AUTH_URL_OVERRIDE) ||
+    "https://accounts.google.com/o/oauth2/v2/auth"
+  );
+}
+
 // ---------------------------------------------------------------------------
 // App-level credentials (superadmin-managed, encrypted in app_credentials)
 // ---------------------------------------------------------------------------
@@ -134,7 +142,7 @@ export function buildGoogleAdsAuthUrl(
     prompt: "consent",
     state,
   });
-  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  return `${googleAuthUrl()}?${params.toString()}`;
 }
 
 interface TokenResponse {
