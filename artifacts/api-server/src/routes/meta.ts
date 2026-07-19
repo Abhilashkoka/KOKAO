@@ -17,6 +17,10 @@ import {
   markAccountVerifyFailed,
 } from "../lib/socialReverify";
 import { enqueueBackgroundJob, isShuttingDown } from "../lib/backgroundJobs";
+import {
+  tryAcquireResendLock,
+  PUBLISH_IN_PROGRESS_MESSAGE,
+} from "../lib/resendLock";
 import { trackSyncPublish } from "../middlewares/trackSyncPublish";
 import { logger } from "../lib/logger";
 import { platformFetch, PlatformTimeoutError } from "../lib/platformFetch";
@@ -859,6 +863,15 @@ router.post(
   trackSyncPublish,
   async (req: Request, res: Response) => {
     const id = Number(req.params.id);
+    // Guard against two truly simultaneous publish clicks: both would read
+    // the item and run the dedupe probe before either has posted, so the
+    // probe can't see the other's writes — without the lock both could post.
+    const releasePublishLock = tryAcquireResendLock("facebook", id);
+    if (!releasePublishLock) {
+      res.status(409).json({ error: PUBLISH_IN_PROGRESS_MESSAGE });
+      return;
+    }
+    try {
     const item = await loadContentItem(id, req.tenantId);
     if (!item) {
       res.status(404).json({ error: "Not found" });
@@ -1011,6 +1024,9 @@ router.post(
       }
       res.status(502).json({ error: reason });
     }
+    } finally {
+      releasePublishLock();
+    }
   },
 );
 
@@ -1023,6 +1039,18 @@ router.post(
   "/content/:id/publish-instagram",
   async (req: Request, res: Response) => {
     const id = Number(req.params.id);
+    // Guard against two truly simultaneous publish clicks: both would read
+    // the item before either flips it to "publishing", so both would enqueue
+    // a background publish — without the lock both could post. The Instagram
+    // publish runs as a background job, so the lock is handed off to the job
+    // and released when the job settles (not when the 202 response is sent).
+    const releasePublishLock = tryAcquireResendLock("instagram", id);
+    if (!releasePublishLock) {
+      res.status(409).json({ error: PUBLISH_IN_PROGRESS_MESSAGE });
+      return;
+    }
+    let lockHandedOffToJob = false;
+    try {
     const item = await loadContentItem(id, req.tenantId);
     if (!item) {
       res.status(404).json({ error: "Not found" });
@@ -1100,8 +1128,9 @@ router.post(
         pageToken,
         imagePath,
         caption,
-      }),
+      }).finally(releasePublishLock),
     );
+    if (accepted) lockHandedOffToJob = true;
     if (!accepted) {
       // Shutdown began between the isShuttingDown() check above and the
       // enqueue. Nothing was sent to Instagram; revert the status we just set
@@ -1128,6 +1157,9 @@ router.post(
     }
 
     res.status(202).json({ status: "publishing" });
+    } finally {
+      if (!lockHandedOffToJob) releasePublishLock();
+    }
   },
 );
 

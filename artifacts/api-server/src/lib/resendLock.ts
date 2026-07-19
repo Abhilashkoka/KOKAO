@@ -33,3 +33,6 @@ export function tryAcquireResendLock(
 
 export const RESEND_IN_PROGRESS_MESSAGE =
   "A resend for this post is already in progress. Wait a moment for it to finish, then check the result before trying again.";
+
+export const PUBLISH_IN_PROGRESS_MESSAGE =
+  "A publish for this post is already in progress. Wait a moment for it to finish, then check the result before trying again.";

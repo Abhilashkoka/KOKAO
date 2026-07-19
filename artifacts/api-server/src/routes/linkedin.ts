@@ -30,6 +30,7 @@ import { splitForLinkedin } from "@workspace/social-limits";
 import {
   tryAcquireResendLock,
   RESEND_IN_PROGRESS_MESSAGE,
+  PUBLISH_IN_PROGRESS_MESSAGE,
 } from "../lib/resendLock";
 
 const router: IRouter = Router();
@@ -683,6 +684,15 @@ router.post(
   trackSyncPublish,
   async (req: Request, res: Response) => {
     const id = Number(req.params.id);
+    // Guard against two truly simultaneous publish clicks: both would read
+    // the item and run the dedupe probe before either has posted, so the
+    // probe can't see the other's writes — without the lock both could post.
+    const releasePublishLock = tryAcquireResendLock("linkedin", id);
+    if (!releasePublishLock) {
+      res.status(409).json({ error: PUBLISH_IN_PROGRESS_MESSAGE });
+      return;
+    }
+    try {
     const item = (
       await db
         .select()
@@ -1013,6 +1023,9 @@ router.post(
         );
       }
       res.status(502).json({ error: reason });
+    }
+    } finally {
+      releasePublishLock();
     }
   },
 );

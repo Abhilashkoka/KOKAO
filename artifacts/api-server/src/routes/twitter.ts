@@ -30,6 +30,7 @@ import {
 import {
   tryAcquireResendLock,
   RESEND_IN_PROGRESS_MESSAGE,
+  PUBLISH_IN_PROGRESS_MESSAGE,
 } from "../lib/resendLock";
 import { resolveSocialConnectionNotifications } from "../lib/notifications";
 
@@ -469,6 +470,15 @@ router.post(
   trackSyncPublish,
   async (req: Request, res: Response) => {
     const id = Number(req.params.id);
+    // Guard against two truly simultaneous publish clicks: both would read
+    // the item and run the dedupe probe before either has posted, so the
+    // probe can't see the other's writes — without the lock both could post.
+    const releasePublishLock = tryAcquireResendLock("twitter", id);
+    if (!releasePublishLock) {
+      res.status(409).json({ error: PUBLISH_IN_PROGRESS_MESSAGE });
+      return;
+    }
+    try {
     const item = await loadContentItem(id, req.tenantId);
     if (!item) {
       res.status(404).json({ error: "Not found" });
@@ -723,6 +733,9 @@ router.post(
         );
       }
       res.status(502).json({ error: reason });
+    }
+    } finally {
+      releasePublishLock();
     }
   },
 );

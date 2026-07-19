@@ -2564,6 +2564,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: A publish for this content item is already in progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "502":
           description: Facebook API error
           content:
@@ -2602,6 +2608,12 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: A publish for this content item is already in progress
           content:
             application/json:
               schema:
@@ -2703,6 +2715,12 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: A publish for this content item is already in progress
           content:
             application/json:
               schema:
@@ -3133,6 +3151,12 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: A publish for this content item is already in progress
           content:
             application/json:
               schema:
@@ -3808,6 +3832,12 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: A publish for this content item is already in progress
           content:
             application/json:
               schema:
