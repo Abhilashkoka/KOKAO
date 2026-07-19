@@ -169,6 +169,11 @@ export function trackFeatureUse(feature: string, params?: Record<string, unknown
  * Clerk user's id and creation time; only accounts created within the fresh
  * window count (so existing users signing in on a new device don't fire it).
  * Deduped in AsyncStorage by user id.
+ *
+ * The event is flushed IMMEDIATELY (not queued for the batch timer) and the
+ * dedupe marker is only committed after the server accepts the delivery, so
+ * killing the app right after first sign-in can't permanently lose the event:
+ * on a failed send, the next launch retries.
  */
 let signUpTrackedFor: string | null = null;
 
@@ -184,13 +189,46 @@ export async function trackSignUpOnce(
   } catch {
     // storage unavailable; the in-memory marker still dedupes this session
   }
+  if (signedIn && consent !== null && !consent.analytics) return;
+  if (!INGEST_URL) return;
+  // In-memory guard prevents concurrent double-fires while the send is in flight.
   signUpTrackedFor = userId;
+  let delivered = false;
   try {
-    await AsyncStorage.setItem(SIGN_UP_KEY, userId);
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const token = authToken ? await authToken() : null;
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(INGEST_URL, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        anonymousId: await getAnonymousId(),
+        sessionId: getSessionId().id,
+        context: buildContext(),
+        events: [
+          {
+            name: "sign_up",
+            params: { method: "clerk" },
+            clientTimestamp: new Date().toISOString(),
+          },
+        ],
+      }),
+    });
+    delivered = res.ok;
   } catch {
-    // best effort
+    delivered = false;
   }
-  track("sign_up", { method: "clerk" });
+  if (delivered) {
+    // Commit the dedupe marker only once the server accepted the batch.
+    try {
+      await AsyncStorage.setItem(SIGN_UP_KEY, userId);
+    } catch {
+      // best effort; the in-memory marker still dedupes this session
+    }
+  } else {
+    // Allow a retry on a later call (e.g. the next launch).
+    signUpTrackedFor = null;
+  }
 }
 
 export function trackError(errorType: string, screen?: string, fatal = false): void {

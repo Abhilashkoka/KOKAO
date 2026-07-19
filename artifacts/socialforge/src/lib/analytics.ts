@@ -223,6 +223,11 @@ export function trackPageView(page: string): void {
  * Clerk user's id and creation time; only accounts created within the fresh
  * window count (so existing users signing in on a new device don't fire it).
  * Deduped in localStorage by user id.
+ *
+ * The event is flushed IMMEDIATELY (not queued for the batch timer) and the
+ * dedupe marker is only committed after the server accepts the delivery, so
+ * closing the tab right after first sign-in can't permanently lose the event:
+ * on a failed send, the next visit retries.
  */
 let signUpTrackedFor: string | null = null;
 
@@ -232,9 +237,42 @@ export function trackSignUpOnce(userId: string, createdAt: Date | null | undefin
   if (signUpTrackedFor === userId) return;
   const store = safeStorage("local");
   if (store?.getItem(SIGN_UP_KEY) === userId) return;
+  if (signedIn && consent !== null && !consent.analytics) return;
+  // In-memory guard prevents concurrent double-fires while the send is in flight.
   signUpTrackedFor = userId;
-  store?.setItem(SIGN_UP_KEY, userId);
-  track("sign_up", { method: "clerk" });
+  void (async () => {
+    let delivered = false;
+    try {
+      const res = await fetch(INGEST_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        keepalive: true,
+        body: JSON.stringify({
+          anonymousId: getAnonymousId(),
+          sessionId: getSession().id,
+          context: buildContext(),
+          events: [
+            {
+              name: "sign_up",
+              params: { method: "clerk" },
+              clientTimestamp: new Date().toISOString(),
+            },
+          ],
+        }),
+      });
+      delivered = res.ok;
+    } catch {
+      delivered = false;
+    }
+    if (delivered) {
+      // Commit the dedupe marker only once the server accepted the batch.
+      store?.setItem(SIGN_UP_KEY, userId);
+    } else {
+      // Allow a retry on a later call (e.g. the next visit).
+      signUpTrackedFor = null;
+    }
+  })();
 }
 
 export function trackFeatureUse(feature: string, params?: Record<string, unknown>): void {
