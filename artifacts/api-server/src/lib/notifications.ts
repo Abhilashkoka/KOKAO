@@ -23,6 +23,7 @@ import { isSuperadminEmail } from "./superadmins";
 
 export const SOCIAL_CONNECTION_FAILED = "social_connection_failed";
 export const PUBLISH_INTERRUPTED = "publish_interrupted";
+export const ADS_CONNECTION_FAILED = "ads_connection_failed";
 export const ADS_DRAFT_PENDING = "ads_draft_pending";
 export const ADS_CHANGE_APPLIED = "ads_change_applied";
 export const ADS_CHANGE_FAILED = "ads_change_failed";
@@ -662,6 +663,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   twitter: "X account",
   youtube: "YouTube channel",
   threads: "Threads profile",
+  meta_ads: "Meta Ads account",
 };
 
 function platformLabel(platform: string): string {
@@ -1433,6 +1435,131 @@ export async function notifySocialConnectionFailed(
     logger.error(
       { err, tenantId, platform },
       "Failed to record social connection notification",
+    );
+  }
+}
+
+const ADS_PLATFORM_LABELS: Record<string, string> = {
+  meta: "Meta Ads",
+};
+
+function adsPlatformLabel(platform: string): string {
+  return ADS_PLATFORM_LABELS[platform] ?? `${platform} Ads`;
+}
+
+/**
+ * Record a one-time notification that a tenant's AD ACCOUNT connection has
+ * broken (an expired/revoked ads token flipped from verified to failed).
+ * Mirrors notifySocialConnectionFailed: deduped on an existing UNREAD
+ * ads-connection-failed notification for the same tenant + platform, honours
+ * effective notification settings, and on a fresh breakage emails the
+ * tenant's verified address (best effort). Never throws.
+ */
+export async function notifyAdsConnectionFailed(
+  tenantId: number,
+  platform: string,
+  message?: string,
+): Promise<void> {
+  try {
+    const existing = await db
+      .select({ id: notificationsTable.id })
+      .from(notificationsTable)
+      .where(
+        and(
+          eq(notificationsTable.tenantId, tenantId),
+          eq(notificationsTable.type, ADS_CONNECTION_FAILED),
+          eq(notificationsTable.platform, platform),
+          isNull(notificationsTable.readAt),
+        ),
+      )
+      .limit(1);
+    if (existing.length > 0) return;
+
+    const effective = await getEffectiveSetting(tenantId, ADS_CONNECTION_FAILED);
+    if (!effective.enabled) return;
+
+    const label = adsPlatformLabel(platform);
+    const resolvedMessage =
+      message ??
+      `Your ${label} connection is no longer valid. Reconnect it to keep managing ads.`;
+
+    // Always record the row (dedupe + audit); `inApp` controls banner
+    // visibility so an email-only tenant still gets deduped correctly.
+    await db.insert(notificationsTable).values({
+      tenantId,
+      type: ADS_CONNECTION_FAILED,
+      platform,
+      title: `${label} disconnected`,
+      message: resolvedMessage,
+      linkUrl: "/ads",
+      inApp: effective.inApp,
+    });
+
+    if (effective.email) {
+      try {
+        const tenant = (
+          await db
+            .select({ clerkUserId: tenantsTable.clerkUserId })
+            .from(tenantsTable)
+            .where(eq(tenantsTable.id, tenantId))
+            .limit(1)
+        )[0];
+        if (!tenant) return;
+        const email = await fetchVerifiedEmail(tenant.clerkUserId);
+        if (!email) return;
+        const domain = (process.env.REPLIT_DOMAINS ?? "")
+          .split(",")
+          .map((d) => d.trim())
+          .filter(Boolean)[0];
+        const link = domain ? `https://${domain}/ads` : "/ads";
+        await sendEmail({
+          to: email,
+          subject: `${label} disconnected - reconnect needed`,
+          text: `${resolvedMessage}\n\nReconnect your ${label} account: ${link}`,
+          html:
+            `<p>${escapeHtml(resolvedMessage)}</p>` +
+            `<p><a href="${escapeHtml(link)}">Reconnect your ${escapeHtml(label)} account</a></p>`,
+        });
+      } catch (err) {
+        logger.error(
+          { err, tenantId, platform },
+          "Failed to email ads connection breakage",
+        );
+      }
+    }
+  } catch (err) {
+    logger.error(
+      { err, tenantId, platform },
+      "Failed to record ads connection notification",
+    );
+  }
+}
+
+/**
+ * Auto-dismiss any unread ads-connection-failed notification the moment the
+ * ad account connection verifies again, re-arming the dedupe for a future
+ * breakage. Never throws.
+ */
+export async function resolveAdsConnectionNotifications(
+  tenantId: number,
+  platform: string,
+): Promise<void> {
+  try {
+    await db
+      .update(notificationsTable)
+      .set({ readAt: new Date() })
+      .where(
+        and(
+          eq(notificationsTable.tenantId, tenantId),
+          eq(notificationsTable.type, ADS_CONNECTION_FAILED),
+          eq(notificationsTable.platform, platform),
+          isNull(notificationsTable.readAt),
+        ),
+      );
+  } catch (err) {
+    logger.error(
+      { err, tenantId, platform },
+      "Failed to resolve ads connection notifications",
     );
   }
 }

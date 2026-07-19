@@ -34,6 +34,14 @@ vi.mock("./email", () => ({
   sendEmail: vi.fn(async () => true),
 }));
 
+// The sweep also covers ad-account connections. Leftover rows from other
+// test files in the shared dev DB would otherwise hit the real Meta Ads API
+// (timing out per row and eventually timing out whole tests), so stub the
+// ads reverifier — this file only asserts on social behavior.
+vi.mock("./adsReverify", () => ({
+  reverifyMetaAds: vi.fn(async () => null),
+}));
+
 import { pool } from "@workspace/db";
 import { testFacebookCredentials } from "./metaApi";
 import {

@@ -4,6 +4,7 @@ import {
   appBrandSettingsTable,
   type AppBrandSettings,
   connectedAccountsTable,
+  adAccountConnectionsTable,
   contentItemsTable,
   appCredentialsTable,
   notificationsTable,
@@ -68,6 +69,9 @@ export async function deleteTenant(tenantId: number): Promise<void> {
   await db
     .delete(connectedAccountsTable)
     .where(eq(connectedAccountsTable.tenantId, tenantId));
+  await db
+    .delete(adAccountConnectionsTable)
+    .where(eq(adAccountConnectionsTable.tenantId, tenantId));
   await db
     .delete(contentItemsTable)
     .where(eq(contentItemsTable.tenantId, tenantId));

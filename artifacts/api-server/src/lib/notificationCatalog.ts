@@ -100,6 +100,12 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
       "A post you scheduled could not be published automatically and needs your attention.",
   },
   {
+    type: "ads_connection_failed",
+    label: "Ad account connection problems",
+    description:
+      "A connected ad account's access expired or was revoked and needs reconnecting before ad changes can be applied.",
+  },
+  {
     type: "ads_draft_pending",
     label: "Ad changes awaiting approval",
     description:

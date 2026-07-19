@@ -14,6 +14,7 @@
 import {
   db,
   connectedAccountsTable,
+  adAccountConnectionsTable,
   sweepStatusTable,
   type SweepFailure,
   type SweepStreak,
@@ -36,6 +37,7 @@ import {
   reverifyThreads,
   reverifyYoutube,
 } from "./socialReverify";
+import { reverifyMetaAds } from "./adsReverify";
 
 /** How often the sweep runs. Matches the reverify staleness window so each
  * cycle re-checks anything whose last verification has gone stale. */
@@ -94,13 +96,27 @@ async function withSweepTimeout<T>(
   }
 }
 
-const SWEEP_PLATFORMS = [
+/** Organic social platforms, matched against connected_accounts rows. */
+const SOCIAL_SWEEP_PLATFORMS = [
   "facebook",
   "instagram",
   "linkedin",
   "twitter",
   "threads",
   "youtube",
+] as const;
+
+/**
+ * Ad-platform pseudo-keys used inside the sweep. They never collide with
+ * connected_accounts platform values: ad connections live in
+ * ad_account_connections (platform "meta"), and the sweep tracks them under
+ * the distinct "meta_ads" key so streaks/failure history stay unambiguous.
+ */
+const ADS_SWEEP_PLATFORMS = ["meta_ads"] as const;
+
+const SWEEP_PLATFORMS = [
+  ...SOCIAL_SWEEP_PLATFORMS,
+  ...ADS_SWEEP_PLATFORMS,
 ] as const;
 
 const REVERIFIERS: Record<
@@ -113,7 +129,13 @@ const REVERIFIERS: Record<
   twitter: (tenantId) => reverifyTwitter(tenantId),
   threads: (tenantId) => reverifyThreads(tenantId),
   youtube: (tenantId) => reverifyYoutube(tenantId),
+  meta_ads: (tenantId) => reverifyMetaAds(tenantId),
 };
+
+/** Map an ad_account_connections platform value to its sweep pseudo-key. */
+function adsSweepKey(platform: string): (typeof ADS_SWEEP_PLATFORMS)[number] | null {
+  return platform === "meta" ? "meta_ads" : null;
+}
 
 /** How many of the most recent failed checks to keep for the admin card. */
 export const SWEEP_RECENT_FAILURES_CAP = 10;
@@ -226,7 +248,9 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
         platform: connectedAccountsTable.platform,
       })
       .from(connectedAccountsTable)
-      .where(inArray(connectedAccountsTable.platform, [...SWEEP_PLATFORMS]));
+      .where(
+        inArray(connectedAccountsTable.platform, [...SOCIAL_SWEEP_PLATFORMS]),
+      );
   } catch (err) {
     logger.error({ err }, "Connection sweep failed to list connected accounts");
     result.errorCount = 1;
@@ -249,6 +273,35 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
       byTenant.set(row.tenantId, set);
     }
     set.add(row.platform);
+  }
+
+  // Ad account connections live in their own table; fold them into the same
+  // per-tenant plan under distinct pseudo-keys ("meta_ads"). Individually
+  // guarded: a bookkeeping failure here still lets the social sweep proceed.
+  try {
+    const adRows = await db
+      .select({
+        tenantId: adAccountConnectionsTable.tenantId,
+        platform: adAccountConnectionsTable.platform,
+      })
+      .from(adAccountConnectionsTable);
+    for (const row of adRows) {
+      const key = adsSweepKey(row.platform);
+      if (!key) continue;
+      let set = byTenant.get(row.tenantId);
+      if (!set) {
+        set = new Set();
+        byTenant.set(row.tenantId, set);
+      }
+      set.add(key);
+    }
+  } catch (err) {
+    logger.error(
+      { err },
+      "Connection sweep failed to list ad account connections",
+    );
+    result.errorCount += 1;
+    result.lastError = err instanceof Error ? err.message : String(err);
   }
 
   for (const [tenantId, platforms] of byTenant) {

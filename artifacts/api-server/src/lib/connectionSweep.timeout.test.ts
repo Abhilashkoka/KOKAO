@@ -10,6 +10,9 @@ vi.hoisted(() => {
 // Hang the Facebook reverifier forever; keep LinkedIn fast and successful so
 // we can prove the sweep moves past the hung check.
 vi.mock("./socialReverify", () => ({
+  // connectionSweep -> adsReverify imports this constant from socialReverify,
+  // so the full-module mock must export it too.
+  REVERIFY_STALE_MS: 15 * 60 * 1000,
   reverifyFacebook: vi.fn(
     () =>
       new Promise(() => {
@@ -21,6 +24,13 @@ vi.mock("./socialReverify", () => ({
   reverifyTwitter: vi.fn(async () => null),
   reverifyThreads: vi.fn(async () => null),
   reverifyYoutube: vi.fn(async () => null),
+}));
+
+// The sweep also covers ad-account connections; leftover rows from other
+// tests in the shared dev DB would otherwise hit the real Meta Ads API and
+// time out under the tiny cap, overwriting lastError with a meta_ads entry.
+vi.mock("./adsReverify", () => ({
+  reverifyMetaAds: vi.fn(async () => null),
 }));
 
 import { pool } from "@workspace/db";
