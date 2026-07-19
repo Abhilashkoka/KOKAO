@@ -22,6 +22,8 @@ description: How to make Threads/X publish flows succeed end-to-end in a real br
 - Tenant provisioning is lazy and can race the test's DB seed step: make the plan explicitly POLL `SELECT id FROM tenants WHERE email=…` (up to ~30s) before inserting tenant-scoped rows; "navigate and wait for shell" alone is not enough.
 - A silent 0-row `INSERT … SELECT FROM tenants WHERE email=…` is the classic symptom — always verify the insert with a count.
 
+A reusable TikTok Marketing API mock lives at `scripts/src/tiktokMockServer.mjs` (stateful campaign so draft read-back verify passes; `POST /__control {"revoked":true}` flips business-code-40105 revoked-grant mode; token exchange resets it; log at /tmp/tiktok-mock-log.json). TikTok connect e2e: don't click the Connect button (real tiktok.com portal isn't overridable) — fetch `/api/ads/tiktok/auth/url` in-page, extract the signed `state`, then navigate to the public callback with `auth_code=<anything>&state=...`.
+
 A reusable Threads Graph mock now lives at `scripts/src/threadsMockServer.mjs` (persists log to /tmp/threads-mock-log.json, ~2.5s publish delay) — run it as a workflow with `PORT=9099 node scripts/src/threadsMockServer.mjs` instead of rewriting one.
 
 **Validated outcome (double-click publish guard):** a real-browser e2e with this harness confirmed a rapid double-click on the Library's Publish (dialog + card buttons) produces exactly one platform write (mock log: one container create + one publish), no 409 "already in progress" toast, and all publish buttons disabled while in flight (`publishBusy` in library.tsx + pending-state dialog button).
