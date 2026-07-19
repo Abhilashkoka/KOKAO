@@ -86,6 +86,37 @@ describe("PendingPostsWarnings resend 409 handling", () => {
     }
   });
 
+  it("shows a positive 'Already completed' toast when nothing is left to resend", () => {
+    const alreadyComplete = (_vars: any, cbs: any) => {
+      cbs?.onError?.({
+        status: 400,
+        data: {
+          error: "There are no missing Threads follow-up posts to resend.",
+          code: "already_complete",
+        },
+      });
+      cbs?.onSettled?.();
+    };
+    threadsMutate.mockImplementation(alreadyComplete);
+    twitterMutate.mockImplementation(alreadyComplete);
+    linkedinMutate.mockImplementation(alreadyComplete);
+    renderWarnings({
+      id: 5,
+      linkedinCommentsPending: 1,
+      threadsPostsPending: 1,
+      twitterPostsPending: 1,
+    });
+    fireEvent.click(screen.getByTestId("button-resend-linkedin-comments-5"));
+    fireEvent.click(screen.getByTestId("button-resend-threads-posts-5"));
+    fireEvent.click(screen.getByTestId("button-resend-twitter-posts-5"));
+    expect(toastFn).toHaveBeenCalledTimes(3);
+    for (const [call] of toastFn.mock.calls) {
+      expect(call.title).toBe("Already completed");
+      expect(call.variant).toBeUndefined();
+      expect(call.description).toMatch(/all posts are live/i);
+    }
+  });
+
   it("keeps the destructive failure toast for non-409 errors", () => {
     linkedinMutate.mockImplementation((_vars: any, cbs: any) => {
       cbs?.onError?.({ status: 500, data: { error: "LinkedIn is down." } });

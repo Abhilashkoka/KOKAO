@@ -891,6 +891,7 @@ router.post(
     if (!state || state.postedCount >= state.posts.length) {
       res.status(400).json({
         error: "There are no missing Threads follow-up posts to resend.",
+        code: "already_complete",
       });
       return;
     }

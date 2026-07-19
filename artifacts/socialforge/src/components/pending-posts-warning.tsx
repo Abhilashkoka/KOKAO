@@ -62,8 +62,21 @@ export function usePendingResendActions() {
   // A 409 means a resend for this post is already running (e.g. another tab
   // or a rapid double click) — nothing failed, so show a neutral
   // informational toast instead of a destructive "Resend failed" one.
+  // Likewise, "already_complete" means a concurrent resend (another tab or a
+  // teammate) already posted everything — that's good news, so show a
+  // positive toast and refresh the list so the warning disappears.
   const resendErrorToast = (err: any, fallback: string) => {
     const message = err?.data?.error || err?.response?.data?.error;
+    const code = err?.data?.code || err?.response?.data?.code;
+    if (code === "already_complete") {
+      toast({
+        title: "Already completed",
+        description:
+          "All posts are live — the missing pieces were already resent (possibly from another tab or by a teammate).",
+      });
+      invalidate();
+      return;
+    }
     if (err?.status === 409) {
       toast({
         title: "Resend already in progress",

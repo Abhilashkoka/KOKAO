@@ -513,6 +513,7 @@ describe("Threads reply-chain resend", () => {
       );
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/no missing/i);
+      expect(res.body.code).toBe("already_complete");
     } finally {
       await deleteTenant(tenant.tenantId);
     }
@@ -1012,6 +1013,7 @@ describe("X thread resend", () => {
       );
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/no missing/i);
+      expect(res.body.code).toBe("already_complete");
     } finally {
       await deleteTenant(tenant.tenantId);
     }

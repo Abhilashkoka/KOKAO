@@ -4214,6 +4214,12 @@ components:
       properties:
         error:
           type: string
+        code:
+          type: string
+          description: >-
+            Optional machine-readable error code. Currently
+            "already_complete" on resend endpoints when there is nothing left
+            to resend (e.g. a concurrent resend already posted everything).
 
     Tenant:
       type: object

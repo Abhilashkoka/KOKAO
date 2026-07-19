@@ -1057,6 +1057,7 @@ router.post(
     if (!state || state.postedCount >= state.comments.length) {
       res.status(400).json({
         error: "There are no missing LinkedIn follow-up comments to resend.",
+        code: "already_complete",
       });
       return;
     }
