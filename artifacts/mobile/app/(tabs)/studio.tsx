@@ -346,6 +346,11 @@ export default function StudioScreen() {
     me.limits.images !== -1 &&
     me.usage.images >= me.limits.images &&
     (me.credits?.imageCredits ?? 0) === 0;
+  const captionsExhausted =
+    !!me &&
+    me.limits.captions !== -1 &&
+    me.usage.captions >= me.limits.captions &&
+    (me.credits?.captionCredits ?? 0) === 0;
   const aspectRatio =
     imageSize === "1536x1024" ? 1536 / 1024 : imageSize === "1024x1536" ? 1024 / 1536 : 1;
 
@@ -484,7 +489,7 @@ export default function StudioScreen() {
             icon="type"
             onPress={handleGenerateCaption}
             loading={genCaption.isPending}
-            disabled={!prompt.trim()}
+            disabled={!prompt.trim() || captionsExhausted}
             style={{ flex: 1 }}
           />
           <Button
@@ -496,6 +501,16 @@ export default function StudioScreen() {
             disabled={!prompt.trim() || imagesExhausted}
           />
         </View>
+
+        {captionsExhausted ? (
+          <View style={styles.limitHintRow}>
+            <Feather name="zap-off" size={14} color={c.mutedForeground} />
+            <Text style={styles.limitHintText}>
+              Monthly caption limit reached. Upgrade your plan or buy credits to keep generating
+              captions.
+            </Text>
+          </View>
+        ) : null}
 
         {imagesExhausted ? (
           <View style={styles.limitHintRow}>
@@ -534,7 +549,9 @@ export default function StudioScreen() {
                   key={t.label}
                   label={t.label}
                   selected={captionTweak === t.label}
-                  onPress={() => runGenerateCaption(t.label)}
+                  onPress={() => {
+                    if (!captionsExhausted) runGenerateCaption(t.label);
+                  }}
                 />
               ))}
             </View>
@@ -544,7 +561,7 @@ export default function StudioScreen() {
               variant="secondary"
               onPress={() => runGenerateCaption(null)}
               loading={genCaption.isPending}
-              disabled={!prompt.trim()}
+              disabled={!prompt.trim() || captionsExhausted}
               style={{ marginTop: 10 }}
             />
           </Card>
