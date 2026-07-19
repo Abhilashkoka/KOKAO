@@ -16,12 +16,14 @@ import {
   useCreateContent,
   useGenerateCaption,
   useGenerateImage,
+  useGetMe,
   useListBrandKits,
   useListContent,
   useSuggestTopics,
   useUpdateContent,
   getListContentQueryKey,
   getGetContentQueryKey,
+  getGetMeQueryKey,
   type BrandKit,
   type ContentItem,
 } from "@workspace/api-client-react";
@@ -167,6 +169,7 @@ export default function StudioScreen() {
   const [attachedTitle, setAttachedTitle] = useState<string | null>(null);
 
   const brandKits = useListBrandKits();
+  const meQuery = useGetMe();
   const genCaption = useGenerateCaption();
   const genImage = useGenerateImage();
   const suggest = useSuggestTopics();
@@ -191,7 +194,11 @@ export default function StudioScreen() {
 
   const setFailure = (err: unknown) => {
     setError(errorMessage(err));
-    setQuotaHit((err as { status?: number })?.status === 402);
+    const isQuota = (err as { status?: number })?.status === 402;
+    setQuotaHit(isQuota);
+    if (isQuota) {
+      queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+    }
   };
 
   const handleSuggest = () => {
@@ -223,6 +230,7 @@ export default function StudioScreen() {
           trackFeatureUse("studio_caption");
           setCaption(res.caption);
           setHashtags(res.hashtags);
+          queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
         },
         onError: setFailure,
       },
@@ -248,6 +256,7 @@ export default function StudioScreen() {
           trackFeatureUse("studio_image");
           setImageB64(res.b64Json);
           setImagePath(res.imagePath);
+          queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
         },
         onError: setFailure,
       },
@@ -331,6 +340,12 @@ export default function StudioScreen() {
   };
 
   const imagePending = genImage.isPending;
+  const me = meQuery.data;
+  const imagesExhausted =
+    !!me &&
+    me.limits.images !== -1 &&
+    me.usage.images >= me.limits.images &&
+    (me.credits?.imageCredits ?? 0) === 0;
   const aspectRatio =
     imageSize === "1536x1024" ? 1536 / 1024 : imageSize === "1024x1536" ? 1024 / 1536 : 1;
 
@@ -478,9 +493,19 @@ export default function StudioScreen() {
             variant="outline"
             onPress={handleGenerateImage}
             loading={imagePending}
-            disabled={!prompt.trim()}
+            disabled={!prompt.trim() || imagesExhausted}
           />
         </View>
+
+        {imagesExhausted ? (
+          <View style={styles.limitHintRow}>
+            <Feather name="zap-off" size={14} color={c.mutedForeground} />
+            <Text style={styles.limitHintText}>
+              Monthly image limit reached. Upgrade your plan or buy credits to keep generating
+              images.
+            </Text>
+          </View>
+        ) : null}
 
         {error ? (
           <View style={[styles.errorBox, quotaHit && styles.quotaBox]}>
@@ -545,7 +570,9 @@ export default function StudioScreen() {
                   key={t.label}
                   label={t.label}
                   selected={imageTweak === t.label}
-                  onPress={() => runGenerateImage(t.label)}
+                  onPress={() => {
+                    if (!imagesExhausted) runGenerateImage(t.label);
+                  }}
                 />
               ))}
             </View>
@@ -555,7 +582,7 @@ export default function StudioScreen() {
                 icon="refresh-cw"
                 variant="secondary"
                 onPress={handleGenerateImage}
-                disabled={!prompt.trim()}
+                disabled={!prompt.trim() || imagesExhausted}
                 style={{ flex: 1 }}
               />
               <Button
@@ -782,6 +809,19 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
   quotaText: { color: c.accentForeground },
+  limitHintRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: 8,
+  },
+  limitHintText: {
+    flex: 1,
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: c.mutedForeground,
+    lineHeight: 17,
+  },
   voiceError: {
     fontFamily: fonts.regular,
     fontSize: 13,
