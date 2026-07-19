@@ -1330,9 +1330,27 @@ router.post(
       return;
     }
 
-    // Campaigns can be created and fully edited; ad sets and ads are
-    // update-only, each restricted to the fields the object actually has.
-    if (input.action === "create" && input.targetType !== "campaign") {
+    // Campaigns can be created and fully edited; LinkedIn additionally
+    // supports creating campaign groups. Ad sets and ads are update-only,
+    // each restricted to the fields the object actually has.
+    if (input.targetType === "campaign_group") {
+      if (conn.platform !== "linkedin") {
+        res.status(400).json({ error: "Campaign groups can only be created on LinkedIn." });
+        return;
+      }
+      if (input.action !== "create") {
+        res.status(400).json({
+          error: "Campaign groups can only be created here — edit existing groups in Campaign Manager.",
+        });
+        return;
+      }
+      if (input.dailyBudget != null || input.startTime != null || input.stopTime != null) {
+        res.status(400).json({
+          error: "Campaign groups support a name, status, and an optional lifetime budget only.",
+        });
+        return;
+      }
+    } else if (input.action === "create" && input.targetType !== "campaign") {
       res.status(400).json({ error: "Only campaigns can be created in this phase." });
       return;
     }
@@ -1470,17 +1488,21 @@ router.post(
       beforeSnapshot = snapshotForCompare(current);
     } else {
       if (!input.name?.trim()) {
-        res.status(400).json({ error: "name is required to create a campaign" });
+        res.status(400).json({
+          error: `name is required to create a ${input.targetType === "campaign_group" ? "campaign group" : "campaign"}`,
+        });
         return;
       }
       if (conn.platform === "linkedin") {
-        if (!input.campaignGroupId?.trim()) {
-          res.status(400).json({
-            error: "campaignGroupId is required to create a LinkedIn campaign",
-          });
-          return;
+        if (input.targetType === "campaign") {
+          if (!input.campaignGroupId?.trim()) {
+            res.status(400).json({
+              error: "campaignGroupId is required to create a LinkedIn campaign",
+            });
+            return;
+          }
+          payload.campaignGroupId = input.campaignGroupId.trim();
         }
-        payload.campaignGroupId = input.campaignGroupId.trim();
       } else if (input.objective != null) {
         payload.objective = input.objective;
       }
@@ -1488,7 +1510,7 @@ router.post(
       changes = buildCreateDiff({
         name: targetName,
         objective:
-          conn.platform === "linkedin"
+          conn.platform === "linkedin" || input.targetType === "campaign_group"
             ? undefined
             : input.objective ??
               (conn.platform === "tiktok" ? "TRAFFIC" : "OUTCOME_TRAFFIC"),

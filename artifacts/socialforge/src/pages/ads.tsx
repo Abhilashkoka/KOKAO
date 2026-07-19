@@ -1452,9 +1452,17 @@ function DraftDialog({
   const idempotencyKey = useMemo(() => crypto.randomUUID(), []);
 
   const isCreate = state.action === "create";
+  const isGroupCreate = state.targetType === "campaign_group";
   const targetLabel =
-    state.targetType === "adset" ? "ad set" : state.targetType === "ad" ? "ad" : "campaign";
+    state.targetType === "adset"
+      ? "ad set"
+      : state.targetType === "ad"
+        ? "ad"
+        : isGroupCreate
+          ? "campaign group"
+          : "campaign";
   const showBudgets = state.targetType !== "ad";
+  const showDailyBudget = showBudgets && !isGroupCreate;
   const showSchedule = state.targetType === "campaign";
 
   const isLinkedin = platform === "linkedin";
@@ -1467,6 +1475,7 @@ function DraftDialog({
       },
     },
   );
+  const groups = groupData?.groups ?? [];
 
   const submit = () => {
     const data: Record<string, unknown> = {
@@ -1478,9 +1487,13 @@ function DraftDialog({
     if (!isCreate) data.targetId = state.targetId;
     if (isCreate || state.name !== state.currentName) data.name = state.name;
     if (state.status) data.status = state.status;
-    if (isCreate && !isLinkedin && state.objective) data.objective = state.objective;
-    if (isCreate && isLinkedin && campaignGroupId) data.campaignGroupId = campaignGroupId;
-    if (showBudgets && state.dailyBudget) data.dailyBudget = Number(state.dailyBudget);
+    if (isCreate && !isLinkedin && !isGroupCreate && state.objective) {
+      data.objective = state.objective;
+    }
+    if (isCreate && isLinkedin && !isGroupCreate && campaignGroupId) {
+      data.campaignGroupId = campaignGroupId;
+    }
+    if (showDailyBudget && state.dailyBudget) data.dailyBudget = Number(state.dailyBudget);
     if (showBudgets && state.lifetimeBudget) {
       data.lifetimeBudget = Number(state.lifetimeBudget);
     }
@@ -1517,7 +1530,9 @@ function DraftDialog({
         <DialogHeader>
           <DialogTitle>
             {isCreate
-              ? "Draft a new campaign"
+              ? isGroupCreate
+                ? "Draft a new campaign group"
+                : "Draft a new campaign"
               : `Draft changes to ${targetLabel} "${state.currentName}"`}
           </DialogTitle>
           <DialogDescription>
@@ -1535,21 +1550,68 @@ function DraftDialog({
               data-testid="input-draft-name"
             />
           </div>
-          {isCreate && isLinkedin && (
+          {isCreate && isLinkedin && !isGroupCreate && (
             <div className="space-y-2">
               <Label>Campaign group</Label>
-              <Select value={campaignGroupId} onValueChange={setCampaignGroupId}>
+              <Select
+                value={campaignGroupId}
+                onValueChange={(v) => {
+                  if (v === "__create_new__") {
+                    setCampaignGroupId("");
+                    setState({ ...state, targetType: "campaign_group" });
+                  } else {
+                    setCampaignGroupId(v);
+                  }
+                }}
+              >
                 <SelectTrigger data-testid="select-draft-campaign-group">
-                  <SelectValue placeholder="Choose a campaign group" />
+                  <SelectValue
+                    placeholder={
+                      groups.length === 0
+                        ? "No campaign groups yet"
+                        : "Choose a campaign group"
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
-                  {(groupData?.groups ?? []).map((g) => (
+                  {groups.map((g) => (
                     <SelectItem key={g.id} value={g.id}>
                       {g.name}
                     </SelectItem>
                   ))}
+                  <SelectItem
+                    value="__create_new__"
+                    data-testid="option-create-campaign-group"
+                  >
+                    Create a new campaign group…
+                  </SelectItem>
                 </SelectContent>
               </Select>
+              {groups.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  This ad account has no campaign groups yet. Pick "Create a new
+                  campaign group" to draft one — the workspace owner approves it
+                  like any other change.
+                </p>
+              )}
+            </div>
+          )}
+          {isCreate && isLinkedin && isGroupCreate && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">
+                This drafts a new LinkedIn campaign group with the name, status,
+                and optional lifetime budget above. Once it is approved and
+                applied, draft your campaign inside it.
+              </p>
+              <Button
+                variant="link"
+                size="sm"
+                className="h-auto p-0"
+                onClick={() => setState({ ...state, targetType: "campaign" })}
+                data-testid="button-back-to-campaign"
+              >
+                Back to drafting a campaign
+              </Button>
             </div>
           )}
           {isCreate && !isLinkedin && (
@@ -1603,17 +1665,19 @@ function DraftDialog({
           </div>
           {showBudgets && (
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="draft-daily-budget">Daily budget (minor units)</Label>
-                <Input
-                  id="draft-daily-budget"
-                  type="number"
-                  min="0"
-                  value={state.dailyBudget}
-                  onChange={(e) => setState({ ...state, dailyBudget: e.target.value })}
-                  data-testid="input-draft-daily-budget"
-                />
-              </div>
+              {showDailyBudget && (
+                <div className="space-y-2">
+                  <Label htmlFor="draft-daily-budget">Daily budget (minor units)</Label>
+                  <Input
+                    id="draft-daily-budget"
+                    type="number"
+                    min="0"
+                    value={state.dailyBudget}
+                    onChange={(e) => setState({ ...state, dailyBudget: e.target.value })}
+                    data-testid="input-draft-daily-budget"
+                  />
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="draft-lifetime-budget">Lifetime budget (minor units)</Label>
                 <Input
@@ -1661,7 +1725,7 @@ function DraftDialog({
             disabled={
               createDraft.isPending ||
               (isCreate && !state.name.trim()) ||
-              (isCreate && isLinkedin && !campaignGroupId)
+              (isCreate && isLinkedin && !isGroupCreate && !campaignGroupId)
             }
             data-testid="button-submit-draft"
           >
@@ -1696,7 +1760,8 @@ function DraftsSection({
         Array.isArray(q.queryKey) &&
         typeof q.queryKey[0] === "string" &&
         (q.queryKey[0].includes("/ads/campaigns") ||
-          q.queryKey[0].includes("/ads/campaign-detail")),
+          q.queryKey[0].includes("/ads/campaign-detail") ||
+          q.queryKey[0].includes("/ads/linkedin/campaign-groups")),
     });
   };
 
@@ -1787,7 +1852,7 @@ function DraftsSection({
                 >
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div className="font-medium">
-                      {d.action === "create" ? "Create" : "Update"} {d.targetType}:{" "}
+                      {d.action === "create" ? "Create" : "Update"} {d.targetType.replace("_", " ")}:{" "}
                       {d.targetName}
                     </div>
                     {draftStatusBadge(d.status)}
@@ -1840,7 +1905,7 @@ function DraftsSection({
               >
                 <div className="min-w-0">
                   <div className="font-medium truncate">
-                    {d.action === "create" ? "Create" : "Update"} {d.targetType}:{" "}
+                    {d.action === "create" ? "Create" : "Update"} {d.targetType.replace("_", " ")}:{" "}
                     {d.targetName}
                   </div>
                   {d.failureReason && (
@@ -1998,7 +2063,7 @@ function ChangeLogSection() {
               >
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="font-medium">
-                    {e.action === "create" ? "Created" : "Updated"} {e.targetType}:{" "}
+                    {e.action === "create" ? "Created" : "Updated"} {e.targetType.replace("_", " ")}:{" "}
                     {e.targetName}
                   </div>
                   <div className="flex gap-2">

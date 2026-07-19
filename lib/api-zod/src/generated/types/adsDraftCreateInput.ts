@@ -11,6 +11,7 @@ import type { AdsDraftCreateInputTargetType } from './adsDraftCreateInputTargetT
 
 export interface AdsDraftCreateInput {
   connectionId: number;
+  /** campaign_group is LinkedIn create-only. */
   targetType: AdsDraftCreateInputTargetType;
   action: AdsDraftCreateInputAction;
   /** Remote object id (required for update). */

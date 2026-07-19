@@ -432,6 +432,89 @@ export async function createLinkedinCampaign(
   throw new LinkedinAdsApiError("LinkedIn did not return a campaign id.", 502);
 }
 
+export interface CreateLinkedinCampaignGroupParams {
+  name: string;
+  status: "ACTIVE" | "PAUSED";
+  /** Minor units; groups only support a total (lifetime) budget. */
+  lifetimeBudget?: number | null;
+  currency: string;
+}
+
+/** Create a campaign group; returns the new group id. */
+export async function createLinkedinCampaignGroup(
+  token: string,
+  adAccountId: string,
+  params: CreateLinkedinCampaignGroupParams,
+): Promise<string> {
+  const body: Record<string, unknown> = {
+    account: accountUrn(adAccountId),
+    name: params.name,
+    status: params.status,
+    // LinkedIn requires a schedule start on group creation.
+    runSchedule: { start: Date.now() },
+  };
+  if (params.lifetimeBudget != null) {
+    body.totalBudget = {
+      amount: minorToAmount(params.lifetimeBudget),
+      currencyCode: params.currency,
+    };
+  }
+  const res = await platformFetch(
+    `${restBase()}/adAccounts/${encodeURIComponent(adAccountId)}/adCampaignGroups`,
+    {
+      method: "POST",
+      headers: { ...baseHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw await toError(res);
+  const created = res.headers.get("x-restli-id") ?? res.headers.get("x-linkedin-id");
+  if (created) return created;
+  try {
+    const json = (await res.json()) as { id?: number | string };
+    if (json.id != null) return String(json.id);
+  } catch {
+    // Fall through.
+  }
+  throw new LinkedinAdsApiError("LinkedIn did not return a campaign group id.", 502);
+}
+
+/**
+ * Read the current campaign-group state in the engine's shared snapshot
+ * shape (drift check + post-apply verification). Groups have no daily
+ * budget; their total budget maps to lifetimeBudget in minor units.
+ */
+export async function readLinkedinCampaignGroupState(
+  token: string,
+  adAccountId: string,
+  groupId: string,
+): Promise<{
+  name: string;
+  status: string;
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
+  startTime: string | null;
+  stopTime: string | null;
+}> {
+  const json = await restGet<{
+    name?: string;
+    status?: string;
+    totalBudget?: RawMoney;
+    runSchedule?: { start?: number; end?: number };
+  }>(
+    `adAccounts/${encodeURIComponent(adAccountId)}/adCampaignGroups/${encodeURIComponent(groupId)}`,
+    token,
+  );
+  return {
+    name: json.name ?? "",
+    status: json.status ?? "UNKNOWN",
+    dailyBudget: null,
+    lifetimeBudget: moneyToMinor(json.totalBudget),
+    startTime: msToIso(json.runSchedule?.start),
+    stopTime: msToIso(json.runSchedule?.end),
+  };
+}
+
 export interface UpdateLinkedinCampaignParams {
   name?: string;
   status?: "ACTIVE" | "PAUSED";

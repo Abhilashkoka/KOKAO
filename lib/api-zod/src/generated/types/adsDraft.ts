@@ -11,7 +11,7 @@ export interface AdsDraft {
   id: number;
   connectionId: number;
   platform: string;
-  /** campaign | adset | ad */
+  /** campaign | adset | ad | campaign_group */
   targetType: string;
   /** @nullable */
   targetId?: string | null;

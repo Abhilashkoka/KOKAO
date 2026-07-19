@@ -2641,7 +2641,7 @@ export interface AdsDraft {
   id: number;
   connectionId: number;
   platform: string;
-  /** campaign | adset | ad */
+  /** campaign | adset | ad | campaign_group */
   targetType: string;
   /** @nullable */
   targetId?: string | null;
@@ -2670,6 +2670,9 @@ export interface AdsDraft {
   createdAt: string;
 }
 
+/**
+ * campaign_group is LinkedIn create-only.
+ */
 export type AdsDraftCreateInputTargetType = typeof AdsDraftCreateInputTargetType[keyof typeof AdsDraftCreateInputTargetType];
 
 
@@ -2677,6 +2680,7 @@ export const AdsDraftCreateInputTargetType = {
   campaign: 'campaign',
   adset: 'adset',
   ad: 'ad',
+  campaign_group: 'campaign_group',
 } as const;
 
 export type AdsDraftCreateInputAction = typeof AdsDraftCreateInputAction[keyof typeof AdsDraftCreateInputAction];
@@ -2697,6 +2701,7 @@ export const AdsDraftCreateInputStatus = {
 
 export interface AdsDraftCreateInput {
   connectionId: number;
+  /** campaign_group is LinkedIn create-only. */
   targetType: AdsDraftCreateInputTargetType;
   action: AdsDraftCreateInputAction;
   /** Remote object id (required for update). */

@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * campaign_group is LinkedIn create-only.
+ */
 export type AdsDraftCreateInputTargetType = typeof AdsDraftCreateInputTargetType[keyof typeof AdsDraftCreateInputTargetType];
 
 
@@ -13,4 +16,5 @@ export const AdsDraftCreateInputTargetType = {
   campaign: 'campaign',
   adset: 'adset',
   ad: 'ad',
+  campaign_group: 'campaign_group',
 } as const;

@@ -30,8 +30,10 @@ import {
 import {
   LinkedinAdsApiError,
   createLinkedinCampaign,
+  createLinkedinCampaignGroup,
   updateLinkedinCampaign,
   readLinkedinCampaignState,
+  readLinkedinCampaignGroupState,
 } from "./linkedinAdsApi";
 import { isLinkedinAppConfigured } from "./linkedinApp";
 import { tryAcquireResendLock } from "./resendLock";
@@ -300,20 +302,26 @@ export function isAdsAuthError(err: unknown): boolean {
   );
 }
 
+/** Draft target types the engine understands across platforms. */
+export type AdsDraftTargetType = AdsTargetType | "campaign_group";
+
 /** Read the current remote state of a draft target on either platform. */
 export async function readRemoteState(
   conn: AdAccountConnection,
   token: string,
   targetId: string,
-  targetType: AdsTargetType = "campaign",
+  targetType: AdsDraftTargetType = "campaign",
 ): Promise<RemoteSnapshot> {
   if (conn.platform === "tiktok") {
     return readTiktokCampaignState(token, conn.adAccountId, targetId);
   }
   if (conn.platform === "linkedin") {
+    if (targetType === "campaign_group") {
+      return readLinkedinCampaignGroupState(token, conn.adAccountId, targetId);
+    }
     return readLinkedinCampaignState(token, conn.adAccountId, targetId);
   }
-  return readObjectState(token, targetId, targetType);
+  return readObjectState(token, targetId, asTargetType(targetType));
 }
 
 async function applyUpdate(
@@ -356,6 +364,7 @@ async function applyUpdate(
 async function applyCreate(
   conn: AdAccountConnection,
   token: string,
+  targetType: string,
   targetName: string,
   payload: ApplyPayload,
 ): Promise<string> {
@@ -369,6 +378,14 @@ async function applyCreate(
     });
   }
   if (conn.platform === "linkedin") {
+    if (targetType === "campaign_group") {
+      return createLinkedinCampaignGroup(token, conn.adAccountId, {
+        name: payload.name ?? targetName,
+        status: payload.status ?? "PAUSED",
+        lifetimeBudget: payload.lifetimeBudget ?? null,
+        currency: conn.currency ?? "USD",
+      });
+    }
     if (!payload.campaignGroupId) {
       throw new LinkedinAdsApiError(
         "A campaign group is required to create a LinkedIn campaign.",
@@ -401,7 +418,14 @@ async function applyCreate(
 export function targetTypeLabel(targetType: string): string {
   if (targetType === "adset") return "ad set";
   if (targetType === "ad") return "ad";
+  if (targetType === "campaign_group") return "campaign group";
   return "campaign";
+}
+
+export function asDraftTargetType(value: string): AdsDraftTargetType {
+  return value === "adset" || value === "ad" || value === "campaign_group"
+    ? value
+    : "campaign";
 }
 
 export function asTargetType(value: string): AdsTargetType {
@@ -590,7 +614,7 @@ export async function approveAndApplyDraft(
           conn,
           token,
           claimed.targetId,
-          asTargetType(claimed.targetType),
+          asDraftTargetType(claimed.targetType),
         );
         if (!snapshotsMatch(claimed.beforeSnapshot, snapshotForCompare(current))) {
           const expired = (
@@ -615,17 +639,32 @@ export async function approveAndApplyDraft(
           token,
           claimed.targetId,
           payload,
-          asTargetType(claimed.targetType),
+          asDraftTargetType(claimed.targetType),
         );
         return await finishApplied(claimed, claimed.targetId, verifyStatus, approver);
       }
 
-      // Create (campaigns only in this phase).
-      if (claimed.targetType !== "campaign") {
-        return await finishFailed(claimed, "Only campaigns can be created in this phase.", approver);
+      // Create: campaigns everywhere; campaign groups on LinkedIn only.
+      const creatable =
+        claimed.targetType === "campaign" ||
+        (claimed.targetType === "campaign_group" && conn.platform === "linkedin");
+      if (!creatable) {
+        return await finishFailed(
+          claimed,
+          claimed.targetType === "campaign_group"
+            ? "Campaign groups can only be created on LinkedIn."
+            : "Only campaigns can be created in this phase.",
+          approver,
+        );
       }
-      const newId = await applyCreate(conn, token, claimed.targetName, payload);
-      const verifyStatus = await verifyApplied(conn, token, newId, payload, "campaign");
+      const newId = await applyCreate(conn, token, claimed.targetType, claimed.targetName, payload);
+      const verifyStatus = await verifyApplied(
+        conn,
+        token,
+        newId,
+        payload,
+        asDraftTargetType(claimed.targetType),
+      );
       return await finishApplied(claimed, newId, verifyStatus, approver);
     } catch (err) {
       const message =
@@ -658,7 +697,7 @@ async function verifyApplied(
   token: string,
   objectId: string,
   payload: ApplyPayload,
-  targetType: AdsTargetType,
+  targetType: AdsDraftTargetType,
 ): Promise<string> {
   try {
     const state = await readRemoteState(conn, token, objectId, targetType);

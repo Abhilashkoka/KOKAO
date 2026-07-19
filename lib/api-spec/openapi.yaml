@@ -8370,7 +8370,7 @@ components:
           type: string
         targetType:
           type: string
-          description: campaign | adset | ad
+          description: campaign | adset | ad | campaign_group
         targetId:
           type: ["string", "null"]
         targetName:
@@ -8412,7 +8412,8 @@ components:
           type: integer
         targetType:
           type: string
-          enum: [campaign, adset, ad]
+          enum: [campaign, adset, ad, campaign_group]
+          description: campaign_group is LinkedIn create-only.
         action:
           type: string
           enum: [create, update]

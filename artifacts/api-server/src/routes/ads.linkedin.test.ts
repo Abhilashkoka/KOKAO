@@ -39,8 +39,10 @@ vi.mock("../lib/linkedinAdsApi", async (importOriginal) => {
     getLinkedinCampaign: vi.fn(),
     getLinkedinAnalytics: vi.fn(),
     createLinkedinCampaign: vi.fn(),
+    createLinkedinCampaignGroup: vi.fn(),
     updateLinkedinCampaign: vi.fn(),
     readLinkedinCampaignState: vi.fn(),
+    readLinkedinCampaignGroupState: vi.fn(),
   };
 });
 
@@ -61,8 +63,10 @@ import {
   listLinkedinCampaigns,
   getLinkedinAnalytics,
   createLinkedinCampaign,
+  createLinkedinCampaignGroup,
   updateLinkedinCampaign,
   readLinkedinCampaignState,
+  readLinkedinCampaignGroupState,
   LinkedinAdsApiError,
 } from "../lib/linkedinAdsApi";
 import { encryptJson } from "../lib/secretCrypto";
@@ -77,8 +81,10 @@ const mockListGroups = vi.mocked(listLinkedinCampaignGroups);
 const mockListCampaigns = vi.mocked(listLinkedinCampaigns);
 const mockAnalytics = vi.mocked(getLinkedinAnalytics);
 const mockCreate = vi.mocked(createLinkedinCampaign);
+const mockCreateGroup = vi.mocked(createLinkedinCampaignGroup);
 const mockUpdate = vi.mocked(updateLinkedinCampaign);
 const mockReadState = vi.mocked(readLinkedinCampaignState);
+const mockReadGroupState = vi.mocked(readLinkedinCampaignGroupState);
 
 function createAdsTestApp(): Express {
   const app = express();
@@ -514,6 +520,87 @@ describe("LinkedIn draft apply", () => {
         unknown
       >;
       expect(createParams.campaignGroupId).toBe("grp_1");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("creates and applies a campaign group draft end to end", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign_group",
+        action: "create",
+        name: "Q3 Group",
+        status: "PAUSED",
+        lifetimeBudget: 500000,
+      });
+      expect(draftRes.status).toBe(201);
+      expect(draftRes.body.targetType).toBe("campaign_group");
+
+      mockCreateGroup.mockResolvedValue("grp_new_1");
+      mockReadGroupState.mockResolvedValue({
+        name: "Q3 Group",
+        status: "PAUSED",
+        dailyBudget: null,
+        lifetimeBudget: 500000,
+        startTime: null,
+        stopTime: null,
+      });
+      const res = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("applied");
+      expect(res.body.resultTargetId).toBe("grp_new_1");
+      expect(res.body.verifyStatus).toBe("verified");
+      expect(mockCreateGroup).toHaveBeenCalledTimes(1);
+      const params = mockCreateGroup.mock.calls[0]![2] as unknown as Record<
+        string,
+        unknown
+      >;
+      expect(params.name).toBe("Q3 Group");
+      expect(params.lifetimeBudget).toBe(500000);
+      expect(mockCreate).not.toHaveBeenCalled();
+
+      const logs = await db
+        .select()
+        .from(adsChangeLogsTable)
+        .where(eq(adsChangeLogsTable.tenantId, tenant.tenantId));
+      expect(logs.length).toBe(1);
+      expect(logs[0]!.targetType).toBe("campaign_group");
+      expect(logs[0]!.outcome).toBe("applied");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects campaign-group updates and campaign-only fields on group creates", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const update = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign_group",
+        action: "update",
+        targetId: "grp_1",
+        name: "Renamed",
+      });
+      expect(update.status).toBe(400);
+
+      const badFields = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign_group",
+        action: "create",
+        name: "Q3 Group",
+        dailyBudget: 1000,
+      });
+      expect(badFields.status).toBe(400);
+      expect(badFields.body.error).toContain("lifetime budget");
     } finally {
       await deleteTenant(tenant.tenantId);
     }
