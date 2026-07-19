@@ -1649,6 +1649,111 @@ router.put("/ads/budget-caps", async (req: Request, res: Response) => {
 // Drafts (the safety engine's front door)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Legacy campaign-group name resolution (read-time, best-effort)
+//
+// Newer LinkedIn drafts record the campaign group's display name in the diff
+// at draft-creation time (after = name, afterDetail = raw id). Older rows only
+// stored the raw id (afterDetail missing), or — for very old drafts — no
+// "Campaign group" field at all despite payload.campaignGroupId. To keep the
+// whole history readable, we resolve names at read time where the connection
+// can still list its campaign groups, falling back to the stored raw id.
+// ---------------------------------------------------------------------------
+
+const CAMPAIGN_GROUP_FIELD = "Campaign group";
+
+type ChangeField = AdChangeRequest["changes"][number];
+
+/** Raw group id when a diff has a legacy (name-less) Campaign group field. */
+function legacyGroupIdInChanges(changes: ChangeField[]): string | null {
+  const f = changes.find((c) => c.field === CAMPAIGN_GROUP_FIELD);
+  if (!f || f.afterDetail || !f.after) return null;
+  return f.after;
+}
+
+/** Raw group id a legacy draft needs resolved, or null when none needed. */
+function draftLegacyGroupId(d: AdChangeRequest): string | null {
+  if (d.platform !== "linkedin") return null;
+  const inChanges = legacyGroupIdInChanges(d.changes);
+  if (inChanges) return inChanges;
+  if (d.changes.some((c) => c.field === CAMPAIGN_GROUP_FIELD)) return null;
+  const pid = d.payload?.campaignGroupId;
+  return d.action === "create" && d.targetType === "campaign" && typeof pid === "string"
+    ? pid
+    : null;
+}
+
+/**
+ * Best-effort: list campaign groups for the tenant's LinkedIn connections and
+ * build an id -> name map. `connectionIds` limits which connections are
+ * queried (null = all). Any failure just yields fewer names — the stored raw
+ * id remains the fallback.
+ */
+async function loadLinkedinGroupNames(
+  tenantId: number,
+  connectionIds: Set<number> | null,
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  const conns = await db
+    .select()
+    .from(adAccountConnectionsTable)
+    .where(
+      and(
+        eq(adAccountConnectionsTable.tenantId, tenantId),
+        eq(adAccountConnectionsTable.platform, "linkedin"),
+      ),
+    );
+  for (const conn of conns) {
+    if (connectionIds && !connectionIds.has(conn.id)) continue;
+    if (conn.status !== "connected" || !conn.encryptedCredentials) continue;
+    try {
+      const token = getConnectionToken(conn);
+      if (!token) continue;
+      const groups = await listLinkedinCampaignGroups(token, conn.adAccountId);
+      for (const g of groups) {
+        if (!names.has(g.id)) names.set(g.id, g.name);
+      }
+    } catch {
+      // Cosmetic lookup only — never fail the read.
+    }
+  }
+  return names;
+}
+
+/** Rewrite legacy Campaign group fields to name + raw-id detail when known. */
+function withResolvedGroupNames(
+  changes: ChangeField[],
+  names: Map<string, string>,
+): ChangeField[] {
+  return changes.map((c) => {
+    if (c.field !== CAMPAIGN_GROUP_FIELD || c.afterDetail || !c.after) return c;
+    const name = names.get(c.after);
+    if (!name) return c;
+    return { ...c, after: name, afterDetail: c.after };
+  });
+}
+
+/** Draft changes with the group field enriched (and added when missing). */
+function enrichedDraftChanges(
+  d: AdChangeRequest,
+  names: Map<string, string>,
+): ChangeField[] {
+  let changes = withResolvedGroupNames(d.changes, names);
+  const pid = draftLegacyGroupId(d);
+  if (pid && !changes.some((c) => c.field === CAMPAIGN_GROUP_FIELD)) {
+    const name = names.get(pid) ?? null;
+    const groupField: ChangeField = {
+      field: CAMPAIGN_GROUP_FIELD,
+      before: null,
+      after: name ?? pid,
+      afterDetail: name ? pid : null,
+    };
+    // Match buildCreateDiff ordering: Name, Status, Campaign group, ...
+    changes = [...changes.slice(0, 2), groupField, ...changes.slice(2)];
+  }
+  return changes;
+}
+
 router.get("/ads/drafts", async (req: Request, res: Response) => {
   if (!(await adsEnabledOr503(res))) return;
   const rows = await db
@@ -1657,9 +1762,30 @@ router.get("/ads/drafts", async (req: Request, res: Response) => {
     .where(eq(adChangeRequestsTable.tenantId, req.tenantId))
     .orderBy(desc(adChangeRequestsTable.createdAt))
     .limit(100);
+
+  // Resolve legacy raw-id campaign group references at read time.
+  const needConnIds = new Set<number>();
+  for (const r of rows) {
+    if (draftLegacyGroupId(r)) needConnIds.add(r.connectionId);
+  }
+  const groupNames = needConnIds.size
+    ? await loadLinkedinGroupNames(req.tenantId, needConnIds)
+    : new Map<string, string>();
+
   const pending = rows.filter((r) => r.status === "draft");
   const rest = rows.filter((r) => r.status !== "draft");
-  res.json([...pending, ...rest].map(serializeDraft));
+  res.json(
+    [...pending, ...rest].map((r) =>
+      serializeDraft(
+        // Run enrichment for any row needing legacy handling even when no
+        // names could be resolved, so very old drafts with no Campaign group
+        // field still get one inserted with the raw id as the fallback.
+        draftLegacyGroupId(r)
+          ? { ...r, changes: enrichedDraftChanges(r, groupNames) }
+          : r,
+      ),
+    ),
+  );
 });
 
 /**
@@ -2196,7 +2322,26 @@ router.get("/ads/change-log", async (req: Request, res: Response) => {
     .where(eq(adsChangeLogsTable.tenantId, req.tenantId))
     .orderBy(desc(adsChangeLogsTable.createdAt))
     .limit(200);
-  res.json(rows.map(serializeLogEntry));
+
+  // Resolve legacy raw-id campaign group references at read time. Log rows
+  // don't record a connection id, so consult all the tenant's LinkedIn
+  // connections.
+  const needsResolution = rows.some(
+    (r) => r.platform === "linkedin" && legacyGroupIdInChanges(r.changes) != null,
+  );
+  const groupNames = needsResolution
+    ? await loadLinkedinGroupNames(req.tenantId, null)
+    : new Map<string, string>();
+
+  res.json(
+    rows.map((r) =>
+      serializeLogEntry(
+        groupNames.size
+          ? { ...r, changes: withResolvedGroupNames(r.changes, groupNames) }
+          : r,
+      ),
+    ),
+  );
 });
 
 // ---------------------------------------------------------------------------

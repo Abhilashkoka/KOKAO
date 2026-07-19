@@ -1200,3 +1200,206 @@ describe("LinkedIn campaign-detail auth-failure gating", () => {
     }
   });
 });
+
+describe("Legacy campaign group name resolution", () => {
+  it("resolves a raw-id Campaign group field in older drafts at read time", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      await db.insert(adChangeRequestsTable).values({
+        tenantId: tenant.tenantId,
+        connectionId,
+        platform: "linkedin",
+        targetType: "campaign",
+        targetId: null,
+        targetName: "Old Draft",
+        action: "create",
+        changes: [
+          { field: "Name", before: null, after: "Old Draft" },
+          { field: "Status", before: null, after: "PAUSED" },
+          { field: "Campaign group", before: null, after: "grp_1" },
+        ],
+        payload: { campaignGroupId: "grp_1", name: "Old Draft" },
+        status: "draft",
+        idempotencyKey: randomUUID(),
+        createdByClerkUserId: tenant.clerkUserId,
+      });
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/drafts");
+      expect(res.status).toBe(200);
+      const draft = res.body.find(
+        (d: { targetName: string }) => d.targetName === "Old Draft",
+      );
+      expect(draft).toBeDefined();
+      const groupChange = (
+        draft.changes as { field: string; after: string | null; afterDetail?: string | null }[]
+      ).find((c) => c.field === "Campaign group");
+      expect(groupChange!.after).toBe("Always On");
+      expect(groupChange!.afterDetail).toBe("grp_1");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("adds a resolved Campaign group field to very old drafts that stored none", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      await db.insert(adChangeRequestsTable).values({
+        tenantId: tenant.tenantId,
+        connectionId,
+        platform: "linkedin",
+        targetType: "campaign",
+        targetId: null,
+        targetName: "Ancient Draft",
+        action: "create",
+        changes: [
+          { field: "Name", before: null, after: "Ancient Draft" },
+          { field: "Status", before: null, after: "PAUSED" },
+          { field: "Daily budget", before: null, after: "100.00 USD" },
+        ],
+        payload: { campaignGroupId: "grp_1", name: "Ancient Draft" },
+        status: "draft",
+        idempotencyKey: randomUUID(),
+        createdByClerkUserId: tenant.clerkUserId,
+      });
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/drafts");
+      expect(res.status).toBe(200);
+      const draft = res.body.find(
+        (d: { targetName: string }) => d.targetName === "Ancient Draft",
+      );
+      const changes = draft.changes as {
+        field: string;
+        after: string | null;
+        afterDetail?: string | null;
+      }[];
+      // Inserted after Name and Status, matching buildCreateDiff ordering.
+      expect(changes[2]!.field).toBe("Campaign group");
+      expect(changes[2]!.after).toBe("Always On");
+      expect(changes[2]!.afterDetail).toBe("grp_1");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("falls back to the stored raw id when the lookup cannot resolve it", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      mockListGroups.mockRejectedValue(new LinkedinAdsApiError("boom", 500, false));
+      await db.insert(adChangeRequestsTable).values({
+        tenantId: tenant.tenantId,
+        connectionId,
+        platform: "linkedin",
+        targetType: "campaign",
+        targetId: null,
+        targetName: "Unresolvable Draft",
+        action: "create",
+        changes: [
+          { field: "Name", before: null, after: "Unresolvable Draft" },
+          { field: "Status", before: null, after: "PAUSED" },
+          { field: "Campaign group", before: null, after: "grp_gone" },
+        ],
+        payload: { campaignGroupId: "grp_gone", name: "Unresolvable Draft" },
+        status: "draft",
+        idempotencyKey: randomUUID(),
+        createdByClerkUserId: tenant.clerkUserId,
+      });
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/drafts");
+      expect(res.status).toBe(200);
+      const draft = res.body.find(
+        (d: { targetName: string }) => d.targetName === "Unresolvable Draft",
+      );
+      const groupChange = (
+        draft.changes as { field: string; after: string | null; afterDetail?: string | null }[]
+      ).find((c) => c.field === "Campaign group");
+      expect(groupChange!.after).toBe("grp_gone");
+      expect(groupChange!.afterDetail ?? null).toBeNull();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("inserts the raw-id Campaign group field even when the lookup fails entirely", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      mockListGroups.mockRejectedValue(new LinkedinAdsApiError("boom", 500, false));
+      await db.insert(adChangeRequestsTable).values({
+        tenantId: tenant.tenantId,
+        connectionId,
+        platform: "linkedin",
+        targetType: "campaign",
+        targetId: null,
+        targetName: "Ancient Unresolvable",
+        action: "create",
+        changes: [
+          { field: "Name", before: null, after: "Ancient Unresolvable" },
+          { field: "Status", before: null, after: "PAUSED" },
+        ],
+        payload: { campaignGroupId: "grp_gone", name: "Ancient Unresolvable" },
+        status: "draft",
+        idempotencyKey: randomUUID(),
+        createdByClerkUserId: tenant.clerkUserId,
+      });
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/drafts");
+      expect(res.status).toBe(200);
+      const draft = res.body.find(
+        (d: { targetName: string }) => d.targetName === "Ancient Unresolvable",
+      );
+      const changes = draft.changes as {
+        field: string;
+        after: string | null;
+        afterDetail?: string | null;
+      }[];
+      expect(changes[2]!.field).toBe("Campaign group");
+      expect(changes[2]!.after).toBe("grp_gone");
+      expect(changes[2]!.afterDetail ?? null).toBeNull();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("resolves raw-id Campaign group fields in older change-log entries", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertLinkedinAdConnection(tenant.tenantId);
+      await db.insert(adsChangeLogsTable).values({
+        tenantId: tenant.tenantId,
+        platform: "linkedin",
+        targetType: "campaign",
+        targetId: "cmp_9",
+        targetName: "Old Applied",
+        action: "create",
+        changes: [
+          { field: "Name", before: null, after: "Old Applied" },
+          { field: "Campaign group", before: null, after: "grp_1" },
+        ],
+        outcome: "applied",
+        verifyStatus: "verified",
+      });
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/change-log");
+      expect(res.status).toBe(200);
+      const entry = res.body.find(
+        (e: { targetName: string }) => e.targetName === "Old Applied",
+      );
+      expect(entry).toBeDefined();
+      const groupChange = (
+        entry.changes as { field: string; after: string | null; afterDetail?: string | null }[]
+      ).find((c) => c.field === "Campaign group");
+      expect(groupChange!.after).toBe("Always On");
+      expect(groupChange!.afterDetail).toBe("grp_1");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
