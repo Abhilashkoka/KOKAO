@@ -11,6 +11,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useListContent, type ContentItem } from "@workspace/api-client-react";
 
+import { Feather } from "@expo/vector-icons";
+
 import { ContentImage } from "@/components/ContentImage";
 import { Badge, Chip, EmptyState, ErrorState, Skeleton } from "@/components/ui";
 import colors from "@/constants/colors";
@@ -19,6 +21,16 @@ import { fonts } from "@/constants/fonts";
 const c = colors.light;
 
 const FILTERS = ["all", "draft", "scheduled", "published"] as const;
+
+const PENDING_TEXT = "#92600a";
+
+function hasPendingPieces(item: ContentItem): boolean {
+  return (
+    (item.linkedinCommentsPending ?? 0) > 0 ||
+    (item.threadsPostsPending ?? 0) > 0 ||
+    (item.twitterPostsPending ?? 0) > 0
+  );
+}
 
 function statusTone(status: string): "muted" | "success" | "accent" {
   if (status === "published") return "success";
@@ -59,6 +71,12 @@ export default function LibraryScreen() {
           <Badge label={item.status} tone={statusTone(item.status)} />
           <Text style={styles.rowPlatform}>{item.platform}</Text>
         </View>
+        {hasPendingPieces(item) ? (
+          <View style={styles.pendingRow}>
+            <Feather name="alert-circle" size={12} color={PENDING_TEXT} />
+            <Text style={styles.pendingText}>Some pieces missing</Text>
+          </View>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -137,4 +155,18 @@ const styles = StyleSheet.create({
   },
   rowMeta: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 },
   rowPlatform: { fontFamily: fonts.medium, fontSize: 11, color: c.mutedForeground },
+  pendingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 6,
+    alignSelf: "flex-start",
+    backgroundColor: "#fef3c7",
+    borderWidth: 1,
+    borderColor: "#fcd34d",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  pendingText: { fontFamily: fonts.medium, fontSize: 11, color: PENDING_TEXT },
 });
