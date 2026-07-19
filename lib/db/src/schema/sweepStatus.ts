@@ -68,6 +68,12 @@ export const sweepStatusTable = pgTable("sweep_status", {
     .$type<Record<string, SweepStreak>>()
     .notNull()
     .default({}),
+  /** How many fail-streak entries were trimmed from fail_streaks when the
+   * cross-run map exceeded its cap this run. Non-zero means the dashboard's
+   * failure history is INCOMPLETE (a platform-wide outage broke more
+   * connections than the cap keeps), so admins shouldn't assume they're
+   * seeing the full picture. */
+  droppedStreaks: integer("dropped_streaks").notNull().default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()

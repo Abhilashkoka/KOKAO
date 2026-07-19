@@ -321,6 +321,17 @@ export function OverviewTab() {
                     </div>
                   </div>
                 )}
+              {(stats.connectionSweep.droppedStreaks ?? 0) > 0 && (
+                <div className="w-full" data-testid="text-sweep-dropped-streaks">
+                  <div className="text-destructive text-xs font-medium">
+                    {stats.connectionSweep.droppedStreaks} additional failing
+                    check
+                    {stats.connectionSweep.droppedStreaks === 1 ? "" : "s"} not
+                    shown — more connections are failing than the failure
+                    history keeps.
+                  </div>
+                </div>
+              )}
               {(stats.connectionSweep.recentFailures?.length ?? 0) > 0 && (
                 <div className="w-full" data-testid="section-sweep-failures">
                   <div className="text-muted-foreground mb-1">

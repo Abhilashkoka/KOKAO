@@ -5229,6 +5229,14 @@ components:
               type: integer
             lastError:
               type: [string, "null"]
+            droppedStreaks:
+              type: integer
+              description: >-
+                How many failing checks were trimmed from the persisted
+                cross-run failure history when it exceeded its cap during
+                the last run. Non-zero means the dashboard is NOT showing
+                the full failure picture (e.g. a platform-wide outage broke
+                more connections than the history keeps).
             recentFailures:
               type: array
               description: >-

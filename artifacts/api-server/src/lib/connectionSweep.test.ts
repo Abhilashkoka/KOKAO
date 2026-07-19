@@ -547,6 +547,7 @@ describe("sweepDeadConnections", () => {
             lastAt: new Date().toISOString(),
           },
         },
+        droppedStreaks: 0,
       });
 
       // More one-off failures than the cap, all failing for the first time.
@@ -649,6 +650,7 @@ describe("checkSweepStaleness", () => {
         lastError: null,
         recentFailures: [],
         failStreaks: {},
+        droppedStreaks: 0,
       });
 
       await checkSweepStaleness(true);
@@ -689,6 +691,7 @@ describe("checkSweepStaleness", () => {
         lastError: null,
         recentFailures: [],
         failStreaks: {},
+        droppedStreaks: 0,
       });
       await checkSweepStaleness(true);
 
@@ -719,6 +722,7 @@ describe("checkSweepStaleness", () => {
         lastError: null,
         recentFailures: [],
         failStreaks: {},
+        droppedStreaks: 0,
       });
 
       await checkSweepStaleness(true);
@@ -741,6 +745,7 @@ describe("checkSweepStaleness", () => {
         lastError: null,
         recentFailures: [],
         failStreaks: {},
+        droppedStreaks: 0,
       });
       await checkSweepStaleness(true);
 
@@ -751,6 +756,7 @@ describe("checkSweepStaleness", () => {
         lastError: null,
         recentFailures: [],
         failStreaks: {},
+        droppedStreaks: 0,
       });
       const afterRecovery = (await getNotifications(admin.tenantId)).filter(
         (n) => n.type === "sweep_stalled",
@@ -765,6 +771,7 @@ describe("checkSweepStaleness", () => {
         lastError: null,
         recentFailures: [],
         failStreaks: {},
+        droppedStreaks: 0,
       });
       await checkSweepStaleness(true);
       const afterSecondStall = (await getNotifications(admin.tenantId)).filter(
@@ -791,7 +798,9 @@ describe("capFailStreaks", () => {
       "1:facebook": streakAt(3, "2026-07-18T10:00:00.000Z"),
       "2:linkedin": streakAt(1, "2026-07-18T10:01:00.000Z"),
     };
-    expect(capFailStreaks(streaks)).toBe(streaks);
+    const result = capFailStreaks(streaks);
+    expect(result.streaks).toBe(streaks);
+    expect(result.dropped).toBe(0);
   });
 
   it("keeps the longest streaks when over the cap, breaking ties by recency", () => {
@@ -808,8 +817,10 @@ describe("capFailStreaks", () => {
     streaks["9001:linkedin"] = streakAt(8, "2026-07-17T00:00:00.000Z");
     streaks["9002:threads"] = streakAt(1, "2026-07-16T00:00:00.000Z");
 
-    const capped = capFailStreaks(streaks);
+    const { streaks: capped, dropped } = capFailStreaks(streaks);
     expect(Object.keys(capped)).toHaveLength(SWEEP_FAIL_STREAKS_CAP);
+    // Two entries over the cap were trimmed, and the count says so.
+    expect(dropped).toBe(2);
     // The chronic streak survives despite being older than the blips.
     expect(capped["9001:linkedin"]).toEqual(streaks["9001:linkedin"]);
     // The two oldest count=1 entries are the ones trimmed.
@@ -1040,6 +1051,7 @@ describe("recordSweepRun", () => {
       lastError: null,
       recentFailures: [],
       failStreaks: {},
+      droppedStreaks: 0,
     });
 
     const secondRun = new Date("2026-07-15T10:15:00Z");
@@ -1064,6 +1076,7 @@ describe("recordSweepRun", () => {
           lastAt: "2026-07-15T10:14:00.000Z",
         },
       },
+      droppedStreaks: 5,
     });
 
     const rows = await db.select().from(sweepStatusTable);
@@ -1083,6 +1096,7 @@ describe("recordSweepRun", () => {
         consecutiveFailures: 3,
       },
     ]);
+    expect(rows[0]!.droppedStreaks).toBe(5);
     expect(rows[0]!.failStreaks).toEqual({
       "42:facebook": {
         count: 3,

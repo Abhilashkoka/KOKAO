@@ -1056,6 +1056,7 @@ export const AdminGetStatsResponse = zod.object({
   "accountsChecked": zod.number(),
   "errorCount": zod.number(),
   "lastError": zod.string().nullish(),
+  "droppedStreaks": zod.number().optional().describe('How many failing checks were trimmed from the persisted cross-run failure history when it exceeded its cap during the last run. Non-zero means the dashboard is NOT showing the full failure picture (e.g. a platform-wide outage broke more connections than the history keeps).'),
   "recentFailures": zod.array(zod.object({
   "tenantId": zod.number(),
   "tenantName": zod.string().nullish().describe('Workspace name, null if the tenant was deleted.'),

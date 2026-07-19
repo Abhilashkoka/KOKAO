@@ -130,19 +130,27 @@ export const SWEEP_FAIL_STREAKS_CAP = (() => {
 /**
  * Bound a fail-streak map to SWEEP_FAIL_STREAKS_CAP entries, keeping the
  * longest streaks (ties broken by most recent lastAt). Returns the same map
- * when already within the cap.
+ * (with dropped=0) when already within the cap. `dropped` reports how many
+ * entries were trimmed, so the sweep can tell admins the persisted failure
+ * history is incomplete rather than silently losing it.
  */
-export function capFailStreaks(
-  streaks: Record<string, SweepStreak>,
-): Record<string, SweepStreak> {
+export function capFailStreaks(streaks: Record<string, SweepStreak>): {
+  streaks: Record<string, SweepStreak>;
+  dropped: number;
+} {
   const entries = Object.entries(streaks);
-  if (entries.length <= SWEEP_FAIL_STREAKS_CAP) return streaks;
+  if (entries.length <= SWEEP_FAIL_STREAKS_CAP) {
+    return { streaks, dropped: 0 };
+  }
   entries.sort(
     (a, b) =>
       b[1].count - a[1].count ||
       Date.parse(b[1].lastAt) - Date.parse(a[1].lastAt),
   );
-  return Object.fromEntries(entries.slice(0, SWEEP_FAIL_STREAKS_CAP));
+  return {
+    streaks: Object.fromEntries(entries.slice(0, SWEEP_FAIL_STREAKS_CAP)),
+    dropped: entries.length - SWEEP_FAIL_STREAKS_CAP,
+  };
 }
 
 /** A tenant+platform check failing this many sweeps IN A ROW (~1 hour at the
@@ -166,6 +174,10 @@ export interface SweepResult {
    * the first run it succeeds. Lets an admin tell a chronic breakage from a
    * one-off blip. */
   failStreaks: Record<string, SweepStreak>;
+  /** How many fail-streak entries were trimmed when the cross-run map
+   * exceeded its cap this run. Non-zero means the persisted failure history
+   * is incomplete and the admin dashboard should say so. */
+  droppedStreaks: number;
 }
 
 /**
@@ -201,6 +213,7 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
     lastError: null,
     recentFailures: [],
     failStreaks: {},
+    droppedStreaks: 0,
   };
   const priorStreaks = await loadPriorFailStreaks();
   let rows: { tenantId: number; platform: string }[];
@@ -218,7 +231,9 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
     result.lastError = err instanceof Error ? err.message : String(err);
     // Nothing was actually checked, so carry the prior streaks unchanged —
     // a bookkeeping failure must not erase a chronic offender's history.
-    result.failStreaks = capFailStreaks(priorStreaks);
+    const capped = capFailStreaks(priorStreaks);
+    result.failStreaks = capped.streaks;
+    result.droppedStreaks = capped.dropped;
     return result;
   }
 
@@ -294,7 +309,17 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
   // the single sweep_status jsonb row can't grow without limit when many
   // connections stay broken. Entries only exist for accounts that were
   // actually checked this run, so deleted account rows fall out naturally.
-  result.failStreaks = capFailStreaks(result.failStreaks);
+  // When trimming happens, record HOW MANY were dropped so admins learn the
+  // dashboard's failure history is incomplete instead of assuming it's full.
+  const capped = capFailStreaks(result.failStreaks);
+  result.failStreaks = capped.streaks;
+  result.droppedStreaks = capped.dropped;
+  if (capped.dropped > 0) {
+    logger.warn(
+      { droppedStreaks: capped.dropped, cap: SWEEP_FAIL_STREAKS_CAP },
+      "Sweep fail-streak map exceeded its cap; shortest streaks were trimmed",
+    );
+  }
   return result;
 }
 
@@ -321,6 +346,7 @@ export async function recordSweepRun(
         lastError: outcome.lastError,
         recentFailures: outcome.recentFailures,
         failStreaks: outcome.failStreaks,
+        droppedStreaks: outcome.droppedStreaks,
       })
       .onConflictDoUpdate({
         target: sweepStatusTable.id,
@@ -332,6 +358,7 @@ export async function recordSweepRun(
           lastError: outcome.lastError,
           recentFailures: outcome.recentFailures,
           failStreaks: outcome.failStreaks,
+          droppedStreaks: outcome.droppedStreaks,
           updatedAt: sql`now()`,
         },
       });

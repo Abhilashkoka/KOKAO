@@ -819,6 +819,8 @@ export type AdminStatsConnectionSweep = {
   errorCount: number;
   /** @nullable */
   lastError?: string | null;
+  /** How many failing checks were trimmed from the persisted cross-run failure history when it exceeded its cap during the last run. Non-zero means the dashboard is NOT showing the full failure picture (e.g. a platform-wide outage broke more connections than the history keeps). */
+  droppedStreaks?: number;
   /** Most recent failed checks from the last completed sweep run, newest first (capped server-side), so an admin can see which tenant + platform keeps timing out without reading logs. */
   recentFailures?: AdminStatsConnectionSweepRecentFailuresItem[];
 } | null;

@@ -264,6 +264,9 @@ router.get("/admin/stats", async (_req: Request, res: Response) => {
           accountsChecked: sweepRow[0].accountsChecked,
           errorCount: sweepRow[0].errorCount,
           lastError: sweepRow[0].lastError,
+          // Rows persisted before dropped-streak tracking lack the column
+          // default in old JSON reads; coalesce to 0 (no trimming known).
+          droppedStreaks: sweepRow[0].droppedStreaks ?? 0,
           recentFailures: recentFailures.map((f) => ({
             tenantId: f.tenantId,
             tenantName: nameById.get(f.tenantId) ?? null,
