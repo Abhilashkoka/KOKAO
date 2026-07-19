@@ -32,6 +32,12 @@ import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
 import { Image } from "expo-image";
 
 import { CaptionSplitHints } from "@/components/CaptionSplitHints";
+import {
+  isQuotaError,
+  quotaErrorMessage,
+  QuotaErrorNotice,
+  QuotaInfoSheet,
+} from "@/components/QuotaInfoSheet";
 import { track, trackFeatureUse } from "@/lib/analytics";
 import { ContentImage } from "@/components/ContentImage";
 import { VoiceNoteButton } from "@/components/VoiceNoteButton";
@@ -133,12 +139,7 @@ function errorMessage(err: unknown): string {
   };
   const serverMessage =
     anyErr?.data && typeof anyErr.data.error === "string" ? anyErr.data.error : null;
-  if (anyErr?.status === 402) {
-    return (
-      serverMessage ||
-      "You have reached your monthly AI quota. Upgrade your plan on the web app to continue."
-    );
-  }
+  if (isQuotaError(err)) return quotaErrorMessage(err);
   return serverMessage || anyErr?.message || "Something went wrong. Please try again.";
 }
 
@@ -161,6 +162,7 @@ export default function StudioScreen() {
   const [imagePath, setImagePath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [quotaHit, setQuotaHit] = useState(false);
+  const [quotaSheetOpen, setQuotaSheetOpen] = useState(false);
   const [saved, setSaved] = useState(false);
   const [voiceErr, setVoiceErr] = useState<string | null>(null);
   const [attachOpen, setAttachOpen] = useState(false);
@@ -194,7 +196,7 @@ export default function StudioScreen() {
 
   const setFailure = (err: unknown) => {
     setError(errorMessage(err));
-    const isQuota = (err as { status?: number })?.status === 402;
+    const isQuota = isQuotaError(err);
     setQuotaHit(isQuota);
     if (isQuota) {
       queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
@@ -564,34 +566,42 @@ export default function StudioScreen() {
         </View>
 
         {captionsExhausted ? (
-          <View style={styles.limitHintRow}>
+          <Pressable
+            onPress={() => setQuotaSheetOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Learn how caption quotas work and how to get more"
+            style={({ pressed }) => [styles.limitHintRow, { opacity: pressed ? 0.7 : 1 }]}
+          >
             <Feather name="zap-off" size={14} color={c.mutedForeground} />
             <Text style={styles.limitHintText}>
-              Monthly caption limit reached. Upgrade your plan or buy credits to keep generating
-              captions.
+              Monthly caption limit reached. Tap to see how quotas work and how to get more.
             </Text>
-          </View>
+          </Pressable>
         ) : null}
 
         {imagesExhausted ? (
-          <View style={styles.limitHintRow}>
+          <Pressable
+            onPress={() => setQuotaSheetOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Learn how image quotas work and how to get more"
+            style={({ pressed }) => [styles.limitHintRow, { opacity: pressed ? 0.7 : 1 }]}
+          >
             <Feather name="zap-off" size={14} color={c.mutedForeground} />
             <Text style={styles.limitHintText}>
-              Monthly image limit reached. Upgrade your plan or buy credits to keep generating
-              images.
+              Monthly image limit reached. Tap to see how quotas work and how to get more.
             </Text>
-          </View>
+          </Pressable>
         ) : null}
 
         {error ? (
-          <View style={[styles.errorBox, quotaHit && styles.quotaBox]}>
-            <Feather
-              name={quotaHit ? "zap-off" : "alert-circle"}
-              size={16}
-              color={quotaHit ? c.accentForeground : c.destructive}
-            />
-            <Text style={[styles.errorText, quotaHit && styles.quotaText]}>{error}</Text>
-          </View>
+          quotaHit ? (
+            <QuotaErrorNotice message={error} onPress={() => setQuotaSheetOpen(true)} />
+          ) : (
+            <View style={styles.errorBox}>
+              <Feather name="alert-circle" size={16} color={c.destructive} />
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          )
         ) : null}
 
         {caption ? (
@@ -820,6 +830,8 @@ export default function StudioScreen() {
           </View>
         </View>
       </Modal>
+
+      <QuotaInfoSheet visible={quotaSheetOpen} onClose={() => setQuotaSheetOpen(false)} />
     </>
   );
 }
@@ -904,7 +916,6 @@ const styles = StyleSheet.create({
     borderRadius: colors.radius,
     backgroundColor: "#fdecec",
   },
-  quotaBox: { backgroundColor: c.accent },
   errorText: {
     flex: 1,
     fontFamily: fonts.regular,
@@ -912,7 +923,6 @@ const styles = StyleSheet.create({
     color: c.destructive,
     lineHeight: 19,
   },
-  quotaText: { color: c.accentForeground },
   limitHintRow: {
     flexDirection: "row",
     alignItems: "flex-start",

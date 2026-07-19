@@ -33,11 +33,28 @@ import {
   getListSchedulesQueryKey,
 } from "@workspace/api-client-react";
 import { SchedulePicker } from "@/components/SchedulePicker";
+import {
+  isQuotaError,
+  quotaErrorMessage,
+  QuotaErrorNotice,
+  QuotaInfoSheet,
+} from "@/components/QuotaInfoSheet";
 import { ContentImage } from "@/components/ContentImage";
 import { buildSplitWarnings } from "@/components/publishSplitWarnings";
-import { buildExpiredNames, buildExpiredBannerText } from "@/components/expiredConnectionBanner";
+import {
+  buildExpiredNames,
+  buildExpiredBannerText,
+} from "@/components/expiredConnectionBanner";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
-import { Button, Card, Chip, ErrorState, Input, Label, Skeleton } from "@/components/ui";
+import {
+  Button,
+  Card,
+  Chip,
+  ErrorState,
+  Input,
+  Label,
+  Skeleton,
+} from "@/components/ui";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
 
@@ -58,16 +75,19 @@ export default function ContentDetailScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const { data, isLoading, isError, error, refetch } = useGetContent(contentId, {
-    query: {
-      queryKey: getGetContentQueryKey(contentId),
-      // Instagram publishes asynchronously (the item sits in "publishing"
-      // while Meta processes the image). Poll so the screen flips to
-      // published/failed without a manual refresh.
-      refetchInterval: (query) =>
-        query.state.data?.status === "publishing" ? 4000 : false,
+  const { data, isLoading, isError, error, refetch } = useGetContent(
+    contentId,
+    {
+      query: {
+        queryKey: getGetContentQueryKey(contentId),
+        // Instagram publishes asynchronously (the item sits in "publishing"
+        // while Meta processes the image). Poll so the screen flips to
+        // published/failed without a manual refresh.
+        refetchInterval: (query) =>
+          query.state.data?.status === "publishing" ? 4000 : false,
+      },
     },
-  });
+  );
   const update = useUpdateContent();
   const remove = useDeleteContent();
 
@@ -92,7 +112,8 @@ export default function ContentDetailScreen() {
   // Keeps the publish buttons disabled during the automatic one-shot retry
   // window, when the underlying mutation is not "pending" but a second tap
   // would race the scheduled retry and could double-post.
-  const { isRetrying: publishRetryPending, run: runPublishWithRetry } = useRestartRetry();
+  const { isRetrying: publishRetryPending, run: runPublishWithRetry } =
+    useRestartRetry();
   const { data: fbCreds } = useGetFacebookCredentials();
   const { data: igCreds } = useGetInstagramCredentials();
   const { data: liStatus } = useGetLinkedinStatus();
@@ -109,6 +130,10 @@ export default function ContentDetailScreen() {
   const [publishMsg, setPublishMsg] = useState<string | null>(null);
   const [publishErr, setPublishErr] = useState<string | null>(null);
   const [publishedLink, setPublishedLink] = useState<string | null>(null);
+  // Quota (402) errors get the shared tappable explainer instead of raw
+  // error text, same as the Studio screen.
+  const [quotaMsg, setQuotaMsg] = useState<string | null>(null);
+  const [quotaSheetOpen, setQuotaSheetOpen] = useState(false);
 
   const resendLinkedinComments = useResendLinkedinComments();
   const resendThreadsPosts = useResendThreadsPosts();
@@ -158,7 +183,9 @@ export default function ContentDetailScreen() {
           setDirty(false);
           setMessage("Changes saved");
           queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getGetContentQueryKey(contentId) });
+          queryClient.invalidateQueries({
+            queryKey: getGetContentQueryKey(contentId),
+          });
         },
         onError: (err) => setErrMsg(err?.message || "Could not save changes."),
       },
@@ -168,6 +195,21 @@ export default function ContentDetailScreen() {
   const apiErrorText = (err: unknown, fallback: string) => {
     const data = (err as { data?: { error?: string } } | null)?.data;
     return data?.error || (err as Error | null)?.message || fallback;
+  };
+
+  // Routes a 402 quota error to the shared tappable quota notice instead of
+  // the given red-error setter. Returns true when the error was a quota hit.
+  const failWithQuotaCheck = (
+    err: unknown,
+    setError: (msg: string) => void,
+    fallback: string,
+  ): boolean => {
+    if (isQuotaError(err)) {
+      setQuotaMsg(quotaErrorMessage(err));
+      return true;
+    }
+    setError(apiErrorText(err, fallback));
+    return false;
   };
 
   const fbReady = fbCreds?.verifyStatus === "verified";
@@ -212,73 +254,88 @@ export default function ContentDetailScreen() {
 
   const invalidateContent = () => {
     queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getGetContentQueryKey(contentId) });
+    queryClient.invalidateQueries({
+      queryKey: getGetContentQueryKey(contentId),
+    });
   };
 
   // Shown while the automatic one-shot retry (server-restart 503 or a
   // network blip) is pending. Server-side dedupe makes the retry safe.
-  const restartRetryingMsg = (platform: string, reason: "restart" | "network" = "restart") =>
+  const restartRetryingMsg = (
+    platform: string,
+    reason: "restart" | "network" = "restart",
+  ) =>
     reason === "network"
       ? `The connection blinked. Retrying the ${platform} publish automatically in a few seconds...`
       : `The server is restarting. Retrying the ${platform} publish automatically in a few seconds...`;
   const restartRetryFailedPrefix = "The automatic retry also failed. ";
 
-  const publishErrText = (
-    err: unknown,
-    retried: boolean,
-    fallback: string,
-  ) => {
+  const failPublish = (err: unknown, retried: boolean, fallback: string) => {
     if (retried) setPublishMsg(null);
-    return (retried ? restartRetryFailedPrefix : "") + apiErrorText(err, fallback);
+    if (isQuotaError(err)) {
+      setQuotaMsg(quotaErrorMessage(err));
+      return;
+    }
+    setPublishErr(
+      (retried ? restartRetryFailedPrefix : "") + apiErrorText(err, fallback),
+    );
   };
 
   const handlePublishFacebook = () => {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
+    setQuotaMsg(null);
     setPublishedLink(null);
-    runPublishWithRetry(publishFacebook, { id: contentId }, {
-      onSuccess: (res) => {
-        setPublishMsg("Published to Facebook. Your post is live.");
-        setPublishedLink(res?.permalink ?? null);
-        invalidateContent();
-      },
-      onRetrying: (reason) => setPublishMsg(restartRetryingMsg("Facebook", reason)),
-      onError: (err, { retried }) => {
-        setPublishErr(
-          publishErrText(
+    runPublishWithRetry(
+      publishFacebook,
+      { id: contentId },
+      {
+        onSuccess: (res) => {
+          setPublishMsg("Published to Facebook. Your post is live.");
+          setPublishedLink(res?.permalink ?? null);
+          invalidateContent();
+        },
+        onRetrying: (reason) =>
+          setPublishMsg(restartRetryingMsg("Facebook", reason)),
+        onError: (err, { retried }) => {
+          failPublish(
             err,
             retried,
             "Could not publish to Facebook. Check your Page connection on the web app.",
-          ),
-        );
+          );
+        },
       },
-    });
+    );
   };
 
   const handlePublishInstagram = () => {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
+    setQuotaMsg(null);
     setPublishedLink(null);
-    runPublishWithRetry(publishInstagram, { id: contentId }, {
-      onSuccess: () => {
-        setPublishMsg(
-          "Publishing to Instagram. This will update to Published once it's live.",
-        );
-        invalidateContent();
-      },
-      onRetrying: (reason) => setPublishMsg(restartRetryingMsg("Instagram", reason)),
-      onError: (err, { retried }) => {
-        setPublishErr(
-          publishErrText(
+    runPublishWithRetry(
+      publishInstagram,
+      { id: contentId },
+      {
+        onSuccess: () => {
+          setPublishMsg(
+            "Publishing to Instagram. This will update to Published once it's live.",
+          );
+          invalidateContent();
+        },
+        onRetrying: (reason) =>
+          setPublishMsg(restartRetryingMsg("Instagram", reason)),
+        onError: (err, { retried }) => {
+          failPublish(
             err,
             retried,
             "Could not publish to Instagram. Check your Instagram connection on the web app.",
-          ),
-        );
+          );
+        },
       },
-    });
+    );
   };
 
   // One-click retry for a failed Instagram publish. Re-uses the same publish
@@ -288,123 +345,138 @@ export default function ContentDetailScreen() {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
+    setQuotaMsg(null);
     setPublishedLink(null);
-    runPublishWithRetry(publishInstagram, { id: contentId }, {
-      onSuccess: () => {
-        setPublishMsg(
-          "Retrying publish. Instagram is processing your image again — this will update to Published once it's live.",
-        );
-        invalidateContent();
-      },
-      onRetrying: (reason) => setPublishMsg(restartRetryingMsg("Instagram", reason)),
-      onError: (err, { retried }) => {
-        setPublishErr(
-          publishErrText(
+    runPublishWithRetry(
+      publishInstagram,
+      { id: contentId },
+      {
+        onSuccess: () => {
+          setPublishMsg(
+            "Retrying publish. Instagram is processing your image again — this will update to Published once it's live.",
+          );
+          invalidateContent();
+        },
+        onRetrying: (reason) =>
+          setPublishMsg(restartRetryingMsg("Instagram", reason)),
+        onError: (err, { retried }) => {
+          failPublish(
             err,
             retried,
             "Could not retry the Instagram publish. Check your Instagram connection on the web app.",
-          ),
-        );
+          );
+        },
       },
-    });
+    );
   };
 
   const handlePublishLinkedin = () => {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
+    setQuotaMsg(null);
     setPublishedLink(null);
-    runPublishWithRetry(publishLinkedin, { id: contentId }, {
-      onSuccess: (res) => {
-        if (res?.commentWarning) {
-          setPublishMsg(null);
-          setPublishErr(
-            `Published to LinkedIn, but some comments failed. ${res.commentWarning} You can resend the missing comments below.`,
-          );
-        } else {
-          const extra =
-            res?.commentsPosted && res.commentsPosted > 0
-              ? ` The rest of your caption was added as ${res.commentsPosted} comment(s).`
-              : "";
-          setPublishMsg(`Published to LinkedIn. Your post is live.${extra}`);
-        }
-        setPublishedLink(res?.permalink ?? null);
-        invalidateContent();
-      },
-      onRetrying: (reason) => setPublishMsg(restartRetryingMsg("LinkedIn", reason)),
-      onError: (err, { retried }) => {
-        setPublishErr(
-          publishErrText(
+    runPublishWithRetry(
+      publishLinkedin,
+      { id: contentId },
+      {
+        onSuccess: (res) => {
+          if (res?.commentWarning) {
+            setPublishMsg(null);
+            setPublishErr(
+              `Published to LinkedIn, but some comments failed. ${res.commentWarning} You can resend the missing comments below.`,
+            );
+          } else {
+            const extra =
+              res?.commentsPosted && res.commentsPosted > 0
+                ? ` The rest of your caption was added as ${res.commentsPosted} comment(s).`
+                : "";
+            setPublishMsg(`Published to LinkedIn. Your post is live.${extra}`);
+          }
+          setPublishedLink(res?.permalink ?? null);
+          invalidateContent();
+        },
+        onRetrying: (reason) =>
+          setPublishMsg(restartRetryingMsg("LinkedIn", reason)),
+        onError: (err, { retried }) => {
+          failPublish(
             err,
             retried,
             "Could not publish to LinkedIn. Check your LinkedIn connection on the web app.",
-          ),
-        );
+          );
+        },
       },
-    });
+    );
   };
 
   const handlePublishTwitter = () => {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
+    setQuotaMsg(null);
     setPublishedLink(null);
-    runPublishWithRetry(publishTwitter, { id: contentId }, {
-      onSuccess: (res) => {
-        const extra =
-          res?.tweetCount && res.tweetCount > 1
-            ? ` Your caption was posted as a thread of ${res.tweetCount} tweets.`
-            : "";
-        setPublishMsg(`Published to X. Your post is live.${extra}`);
-        setPublishedLink(res?.permalink ?? null);
-        invalidateContent();
-      },
-      onRetrying: (reason) => setPublishMsg(restartRetryingMsg("X", reason)),
-      onError: (err, { retried }) => {
-        setPublishErr(
-          publishErrText(
+    runPublishWithRetry(
+      publishTwitter,
+      { id: contentId },
+      {
+        onSuccess: (res) => {
+          const extra =
+            res?.tweetCount && res.tweetCount > 1
+              ? ` Your caption was posted as a thread of ${res.tweetCount} tweets.`
+              : "";
+          setPublishMsg(`Published to X. Your post is live.${extra}`);
+          setPublishedLink(res?.permalink ?? null);
+          invalidateContent();
+        },
+        onRetrying: (reason) => setPublishMsg(restartRetryingMsg("X", reason)),
+        onError: (err, { retried }) => {
+          failPublish(
             err,
             retried,
             "Could not publish to X. Check your X connection on the web app.",
-          ),
-        );
+          );
+        },
       },
-    });
+    );
   };
 
   const handlePublishThreads = () => {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
+    setQuotaMsg(null);
     setPublishedLink(null);
-    runPublishWithRetry(publishThreads, { id: contentId }, {
-      onSuccess: (res) => {
-        if (res?.publishWarning) {
-          setPublishMsg(null);
-          setPublishErr(
-            `Published to Threads, but some follow-up posts failed. ${res.publishWarning}`,
-          );
-        } else {
-          const extra =
-            res?.postsPublished && res.postsPublished > 1
-              ? ` Your caption was posted as a chain of ${res.postsPublished} connected posts.`
-              : "";
-          setPublishMsg(`Published to Threads. Your post is live.${extra}`);
-        }
-        setPublishedLink(res?.permalink ?? null);
-        invalidateContent();
-      },
-      onRetrying: (reason) => setPublishMsg(restartRetryingMsg("Threads", reason)),
-      onError: (err, { retried }) => {
-        setPublishErr(
-          publishErrText(
+    runPublishWithRetry(
+      publishThreads,
+      { id: contentId },
+      {
+        onSuccess: (res) => {
+          if (res?.publishWarning) {
+            setPublishMsg(null);
+            setPublishErr(
+              `Published to Threads, but some follow-up posts failed. ${res.publishWarning}`,
+            );
+          } else {
+            const extra =
+              res?.postsPublished && res.postsPublished > 1
+                ? ` Your caption was posted as a chain of ${res.postsPublished} connected posts.`
+                : "";
+            setPublishMsg(`Published to Threads. Your post is live.${extra}`);
+          }
+          setPublishedLink(res?.permalink ?? null);
+          invalidateContent();
+        },
+        onRetrying: (reason) =>
+          setPublishMsg(restartRetryingMsg("Threads", reason)),
+        onError: (err, { retried }) => {
+          failPublish(
             err,
             retried,
             "Could not publish to Threads. Check your Threads connection on the web app.",
-          ),
-        );
+          );
+        },
       },
-    });
+    );
   };
 
   // A 409 means a resend for this post is already running (e.g. a rapid
@@ -433,6 +505,10 @@ export default function ContentDetailScreen() {
       );
       return;
     }
+    if (isQuotaError(err)) {
+      setQuotaMsg(quotaErrorMessage(err));
+      return;
+    }
     setResendErr(message || fallback);
   };
 
@@ -441,6 +517,7 @@ export default function ContentDetailScreen() {
     setResendMsg(null);
     setResendErr(null);
     setResendLink(null);
+    setQuotaMsg(null);
   };
 
   const handleResendLinkedinComments = () => {
@@ -460,7 +537,10 @@ export default function ContentDetailScreen() {
           invalidateContent();
         },
         onError: (err) =>
-          resendErrorNotice(err, "Could not resend the LinkedIn comments. Try again."),
+          resendErrorNotice(
+            err,
+            "Could not resend the LinkedIn comments. Try again.",
+          ),
       },
     );
   };
@@ -482,7 +562,10 @@ export default function ContentDetailScreen() {
           invalidateContent();
         },
         onError: (err) =>
-          resendErrorNotice(err, "Could not resend the missing Threads posts. Try again."),
+          resendErrorNotice(
+            err,
+            "Could not resend the missing Threads posts. Try again.",
+          ),
       },
     );
   };
@@ -504,7 +587,10 @@ export default function ContentDetailScreen() {
           invalidateContent();
         },
         onError: (err) =>
-          resendErrorNotice(err, "Could not resend the missing X posts. Try again."),
+          resendErrorNotice(
+            err,
+            "Could not resend the missing X posts. Try again.",
+          ),
       },
     );
   };
@@ -513,6 +599,7 @@ export default function ContentDetailScreen() {
     haptic();
     setScheduleMsg(null);
     setScheduleErr(null);
+    setQuotaMsg(null);
     createSchedule.mutate(
       {
         data: {
@@ -537,11 +624,17 @@ export default function ContentDetailScreen() {
               minute: "2-digit",
             })} on ${platform}.`,
           );
-          queryClient.invalidateQueries({ queryKey: getListSchedulesQueryKey() });
+          queryClient.invalidateQueries({
+            queryKey: getListSchedulesQueryKey(),
+          });
           invalidateContent();
         },
         onError: (err) =>
-          setScheduleErr(apiErrorText(err, "Could not schedule this post.")),
+          failWithQuotaCheck(
+            err,
+            setScheduleErr,
+            "Could not schedule this post.",
+          ),
       },
     );
   };
@@ -560,7 +653,9 @@ export default function ContentDetailScreen() {
             {
               onSuccess: () => {
                 setStatus("draft");
-                setScheduleMsg("Schedule cancelled. This post is back to a draft.");
+                setScheduleMsg(
+                  "Schedule cancelled. This post is back to a draft.",
+                );
               },
               onError: () => {
                 setScheduleErr(
@@ -568,7 +663,9 @@ export default function ContentDetailScreen() {
                 );
               },
               onSettled: () => {
-                queryClient.invalidateQueries({ queryKey: getListSchedulesQueryKey() });
+                queryClient.invalidateQueries({
+                  queryKey: getListSchedulesQueryKey(),
+                });
                 invalidateContent();
               },
             },
@@ -600,7 +697,9 @@ export default function ContentDetailScreen() {
 
   if (isLoading) {
     return (
-      <View style={{ flex: 1, backgroundColor: c.background, padding: 20, gap: 14 }}>
+      <View
+        style={{ flex: 1, backgroundColor: c.background, padding: 20, gap: 14 }}
+      >
         <Skeleton height={220} />
         <Skeleton height={40} />
         <Skeleton height={120} />
@@ -704,7 +803,9 @@ export default function ContentDetailScreen() {
           <View style={styles.scheduleRow}>
             <Feather name="clock" size={16} color={c.primary} />
             <Text style={styles.scheduleText}>
-              {`Scheduled for ${new Date(existingSchedule.scheduledAt).toLocaleString(undefined, {
+              {`Scheduled for ${new Date(
+                existingSchedule.scheduledAt,
+              ).toLocaleString(undefined, {
                 weekday: "short",
                 day: "numeric",
                 month: "short",
@@ -762,14 +863,14 @@ export default function ContentDetailScreen() {
           />
           {!data.imagePath ? (
             <Text style={styles.publishHint}>
-              Instagram needs an image. Generate one for this post in the
-              Studio first.
+              Instagram needs an image. Generate one for this post in the Studio
+              first.
             </Text>
           ) : null}
           {igBroken ? (
             <Text style={styles.publishHint}>
-              Your Instagram connection stopped working. Reconnect it from
-              KOKAO on the web before retrying.
+              Your Instagram connection stopped working. Reconnect it from KOKAO
+              on the web before retrying.
             </Text>
           ) : null}
         </>
@@ -805,7 +906,12 @@ export default function ContentDetailScreen() {
             </View>
           ) : null}
           {liReady || twReady || thReady ? (
-            <View style={[styles.publishRow, fbReady || igReady ? { marginTop: 10 } : null]}>
+            <View
+              style={[
+                styles.publishRow,
+                fbReady || igReady ? { marginTop: 10 } : null,
+              ]}
+            >
               {liReady ? (
                 <Button
                   title="LinkedIn"
@@ -896,6 +1002,17 @@ export default function ContentDetailScreen() {
       ) : null}
       {publishErr ? <Text style={styles.error}>{publishErr}</Text> : null}
 
+      {quotaMsg ? (
+        <QuotaErrorNotice
+          message={quotaMsg}
+          onPress={() => setQuotaSheetOpen(true)}
+        />
+      ) : null}
+      <QuotaInfoSheet
+        visible={quotaSheetOpen}
+        onClose={() => setQuotaSheetOpen(false)}
+      />
+
       {linkedinPending > 0 ? (
         <View style={styles.pendingBox}>
           <View style={styles.pendingRow}>
@@ -905,7 +1022,11 @@ export default function ContentDetailScreen() {
             </Text>
           </View>
           <Button
-            title={resendLinkedinComments.isPending ? "Resending..." : "Resend comments"}
+            title={
+              resendLinkedinComments.isPending
+                ? "Resending..."
+                : "Resend comments"
+            }
             icon="rotate-cw"
             variant="outline"
             onPress={handleResendLinkedinComments}
@@ -925,7 +1046,9 @@ export default function ContentDetailScreen() {
             </Text>
           </View>
           <Button
-            title={resendThreadsPosts.isPending ? "Resending..." : "Resend posts"}
+            title={
+              resendThreadsPosts.isPending ? "Resending..." : "Resend posts"
+            }
             icon="rotate-cw"
             variant="outline"
             onPress={handleResendThreadsPosts}
@@ -945,7 +1068,9 @@ export default function ContentDetailScreen() {
             </Text>
           </View>
           <Button
-            title={resendTwitterPosts.isPending ? "Resending..." : "Resend posts"}
+            title={
+              resendTwitterPosts.isPending ? "Resending..." : "Resend posts"
+            }
             icon="rotate-cw"
             variant="outline"
             onPress={handleResendTwitterPosts}
@@ -1051,13 +1176,31 @@ export default function ContentDetailScreen() {
 
 const styles = StyleSheet.create({
   image: { width: "100%", aspectRatio: 1, borderRadius: colors.radius + 2 },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 14 },
-  metaText: { fontFamily: fonts.medium, fontSize: 12, color: c.mutedForeground },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 14,
+  },
+  metaText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: c.mutedForeground,
+  },
   metaDot: { color: c.mutedForeground },
   chipRow: { flexDirection: "row", gap: 8 },
   permalinkRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  permalinkLabel: { fontFamily: fonts.semiBold, fontSize: 12, color: c.mutedForeground },
-  permalink: { fontFamily: fonts.regular, fontSize: 13, color: c.primary, marginTop: 4 },
+  permalinkLabel: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: c.mutedForeground,
+  },
+  permalink: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    color: c.primary,
+    marginTop: 4,
+  },
   messageRow: {
     flexDirection: "row",
     alignItems: "center",
