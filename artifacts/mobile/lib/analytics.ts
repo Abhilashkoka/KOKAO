@@ -31,6 +31,10 @@ const SIGN_UP_FRESH_WINDOW_MS = 60 * 60_000;
 const SESSION_TIMEOUT_MS = 30 * 60_000;
 const FLUSH_INTERVAL_MS = 15_000;
 const MAX_QUEUE = 40;
+/** Max times a batch's events are re-queued after a failed send before being dropped. */
+const MAX_SEND_ATTEMPTS = 3;
+/** Hard cap on buffered events (including re-queued ones); oldest are dropped beyond this. */
+const MAX_BUFFERED = 120;
 
 export interface ConsentState {
   analytics: boolean;
@@ -45,6 +49,8 @@ interface QueuedEvent {
   name: string;
   params?: Record<string, unknown>;
   clientTimestamp: string;
+  /** Failed-send count; internal only, stripped before sending. */
+  attempts?: number;
 }
 
 let queue: QueuedEvent[] = [];
@@ -117,31 +123,68 @@ function buildContext(): Record<string, unknown> {
   };
 }
 
+/**
+ * Put a failed batch back at the front of the queue so a later flush retries
+ * it. Each event carries a bounded attempt count (dropped after
+ * MAX_SEND_ATTEMPTS failed sends) so an ambiguous failure — where the request
+ * actually landed server-side — can only duplicate a bounded number of times.
+ * The total buffer is capped at MAX_BUFFERED; newest events win.
+ */
+function requeueFailedBatch(events: QueuedEvent[]): void {
+  const retryable = events
+    .map((e) => ({ ...e, attempts: (e.attempts ?? 0) + 1 }))
+    .filter((e) => e.attempts < MAX_SEND_ATTEMPTS);
+  queue = [...retryable, ...queue];
+  if (queue.length > MAX_BUFFERED) {
+    queue = queue.slice(queue.length - MAX_BUFFERED);
+  }
+}
+
 async function flush(): Promise<void> {
   if (queue.length === 0 || !INGEST_URL) return;
   if (signedIn && consent !== null && !consent.analytics) {
     queue = [];
     return;
   }
-  const events = queue.splice(0, MAX_QUEUE);
+  const batch = queue.splice(0, MAX_QUEUE);
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     const token = authToken ? await authToken() : null;
     if (token) headers.Authorization = `Bearer ${token}`;
-    await fetch(INGEST_URL, {
+    const res = await fetch(INGEST_URL, {
       method: "POST",
       headers,
       body: JSON.stringify({
         anonymousId: await getAnonymousId(),
         sessionId: getSessionId().id,
         context: buildContext(),
-        events,
+        // Strip the internal retry counter from the wire payload.
+        events: batch.map(({ attempts: _attempts, ...event }) => event),
       }),
     });
+    // Retry server-side/transient failures; 4xx responses mean the payload
+    // was rejected and retrying would never succeed.
+    if (!res.ok && (res.status >= 500 || res.status === 429)) {
+      requeueFailedBatch(batch);
+    }
   } catch {
-    // Analytics must never break the app; drop the batch on failure.
+    // Analytics must never break the app; re-queue the batch (bounded) so a
+    // brief network blip doesn't permanently lose the events.
+    requeueFailedBatch(batch);
   }
 }
+
+/** Test-only access to the internal queue and flush (not for app code). */
+export const __analyticsTestHooks = {
+  flush,
+  getQueue: (): readonly QueuedEvent[] => queue,
+  setQueue: (events: QueuedEvent[]): void => {
+    queue = events;
+  },
+  resetQueue: (): void => {
+    queue = [];
+  },
+};
 
 export function track(name: string, params?: Record<string, unknown>): void {
   if (signedIn && consent !== null && !consent.analytics) return;
