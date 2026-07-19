@@ -242,6 +242,65 @@ describe("POST /analytics/events (ingestion consent enforcement)", () => {
     }
   });
 
+  it("dedupes first_open per anonymous id across retried batches", async () => {
+    const anonId = `anon_${Date.now()}_fo`;
+    try {
+      // First launch: first_open lands server-side (but suppose the
+      // response was lost, so the client retries later).
+      const first = await request(app)
+        .post("/api/analytics/events")
+        .send({
+          anonymousId: anonId,
+          events: [{ name: "first_open" }],
+        });
+      expect(first.status).toBe(200);
+      expect(first.body).toEqual({ accepted: 1, dropped: 0 });
+
+      // Retry on a later launch: the duplicate first_open must be dropped,
+      // but other events in the same batch are still accepted.
+      const retry = await request(app)
+        .post("/api/analytics/events")
+        .send({
+          anonymousId: anonId,
+          events: [{ name: "first_open" }, { name: "session_start" }],
+        });
+      expect(retry.status).toBe(200);
+      expect(retry.body).toEqual({ accepted: 1, dropped: 1 });
+
+      const rows = await db
+        .select()
+        .from(analyticsEventsTable)
+        .where(eq(analyticsEventsTable.anonymousId, anonId));
+      const firstOpens = rows.filter((r) => r.eventName === "first_open");
+      expect(firstOpens.length).toBe(1);
+      expect(rows.some((r) => r.eventName === "session_start")).toBe(true);
+    } finally {
+      await cleanupAnon(anonId);
+    }
+  });
+
+  it("dedupes duplicate first_open events within a single batch", async () => {
+    const anonId = `anon_${Date.now()}_fo2`;
+    try {
+      const res = await request(app)
+        .post("/api/analytics/events")
+        .send({
+          anonymousId: anonId,
+          events: [{ name: "first_open" }, { name: "first_open" }],
+        });
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ accepted: 1, dropped: 1 });
+
+      const rows = await db
+        .select()
+        .from(analyticsEventsTable)
+        .where(eq(analyticsEventsTable.anonymousId, anonId));
+      expect(rows.length).toBe(1);
+    } finally {
+      await cleanupAnon(anonId);
+    }
+  });
+
   it("merges earlier anonymous events into the user identity at login", async () => {
     const anonId = `anon_${Date.now()}_m`;
     const tenant = await createTenant();

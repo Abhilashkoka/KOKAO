@@ -11,6 +11,7 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 /**
  * Append-only analytics event stream (web + mobile + server-emitted).
@@ -65,6 +66,16 @@ export const analyticsEventsTable = pgTable(
     index("analytics_events_user_idx").on(t.clerkUserId),
     index("analytics_events_anon_idx").on(t.anonymousId),
     index("analytics_events_session_idx").on(t.sessionId),
+    // At most ONE first_open per install (anonymous id). A client whose
+    // first send "failed" ambiguously (request landed, response lost) will
+    // retry on a later launch; the ingest insert uses ON CONFLICT DO NOTHING
+    // against this index so the duplicate is silently dropped and install
+    // counts stay accurate.
+    uniqueIndex("analytics_events_first_open_anon_uidx")
+      .on(t.anonymousId)
+      .where(
+        sql`${t.eventName} = 'first_open' AND ${t.anonymousId} IS NOT NULL`,
+      ),
   ],
 );
 

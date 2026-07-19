@@ -166,10 +166,21 @@ router.post("/analytics/events", async (req: Request, res: Response) => {
       });
     }
 
+    let accepted = 0;
     if (rows.length > 0) {
-      await db.insert(analyticsEventsTable).values(rows);
+      // ON CONFLICT DO NOTHING against the partial unique index on
+      // (anonymous_id) WHERE event_name = 'first_open': a client retrying an
+      // ambiguously-failed first send (request landed, response lost) must
+      // not double-count the install. Duplicates are reported as dropped.
+      const inserted = await db
+        .insert(analyticsEventsTable)
+        .values(rows)
+        .onConflictDoNothing()
+        .returning({ id: analyticsEventsTable.id });
+      accepted = inserted.length;
+      dropped += rows.length - accepted;
     }
-    res.json({ accepted: rows.length, dropped });
+    res.json({ accepted, dropped });
   } catch (error) {
     req.log.error({ err: error }, "Analytics ingestion failed");
     res.status(500).json({ error: "Failed to record events" });
