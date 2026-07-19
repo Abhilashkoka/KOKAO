@@ -15,4 +15,8 @@ description: How to make Threads/X publish flows succeed end-to-end in a real br
 - Seeding for resend: threads account row needs plaintext `access_token`, `token_expires_at` NULL (skips refresh); twitter row needs `encrypted_credentials` (encryptJson of `{accessToken, refreshToken}`) + future `token_expires_at`, plus a decryptable `app_credentials` provider='twitter' row (snapshot/remove after).
 - Tenant is auto-provisioned on first authenticated page load; target it by `tenants.email` = the Clerk test login email, and clean up all seeded rows (children first) afterwards.
 
+A reusable Threads Graph mock now lives at `scripts/src/threadsMockServer.mjs` (persists log to /tmp/threads-mock-log.json, ~2.5s publish delay) — run it as a workflow with `PORT=9099 node scripts/src/threadsMockServer.mjs` instead of rewriting one.
+
 **Validated outcome (double-click publish guard):** a real-browser e2e with this harness confirmed a rapid double-click on the Library's Publish (dialog + card buttons) produces exactly one platform write (mock log: one container create + one publish), no 409 "already in progress" toast, and all publish buttons disabled while in flight (`publishBusy` in library.tsx + pending-state dialog button).
+
+**Validated outcome (double-click resend guard):** same harness confirmed a real-browser double-click on the pending-posts "Resend posts" button performs exactly one resend (mock log: 1 probe + one create/publish per missing piece), no 409 toast, button disabled while in flight. React state disabling alone is NOT enough for double-clicks — the resend hook uses a synchronous ref guard that flips before re-render.

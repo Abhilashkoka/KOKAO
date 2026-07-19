@@ -131,6 +131,19 @@ describe("PendingPostsWarnings resend 409 handling", () => {
     expect(call.description).toBe("LinkedIn is down.");
   });
 
+  it("fires the resend only once on a rapid double-click (synchronous guard)", () => {
+    // Never settle: simulates an in-flight request. Two immediate clicks
+    // land before React re-renders the disabled state, so the synchronous
+    // ref guard must swallow the second one.
+    threadsMutate.mockImplementation(() => {});
+    renderWarnings({ id: 6, threadsPostsPending: 2 });
+    const button = screen.getByTestId("button-resend-threads-posts-6");
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(threadsMutate).toHaveBeenCalledTimes(1);
+    expect(toastFn).not.toHaveBeenCalled();
+  });
+
   it("disables the resend button while a resend is in flight", () => {
     // Never settle: simulates an in-flight request.
     linkedinMutate.mockImplementation(() => {});

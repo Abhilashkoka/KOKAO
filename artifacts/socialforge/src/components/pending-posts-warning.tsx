@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   useResendLinkedinComments,
   useResendThreadsPosts,
@@ -46,6 +46,11 @@ export function usePendingResendActions() {
   const [resendingLinkedinId, setResendingLinkedinId] = useState<number | null>(null);
   const [resendingThreadsId, setResendingThreadsId] = useState<number | null>(null);
   const [resendingTwitterId, setResendingTwitterId] = useState<number | null>(null);
+  // Synchronous in-flight guard: React state updates are async, so a rapid
+  // double-click can fire the handler twice before the disabled re-render
+  // lands. The ref flips immediately on the first call, so the second call
+  // in the same frame is a no-op and never reaches the server's 409 guard.
+  const inFlightRef = useRef<Set<string>>(new Set());
 
   const viewPostAction = (permalink: string | null | undefined) =>
     permalink ? (
@@ -94,6 +99,9 @@ export function usePendingResendActions() {
   };
 
   const handleResendLinkedinComments = (itemId: number) => {
+    const key = `linkedin:${itemId}`;
+    if (inFlightRef.current.has(key)) return;
+    inFlightRef.current.add(key);
     setResendingLinkedinId(itemId);
     resendLinkedinComments.mutate(
       { id: itemId },
@@ -117,12 +125,18 @@ export function usePendingResendActions() {
         },
         onError: (err: any) =>
           resendErrorToast(err, "Could not resend the LinkedIn comments. Try again."),
-        onSettled: () => setResendingLinkedinId(null),
+        onSettled: () => {
+          inFlightRef.current.delete(key);
+          setResendingLinkedinId(null);
+        },
       },
     );
   };
 
   const handleResendThreadsPosts = (itemId: number) => {
+    const key = `threads:${itemId}`;
+    if (inFlightRef.current.has(key)) return;
+    inFlightRef.current.add(key);
     setResendingThreadsId(itemId);
     resendThreadsPosts.mutate(
       { id: itemId },
@@ -146,12 +160,18 @@ export function usePendingResendActions() {
         },
         onError: (err: any) =>
           resendErrorToast(err, "Could not resend the missing Threads posts. Try again."),
-        onSettled: () => setResendingThreadsId(null),
+        onSettled: () => {
+          inFlightRef.current.delete(key);
+          setResendingThreadsId(null);
+        },
       },
     );
   };
 
   const handleResendTwitterPosts = (itemId: number) => {
+    const key = `twitter:${itemId}`;
+    if (inFlightRef.current.has(key)) return;
+    inFlightRef.current.add(key);
     setResendingTwitterId(itemId);
     resendTwitterPosts.mutate(
       { id: itemId },
@@ -175,7 +195,10 @@ export function usePendingResendActions() {
         },
         onError: (err: any) =>
           resendErrorToast(err, "Could not resend the missing X posts. Try again."),
-        onSettled: () => setResendingTwitterId(null),
+        onSettled: () => {
+          inFlightRef.current.delete(key);
+          setResendingTwitterId(null);
+        },
       },
     );
   };
