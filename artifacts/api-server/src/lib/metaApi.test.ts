@@ -210,6 +210,141 @@ describe("testFacebookCredentials scope check", () => {
     expect(headers.Authorization).toBe("Bearer long-lived-user-token");
   });
 
+  it("rejects a token issued by a different Meta app than the configured one", async () => {
+    mockPageRead();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        data: {
+          type: "PAGE",
+          app_id: "some-other-app",
+          scopes: ["pages_read_engagement", "pages_manage_posts"],
+        },
+      }),
+    );
+    const res = await testFacebookCredentials(CREDS);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("different Facebook app");
+    // No exchange should even be attempted for a foreign-app token.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("accepts a token when the issuing app matches the configured app", async () => {
+    mockPageRead();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        data: {
+          type: "PAGE",
+          app_id: "app-id",
+          expires_at: 0,
+          scopes: ["pages_read_engagement", "pages_manage_posts"],
+        },
+      }),
+    );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { access_token: "long-lived-page-token" }),
+    );
+    const res = await testFacebookCredentials(CREDS);
+    expect(res.ok).toBe(true);
+  });
+
+  it("rejects a short-lived PAGE token when the long-lived upgrade fails", async () => {
+    mockPageRead();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        data: {
+          type: "PAGE",
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+          scopes: ["pages_read_engagement", "pages_manage_posts"],
+        },
+      }),
+    );
+    // fb_exchange_token attempt fails.
+    fetchMock.mockResolvedValueOnce(jsonResponse(400, { error: { message: "nope" } }));
+    const res = await testFacebookCredentials(CREDS);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("temporary");
+  });
+
+  it("keeps a never-expiring PAGE token even when the upgrade fails", async () => {
+    mockPageRead();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        data: {
+          type: "PAGE",
+          expires_at: 0,
+          scopes: ["pages_read_engagement", "pages_manage_posts"],
+        },
+      }),
+    );
+    fetchMock.mockResolvedValueOnce(jsonResponse(400, { error: { message: "nope" } }));
+    const res = await testFacebookCredentials(CREDS);
+    expect(res.ok).toBe(true);
+  });
+
+  it("rejects a USER-derived Page token that is still short-lived", async () => {
+    mockPageRead();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        data: {
+          type: "USER",
+          scopes: ["pages_read_engagement", "pages_manage_posts"],
+        },
+      }),
+    );
+    // Long-lived exchange fails -> fall back to the short-lived user token.
+    fetchMock.mockResolvedValueOnce(jsonResponse(400, { error: { message: "nope" } }));
+    // Page token derived from the short-lived user token.
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { access_token: "derived-page-token" }),
+    );
+    // Final inspection shows the derived token also expires within hours.
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        data: {
+          type: "PAGE",
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+          scopes: ["pages_read_engagement", "pages_manage_posts"],
+        },
+      }),
+    );
+    const res = await testFacebookCredentials(CREDS);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("temporary");
+  });
+
+  it("accepts a USER-derived Page token that never expires", async () => {
+    mockPageRead();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        data: {
+          type: "USER",
+          scopes: ["pages_read_engagement", "pages_manage_posts"],
+        },
+      }),
+    );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { access_token: "long-lived-user-token" }),
+    );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { access_token: "real-page-token" }),
+    );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        data: {
+          type: "PAGE",
+          expires_at: 0,
+          scopes: ["pages_read_engagement", "pages_manage_posts"],
+        },
+      }),
+    );
+    const res = await testFacebookCredentials(CREDS);
+    expect(res.ok).toBe(true);
+    expect(res.correctedCredentials).toEqual({
+      pageId: "page-1",
+      pageAccessToken: "real-page-token",
+    });
+  });
+
   it("never puts the page token in a URL", async () => {
     mockPageRead();
     fetchMock.mockResolvedValueOnce(

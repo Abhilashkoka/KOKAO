@@ -122,6 +122,17 @@ interface TokenInspection {
   type: string | null;
   /** Publish-required permissions the token is missing. */
   missing: string[];
+  /**
+   * The Meta app id that issued the token, when known. A token issued by a
+   * DIFFERENT app than the one configured here can never be exchanged for a
+   * long-lived token, so it will keep expiring within hours.
+   */
+  appId: string | null;
+  /**
+   * Unix seconds when the token expires. 0 = never expires. Null when the
+   * debug call could not determine it.
+   */
+  expiresAt: number | null;
 }
 
 /**
@@ -132,7 +143,7 @@ interface TokenInspection {
  * otherwise-working credentials.
  */
 async function inspectToken(token: string): Promise<TokenInspection> {
-  const none: TokenInspection = { type: null, missing: [] };
+  const none: TokenInspection = { type: null, missing: [], appId: null, expiresAt: null };
   try {
     const app = await getMetaAppCredentials();
     if (!app) return none;
@@ -145,13 +156,15 @@ async function inspectToken(token: string): Promise<TokenInspection> {
       headers: { Authorization: `Bearer ${app.appId}|${app.appSecret}` },
     });
     const json = (await res.json()) as {
-      data?: { scopes?: string[]; type?: string };
+      data?: { scopes?: string[]; type?: string; app_id?: string; expires_at?: number };
     } & GraphError;
     const scopes = json.data?.scopes;
     if (!res.ok || !Array.isArray(scopes)) return none;
     return {
       type: json.data?.type ?? null,
       missing: REQUIRED_PAGE_PUBLISH_SCOPES.filter((s) => !scopes.includes(s)),
+      appId: json.data?.app_id ?? null,
+      expiresAt: typeof json.data?.expires_at === "number" ? json.data.expires_at : null,
     };
   } catch {
     return none;
@@ -211,6 +224,24 @@ async function exchangeForPageToken(
   }
 }
 
+/** Tokens expiring within this window are treated as short-lived. */
+const SHORT_LIVED_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** True when a debug_token expiry means the token dies soon (0 = never). */
+function expiresSoon(expiresAt: number | null): boolean {
+  return (
+    typeof expiresAt === "number" &&
+    expiresAt > 0 &&
+    expiresAt * 1000 < Date.now() + SHORT_LIVED_WINDOW_MS
+  );
+}
+
+const SHORT_LIVED_TOKEN_ERROR =
+  "This token is temporary and could not be upgraded to a permanent one, so the connection would stop " +
+  "working again soon. This usually means the token was generated under a different Facebook app than " +
+  "the one configured for this workspace. Generate the Page access token under the configured Meta app " +
+  "(or fix the app credentials in the admin panel), then save it again.";
+
 /**
  * Validate a tenant's Facebook Page token + Page ID by reading the Page. The
  * token must resolve to the same Page ID the tenant entered.
@@ -236,6 +267,21 @@ export async function testFacebookCredentials(
       };
     }
     const inspection = await inspectToken(creds.pageAccessToken);
+    // A token issued by a DIFFERENT Meta app than the one configured here can
+    // never be exchanged for a long-lived token, so it will silently expire
+    // within hours no matter how many times it is re-entered. Fail loudly.
+    if (inspection.appId) {
+      const app = await getMetaAppCredentials();
+      if (app && inspection.appId !== app.appId) {
+        return {
+          ok: false,
+          error:
+            "This token was generated under a different Facebook app than the one configured for this workspace, " +
+            "so it cannot be upgraded to a permanent token and will expire within hours. " +
+            "In Graph API Explorer, switch the \"Meta App\" dropdown to the configured app before generating the Page access token, then save it again.",
+        };
+      }
+    }
     if (inspection.missing.length > 0) {
       const missing = inspection.missing;
       return {
@@ -267,6 +313,13 @@ export async function testFacebookCredentials(
             "to get the Page access token, then save that instead.",
         };
       }
+      // If the long-lived upgrade failed, the derived Page token inherits the
+      // short lifetime of the pasted user token and will die within hours.
+      // Reject it with guidance instead of storing a doomed token.
+      const finalInspection = await inspectToken(pageToken);
+      if (expiresSoon(finalInspection.expiresAt)) {
+        return { ok: false, error: SHORT_LIVED_TOKEN_ERROR };
+      }
       return {
         ok: true,
         accountName: json.name || "Facebook Page",
@@ -285,6 +338,11 @@ export async function testFacebookCredentials(
           accountName: json.name || "Facebook Page",
           correctedCredentials: { pageId: creds.pageId, pageAccessToken: longLived },
         };
+      }
+      // The upgrade failed and the token itself expires soon: it would be
+      // silently dead within hours, so reject it with guidance instead.
+      if (expiresSoon(inspection.expiresAt)) {
+        return { ok: false, error: SHORT_LIVED_TOKEN_ERROR };
       }
     }
     return { ok: true, accountName: json.name || "Facebook Page" };
