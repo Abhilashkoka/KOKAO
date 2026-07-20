@@ -459,7 +459,7 @@ describe("DraftDialog Meta", () => {
     expect(payload.campaignGroupId).toBeUndefined();
   });
 
-  it("ad set edit shows budgets but no objective or schedule, and omits objective from the payload", () => {
+  it("ad set edit shows budgets and schedule but no objective, and omits objective from the payload", () => {
     renderDraftDialog(() => {}, "meta", {
       action: "update",
       targetType: "adset",
@@ -471,11 +471,15 @@ describe("DraftDialog Meta", () => {
     expect(screen.getByTestId("input-draft-daily-budget")).toBeTruthy();
     expect(screen.getByTestId("input-draft-lifetime-budget")).toBeTruthy();
     expect(screen.queryByTestId("select-draft-objective")).toBeNull();
-    expect(screen.queryByTestId("input-draft-start")).toBeNull();
-    expect(screen.queryByTestId("input-draft-stop")).toBeNull();
+    // Meta ad sets carry their own schedule (Task: ad set end dates).
+    expect(screen.getByTestId("input-draft-start")).toBeTruthy();
+    expect(screen.getByTestId("input-draft-stop")).toBeTruthy();
 
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
       target: { value: "1500" },
+    });
+    fireEvent.change(screen.getByTestId("input-draft-stop"), {
+      target: { value: "2026-10-31T00:00:00+0000" },
     });
     fireEvent.click(screen.getByTestId("button-submit-draft"));
     const payload = submittedPayload();
@@ -484,6 +488,7 @@ describe("DraftDialog Meta", () => {
     expect(payload.dailyBudget).toBe(1500);
     expect(payload.objective).toBeUndefined();
     expect(payload.startTime).toBeUndefined();
+    expect(payload.stopTime).toBe("2026-10-31T00:00:00+0000");
   });
 });
 

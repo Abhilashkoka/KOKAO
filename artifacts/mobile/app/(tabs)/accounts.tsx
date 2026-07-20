@@ -15,6 +15,7 @@ import {
   useGetThreadsStatus,
   useGetTwitterStatus,
   useGetYoutubeStatus,
+  useListAdConnections,
 } from "@workspace/api-client-react";
 
 import { Badge, Card, Skeleton } from "@/components/ui";
@@ -22,6 +23,14 @@ import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
 
 const c = colors.light;
+
+function adPlatformLabel(platform: string) {
+  if (platform === "meta") return "Meta Ads";
+  if (platform === "linkedin") return "LinkedIn Ads";
+  if (platform === "tiktok") return "TikTok Ads";
+  if (platform === "google") return "Google Ads";
+  return `${platform} Ads`;
+}
 
 type Health = "connected" | "broken" | "disconnected" | "loading";
 
@@ -106,8 +115,9 @@ export default function AccountsScreen() {
   const tw = useGetTwitterStatus();
   const yt = useGetYoutubeStatus();
   const th = useGetThreadsStatus();
+  const ads = useListAdConnections();
 
-  const queries = [fb, ig, li, tw, yt, th];
+  const queries = [fb, ig, li, tw, yt, th, ads];
   const refreshing = queries.some((q) => q.isRefetching);
   const onRefresh = () => queries.forEach((q) => q.refetch());
 
@@ -135,6 +145,10 @@ export default function AccountsScreen() {
     oauthHealth(th),
   ].filter((h) => h === "broken").length;
 
+  const failedAdConnections = (ads.data || []).filter(
+    (conn) => conn.status === "connected" && conn.verifyStatus === "failed",
+  );
+
   return (
     <ScrollView
       style={{ backgroundColor: c.background }}
@@ -158,6 +172,24 @@ export default function AccountsScreen() {
             {brokenCount === 1
               ? "1 connection needs attention. Reconnect it from KOKAO on the web."
               : `${brokenCount} connections need attention. Reconnect them from KOKAO on the web.`}
+          </Text>
+        </View>
+      ) : null}
+
+      {failedAdConnections.length > 0 ? (
+        <View style={styles.alertBanner} testID="banner-ads-connection-failed">
+          <Feather name="alert-circle" size={16} color={c.destructive} />
+          <Text style={styles.alertText}>
+            Ad account connection lost:{" "}
+            {failedAdConnections
+              .map(
+                (conn) =>
+                  `${adPlatformLabel(conn.platform)}${conn.adAccountName ? ` (${conn.adAccountName})` : ""}`,
+              )
+              .join(", ")}{" "}
+            {failedAdConnections.length === 1 ? "has" : "have"} lost access.
+            Scheduled and pending ad changes will fail until you reconnect on the
+            web Ads page.
           </Text>
         </View>
       ) : null}
