@@ -2,11 +2,12 @@ import {
   db,
   memberNotificationPreferencesTable,
   notificationsTable,
+  pushReceiptQueueTable,
   pushTokensTable,
   tenantMembersTable,
   tenantsTable,
 } from "@workspace/db";
-import { and, count, eq, inArray, isNull, lt } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, lt, lte, notInArray, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { getFeatureFlags } from "./featureFlags";
 import { getEffectiveSetting } from "./notificationSettings";
@@ -32,10 +33,10 @@ const RECEIPT_CHECK_DELAY_MS = 15 * 60 * 1000;
  * receipts for about a day, and an unresolved ticket is not evidence of a
  * dead device. */
 const RECEIPT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-/** Cap the in-memory pending-receipt buffer so a burst of sends during an
- * Expo receipts outage cannot grow memory without bound. Oldest entries are
- * dropped first — losing a receipt check is harmless (the token dies on a
- * later send or the unseen-token prune instead). */
+/** Cap the persisted pending-receipt queue so a burst of sends during an
+ * Expo receipts outage cannot grow the table without bound. Oldest entries
+ * are dropped first — losing a receipt check is harmless (the token dies on
+ * a later send or the unseen-token prune instead). */
 const RECEIPT_PENDING_CAP = 10_000;
 
 /** Tokens whose device hasn't re-registered (app launch) within this window
@@ -49,16 +50,10 @@ interface PendingReceipt {
   ticketId: string;
   token: string;
   /** Earliest time this receipt should be fetched. */
-  dueAt: number;
+  dueAt: Date;
   /** When the ticket was issued, for expiry. */
-  createdAt: number;
+  createdAt: Date;
 }
-
-/** In-memory queue of push tickets awaiting a receipt check. Best-effort by
- * design: a process restart loses it, which only means those receipts go
- * unchecked — dead tokens are still caught on the next send or by the
- * unseen-token prune. */
-const pendingReceipts: PendingReceipt[] = [];
 
 export interface PushPayload {
   title: string;
@@ -105,18 +100,52 @@ async function deleteDeadTokens(
   }
 }
 
-/** Queue a ticket id for a later receipt check, evicting the oldest entries
- * when the buffer is full. */
-function queueReceipt(ticketId: string, token: string): void {
-  const now = Date.now();
-  pendingReceipts.push({
-    ticketId,
-    token,
-    dueAt: now + RECEIPT_CHECK_DELAY_MS,
-    createdAt: now,
-  });
-  if (pendingReceipts.length > RECEIPT_PENDING_CAP) {
-    pendingReceipts.splice(0, pendingReceipts.length - RECEIPT_PENDING_CAP);
+/** Persist ticket ids for a later receipt check so pending checks survive a
+ * server restart. Best-effort: an insert failure only means those receipts
+ * go unchecked — dead tokens are still caught on the next send or by the
+ * unseen-token prune. Never throws. */
+async function queueReceipts(
+  entries: Array<{ ticketId: string; token: string }>,
+): Promise<void> {
+  if (entries.length === 0) return;
+  try {
+    const now = Date.now();
+    await db
+      .insert(pushReceiptQueueTable)
+      .values(
+        entries.map((e) => ({
+          ticketId: e.ticketId,
+          token: e.token,
+          dueAt: new Date(now + RECEIPT_CHECK_DELAY_MS),
+          createdAt: new Date(now),
+        })),
+      )
+      .onConflictDoNothing();
+  } catch (err) {
+    logger.error(
+      { err, count: entries.length },
+      "Failed to queue push receipts for checking",
+    );
+  }
+}
+
+/** Drop the oldest queued receipts beyond the cap so a burst of sends during
+ * an Expo receipts outage cannot grow the table without bound. Never
+ * throws. */
+async function enforceReceiptQueueCap(): Promise<void> {
+  try {
+    const keep = db
+      .select({ ticketId: pushReceiptQueueTable.ticketId })
+      .from(pushReceiptQueueTable)
+      .orderBy(
+        sql`${pushReceiptQueueTable.createdAt} DESC, ${pushReceiptQueueTable.ticketId} DESC`,
+      )
+      .limit(RECEIPT_PENDING_CAP);
+    await db
+      .delete(pushReceiptQueueTable)
+      .where(notInArray(pushReceiptQueueTable.ticketId, keep));
+  } catch (err) {
+    logger.error({ err }, "Failed to cap the push receipt queue");
   }
 }
 
@@ -156,6 +185,7 @@ async function sendExpoPushMessages(messages: ExpoPushMessage[]): Promise<void> 
       };
       const tickets = body.data ?? [];
       const deadTokens: string[] = [];
+      const toQueue: Array<{ ticketId: string; token: string }> = [];
       tickets.forEach((ticket, idx) => {
         const token = chunk[idx]?.to;
         if (!token) return;
@@ -165,9 +195,10 @@ async function sendExpoPushMessages(messages: ExpoPushMessage[]): Promise<void> 
         ) {
           deadTokens.push(token);
         } else if (ticket.status === "ok" && ticket.id) {
-          queueReceipt(ticket.id, token);
+          toQueue.push({ ticketId: ticket.id, token });
         }
       });
+      await queueReceipts(toQueue);
       await deleteDeadTokens(deadTokens, "ticket");
     } catch (err) {
       logger.error({ err }, "Failed to send an Expo push chunk");
@@ -186,18 +217,35 @@ async function sendExpoPushMessages(messages: ExpoPushMessage[]): Promise<void> 
  */
 export async function checkDuePushReceipts(): Promise<void> {
   try {
-    const now = Date.now();
-    const due: PendingReceipt[] = [];
-    for (let i = pendingReceipts.length - 1; i >= 0; i--) {
-      const p = pendingReceipts[i];
-      if (now - p.createdAt > RECEIPT_MAX_AGE_MS) {
-        pendingReceipts.splice(i, 1);
-      } else if (p.dueAt <= now) {
-        due.push(p);
-        pendingReceipts.splice(i, 1);
-      }
+    const now = new Date();
+
+    // Drop entries older than Expo's receipt retention window.
+    await db
+      .delete(pushReceiptQueueTable)
+      .where(
+        lt(
+          pushReceiptQueueTable.createdAt,
+          new Date(now.getTime() - RECEIPT_MAX_AGE_MS),
+        ),
+      );
+
+    // Atomically claim due rows by bumping dueAt one check-delay forward:
+    // the same rows can't be claimed twice concurrently, and a crash
+    // mid-check simply retries them on a later pass (until they expire).
+    const due: PendingReceipt[] = await db
+      .update(pushReceiptQueueTable)
+      .set({ dueAt: new Date(now.getTime() + RECEIPT_CHECK_DELAY_MS) })
+      .where(lte(pushReceiptQueueTable.dueAt, now))
+      .returning({
+        ticketId: pushReceiptQueueTable.ticketId,
+        token: pushReceiptQueueTable.token,
+        dueAt: pushReceiptQueueTable.dueAt,
+        createdAt: pushReceiptQueueTable.createdAt,
+      });
+    if (due.length === 0) {
+      await enforceReceiptQueueCap();
+      return;
     }
-    if (due.length === 0) return;
 
     for (let i = 0; i < due.length; i += EXPO_PUSH_CHUNK) {
       const batch = due.slice(i, i + EXPO_PUSH_CHUNK);
@@ -216,8 +264,8 @@ export async function checkDuePushReceipts(): Promise<void> {
             { status: res.status },
             "Expo receipt fetch failed with a non-OK status",
           );
-          // Re-queue so a transient outage doesn't drop the checks.
-          pendingReceipts.push(...batch);
+          // Rows stay queued (dueAt was bumped), so a transient outage
+          // doesn't drop the checks.
           continue;
         }
         const body = (await res.json()) as {
@@ -228,13 +276,15 @@ export async function checkDuePushReceipts(): Promise<void> {
         };
         const receipts = body.data ?? {};
         const deadTokens: string[] = [];
+        const resolvedTicketIds: string[] = [];
         for (const p of batch) {
           const receipt = receipts[p.ticketId];
           if (!receipt) {
-            // Not ready yet — try again on a later pass until it expires.
-            pendingReceipts.push({ ...p, dueAt: Date.now() + RECEIPT_CHECK_DELAY_MS });
+            // Not ready yet — the row remains queued for a later pass
+            // until it expires.
             continue;
           }
+          resolvedTicketIds.push(p.ticketId);
           if (
             receipt.status === "error" &&
             receipt.details?.error === "DeviceNotRegistered"
@@ -242,20 +292,22 @@ export async function checkDuePushReceipts(): Promise<void> {
             deadTokens.push(p.token);
           }
         }
+        if (resolvedTicketIds.length > 0) {
+          await db
+            .delete(pushReceiptQueueTable)
+            .where(inArray(pushReceiptQueueTable.ticketId, resolvedTicketIds));
+        }
         await deleteDeadTokens(deadTokens, "receipt");
       } catch (err) {
         logger.error({ err }, "Failed to fetch an Expo receipt batch");
-        pendingReceipts.push(...batch);
+        // Rows stay queued (dueAt was bumped) for a later retry.
       }
     }
+
+    await enforceReceiptQueueCap();
   } catch (err) {
     logger.error({ err }, "Push receipt check failed");
   }
-}
-
-/** TEST ONLY: inspect/clear the pending receipt queue. */
-export function _getPendingReceiptsForTest(): PendingReceipt[] {
-  return pendingReceipts;
 }
 
 /**

@@ -33,7 +33,13 @@ vi.mock("@clerk/express", async () => {
   };
 });
 
-import { db, pool, pushTokensTable, notificationsTable } from "@workspace/db";
+import {
+  db,
+  pool,
+  pushTokensTable,
+  pushReceiptQueueTable,
+  notificationsTable,
+} from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 import { createTestApp } from "../test/testApp";
 import { resetAuthState, actAs } from "../test/authState";
@@ -43,7 +49,6 @@ import {
   checkDuePushReceipts,
   pruneUnseenPushTokens,
   PUSH_TOKEN_MAX_UNSEEN_MS,
-  _getPendingReceiptsForTest,
 } from "../lib/push";
 import { SOCIAL_CONNECTION_FAILED } from "../lib/notifications";
 
@@ -58,7 +63,9 @@ afterAll(async () => {
 
 beforeEach(async () => {
   resetAuthState();
-  _getPendingReceiptsForTest().length = 0;
+  await db
+    .delete(pushReceiptQueueTable)
+    .where(inArray(pushReceiptQueueTable.token, [TOKEN_A, TOKEN_B]));
   await db
     .delete(pushTokensTable)
     .where(inArray(pushTokensTable.token, [TOKEN_A, TOKEN_B]));
@@ -66,10 +73,20 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await db
+    .delete(pushReceiptQueueTable)
+    .where(inArray(pushReceiptQueueTable.token, [TOKEN_A, TOKEN_B]));
+  await db
     .delete(pushTokensTable)
     .where(inArray(pushTokensTable.token, [TOKEN_A, TOKEN_B]));
   vi.restoreAllMocks();
 });
+
+async function pendingReceiptsInDb() {
+  return db
+    .select()
+    .from(pushReceiptQueueTable)
+    .where(inArray(pushReceiptQueueTable.token, [TOKEN_A, TOKEN_B]));
+}
 
 describe("POST /push-tokens", () => {
   it("registers a token for the signed-in user and is idempotent", async () => {
@@ -369,11 +386,11 @@ describe("sendTenantPush", () => {
         message: "Queued for receipt",
       });
 
-      const pending = _getPendingReceiptsForTest();
+      const pending = await pendingReceiptsInDb();
       expect(pending).toHaveLength(1);
       expect(pending[0].ticketId).toBe("ticket-1");
       expect(pending[0].token).toBe(TOKEN_A);
-      expect(pending[0].dueAt).toBeGreaterThan(Date.now());
+      expect(pending[0].dueAt.getTime()).toBeGreaterThan(Date.now());
     } finally {
       await deleteTenant(tenant.tenantId);
     }
@@ -414,11 +431,11 @@ describe("checkDuePushReceipts", () => {
       });
 
       const now = Date.now();
-      _getPendingReceiptsForTest().push({
+      await db.insert(pushReceiptQueueTable).values({
         ticketId: "ticket-dead",
         token: TOKEN_A,
-        dueAt: now - 1000,
-        createdAt: now - 2000,
+        dueAt: new Date(now - 1000),
+        createdAt: new Date(now - 2000),
       });
 
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -447,7 +464,7 @@ describe("checkDuePushReceipts", () => {
         .from(pushTokensTable)
         .where(eq(pushTokensTable.token, TOKEN_A));
       expect(rows).toHaveLength(0);
-      expect(_getPendingReceiptsForTest()).toHaveLength(0);
+      expect(await pendingReceiptsInDb()).toHaveLength(0);
     } finally {
       await deleteTenant(tenant.tenantId);
     }
@@ -463,26 +480,26 @@ describe("checkDuePushReceipts", () => {
       });
 
       const now = Date.now();
-      _getPendingReceiptsForTest().push(
+      await db.insert(pushReceiptQueueTable).values([
         {
           ticketId: "ticket-ok",
           token: TOKEN_A,
-          dueAt: now - 1000,
-          createdAt: now - 2000,
+          dueAt: new Date(now - 1000),
+          createdAt: new Date(now - 2000),
         },
         {
           ticketId: "ticket-missing",
           token: TOKEN_B,
-          dueAt: now - 1000,
-          createdAt: now - 2000,
+          dueAt: new Date(now - 1000),
+          createdAt: new Date(now - 2000),
         },
         {
           ticketId: "ticket-not-due",
           token: TOKEN_B,
-          dueAt: now + 60_000,
-          createdAt: now,
+          dueAt: new Date(now + 60_000),
+          createdAt: new Date(now),
         },
-      );
+      ]);
 
       vi.spyOn(globalThis, "fetch").mockResolvedValue(
         new Response(
@@ -499,7 +516,7 @@ describe("checkDuePushReceipts", () => {
         .where(eq(pushTokensTable.token, TOKEN_A));
       expect(rows).toHaveLength(1);
 
-      const pendingIds = _getPendingReceiptsForTest()
+      const pendingIds = (await pendingReceiptsInDb())
         .map((p) => p.ticketId)
         .sort();
       expect(pendingIds).toEqual(["ticket-missing", "ticket-not-due"]);
@@ -510,26 +527,26 @@ describe("checkDuePushReceipts", () => {
 
   it("re-queues the batch when the receipt fetch fails, and drops expired entries", async () => {
     const now = Date.now();
-    _getPendingReceiptsForTest().push(
+    await db.insert(pushReceiptQueueTable).values([
       {
         ticketId: "ticket-retry",
         token: TOKEN_A,
-        dueAt: now - 1000,
-        createdAt: now - 2000,
+        dueAt: new Date(now - 1000),
+        createdAt: new Date(now - 2000),
       },
       {
         ticketId: "ticket-expired",
         token: TOKEN_B,
-        dueAt: now - 1000,
-        createdAt: now - 25 * 60 * 60 * 1000,
+        dueAt: new Date(now - 1000),
+        createdAt: new Date(now - 25 * 60 * 60 * 1000),
       },
-    );
+    ]);
 
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network down"));
 
     await expect(checkDuePushReceipts()).resolves.toBeUndefined();
 
-    const pendingIds = _getPendingReceiptsForTest().map((p) => p.ticketId);
+    const pendingIds = (await pendingReceiptsInDb()).map((p) => p.ticketId);
     expect(pendingIds).toEqual(["ticket-retry"]);
   });
 });

@@ -45,3 +45,26 @@ export const pushTokensTable = pgTable(
 );
 
 export type PushToken = typeof pushTokensTable.$inferSelect;
+
+/**
+ * Push tickets awaiting an Expo receipt check, persisted so pending checks
+ * survive a server restart. The push maintenance loop claims due rows
+ * (bumping dueAt forward so a crash mid-check just retries later), deletes
+ * rows once their receipt resolves, and drops entries older than the
+ * receipt retention window (~24h) — an unresolved ticket is not evidence
+ * of a dead device.
+ */
+export const pushReceiptQueueTable = pgTable("push_receipt_queue", {
+  // Expo push ticket id — globally unique, natural primary key.
+  ticketId: text("ticket_id").primaryKey(),
+  // The device token the ticket was issued for.
+  token: text("token").notNull(),
+  // Earliest time this receipt should be fetched.
+  dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+  // When the ticket was issued, for expiry.
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type PushReceiptQueueRow = typeof pushReceiptQueueTable.$inferSelect;
