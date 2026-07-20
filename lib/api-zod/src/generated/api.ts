@@ -6172,6 +6172,8 @@ export const GetAdCampaignDetailResponse = zod.object({
   "status": zod.string(),
   "effectiveStatus": zod.string(),
   "adSetId": zod.string().nullish(),
+  "text": zod.string().nullish().describe('Ad copy resolved from the creative\'s backing post, when available.'),
+  "imageUrl": zod.string().nullish().describe('Thumbnail URL of the creative\'s image, when available.'),
   "metrics": zod.object({
   "impressions": zod.number(),
   "clicks": zod.number(),

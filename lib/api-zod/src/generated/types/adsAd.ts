@@ -14,5 +14,15 @@ export interface AdsAd {
   effectiveStatus: string;
   /** @nullable */
   adSetId?: string | null;
+  /**
+     * Ad copy resolved from the creative's backing post, when available.
+     * @nullable
+     */
+  text?: string | null;
+  /**
+     * Thumbnail URL of the creative's image, when available.
+     * @nullable
+     */
+  imageUrl?: string | null;
   metrics: AdsMetrics;
 }

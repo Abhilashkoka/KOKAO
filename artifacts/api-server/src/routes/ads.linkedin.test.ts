@@ -65,6 +65,7 @@ vi.mock("../lib/linkedinAdsApi", async (importOriginal) => {
     createLinkedinAdPost: vi.fn(),
     createLinkedinCreative: vi.fn(),
     listLinkedinCreatives: vi.fn(),
+    readLinkedinPostPreview: vi.fn(),
     searchLinkedinGeoLocations: vi.fn(),
   };
 });
@@ -98,6 +99,7 @@ import {
   createLinkedinAdPost,
   createLinkedinCreative,
   listLinkedinCreatives,
+  readLinkedinPostPreview,
   searchLinkedinGeoLocations,
   LinkedinAdsApiError,
 } from "../lib/linkedinAdsApi";
@@ -127,6 +129,7 @@ const mockUploadImage = vi.mocked(uploadLinkedinAdImage);
 const mockCreatePost = vi.mocked(createLinkedinAdPost);
 const mockCreateCreative = vi.mocked(createLinkedinCreative);
 const mockListCreatives = vi.mocked(listLinkedinCreatives);
+const mockReadPostPreview = vi.mocked(readLinkedinPostPreview);
 const mockGeoSearch = vi.mocked(searchLinkedinGeoLocations);
 const mockPlatformFetch = vi.mocked(platformFetch);
 
@@ -993,16 +996,42 @@ describe("LinkedIn creative drafts", () => {
         metrics: undefined,
       } as never);
       mockListCreatives.mockResolvedValue([
-        { id: "urn:li:sponsoredCreative:777", status: "PAUSED", reviewStatus: "PENDING" } as never,
+        {
+          id: "urn:li:sponsoredCreative:777",
+          status: "PAUSED",
+          reviewStatus: "PENDING",
+          postUrn: "urn:li:ugcPost:111",
+        } as never,
+        {
+          id: "urn:li:sponsoredCreative:888",
+          status: "ACTIVE",
+          reviewStatus: null,
+          postUrn: null,
+        } as never,
       ]);
+      mockReadPostPreview.mockResolvedValue({
+        text: "Fresh roasted beans, delivered.",
+        imageUrl: "https://media.licdn.example/img.jpg",
+      });
       actAs(tenant.clerkUserId);
       const res = await request(app)
         .get("/api/ads/campaign-detail")
         .query({ connectionId, campaignId: "cmp_1" });
       expect(res.status).toBe(200);
-      expect(res.body.ads).toHaveLength(1);
+      expect(res.body.ads).toHaveLength(2);
       expect(res.body.ads[0].id).toBe("urn:li:sponsoredCreative:777");
       expect(res.body.ads[0].status).toBe("PAUSED");
+      expect(res.body.ads[0].text).toBe("Fresh roasted beans, delivered.");
+      expect(res.body.ads[0].imageUrl).toBe("https://media.licdn.example/img.jpg");
+      // Creative without a resolvable post falls back to nulls.
+      expect(res.body.ads[1].text).toBeNull();
+      expect(res.body.ads[1].imageUrl).toBeNull();
+      // Only the creative with a post URN triggered a post read.
+      expect(mockReadPostPreview).toHaveBeenCalledTimes(1);
+      expect(mockReadPostPreview).toHaveBeenCalledWith(
+        expect.any(String),
+        "urn:li:ugcPost:111",
+      );
     } finally {
       await deleteTenant(tenant.tenantId);
     }

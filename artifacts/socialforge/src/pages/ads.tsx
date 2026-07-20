@@ -1722,7 +1722,29 @@ function CampaignDetailDialog({
                   <TableBody>
                     {data.ads.map((a) => (
                       <TableRow key={a.id} data-testid={`row-ad-${a.id}`}>
-                        <TableCell className="font-medium">{a.name}</TableCell>
+                        <TableCell className="font-medium">
+                          <div className="flex items-start gap-3">
+                            {a.imageUrl && (
+                              <img
+                                src={a.imageUrl}
+                                alt="Ad creative"
+                                className="h-12 w-12 rounded object-cover shrink-0"
+                                data-testid={`img-ad-preview-${a.id}`}
+                              />
+                            )}
+                            <div className="min-w-0">
+                              <div>{a.name}</div>
+                              {a.text && (
+                                <p
+                                  className="text-xs text-muted-foreground font-normal line-clamp-2 max-w-xs whitespace-pre-line"
+                                  data-testid={`text-ad-copy-${a.id}`}
+                                >
+                                  {a.text}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </TableCell>
                         <TableCell>{statusBadge(a.effectiveStatus)}</TableCell>
                         <TableCell className="text-right">
                           {a.metrics.impressions.toLocaleString()}

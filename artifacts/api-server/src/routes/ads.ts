@@ -61,6 +61,7 @@ import {
   getLinkedinCampaign,
   getLinkedinAnalytics,
   listLinkedinCreatives,
+  readLinkedinPostPreview,
   searchLinkedinGeoLocations,
   type LinkedinAdsCredentials,
 } from "../lib/linkedinAdsApi";
@@ -1494,18 +1495,39 @@ router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
         listLinkedinCreatives(ct.token, ct.conn.adAccountId, campaignId),
         getLinkedinAnalytics(ct.token, ct.conn.adAccountId, "CAMPAIGN", datePreset),
       ]);
+      // Resolve each creative's backing dark post to its ad copy and image
+      // (best-effort — readLinkedinPostPreview never throws). Dedupe URNs so
+      // shared posts are only fetched once.
+      const postUrns = [
+        ...new Set(
+          creatives.map((c) => c.postUrn).filter((u): u is string => !!u),
+        ),
+      ];
+      const previews = new Map(
+        await Promise.all(
+          postUrns.map(
+            async (urn) =>
+              [urn, await readLinkedinPostPreview(ct.token, urn)] as const,
+          ),
+        ),
+      );
       res.json({
         currency: ct.conn.currency ?? null,
         campaign: { ...campaign, metrics: metrics.get(campaign.id) ?? EMPTY_INSIGHTS },
         adSets: [],
-        ads: creatives.map((c) => ({
-          id: c.id,
-          name: c.reviewStatus ? `Creative ${c.id} (review: ${c.reviewStatus})` : `Creative ${c.id}`,
-          status: c.status,
-          effectiveStatus: c.status,
-          adSetId: null,
-          metrics: EMPTY_INSIGHTS,
-        })),
+        ads: creatives.map((c) => {
+          const preview = c.postUrn ? previews.get(c.postUrn) : undefined;
+          return {
+            id: c.id,
+            name: c.reviewStatus ? `Creative ${c.id} (review: ${c.reviewStatus})` : `Creative ${c.id}`,
+            status: c.status,
+            effectiveStatus: c.status,
+            adSetId: null,
+            text: preview?.text ?? null,
+            imageUrl: preview?.imageUrl ?? null,
+            metrics: EMPTY_INSIGHTS,
+          };
+        }),
       });
       return;
     }

@@ -912,6 +912,54 @@ export async function readLinkedinCreativeState(
   };
 }
 
+export interface LinkedinPostPreview {
+  text: string | null;
+  imageUrl: string | null;
+}
+
+interface RawPost {
+  commentary?: string;
+  content?: { media?: { id?: string } };
+}
+
+interface RawImage {
+  downloadUrl?: string;
+}
+
+/**
+ * Resolve a creative's backing dark post (ugcPost/share) into displayable
+ * ad copy and an image thumbnail URL. Best-effort: any failure returns
+ * nulls so a listing never breaks because one post can't be read.
+ */
+export async function readLinkedinPostPreview(
+  token: string,
+  postUrn: string,
+): Promise<LinkedinPostPreview> {
+  try {
+    const post = await restGet<RawPost>(
+      `posts/${encodeURIComponent(postUrn)}`,
+      token,
+    );
+    const text = post.commentary?.trim() || null;
+    let imageUrl: string | null = null;
+    const mediaUrn = post.content?.media?.id;
+    if (mediaUrn && mediaUrn.startsWith("urn:li:image:")) {
+      try {
+        const img = await restGet<RawImage>(
+          `images/${encodeURIComponent(mediaUrn)}`,
+          token,
+        );
+        imageUrl = img.downloadUrl ?? null;
+      } catch {
+        // Image resolution is best-effort; keep the text.
+      }
+    }
+    return { text, imageUrl };
+  } catch {
+    return { text: null, imageUrl: null };
+  }
+}
+
 /** List the creatives attached to a campaign. */
 export async function listLinkedinCreatives(
   token: string,
