@@ -387,7 +387,7 @@ describe("DraftDialog TikTok", () => {
     expect(payload.campaignGroupId).toBeUndefined();
   });
 
-  it("ad group edit shows budgets, hides schedule, and submits the budget", () => {
+  it("ad group edit shows budgets and schedule and submits them", () => {
     renderDraftDialog(() => {}, "tiktok", {
       action: "update",
       targetType: "adset",
@@ -397,10 +397,10 @@ describe("DraftDialog TikTok", () => {
       dailyBudget: "999",
     });
 
-    expect(screen.queryByTestId("input-draft-daily-budget")).not.toBeNull();
-    expect(screen.queryByTestId("input-draft-lifetime-budget")).not.toBeNull();
-    expect(screen.queryByTestId("input-draft-start")).toBeNull();
-    expect(screen.queryByTestId("input-draft-stop")).toBeNull();
+    expect(screen.getByTestId("input-draft-daily-budget")).toBeTruthy();
+    expect(screen.getByTestId("input-draft-lifetime-budget")).toBeTruthy();
+    expect(screen.getByTestId("input-draft-start")).toBeTruthy();
+    expect(screen.getByTestId("input-draft-stop")).toBeTruthy();
 
     fireEvent.change(screen.getByTestId("input-draft-name"), {
       target: { value: "TT group renamed" },
@@ -408,13 +408,34 @@ describe("DraftDialog TikTok", () => {
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
       target: { value: "2500" },
     });
+    fireEvent.change(screen.getByTestId("input-draft-start"), {
+      target: { value: "2026-08-01 00:00:00" },
+    });
+    fireEvent.change(screen.getByTestId("input-draft-stop"), {
+      target: { value: "2026-08-31 00:00:00" },
+    });
     fireEvent.click(screen.getByTestId("button-submit-draft"));
     const payload = submittedPayload();
     expect(payload.targetType).toBe("adset");
     expect(payload.name).toBe("TT group renamed");
     expect(payload.dailyBudget).toBe(2500);
-    expect(payload.startTime).toBeUndefined();
-    expect(payload.stopTime).toBeUndefined();
+    expect(payload.startTime).toBe("2026-08-01 00:00:00");
+    expect(payload.stopTime).toBe("2026-08-31 00:00:00");
+  });
+
+  it("ad edit hides budgets and schedule", () => {
+    renderDraftDialog(() => {}, "tiktok", {
+      action: "update",
+      targetType: "ad",
+      targetId: "ad_tt",
+      currentName: "TT ad",
+      name: "TT ad",
+    });
+
+    expect(screen.queryByTestId("input-draft-daily-budget")).toBeNull();
+    expect(screen.queryByTestId("input-draft-lifetime-budget")).toBeNull();
+    expect(screen.queryByTestId("input-draft-start")).toBeNull();
+    expect(screen.queryByTestId("input-draft-stop")).toBeNull();
   });
 });
 

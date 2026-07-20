@@ -2087,15 +2087,15 @@ export function DraftDialog({
           ? "campaign group"
           : "campaign";
   const showBudgets =
-    state.targetType === "campaign" ||
-    isGroupCreate ||
-    state.targetType === "adset";
+    state.targetType === "campaign" || isGroupCreate || state.targetType === "adset";
   const showDailyBudget = showBudgets && !isGroupCreate;
-  // Meta ad sets carry their own schedule (end_time); other platforms'
-  // ad-set-level objects stay name/status/budget only.
-  const showSchedule =
-    state.targetType === "campaign" ||
-    (state.targetType === "adset" && platform === "meta");
+  // TikTok schedules live on ad groups, not campaigns. Meta ad sets carry
+  // their own schedule (end_time) alongside the campaign-level one; other
+  // platforms' ad-set-level objects stay name/status/budget only.
+  const showSchedule = isTiktok
+    ? state.targetType === "adset"
+    : state.targetType === "campaign" ||
+      (state.targetType === "adset" && platform === "meta");
   // Google ad groups have no budget; the money knob there is the default
   // max CPC bid (still sent as dailyBudget in minor units). Google ads can
   // only be paused/activated — renaming is not supported.
@@ -2136,8 +2136,8 @@ export function DraftDialog({
     if (showBudgets && state.lifetimeBudget) {
       data.lifetimeBudget = Number(state.lifetimeBudget);
     }
-    if (!isTiktok && showSchedule && state.startTime) data.startTime = state.startTime;
-    if (!isTiktok && showSchedule && state.stopTime) data.stopTime = state.stopTime;
+    if (showSchedule && state.startTime) data.startTime = state.startTime;
+    if (showSchedule && state.stopTime) data.stopTime = state.stopTime;
 
     createDraft.mutate(
       { data: data as never },
@@ -2351,23 +2351,31 @@ export function DraftDialog({
               )}
             </div>
           )}
-          {!isTiktok && showSchedule && (
+          {showSchedule && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="draft-start">Start (ISO time, optional)</Label>
+                <Label htmlFor="draft-start">
+                  {isTiktok ? "Start (optional)" : "Start (ISO time, optional)"}
+                </Label>
                 <Input
                   id="draft-start"
-                  placeholder="2026-08-01T00:00:00+0000"
+                  placeholder={
+                    isTiktok ? "2026-08-01 00:00:00" : "2026-08-01T00:00:00+0000"
+                  }
                   value={state.startTime}
                   onChange={(e) => setState({ ...state, startTime: e.target.value })}
                   data-testid="input-draft-start"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="draft-stop">End (ISO time, optional)</Label>
+                <Label htmlFor="draft-stop">
+                  {isTiktok ? "End (optional)" : "End (ISO time, optional)"}
+                </Label>
                 <Input
                   id="draft-stop"
-                  placeholder="2026-08-31T00:00:00+0000"
+                  placeholder={
+                    isTiktok ? "2026-08-31 00:00:00" : "2026-08-31T00:00:00+0000"
+                  }
                   value={state.stopTime}
                   onChange={(e) => setState({ ...state, stopTime: e.target.value })}
                   data-testid="input-draft-stop"

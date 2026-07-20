@@ -514,6 +514,8 @@ const tiktokOps: PlatformOps = {
           status,
           dailyBudget: params.dailyBudget ?? undefined,
           lifetimeBudget: params.lifetimeBudget ?? undefined,
+          startTime: params.startTime ?? undefined,
+          stopTime: params.stopTime ?? undefined,
         });
         return;
       }

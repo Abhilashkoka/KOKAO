@@ -331,6 +331,8 @@ export interface TiktokAdGroup {
   effectiveStatus: string;
   dailyBudget: number | null;
   lifetimeBudget: number | null;
+  startTime: string | null;
+  stopTime: string | null;
 }
 
 interface RawTiktokAdGroup {
@@ -340,6 +342,9 @@ interface RawTiktokAdGroup {
   secondary_status?: string;
   budget?: number | string;
   budget_mode?: string;
+  schedule_type?: string;
+  schedule_start_time?: string;
+  schedule_end_time?: string;
 }
 
 function mapAdGroup(g: RawTiktokAdGroup): TiktokAdGroup {
@@ -351,6 +356,11 @@ function mapAdGroup(g: RawTiktokAdGroup): TiktokAdGroup {
     effectiveStatus: g.secondary_status ?? mapOperationStatus(g.operation_status),
     dailyBudget: g.budget_mode === "BUDGET_MODE_DAY" ? minor : null,
     lifetimeBudget: g.budget_mode === "BUDGET_MODE_TOTAL" ? minor : null,
+    startTime: g.schedule_start_time || null,
+    // SCHEDULE_FROM_NOW ad groups have no meaningful end; TikTok may echo a
+    // far-future placeholder, so only surface the end for START_END schedules.
+    stopTime:
+      g.schedule_type === "SCHEDULE_START_END" ? g.schedule_end_time || null : null,
   };
 }
 
@@ -670,13 +680,35 @@ export interface TiktokUpdateAdGroupParams {
   status?: "ACTIVE" | "PAUSED";
   dailyBudget?: number | null;
   lifetimeBudget?: number | null;
+  startTime?: string | null;
+  stopTime?: string | null;
 }
 
 /**
- * Update an ad group in place (name, status, budget). Name/budget go through
- * adgroup/update/; the pause/resume flip uses adgroup/status/update/. Budgets
- * are stored in minor units internally but TikTok expects major units
- * (budget_mode + budget), like campaigns.
+ * Normalize a caller-supplied time into TikTok's "YYYY-MM-DD HH:MM:SS"
+ * format (interpreted in the advertiser's timezone). Accepts that format
+ * as-is, or an ISO-ish string, which has its "T" separator replaced and any
+ * fractional seconds / timezone suffix dropped.
+ */
+export function toTiktokTime(value: string): string {
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(trimmed)) return trimmed;
+  const m = trimmed.match(
+    /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::(\d{2}))?/,
+  );
+  if (!m) {
+    throw new TiktokAdsApiError(
+      `Could not understand the time "${value}". Use the format 2026-08-01 00:00:00.`,
+      400,
+      -1,
+    );
+  }
+  return `${m[1]} ${m[2]}:${m[3] ?? "00"}`;
+}
+
+/**
+ * Update an ad group in place (name/budgets/schedule). Field edits go
+ * through adgroup/update/; the pause/resume flip uses adgroup/status/update/.
  */
 export async function updateAdGroup(
   token: string,
@@ -700,6 +732,17 @@ export async function updateAdGroup(
   } else if (params.lifetimeBudget != null) {
     body.budget_mode = "BUDGET_MODE_TOTAL";
     body.budget = toMajor(params.lifetimeBudget);
+    hasFieldUpdate = true;
+  }
+  if (params.startTime != null) {
+    if (params.stopTime != null) {
+      body.schedule_type = "SCHEDULE_START_END";
+      body.schedule_start_time = toTiktokTime(params.startTime);
+      body.schedule_end_time = toTiktokTime(params.stopTime);
+    } else {
+      body.schedule_type = "SCHEDULE_FROM_NOW";
+      body.schedule_start_time = toTiktokTime(params.startTime);
+    }
     hasFieldUpdate = true;
   }
   if (hasFieldUpdate) {
@@ -773,10 +816,8 @@ export async function readAdGroupState(
     status: g.status,
     dailyBudget: g.dailyBudget,
     lifetimeBudget: g.lifetimeBudget,
-    // Ad group schedule editing is not supported yet; keep the snapshot
-    // schedule-free so drafts never expire on schedule drift we don't manage.
-    startTime: null,
-    stopTime: null,
+    startTime: g.startTime,
+    stopTime: g.stopTime,
   };
 }
 

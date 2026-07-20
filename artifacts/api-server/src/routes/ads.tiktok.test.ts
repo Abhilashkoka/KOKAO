@@ -270,7 +270,7 @@ describe("tiktok draft rules", () => {
     }
   });
 
-  it("accepts a budget change draft on a TikTok ad group with a diff", async () => {
+  it("accepts budget changes on TikTok ad groups with a diff", async () => {
     const tenant = await createTenant();
     try {
       const connectionId = await insertTiktokConnection(tenant.tenantId);
@@ -295,6 +295,70 @@ describe("tiktok draft rules", () => {
     }
   });
 
+  it("accepts schedule fields on TikTok ad groups, normalized to TikTok time", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "adset",
+        targetId: "ag_1",
+        status: undefined,
+        dailyBudget: undefined,
+        startTime: "2026-08-01T00:00:00",
+        stopTime: "2026-08-31 12:30:00",
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.changes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field: "Start time",
+            after: "2026-08-01 00:00:00",
+          }),
+          expect.objectContaining({
+            field: "End time",
+            after: "2026-08-31 12:30:00",
+          }),
+        ]),
+      );
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects an ad group end time without a start time", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "adset",
+        targetId: "ag_1",
+        dailyBudget: undefined,
+        stopTime: "2026-08-31 12:30:00",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/start time/i);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects an unparseable ad group schedule time", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "adset",
+        targetId: "ag_1",
+        dailyBudget: undefined,
+        startTime: "next tuesday",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/2026-08-01 00:00:00/);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("still rejects budget changes on TikTok ads", async () => {
     const tenant = await createTenant();
     try {
@@ -306,23 +370,6 @@ describe("tiktok draft rules", () => {
       });
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/name and status/i);
-    } finally {
-      await deleteTenant(tenant.tenantId);
-    }
-  });
-
-  it("rejects schedule fields on TikTok ad groups", async () => {
-    const tenant = await createTenant();
-    try {
-      const connectionId = await insertTiktokConnection(tenant.tenantId);
-      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
-        targetType: "adset",
-        targetId: "ag_1",
-        dailyBudget: undefined,
-        startTime: "2026-08-01T00:00:00+0000",
-      });
-      expect(res.status).toBe(400);
-      expect(res.body.error).toMatch(/schedule/i);
     } finally {
       await deleteTenant(tenant.tenantId);
     }

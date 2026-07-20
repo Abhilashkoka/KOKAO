@@ -105,6 +105,7 @@ import {
   listAdGroups as listTiktokAdGroups,
   listAdsForCampaign as listTiktokAds,
   getInsightsByLevel as getTiktokInsightsByLevel,
+  toTiktokTime,
   EMPTY_TIKTOK_INSIGHTS,
   type TiktokAdsCredentials,
 } from "../lib/tiktokAdsApi";
@@ -2008,19 +2009,38 @@ router.post(
       return;
     }
     if (conn.platform === "tiktok") {
-      // TikTok campaigns carry no schedule (dates live on ad groups), and
-      // schedule editing isn't wired up for TikTok yet at any level.
-      if (input.startTime != null || input.stopTime != null) {
+      // TikTok campaigns carry no schedule — start/end dates live on ad
+      // groups, where schedule edits ARE supported.
+      if (
+        input.targetType === "campaign" &&
+        (input.startTime != null || input.stopTime != null)
+      ) {
         res.status(400).json({
           error:
-            input.targetType === "campaign"
-              ? "TikTok campaigns do not have a schedule — start and end dates are set on ad groups."
-              : "TikTok schedule changes are not supported yet — only name and status.",
+            "TikTok campaigns do not have a schedule — start and end dates are set on ad groups.",
         });
         return;
       }
-      // Ad group budgets are editable (like Meta ad sets); ad-level budgets
-      // are rejected by the generic ad rule below.
+      if (input.targetType === "adset") {
+        if (input.stopTime != null && input.startTime == null) {
+          res.status(400).json({
+            error:
+              "TikTok needs a start time to set an end time on an ad group. Set both, or only the start.",
+          });
+          return;
+        }
+        // Normalize to TikTok's own time format up front so the stored
+        // payload matches the read-back verify exactly.
+        try {
+          if (input.startTime != null) input.startTime = toTiktokTime(input.startTime);
+          if (input.stopTime != null) input.stopTime = toTiktokTime(input.stopTime);
+        } catch (err) {
+          res.status(400).json({
+            error: err instanceof Error ? err.message : "Invalid schedule time.",
+          });
+          return;
+        }
+      }
     }
 
     if (conn.platform === "google" && input.lifetimeBudget != null) {
@@ -2049,15 +2069,17 @@ router.post(
       });
       return;
     }
-    // Ad set schedule edits are supported on Meta only (mapped to the ad
-    // set's end_time/start_time fields); other platforms still reject them.
+    // Ad set schedule edits are supported on Meta (mapped to the ad set's
+    // end_time/start_time fields) and TikTok (ad group schedule);
+    // other platforms still reject them.
     if (
       input.targetType === "adset" &&
       conn.platform !== "meta" &&
+      conn.platform !== "tiktok" &&
       (input.startTime != null || input.stopTime != null)
     ) {
       res.status(400).json({
-        error: "Ad set schedule changes are only supported on Meta — other platforms allow name, status, and budgets only.",
+        error: "Ad set schedule changes are only supported on Meta and TikTok — other platforms allow name, status, and budgets only.",
       });
       return;
     }
