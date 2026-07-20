@@ -23,8 +23,10 @@ const DEFAULT_STATE = {
   campaigns: {},
   // Keyed by numeric id: { id, intendedStatus, campaign (urn), content: { reference } }
   creatives: {},
-  // Keyed by post urn: { commentary }
+  // Keyed by post urn: { commentary, content? } ; missing URN → 404.
   posts: {},
+  // Keyed by image URN → { downloadUrl }.
+  images: {},
 };
 
 let state;
@@ -50,12 +52,32 @@ const server = http.createServer(async (req, res) => {
   try {
     body = raw ? JSON.parse(raw) : {};
   } catch {}
-  const path = url.pathname.replace(/^\/+/, "");
+  const path = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
 
   const send = (obj, status = 200, headers = {}) => {
     res.writeHead(status, { "content-type": "application/json", ...headers });
     res.end(JSON.stringify(obj));
   };
+
+  // A tiny 1x1 PNG the browser can render as an ad thumbnail.
+  if (req.method === "GET" && path === "mock-image.png") {
+    record({ method: "GET", path, kind: "image_download" });
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    res.writeHead(200, { "content-type": "image/png" });
+    return res.end(png);
+  }
+
+  // Image read (thumbnail URL resolution)
+  const im = path.match(/^images\/(urn:.+)$/);
+  if (req.method === "GET" && im) {
+    const img = (state.images ?? {})[im[1]];
+    record({ method: "GET", path, kind: "read_image", found: !!img });
+    if (!img) return send({ message: "Unknown image" }, 404);
+    return send(img);
+  }
 
   // Targeting typeahead (facet-scoped)
   if (req.method === "GET" && path === "adTargetingEntities") {
@@ -274,7 +296,7 @@ const server = http.createServer(async (req, res) => {
     record({ method: "GET", path, kind: "read_post", urn });
     const p = posts[urn];
     if (!p) return send({ message: "Unknown post" }, 404);
-    return send({ commentary: p.commentary, content: {} });
+    return send({ commentary: p.commentary, content: p.content ?? {} });
   }
 
   record({ method: req.method, path, kind: "unknown" });
