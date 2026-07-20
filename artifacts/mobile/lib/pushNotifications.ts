@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import { useAuth } from "@clerk/expo";
+import { router, type Href } from "expo-router";
 import {
   useListFeatureFlags,
   getListFeatureFlagsQueryKey,
@@ -86,10 +87,105 @@ export function usePushRegistration() {
 }
 
 /**
- * Renderless mount point for push registration; lives inside both the Clerk
- * and QueryClient providers in the root layout.
+ * Map a push payload's `data` (server-set web linkUrl + notification type)
+ * to a mobile route. The server's linkUrl values are WEB paths, so only the
+ * ones with a mobile counterpart deep-link there; everything else lands on
+ * the in-app notifications screen, which always shows the item itself.
+ */
+export function resolveNotificationRoute(data: unknown): Href {
+  const d = (data ?? {}) as { url?: unknown; type?: unknown };
+  const url = typeof d.url === "string" ? d.url : "";
+  if (url === "/library" || url.startsWith("/library?")) {
+    return "/(tabs)/library";
+  }
+  if (url === "/accounts" || url.startsWith("/accounts?")) {
+    return "/(tabs)/accounts";
+  }
+  // /settings, /admin, /ads and anything unknown have no mobile screen —
+  // the notifications feed is the actionable fallback for all of them.
+  return "/notifications";
+}
+
+/**
+ * Navigates when the user taps a push notification. Handles both warm taps
+ * (app backgrounded — response listener) and cold starts (app killed —
+ * getLastNotificationResponseAsync), deduping by response identifier +
+ * timestamp so the cold-start read never double-fires after the listener
+ * already handled it. Only navigates while signed in; the tabs layout's
+ * auth redirect owns the signed-out case. Best-effort like registration —
+ * a missing native module (Expo Go, web) just means taps don't deep-link.
+ */
+export function useNotificationTapNavigation() {
+  const { isSignedIn } = useAuth();
+  const handledKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (Platform.OS === "web" || !isSignedIn) return;
+
+    let cancelled = false;
+    let subscription: { remove: () => void } | null = null;
+
+    type ResponseView = {
+      notification?: {
+        date?: number;
+        request?: { identifier?: string; content?: { data?: unknown } };
+      };
+    };
+
+    const handle = (response: ResponseView | null) => {
+      if (cancelled || !response?.notification) return;
+      const { date, request } = response.notification;
+      const key = `${request?.identifier ?? "?"}:${date ?? "?"}`;
+      if (handledKey.current === key) return;
+      handledKey.current = key;
+      try {
+        router.push(resolveNotificationRoute(request?.content?.data));
+      } catch {
+        // Navigation not ready or route missing — leave the user where they are.
+      }
+    };
+
+    (async () => {
+      try {
+        const Notifications = await import("expo-notifications");
+        if (cancelled) return;
+        subscription = Notifications.addNotificationResponseReceivedListener(
+          (response) => handle(response as unknown as ResponseView),
+        );
+        // Cold start: the tap that launched the app fired before the
+        // listener existed, so read it back explicitly. Clear it once
+        // consumed — the OS persists the "last response" across launches,
+        // so without the clear a later normal launch would replay the old
+        // tap and yank the user to the wrong screen.
+        const last = await Notifications.getLastNotificationResponseAsync();
+        if (last) {
+          handle(last as unknown as ResponseView);
+          try {
+            await Notifications.clearLastNotificationResponseAsync?.();
+          } catch {
+            // Older SDKs without the clear API fall back to the in-memory
+            // dedupe key, which at least prevents replay within a session.
+          }
+        }
+      } catch {
+        // Best-effort: no native notifications module in this environment.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      subscription?.remove();
+    };
+  }, [isSignedIn]);
+}
+
+/**
+ * Renderless mount point for push registration and notification-tap
+ * navigation; lives inside both the Clerk and QueryClient providers in the
+ * root layout.
  */
 export function PushRegistrar() {
   usePushRegistration();
+  useNotificationTapNavigation();
   return null;
 }
