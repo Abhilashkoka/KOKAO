@@ -6,7 +6,7 @@ import {
   tenantMembersTable,
   tenantsTable,
 } from "@workspace/db";
-import { and, count, eq, inArray, isNull } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, lt } from "drizzle-orm";
 import { logger } from "./logger";
 import { getFeatureFlags } from "./featureFlags";
 import { getEffectiveSetting } from "./notificationSettings";
@@ -22,8 +22,43 @@ import { getEffectiveSetting } from "./notificationSettings";
  */
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
+const EXPO_PUSH_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts";
 const EXPO_PUSH_CHUNK = 100;
 const EXPO_PUSH_TIMEOUT_MS = 10_000;
+
+/** Expo recommends waiting ~15 minutes before fetching push receipts. */
+const RECEIPT_CHECK_DELAY_MS = 15 * 60 * 1000;
+/** Pending receipts older than this are abandoned — Expo only retains
+ * receipts for about a day, and an unresolved ticket is not evidence of a
+ * dead device. */
+const RECEIPT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+/** Cap the in-memory pending-receipt buffer so a burst of sends during an
+ * Expo receipts outage cannot grow memory without bound. Oldest entries are
+ * dropped first — losing a receipt check is harmless (the token dies on a
+ * later send or the unseen-token prune instead). */
+const RECEIPT_PENDING_CAP = 10_000;
+
+/** Tokens whose device hasn't re-registered (app launch) within this window
+ * are pruned: an uninstalled app never errors, it just goes silent. */
+export const PUSH_TOKEN_MAX_UNSEEN_MS = 90 * 24 * 60 * 60 * 1000;
+
+/** How often the maintenance loop checks due receipts and prunes. */
+const PUSH_MAINTENANCE_INTERVAL_MS = 15 * 60 * 1000;
+
+interface PendingReceipt {
+  ticketId: string;
+  token: string;
+  /** Earliest time this receipt should be fetched. */
+  dueAt: number;
+  /** When the ticket was issued, for expiry. */
+  createdAt: number;
+}
+
+/** In-memory queue of push tickets awaiting a receipt check. Best-effort by
+ * design: a process restart loses it, which only means those receipts go
+ * unchecked — dead tokens are still caught on the next send or by the
+ * unseen-token prune. */
+const pendingReceipts: PendingReceipt[] = [];
 
 export interface PushPayload {
   title: string;
@@ -47,9 +82,45 @@ function looksLikeExpoToken(token: string): boolean {
 
 export { looksLikeExpoToken };
 
+/** Delete a set of dead device tokens. Never throws. */
+async function deleteDeadTokens(
+  deadTokens: string[],
+  source: string,
+): Promise<void> {
+  if (deadTokens.length === 0) return;
+  try {
+    await db
+      .delete(pushTokensTable)
+      .where(inArray(pushTokensTable.token, deadTokens));
+    logger.info(
+      { count: deadTokens.length, source },
+      "Removed unregistered push tokens",
+    );
+  } catch (err) {
+    logger.error({ err, source }, "Failed to delete dead push tokens");
+  }
+}
+
+/** Queue a ticket id for a later receipt check, evicting the oldest entries
+ * when the buffer is full. */
+function queueReceipt(ticketId: string, token: string): void {
+  const now = Date.now();
+  pendingReceipts.push({
+    ticketId,
+    token,
+    dueAt: now + RECEIPT_CHECK_DELAY_MS,
+    createdAt: now,
+  });
+  if (pendingReceipts.length > RECEIPT_PENDING_CAP) {
+    pendingReceipts.splice(0, pendingReceipts.length - RECEIPT_PENDING_CAP);
+  }
+}
+
 /**
  * Send prepared Expo push messages in chunks. Tokens Expo reports as
  * DeviceNotRegistered are deleted so dead devices stop consuming sends.
+ * Successful tickets' ids are queued for a delayed receipt check, because
+ * Expo also reports delivery failures asynchronously via receipts.
  * Never throws.
  */
 async function sendExpoPushMessages(messages: ExpoPushMessage[]): Promise<void> {
@@ -75,32 +146,157 @@ async function sendExpoPushMessages(messages: ExpoPushMessage[]): Promise<void> 
       const body = (await res.json()) as {
         data?: Array<{
           status: string;
+          id?: string;
           details?: { error?: string };
         }>;
       };
       const tickets = body.data ?? [];
       const deadTokens: string[] = [];
       tickets.forEach((ticket, idx) => {
+        const token = chunk[idx]?.to;
+        if (!token) return;
         if (
           ticket.status === "error" &&
           ticket.details?.error === "DeviceNotRegistered"
         ) {
-          const token = chunk[idx]?.to;
-          if (token) deadTokens.push(token);
+          deadTokens.push(token);
+        } else if (ticket.status === "ok" && ticket.id) {
+          queueReceipt(ticket.id, token);
         }
       });
-      if (deadTokens.length > 0) {
-        await db
-          .delete(pushTokensTable)
-          .where(inArray(pushTokensTable.token, deadTokens));
-        logger.info(
-          { count: deadTokens.length },
-          "Removed unregistered push tokens",
-        );
-      }
+      await deleteDeadTokens(deadTokens, "ticket");
     } catch (err) {
       logger.error({ err }, "Failed to send an Expo push chunk");
     }
+  }
+  // Piggyback: any earlier tickets whose receipt-check delay has elapsed get
+  // resolved on this send, so receipts are checked even without the
+  // maintenance loop (e.g. in one-off scripts).
+  await checkDuePushReceipts();
+}
+
+/**
+ * Fetch receipts for pending tickets whose delay has elapsed and delete
+ * tokens whose receipt reports DeviceNotRegistered. Receipts Expo hasn't
+ * produced yet are re-queued until they expire. Never throws.
+ */
+export async function checkDuePushReceipts(): Promise<void> {
+  try {
+    const now = Date.now();
+    const due: PendingReceipt[] = [];
+    for (let i = pendingReceipts.length - 1; i >= 0; i--) {
+      const p = pendingReceipts[i];
+      if (now - p.createdAt > RECEIPT_MAX_AGE_MS) {
+        pendingReceipts.splice(i, 1);
+      } else if (p.dueAt <= now) {
+        due.push(p);
+        pendingReceipts.splice(i, 1);
+      }
+    }
+    if (due.length === 0) return;
+
+    for (let i = 0; i < due.length; i += EXPO_PUSH_CHUNK) {
+      const batch = due.slice(i, i + EXPO_PUSH_CHUNK);
+      try {
+        const res = await fetch(EXPO_PUSH_RECEIPTS_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({ ids: batch.map((p) => p.ticketId) }),
+          signal: AbortSignal.timeout(EXPO_PUSH_TIMEOUT_MS),
+        });
+        if (!res.ok) {
+          logger.error(
+            { status: res.status },
+            "Expo receipt fetch failed with a non-OK status",
+          );
+          // Re-queue so a transient outage doesn't drop the checks.
+          pendingReceipts.push(...batch);
+          continue;
+        }
+        const body = (await res.json()) as {
+          data?: Record<
+            string,
+            { status: string; details?: { error?: string } }
+          >;
+        };
+        const receipts = body.data ?? {};
+        const deadTokens: string[] = [];
+        for (const p of batch) {
+          const receipt = receipts[p.ticketId];
+          if (!receipt) {
+            // Not ready yet — try again on a later pass until it expires.
+            pendingReceipts.push({ ...p, dueAt: Date.now() + RECEIPT_CHECK_DELAY_MS });
+            continue;
+          }
+          if (
+            receipt.status === "error" &&
+            receipt.details?.error === "DeviceNotRegistered"
+          ) {
+            deadTokens.push(p.token);
+          }
+        }
+        await deleteDeadTokens(deadTokens, "receipt");
+      } catch (err) {
+        logger.error({ err }, "Failed to fetch an Expo receipt batch");
+        pendingReceipts.push(...batch);
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "Push receipt check failed");
+  }
+}
+
+/** TEST ONLY: inspect/clear the pending receipt queue. */
+export function _getPendingReceiptsForTest(): PendingReceipt[] {
+  return pendingReceipts;
+}
+
+/**
+ * Delete tokens whose device hasn't re-registered within
+ * PUSH_TOKEN_MAX_UNSEEN_MS. An uninstalled app never returns an error — it
+ * just stops launching, so lastSeenAt stops refreshing. Never throws.
+ */
+export async function pruneUnseenPushTokens(): Promise<void> {
+  try {
+    const cutoff = new Date(Date.now() - PUSH_TOKEN_MAX_UNSEEN_MS);
+    const removed = await db
+      .delete(pushTokensTable)
+      .where(lt(pushTokensTable.lastSeenAt, cutoff))
+      .returning({ id: pushTokensTable.id });
+    if (removed.length > 0) {
+      logger.info(
+        { count: removed.length },
+        "Pruned push tokens unseen for too long",
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, "Failed to prune unseen push tokens");
+  }
+}
+
+let maintenanceTimer: NodeJS.Timeout | null = null;
+
+/**
+ * Start the periodic push-token maintenance loop: resolves due push
+ * receipts and prunes long-unseen tokens. Safe to call once at boot;
+ * both steps are best-effort and never throw.
+ */
+export function startPushTokenMaintenance(): void {
+  if (maintenanceTimer) return;
+  maintenanceTimer = setInterval(() => {
+    void checkDuePushReceipts();
+    void pruneUnseenPushTokens();
+  }, PUSH_MAINTENANCE_INTERVAL_MS);
+  maintenanceTimer.unref();
+}
+
+export function stopPushTokenMaintenance(): void {
+  if (maintenanceTimer) {
+    clearInterval(maintenanceTimer);
+    maintenanceTimer = null;
   }
 }
 

@@ -38,7 +38,13 @@ import { eq, inArray } from "drizzle-orm";
 import { createTestApp } from "../test/testApp";
 import { resetAuthState, actAs } from "../test/authState";
 import { createTenant, deleteTenant } from "../test/dbHelpers";
-import { sendTenantPush } from "../lib/push";
+import {
+  sendTenantPush,
+  checkDuePushReceipts,
+  pruneUnseenPushTokens,
+  PUSH_TOKEN_MAX_UNSEEN_MS,
+  _getPendingReceiptsForTest,
+} from "../lib/push";
 import { SOCIAL_CONNECTION_FAILED } from "../lib/notifications";
 
 const app = createTestApp();
@@ -52,6 +58,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   resetAuthState();
+  _getPendingReceiptsForTest().length = 0;
   await db
     .delete(pushTokensTable)
     .where(inArray(pushTokensTable.token, [TOKEN_A, TOKEN_B]));
@@ -341,6 +348,37 @@ describe("sendTenantPush", () => {
     }
   });
 
+  it("queues successful tickets for a delayed receipt check", async () => {
+    const tenant = await createTenant();
+    try {
+      await db.insert(pushTokensTable).values({
+        clerkUserId: tenant.clerkUserId,
+        token: TOKEN_A,
+        platform: "ios",
+      });
+
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(
+          JSON.stringify({ data: [{ status: "ok", id: "ticket-1" }] }),
+          { status: 200 },
+        ),
+      );
+
+      await sendTenantPush(tenant.tenantId, SOCIAL_CONNECTION_FAILED, {
+        title: "Test",
+        message: "Queued for receipt",
+      });
+
+      const pending = _getPendingReceiptsForTest();
+      expect(pending).toHaveLength(1);
+      expect(pending[0].ticketId).toBe("ticket-1");
+      expect(pending[0].token).toBe(TOKEN_A);
+      expect(pending[0].dueAt).toBeGreaterThan(Date.now());
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("never throws even when the Expo API call fails", async () => {
     const tenant = await createTenant();
     try {
@@ -359,6 +397,202 @@ describe("sendTenantPush", () => {
           message: "Failure path",
         }),
       ).resolves.toBeUndefined();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("checkDuePushReceipts", () => {
+  it("deletes tokens whose receipt reports DeviceNotRegistered", async () => {
+    const tenant = await createTenant();
+    try {
+      await db.insert(pushTokensTable).values({
+        clerkUserId: tenant.clerkUserId,
+        token: TOKEN_A,
+        platform: "ios",
+      });
+
+      const now = Date.now();
+      _getPendingReceiptsForTest().push({
+        ticketId: "ticket-dead",
+        token: TOKEN_A,
+        dueAt: now - 1000,
+        createdAt: now - 2000,
+      });
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            data: {
+              "ticket-dead": {
+                status: "error",
+                details: { error: "DeviceNotRegistered" },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+
+      await checkDuePushReceipts();
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(String(fetchSpy.mock.calls[0][0])).toContain("getReceipts");
+      const body = JSON.parse(String(fetchSpy.mock.calls[0][1]?.body));
+      expect(body.ids).toEqual(["ticket-dead"]);
+
+      const rows = await db
+        .select()
+        .from(pushTokensTable)
+        .where(eq(pushTokensTable.token, TOKEN_A));
+      expect(rows).toHaveLength(0);
+      expect(_getPendingReceiptsForTest()).toHaveLength(0);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("keeps tokens whose receipt is ok, and re-queues missing receipts", async () => {
+    const tenant = await createTenant();
+    try {
+      await db.insert(pushTokensTable).values({
+        clerkUserId: tenant.clerkUserId,
+        token: TOKEN_A,
+        platform: "ios",
+      });
+
+      const now = Date.now();
+      _getPendingReceiptsForTest().push(
+        {
+          ticketId: "ticket-ok",
+          token: TOKEN_A,
+          dueAt: now - 1000,
+          createdAt: now - 2000,
+        },
+        {
+          ticketId: "ticket-missing",
+          token: TOKEN_B,
+          dueAt: now - 1000,
+          createdAt: now - 2000,
+        },
+        {
+          ticketId: "ticket-not-due",
+          token: TOKEN_B,
+          dueAt: now + 60_000,
+          createdAt: now,
+        },
+      );
+
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(
+          JSON.stringify({ data: { "ticket-ok": { status: "ok" } } }),
+          { status: 200 },
+        ),
+      );
+
+      await checkDuePushReceipts();
+
+      const rows = await db
+        .select()
+        .from(pushTokensTable)
+        .where(eq(pushTokensTable.token, TOKEN_A));
+      expect(rows).toHaveLength(1);
+
+      const pendingIds = _getPendingReceiptsForTest()
+        .map((p) => p.ticketId)
+        .sort();
+      expect(pendingIds).toEqual(["ticket-missing", "ticket-not-due"]);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("re-queues the batch when the receipt fetch fails, and drops expired entries", async () => {
+    const now = Date.now();
+    _getPendingReceiptsForTest().push(
+      {
+        ticketId: "ticket-retry",
+        token: TOKEN_A,
+        dueAt: now - 1000,
+        createdAt: now - 2000,
+      },
+      {
+        ticketId: "ticket-expired",
+        token: TOKEN_B,
+        dueAt: now - 1000,
+        createdAt: now - 25 * 60 * 60 * 1000,
+      },
+    );
+
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network down"));
+
+    await expect(checkDuePushReceipts()).resolves.toBeUndefined();
+
+    const pendingIds = _getPendingReceiptsForTest().map((p) => p.ticketId);
+    expect(pendingIds).toEqual(["ticket-retry"]);
+  });
+});
+
+describe("pruneUnseenPushTokens", () => {
+  it("deletes tokens unseen beyond the window and keeps recent ones", async () => {
+    const tenant = await createTenant();
+    try {
+      const stale = new Date(Date.now() - PUSH_TOKEN_MAX_UNSEEN_MS - 60_000);
+      await db.insert(pushTokensTable).values([
+        {
+          clerkUserId: tenant.clerkUserId,
+          token: TOKEN_A,
+          platform: "ios",
+          lastSeenAt: stale,
+        },
+        {
+          clerkUserId: tenant.clerkUserId,
+          token: TOKEN_B,
+          platform: "android",
+        },
+      ]);
+
+      await pruneUnseenPushTokens();
+
+      const rows = await db
+        .select()
+        .from(pushTokensTable)
+        .where(inArray(pushTokensTable.token, [TOKEN_A, TOKEN_B]));
+      expect(rows).toHaveLength(1);
+      expect(rows[0].token).toBe(TOKEN_B);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("push token registration refreshes lastSeenAt", () => {
+  it("bumps lastSeenAt when an existing token re-registers", async () => {
+    const tenant = await createTenant();
+    try {
+      const past = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      await db.insert(pushTokensTable).values({
+        clerkUserId: tenant.clerkUserId,
+        token: TOKEN_A,
+        platform: "ios",
+        lastSeenAt: past,
+      });
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .post("/api/push-tokens")
+        .send({ token: TOKEN_A, platform: "ios" });
+      expect(res.status).toBe(200);
+
+      const rows = await db
+        .select()
+        .from(pushTokensTable)
+        .where(eq(pushTokensTable.token, TOKEN_A));
+      expect(rows).toHaveLength(1);
+      expect(rows[0].lastSeenAt.getTime()).toBeGreaterThan(
+        past.getTime() + 1000,
+      );
     } finally {
       await deleteTenant(tenant.tenantId);
     }

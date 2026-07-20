@@ -37,6 +37,7 @@ router.post("/push-tokens", async (req: Request, res: Response) => {
       token,
       platform,
       updatedAt: new Date(),
+      lastSeenAt: new Date(),
     })
     .onConflictDoUpdate({
       target: pushTokensTable.token,
@@ -44,6 +45,7 @@ router.post("/push-tokens", async (req: Request, res: Response) => {
         clerkUserId: req.clerkUserId,
         platform,
         updatedAt: new Date(),
+        lastSeenAt: new Date(),
       },
     });
 

@@ -9,6 +9,10 @@ import {
   startScheduledPublisher,
   stopScheduledPublisher,
 } from "./lib/scheduledPublisher";
+import {
+  startPushTokenMaintenance,
+  stopPushTokenMaintenance,
+} from "./lib/push";
 
 // Fail loudly before binding if a deployed context is missing required env,
 // rather than booting into a silently-degraded state.
@@ -51,6 +55,11 @@ const server: Server = app.listen(port, (err) => {
   // Periodically publish scheduled posts whose time has arrived, using the
   // same per-platform publish cores as the manual publish endpoints.
   startScheduledPublisher();
+
+  // Periodically resolve delayed Expo push receipts (deleting tokens whose
+  // receipts report DeviceNotRegistered) and prune tokens whose device
+  // hasn't re-registered in months (uninstalled apps never error).
+  startPushTokenMaintenance();
 });
 
 // Graceful shutdown: drain in-flight background publish jobs (bounded by a
@@ -61,6 +70,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
     stopConnectionSweep();
     stopScheduledPublisher();
+    stopPushTokenMaintenance();
     void shutdown(signal);
   });
 }

@@ -31,6 +31,13 @@ export const pushTokensTable = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // Refreshed on every (re-)registration — the mobile app re-registers on
+    // each launch, so a token whose lastSeenAt is months old belongs to a
+    // device that stopped opening the app (likely uninstalled). The push
+    // maintenance loop prunes tokens unseen for PUSH_TOKEN_MAX_UNSEEN_MS.
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (t) => ({
     tokenUnique: uniqueIndex("push_tokens_token_uq").on(t.token),
