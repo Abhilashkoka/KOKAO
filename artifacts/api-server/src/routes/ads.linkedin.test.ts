@@ -81,6 +81,7 @@ import {
   adsChangeLogsTable,
   adsSettingsTable,
   tenantMembersTable,
+  notificationsTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import {
@@ -111,7 +112,7 @@ import {
 } from "../lib/linkedinAdsApi";
 import { platformFetch } from "../lib/platformFetch";
 import { LINKEDIN_ADS_REFRESH_WINDOW_MS } from "../lib/linkedinAdsRefresh";
-import { encryptJson } from "../lib/secretCrypto";
+import { encryptJson, decryptJson } from "../lib/secretCrypto";
 import { requireTenant } from "../middlewares/requireTenant";
 import adsRouter, { clearLinkedinGroupNamesCache } from "./ads";
 import { resetAuthState, actAs } from "../test/authState";
@@ -408,6 +409,68 @@ describe("LinkedIn account selection", () => {
         .post("/api/ads/connections/linkedin/select")
         .send({ adAccountId: "999" });
       expect(res.status).toBe(400);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("linkedin reconnect restores a failed connection", () => {
+  it("flips a failed connection back to verified via select and resolves the lingering notification", async () => {
+    const tenant = await createTenant();
+    try {
+      // A previously broken grant: reverify flipped it to failed and left an
+      // unread "ad account disconnected" notification behind. The OAuth
+      // reconnect callback has since stored a fresh access token.
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId, {
+        verifyStatus: "failed",
+        verifyError: "Token expired",
+        encryptedCredentials: encryptJson({ accessToken: "li-ads-token-fresh" }),
+      });
+      await db.insert(notificationsTable).values({
+        tenantId: tenant.tenantId,
+        type: "ads_connection_failed",
+        platform: "linkedin",
+        title: "LinkedIn Ads account disconnected",
+        message: "Your LinkedIn Ads connection is no longer valid.",
+        linkUrl: "/ads",
+      });
+
+      actAs(tenant.clerkUserId);
+      const list = await request(app).get("/api/ads/connections/linkedin/accounts");
+      expect(list.status).toBe(200);
+      expect(list.body.length).toBe(1);
+
+      const sel = await request(app)
+        .post("/api/ads/connections/linkedin/select")
+        .send({ adAccountId: "512345678" });
+      expect(sel.status).toBe(200);
+      expect(sel.body.status).toBe("connected");
+      expect(sel.body.verifyStatus).toBe("verified");
+
+      const [row] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(row!.verifyStatus).toBe("verified");
+      expect(row!.verifyError).toBeNull();
+      expect(row!.status).toBe("connected");
+      const creds = decryptJson<{ accessToken: string }>(
+        row!.encryptedCredentials!,
+      );
+      expect(creds.accessToken).toBe("li-ads-token-fresh");
+      // The select call verified the account against LinkedIn with the fresh token.
+      expect(mockReadAccount).toHaveBeenCalledWith("li-ads-token-fresh", "512345678");
+
+      // The lingering disconnected notification is auto-resolved (marked read).
+      const notifications = await db
+        .select()
+        .from(notificationsTable)
+        .where(eq(notificationsTable.tenantId, tenant.tenantId));
+      const lingering = notifications.filter(
+        (n) => n.type === "ads_connection_failed" && n.readAt == null,
+      );
+      expect(lingering.length).toBe(0);
     } finally {
       await deleteTenant(tenant.tenantId);
     }
