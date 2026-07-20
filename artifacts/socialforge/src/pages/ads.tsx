@@ -1919,6 +1919,11 @@ function CampaignDetailDialog({
                                 alt="Ad creative"
                                 className="h-12 w-12 rounded object-cover shrink-0"
                                 data-testid={`img-ad-preview-${a.id}`}
+                                onError={(e) => {
+                                  // Signed thumbnail URLs expire; hide the
+                                  // image instead of showing a broken icon.
+                                  e.currentTarget.style.display = "none";
+                                }}
                               />
                             )}
                             <div className="min-w-0">

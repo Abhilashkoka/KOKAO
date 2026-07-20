@@ -62,6 +62,7 @@ import {
   getLinkedinAnalytics,
   listLinkedinCreatives,
   readLinkedinPostPreview,
+  type LinkedinPostPreview,
   searchLinkedinGeoLocations,
   searchLinkedinTargetingEntities,
   LINKEDIN_TARGETING_FACETS,
@@ -1528,6 +1529,45 @@ router.get("/ads/campaigns", async (req: Request, res: Response) => {
   }
 });
 
+// Short-lived cache of resolved LinkedIn post previews. LinkedIn image
+// downloadUrl values are time-limited signed URLs, so we keep the TTL well
+// under their lifetime: repeat visits within the window reuse the cached
+// preview without re-hitting LinkedIn, and once it lapses a fresh (re-signed)
+// URL is fetched. Keyed per connection so tenants never share entries.
+const LINKEDIN_PREVIEW_TTL_MS = 5 * 60 * 1000;
+const linkedinPreviewCache = new Map<
+  string,
+  { expiresAt: number; preview: LinkedinPostPreview }
+>();
+
+async function getLinkedinPostPreviewCached(
+  connId: number,
+  token: string,
+  postUrn: string,
+): Promise<LinkedinPostPreview> {
+  const key = `${connId}:${postUrn}`;
+  const now = Date.now();
+  const hit = linkedinPreviewCache.get(key);
+  if (hit && hit.expiresAt > now) return hit.preview;
+  const preview = await readLinkedinPostPreview(token, postUrn);
+  // Only cache resolved previews; failures come back as all-null and should
+  // be retried on the next request instead of sticking for the TTL.
+  if (preview.text !== null || preview.imageUrl !== null) {
+    if (linkedinPreviewCache.size > 500) {
+      for (const [k, v] of linkedinPreviewCache) {
+        if (v.expiresAt <= now) linkedinPreviewCache.delete(k);
+      }
+    }
+    linkedinPreviewCache.set(key, {
+      expiresAt: now + LINKEDIN_PREVIEW_TTL_MS,
+      preview,
+    });
+  } else {
+    linkedinPreviewCache.delete(key);
+  }
+  return preview;
+}
+
 router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
   if (!(await adsEnabledOr503(res))) return;
   const ct = await requireConnectedConnection(req, res);
@@ -1560,7 +1600,10 @@ router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
         await Promise.all(
           postUrns.map(
             async (urn) =>
-              [urn, await readLinkedinPostPreview(ct.token, urn)] as const,
+              [
+                urn,
+                await getLinkedinPostPreviewCached(ct.conn.id, ct.token, urn),
+              ] as const,
           ),
         ),
       );
