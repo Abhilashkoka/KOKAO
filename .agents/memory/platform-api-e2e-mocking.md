@@ -26,7 +26,14 @@ description: How to make Threads/X publish flows succeed end-to-end in a real br
 - Tenant provisioning is lazy and can race the test's DB seed step: make the plan explicitly POLL `SELECT id FROM tenants WHERE email=…` (up to ~30s) before inserting tenant-scoped rows; "navigate and wait for shell" alone is not enough.
 - `tenants.email` is stored LOWERCASED — poll/join with `lower(email)=lower(…)` or use an all-lowercase test email, or the tenant poll returns empty forever (cost a false "unable" run).
 - A silent 0-row `INSERT … SELECT FROM tenants WHERE email=…` is the classic symptom — always verify the insert with a count.
-- TENANT-SCOPE every e2e DB assertion (join on `tenants.email = <test login>`), never `ORDER BY id DESC LIMIT 1` on a shared table: the `test` workflow's vitest suite writes rows (including deliberate-failure ones like "(#100) Invalid budget") into the same dev DB concurrently and caused a false e2e failure on the ads budget-increase flow.
+- TENANT-SCOPE every e2e DB assertion (join on `tenants.email = <test login>`), never `ORDER BY id DESC LIMIT 1` on a shared table: the `test` workflow's vitest suite writes rows (including deliberate-failure ones like "(#100) Invalid budget") into the same dev DB concurrently and caused a false e2e failure on the ads budget-increase flow. Reusable snippet for browser test plans (works for ad_change_requests, scheduled_posts, content_items, etc.):
+  ```sql
+  SELECT r.* FROM ad_change_requests r
+  JOIN tenants t ON t.id = r.tenant_id
+  WHERE lower(t.email) = lower('<clerk test login email>')
+  ORDER BY r.id DESC LIMIT 1;
+  ```
+  Even better: have the tester capture the draft/row id from the UI (URL, dialog, or change-history row) and assert `WHERE r.id = <captured id>` directly.
 
 A reusable TikTok Marketing API mock lives at `scripts/src/tiktokMockServer.mjs` (stateful campaign so draft read-back verify passes; `POST /__control {"revoked":true}` flips business-code-40105 revoked-grant mode; token exchange resets it; log at /tmp/tiktok-mock-log.json). TikTok connect e2e: don't click the Connect button (real tiktok.com portal isn't overridable) — fetch `/api/ads/tiktok/auth/url` in-page, extract the signed `state`, then navigate to the public callback with `auth_code=<anything>&state=...`.
 
