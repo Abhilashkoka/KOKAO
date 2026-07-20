@@ -21,6 +21,10 @@ const DEFAULT_STATE = {
   // hint is observable before the first group is created.
   groups: {},
   campaigns: {},
+  // Keyed by numeric id: { id, intendedStatus, campaign (urn), content: { reference } }
+  creatives: {},
+  // Keyed by post urn: { commentary }
+  posts: {},
 };
 
 let state;
@@ -170,6 +174,73 @@ const server = http.createServer(async (req, res) => {
       record({ method: "POST", path, kind: "update_campaign", set });
       return send({});
     }
+  }
+
+  const creatives = (state.creatives ??= {});
+  const posts = (state.posts ??= {});
+
+  const creativeShape = (c) => ({
+    id: `urn:li:sponsoredCreative:${c.id}`,
+    intendedStatus: c.intendedStatus,
+    review: { status: c.reviewStatus ?? "APPROVED" },
+    campaign: c.campaign,
+    content: c.content,
+  });
+
+  // Creatives: list (q=criteria) + create
+  m = path.match(/^adAccounts\/(\d+)\/creatives$/);
+  if (m) {
+    if (req.method === "GET") {
+      record({ method: "GET", path, kind: "list_creatives", query: url.search });
+      const campaignsParam = url.searchParams.get("campaigns") || "";
+      const wanted = decodeURIComponent(campaignsParam);
+      const els = Object.values(creatives)
+        .filter((c) => !wanted || wanted.includes(String(c.campaign)))
+        .map(creativeShape);
+      return send({ elements: els });
+    }
+    if (req.method === "POST") {
+      const id = state.nextId++;
+      creatives[id] = {
+        id,
+        intendedStatus: body.intendedStatus || "PAUSED",
+        campaign: body.campaign,
+        content: body.content,
+      };
+      saveState();
+      record({ method: "POST", path, kind: "create_creative", id });
+      return send({}, 201, { "x-restli-id": `urn:li:sponsoredCreative:${id}` });
+    }
+  }
+
+  // Single creative: read + PARTIAL_UPDATE (urn is percent-encoded in the path)
+  m = path.match(/^adAccounts\/(\d+)\/creatives\/(.+)$/);
+  if (m) {
+    const urn = decodeURIComponent(m[2]);
+    const idMatch = urn.match(/(\d+)$/);
+    const c = idMatch ? creatives[idMatch[1]] : undefined;
+    if (!c) return send({ message: "Unknown creative" }, 404);
+    if (req.method === "GET") {
+      record({ method: "GET", path, kind: "read_creative", id: c.id });
+      return send(creativeShape(c));
+    }
+    if (req.method === "POST") {
+      const set = body?.patch?.$set ?? {};
+      if (set.intendedStatus) c.intendedStatus = set.intendedStatus;
+      saveState();
+      record({ method: "POST", path, kind: "update_creative", id: c.id, set });
+      return send({});
+    }
+  }
+
+  // Dark post read (ad copy preview)
+  m = path.match(/^posts\/(.+)$/);
+  if (req.method === "GET" && m) {
+    const urn = decodeURIComponent(m[1]);
+    record({ method: "GET", path, kind: "read_post", urn });
+    const p = posts[urn];
+    if (!p) return send({ message: "Unknown post" }, 404);
+    return send({ commentary: p.commentary, content: {} });
   }
 
   record({ method: req.method, path, kind: "unknown" });
