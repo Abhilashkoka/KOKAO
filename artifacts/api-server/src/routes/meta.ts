@@ -25,6 +25,7 @@ import { trackSyncPublish } from "../middlewares/trackSyncPublish";
 import { logger } from "../lib/logger";
 import { platformFetch, PlatformTimeoutError } from "../lib/platformFetch";
 import type { PublishOutcome } from "../lib/publishOutcome";
+import { PublishTransientError } from "../lib/publishOutcome";
 import {
   getImageDimensions,
   dimensionsCompatible,
@@ -159,7 +160,9 @@ const IG_PAGE_RECONNECT_MESSAGE =
  * retried — retrying them would just fail slower.
  */
 function isTransientGraphError(status: number, error?: GraphError): boolean {
-  if (status >= 500) return true;
+  // 429 = rate limited: retrying after backoff is the right move even when
+  // the Graph error payload carries no transient hint.
+  if (status === 429 || status >= 500) return true;
   if (!error) return false;
   if (error.is_transient) return true;
   // code 1 = unknown/temporary, code 2 = service temporarily unavailable.
@@ -201,9 +204,14 @@ async function postToGraphWithRetry<T extends { error?: GraphError }>(
       throw new GraphAuthRevokedError(FB_RECONNECT_MESSAGE);
     }
 
-    lastError = new Error(json.error?.message || `${label} (${res.status})`);
+    // Once a failure is classified transient, exhausting the local retry
+    // budget throws a PublishTransientError so callers can map it to
+    // errorStatus 503 and the scheduled executor's bounded auto-retry can
+    // pick it up; definitive failures throw a plain Error immediately.
     const transient = isTransientGraphError(res.status, json.error);
-    if (!transient) throw lastError;
+    const message = json.error?.message || `${label} (${res.status})`;
+    if (!transient) throw new Error(message);
+    lastError = new PublishTransientError(message);
 
     // The write may have committed despite the transient-looking error. Check
     // before retrying (and before the final throw) so we never double-post.
@@ -849,7 +857,13 @@ async function runInstagramPublish(
           "Failed to mark Instagram content item as failed",
         );
       }
-      return { ok: false, errorStatus: authError ? 400 : 502, error: reason };
+      // Auth failures are definitive 400s. A retryable (transient) failure
+      // that exhausted the local retry budget surfaces 503 so a scheduled
+      // publish gets the executor's bounded, minutes-scale auto-retry on top
+      // of the seconds-scale one here; non-retryable failures (bad image,
+      // other 4xx, timeouts — which are terminal by design) stay 502.
+      const errorStatus = authError ? 400 : retryable ? 503 : 502;
+      return { ok: false, errorStatus, error: reason };
     }
   }
   // Unreachable: the loop always returns, but TypeScript can't prove it.
@@ -1007,9 +1021,11 @@ export async function publishFacebookCore(
       }
 
       const reason =
-        error instanceof Error && error.message
-          ? `Facebook rejected the post: ${error.message}`
-          : "Failed to publish to Facebook.";
+        error instanceof PublishTransientError
+          ? `Facebook is temporarily unavailable: ${error.message}`
+          : error instanceof Error && error.message
+            ? `Facebook rejected the post: ${error.message}`
+            : "Failed to publish to Facebook.";
       // Persist the rejection so it stays reviewable in the Content Library
       // after the toast is gone. Best-effort: a DB hiccup here must not mask
       // the original publish error in the response.
@@ -1021,7 +1037,14 @@ export async function publishFacebookCore(
           "Failed to record Facebook publish failure",
         );
       }
-      return { ok: false, errorStatus: 502, error: reason };
+      return {
+        ok: false,
+        // A transient Graph outage (5xx/429/is_transient) that exhausted the
+        // local retry budget is 503 so the scheduled executor's bounded
+        // auto-retry re-queues the post; anything else stays a definitive 502.
+        errorStatus: error instanceof PublishTransientError ? 503 : 502,
+        error: reason,
+      };
     }
 }
 

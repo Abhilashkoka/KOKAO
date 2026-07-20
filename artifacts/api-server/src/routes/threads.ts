@@ -34,6 +34,10 @@ import {
 import { chunkOnWhitespace, THREADS_MAX_LENGTH } from "@workspace/social-limits";
 import { logger } from "../lib/logger";
 import type { PublishOutcome } from "../lib/publishOutcome";
+import {
+  PublishTransientError,
+  isTransientPlatformStatus,
+} from "../lib/publishOutcome";
 
 const router: IRouter = Router();
 
@@ -438,9 +442,14 @@ async function threadsResponseError(
   ) {
     return new PublishAuthRevokedError(THREADS_RECONNECT_MESSAGE);
   }
-  return new Error(
-    body.error?.error_user_msg || body.error?.message || fallback,
-  );
+  const message = body.error?.error_user_msg || body.error?.message || fallback;
+  // A 5xx/429 from Threads is a passing outage, not a rejection of the
+  // content — mark it transient so publish cores can surface errorStatus
+  // 503 and the scheduled executor's bounded auto-retry re-queues the post.
+  if (isTransientPlatformStatus(res.status)) {
+    return new PublishTransientError(message);
+  }
+  return new Error(message);
 }
 
 /**
@@ -624,6 +633,24 @@ export async function publishThreadsCore(
     (account.tokenExpiresAt === null ||
       account.tokenExpiresAt.getTime() > Date.now());
   if (!account || !tokenValid || !account.providerUserId) {
+    // A timestamp-expired token on a still-verified row means the silent
+    // refresh hit a passing outage (a definitive refresh rejection flips the
+    // row to failed). Surface 503 so the scheduled executor's bounded
+    // auto-retry re-queues the post instead of failing it permanently.
+    const transientRefreshOutage =
+      !!account?.accessToken &&
+      account.verifyStatus === "verified" &&
+      !!account.providerUserId &&
+      account.tokenExpiresAt !== null &&
+      account.tokenExpiresAt.getTime() <= Date.now();
+    if (transientRefreshOutage) {
+      return {
+        ok: false,
+        errorStatus: 503,
+        error:
+          "Threads could not refresh the access token due to a temporary problem. Please try again in a few minutes.",
+      };
+    }
     return {
       ok: false,
       errorStatus: 400,
@@ -841,9 +868,11 @@ export async function publishThreadsCore(
     }
 
     const reason =
-      error instanceof Error && error.message
-        ? `Threads rejected the post: ${error.message}`
-        : "Failed to publish to Threads.";
+      error instanceof PublishTransientError
+        ? `Threads is temporarily unavailable: ${error.message}`
+        : error instanceof Error && error.message
+          ? `Threads rejected the post: ${error.message}`
+          : "Failed to publish to Threads.";
     // Persist the rejection so it stays reviewable in the Content Library
     // after the toast is gone. Best-effort: a DB hiccup here must not mask
     // the original publish error in the response.
@@ -863,7 +892,14 @@ export async function publishThreadsCore(
         "Failed to record Threads publish failure",
       );
     }
-    return { ok: false, errorStatus: 502, error: reason };
+    return {
+      ok: false,
+      // A transient platform outage (5xx/429) is 503 so the scheduled
+      // executor's bounded auto-retry re-queues the post instead of failing
+      // it permanently; anything else stays a definitive 502.
+      errorStatus: error instanceof PublishTransientError ? 503 : 502,
+      error: reason,
+    };
   }
 }
 

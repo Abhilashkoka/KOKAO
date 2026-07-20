@@ -749,7 +749,9 @@ describe("LinkedIn publish dedupe (retry after committed-but-lost response)", ()
     };
 
     const first = await drive("POST", "/content/1/publish-linkedin");
-    expect(first.status).toBe(502);
+    // A 5xx from LinkedIn is a transient outage → 503 so the scheduled
+    // executor's bounded auto-retry would re-queue it.
+    expect(first.status).toBe(503);
     expect(state.content[0].status).toBe("failed");
 
     // The user re-clicks Publish.

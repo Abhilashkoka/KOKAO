@@ -72,6 +72,7 @@ import {
   IG_PUBLISH_RETRY,
   FB_PUBLISH_RETRY,
   DEDUPE_PROBE,
+  publishInstagramCore,
 } from "./meta";
 import { waitForPendingJobs } from "../lib/backgroundJobs";
 
@@ -519,7 +520,7 @@ describe("Facebook publish transient-error retry", () => {
     }
   });
 
-  it("gives up after the attempt cap when the error stays transient (502)", async () => {
+  it("gives up after the attempt cap when the error stays transient (503)", async () => {
     const calls: string[] = [];
     mockGraphPhotoTransient(calls, Infinity, {
       status: 503,
@@ -538,7 +539,9 @@ describe("Facebook publish transient-error retry", () => {
         `/api/content/${itemId}/publish-facebook`,
       );
 
-      expect(res.status).toBe(502);
+      // Transient exhaustion surfaces 503 so the scheduled executor's
+      // bounded auto-retry re-queues the post instead of failing forever.
+      expect(res.status).toBe(503);
       // Tried exactly the attempt cap and gave up.
       expect(calls.filter((u) => u.includes("/photos")).length).toBe(
         FB_PUBLISH_RETRY.maxAttempts,
@@ -1448,6 +1451,58 @@ describe("Instagram publish retry", () => {
       // The final failure reason is persisted so the UI can explain the
       // failure next to the Retry button.
       expect(item.failureReason).toMatch(/^Instagram rejected the post/);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("treats a 429 rate limit as transient: retries and surfaces 503 when it persists", async () => {
+    const calls: string[] = [];
+    // Always fail create with a bare 429 (no is_transient hint in the body).
+    mockGraphCreateFailing(calls, 99, 429);
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getSignedDownloadURL",
+    ).mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
+
+    const { tenant, itemId } = await setupVerifiedTenant();
+    try {
+      const outcome = await publishInstagramCore(tenant.tenantId, itemId);
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) {
+        expect(outcome.errorStatus).toBe(503);
+      }
+      // The 429 was retried up to the attempt cap, not failed fast.
+      expect(
+        calls.filter((u) => u.endsWith("/IG_OK/media")).length,
+      ).toBe(IG_PUBLISH_RETRY.maxAttempts);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("surfaces errorStatus 503 from the publish core after exhausting retries on persistent 5xx (scheduled auto-retry)", async () => {
+    const calls: string[] = [];
+    // Always fail create with a 500 (more than maxAttempts).
+    mockGraphCreateFailing(calls, 99, 500);
+    vi.spyOn(
+      ObjectStorageService.prototype,
+      "getSignedDownloadURL",
+    ).mockResolvedValue("https://signed.example.com/image.png?sig=xyz");
+
+    const { tenant, itemId } = await setupVerifiedTenant();
+    try {
+      // Drive the shared core the scheduled publisher uses so the transient
+      // classification (errorStatus 503) that gates its bounded auto-retry
+      // is pinned here.
+      const outcome = await publishInstagramCore(tenant.tenantId, itemId);
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) {
+        expect(outcome.errorStatus).toBe(503);
+      }
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).toBe("failed");
     } finally {
       await deleteTenant(tenant.tenantId);
     }

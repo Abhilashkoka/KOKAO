@@ -800,9 +800,11 @@ describe("Threads publish inline token refresh", () => {
       );
 
       // An expired token with no successful refresh must NOT be sent to the
-      // Graph API (confusing platform error) — clear 400 instead.
-      expect(res.status).toBe(400);
-      expect(res.body.error).toMatch(/reconnect/i);
+      // Graph API (confusing platform error). A transient refresh outage is
+      // a 503 (temporary) so the scheduled executor's bounded auto-retry can
+      // re-queue it — not a permanent 400 reconnect error.
+      expect(res.status).toBe(503);
+      expect(res.body.error).toMatch(/temporary/i);
       expect(graphCalls(calls).length).toBe(0);
 
       // Transient failure: the stored token survives for the next attempt.

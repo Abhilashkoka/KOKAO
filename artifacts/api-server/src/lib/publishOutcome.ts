@@ -18,6 +18,30 @@
  * - `errorStatus` mirrors the HTTP status the manual endpoint used to send,
  *   so route handlers stay byte-for-byte compatible.
  */
+/**
+ * Thrown by a publish core's platform helpers when the platform failed in a
+ * TRANSIENT way (HTTP 5xx or 429 rate limiting) — the write itself is fine
+ * and a later retry should succeed. Cores map this to `errorStatus: 503` so
+ * the scheduled-publish executor's bounded auto-retry re-queues the post
+ * instead of failing it permanently. Definitive failures (revoked tokens,
+ * bad content, other 4xx) must NOT use this class.
+ */
+export class PublishTransientError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PublishTransientError";
+  }
+}
+
+/**
+ * Whether a platform HTTP status represents a passing outage worth retrying:
+ * any 5xx (server-side trouble) or 429 (rate limited). Everything else means
+ * the request itself is bad and will keep failing.
+ */
+export function isTransientPlatformStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
 export type PublishOutcome =
   | {
       ok: true;

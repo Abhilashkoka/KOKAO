@@ -36,6 +36,10 @@ import {
 import { logger } from "../lib/logger";
 import type { PublishOutcome } from "../lib/publishOutcome";
 import {
+  PublishTransientError,
+  isTransientPlatformStatus,
+} from "../lib/publishOutcome";
+import {
   getLinkedinAppCredentials,
   isLinkedinAppConfigured,
   LINKEDIN_AUTH_BASE,
@@ -621,6 +625,11 @@ async function createLinkedinPost(opts: {
       if (initRes.status === 401 || initRes.status === 403) {
         throw new PublishAuthRevokedError(LINKEDIN_RECONNECT_MESSAGE);
       }
+      if (isTransientPlatformStatus(initRes.status)) {
+        throw new PublishTransientError(
+          `Image upload could not be initialized (${initRes.status})`,
+        );
+      }
       throw new Error(`Image upload could not be initialized (${initRes.status})`);
     }
 
@@ -637,6 +646,11 @@ async function createLinkedinPost(opts: {
       // re-verify and this write). Never surface the raw LinkedIn error.
       if (uploadRes.status === 401 || uploadRes.status === 403) {
         throw new PublishAuthRevokedError(LINKEDIN_RECONNECT_MESSAGE);
+      }
+      if (isTransientPlatformStatus(uploadRes.status)) {
+        throw new PublishTransientError(
+          `Image binary upload failed (${uploadRes.status})`,
+        );
       }
       throw new Error(`Image binary upload failed (${uploadRes.status})`);
     }
@@ -678,6 +692,9 @@ async function createLinkedinPost(opts: {
       if (errJson.message) detail = errJson.message;
     } catch {
       /* ignore non-JSON body */
+    }
+    if (isTransientPlatformStatus(postRes.status)) {
+      throw new PublishTransientError(detail);
     }
     throw new Error(detail);
   }
@@ -739,6 +756,25 @@ export async function publishLinkedinCore(
     (account.tokenExpiresAt === null ||
       account.tokenExpiresAt.getTime() > Date.now());
   if (!account || !tokenValid || !account.providerUserId) {
+    // A timestamp-expired token whose row was NOT flipped to failed means the
+    // silent refresh hit a passing outage (a definitive refresh rejection
+    // marks the row failed). That is a transient condition — the next
+    // refresh attempt will likely succeed — so surface 503 for the scheduled
+    // executor's bounded auto-retry instead of a permanent reconnect error.
+    const transientRefreshOutage =
+      !!account?.accessToken &&
+      account.verifyStatus === "verified" &&
+      !!account.providerUserId &&
+      account.tokenExpiresAt !== null &&
+      account.tokenExpiresAt.getTime() <= Date.now();
+    if (transientRefreshOutage) {
+      return {
+        ok: false,
+        errorStatus: 503,
+        error:
+          "LinkedIn could not refresh the access token due to a temporary problem. Please try again in a few minutes.",
+      };
+    }
     return {
       ok: false,
       errorStatus: 400,
@@ -1017,9 +1053,11 @@ export async function publishLinkedinCore(
     }
 
     const reason =
-      error instanceof Error && error.message
-        ? `LinkedIn rejected the post: ${error.message}`
-        : "Failed to publish to LinkedIn.";
+      error instanceof PublishTransientError
+        ? `LinkedIn is temporarily unavailable: ${error.message}`
+        : error instanceof Error && error.message
+          ? `LinkedIn rejected the post: ${error.message}`
+          : "Failed to publish to LinkedIn.";
     // Persist the rejection so it stays reviewable in the Content Library
     // after the toast is gone. Best-effort: a DB hiccup here must not mask
     // the original publish error in the response.
@@ -1039,7 +1077,14 @@ export async function publishLinkedinCore(
         "Failed to record LinkedIn publish failure",
       );
     }
-    return { ok: false, errorStatus: 502, error: reason };
+    return {
+      ok: false,
+      // A transient platform outage (5xx/429) is 503 so the scheduled
+      // executor's bounded auto-retry re-queues the post instead of failing
+      // it permanently; anything else stays a definitive 502.
+      errorStatus: error instanceof PublishTransientError ? 503 : 502,
+      error: reason,
+    };
   }
 }
 
