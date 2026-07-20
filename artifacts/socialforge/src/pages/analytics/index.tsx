@@ -55,7 +55,10 @@ export function AnalyticsPage() {
   const [tenantFilter, setTenantFilter] = useState("all");
 
   const isSuperadmin = Boolean(me?.isSuperadmin);
-  const accessDenied = me && !isSuperadmin;
+  // Fail closed: until /me resolves we don't know the caller's role, so
+  // never render the dashboard shell (the server 403s the data anyway).
+  const meResolved = Boolean(me);
+  const accessDenied = meResolved && !isSuperadmin;
 
   const { data: tenants } = useAdminListTenants({
     query: { queryKey: getAdminListTenantsQueryKey(), enabled: isSuperadmin },
@@ -79,6 +82,17 @@ export function AnalyticsPage() {
       isSuperadmin && tenantFilter !== "all" ? Number(tenantFilter) : undefined;
     return tenantId !== undefined ? { from, tenantId } : { from };
   }, [rangeDays, tenantFilter, isSuperadmin]);
+
+  if (!meResolved) {
+    return (
+      <div
+        className="flex items-center justify-center py-24"
+        data-testid="analytics-loading"
+      >
+        <div className="animate-pulse text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
 
   if (accessDenied) {
     return (
