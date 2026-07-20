@@ -40,3 +40,16 @@ export async function isLinkedinAppConfigured(): Promise<boolean> {
 
 export const LINKEDIN_AUTH_BASE = "https://www.linkedin.com/oauth/v2/authorization";
 export const LINKEDIN_TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken";
+
+/**
+ * Resolve the LinkedIn OAuth token endpoint at call time. In non-production
+ * environments `LINKEDIN_TOKEN_URL_OVERRIDE` points token exchanges at a local
+ * mock server for end-to-end testing (same pattern as
+ * `LINKEDIN_ADS_BASE_OVERRIDE` / `TWITTER_API_BASE_OVERRIDE`). Ignored in
+ * production.
+ */
+export function linkedinTokenUrl(): string {
+  const override = process.env.LINKEDIN_TOKEN_URL_OVERRIDE;
+  if (override && process.env.NODE_ENV !== "production") return override;
+  return LINKEDIN_TOKEN_URL;
+}

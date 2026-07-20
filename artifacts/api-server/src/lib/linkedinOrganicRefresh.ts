@@ -1,7 +1,7 @@
 import { db, connectedAccountsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { decryptJson, encryptJson } from "./secretCrypto";
-import { getLinkedinAppCredentials, LINKEDIN_TOKEN_URL } from "./linkedinApp";
+import { getLinkedinAppCredentials, linkedinTokenUrl } from "./linkedinApp";
 import { platformFetch } from "./platformFetch";
 import { logger } from "./logger";
 import {
@@ -159,7 +159,7 @@ async function attemptRefresh(
 
   let res: Response;
   try {
-    res = await platformFetch(LINKEDIN_TOKEN_URL, {
+    res = await platformFetch(linkedinTokenUrl(), {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
