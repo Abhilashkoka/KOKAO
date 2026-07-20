@@ -261,18 +261,16 @@ describe("DraftDialog Google", () => {
   });
 
   it("campaign create payload includes objective/dailyBudget/schedule, no lifetimeBudget or campaignGroupId", () => {
-    renderDraftDialog(() => {}, "google", { objective: "SEARCH" });
+    renderDraftDialog(() => {}, "google", {
+      objective: "SEARCH",
+      startTime: "2026-08-01T00:00:00+0000",
+      stopTime: "2026-08-31T00:00:00+0000",
+    });
     fireEvent.change(screen.getByTestId("input-draft-name"), {
       target: { value: "G Search" },
     });
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
       target: { value: "5000" },
-    });
-    fireEvent.change(screen.getByTestId("input-draft-start"), {
-      target: { value: "2026-08-01T00:00:00+0000" },
-    });
-    fireEvent.change(screen.getByTestId("input-draft-stop"), {
-      target: { value: "2026-08-31T00:00:00+0000" },
     });
     fireEvent.click(screen.getByTestId("button-submit-draft"));
 
@@ -397,6 +395,8 @@ describe("DraftDialog TikTok", () => {
       currentName: "TT group",
       name: "TT group",
       dailyBudget: "999",
+      startTime: "2026-08-01 00:00:00",
+      stopTime: "2026-08-31 00:00:00",
     });
 
     expect(screen.getByTestId("input-draft-daily-budget")).toBeTruthy();
@@ -409,12 +409,6 @@ describe("DraftDialog TikTok", () => {
     });
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
       target: { value: "2500" },
-    });
-    fireEvent.change(screen.getByTestId("input-draft-start"), {
-      target: { value: "2026-08-01 00:00:00" },
-    });
-    fireEvent.change(screen.getByTestId("input-draft-stop"), {
-      target: { value: "2026-08-31 00:00:00" },
     });
     fireEvent.click(screen.getByTestId("button-submit-draft"));
     const payload = submittedPayload();
@@ -460,7 +454,9 @@ describe("DraftDialog Meta", () => {
   });
 
   it("campaign create submits an OUTCOME_* objective with budgets and schedule", () => {
-    renderDraftDialog(() => {}, "meta");
+    renderDraftDialog(() => {}, "meta", {
+      startTime: "2026-09-01T00:00:00+0000",
+    });
     fireEvent.change(screen.getByTestId("input-draft-name"), {
       target: { value: "Meta Launch" },
     });
@@ -469,9 +465,6 @@ describe("DraftDialog Meta", () => {
     });
     fireEvent.change(screen.getByTestId("input-draft-lifetime-budget"), {
       target: { value: "90000" },
-    });
-    fireEvent.change(screen.getByTestId("input-draft-start"), {
-      target: { value: "2026-09-01T00:00:00+0000" },
     });
     fireEvent.click(screen.getByTestId("button-submit-draft"));
 
@@ -491,6 +484,7 @@ describe("DraftDialog Meta", () => {
       targetId: "as_1",
       currentName: "Meta set",
       name: "Meta set",
+      stopTime: "2026-10-31T00:00:00+0000",
     });
 
     expect(screen.getByTestId("input-draft-daily-budget")).toBeTruthy();
@@ -504,9 +498,6 @@ describe("DraftDialog Meta", () => {
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
       target: { value: "1500" },
     });
-    fireEvent.change(screen.getByTestId("input-draft-stop"), {
-      target: { value: "2026-10-31T00:00:00+0000" },
-    });
     fireEvent.click(screen.getByTestId("button-submit-draft"));
     const payload = submittedPayload();
     expect(payload.targetType).toBe("adset");
@@ -515,6 +506,68 @@ describe("DraftDialog Meta", () => {
     expect(payload.objective).toBeUndefined();
     expect(payload.startTime).toBeUndefined();
     expect(payload.stopTime).toBe("2026-10-31T00:00:00+0000");
+  });
+});
+
+describe("DraftDialog schedule date pickers", () => {
+  it("prefills existing ISO values as a readable date and enabled time input", () => {
+    renderDraftDialog(() => {}, "meta", {
+      action: "update",
+      targetType: "adset",
+      targetId: "as_1",
+      currentName: "Meta set",
+      name: "Meta set",
+      stopTime: "2026-10-31T00:00:00+0000",
+    });
+    const stopButton = screen.getByTestId("input-draft-stop");
+    // Rendered in the viewer's local timezone; must show a real date, not ISO.
+    expect(stopButton.textContent).toMatch(/2026/);
+    expect(stopButton.textContent).not.toContain("Pick a date");
+    const timeInput = screen.getByTestId("input-draft-stop-time") as HTMLInputElement;
+    expect(timeInput.disabled).toBe(false);
+    // Empty start field shows the placeholder and no clear button.
+    expect(screen.getByTestId("input-draft-start").textContent).toContain("Pick a date");
+    expect(screen.queryByTestId("input-draft-start-clear")).toBeNull();
+  });
+
+  it("clearing a prefilled end date omits stopTime from the payload (no change)", () => {
+    renderDraftDialog(() => {}, "meta", {
+      action: "update",
+      targetType: "adset",
+      targetId: "as_1",
+      currentName: "Meta set",
+      name: "Meta set",
+      stopTime: "2026-10-31T00:00:00+0000",
+    });
+    fireEvent.click(screen.getByTestId("input-draft-stop-clear"));
+    expect(screen.getByTestId("input-draft-stop").textContent).toContain("Pick a date");
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+    const payload = submittedPayload();
+    expect(payload.stopTime).toBeUndefined();
+  });
+
+  it("picking a date from the calendar submits a valid ISO string with offset", async () => {
+    const user = userEvent.setup();
+    renderDraftDialog(() => {}, "meta");
+    fireEvent.change(screen.getByTestId("input-draft-name"), {
+      target: { value: "Meta Launch" },
+    });
+    await user.click(screen.getByTestId("input-draft-start"));
+    // Pick the 15th of the currently displayed month.
+    await user.click(await screen.findByText("15"));
+    // Set the time-of-day on the picked date.
+    fireEvent.change(screen.getByTestId("input-draft-start-time"), {
+      target: { value: "09:30" },
+    });
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+
+    const payload = submittedPayload();
+    const startTime = payload.startTime as string;
+    // ISO-8601 with a numeric UTC offset, e.g. 2026-07-15T09:30:00+0530.
+    expect(startTime).toMatch(/^\d{4}-\d{2}-\d{2}T09:30:00[+-]\d{4}$/);
+    const parsed = new Date(startTime);
+    expect(Number.isNaN(parsed.getTime())).toBe(false);
+    expect(parsed.getDate()).toBe(15);
   });
 });
 

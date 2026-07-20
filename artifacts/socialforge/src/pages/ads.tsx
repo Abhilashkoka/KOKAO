@@ -95,8 +95,99 @@ import {
   X,
   TrendingUp,
   Wallet,
+  CalendarIcon,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { format } from "date-fns";
+
+/**
+ * Date+time picker for draft schedule fields. Holds an ISO-8601 string with a
+ * numeric UTC offset (e.g. "2026-08-01T00:00:00+0530") — the format the ad
+ * platforms accept — or "" meaning "no change / not set". Prefills from any
+ * parseable ISO value the server returns (including "+0000" offsets).
+ */
+function DateTimeField({
+  label,
+  value,
+  onChange,
+  testId,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  testId: string;
+}) {
+  const parsed = value ? new Date(value) : null;
+  const selected = parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
+  const emit = (d: Date) => onChange(format(d, "yyyy-MM-dd'T'HH:mm:ssxx"));
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <div className="flex gap-2">
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              className="flex-1 justify-start font-normal"
+              data-testid={testId}
+            >
+              <CalendarIcon className="h-4 w-4 mr-2" />
+              {selected ? format(selected, "d MMM yyyy") : "Pick a date"}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar
+              mode="single"
+              selected={selected ?? undefined}
+              onSelect={(d) => {
+                if (!d) return;
+                const next = new Date(d);
+                next.setHours(
+                  selected?.getHours() ?? 0,
+                  selected?.getMinutes() ?? 0,
+                  0,
+                  0,
+                );
+                emit(next);
+              }}
+            />
+          </PopoverContent>
+        </Popover>
+        <Input
+          type="time"
+          className="w-28"
+          value={selected ? format(selected, "HH:mm") : ""}
+          disabled={!selected}
+          onChange={(e) => {
+            if (!selected || !e.target.value) return;
+            const [h, m] = e.target.value.split(":").map(Number);
+            const next = new Date(selected);
+            next.setHours(h, m, 0, 0);
+            emit(next);
+          }}
+          data-testid={`${testId}-time`}
+        />
+        {selected && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onChange("")}
+            aria-label={`Clear ${label}`}
+            data-testid={`${testId}-clear`}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Budget diff fields produced by the server ("Daily budget (minor units)" /
@@ -2401,34 +2492,18 @@ export function DraftDialog({
           )}
           {showSchedule && (
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="draft-start">
-                  {isTiktok ? "Start (optional)" : "Start (ISO time, optional)"}
-                </Label>
-                <Input
-                  id="draft-start"
-                  placeholder={
-                    isTiktok ? "2026-08-01 00:00:00" : "2026-08-01T00:00:00+0000"
-                  }
-                  value={state.startTime}
-                  onChange={(e) => setState({ ...state, startTime: e.target.value })}
-                  data-testid="input-draft-start"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="draft-stop">
-                  {isTiktok ? "End (optional)" : "End (ISO time, optional)"}
-                </Label>
-                <Input
-                  id="draft-stop"
-                  placeholder={
-                    isTiktok ? "2026-08-31 00:00:00" : "2026-08-31T00:00:00+0000"
-                  }
-                  value={state.stopTime}
-                  onChange={(e) => setState({ ...state, stopTime: e.target.value })}
-                  data-testid="input-draft-stop"
-                />
-              </div>
+              <DateTimeField
+                label="Start (optional)"
+                value={state.startTime}
+                onChange={(v) => setState({ ...state, startTime: v })}
+                testId="input-draft-start"
+              />
+              <DateTimeField
+                label="End (optional)"
+                value={state.stopTime}
+                onChange={(v) => setState({ ...state, stopTime: v })}
+                testId="input-draft-stop"
+              />
             </div>
           )}
         </div>
