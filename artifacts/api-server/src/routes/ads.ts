@@ -104,6 +104,7 @@ import {
   getCampaign as getTiktokCampaign,
   listAdGroups as listTiktokAdGroups,
   listAdsForCampaign as listTiktokAds,
+  getImageInfos as getTiktokImageInfos,
   getInsightsByLevel as getTiktokInsightsByLevel,
   toTiktokTime,
   EMPTY_TIKTOK_INSIGHTS,
@@ -1616,6 +1617,13 @@ router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
         getTiktokInsightsByLevel(token, advertiserId, "adgroup", datePreset),
         getTiktokInsightsByLevel(token, advertiserId, "ad", datePreset),
       ]);
+      // Resolve creative image IDs to thumbnail URLs (best-effort — a failed
+      // lookup just leaves imageUrl null; getTiktokImageInfos never throws).
+      const imageUrls = await getTiktokImageInfos(
+        token,
+        advertiserId,
+        ads.flatMap((a) => a.imageIds),
+      );
       res.json({
         currency: ct.conn.currency ?? null,
         campaign: {
@@ -1626,8 +1634,11 @@ router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
           ...g,
           metrics: gIns.get(g.id) ?? EMPTY_TIKTOK_INSIGHTS,
         })),
-        ads: ads.map((a) => ({
+        ads: ads.map(({ imageIds, ...a }) => ({
           ...a,
+          text: a.text ?? null,
+          imageUrl:
+            imageIds.map((id) => imageUrls.get(id)).find((u) => !!u) ?? null,
           metrics: aIns.get(a.id) ?? EMPTY_TIKTOK_INSIGHTS,
         })),
       });

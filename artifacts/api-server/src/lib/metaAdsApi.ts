@@ -236,22 +236,74 @@ export interface MetaAd {
   status: string;
   effectiveStatus: string;
   adSetId: string | null;
+  /** Ad copy resolved from the ad's creative, when available. */
+  text: string | null;
+  /** Thumbnail/image URL resolved from the ad's creative, when available. */
+  imageUrl: string | null;
+}
+
+interface RawMetaAdCreative {
+  body?: string;
+  title?: string;
+  image_url?: string;
+  thumbnail_url?: string;
+  object_story_spec?: {
+    link_data?: { message?: string; picture?: string };
+    photo_data?: { caption?: string };
+    video_data?: { message?: string; image_url?: string };
+  };
+  asset_feed_spec?: {
+    bodies?: { text?: string }[];
+  };
+}
+
+/** Best-effort extraction of ad copy + image from a Meta creative payload. */
+function creativePreview(c: RawMetaAdCreative | undefined): {
+  text: string | null;
+  imageUrl: string | null;
+} {
+  if (!c) return { text: null, imageUrl: null };
+  const spec = c.object_story_spec;
+  const text =
+    c.body ??
+    spec?.link_data?.message ??
+    spec?.video_data?.message ??
+    spec?.photo_data?.caption ??
+    c.asset_feed_spec?.bodies?.[0]?.text ??
+    c.title ??
+    null;
+  const imageUrl =
+    c.image_url ??
+    spec?.link_data?.picture ??
+    spec?.video_data?.image_url ??
+    c.thumbnail_url ??
+    null;
+  return { text: text || null, imageUrl: imageUrl || null };
 }
 
 export async function listAds(token: string, campaignId: string): Promise<MetaAd[]> {
   const json = await graphGet<{
-    data?: { id?: string; name?: string; status?: string; effective_status?: string; adset_id?: string }[];
+    data?: {
+      id?: string; name?: string; status?: string; effective_status?: string;
+      adset_id?: string; creative?: RawMetaAdCreative;
+    }[];
   }>(`${encodeURIComponent(campaignId)}/ads`, token, {
-    fields: "id,name,status,effective_status,adset_id",
+    fields:
+      "id,name,status,effective_status,adset_id,creative{body,title,image_url,thumbnail_url,object_story_spec,asset_feed_spec}",
     limit: "200",
   });
-  return (json.data ?? []).map((a) => ({
-    id: a.id ?? "",
-    name: a.name ?? "",
-    status: a.status ?? "UNKNOWN",
-    effectiveStatus: a.effective_status ?? a.status ?? "UNKNOWN",
-    adSetId: a.adset_id ?? null,
-  }));
+  return (json.data ?? []).map((a) => {
+    const preview = creativePreview(a.creative);
+    return {
+      id: a.id ?? "",
+      name: a.name ?? "",
+      status: a.status ?? "UNKNOWN",
+      effectiveStatus: a.effective_status ?? a.status ?? "UNKNOWN",
+      adSetId: a.adset_id ?? null,
+      text: preview.text,
+      imageUrl: preview.imageUrl,
+    };
+  });
 }
 
 export interface MetaInsights {

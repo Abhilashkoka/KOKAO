@@ -42,6 +42,10 @@ vi.mock("../lib/tiktokAdsApi", async (importOriginal) => {
     listAdvertisers: vi.fn(),
     readAdvertiser: vi.fn(),
     listCampaigns: vi.fn(),
+    getCampaign: vi.fn(),
+    listAdGroups: vi.fn(),
+    listAdsForCampaign: vi.fn(),
+    getImageInfos: vi.fn(),
     getInsightsByLevel: vi.fn(),
   };
 });
@@ -66,6 +70,10 @@ import {
   listAdvertisers,
   readAdvertiser,
   listCampaigns,
+  getCampaign,
+  listAdGroups,
+  listAdsForCampaign,
+  getImageInfos,
   getInsightsByLevel,
   TiktokAdsApiError,
 } from "../lib/tiktokAdsApi";
@@ -85,6 +93,10 @@ const mockCreate = vi.mocked(createCampaign);
 const mockListAdvertisers = vi.mocked(listAdvertisers);
 const mockReadAdvertiser = vi.mocked(readAdvertiser);
 const mockListCampaigns = vi.mocked(listCampaigns);
+const mockGetCampaign = vi.mocked(getCampaign);
+const mockListAdGroups = vi.mocked(listAdGroups);
+const mockListAdsForCampaign = vi.mocked(listAdsForCampaign);
+const mockGetImageInfos = vi.mocked(getImageInfos);
 const mockInsightsByLevel = vi.mocked(getInsightsByLevel);
 
 function createAdsTestApp(): Express {
@@ -194,6 +206,11 @@ beforeEach(async () => {
   mockUpdateAd.mockResolvedValue(undefined as never);
   mockCreate.mockResolvedValue("tt_camp_new_1");
   mockListCampaigns.mockReset();
+  mockGetCampaign.mockReset();
+  mockListAdGroups.mockReset();
+  mockListAdsForCampaign.mockReset();
+  mockGetImageInfos.mockReset();
+  mockGetImageInfos.mockResolvedValue(new Map());
   mockInsightsByLevel.mockReset();
   mockInsightsByLevel.mockResolvedValue(new Map());
   await db.delete(adsSettingsTable);
@@ -202,6 +219,111 @@ beforeEach(async () => {
 afterAll(async () => {
   await db.delete(adsSettingsTable);
   await pool.end();
+});
+
+describe("tiktok campaign detail previews", () => {
+  it("returns ad text and a resolved image thumbnail for each ad", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      mockGetCampaign.mockResolvedValue({
+        id: "tt_camp_1",
+        name: "Spring Push",
+        status: "ACTIVE",
+        effectiveStatus: "CAMPAIGN_STATUS_ENABLE",
+        objective: "TRAFFIC",
+        dailyBudget: 5000,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+      mockListAdGroups.mockResolvedValue([]);
+      mockListAdsForCampaign.mockResolvedValue([
+        {
+          id: "ad_1",
+          name: "Video Ad A",
+          status: "ACTIVE",
+          effectiveStatus: "AD_STATUS_DELIVERY_OK",
+          adGroupId: "ag_1",
+          text: "Shop the spring drop",
+          imageIds: ["img_1", "img_2"],
+        },
+        {
+          id: "ad_2",
+          name: "Video Ad B",
+          status: "PAUSED",
+          effectiveStatus: "AD_STATUS_DISABLE",
+          adGroupId: "ag_1",
+          text: null,
+          imageIds: [],
+        },
+      ]);
+      mockGetImageInfos.mockResolvedValue(
+        new Map([["img_2", "https://cdn.tiktok.example/img_2.jpg"]]),
+      );
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .get("/api/ads/campaign-detail")
+        .query({ connectionId, campaignId: "tt_camp_1" });
+      expect(res.status).toBe(200);
+      expect(res.body.ads).toHaveLength(2);
+      const [adA, adB] = res.body.ads;
+      expect(adA.text).toBe("Shop the spring drop");
+      // First resolvable image wins (img_1 has no URL, img_2 does).
+      expect(adA.imageUrl).toBe("https://cdn.tiktok.example/img_2.jpg");
+      expect(adA.imageIds).toBeUndefined();
+      expect(adB.text).toBeNull();
+      expect(adB.imageUrl).toBeNull();
+      expect(mockGetImageInfos).toHaveBeenCalledWith("tiktok-token", "adv_123", [
+        "img_1",
+        "img_2",
+      ]);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("leaves previews null when image resolution returns nothing", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      mockGetCampaign.mockResolvedValue({
+        id: "tt_camp_1",
+        name: "Spring Push",
+        status: "ACTIVE",
+        effectiveStatus: "CAMPAIGN_STATUS_ENABLE",
+        objective: null,
+        dailyBudget: null,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+      mockListAdGroups.mockResolvedValue([]);
+      mockListAdsForCampaign.mockResolvedValue([
+        {
+          id: "ad_1",
+          name: "Video Ad A",
+          status: "ACTIVE",
+          effectiveStatus: "AD_STATUS_DELIVERY_OK",
+          adGroupId: "ag_1",
+          text: null,
+          imageIds: ["img_1"],
+        },
+      ]);
+      mockGetImageInfos.mockResolvedValue(new Map());
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .get("/api/ads/campaign-detail")
+        .query({ connectionId, campaignId: "tt_camp_1" });
+      expect(res.status).toBe(200);
+      expect(res.body.ads[0].text).toBeNull();
+      expect(res.body.ads[0].imageUrl).toBeNull();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
 });
 
 describe("tiktok draft rules", () => {

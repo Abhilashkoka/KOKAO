@@ -37,6 +37,10 @@ vi.mock("../lib/metaAdsApi", async (importOriginal) => {
     createCampaign: vi.fn(),
     listAdAccounts: vi.fn(),
     readAdAccount: vi.fn(),
+    getCampaign: vi.fn(),
+    listAdSets: vi.fn(),
+    listAds: vi.fn(),
+    getInsightsByLevel: vi.fn(),
   };
 });
 
@@ -55,6 +59,10 @@ import {
   updateObject,
   createCampaign,
   readAdAccount,
+  getCampaign,
+  listAdSets,
+  listAds,
+  getInsightsByLevel,
   MetaAdsApiError,
 } from "../lib/metaAdsApi";
 import { encryptJson } from "../lib/secretCrypto";
@@ -68,6 +76,10 @@ const mockRead = vi.mocked(readObjectState);
 const mockUpdate = vi.mocked(updateObject);
 const mockCreate = vi.mocked(createCampaign);
 const mockReadAdAccount = vi.mocked(readAdAccount);
+const mockGetCampaign = vi.mocked(getCampaign);
+const mockListAdSets = vi.mocked(listAdSets);
+const mockListAds = vi.mocked(listAds);
+const mockMetaInsights = vi.mocked(getInsightsByLevel);
 
 function createAdsTestApp(): Express {
   const app = express();
@@ -174,6 +186,11 @@ beforeEach(async () => {
   });
   mockUpdate.mockResolvedValue(undefined as never);
   mockCreate.mockResolvedValue("camp_new_1");
+  mockGetCampaign.mockReset();
+  mockListAdSets.mockReset();
+  mockListAds.mockReset();
+  mockMetaInsights.mockReset();
+  mockMetaInsights.mockResolvedValue(new Map());
   // The module switch defaults to enabled when no row exists; force-enable to
   // be independent of other suites toggling it.
   await db.delete(adsSettingsTable);
@@ -307,6 +324,60 @@ describe("ads draft creation", () => {
         const res = await req;
         expect(res.status).toBe(503);
       }
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("meta campaign detail previews", () => {
+  it("returns creative text and imageUrl for each ad, null when unresolved", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      mockGetCampaign.mockResolvedValue({
+        id: "camp_1",
+        name: "Summer Sale",
+        status: "ACTIVE",
+        effectiveStatus: "ACTIVE",
+        objective: "OUTCOME_TRAFFIC",
+        dailyBudget: 5000,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+      mockListAdSets.mockResolvedValue([]);
+      mockListAds.mockResolvedValue([
+        {
+          id: "ad_1",
+          name: "Carousel Ad",
+          status: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          adSetId: "as_1",
+          text: "Big summer savings",
+          imageUrl: "https://cdn.meta.example/creative.jpg",
+        },
+        {
+          id: "ad_2",
+          name: "No-creative Ad",
+          status: "PAUSED",
+          effectiveStatus: "PAUSED",
+          adSetId: "as_1",
+          text: null,
+          imageUrl: null,
+        },
+      ]);
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .get("/api/ads/campaign-detail")
+        .query({ connectionId, campaignId: "camp_1" });
+      expect(res.status).toBe(200);
+      expect(res.body.ads).toHaveLength(2);
+      expect(res.body.ads[0].text).toBe("Big summer savings");
+      expect(res.body.ads[0].imageUrl).toBe("https://cdn.meta.example/creative.jpg");
+      expect(res.body.ads[1].text).toBeNull();
+      expect(res.body.ads[1].imageUrl).toBeNull();
     } finally {
       await deleteTenant(tenant.tenantId);
     }

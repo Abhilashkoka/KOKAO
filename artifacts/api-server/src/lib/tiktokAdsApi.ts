@@ -383,6 +383,10 @@ export interface TiktokAd {
   status: string;
   effectiveStatus: string;
   adGroupId: string | null;
+  /** Ad copy (primary text) from the ad's creative, when available. */
+  text: string | null;
+  /** Creative image IDs — resolve to URLs via getImageInfos (best-effort). */
+  imageIds: string[];
 }
 
 interface RawTiktokAd {
@@ -391,6 +395,9 @@ interface RawTiktokAd {
   operation_status?: string;
   secondary_status?: string;
   adgroup_id?: string | number;
+  ad_text?: string;
+  ad_texts?: string[];
+  image_ids?: (string | number)[];
 }
 
 function mapAd(a: RawTiktokAd): TiktokAd {
@@ -400,7 +407,40 @@ function mapAd(a: RawTiktokAd): TiktokAd {
     status: mapOperationStatus(a.operation_status),
     effectiveStatus: a.secondary_status ?? mapOperationStatus(a.operation_status),
     adGroupId: a.adgroup_id != null ? String(a.adgroup_id) : null,
+    text: a.ad_text?.trim() || a.ad_texts?.find((t) => t?.trim())?.trim() || null,
+    imageIds: (a.image_ids ?? []).map((id) => String(id)).filter(Boolean),
   };
+}
+
+/**
+ * Resolve creative image IDs to their hosted URLs (best-effort; never throws).
+ * TikTok caps `image_ids` per call, so IDs are fetched in chunks of 100.
+ */
+export async function getImageInfos(
+  token: string,
+  advertiserId: string,
+  imageIds: string[],
+): Promise<Map<string, string>> {
+  const urls = new Map<string, string>();
+  const unique = [...new Set(imageIds)].filter(Boolean);
+  for (let i = 0; i < unique.length; i += 100) {
+    const chunk = unique.slice(i, i + 100);
+    try {
+      const data = await apiGet<{
+        list?: { image_id?: string | number; image_url?: string }[];
+      }>("file/image/ad/info/", token, {
+        advertiser_id: advertiserId,
+        image_ids: JSON.stringify(chunk),
+      });
+      for (const img of data.list ?? []) {
+        const id = img.image_id != null ? String(img.image_id) : "";
+        if (id && img.image_url) urls.set(id, img.image_url);
+      }
+    } catch {
+      // Previews are decorative — a failed lookup must not break the page.
+    }
+  }
+  return urls;
 }
 
 export async function listAdsForCampaign(
