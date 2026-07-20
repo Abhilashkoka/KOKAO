@@ -36,11 +36,24 @@ const DEFAULT_STATE = {
       stop_time: null,
     },
   },
+  adSets: {
+    "130000000000001": {
+      id: "130000000000001",
+      campaign: "120000000000001",
+      name: "Summer Sale - Prospecting",
+      status: "PAUSED",
+      daily_budget: "2000",
+      lifetime_budget: null,
+      start_time: "2026-07-01T00:00:00+0000",
+      end_time: "2026-07-31T00:00:00+0000",
+    },
+  },
 };
 
 let state;
 try {
   state = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
+  if (!state.adSets) state.adSets = structuredClone(DEFAULT_STATE.adSets);
 } catch {
   state = structuredClone(DEFAULT_STATE);
 }
@@ -64,6 +77,19 @@ function campaignFields(c) {
     lifetime_budget: c.lifetime_budget ?? undefined,
     start_time: c.start_time ?? undefined,
     stop_time: c.stop_time ?? undefined,
+  };
+}
+
+function adSetFields(s) {
+  return {
+    id: s.id,
+    name: s.name,
+    status: s.status,
+    effective_status: s.status,
+    daily_budget: s.daily_budget ?? undefined,
+    lifetime_budget: s.lifetime_budget ?? undefined,
+    start_time: s.start_time ?? undefined,
+    end_time: s.end_time ?? undefined,
   };
 }
 
@@ -148,8 +174,13 @@ const server = http.createServer(async (req, res) => {
 
   // <id>/adsets and <id>/ads
   if (req.method === "GET" && /\/adsets$/.test(path)) {
+    const campaignId = path.split("/")[0];
     record({ method: "GET", path, kind: "list_adsets" });
-    return send({ data: [] });
+    return send({
+      data: Object.values(state.adSets)
+        .filter((s) => s.campaign === campaignId)
+        .map(adSetFields),
+    });
   }
   if (req.method === "GET" && /\/ads$/.test(path)) {
     record({ method: "GET", path, kind: "list_ads" });
@@ -167,6 +198,8 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method === "GET" && /^\d+$/.test(path)) {
     record({ method: "GET", path, kind: "read_object" });
+    const s = state.adSets[path];
+    if (s) return send(adSetFields(s));
     const c = state.campaigns[path];
     if (!c) return send({ error: { message: "Unknown object", code: 100 } }, 404);
     return send(campaignFields(c));
@@ -174,6 +207,27 @@ const server = http.createServer(async (req, res) => {
 
   // Update object: POST <id>
   if (req.method === "POST" && /^\d+$/.test(path)) {
+    const s = state.adSets[path];
+    if (s) {
+      const changed = {};
+      for (const key of [
+        "name",
+        "status",
+        "daily_budget",
+        "lifetime_budget",
+        "start_time",
+        "end_time",
+      ]) {
+        const v = params.get(key);
+        if (v != null) {
+          s[key] = v;
+          changed[key] = v;
+        }
+      }
+      saveState();
+      record({ method: "POST", path, kind: "update_adset", changed });
+      return send({ success: true });
+    }
     const c = state.campaigns[path];
     if (!c) return send({ error: { message: "Unknown object", code: 100 } }, 404);
     const changed = {};
