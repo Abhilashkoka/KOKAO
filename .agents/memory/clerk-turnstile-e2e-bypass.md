@@ -12,6 +12,8 @@ Clerk dev instances show an interactive Cloudflare Turnstile CAPTCHA on sign-up 
 4. Sign up with `<x>+clerk_test@example.com`, verification code 424242.
 
 **Other pitfalls hit:**
+- Expo web registers a service worker that issues the Clerk FAPI requests — `context.route` never fires unless the context is created with `serviceWorkers: "block"`.
+- The `/v1/environment` request is a POST with `_method=PATCH` (not GET); the sitekey-rewrite interception must match ANY method or the real Turnstile key slips through and sign-up stalls silently.
 - Playwright's downloaded chromium fails on NixOS (missing libglib); install Nix `chromium` via system deps and pass `executablePath`.
 - Expo web keeps prior screens mounted, so `getByPlaceholder(...)` matches twice — use `.last()`; list-item clicks may need `{ force: true }` (scroll container intercepts pointer events).
 - A working script lives at `.local/mobile-e2e.mjs` (full sign-up → Studio caption → save → Library edit → Accounts flow).
