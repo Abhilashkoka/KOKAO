@@ -98,6 +98,12 @@ import {
   CalendarIcon,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  MetaIcon,
+  GoogleIcon,
+  TiktokIcon,
+  LinkedinIcon,
+} from "@/components/brand-icons";
 import { Calendar } from "@/components/ui/calendar";
 import {
   Popover,
@@ -573,7 +579,7 @@ function ConnectionSection({
       <div className="flex flex-col lg:flex-row lg:items-center">
       <CardHeader className="lg:max-w-sm lg:shrink-0">
         <CardTitle className="flex items-center gap-2">
-          <Megaphone className="h-5 w-5" /> Meta Ads
+          <MetaIcon className="h-5 w-5" /> Meta Ads
         </CardTitle>
         <CardDescription>
           Connect the Meta ad account behind your Facebook and Instagram
@@ -706,7 +712,7 @@ function GoogleConnectionCard({
       <div className="flex flex-col lg:flex-row lg:items-center">
       <CardHeader className="lg:max-w-sm lg:shrink-0">
         <CardTitle className="flex items-center gap-2">
-          <Megaphone className="h-5 w-5" /> Google Ads
+          <GoogleIcon className="h-5 w-5" /> Google Ads
         </CardTitle>
         <CardDescription>
           Connect the Google Ads account (or a client account under your
@@ -919,7 +925,7 @@ function LinkedinConnectionSection({
       <div className="flex flex-col lg:flex-row lg:items-center">
       <CardHeader className="lg:max-w-sm lg:shrink-0">
         <CardTitle className="flex items-center gap-2">
-          <Megaphone className="h-5 w-5" /> LinkedIn Ads
+          <LinkedinIcon className="h-5 w-5" /> LinkedIn Ads
         </CardTitle>
         <CardDescription>
           Connect the LinkedIn ad account behind your sponsored campaigns.
@@ -1334,7 +1340,7 @@ function TiktokConnectionSection({
       <div className="flex flex-col lg:flex-row lg:items-center">
       <CardHeader className="lg:max-w-sm lg:shrink-0">
         <CardTitle className="flex items-center gap-2">
-          <TrendingUp className="h-5 w-5" /> TikTok Ads
+          <TiktokIcon className="h-5 w-5" /> TikTok Ads
         </CardTitle>
         <CardDescription>
           Connect the TikTok for Business advertiser account behind your TikTok
