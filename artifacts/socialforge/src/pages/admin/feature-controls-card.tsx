@@ -2,6 +2,9 @@ import {
   useAdminListFeatureFlags,
   getAdminListFeatureFlagsQueryKey,
   getListFeatureFlagsQueryKey,
+  useAdminGetAdsSettings,
+  useAdminUpdateAdsSettings,
+  getAdminGetAdsSettingsQueryKey,
 } from "@workspace/api-client-react";
 import { useAdminUpdateFeatureFlag } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -25,6 +28,36 @@ export function FeatureControlsCard() {
   const { toast } = useToast();
   const { data: features, isLoading } = useAdminListFeatureFlags();
   const updateFlag = useAdminUpdateFeatureFlag();
+  // The ads module predates the feature-flag system and keeps its own
+  // dedicated setting; it is surfaced here so all switches live together.
+  const { data: adsSettings, isLoading: adsLoading } = useAdminGetAdsSettings();
+  const updateAds = useAdminUpdateAdsSettings();
+
+  const handleAdsToggle = (enabled: boolean) => {
+    updateAds.mutate(
+      { data: { enabled } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetAdsSettingsQueryKey(),
+          });
+          toast({
+            title: enabled ? "Paid media (Ads) enabled" : "Paid media (Ads) disabled",
+            description: enabled
+              ? "Tenants can now connect ad accounts and manage campaigns."
+              : "All ads features are hidden and ads endpoints are blocked for all tenants.",
+          });
+        },
+        onError: () => {
+          toast({
+            variant: "destructive",
+            title: "Could not update the ads switch",
+            description: "Please try again.",
+          });
+        },
+      },
+    );
+  };
 
   const handleToggle = (feature: string, label: string, enabled: boolean) => {
     updateFlag.mutate(
@@ -66,7 +99,7 @@ export function FeatureControlsCard() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
+        {isLoading || adsLoading ? (
           <div className="space-y-3">
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
@@ -96,6 +129,21 @@ export function FeatureControlsCard() {
                 />
               </div>
             ))}
+            <div className="flex items-center justify-between gap-4 py-3">
+              <div>
+                <div className="font-medium">Paid media (Ads)</div>
+                <div className="text-sm text-muted-foreground">
+                  Ad account connections and paid campaign management.
+                </div>
+              </div>
+              <Switch
+                checked={adsSettings?.enabled ?? false}
+                disabled={updateAds.isPending}
+                onCheckedChange={handleAdsToggle}
+                aria-label="Toggle Paid media (Ads)"
+                data-testid="switch-ads-module"
+              />
+            </div>
           </div>
         )}
       </CardContent>

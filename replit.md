@@ -63,6 +63,7 @@ pnpm workspaces, Node.js 24, TypeScript 5.9. API: Express 5. DB: PostgreSQL + Dr
 ## User preferences
 
 - No emojis in the UI.
+- MANDATE — feature kill switches: every NEW tenant-facing feature/module MUST automatically get a platform-wide kill switch, without the user asking. Add it to the `FEATURES` catalog in `artifacts/api-server/src/lib/featureFlags.ts`, gate its route prefix(es) with `requireFeature` in `routes/index.ts` (plus any background jobs / cross-cutting endpoints), and hide its UI (nav, routes, tabs) behind the flag. The switch then appears automatically in the admin Feature Controls card. Ads is the one legacy exception (own `ads_settings` switch, surfaced in the same card).
 
 ## Gotchas
 

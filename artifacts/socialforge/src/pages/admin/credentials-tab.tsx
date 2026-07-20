@@ -21,9 +21,6 @@ import {
   useAdminGetRazorpayCredentials,
   useAdminSaveRazorpayCredentials,
   getAdminGetRazorpayCredentialsQueryKey,
-  useAdminGetAdsSettings,
-  useAdminUpdateAdsSettings,
-  getAdminGetAdsSettingsQueryKey,
   useAdminGetGoogleAdsCredentials,
   useAdminSaveGoogleAdsCredentials,
   getAdminGetGoogleAdsCredentialsQueryKey,
@@ -1250,91 +1247,9 @@ function TiktokCredentialsCard() {
   );
 }
 
-function AdsSettingsCard() {
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-  const { data, isLoading } = useAdminGetAdsSettings();
-  const update = useAdminUpdateAdsSettings();
-
-  const setEnabled = (enabled: boolean) => {
-    update.mutate(
-      { data: { enabled } },
-      {
-        onSuccess: () => {
-          queryClient.invalidateQueries({
-            queryKey: getAdminGetAdsSettingsQueryKey(),
-          });
-          toast({
-            title: enabled ? "Ads module enabled" : "Ads module disabled",
-            description: enabled
-              ? "Tenants can now connect ad accounts and manage campaigns."
-              : "All ads features are hidden and ads endpoints return a maintenance message.",
-          });
-        },
-        onError: () => {
-          toast({
-            variant: "destructive",
-            title: "Could not update the ads switch",
-          });
-        },
-      },
-    );
-  };
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Paid media (Ads)</CardTitle>
-        <CardDescription>
-          Global switch for the ads module across all tenants. Changes are
-          recorded in the audit log.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {isLoading ? (
-          <Skeleton className="h-10 w-full" />
-        ) : (
-          <>
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-medium">Ads module</div>
-                <div className="text-sm text-muted-foreground">
-                  {data?.enabled
-                    ? "Enabled — tenants can manage paid campaigns."
-                    : "Disabled — ads pages and endpoints are switched off."}
-                </div>
-              </div>
-              <Switch
-                checked={data?.enabled ?? false}
-                onCheckedChange={setEnabled}
-                disabled={update.isPending}
-                data-testid="switch-ads-module"
-              />
-            </div>
-            <div className="space-y-2">
-              {(data?.platforms ?? []).map((p) => (
-                <div key={p.platform} className="flex items-center gap-2 text-sm">
-                  {p.configured ? (
-                    <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  ) : (
-                    <AlertCircle className="h-4 w-4 text-muted-foreground" />
-                  )}
-                  <span className="font-medium capitalize">{p.platform}</span>
-                  <span className="text-muted-foreground">{p.note}</span>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
 export function CredentialsTab() {
   return (
     <div className="space-y-8">
-      <AdsSettingsCard />
       <MetaCredentialsCard />
       <GoogleAdsCredentialsCard />
       <TwitterCredentialsCard />
