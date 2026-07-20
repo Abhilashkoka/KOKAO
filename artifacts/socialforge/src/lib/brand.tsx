@@ -1,8 +1,6 @@
 import { createContext, useContext, useEffect } from "react";
 import { useGetAppBrand } from "@workspace/api-client-react";
 import type { AppBrand } from "@workspace/api-client-react";
-import kokaoLockup from "@assets/kokao-lockup_1783325983377.svg";
-
 const DEFAULT_APP_NAME = "KOKAO";
 
 type BrandContextValue = {
@@ -48,7 +46,7 @@ function writeCachedBrand(brand: AppBrand) {
 
 const BrandContext = createContext<BrandContextValue>({
   appName: DEFAULT_APP_NAME,
-  logoUrl: kokaoLockup,
+  logoUrl: "",
   iconUrl: null,
 });
 
@@ -129,24 +127,35 @@ function applyThemeColor(name: string, hex: string | null) {
   }
 }
 
-const DEFAULT_FAVICON = "/favicon.svg";
+// Blank 1x1 favicon used when no custom icon is configured, so the browser
+// never shows the old bundled logo mark in the tab.
+const BLANK_FAVICON =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
 function setFavicon(href: string | null) {
+  // Drop any statically declared icons (e.g. from index.html) so they can't
+  // override the runtime-managed one.
+  document
+    .querySelectorAll<HTMLLinkElement>('link[rel="icon"]')
+    .forEach((el, i) => {
+      if (i > 0) el.remove();
+    });
   let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
   if (!link) {
     link = document.createElement("link");
     link.rel = "icon";
     document.head.appendChild(link);
   }
-  // Fall back to the bundled default so clearing a custom icon reverts live.
-  link.href = href || DEFAULT_FAVICON;
+  link.type = "";
+  link.removeAttribute("sizes");
+  link.href = href || BLANK_FAVICON;
 }
 
 /**
  * Fetches the platform branding and applies it globally: document title,
  * favicon, and theme colors. Also exposes the resolved logo/app name to the
- * tree via context, so nav/landing render the uploaded logo (falling back to
- * the bundled KOKAO lockup when nothing has been configured).
+ * tree via context, so nav/landing render the uploaded logo. There is no
+ * bundled default logo: when no custom logo is configured, nothing renders.
  */
 export function BrandProvider({ children }: { children: React.ReactNode }) {
   const { data, isError } = useGetAppBrand();
@@ -167,7 +176,8 @@ export function BrandProvider({ children }: { children: React.ReactNode }) {
   }, [fetched]);
 
   const appName = resolved ? brand?.appName || DEFAULT_APP_NAME : "";
-  const logoUrl = resolved ? brand?.logoUrl || kokaoLockup : "";
+  // No bundled default logo: if no custom logo is configured, render nothing.
+  const logoUrl = brand?.logoUrl || "";
   const iconUrl = brand?.iconUrl ?? null;
 
   useEffect(() => {

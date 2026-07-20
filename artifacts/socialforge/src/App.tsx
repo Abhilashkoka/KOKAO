@@ -125,9 +125,6 @@ function HomeRoute() {
 const clerkAppearance = {
   variables: { colorPrimary: 'hsl(255, 85%, 55%)' },
   elements: { card: 'shadow-2xl shadow-primary/10 rounded-2xl border border-border' },
-  options: {
-    logoImageUrl: `${window.location.origin}${basePath}/logo.svg`,
-  }
 };
 
 function ClerkProviderWithRoutes() {

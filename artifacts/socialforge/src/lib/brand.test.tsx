@@ -21,10 +21,6 @@ vi.mock("@workspace/api-client-react", async () => {
   });
 });
 
-vi.mock("@assets/kokao-lockup_1783325983377.svg", () => ({
-  default: "default-lockup.svg",
-}));
-
 function Probe() {
   const { appName, logoUrl } = useBrand();
   return (
@@ -52,24 +48,24 @@ describe("BrandProvider brand caching", () => {
     mockState.isError = false;
   });
 
-  it("falls back to the bundled default when the fetch fails and no cache exists", () => {
+  it("shows the default app name but NO logo when the fetch fails and no cache exists", () => {
     mockState.isError = true;
     renderProbe();
     expect(screen.getByTestId("app-name").textContent).toBe("KOKAO");
-    expect(screen.getByTestId("logo-url").textContent).toBe("default-lockup.svg");
+    expect(screen.getByTestId("logo-url").textContent).toBe("");
   });
 
-  it("stays blank (no default flash) with no fetch and no cache", () => {
+  it("stays blank with no fetch and no cache", () => {
     renderProbe();
     expect(screen.getByTestId("app-name").textContent).toBe("");
     expect(screen.getByTestId("logo-url").textContent).toBe("");
   });
 
-  it("uses the bundled default once the server confirms no custom brand", () => {
+  it("shows no logo once the server confirms no custom brand", () => {
     mockState.brand = { appName: null, logoUrl: null, iconUrl: null };
     renderProbe();
     expect(screen.getByTestId("app-name").textContent).toBe("KOKAO");
-    expect(screen.getByTestId("logo-url").textContent).toBe("default-lockup.svg");
+    expect(screen.getByTestId("logo-url").textContent).toBe("");
   });
 
   it("shows the cached custom brand while the fetch is still loading", () => {
@@ -90,12 +86,13 @@ describe("BrandProvider brand caching", () => {
     mockState.brand = { appName: "Fresh", logoUrl: "/fresh.png", iconUrl: null };
     renderProbe();
     expect(screen.getByTestId("app-name").textContent).toBe("Fresh");
+    expect(screen.getByTestId("logo-url").textContent).toBe("/fresh.png");
     const cached = JSON.parse(localStorage.getItem(CACHE_KEY) ?? "{}");
     expect(cached.appName).toBe("Fresh");
     expect(cached.logoUrl).toBe("/fresh.png");
   });
 
-  it("reverts to defaults when branding was cleared server-side", () => {
+  it("reverts to default name and no logo when branding was cleared server-side", () => {
     localStorage.setItem(
       CACHE_KEY,
       JSON.stringify({ appName: "Old", logoUrl: "/old.png" }),
@@ -103,7 +100,7 @@ describe("BrandProvider brand caching", () => {
     mockState.brand = { appName: null, logoUrl: null, iconUrl: null };
     renderProbe();
     expect(screen.getByTestId("app-name").textContent).toBe("KOKAO");
-    expect(screen.getByTestId("logo-url").textContent).toBe("default-lockup.svg");
+    expect(screen.getByTestId("logo-url").textContent).toBe("");
     const cached = JSON.parse(localStorage.getItem(CACHE_KEY) ?? "{}");
     expect(cached.appName).toBeNull();
   });
@@ -112,5 +109,6 @@ describe("BrandProvider brand caching", () => {
     localStorage.setItem(CACHE_KEY, "{not json");
     renderProbe();
     expect(screen.getByTestId("app-name").textContent).toBe("");
+    expect(screen.getByTestId("logo-url").textContent).toBe("");
   });
 });
