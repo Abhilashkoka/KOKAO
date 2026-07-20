@@ -79,7 +79,7 @@ const server = http.createServer(async (req, res) => {
     return send(img);
   }
 
-  // Targeting typeahead (facet-scoped)
+  // Targeting typeahead (facet-scoped) + URN name resolution (q=urns)
   if (req.method === "GET" && path === "adTargetingEntities") {
     const facetUrn = url.searchParams.get("facet") || "";
     const q = (url.searchParams.get("query") || "").toLowerCase();
@@ -105,6 +105,18 @@ const server = http.createServer(async (req, res) => {
         { urn: "urn:li:title:100", name: "Product Manager" },
       ],
     };
+    if (url.searchParams.get("q") === "urns") {
+      const all = Object.values(catalog).flat();
+      const urnsParam = url.searchParams.get("urns") || "";
+      const wanted = decodeURIComponent(urnsParam)
+        .replace(/^List\(/, "")
+        .replace(/\)$/, "")
+        .split(",")
+        .map((u) => decodeURIComponent(u.trim()))
+        .filter(Boolean);
+      const els = all.filter((e) => wanted.includes(e.urn));
+      return send({ elements: els });
+    }
     const els = (catalog[facetUrn] || []).filter((e) =>
       e.name.toLowerCase().includes(q),
     );

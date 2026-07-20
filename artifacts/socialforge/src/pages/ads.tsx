@@ -3190,7 +3190,11 @@ export function TargetingDraftDialog({
           connectionId,
           campaignId: campaign.id,
         }),
+        // Always fetch fresh targeting when the dialog opens: the preload
+        // effect locks in the FIRST data it sees, so serving a cached
+        // pre-apply snapshot would show stale badges after an approve.
         staleTime: 0,
+        gcTime: 0,
       },
     },
   );
