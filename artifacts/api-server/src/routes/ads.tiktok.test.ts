@@ -41,6 +41,8 @@ vi.mock("../lib/tiktokAdsApi", async (importOriginal) => {
     createCampaign: vi.fn(),
     listAdvertisers: vi.fn(),
     readAdvertiser: vi.fn(),
+    listCampaigns: vi.fn(),
+    getInsightsByLevel: vi.fn(),
   };
 });
 
@@ -63,6 +65,8 @@ import {
   createCampaign,
   listAdvertisers,
   readAdvertiser,
+  listCampaigns,
+  getInsightsByLevel,
   TiktokAdsApiError,
 } from "../lib/tiktokAdsApi";
 import { encryptJson } from "../lib/secretCrypto";
@@ -80,6 +84,8 @@ const mockUpdateAd = vi.mocked(updateAd);
 const mockCreate = vi.mocked(createCampaign);
 const mockListAdvertisers = vi.mocked(listAdvertisers);
 const mockReadAdvertiser = vi.mocked(readAdvertiser);
+const mockListCampaigns = vi.mocked(listCampaigns);
+const mockInsightsByLevel = vi.mocked(getInsightsByLevel);
 
 function createAdsTestApp(): Express {
   const app = express();
@@ -187,6 +193,9 @@ beforeEach(async () => {
   mockUpdateAdGroup.mockResolvedValue(undefined as never);
   mockUpdateAd.mockResolvedValue(undefined as never);
   mockCreate.mockResolvedValue("tt_camp_new_1");
+  mockListCampaigns.mockReset();
+  mockInsightsByLevel.mockReset();
+  mockInsightsByLevel.mockResolvedValue(new Map());
   await db.delete(adsSettingsTable);
 });
 
@@ -581,6 +590,56 @@ describe("tiktok approve → apply → verify", () => {
         .from(adChangeRequestsTable)
         .where(eq(adChangeRequestsTable.id, draftId));
       expect(draft!.status).toBe("failed");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("flags authLost and marks the connection failed when campaigns load hits an expired grant", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      mockListCampaigns.mockRejectedValue(
+        new TiktokAdsApiError("Access token expired", 401, 40102, true),
+      );
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get(
+        `/api/ads/campaigns?connectionId=${connectionId}&datePreset=last_30d`,
+      );
+      expect(res.status).toBe(502);
+      expect(res.body.authLost).toBe(true);
+
+      const [conn] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(conn!.verifyStatus).toBe("failed");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("does not flag authLost for a non-auth platform error", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      mockListCampaigns.mockRejectedValue(
+        new TiktokAdsApiError("Rate limited", 429, 40100, false),
+      );
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get(
+        `/api/ads/campaigns?connectionId=${connectionId}&datePreset=last_30d`,
+      );
+      expect(res.status).toBe(502);
+      expect(res.body.authLost).toBeUndefined();
+
+      const [conn] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(conn!.verifyStatus).toBe("verified");
     } finally {
       await deleteTenant(tenant.tenantId);
     }

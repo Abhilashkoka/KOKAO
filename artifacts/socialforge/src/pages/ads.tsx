@@ -105,6 +105,25 @@ import { Checkbox } from "@/components/ui/checkbox";
  */
 const LARGE_INCREASE_FACTOR = 2;
 
+/**
+ * When a campaigns/detail fetch fails because the platform revoked our access,
+ * the server marks the connection failed and flags the error payload with
+ * `authLost`. Refetch the connections list so the "Access lost" reconnect
+ * prompt appears immediately, without a manual page reload.
+ */
+export function useRefreshConnectionsOnAuthLoss(error: unknown) {
+  const queryClient = useQueryClient();
+  const err = error as
+    | { data?: { authLost?: boolean } | null; payload?: { authLost?: boolean } | null }
+    | null;
+  const authLost = Boolean(err?.data?.authLost ?? err?.payload?.authLost);
+  useEffect(() => {
+    if (authLost) {
+      queryClient.invalidateQueries({ queryKey: getListAdConnectionsQueryKey() });
+    }
+  }, [authLost, queryClient]);
+}
+
 export interface BudgetIncrease {
   field: string;
   before: number;
@@ -1373,6 +1392,7 @@ function CampaignsSection({
     connectionId: connection.id,
     datePreset: datePreset as never,
   });
+  useRefreshConnectionsOnAuthLoss(error);
   const [draftForm, setDraftForm] = useState<DraftFormState | null>(null);
   const [detailCampaignId, setDetailCampaignId] = useState<string | null>(null);
   const [creativeCampaign, setCreativeCampaign] = useState<{ id: string; name: string } | null>(null);
@@ -1614,6 +1634,7 @@ function CampaignDetailDialog({
     connectionId,
     datePreset: datePreset as never,
   });
+  useRefreshConnectionsOnAuthLoss(error);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const createDraft = useCreateAdDraft();
@@ -1935,6 +1956,7 @@ function LinkedinGroupsCard({
     connectionId,
     datePreset: datePreset as never,
   });
+  useRefreshConnectionsOnAuthLoss(error);
 
   return (
     <Card>

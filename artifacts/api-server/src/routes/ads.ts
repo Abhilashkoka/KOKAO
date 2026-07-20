@@ -1375,11 +1375,13 @@ router.get("/ads/linkedin/campaign-groups", async (req: Request, res: Response) 
       })),
     });
   } catch (err) {
-    if (isAdsAuthError(err)) {
+    const authLost = isAdsAuthError(err);
+    if (authLost) {
       await markAdConnectionAuthFailed(ct.conn, (err as Error).message);
     }
     res.status(502).json({
       error: err instanceof Error ? err.message : "Could not load campaign groups.",
+      ...(authLost ? { authLost: true } : {}),
     });
   }
 });
@@ -1509,11 +1511,13 @@ router.get("/ads/campaigns", async (req: Request, res: Response) => {
       })),
     });
   } catch (err) {
-    if (isAdsAuthError(err)) {
+    const authLost = isAdsAuthError(err);
+    if (authLost) {
       await markAdConnectionAuthFailed(ct.conn, (err as Error).message);
     }
     res.status(502).json({
       error: err instanceof Error ? err.message : "Could not load campaigns.",
+      ...(authLost ? { authLost: true } : {}),
     });
   }
 });
@@ -1639,12 +1643,14 @@ router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
       ads: ads.map((a) => ({ ...a, metrics: aIns.get(a.id) ?? EMPTY_INSIGHTS })),
     });
   } catch (err) {
-    if (isAdsAuthError(err)) {
+    const authLost = isAdsAuthError(err);
+    if (authLost) {
       await markAdConnectionAuthFailed(ct.conn, (err as Error).message);
     }
     const status = adsApiErrorStatus(err) === 404 ? 404 : 502;
     res.status(status).json({
       error: err instanceof Error ? err.message : "Could not load the campaign.",
+      ...(authLost ? { authLost: true } : {}),
     });
   }
 });

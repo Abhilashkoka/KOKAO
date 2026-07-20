@@ -474,7 +474,7 @@ describe("DraftDialog Meta", () => {
     expect(screen.getByTestId("input-draft-lifetime-budget")).toBeTruthy();
     expect(screen.queryByTestId("select-draft-objective")).toBeNull();
     // Meta ad sets carry their own schedule (end_time), so the schedule
-    // inputs render for adset edits on the meta platform.
+    // fields render for ad set edits on Meta.
     expect(screen.getByTestId("input-draft-start")).toBeTruthy();
     expect(screen.getByTestId("input-draft-stop")).toBeTruthy();
 
