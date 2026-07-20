@@ -49,3 +49,4 @@
 - [LinkedIn Ads module](linkedin-ads.md) — reuses shared ads engine; budgets are MAJOR units on LinkedIn (adapter converts ×100); creates need campaignGroupId; authFailed flag gates reconnect marking.
 - [Mobile push notifications](push-notifications.md) — push only after FRESH inserts (dedupe inherited); token table keyed by token, re-binds on re-register; testApp mounts routers explicitly; createTenant returns tenantId not id.
 - [Feature kill switches](feature-kill-switches.md) — gate every execution path (background jobs, settings mutations), not just route prefixes; admin routes stay ungated; fail open on DB errors.
+- [Sweep fail-ratio alert e2e](sweep-alert-e2e-verification.md) — force via 1ms timeout env (delete after); notification path breaks on notification_preferences schema drift; verify suppression at DB level not banner presence.
