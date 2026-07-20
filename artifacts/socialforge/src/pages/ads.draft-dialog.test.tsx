@@ -72,9 +72,9 @@ vi.mock("@workspace/api-client-react", async () => {
 import { DraftDialog, DraftsSection } from "./ads";
 
 const CREATE_FORM = {
-  action: "create" as const,
+  action: "create" as "create" | "update",
   targetType: "campaign",
-  targetId: null,
+  targetId: null as string | null,
   currentName: "",
   name: "",
   status: "",
@@ -87,7 +87,11 @@ const CREATE_FORM = {
 
 let queryClient: QueryClient;
 
-function renderDraftDialog(onClose: () => void = () => {}) {
+function renderDraftDialog(
+  onClose: () => void = () => {},
+  platform = "linkedin",
+  formOverrides: Partial<typeof CREATE_FORM> = {},
+) {
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -95,12 +99,17 @@ function renderDraftDialog(onClose: () => void = () => {}) {
     <QueryClientProvider client={queryClient}>
       <DraftDialog
         connectionId={7}
-        platform="linkedin"
-        form={{ ...CREATE_FORM }}
+        platform={platform}
+        form={{ ...CREATE_FORM, ...formOverrides }}
         onClose={onClose}
       />
     </QueryClientProvider>,
   );
+}
+
+function submittedPayload(): Record<string, unknown> {
+  expect(createDraftMutate).toHaveBeenCalledTimes(1);
+  return (createDraftMutate.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
 }
 
 async function switchToGroupMode(user: ReturnType<typeof userEvent.setup>) {
@@ -225,6 +234,256 @@ describe("DraftDialog group mode switching", () => {
     expect(payload.objective).toBeUndefined();
     expect(payload.startTime).toBeUndefined();
     expect(payload.stopTime).toBeUndefined();
+  });
+});
+
+describe("DraftDialog Google", () => {
+  it("campaign create shows objective and schedule but hides lifetime budget", async () => {
+    const user = userEvent.setup();
+    renderDraftDialog(() => {}, "google", { objective: "SEARCH" });
+
+    expect(screen.getByTestId("select-draft-objective")).toBeTruthy();
+    expect(screen.getByTestId("input-draft-daily-budget")).toBeTruthy();
+    // Google has no lifetime budget anywhere.
+    expect(screen.queryByTestId("input-draft-lifetime-budget")).toBeNull();
+    expect(screen.getByTestId("input-draft-start")).toBeTruthy();
+    expect(screen.getByTestId("input-draft-stop")).toBeTruthy();
+    // No LinkedIn campaign-group picker.
+    expect(screen.queryByTestId("select-draft-campaign-group")).toBeNull();
+
+    // Objective options are the Google channel types.
+    await user.click(screen.getByTestId("select-draft-objective"));
+    expect(await screen.findByText("Performance Max")).toBeTruthy();
+    expect(screen.getByText("Display")).toBeTruthy();
+    expect(screen.queryByText("Traffic")).toBeNull();
+  });
+
+  it("campaign create payload includes objective/dailyBudget/schedule, no lifetimeBudget or campaignGroupId", () => {
+    renderDraftDialog(() => {}, "google", { objective: "SEARCH" });
+    fireEvent.change(screen.getByTestId("input-draft-name"), {
+      target: { value: "G Search" },
+    });
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "5000" },
+    });
+    fireEvent.change(screen.getByTestId("input-draft-start"), {
+      target: { value: "2026-08-01T00:00:00+0000" },
+    });
+    fireEvent.change(screen.getByTestId("input-draft-stop"), {
+      target: { value: "2026-08-31T00:00:00+0000" },
+    });
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+
+    const payload = submittedPayload();
+    expect(payload.targetType).toBe("campaign");
+    expect(payload.objective).toBe("SEARCH");
+    expect(payload.dailyBudget).toBe(5000);
+    expect(payload.startTime).toBe("2026-08-01T00:00:00+0000");
+    expect(payload.stopTime).toBe("2026-08-31T00:00:00+0000");
+    expect(payload.lifetimeBudget).toBeUndefined();
+    expect(payload.campaignGroupId).toBeUndefined();
+  });
+
+  it("ad group edit relabels daily budget as CPC bid and hides lifetime budget and schedule", () => {
+    renderDraftDialog(() => {}, "google", {
+      action: "update",
+      targetType: "adset",
+      targetId: "ag_1",
+      currentName: "Ad group A",
+      name: "Ad group A",
+    });
+
+    expect(screen.getByText("Default CPC bid (minor units)")).toBeTruthy();
+    expect(screen.getByTestId("input-draft-daily-budget")).toBeTruthy();
+    expect(screen.queryByTestId("input-draft-lifetime-budget")).toBeNull();
+    expect(screen.queryByTestId("input-draft-start")).toBeNull();
+    expect(screen.queryByTestId("input-draft-stop")).toBeNull();
+    expect(screen.queryByTestId("select-draft-objective")).toBeNull();
+
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "150" },
+    });
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+    const payload = submittedPayload();
+    expect(payload.targetType).toBe("adset");
+    expect(payload.targetId).toBe("ag_1");
+    expect(payload.dailyBudget).toBe(150);
+    expect(payload.objective).toBeUndefined();
+    expect(payload.lifetimeBudget).toBeUndefined();
+    // Name unchanged: not resent.
+    expect(payload.name).toBeUndefined();
+  });
+
+  it("ad edit locks the name field and never submits a name", () => {
+    renderDraftDialog(() => {}, "google", {
+      action: "update",
+      targetType: "ad",
+      targetId: "ad_1",
+      currentName: "My ad",
+      name: "My ad",
+      status: "PAUSED",
+    });
+
+    const nameInput = screen.getByTestId("input-draft-name") as HTMLInputElement;
+    expect(nameInput.disabled).toBe(true);
+    fireEvent.change(nameInput, { target: { value: "Renamed" } });
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+
+    const payload = submittedPayload();
+    expect(payload.targetType).toBe("ad");
+    expect(payload.name).toBeUndefined();
+    expect(payload.status).toBe("PAUSED");
+  });
+});
+
+describe("DraftDialog TikTok", () => {
+  it("campaign create remaps the Meta default objective to TRAFFIC and hides schedule", async () => {
+    const user = userEvent.setup();
+    // Form arrives with the Meta default; TikTok must remap it.
+    renderDraftDialog(() => {}, "tiktok", { objective: "OUTCOME_TRAFFIC" });
+
+    expect(screen.getByTestId("select-draft-objective")).toBeTruthy();
+    expect(screen.getByTestId("input-draft-daily-budget")).toBeTruthy();
+    expect(screen.getByTestId("input-draft-lifetime-budget")).toBeTruthy();
+    // TikTok campaigns never show schedule fields.
+    expect(screen.queryByTestId("input-draft-start")).toBeNull();
+    expect(screen.queryByTestId("input-draft-stop")).toBeNull();
+
+    await user.click(screen.getByTestId("select-draft-objective"));
+    expect(await screen.findByText("Video views")).toBeTruthy();
+    expect(screen.getByText("App promotion")).toBeTruthy();
+    expect(screen.queryByText("Performance Max")).toBeNull();
+
+    // Close the menu, then submit and confirm the remapped objective.
+    await user.keyboard("{Escape}");
+    fireEvent.change(screen.getByTestId("input-draft-name"), {
+      target: { value: "TT Launch" },
+    });
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+    const payload = submittedPayload();
+    expect(payload.objective).toBe("TRAFFIC");
+  });
+
+  it("campaign create payload omits schedule even if the form carried times", () => {
+    renderDraftDialog(() => {}, "tiktok", {
+      objective: "OUTCOME_TRAFFIC",
+      startTime: "2026-08-01T00:00:00+0000",
+      stopTime: "2026-08-31T00:00:00+0000",
+    });
+    fireEvent.change(screen.getByTestId("input-draft-name"), {
+      target: { value: "TT Launch" },
+    });
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "2000" },
+    });
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+
+    const payload = submittedPayload();
+    expect(payload.targetType).toBe("campaign");
+    expect(payload.objective).toBe("TRAFFIC");
+    expect(payload.dailyBudget).toBe(2000);
+    expect(payload.startTime).toBeUndefined();
+    expect(payload.stopTime).toBeUndefined();
+    expect(payload.campaignGroupId).toBeUndefined();
+  });
+
+  it("ad group edit hides budgets and schedule and submits neither", () => {
+    renderDraftDialog(() => {}, "tiktok", {
+      action: "update",
+      targetType: "adset",
+      targetId: "ag_tt",
+      currentName: "TT group",
+      name: "TT group",
+      dailyBudget: "999",
+      lifetimeBudget: "999",
+    });
+
+    expect(screen.queryByTestId("input-draft-daily-budget")).toBeNull();
+    expect(screen.queryByTestId("input-draft-lifetime-budget")).toBeNull();
+    expect(screen.queryByTestId("input-draft-start")).toBeNull();
+    expect(screen.queryByTestId("input-draft-stop")).toBeNull();
+
+    fireEvent.change(screen.getByTestId("input-draft-name"), {
+      target: { value: "TT group renamed" },
+    });
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+    const payload = submittedPayload();
+    expect(payload.targetType).toBe("adset");
+    expect(payload.name).toBe("TT group renamed");
+    // Budgets stay off the payload even though the form carried values.
+    expect(payload.dailyBudget).toBeUndefined();
+    expect(payload.lifetimeBudget).toBeUndefined();
+  });
+});
+
+describe("DraftDialog Meta", () => {
+  it("campaign create shows Meta objectives, both budgets, and schedule", async () => {
+    const user = userEvent.setup();
+    renderDraftDialog(() => {}, "meta");
+
+    expect(screen.getByTestId("select-draft-objective")).toBeTruthy();
+    expect(screen.getByTestId("input-draft-daily-budget")).toBeTruthy();
+    expect(screen.getByTestId("input-draft-lifetime-budget")).toBeTruthy();
+    expect(screen.getByTestId("input-draft-start")).toBeTruthy();
+    expect(screen.getByTestId("input-draft-stop")).toBeTruthy();
+    expect(screen.queryByTestId("select-draft-campaign-group")).toBeNull();
+
+    await user.click(screen.getByTestId("select-draft-objective"));
+    expect(await screen.findByText("Awareness")).toBeTruthy();
+    expect(screen.getByText("Sales")).toBeTruthy();
+    expect(screen.queryByText("Search")).toBeNull();
+  });
+
+  it("campaign create submits an OUTCOME_* objective with budgets and schedule", () => {
+    renderDraftDialog(() => {}, "meta");
+    fireEvent.change(screen.getByTestId("input-draft-name"), {
+      target: { value: "Meta Launch" },
+    });
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "3000" },
+    });
+    fireEvent.change(screen.getByTestId("input-draft-lifetime-budget"), {
+      target: { value: "90000" },
+    });
+    fireEvent.change(screen.getByTestId("input-draft-start"), {
+      target: { value: "2026-09-01T00:00:00+0000" },
+    });
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+
+    const payload = submittedPayload();
+    expect(payload.targetType).toBe("campaign");
+    expect(payload.objective).toBe("OUTCOME_TRAFFIC");
+    expect(payload.dailyBudget).toBe(3000);
+    expect(payload.lifetimeBudget).toBe(90000);
+    expect(payload.startTime).toBe("2026-09-01T00:00:00+0000");
+    expect(payload.campaignGroupId).toBeUndefined();
+  });
+
+  it("ad set edit shows budgets but no objective or schedule, and omits objective from the payload", () => {
+    renderDraftDialog(() => {}, "meta", {
+      action: "update",
+      targetType: "adset",
+      targetId: "as_1",
+      currentName: "Meta set",
+      name: "Meta set",
+    });
+
+    expect(screen.getByTestId("input-draft-daily-budget")).toBeTruthy();
+    expect(screen.getByTestId("input-draft-lifetime-budget")).toBeTruthy();
+    expect(screen.queryByTestId("select-draft-objective")).toBeNull();
+    expect(screen.queryByTestId("input-draft-start")).toBeNull();
+    expect(screen.queryByTestId("input-draft-stop")).toBeNull();
+
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "1500" },
+    });
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+    const payload = submittedPayload();
+    expect(payload.targetType).toBe("adset");
+    expect(payload.targetId).toBe("as_1");
+    expect(payload.dailyBudget).toBe(1500);
+    expect(payload.objective).toBeUndefined();
+    expect(payload.startTime).toBeUndefined();
   });
 });
 
