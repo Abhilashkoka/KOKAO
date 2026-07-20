@@ -1,11 +1,12 @@
 import { useEffect, useRef } from "react";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import { useAuth } from "@clerk/expo";
 import { router, type Href } from "expo-router";
 import {
   useListFeatureFlags,
   getListFeatureFlagsQueryKey,
   useRegisterPushToken,
+  listNotifications,
 } from "@workspace/api-client-react";
 
 /**
@@ -212,6 +213,53 @@ export async function syncBadgeCount(unreadCount: number): Promise<void> {
 }
 
 /**
+ * Keeps the app-icon badge honest when notifications are read elsewhere
+ * (e.g. on the web app): whenever the app comes to the foreground — and
+ * once on sign-in — refetch the unread notification count from the API and
+ * sync the badge. Native-only and best-effort: fetch failures leave the
+ * badge untouched.
+ */
+export function useForegroundBadgeSync() {
+  const { isSignedIn } = useAuth();
+
+  useEffect(() => {
+    if (Platform.OS === "web" || !isSignedIn) return;
+
+    let cancelled = false;
+    let inFlight = false;
+
+    const sync = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        // Default (no params) = unread-only list.
+        const unread = await listNotifications();
+        if (!cancelled && Array.isArray(unread)) {
+          await syncBadgeCount(unread.length);
+        }
+      } catch {
+        // Best-effort: offline or API error just leaves the badge as-is.
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    // Initial sync covers the cold-start case (app opened fresh after
+    // notifications were read on the web).
+    void sync();
+
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void sync();
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
+  }, [isSignedIn]);
+}
+
+/**
  * Renderless mount point for push registration and notification-tap
  * navigation; lives inside both the Clerk and QueryClient providers in the
  * root layout.
@@ -219,5 +267,6 @@ export async function syncBadgeCount(unreadCount: number): Promise<void> {
 export function PushRegistrar() {
   usePushRegistration();
   useNotificationTapNavigation();
+  useForegroundBadgeSync();
   return null;
 }
