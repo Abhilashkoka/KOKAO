@@ -97,6 +97,7 @@ import {
   triggerSweepNow,
   checkSweepStaleness,
   isSweepRunning,
+  SWEEP_FAIL_RATIO_ALERT_THRESHOLD,
 } from "../lib/connectionSweep";
 import {
   NOTIFICATION_TYPES,
@@ -271,6 +272,7 @@ router.get("/admin/stats", async (_req: Request, res: Response) => {
           durationMs: sweepRow[0].durationMs,
           accountsChecked: sweepRow[0].accountsChecked,
           errorCount: sweepRow[0].errorCount,
+          failRatioAlertThreshold: SWEEP_FAIL_RATIO_ALERT_THRESHOLD,
           lastError: sweepRow[0].lastError,
           // Rows persisted before dropped-streak tracking lack the column
           // default in old JSON reads; coalesce to 0 (no trimming known).

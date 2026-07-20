@@ -1101,6 +1101,7 @@ export const AdminGetStatsResponse = zod.object({
   "durationMs": zod.number(),
   "accountsChecked": zod.number(),
   "errorCount": zod.number(),
+  "failRatioAlertThreshold": zod.number().optional().describe('Fraction (0-1) of failed checks per run at or above which the sweep fires a mass-outage superadmin alert. Exposed so the dashboard can flag the last run\'s failure ratio using the same server-side threshold instead of hardcoding one.'),
   "lastError": zod.string().nullish(),
   "droppedStreaks": zod.number().optional().describe('How many failing checks were trimmed from the persisted cross-run failure history when it exceeded its cap during the last run. Non-zero means the dashboard is NOT showing the full failure picture (e.g. a platform-wide outage broke more connections than the history keeps).'),
   "recentFailures": zod.array(zod.object({

@@ -36,6 +36,9 @@ vi.mock("../lib/connectionSweep", () => ({
   // /admin/stats fires this watchdog check fire-and-forget; stub it so the
   // stats route never touches the real sweep-status/notification paths here.
   checkSweepStaleness: vi.fn(async () => undefined),
+  // The stats route echoes this threshold so the dashboard can flag the
+  // failure ratio; a fixed value keeps assertions deterministic.
+  SWEEP_FAIL_RATIO_ALERT_THRESHOLD: 0.5,
 }));
 
 import { pool, db, adminAuditLogsTable } from "@workspace/db";
@@ -383,6 +386,8 @@ describe("GET /admin/stats — platform stats stay admin-only", () => {
       actAs(actor.clerkUserId, actor.email);
       const res = await request(app).get("/api/admin/stats");
       expect(res.status).toBe(200);
+      // The mocked threshold is echoed so the dashboard can flag the ratio.
+      expect(res.body.connectionSweep.failRatioAlertThreshold).toBe(0.5);
       expect(res.body.connectionSweep.recentFailures).toEqual([
         {
           tenantId: actor.tenantId,

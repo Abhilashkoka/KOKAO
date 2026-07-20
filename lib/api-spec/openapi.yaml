@@ -6326,6 +6326,13 @@ components:
               type: integer
             errorCount:
               type: integer
+            failRatioAlertThreshold:
+              type: number
+              description: >-
+                Fraction (0-1) of failed checks per run at or above which the
+                sweep fires a mass-outage superadmin alert. Exposed so the
+                dashboard can flag the last run's failure ratio using the
+                same server-side threshold instead of hardcoding one.
             lastError:
               type: [string, "null"]
             droppedStreaks:

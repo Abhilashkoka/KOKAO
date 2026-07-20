@@ -329,6 +329,40 @@ export function OverviewTab() {
                   {stats.connectionSweep.errorCount}
                 </div>
               </div>
+              {stats.connectionSweep.accountsChecked > 0 && (
+                <div className="w-full" data-testid="text-sweep-fail-ratio">
+                  <div className="text-muted-foreground">Failure ratio</div>
+                  <div
+                    className={
+                      stats.connectionSweep.errorCount /
+                        stats.connectionSweep.accountsChecked >=
+                      (stats.connectionSweep.failRatioAlertThreshold ?? 1)
+                        ? "font-medium text-destructive"
+                        : "font-medium"
+                    }
+                  >
+                    {stats.connectionSweep.errorCount} of{" "}
+                    {stats.connectionSweep.accountsChecked} checks failed (
+                    {Math.round(
+                      (stats.connectionSweep.errorCount /
+                        stats.connectionSweep.accountsChecked) *
+                        100,
+                    )}
+                    %)
+                    {stats.connectionSweep.errorCount /
+                      stats.connectionSweep.accountsChecked >=
+                      (stats.connectionSweep.failRatioAlertThreshold ?? 1) && (
+                      <Badge
+                        variant="destructive"
+                        className="ml-2"
+                        data-testid="badge-sweep-fail-ratio-alert"
+                      >
+                        Above alert threshold
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              )}
               {stats.connectionSweep.errorCount > 0 &&
                 stats.connectionSweep.lastError && (
                   <div className="w-full">
