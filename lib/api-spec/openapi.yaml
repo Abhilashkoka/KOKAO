@@ -2215,6 +2215,63 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /schedules/{id}/retry:
+    post:
+      operationId: retrySchedule
+      tags: [schedules]
+      summary: Retry a failed scheduled post on the platform it targeted
+      description: >-
+        Re-runs the automatic publish for a scheduled post whose status is
+        "failed", on the same platform the schedule targeted. Runs
+        synchronously; a successful retry returns the updated schedule row,
+        while a failed retry returns an error envelope (the schedule row is
+        left "failed" with an updated failureReason). Returns 409 if the
+        schedule is not in the failed state or a publish for the same post
+        is already in progress.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Retry finished; schedule row reflects the outcome
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduledPost"
+        "400":
+          description: Retry failed (platform rejected the publish or unsupported platform)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Schedule is not failed, or a publish is already in progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: The retry crashed unexpectedly; the schedule is marked failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: The platform request failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /accounts:
     get:
       operationId: listAccounts

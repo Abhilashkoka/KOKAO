@@ -4,7 +4,15 @@ import {
   useListContent,
   useCreateSchedule,
   useDeleteSchedule,
-  getListSchedulesQueryKey
+  useRetrySchedule,
+  useGetFacebookCredentials,
+  useGetInstagramCredentials,
+  useGetTwitterStatus,
+  useGetLinkedinStatus,
+  useGetThreadsStatus,
+  getListSchedulesQueryKey,
+  getListContentQueryKey,
+  useRestartRetry
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -14,7 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
-import { Calendar as CalendarIcon, Clock, Plus, Trash2, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, Plus, Trash2, CheckCircle2, XCircle, Loader2, RotateCw } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -28,8 +36,104 @@ export function SchedulePage() {
   const { data: content, isLoading: cLoading } = useListContent();
   const createSchedule = useCreateSchedule();
   const deleteSchedule = useDeleteSchedule();
+  const retrySchedule = useRetrySchedule();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  const { data: fbCreds } = useGetFacebookCredentials();
+  const { data: igCreds } = useGetInstagramCredentials();
+  const { data: twStatus } = useGetTwitterStatus();
+  const { data: linkedinStatus } = useGetLinkedinStatus();
+  const { data: threadsStatus } = useGetThreadsStatus();
+
+  // Per-platform readiness for the failed-schedule Retry button, mirroring
+  // the library page's retry gating: the retry targets the platform the
+  // schedule actually failed on, so the gating and hints reference it too.
+  const retryPlatforms: Record<
+    string,
+    { label: string; ready: boolean; needsImage: boolean; connectHint: string }
+  > = {
+    facebook: {
+      label: "Facebook",
+      ready: fbCreds?.verifyStatus === "verified",
+      needsImage: false,
+      connectHint: "Connect and verify your Facebook Page on the Accounts page first.",
+    },
+    instagram: {
+      label: "Instagram",
+      ready: igCreds?.verifyStatus === "verified",
+      needsImage: true,
+      connectHint: "Connect and verify your Instagram account on the Accounts page first.",
+    },
+    twitter: {
+      label: "X",
+      ready: !!twStatus?.connected,
+      needsImage: false,
+      connectHint: "Connect your X account on the Accounts page first.",
+    },
+    linkedin: {
+      label: "LinkedIn",
+      ready: !!linkedinStatus?.connected,
+      needsImage: false,
+      connectHint: "Connect your LinkedIn account on the Accounts page first.",
+    },
+    threads: {
+      label: "Threads",
+      ready: !!threadsStatus?.connected,
+      needsImage: false,
+      connectHint: "Connect your Threads profile on the Accounts page first.",
+    },
+  };
+
+  const [retryingId, setRetryingId] = useState<number | null>(null);
+  // Same one-shot automatic retry layer the library uses: a restart 503 or a
+  // network blip is retried once; the server dedupes so it can't double-post.
+  const { isRetrying: retryPending, run: runRetryWithRestart } = useRestartRetry();
+  const retryBusy = retrySchedule.isPending || retryPending;
+
+  const handleRetry = (post: { id: number; platform: string }) => {
+    const target = retryPlatforms[post.platform];
+    const label = target?.label ?? post.platform;
+    setRetryingId(post.id);
+    runRetryWithRestart(retrySchedule, { id: post.id }, {
+      onSuccess: (updated: any) => {
+        setRetryingId(null);
+        queryClient.invalidateQueries({ queryKey: getListSchedulesQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+        if (updated?.status === "published") {
+          toast({
+            title: `Published to ${label}`,
+            description: "The scheduled post is now live.",
+          });
+        } else {
+          toast({
+            title: "Retry finished",
+            description:
+              updated?.failureReason ||
+              `The ${label} publish did not complete. Check the failure reason on the post.`,
+            variant: updated?.status === "failed" ? "destructive" : undefined,
+          });
+        }
+      },
+      onRetrying: (reason: "restart" | "network") =>
+        toast({
+          title: reason === "network" ? "Connection hiccup" : "Server is restarting",
+          description: `Nothing was posted yet. Retrying your ${label} publish automatically in a moment...`,
+        }),
+      onError: (err: any, { retried }: { retried: boolean }) => {
+        setRetryingId(null);
+        queryClient.invalidateQueries({ queryKey: getListSchedulesQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+        const serverMessage = err?.data?.error || err?.response?.data?.error;
+        const base = serverMessage || `Could not publish to ${label}. ${target?.connectHint ?? ""}`.trim();
+        toast({
+          title: "Retry failed",
+          description: retried ? `The automatic retry also failed. ${base}` : base,
+          variant: "destructive",
+        });
+      },
+    });
+  };
 
   const [open, setOpen] = useState(false);
   const [contentId, setContentId] = useState<string>("");
@@ -172,7 +276,39 @@ export function SchedulePage() {
                     </div>
                   </div>
                   
-                  <div className="shrink-0 flex items-center">
+                  <div className="shrink-0 flex items-center gap-1">
+                    {post.status === "failed" && (() => {
+                      const target = retryPlatforms[post.platform];
+                      const label = target?.label ?? post.platform;
+                      const missingImage = !!target?.needsImage && !contentItem?.imagePath;
+                      const notReady = !!target && !target.ready;
+                      const unsupported = !target;
+                      const disabled = unsupported || notReady || missingImage || retryBusy;
+                      const hint = unsupported
+                        ? "Retry is not supported for this platform yet."
+                        : notReady
+                          ? target.connectHint
+                          : missingImage
+                            ? `${label} posts require an image.`
+                            : `Retry publishing to ${label}`;
+                      return (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          data-testid={`button-retry-schedule-${post.id}`}
+                          title={hint}
+                          disabled={disabled}
+                          onClick={() => handleRetry(post)}
+                        >
+                          {retryingId === post.id && retryBusy ? (
+                            <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                          ) : (
+                            <RotateCw className="h-4 w-4 mr-1.5" />
+                          )}
+                          Retry
+                        </Button>
+                      );
+                    })()}
                     <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 hover:text-destructive" data-testid={`button-delete-schedule-${post.id}`} onClick={() => setDeleteId(post.id)}>
                       <Trash2 className="h-5 w-5" />
                     </Button>

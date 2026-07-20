@@ -4,6 +4,7 @@ import { and, eq, asc } from "drizzle-orm";
 import { CreateScheduleBody, UpdateScheduleBody } from "@workspace/api-zod";
 import { serializeSchedule } from "../lib/serializers";
 import { recordTasteSignal } from "../lib/tasteMemory";
+import { retryScheduledPostNow } from "../lib/scheduledPublisher";
 
 const router: IRouter = Router();
 
@@ -103,6 +104,32 @@ router.patch("/schedules/:id", async (req: Request, res: Response) => {
     return;
   }
   res.json(serializeSchedule(updated));
+});
+
+// Retry a FAILED scheduled post on the platform it targeted. Runs the same
+// platform publish core the executor uses, synchronously, and returns the
+// updated schedule row so the client can reflect the final status.
+router.post("/schedules/:id/retry", async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const result = await retryScheduledPostNow(req.tenantId, id);
+  if (!result.ok) {
+    res.status(result.status).json({ error: result.error });
+    return;
+  }
+  const row = (
+    await db
+      .select()
+      .from(scheduledPostsTable)
+      .where(
+        and(eq(scheduledPostsTable.id, id), eq(scheduledPostsTable.tenantId, req.tenantId)),
+      )
+      .limit(1)
+  )[0];
+  if (!row) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  res.json(serializeSchedule(row));
 });
 
 router.delete("/schedules/:id", async (req: Request, res: Response) => {

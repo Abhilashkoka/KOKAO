@@ -5977,6 +5977,77 @@ export const useDeleteSchedule = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getDeleteScheduleMutationOptions(options));
     }
 
+export const getRetryScheduleUrl = (id: number,) => {
+
+
+
+
+  return `/api/schedules/${id}/retry`
+}
+
+/**
+ * Re-runs the automatic publish for a scheduled post whose status is "failed", on the same platform the schedule targeted. Runs synchronously; a successful retry returns the updated schedule row, while a failed retry returns an error envelope (the schedule row is left "failed" with an updated failureReason). Returns 409 if the schedule is not in the failed state or a publish for the same post is already in progress.
+ * @summary Retry a failed scheduled post on the platform it targeted
+ */
+export const retrySchedule = async (id: number, options?: RequestInit): Promise<ScheduledPost> => {
+
+  return customFetch<ScheduledPost>(getRetryScheduleUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRetryScheduleMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retrySchedule>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retrySchedule>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['retrySchedule'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retrySchedule>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  retrySchedule(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetryScheduleMutationResult = NonNullable<Awaited<ReturnType<typeof retrySchedule>>>
+
+    export type RetryScheduleMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Retry a failed scheduled post on the platform it targeted
+ */
+export const useRetrySchedule = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retrySchedule>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof retrySchedule>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRetryScheduleMutationOptions(options));
+    }
+
 export const getListAccountsUrl = () => {
 
 

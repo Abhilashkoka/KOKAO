@@ -31,6 +31,7 @@ vi.mock("./clerkUser", () => ({
 
 import {
   runScheduledPublishTick,
+  retryScheduledPostNow,
   SCHEDULE_INTERRUPTED_REASON,
 } from "./scheduledPublisher";
 import { tryAcquireResendLock } from "./resendLock";
@@ -278,6 +279,167 @@ describe("runScheduledPublishTick", () => {
 
       await runScheduledPublishTick();
 
+      const schedule = await getSchedule(scheduleId);
+      expect(schedule.status).toBe("failed");
+      expect(schedule.failureReason).toContain("unexpected error");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("retryScheduledPostNow", () => {
+  it("retries a failed schedule on ITS platform and marks it published", async () => {
+    const tenant = await createTenant();
+    try {
+      const itemId = await insertItem(tenant.tenantId, "Retry me");
+      const scheduleId = await insertSchedule(tenant.tenantId, itemId, "linkedin", {
+        status: "failed",
+      });
+      linkedinCore.mockResolvedValue({ ok: true, postId: "li_1", permalink: null });
+
+      const result = await retryScheduledPostNow(tenant.tenantId, scheduleId);
+
+      expect(result.ok).toBe(true);
+      expect(linkedinCore).toHaveBeenCalledWith(tenant.tenantId, itemId);
+      expect(facebookCore).not.toHaveBeenCalled();
+      expect(instagramCore).not.toHaveBeenCalled();
+      const schedule = await getSchedule(scheduleId);
+      expect(schedule.status).toBe("published");
+      expect(schedule.failureReason).toBeNull();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("surfaces the core's error and updates the failureReason on a failed retry", async () => {
+    const tenant = await createTenant();
+    try {
+      const itemId = await insertItem(tenant.tenantId);
+      const scheduleId = await insertSchedule(tenant.tenantId, itemId, "twitter", {
+        status: "failed",
+      });
+      twitterCore.mockResolvedValue({
+        ok: false,
+        errorStatus: 502,
+        error: "X rejected the post.",
+      });
+
+      const result = await retryScheduledPostNow(tenant.tenantId, scheduleId);
+
+      expect(result).toEqual({ ok: false, status: 502, error: "X rejected the post." });
+      const schedule = await getSchedule(scheduleId);
+      expect(schedule.status).toBe("failed");
+      expect(schedule.failureReason).toBe("X rejected the post.");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("409s when the schedule is not in the failed state", async () => {
+    const tenant = await createTenant();
+    try {
+      const itemId = await insertItem(tenant.tenantId);
+      const scheduleId = await insertSchedule(tenant.tenantId, itemId, "facebook", {
+        status: "pending",
+      });
+
+      const result = await retryScheduledPostNow(tenant.tenantId, scheduleId);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.status).toBe(409);
+      expect(facebookCore).not.toHaveBeenCalled();
+      const schedule = await getSchedule(scheduleId);
+      expect(schedule.status).toBe("pending");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("404s for another tenant's schedule", async () => {
+    const tenant = await createTenant();
+    const other = await createTenant();
+    try {
+      const itemId = await insertItem(tenant.tenantId);
+      const scheduleId = await insertSchedule(tenant.tenantId, itemId, "threads", {
+        status: "failed",
+      });
+
+      const result = await retryScheduledPostNow(other.tenantId, scheduleId);
+
+      expect(result).toEqual({ ok: false, status: 404, error: "Not found" });
+      expect(threadsCore).not.toHaveBeenCalled();
+      const schedule = await getSchedule(scheduleId);
+      expect(schedule.status).toBe("failed");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+      await deleteTenant(other.tenantId);
+    }
+  });
+
+  it("409s and reverts to failed (keeping the reason) when the item lock is held", async () => {
+    const tenant = await createTenant();
+    try {
+      const itemId = await insertItem(tenant.tenantId);
+      const scheduleId = await insertSchedule(tenant.tenantId, itemId, "linkedin", {
+        status: "failed",
+      });
+      await db
+        .update(scheduledPostsTable)
+        .set({ failureReason: "original reason" })
+        .where(eq(scheduledPostsTable.id, scheduleId));
+      const release = tryAcquireResendLock("linkedin", itemId);
+      expect(release).not.toBeNull();
+      let result;
+      try {
+        result = await retryScheduledPostNow(tenant.tenantId, scheduleId);
+      } finally {
+        release!();
+      }
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.status).toBe(409);
+      expect(linkedinCore).not.toHaveBeenCalled();
+      const schedule = await getSchedule(scheduleId);
+      expect(schedule.status).toBe("failed");
+      expect(schedule.failureReason).toBe("original reason");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("fails an unsupported platform with a 400 and keeps the row failed", async () => {
+    const tenant = await createTenant();
+    try {
+      const itemId = await insertItem(tenant.tenantId);
+      const scheduleId = await insertSchedule(tenant.tenantId, itemId, "youtube", {
+        status: "failed",
+      });
+
+      const result = await retryScheduledPostNow(tenant.tenantId, scheduleId);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.status).toBe(400);
+      const schedule = await getSchedule(scheduleId);
+      expect(schedule.status).toBe("failed");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("a core crash marks the schedule failed and returns a 500", async () => {
+    const tenant = await createTenant();
+    try {
+      const itemId = await insertItem(tenant.tenantId);
+      const scheduleId = await insertSchedule(tenant.tenantId, itemId, "instagram", {
+        status: "failed",
+      });
+      instagramCore.mockRejectedValue(new Error("boom"));
+
+      const result = await retryScheduledPostNow(tenant.tenantId, scheduleId);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.status).toBe(500);
       const schedule = await getSchedule(scheduleId);
       expect(schedule.status).toBe("failed");
       expect(schedule.failureReason).toContain("unexpected error");

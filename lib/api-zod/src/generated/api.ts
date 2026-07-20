@@ -4162,6 +4162,26 @@ export const DeleteScheduleResponse = zod.void()
 
 
 /**
+ * Re-runs the automatic publish for a scheduled post whose status is "failed", on the same platform the schedule targeted. Runs synchronously; a successful retry returns the updated schedule row, while a failed retry returns an error envelope (the schedule row is left "failed" with an updated failureReason). Returns 409 if the schedule is not in the failed state or a publish for the same post is already in progress.
+ * @summary Retry a failed scheduled post on the platform it targeted
+ */
+export const RetryScheduleParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RetryScheduleResponse = zod.object({
+  "id": zod.number(),
+  "contentItemId": zod.number(),
+  "platform": zod.string(),
+  "scheduledAt": zod.coerce.date(),
+  "status": zod.enum(['pending', 'processing', 'published', 'failed', 'cancelled']).describe('pending = waiting for the scheduled time; processing = the background publisher is publishing it right now; published = automatically published; failed = the automatic publish failed (see failureReason); cancelled = called off by the user.'),
+  "failureReason": zod.string().nullish().describe('Why the automatic publish failed, when status is failed.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
  * @summary List connected social accounts
  */
 export const ListAccountsResponseItem = zod.object({

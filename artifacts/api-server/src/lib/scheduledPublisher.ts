@@ -186,6 +186,110 @@ async function publishOneScheduledPost(row: {
   }
 }
 
+/** Result of a user-initiated retry of a failed scheduled post. */
+export type ScheduleRetryResult =
+  | { ok: true }
+  | { ok: false; status: number; error: string };
+
+/**
+ * User-initiated retry of a FAILED scheduled post, run synchronously (the
+ * caller is an HTTP handler awaiting the outcome, mirroring the library
+ * page's manual publish retry). Claims failed -> processing atomically so a
+ * double-click or a concurrent executor tick can never drive the same row
+ * twice, holds the same per-item publish lock as manual publishes, drives
+ * the platform core for the platform the row targeted, and stamps the final
+ * schedule status via the same status-guarded finishSchedule write.
+ */
+export async function retryScheduledPostNow(
+  tenantId: number,
+  scheduledPostId: number,
+): Promise<ScheduleRetryResult> {
+  const claimed = (
+    await db
+      .update(scheduledPostsTable)
+      .set({ status: "processing", updatedAt: new Date() })
+      .where(
+        and(
+          eq(scheduledPostsTable.id, scheduledPostId),
+          eq(scheduledPostsTable.tenantId, tenantId),
+          eq(scheduledPostsTable.status, "failed"),
+        ),
+      )
+      .returning()
+  )[0];
+
+  if (!claimed) {
+    const existing = (
+      await db
+        .select({ status: scheduledPostsTable.status })
+        .from(scheduledPostsTable)
+        .where(
+          and(
+            eq(scheduledPostsTable.id, scheduledPostId),
+            eq(scheduledPostsTable.tenantId, tenantId),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (!existing) return { ok: false, status: 404, error: "Not found" };
+    return {
+      ok: false,
+      status: 409,
+      error: `Only failed scheduled posts can be retried (current status: ${existing.status}).`,
+    };
+  }
+
+  const revertToFailed = async () => {
+    // Keep the prior failureReason (the claim only touched status/updatedAt).
+    await db
+      .update(scheduledPostsTable)
+      .set({ status: "failed", updatedAt: new Date() })
+      .where(
+        and(
+          eq(scheduledPostsTable.id, claimed.id),
+          eq(scheduledPostsTable.status, "processing"),
+        ),
+      );
+  };
+
+  const core = PLATFORM_CORES[claimed.platform];
+  if (!core) {
+    await revertToFailed();
+    return { ok: false, status: 400, error: UNSUPPORTED_PLATFORM_REASON };
+  }
+
+  const release = tryAcquireResendLock(claimed.platform, claimed.contentItemId);
+  if (!release) {
+    await revertToFailed();
+    return {
+      ok: false,
+      status: 409,
+      error: "A publish is already in progress for this post. Try again in a moment.",
+    };
+  }
+
+  let outcome: PublishOutcome;
+  try {
+    outcome = await core(claimed.tenantId, claimed.contentItemId);
+  } catch (err) {
+    logger.error(
+      { err, scheduledPostId: claimed.id, tenantId, platform: claimed.platform },
+      "Scheduled-post retry crashed unexpectedly",
+    );
+    outcome = {
+      ok: false,
+      errorStatus: 500,
+      error: "An unexpected error occurred while publishing. Please try again.",
+    };
+  } finally {
+    release();
+  }
+
+  await finishSchedule(claimed, outcome);
+  if (outcome.ok) return { ok: true };
+  return { ok: false, status: outcome.errorStatus, error: outcome.error };
+}
+
 async function finishSchedule(
   row: { id: number; tenantId: number; contentItemId: number; platform: string },
   outcome: PublishOutcome,
