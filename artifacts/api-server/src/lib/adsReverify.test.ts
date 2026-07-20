@@ -39,6 +39,34 @@ vi.mock("./googleAdsApi", async (importOriginal) => {
     readCustomer: vi.fn(async () => ({ name: "Google Acct", currency: "USD" })),
   };
 });
+// Stub only the live-network LinkedIn ads read; error class stays real so
+// the auth-failure gate is exercised.
+vi.mock("./linkedinAdsApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./linkedinAdsApi")>();
+  return {
+    ...actual,
+    readLinkedinAdAccount: vi.fn(async () => ({
+      name: "LI Acct",
+      currency: "USD",
+    })),
+  };
+});
+// The LinkedIn silent-refresh gate talks to the token endpoint through
+// platformFetch; stub it (and the app-credential lookup) so refresh attempts
+// never hit the network.
+vi.mock("./platformFetch", () => ({
+  platformFetch: vi.fn(),
+}));
+vi.mock("./linkedinApp", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./linkedinApp")>();
+  return {
+    ...actual,
+    getLinkedinAppCredentials: vi.fn(async () => ({
+      clientId: "app-id",
+      clientSecret: "app-secret",
+    })),
+  };
+});
 // The sweep also walks every social connection in the shared dev DB; stub
 // the social reverifiers so this ads-focused test never hits live networks
 // (REVERIFY_STALE_MS and the rest of the module stay real for adsReverify).
@@ -67,10 +95,13 @@ import { and, eq } from "drizzle-orm";
 import { MetaAdsApiError, readAdAccount } from "./metaAdsApi";
 import { TiktokAdsApiError, readAdvertiser } from "./tiktokAdsApi";
 import { GoogleAdsApiError, getGoogleAdsAuth, readCustomer } from "./googleAdsApi";
+import { LinkedinAdsApiError, readLinkedinAdAccount } from "./linkedinAdsApi";
+import { platformFetch } from "./platformFetch";
 import { encryptJson } from "./secretCrypto";
 import {
   reverifyAdConnection,
   ADS_CREDENTIALS_UNREADABLE_MESSAGE,
+  LINKEDIN_ADS_TOKEN_EXPIRED_MESSAGE,
   type AdSweepPlatform,
 } from "./adsReverify";
 import { sweepDeadConnections } from "./connectionSweep";
@@ -82,6 +113,8 @@ import {
 
 const mockReadAdAccount = vi.mocked(readAdAccount);
 const mockReadAdvertiser = vi.mocked(readAdvertiser);
+const mockReadLinkedinAdAccount = vi.mocked(readLinkedinAdAccount);
+const mockPlatformFetch = vi.mocked(platformFetch);
 const mockGetGoogleAdsAuth = vi.mocked(getGoogleAdsAuth);
 const mockReadCustomer = vi.mocked(readCustomer);
 
@@ -154,7 +187,30 @@ beforeEach(() => {
     loginCustomerId: null,
   });
   mockReadCustomer.mockResolvedValue({ name: "Google Acct", currency: "USD" });
+  mockReadLinkedinAdAccount.mockResolvedValue({
+    name: "LI Acct",
+    currency: "USD",
+  });
+  mockPlatformFetch.mockRejectedValue(new Error("unexpected network call"));
 });
+
+const DAY = 24 * 60 * 60 * 1000;
+
+function linkedinCreds(
+  overrides: Partial<{
+    accessToken: string;
+    expiresAt: number;
+    refreshToken: string;
+    refreshTokenExpiresAt: number;
+  }> = {},
+) {
+  return {
+    accessToken: "li_tok",
+    // Far from expiry so the silent refresher stays idle by default.
+    expiresAt: Date.now() + 30 * DAY,
+    ...overrides,
+  };
+}
 
 describe("reverifyAdConnection", () => {
   it("flips a stale Meta connection with a revoked token to failed and notifies once", async () => {
@@ -436,6 +492,248 @@ describe("reverifyAdConnection", () => {
         (n) => n.type === "ads_connection_failed" && n.readAt == null,
       );
       expect(alerts).toHaveLength(0);
+    } finally {
+      await cleanupTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("reverifyAdConnection (linkedin)", () => {
+  async function insertLinkedin(
+    tenantId: number,
+    creds: Record<string, unknown>,
+    overrides: Partial<typeof adAccountConnectionsTable.$inferInsert> = {},
+  ) {
+    return insertAdConnection(tenantId, "linkedin", {
+      adAccountId: "512345678",
+      encryptedCredentials: encryptJson(creds),
+      ...overrides,
+    });
+  }
+
+  it("re-verifies a healthy LinkedIn grant and refreshes account metadata", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertLinkedin(tenant.tenantId, linkedinCreds(), {
+        adAccountName: "Old LI Name",
+      });
+      const outcome = await reverifyAdConnection(tenant.tenantId, "linkedin");
+      expect(outcome).toEqual({ checked: true, verifyStatus: "verified" });
+      const row = await getAdConnectionRow(tenant.tenantId, "linkedin");
+      expect(row?.verifyStatus).toBe("verified");
+      expect(row?.adAccountName).toBe("LI Acct");
+      expect(mockReadLinkedinAdAccount).toHaveBeenCalledWith(
+        "li_tok",
+        "512345678",
+      );
+    } finally {
+      await cleanupTenant(tenant.tenantId);
+    }
+  });
+
+  it("fails a timestamp-expired token without a refresh token via the stored expiry (no live call) and notifies once", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertLinkedin(
+        tenant.tenantId,
+        linkedinCreds({ expiresAt: Date.now() - DAY }),
+      );
+      const outcome = await reverifyAdConnection(tenant.tenantId, "linkedin");
+      expect(outcome).toEqual({ checked: true, verifyStatus: "failed" });
+      expect(mockReadLinkedinAdAccount).not.toHaveBeenCalled();
+
+      const row = await getAdConnectionRow(tenant.tenantId, "linkedin");
+      expect(row?.verifyStatus).toBe("failed");
+      expect(row?.verifyError).toBe(LINKEDIN_ADS_TOKEN_EXPIRED_MESSAGE);
+
+      const alerts = (await getNotifications(tenant.tenantId)).filter(
+        (n) => n.type === "ads_connection_failed",
+      );
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0].platform).toBe("linkedin");
+      expect(alerts[0].linkUrl).toBe("/ads");
+
+      // A repeat check while still broken stays deduped.
+      await db
+        .update(adAccountConnectionsTable)
+        .set({ verifiedAt: staleDate() })
+        .where(eq(adAccountConnectionsTable.tenantId, tenant.tenantId));
+      await reverifyAdConnection(tenant.tenantId, "linkedin");
+      const after = (await getNotifications(tenant.tenantId)).filter(
+        (n) => n.type === "ads_connection_failed",
+      );
+      expect(after).toHaveLength(1);
+    } finally {
+      await cleanupTenant(tenant.tenantId);
+    }
+  });
+
+  it("flips to failed and notifies when the probe 401s and there is no refresh token", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertLinkedin(tenant.tenantId, linkedinCreds());
+      mockReadLinkedinAdAccount.mockRejectedValue(
+        new LinkedinAdsApiError("Token revoked", 401, true),
+      );
+
+      const outcome = await reverifyAdConnection(tenant.tenantId, "linkedin");
+      expect(outcome).toEqual({ checked: true, verifyStatus: "failed" });
+      const row = await getAdConnectionRow(tenant.tenantId, "linkedin");
+      expect(row?.verifyStatus).toBe("failed");
+
+      const alerts = (await getNotifications(tenant.tenantId)).filter(
+        (n) => n.type === "ads_connection_failed",
+      );
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0].platform).toBe("linkedin");
+    } finally {
+      await cleanupTenant(tenant.tenantId);
+    }
+  });
+
+  it("does not demote on a probe 401 when the refresh gate renews the token", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertLinkedin(
+        tenant.tenantId,
+        linkedinCreds({ refreshToken: "rt_ok" }),
+      );
+      mockReadLinkedinAdAccount.mockRejectedValue(
+        new LinkedinAdsApiError("Stale token", 401, true),
+      );
+      mockPlatformFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ access_token: "li_tok_new", expires_in: 5184000 }),
+      } as unknown as Response);
+
+      const outcome = await reverifyAdConnection(tenant.tenantId, "linkedin");
+      expect(outcome).toEqual({ checked: true, verifyStatus: "verified" });
+      const row = await getAdConnectionRow(tenant.tenantId, "linkedin");
+      expect(row?.verifyStatus).toBe("verified");
+      expect(await getNotifications(tenant.tenantId)).toHaveLength(0);
+    } finally {
+      await cleanupTenant(tenant.tenantId);
+    }
+  });
+
+  it("flips to failed and notifies when the probe 401s and the refresh token is definitively rejected", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertLinkedin(
+        tenant.tenantId,
+        linkedinCreds({ refreshToken: "rt_dead" }),
+      );
+      mockReadLinkedinAdAccount.mockRejectedValue(
+        new LinkedinAdsApiError("Token revoked", 401, true),
+      );
+      mockPlatformFetch.mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: async () => ({ error: "invalid_grant" }),
+      } as unknown as Response);
+
+      const outcome = await reverifyAdConnection(tenant.tenantId, "linkedin");
+      expect(outcome).toEqual({ checked: true, verifyStatus: "failed" });
+      const row = await getAdConnectionRow(tenant.tenantId, "linkedin");
+      expect(row?.verifyStatus).toBe("failed");
+
+      const alerts = (await getNotifications(tenant.tenantId)).filter(
+        (n) => n.type === "ads_connection_failed",
+      );
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0].platform).toBe("linkedin");
+    } finally {
+      await cleanupTenant(tenant.tenantId);
+    }
+  });
+
+  it("does not flip on a transient probe failure, only touches the clock and rethrows", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertLinkedin(tenant.tenantId, linkedinCreds());
+      mockReadLinkedinAdAccount.mockRejectedValue(
+        new LinkedinAdsApiError("LinkedIn is unavailable", 503, false),
+      );
+
+      await expect(
+        reverifyAdConnection(tenant.tenantId, "linkedin"),
+      ).rejects.toThrow("LinkedIn is unavailable");
+
+      const row = await getAdConnectionRow(tenant.tenantId, "linkedin");
+      expect(row?.verifyStatus).toBe("verified");
+      expect(
+        row?.verifiedAt && Date.now() - row.verifiedAt.getTime(),
+      ).toBeLessThan(60 * 1000);
+      expect(await getNotifications(tenant.tenantId)).toHaveLength(0);
+    } finally {
+      await cleanupTenant(tenant.tenantId);
+    }
+  });
+
+  it("fails a connection whose stored credentials cannot be decrypted", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertAdConnection(tenant.tenantId, "linkedin", {
+        adAccountId: "512345678",
+        encryptedCredentials: "v1:garbage",
+      });
+      const outcome = await reverifyAdConnection(tenant.tenantId, "linkedin");
+      expect(outcome).toEqual({ checked: true, verifyStatus: "failed" });
+      const row = await getAdConnectionRow(tenant.tenantId, "linkedin");
+      expect(row?.verifyError).toBe(ADS_CREDENTIALS_UNREADABLE_MESSAGE);
+    } finally {
+      await cleanupTenant(tenant.tenantId);
+    }
+  });
+
+  it("resolves the reconnect notification when the grant verifies again", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertLinkedin(tenant.tenantId, linkedinCreds());
+      mockReadLinkedinAdAccount.mockRejectedValueOnce(
+        new LinkedinAdsApiError("Token revoked", 401, true),
+      );
+      await reverifyAdConnection(tenant.tenantId, "linkedin");
+      let alerts = (await getNotifications(tenant.tenantId)).filter(
+        (n) => n.type === "ads_connection_failed" && n.readAt == null,
+      );
+      expect(alerts).toHaveLength(1);
+
+      // Grant works again (e.g. user reconnected) — next stale check clears it.
+      await db
+        .update(adAccountConnectionsTable)
+        .set({ verifiedAt: staleDate() })
+        .where(eq(adAccountConnectionsTable.tenantId, tenant.tenantId));
+      const outcome = await reverifyAdConnection(tenant.tenantId, "linkedin");
+      expect(outcome).toEqual({ checked: true, verifyStatus: "verified" });
+
+      alerts = (await getNotifications(tenant.tenantId)).filter(
+        (n) => n.type === "ads_connection_failed" && n.readAt == null,
+      );
+      expect(alerts).toHaveLength(0);
+    } finally {
+      await cleanupTenant(tenant.tenantId);
+    }
+  });
+
+  it("checks LinkedIn ad connections during a sweep and flips revoked grants", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertLinkedin(tenant.tenantId, linkedinCreds());
+      mockReadLinkedinAdAccount.mockRejectedValue(
+        new LinkedinAdsApiError("Token revoked", 401, true),
+      );
+
+      await sweepDeadConnections();
+
+      const row = await getAdConnectionRow(tenant.tenantId, "linkedin");
+      expect(row?.verifyStatus).toBe("failed");
+      const alerts = (await getNotifications(tenant.tenantId)).filter(
+        (n) => n.type === "ads_connection_failed",
+      );
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0].platform).toBe("linkedin");
     } finally {
       await cleanupTenant(tenant.tenantId);
     }

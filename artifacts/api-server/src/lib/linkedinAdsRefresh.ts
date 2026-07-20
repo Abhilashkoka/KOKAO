@@ -8,6 +8,10 @@ import { decryptJson, encryptJson } from "./secretCrypto";
 import { getLinkedinAppCredentials, LINKEDIN_TOKEN_URL } from "./linkedinApp";
 import { platformFetch } from "./platformFetch";
 import type { LinkedinAdsCredentials } from "./linkedinAdsApi";
+import {
+  notifyAdsConnectionFailed,
+  resolveAdsConnectionNotifications,
+} from "./notifications";
 import { logger } from "./logger";
 
 /**
@@ -208,6 +212,11 @@ async function attemptRefresh(
       { connectionId: conn.id, tenantId: conn.tenantId },
       "LinkedIn ads access token refreshed",
     );
+    // A successful refresh proves the grant is alive again — auto-dismiss any
+    // lingering "ad account disconnected" banner for this platform.
+    if (conn.verifyStatus === "failed") {
+      await resolveAdsConnectionNotifications(conn.tenantId, conn.platform);
+    }
     return { outcome: "renewed", row: row ?? conn };
   }
 
@@ -290,6 +299,12 @@ async function markFailed(
       .where(eq(adAccountConnectionsTable.id, conn.id))
       .returning()
   )[0];
+  // Proactively notify the tenant the first time a previously-working ads
+  // grant breaks (deduped: repeated failures don't re-notify), mirroring the
+  // shared ads reverify contract.
+  if (conn.verifyStatus !== "failed") {
+    await notifyAdsConnectionFailed(conn.tenantId, conn.platform, error);
+  }
   return row ?? conn;
 }
 

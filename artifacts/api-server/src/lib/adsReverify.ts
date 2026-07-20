@@ -29,17 +29,26 @@ import {
   readCustomer,
 } from "./googleAdsApi";
 import {
+  LinkedinAdsApiError,
+  readLinkedinAdAccount,
+  type LinkedinAdsCredentials,
+} from "./linkedinAdsApi";
+import { maybeRefreshLinkedinAdsToken, handleLinkedinAdsAuthFailure } from "./linkedinAdsRefresh";
+import {
   notifyAdsConnectionFailed,
   resolveAdsConnectionNotifications,
 } from "./notifications";
 import { REVERIFY_STALE_MS } from "./socialReverify";
 
 /** Ad platforms the background sweep re-verifies. */
-export const AD_SWEEP_PLATFORMS = ["meta", "tiktok", "google"] as const;
+export const AD_SWEEP_PLATFORMS = ["meta", "tiktok", "google", "linkedin"] as const;
 export type AdSweepPlatform = (typeof AD_SWEEP_PLATFORMS)[number];
 
 export const ADS_CREDENTIALS_UNREADABLE_MESSAGE =
   "Stored ad account credentials could not be read. Reconnect the ad account.";
+
+export const LINKEDIN_ADS_TOKEN_EXPIRED_MESSAGE =
+  "LinkedIn sign-in expired. Reconnect LinkedIn Ads to continue.";
 
 function isStale(verifiedAt: Date | null): boolean {
   if (!verifiedAt) return true;
@@ -160,6 +169,13 @@ export async function reverifyAdConnection(
     return { checked: false, reason: "fresh" };
   }
 
+  // LinkedIn tokens are timestamp-expiring and silently refreshable, so the
+  // LinkedIn check has its own flow (refresh-then-probe) instead of the
+  // shared bearer-token path below.
+  if (platform === "linkedin") {
+    return await reverifyLinkedinAdsConnection(conn);
+  }
+
   // Google credentials store a refresh token, not a bearer access token —
   // getGoogleAdsAuth handles decryption + token refresh itself and throws a
   // GoogleAdsApiError with authFailed on unreadable creds or a revoked
@@ -216,6 +232,90 @@ export async function reverifyAdConnection(
 
   // Refresh the display name/currency alongside the verified flip so the
   // Ads page always shows current account metadata.
+  await writeStatus(conn, {
+    verifyStatus: "verified",
+    verifyError: null,
+    adAccountName: info.name ?? undefined,
+    currency: info.currency ?? undefined,
+  });
+  return { checked: true, verifyStatus: "verified" };
+}
+
+/**
+ * LinkedIn-specific check. LinkedIn access tokens are timestamp-expiring
+ * (~60 days) with a silent programmatic refresh, so the flow is:
+ * 1. Give the silent refresher a chance first (it may renew the token, or
+ *    definitively mark the row failed when the refresh token is dead).
+ * 2. A stored expiry in the past after that chance is a definitive failure
+ *    with no live call needed (mirrors the organic LinkedIn reverify).
+ * 3. Otherwise probe with a cheap ad-account read. An auth failure on the
+ *    probe goes through the shared refresh gate (never flips the row on a
+ *    401 alone) — only a dead refresh token demotes the connection.
+ */
+async function reverifyLinkedinAdsConnection(
+  conn: AdAccountConnection,
+): Promise<AdReverifyOutcome> {
+  // Silent refresh first; never throws. It may renew the credentials, or
+  // mark the row failed when the refresh token is definitively dead.
+  conn = await maybeRefreshLinkedinAdsToken(conn);
+
+  let creds: LinkedinAdsCredentials | null = null;
+  try {
+    creds = conn.encryptedCredentials
+      ? decryptJson<LinkedinAdsCredentials>(conn.encryptedCredentials)
+      : null;
+  } catch {
+    creds = null;
+  }
+  if (!creds?.accessToken) {
+    await writeStatus(conn, {
+      verifyStatus: "failed",
+      verifyError: ADS_CREDENTIALS_UNREADABLE_MESSAGE,
+    });
+    return { checked: true, verifyStatus: "failed" };
+  }
+
+  // Timestamp-expired token that the refresher couldn't (or had no refresh
+  // token to) renew: definitive, no live call needed.
+  if (creds.expiresAt != null && creds.expiresAt <= Date.now()) {
+    await writeStatus(conn, {
+      verifyStatus: "failed",
+      verifyError: LINKEDIN_ADS_TOKEN_EXPIRED_MESSAGE,
+    });
+    return { checked: true, verifyStatus: "failed" };
+  }
+
+  let info: { name?: string | null; currency?: string | null };
+  try {
+    info = await readLinkedinAdAccount(creds.accessToken, conn.adAccountId!);
+  } catch (err) {
+    if (err instanceof LinkedinAdsApiError && err.authFailed) {
+      // A 401/403 alone must never demote the row — force one refresh
+      // attempt and only mark failed on definitive refresh-token death.
+      await handleLinkedinAdsAuthFailure(conn, err.message);
+      const after = await loadConnection(conn.tenantId, "linkedin");
+      if (after?.verifyStatus === "failed") {
+        return { checked: true, verifyStatus: "failed" };
+      }
+      if (
+        after &&
+        after.verifyStatus === "verified" &&
+        after.encryptedCredentials !== conn.encryptedCredentials
+      ) {
+        // The gate renewed the token — the grant is alive; the probe merely
+        // raced a stale access token.
+        return { checked: true, verifyStatus: "verified" };
+      }
+      // Transient refresh failure: reset the clock and let the sweep count it.
+      await touchChecked(conn);
+      throw err;
+    }
+    // Transient (network blip, 5xx, rate limit): same contract as the
+    // shared path — touch the clock, rethrow for sweep bookkeeping.
+    await touchChecked(conn);
+    throw err;
+  }
+
   await writeStatus(conn, {
     verifyStatus: "verified",
     verifyError: null,

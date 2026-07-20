@@ -14,6 +14,13 @@ vi.mock("./linkedinApp", async (importOriginal) => {
     })),
   };
 });
+// markFailed now notifies the tenant; no live Clerk lookups or real emails.
+vi.mock("./clerkUser", () => ({
+  fetchVerifiedEmail: vi.fn(async () => null),
+}));
+vi.mock("./email", () => ({
+  sendEmail: vi.fn(async () => true),
+}));
 
 import { db, pool, adAccountConnectionsTable, type AdAccountConnection } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -28,7 +35,7 @@ import {
   refreshDueLinkedinAdsTokens,
   handleLinkedinAdsAuthFailure,
 } from "./linkedinAdsRefresh";
-import { createTenant, deleteTenant } from "../test/dbHelpers";
+import { createTenant, deleteTenant, getNotifications } from "../test/dbHelpers";
 
 const mockFetch = vi.mocked(platformFetch);
 const mockAppCreds = vi.mocked(getLinkedinAppCredentials);
@@ -205,6 +212,34 @@ describe("maybeRefreshLinkedinAdsToken", () => {
     expect(readCreds(updated).accessToken).toBe("revived");
   });
 
+  it("auto-resolves the reconnect notification when a failed row is revived by a refresh", async () => {
+    const conn = await insertConnection({
+      accessToken: "old-token",
+      expiresAt: Date.now() - DAY,
+      refreshToken: "refresh",
+    });
+    // Fail the row for real first, recording the tenant alert.
+    mockFetch.mockResolvedValueOnce(jsonResponse(400, { error: "invalid_grant" }));
+    await handleLinkedinAdsAuthFailure(conn, "401 from LinkedIn");
+    let alerts = (await getNotifications(tenantId)).filter(
+      (n) => n.type === "ads_connection_failed" && n.readAt == null,
+    );
+    expect(alerts).toHaveLength(1);
+
+    mockFetch.mockResolvedValue(
+      jsonResponse(200, { access_token: "revived", expires_in: 5184000 }),
+    );
+    const updated = await maybeRefreshLinkedinAdsToken(
+      await readConnection(conn.id),
+    );
+    expect(updated.verifyStatus).toBe("verified");
+
+    alerts = (await getNotifications(tenantId)).filter(
+      (n) => n.type === "ads_connection_failed" && n.readAt == null,
+    );
+    expect(alerts).toHaveLength(0);
+  });
+
   it("marks the connection failed when the refresh token is rejected (400)", async () => {
     const conn = await insertConnection({
       accessToken: "old-token",
@@ -218,6 +253,20 @@ describe("maybeRefreshLinkedinAdsToken", () => {
     const updated = await maybeRefreshLinkedinAdsToken(conn);
     expect(updated.verifyStatus).toBe("failed");
     expect(updated.verifyError).toContain("Reconnect LinkedIn Ads");
+
+    // A fresh verified -> failed transition notifies the tenant (deduped).
+    const alerts = (await getNotifications(tenantId)).filter(
+      (n) => n.type === "ads_connection_failed",
+    );
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].platform).toBe("linkedin");
+
+    const again = await maybeRefreshLinkedinAdsToken(updated);
+    expect(again.verifyStatus).toBe("failed");
+    const after = (await getNotifications(tenantId)).filter(
+      (n) => n.type === "ads_connection_failed",
+    );
+    expect(after).toHaveLength(1);
   });
 
   it("leaves the row untouched on a transient failure (5xx)", async () => {
