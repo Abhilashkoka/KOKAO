@@ -2582,6 +2582,14 @@ export function DraftDialog({
         }`
       : null;
 
+  const scheduleError = (() => {
+    if (!showSchedule || !state.startTime || !state.stopTime) return null;
+    const start = new Date(state.startTime);
+    const stop = new Date(state.stopTime);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(stop.getTime())) return null;
+    return stop.getTime() <= start.getTime() ? "End must be after start" : null;
+  })();
+
   const isLinkedin = platform === "linkedin";
   const { data: groupData } = useListLinkedinCampaignGroups(
     { connectionId },
@@ -2949,6 +2957,14 @@ export function DraftDialog({
                 onChange={(v) => setState({ ...state, stopTime: v })}
                 testId="input-draft-stop"
               />
+              {scheduleError && (
+                <p
+                  className="col-span-2 text-xs font-medium text-destructive"
+                  data-testid="text-schedule-error"
+                >
+                  {scheduleError}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -2962,7 +2978,8 @@ export function DraftDialog({
               createDraft.isPending ||
               (isCreate && !state.name.trim()) ||
               (isCreate && isLinkedin && !isGroupCreate && !campaignGroupId) ||
-              tiktokBudgetError != null
+              tiktokBudgetError != null ||
+              scheduleError != null
             }
             data-testid="button-submit-draft"
           >

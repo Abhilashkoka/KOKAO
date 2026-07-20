@@ -951,3 +951,73 @@ describe("DraftsSection approve invalidates the group list", () => {
     expect(matchesGroups).toBe(true);
   });
 });
+
+describe("DraftDialog schedule validation", () => {
+  it("shows an inline error and disables Save when end <= start", () => {
+    renderDraftDialog(() => {}, "google", {
+      objective: "SEARCH",
+      startTime: "2026-08-31T00:00:00+0000",
+      stopTime: "2026-08-01T00:00:00+0000",
+    });
+    fireEvent.change(screen.getByTestId("input-draft-name"), {
+      target: { value: "G Search" },
+    });
+
+    const error = screen.getByTestId("text-schedule-error");
+    expect(error.textContent).toContain("End must be after start");
+    expect(
+      (screen.getByTestId("button-submit-draft") as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(createDraftMutate).not.toHaveBeenCalled();
+  });
+
+  it("flags an end equal to the start", () => {
+    renderDraftDialog(() => {}, "google", {
+      objective: "SEARCH",
+      startTime: "2026-08-01T00:00:00+0000",
+      stopTime: "2026-08-01T00:00:00+0000",
+    });
+    expect(screen.getByTestId("text-schedule-error")).toBeTruthy();
+    expect(
+      (screen.getByTestId("button-submit-draft") as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it("no error when the schedule is valid or only one side is set", () => {
+    renderDraftDialog(() => {}, "google", {
+      objective: "SEARCH",
+      startTime: "2026-08-01T00:00:00+0000",
+      stopTime: "2026-08-31T00:00:00+0000",
+    });
+    fireEvent.change(screen.getByTestId("input-draft-name"), {
+      target: { value: "G Search" },
+    });
+    expect(screen.queryByTestId("text-schedule-error")).toBeNull();
+    expect(
+      (screen.getByTestId("button-submit-draft") as HTMLButtonElement).disabled,
+    ).toBe(false);
+    cleanup();
+
+    renderDraftDialog(() => {}, "google", {
+      objective: "SEARCH",
+      startTime: "2026-08-31T00:00:00+0000",
+    });
+    expect(screen.queryByTestId("text-schedule-error")).toBeNull();
+  });
+
+  it("TikTok ad group edit also blocks a backwards schedule", () => {
+    renderDraftDialog(() => {}, "tiktok", {
+      action: "update",
+      targetType: "adset",
+      targetId: "ag_tt",
+      currentName: "TT group",
+      name: "TT group",
+      startTime: "2026-08-31 00:00:00",
+      stopTime: "2026-08-01 00:00:00",
+    });
+    expect(screen.getByTestId("text-schedule-error")).toBeTruthy();
+    expect(
+      (screen.getByTestId("button-submit-draft") as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+});
