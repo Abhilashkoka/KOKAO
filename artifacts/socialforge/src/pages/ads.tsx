@@ -46,6 +46,7 @@ import {
   type AdsTargetingLocation,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { navigate } from "wouter/use-browser-location";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -576,6 +577,115 @@ export function AdsPage() {
   );
 }
 
+const PLATFORM_SETUP_INFO: Record<
+  "meta" | "google" | "tiktok" | "linkedin",
+  { label: string; credentialName: string; steps: string[] }
+> = {
+  meta: {
+    label: "Meta Ads",
+    credentialName: "Meta app credentials (App ID and App Secret)",
+    steps: [
+      "The platform administrator creates a Meta app at developers.facebook.com with the Marketing API product enabled.",
+      "The administrator enters the App ID and App Secret in Admin settings under Platform credentials.",
+      "Once saved, everyone returns to this page and connects their Meta ad account with the Connect button.",
+    ],
+  },
+  google: {
+    label: "Google Ads",
+    credentialName: "Google Ads credentials (OAuth client and developer token)",
+    steps: [
+      "The platform administrator creates a Google Cloud OAuth application with the Google Ads API enabled.",
+      "The administrator requests a Google Ads API developer token from their Google Ads manager account.",
+      "The administrator enters the client ID, client secret, and developer token in Admin settings under Platform credentials.",
+      "Once saved, everyone returns to this page and connects their Google Ads account with the Connect button.",
+    ],
+  },
+  tiktok: {
+    label: "TikTok Ads",
+    credentialName: "TikTok app credentials (App ID and Secret)",
+    steps: [
+      "The platform administrator creates a developer app at business-api.tiktok.com with the Ads Management scope.",
+      "The administrator enters the App ID and Secret in Admin settings under Platform credentials.",
+      "Once saved, everyone returns to this page and connects their TikTok advertiser account with the Connect button.",
+    ],
+  },
+  linkedin: {
+    label: "LinkedIn Ads",
+    credentialName: "LinkedIn app credentials (Client ID and Client Secret)",
+    steps: [
+      "The platform administrator creates a LinkedIn app at developer.linkedin.com with the Advertising API product.",
+      "The administrator enters the Client ID and Client Secret in Admin settings under Platform credentials.",
+      "Once saved, everyone returns to this page and connects their LinkedIn ad account with the Connect button.",
+    ],
+  },
+};
+
+function PlatformUnavailableNotice({
+  platform,
+}: {
+  platform: "meta" | "google" | "tiktok" | "linkedin";
+}) {
+  const { data: me } = useGetMe();
+  const [open, setOpen] = useState(false);
+  const info = PLATFORM_SETUP_INFO[platform];
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">
+        {info.label} is not yet available. The platform administrator has not
+        configured {info.credentialName.split(" (")[0].toLowerCase()} yet.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setOpen(true)}
+          data-testid={`button-setup-steps-${platform}`}
+        >
+          How to enable
+        </Button>
+        {me?.isSuperadmin && (
+          <Button
+            size="sm"
+            onClick={() => navigate("/admin?tab=credentials")}
+            data-testid={`button-open-admin-credentials-${platform}`}
+          >
+            Configure now
+          </Button>
+        )}
+      </div>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent data-testid={`dialog-setup-steps-${platform}`}>
+          <DialogHeader>
+            <DialogTitle>Enable {info.label}</DialogTitle>
+            <DialogDescription>
+              {info.label} needs a one-time platform setup: {info.credentialName}.
+            </DialogDescription>
+          </DialogHeader>
+          <ol className="list-decimal pl-5 space-y-2 text-sm">
+            {info.steps.map((step, i) => (
+              <li key={i}>{step}</li>
+            ))}
+          </ol>
+          {me?.isSuperadmin ? (
+            <Button
+              onClick={() => navigate("/admin?tab=credentials")}
+              data-testid={`button-dialog-admin-credentials-${platform}`}
+            >
+              Open platform credentials
+            </Button>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Only the platform administrator can add these credentials. Reach
+              out to them with the steps above.
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 function ConnectionSection({
   metaConn,
   metaAvailable,
@@ -687,12 +797,7 @@ function ConnectionSection({
             </Button>
           </div>
         )}
-        {!metaAvailable && !metaConn && (
-          <p className="text-sm text-muted-foreground">
-            Meta Ads is not yet available. The platform administrator has not
-            configured Meta app credentials.
-          </p>
-        )}
+        {!metaAvailable && !metaConn && <PlatformUnavailableNotice platform="meta" />}
         {metaConn?.status === "pending_selection" && (
           <AccountPicker canManage={canManage} />
         )}
@@ -807,12 +912,7 @@ function GoogleConnectionCard({
             Connect Google Ads
           </Button>
         )}
-        {!googleAvailable && !googleConn && (
-          <p className="text-sm text-muted-foreground">
-            Google Ads is not yet available. The platform administrator has not
-            configured Google Ads credentials.
-          </p>
-        )}
+        {!googleAvailable && !googleConn && <PlatformUnavailableNotice platform="google" />}
         {googleConn?.status === "pending_selection" && (
           <GoogleAccountPicker canManage={canManage} />
         )}
@@ -1019,12 +1119,7 @@ function LinkedinConnectionSection({
             Connect LinkedIn Ads
           </Button>
         )}
-        {!available && !linkedinConn && (
-          <p className="text-sm text-muted-foreground">
-            LinkedIn Ads is not yet available. The platform administrator has
-            not configured LinkedIn app credentials.
-          </p>
-        )}
+        {!available && !linkedinConn && <PlatformUnavailableNotice platform="linkedin" />}
         {linkedinConn?.status === "pending_selection" && (
           <LinkedinAccountPicker canManage={canManage} />
         )}
@@ -1437,12 +1532,7 @@ function TiktokConnectionSection({
             </Button>
           </div>
         )}
-        {!tiktokAvailable && !tiktokConn && (
-          <p className="text-sm text-muted-foreground">
-            TikTok Ads is not yet available. The platform administrator has not
-            configured TikTok app credentials.
-          </p>
-        )}
+        {!tiktokAvailable && !tiktokConn && <PlatformUnavailableNotice platform="tiktok" />}
         {tiktokConn?.status === "pending_selection" && (
           <TiktokAdvertiserPicker canManage={canManage} />
         )}
