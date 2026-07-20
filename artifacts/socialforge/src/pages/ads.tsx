@@ -2339,19 +2339,28 @@ export function DraftDialog({
   const isGoogleAdGroup = isGoogle && state.targetType === "adset";
   const nameLocked = isGoogle && state.targetType === "ad";
 
-  // TikTok ad groups hold a single budget_mode: daily OR lifetime (total).
-  // Drafting a budget in the other mode silently switches the mode on apply,
-  // so surface the current mode and warn about the flip. `form` (not `state`)
-  // reflects the ad group's current budgets at open time.
+  // TikTok campaigns and ad groups hold a single budget_mode: daily OR
+  // lifetime (total) — campaigns can also carry no budget at all
+  // (BUDGET_MODE_INFINITE, i.e. unlimited). Drafting a budget in another mode
+  // silently switches the mode on apply, so surface the current mode and warn
+  // about the flip. `form` (not `state`) reflects the target's current
+  // budgets at open time.
   const tiktokBudgetModeTarget =
-    isTiktok && state.action === "update" && state.targetType === "adset";
-  const currentTiktokMode: "daily" | "lifetime" | null = !tiktokBudgetModeTarget
-    ? null
-    : form.dailyBudget
-      ? "daily"
-      : form.lifetimeBudget
-        ? "lifetime"
-        : null;
+    isTiktok &&
+    state.action === "update" &&
+    (state.targetType === "adset" || state.targetType === "campaign");
+  const tiktokTargetNoun =
+    state.targetType === "campaign" ? "campaign" : "ad group";
+  const currentTiktokMode: "daily" | "lifetime" | "none" | null =
+    !tiktokBudgetModeTarget
+      ? null
+      : form.dailyBudget
+        ? "daily"
+        : form.lifetimeBudget
+          ? "lifetime"
+          : state.targetType === "campaign"
+            ? "none"
+            : null;
   // The server-side apply prefers a daily budget when both are sent.
   const draftedTiktokMode: "daily" | "lifetime" | null = !tiktokBudgetModeTarget
     ? null
@@ -2364,8 +2373,8 @@ export function DraftDialog({
     currentTiktokMode != null &&
     draftedTiktokMode != null &&
     draftedTiktokMode !== currentTiktokMode;
-  const tiktokModeLabel = (m: "daily" | "lifetime") =>
-    m === "daily" ? "daily" : "lifetime (total)";
+  const tiktokModeLabel = (m: "daily" | "lifetime" | "none") =>
+    m === "daily" ? "daily" : m === "lifetime" ? "lifetime (total)" : "no";
 
   const isLinkedin = platform === "linkedin";
   const { data: groupData } = useListLinkedinCampaignGroups(
@@ -2638,18 +2647,18 @@ export function DraftDialog({
               className="text-xs text-muted-foreground"
               data-testid="text-tiktok-budget-mode"
             >
-              This TikTok ad group currently uses a {tiktokModeLabel(currentTiktokMode)}{" "}
-              budget.
+              {currentTiktokMode === "none"
+                ? `This TikTok ${tiktokTargetNoun} currently has no budget (unlimited).`
+                : `This TikTok ${tiktokTargetNoun} currently uses a ${tiktokModeLabel(currentTiktokMode)} budget.`}
             </p>
           )}
           {tiktokModeFlips && currentTiktokMode != null && draftedTiktokMode != null && (
             <Alert data-testid="alert-tiktok-budget-mode-flip">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
-                Applying this draft will switch the ad group's budget type from{" "}
-                {tiktokModeLabel(currentTiktokMode)} to {tiktokModeLabel(draftedTiktokMode)}.
-                TikTok ad groups keep a single budget type, so the current{" "}
-                {tiktokModeLabel(currentTiktokMode)} budget stops applying.
+                {currentTiktokMode === "none"
+                  ? `Applying this draft will give this campaign a ${tiktokModeLabel(draftedTiktokMode)} budget. It currently has no budget (unlimited), so spend will become capped by the new budget.`
+                  : `Applying this draft will switch the ${tiktokTargetNoun}'s budget type from ${tiktokModeLabel(currentTiktokMode)} to ${tiktokModeLabel(draftedTiktokMode)}. TikTok ${tiktokTargetNoun}s keep a single budget type, so the current ${tiktokModeLabel(currentTiktokMode)} budget stops applying.`}
               </AlertDescription>
             </Alert>
           )}

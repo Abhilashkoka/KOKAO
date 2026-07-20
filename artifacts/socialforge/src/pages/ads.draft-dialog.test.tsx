@@ -531,6 +531,62 @@ describe("DraftDialog TikTok", () => {
     ).toContain("daily to lifetime (total)");
   });
 
+  it("campaign edit shows the current budget type and warns on a mode flip", () => {
+    renderDraftDialog(() => {}, "tiktok", {
+      action: "update",
+      targetType: "campaign",
+      targetId: "c_tt",
+      currentName: "TT campaign",
+      name: "TT campaign",
+      dailyBudget: "5000",
+    });
+
+    expect(screen.getByTestId("text-tiktok-budget-mode").textContent).toContain(
+      "campaign currently uses a daily budget",
+    );
+    expect(screen.queryByTestId("alert-tiktok-budget-mode-flip")).toBeNull();
+
+    // Clearing daily and entering lifetime flips the campaign mode: warn.
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "" },
+    });
+    fireEvent.change(screen.getByTestId("input-draft-lifetime-budget"), {
+      target: { value: "700" },
+    });
+    const alert = screen.getByTestId("alert-tiktok-budget-mode-flip");
+    expect(alert.textContent).toContain("campaign's budget type");
+    expect(alert.textContent).toContain("daily to lifetime (total)");
+  });
+
+  it("campaign edit with no budget (unlimited) notes it and warns when a budget is drafted", () => {
+    renderDraftDialog(() => {}, "tiktok", {
+      action: "update",
+      targetType: "campaign",
+      targetId: "c_tt",
+      currentName: "TT campaign",
+      name: "TT campaign",
+    });
+
+    expect(screen.getByTestId("text-tiktok-budget-mode").textContent).toContain(
+      "currently has no budget (unlimited)",
+    );
+    expect(screen.queryByTestId("alert-tiktok-budget-mode-flip")).toBeNull();
+
+    // Drafting a daily budget onto an unlimited campaign caps spend: warn.
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "40" },
+    });
+    const alert = screen.getByTestId("alert-tiktok-budget-mode-flip");
+    expect(alert.textContent).toContain("give this campaign a daily budget");
+    expect(alert.textContent).toContain("no budget (unlimited)");
+
+    // Clearing it removes the warning again.
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "" },
+    });
+    expect(screen.queryByTestId("alert-tiktok-budget-mode-flip")).toBeNull();
+  });
+
   it("hides the budget-type note outside TikTok ad group edits", () => {
     // Meta ad set edit with a lifetime budget: no TikTok note.
     renderDraftDialog(() => {}, "meta", {
