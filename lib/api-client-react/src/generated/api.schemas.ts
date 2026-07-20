@@ -2781,6 +2781,19 @@ export const AdsDraftCreateInputStatus = {
   ARCHIVED: 'ARCHIVED',
 } as const;
 
+/**
+ * Meta ad set updates only — bid strategy (requires the ad set to hold its own budget).
+ * @nullable
+ */
+export type AdsDraftCreateInputBidStrategy = typeof AdsDraftCreateInputBidStrategy[keyof typeof AdsDraftCreateInputBidStrategy] | null;
+
+
+export const AdsDraftCreateInputBidStrategy = {
+  LOWEST_COST_WITHOUT_CAP: 'LOWEST_COST_WITHOUT_CAP',
+  LOWEST_COST_WITH_BID_CAP: 'LOWEST_COST_WITH_BID_CAP',
+  COST_CAP: 'COST_CAP',
+} as const;
+
 export interface AdsTargetingLocation {
   /** LinkedIn targeting entity URN, e.g. urn:li:geo:103644278 or urn:li:industry:4. */
   urn: string;
@@ -2829,6 +2842,17 @@ export interface AdsDraftCreateInput {
      * @nullable
      */
   stopTime?: string | null;
+  /**
+     * Meta ad set updates only — bid cap / cost cap amount in minor currency units.
+     * @minimum 1
+     * @nullable
+     */
+  bidAmount?: number | null;
+  /**
+     * Meta ad set updates only — bid strategy (requires the ad set to hold its own budget).
+     * @nullable
+     */
+  bidStrategy?: AdsDraftCreateInputBidStrategy;
   /** LinkedIn creative creates — the campaign the creative attaches to. */
   campaignId?: string;
   /**

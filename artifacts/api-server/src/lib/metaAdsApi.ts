@@ -150,6 +150,10 @@ interface RawCampaign {
   stop_time?: string;
   /** Ad sets only: their end timestamp field is named end_time. */
   end_time?: string;
+  /** Ad sets only: bid cap / cost cap amount in minor units. */
+  bid_amount?: string | number;
+  /** Ad sets only: bid strategy (when the ad set holds its own budget). */
+  bid_strategy?: string;
 }
 
 function mapCampaign(c: RawCampaign): MetaCampaign {
@@ -391,6 +395,10 @@ export interface UpdateObjectParams {
   lifetimeBudget?: number | null;
   startTime?: string | null;
   stopTime?: string | null;
+  /** Ad sets only: bid cap / cost cap amount in minor units. */
+  bidAmount?: number | null;
+  /** Ad sets only: bid strategy (requires the ad set to hold its own budget). */
+  bidStrategy?: string | null;
   /**
    * Which Graph object is being updated. Ad sets name their end timestamp
    * `end_time` while campaigns use `stop_time`, so the mapping depends on it.
@@ -414,6 +422,11 @@ export async function updateObject(
     if (params.targetType === "adset") body.end_time = params.stopTime;
     else body.stop_time = params.stopTime;
   }
+  // Bid tuning is an ad-set knob; campaigns/ads never receive these fields.
+  if (params.targetType === "adset") {
+    if (params.bidAmount != null) body.bid_amount = String(params.bidAmount);
+    if (params.bidStrategy != null) body.bid_strategy = params.bidStrategy;
+  }
   await graphPost<{ success?: boolean }>(encodeURIComponent(objectId), token, body);
 }
 
@@ -427,7 +440,7 @@ export type AdsTargetType = "campaign" | "adset" | "ad";
  */
 const OBJECT_STATE_FIELDS: Record<AdsTargetType, string> = {
   campaign: "id,name,status,daily_budget,lifetime_budget,start_time,stop_time",
-  adset: "id,name,status,daily_budget,lifetime_budget,start_time,end_time",
+  adset: "id,name,status,daily_budget,lifetime_budget,start_time,end_time,bid_amount,bid_strategy",
   ad: "id,name,status",
 };
 
@@ -443,11 +456,13 @@ export async function readObjectState(
   lifetimeBudget: number | null;
   startTime: string | null;
   stopTime: string | null;
+  bidAmount?: number | null;
+  bidStrategy?: string | null;
 }> {
   const json = await graphGet<RawCampaign>(encodeURIComponent(objectId), token, {
     fields: OBJECT_STATE_FIELDS[targetType] ?? OBJECT_STATE_FIELDS.campaign,
   });
-  return {
+  const base = {
     name: json.name ?? "",
     status: json.status ?? "UNKNOWN",
     dailyBudget: toNum(json.daily_budget),
@@ -455,5 +470,13 @@ export async function readObjectState(
     startTime: json.start_time ?? null,
     // Ad sets report end_time; campaigns report stop_time.
     stopTime: json.stop_time ?? json.end_time ?? null,
+  };
+  if (targetType !== "adset") return base;
+  // Bid fields only exist on ad sets; campaigns/ads never carry them so the
+  // keys stay absent there (snapshot compare only looks at shared keys).
+  return {
+    ...base,
+    bidAmount: json.bid_amount != null ? toNum(String(json.bid_amount)) : null,
+    bidStrategy: json.bid_strategy ?? null,
   };
 }

@@ -213,6 +213,8 @@ interface DraftFormState {
   startTime: string;
   stopTime: string;
   objective: string;
+  bidAmount: string;
+  bidStrategy: string;
 }
 
 const EMPTY_FORM: DraftFormState = {
@@ -227,6 +229,8 @@ const EMPTY_FORM: DraftFormState = {
   startTime: "",
   stopTime: "",
   objective: "OUTCOME_TRAFFIC",
+  bidAmount: "",
+  bidStrategy: "",
 };
 
 export function AdsPage() {
@@ -2096,6 +2100,9 @@ export function DraftDialog({
     ? state.targetType === "adset"
     : state.targetType === "campaign" ||
       (state.targetType === "adset" && platform === "meta");
+  // Bid tuning (amount + strategy) is a Meta ad-set update knob only.
+  const showBids =
+    platform === "meta" && state.targetType === "adset" && !isCreate;
   // Google ad groups have no budget; the money knob there is the default
   // max CPC bid (still sent as dailyBudget in minor units). Google ads can
   // only be paused/activated — renaming is not supported.
@@ -2138,6 +2145,8 @@ export function DraftDialog({
     }
     if (showSchedule && state.startTime) data.startTime = state.startTime;
     if (showSchedule && state.stopTime) data.stopTime = state.stopTime;
+    if (showBids && state.bidAmount) data.bidAmount = Number(state.bidAmount);
+    if (showBids && state.bidStrategy) data.bidStrategy = state.bidStrategy;
 
     createDraft.mutate(
       { data: data as never },
@@ -2349,6 +2358,45 @@ export function DraftDialog({
                   />
                 </div>
               )}
+            </div>
+          )}
+          {showBids && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Bid strategy</Label>
+                <Select
+                  value={state.bidStrategy || undefined}
+                  onValueChange={(v) => setState({ ...state, bidStrategy: v })}
+                >
+                  <SelectTrigger data-testid="select-draft-bid-strategy">
+                    <SelectValue placeholder="Keep current" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="LOWEST_COST_WITHOUT_CAP">
+                      Lowest cost (no cap)
+                    </SelectItem>
+                    <SelectItem value="LOWEST_COST_WITH_BID_CAP">Bid cap</SelectItem>
+                    <SelectItem value="COST_CAP">Cost cap</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="draft-bid-amount">Bid amount (minor units)</Label>
+                <Input
+                  id="draft-bid-amount"
+                  type="number"
+                  min="1"
+                  value={state.bidAmount}
+                  onChange={(e) => setState({ ...state, bidAmount: e.target.value })}
+                  disabled={state.bidStrategy === "LOWEST_COST_WITHOUT_CAP"}
+                  data-testid="input-draft-bid-amount"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Required for bid cap and cost cap; leave blank to keep the
+                  current bid. Only applies when the ad set holds its own
+                  budget.
+                </p>
+              </div>
             </div>
           )}
           {showSchedule && (

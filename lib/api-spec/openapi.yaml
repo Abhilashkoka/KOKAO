@@ -8872,6 +8872,14 @@ components:
         stopTime:
           type: ["string", "null"]
           description: ISO-8601 schedule end.
+        bidAmount:
+          type: ["integer", "null"]
+          minimum: 1
+          description: Meta ad set updates only — bid cap / cost cap amount in minor currency units.
+        bidStrategy:
+          type: ["string", "null"]
+          enum: [LOWEST_COST_WITHOUT_CAP, LOWEST_COST_WITH_BID_CAP, COST_CAP, null]
+          description: Meta ad set updates only — bid strategy (requires the ad set to hold its own budget).
         campaignId:
           type: string
           description: LinkedIn creative creates — the campaign the creative attaches to.

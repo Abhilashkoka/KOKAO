@@ -6288,6 +6288,7 @@ export const createAdDraftBodyDailyBudgetMin = 0;
 
 export const createAdDraftBodyLifetimeBudgetMin = 0;
 
+
 export const createAdDraftBodyTextMax = 3000;
 
 export const createAdDraftBodyTargetingLocationsMax = 50;
@@ -6314,6 +6315,8 @@ export const CreateAdDraftBody = zod.object({
   "lifetimeBudget": zod.number().min(createAdDraftBodyLifetimeBudgetMin).nullish().describe('Lifetime budget in minor currency units.'),
   "startTime": zod.string().nullish().describe('ISO-8601 schedule start.'),
   "stopTime": zod.string().nullish().describe('ISO-8601 schedule end.'),
+  "bidAmount": zod.number().min(1).nullish().describe('Meta ad set updates only — bid cap \/ cost cap amount in minor currency units.'),
+  "bidStrategy": zod.union([zod.literal('LOWEST_COST_WITHOUT_CAP'),zod.literal('LOWEST_COST_WITH_BID_CAP'),zod.literal('COST_CAP'),zod.literal(null)]).nullish().describe('Meta ad set updates only — bid strategy (requires the ad set to hold its own budget).'),
   "campaignId": zod.string().optional().describe('LinkedIn creative creates — the campaign the creative attaches to.'),
   "text": zod.string().max(createAdDraftBodyTextMax).optional().describe('LinkedIn creative creates — the sponsored post\'s text.'),
   "imagePath": zod.string().nullish().describe('LinkedIn creative creates — content library image path (`\/objects\/<tenantId>\/uploads\/<uuid>`).'),

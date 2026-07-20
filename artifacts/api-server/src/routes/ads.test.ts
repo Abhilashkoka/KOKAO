@@ -1000,6 +1000,242 @@ describe("ad set and ad drafts", () => {
     }
   });
 
+  it("creates an ad set bid draft with a before/after preview", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      mockRead.mockResolvedValue({
+        name: "Retargeting",
+        status: "ACTIVE",
+        dailyBudget: 2000,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+        bidAmount: 100,
+        bidStrategy: "LOWEST_COST_WITHOUT_CAP",
+      });
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "update",
+        targetId: "adset_1",
+        bidStrategy: "COST_CAP",
+        bidAmount: 250,
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.changes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field: "Bid amount (minor units)",
+            before: "100",
+            after: "250",
+          }),
+          expect.objectContaining({
+            field: "Bid strategy",
+            before: "LOWEST_COST_WITHOUT_CAP",
+            after: "COST_CAP",
+          }),
+        ]),
+      );
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("applies an ad set bid draft, passes bid fields to the update, and verifies the read-back", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      const before = {
+        name: "Retargeting",
+        status: "ACTIVE",
+        dailyBudget: 2000,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+        bidAmount: 100,
+        bidStrategy: "LOWEST_COST_WITH_BID_CAP",
+      };
+      mockRead.mockResolvedValue(before);
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "update",
+        targetId: "adset_1",
+        bidAmount: 300,
+      });
+      expect(draftRes.status).toBe(201);
+
+      // Drift check read, then post-apply verification read.
+      mockRead.mockResolvedValueOnce(before);
+      mockRead.mockResolvedValueOnce({ ...before, bidAmount: 300 });
+      const applied = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(applied.status).toBe(200);
+      expect(applied.body.status).toBe("applied");
+      expect(applied.body.verifyStatus).toBe("verified");
+      expect(mockUpdate).toHaveBeenCalledWith(
+        "ads-token",
+        "adset_1",
+        expect.objectContaining({ bidAmount: 300, targetType: "adset" }),
+      );
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("flags a bid mismatch when the platform did not accept the new bid", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      const before = {
+        name: "Retargeting",
+        status: "ACTIVE",
+        dailyBudget: 2000,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+        bidAmount: 100,
+        bidStrategy: "LOWEST_COST_WITH_BID_CAP",
+      };
+      mockRead.mockResolvedValue(before);
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "update",
+        targetId: "adset_1",
+        bidAmount: 300,
+      });
+      expect(draftRes.status).toBe(201);
+
+      mockRead.mockResolvedValueOnce(before);
+      // Read-back still shows the old bid.
+      mockRead.mockResolvedValueOnce(before);
+      const applied = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(applied.status).toBe(200);
+      expect(applied.body.status).toBe("applied");
+      expect(applied.body.verifyStatus).toBe("mismatch");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("expires an ad set bid draft when the remote bid drifted after drafting", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      const before = {
+        name: "Retargeting",
+        status: "ACTIVE",
+        dailyBudget: 2000,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+        bidAmount: 100,
+        bidStrategy: "LOWEST_COST_WITH_BID_CAP",
+      };
+      mockRead.mockResolvedValue(before);
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "update",
+        targetId: "adset_1",
+        bidAmount: 300,
+      });
+      expect(draftRes.status).toBe(201);
+
+      // Someone changed the bid on the platform after drafting.
+      mockRead.mockResolvedValue({ ...before, bidAmount: 500 });
+      const applied = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(applied.status).toBe(200);
+      expect(applied.body.status).toBe("expired");
+      expect(mockUpdate).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects bid fields on Meta campaign drafts", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign",
+        action: "update",
+        targetId: "camp_1",
+        bidAmount: 300,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("Meta ad set updates");
+      expect(mockRead).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects bid fields on a non-Meta ad set draft", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertGoogleAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "update",
+        targetId: "adgroup_1",
+        bidStrategy: "COST_CAP",
+        bidAmount: 300,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("Meta ad set updates");
+      expect(mockRead).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects a cap strategy without a bid amount, and an amount with the no-cap strategy", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const noAmount = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "update",
+        targetId: "adset_1",
+        bidStrategy: "COST_CAP",
+      });
+      expect(noAmount.status).toBe(400);
+      expect(noAmount.body.error).toContain("requires a bid amount");
+
+      const amountWithNoCap = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "update",
+        targetId: "adset_1",
+        bidStrategy: "LOWEST_COST_WITHOUT_CAP",
+        bidAmount: 300,
+      });
+      expect(amountWithNoCap.status).toBe(400);
+      expect(amountWithNoCap.body.error).toContain("does not take a bid amount");
+      expect(mockRead).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("still rejects schedule fields on a non-Meta ad set draft", async () => {
     const tenant = await createTenant();
     try {

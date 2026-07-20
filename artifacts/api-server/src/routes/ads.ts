@@ -2083,6 +2083,36 @@ router.post(
       });
       return;
     }
+    // Bid tuning (amount/strategy) is a Meta ad-set update knob only.
+    if (input.bidAmount != null || input.bidStrategy != null) {
+      if (
+        conn.platform !== "meta" ||
+        input.targetType !== "adset" ||
+        input.action !== "update"
+      ) {
+        res.status(400).json({
+          error: "Bid changes are only supported for Meta ad set updates.",
+        });
+        return;
+      }
+      if (input.bidStrategy === "LOWEST_COST_WITHOUT_CAP" && input.bidAmount != null) {
+        res.status(400).json({
+          error:
+            "LOWEST_COST_WITHOUT_CAP does not take a bid amount — remove the bid amount or pick a cap strategy.",
+        });
+        return;
+      }
+      if (
+        (input.bidStrategy === "LOWEST_COST_WITH_BID_CAP" ||
+          input.bidStrategy === "COST_CAP") &&
+        input.bidAmount == null
+      ) {
+        res.status(400).json({
+          error: `${input.bidStrategy} requires a bid amount in minor currency units.`,
+        });
+        return;
+      }
+    }
 
     // Spend guardrail: reject drafts whose proposed budget exceeds the
     // workspace's caps. Enforced HERE (draft creation) so an over-cap typo
@@ -2137,6 +2167,8 @@ router.post(
     if (input.lifetimeBudget != null) payload.lifetimeBudget = input.lifetimeBudget;
     if (input.startTime != null) payload.startTime = input.startTime;
     if (input.stopTime != null) payload.stopTime = input.stopTime;
+    if (input.bidAmount != null) payload.bidAmount = input.bidAmount;
+    if (input.bidStrategy != null) payload.bidStrategy = input.bidStrategy;
     if (targetingLocations) payload.targetingLocations = targetingLocations;
 
     if (input.targetType === "creative" && input.action === "create") {
@@ -2275,6 +2307,9 @@ router.post(
         startTime: input.startTime,
         stopTime: input.stopTime,
         targetingFacets: proposedFacets,
+        bidAmount: input.bidAmount,
+        bidStrategy: input.bidStrategy,
+        targetingLocations,
       });
       if (changes.length === 0) {
         res.status(400).json({

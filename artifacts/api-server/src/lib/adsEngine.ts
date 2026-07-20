@@ -247,10 +247,27 @@ interface UpdateParams {
   lifetimeBudget?: number;
   startTime?: string;
   stopTime?: string;
+  /** Meta ad sets only: bid cap / cost cap amount in minor units. */
+  bidAmount?: number;
+  /** Meta ad sets only: bid strategy (requires the ad set to hold its own budget). */
+  bidStrategy?: string;
   /** LinkedIn only: replacement location targeting URNs (deduped + sorted). */
   targetingLocations?: string[];
   /** LinkedIn only: full replacement of targeting across all managed facets. */
   targetingFacets?: Partial<Record<LinkedinTargetingFacetKey, string[]>>;
+}
+
+/**
+ * Defense in depth: bid tuning is a Meta ad-set knob only. The route rejects
+ * bid fields elsewhere; this guards the engine's other adapter paths.
+ */
+function rejectBidFields(
+  params: UpdateParams,
+  makeError: (message: string) => Error,
+): void {
+  if (params.bidAmount != null || params.bidStrategy != null) {
+    throw makeError("Bid changes are only supported for Meta ad sets.");
+  }
 }
 
 /**
@@ -329,6 +346,7 @@ const googleOps: PlatformOps = {
     return readGoogleCampaignState(auth, targetId);
   },
   update: async (conn, targetId, params) => {
+    rejectBidFields(params, (m) => new GoogleAdsApiError(m, 400));
     if (params.lifetimeBudget != null) {
       throw new GoogleAdsApiError(
         "Lifetime budgets are not supported on Google Ads. Use a daily budget instead.",
@@ -401,6 +419,7 @@ const linkedinOps: PlatformOps = {
     return readLinkedinCampaignState(linkedinToken(conn), conn.adAccountId, targetId);
   },
   update: async (conn, targetId, params) => {
+    rejectBidFields(params, (m) => new LinkedinAdsApiError(m, 400));
     if (params.targetType === "creative") {
       // Creatives are status-only: ACTIVE | PAUSED | ARCHIVED. Everything
       // else about a creative (post text, image) is immutable on LinkedIn.
@@ -505,6 +524,7 @@ const tiktokOps: PlatformOps = {
     return readTiktokCampaignState(tiktokToken(conn), conn.adAccountId, targetId);
   },
   update: async (conn, targetId, params) => {
+    rejectBidFields(params, (m) => new TiktokAdsApiError(m, 400, 0));
     const targetType = params.targetType ?? "campaign";
     const status = nonArchivedStatus(params);
     if (conn.platform === "tiktok") {
@@ -619,6 +639,10 @@ export interface RemoteSnapshot {
   targetingJobFunctions?: string[];
   /** LinkedIn campaigns only: targeted job title URNs (sorted). */
   targetingTitles?: string[];
+  /** Meta ad sets only: bid cap / cost cap amount in minor units. */
+  bidAmount?: number | null;
+  /** Meta ad sets only: current bid strategy. */
+  bidStrategy?: string | null;
 }
 
 /** A named targeting location as picked from the typeahead. */
@@ -670,6 +694,8 @@ export function buildUpdateDiff(
     lifetimeBudget?: number | null;
     startTime?: string | null;
     stopTime?: string | null;
+    bidAmount?: number | null;
+    bidStrategy?: string | null;
     targetingLocations?: TargetingLocation[] | null;
     targetingFacets?: ProposedTargetingFacets | null;
   },
@@ -701,6 +727,21 @@ export function buildUpdateDiff(
   if (proposed.stopTime != null && proposed.stopTime !== before.stopTime) {
     fields.push({ field: "End time", before: before.stopTime, after: proposed.stopTime });
   }
+  if (proposed.bidAmount != null && proposed.bidAmount !== (before.bidAmount ?? null)) {
+    fields.push({
+      field: "Bid amount (minor units)",
+      before: fmtBudget(before.bidAmount ?? null),
+      after: fmtBudget(proposed.bidAmount),
+    });
+  }
+  if (proposed.bidStrategy != null && proposed.bidStrategy !== (before.bidStrategy ?? null)) {
+    fields.push({
+      field: "Bid strategy",
+      before: before.bidStrategy ?? null,
+      after: proposed.bidStrategy,
+    });
+  }
+
   const facets: ProposedTargetingFacets = {
     ...(proposed.targetingFacets ?? {}),
   };
@@ -800,6 +841,9 @@ export function snapshotForCompare(s: RemoteSnapshot): Record<string, unknown> {
   for (const meta of TARGETING_FACET_FIELDS) {
     if (s[meta.snapshotKey] != null) out[meta.snapshotKey] = s[meta.snapshotKey];
   }
+  // Only present for Meta ad sets; same shared-key comparability rule.
+  if (s.bidAmount !== undefined) out.bidAmount = s.bidAmount;
+  if (s.bidStrategy !== undefined) out.bidStrategy = s.bidStrategy;
   return out;
 }
 
@@ -829,6 +873,10 @@ interface ApplyPayload {
   lifetimeBudget?: number | null;
   startTime?: string | null;
   stopTime?: string | null;
+  /** Meta ad sets only: bid cap / cost cap amount in minor units. */
+  bidAmount?: number | null;
+  /** Meta ad sets only: bid strategy. */
+  bidStrategy?: string | null;
   /** LinkedIn only: the campaign group a new campaign is created in. */
   campaignGroupId?: string;
   /** LinkedIn only: replacement location targeting for a campaign update (legacy drafts). */
@@ -1072,6 +1120,8 @@ export async function approveAndApplyDraft(
           lifetimeBudget: payload.lifetimeBudget ?? undefined,
           startTime: payload.startTime ?? undefined,
           stopTime: payload.stopTime ?? undefined,
+          bidAmount: payload.bidAmount ?? undefined,
+          bidStrategy: payload.bidStrategy ?? undefined,
           targetingLocations: payload.targetingLocations?.length
             ? [...new Set(payload.targetingLocations.map((l) => l.urn))].sort()
             : undefined,
@@ -1204,6 +1254,12 @@ async function verifyApplied(
     }
     if (payload.stopTime != null && !timesEqual(state.stopTime, payload.stopTime)) {
       mismatches.push("stopTime");
+    }
+    if (payload.bidAmount != null && (state.bidAmount ?? null) !== payload.bidAmount) {
+      mismatches.push("bidAmount");
+    }
+    if (payload.bidStrategy != null && (state.bidStrategy ?? null) !== payload.bidStrategy) {
+      mismatches.push("bidStrategy");
     }
     if (payload.targetingFacets != null) {
       for (const meta of TARGETING_FACET_FIELDS) {

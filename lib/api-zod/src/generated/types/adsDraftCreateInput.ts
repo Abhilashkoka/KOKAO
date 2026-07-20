@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AdsDraftCreateInputAction } from './adsDraftCreateInputAction';
+import type { AdsDraftCreateInputBidStrategy } from './adsDraftCreateInputBidStrategy';
 import type { AdsDraftCreateInputStatus } from './adsDraftCreateInputStatus';
 import type { AdsDraftCreateInputTargetType } from './adsDraftCreateInputTargetType';
 import type { AdsTargetingLocation } from './adsTargetingLocation';
@@ -52,6 +53,17 @@ export interface AdsDraftCreateInput {
      * @nullable
      */
   stopTime?: string | null;
+  /**
+     * Meta ad set updates only — bid cap / cost cap amount in minor currency units.
+     * @minimum 1
+     * @nullable
+     */
+  bidAmount?: number | null;
+  /**
+     * Meta ad set updates only — bid strategy (requires the ad set to hold its own budget).
+     * @nullable
+     */
+  bidStrategy?: AdsDraftCreateInputBidStrategy;
   /** LinkedIn creative creates — the campaign the creative attaches to. */
   campaignId?: string;
   /**

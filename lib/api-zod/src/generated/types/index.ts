@@ -51,6 +51,7 @@ export * from './adsDatePresetParameter';
 export * from './adsDraft';
 export * from './adsDraftCreateInput';
 export * from './adsDraftCreateInputAction';
+export * from './adsDraftCreateInputBidStrategy';
 export * from './adsDraftCreateInputStatus';
 export * from './adsDraftCreateInputTargetType';
 export * from './adsGeoSearchResult';

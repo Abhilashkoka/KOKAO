@@ -83,6 +83,8 @@ const CREATE_FORM = {
   startTime: "",
   stopTime: "",
   objective: "OUTCOME_TRAFFIC",
+  bidAmount: "",
+  bidStrategy: "",
 };
 
 let queryClient: QueryClient;
