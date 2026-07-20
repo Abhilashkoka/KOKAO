@@ -1404,11 +1404,13 @@ router.get("/ads/linkedin/geo-search", async (req: Request, res: Response) => {
     const results = await searchLinkedinGeoLocations(ct.token, q);
     res.json({ results });
   } catch (err) {
-    if (isAdsAuthError(err)) {
-      await markAdConnectionFailed(ct.conn.id, (err as Error).message);
+    const authLost = isAdsAuthError(err);
+    if (authLost) {
+      await markAdConnectionAuthFailed(ct.conn, (err as Error).message);
     }
     res.status(502).json({
       error: err instanceof Error ? err.message : "Could not search locations.",
+      ...(authLost ? { authLost: true } : {}),
     });
   }
 });
@@ -1441,11 +1443,13 @@ router.get("/ads/linkedin/targeting-search", async (req: Request, res: Response)
     );
     res.json({ results });
   } catch (err) {
-    if (isAdsAuthError(err)) {
-      await markAdConnectionFailed(ct.conn.id, (err as Error).message);
+    const authLost = isAdsAuthError(err);
+    if (authLost) {
+      await markAdConnectionAuthFailed(ct.conn, (err as Error).message);
     }
     res.status(502).json({
       error: err instanceof Error ? err.message : "Could not search targeting entities.",
+      ...(authLost ? { authLost: true } : {}),
     });
   }
 });
@@ -2552,7 +2556,13 @@ router.post("/ads/drafts/:id/approve", async (req: Request, res: Response) => {
       return;
     }
     default:
-      res.json(serializeDraft(result.draft));
+      // A failed apply caused by a revoked/expired grant carries `authLost` so
+      // the client can refetch connections and show the Reconnect prompt
+      // immediately (the server already marked the connection failed).
+      res.json({
+        ...serializeDraft(result.draft),
+        ...(result.kind === "failed" && result.authLost ? { authLost: true } : {}),
+      });
   }
 });
 

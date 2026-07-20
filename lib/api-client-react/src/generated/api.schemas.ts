@@ -2777,6 +2777,8 @@ export interface AdsDraft {
   verifyStatus?: string | null;
   /** @nullable */
   failureReason?: string | null;
+  /** Present (true) on approve responses when the apply failed because the platform revoked or expired our access — the connection was marked failed and the client should refetch connections. */
+  authLost?: boolean;
   createdAt: string;
 }
 

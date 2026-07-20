@@ -6304,6 +6304,7 @@ export const ListAdDraftsResponseItem = zod.object({
   "resultTargetId": zod.string().nullish(),
   "verifyStatus": zod.string().nullish().describe('verified | mismatch | unverified (post-apply remote check)'),
   "failureReason": zod.string().nullish(),
+  "authLost": zod.boolean().optional().describe('Present (true) on approve responses when the apply failed because the platform revoked or expired our access — the connection was marked failed and the client should refetch connections.'),
   "createdAt": zod.coerce.date()
 })
 export const ListAdDraftsResponse = zod.array(ListAdDraftsResponseItem)
@@ -6393,6 +6394,7 @@ export const CreateAdDraftResponse = zod.object({
   "resultTargetId": zod.string().nullish(),
   "verifyStatus": zod.string().nullish().describe('verified | mismatch | unverified (post-apply remote check)'),
   "failureReason": zod.string().nullish(),
+  "authLost": zod.boolean().optional().describe('Present (true) on approve responses when the apply failed because the platform revoked or expired our access — the connection was marked failed and the client should refetch connections.'),
   "createdAt": zod.coerce.date()
 })
 
@@ -6426,6 +6428,7 @@ export const ApproveAdDraftResponse = zod.object({
   "resultTargetId": zod.string().nullish(),
   "verifyStatus": zod.string().nullish().describe('verified | mismatch | unverified (post-apply remote check)'),
   "failureReason": zod.string().nullish(),
+  "authLost": zod.boolean().optional().describe('Present (true) on approve responses when the apply failed because the platform revoked or expired our access — the connection was marked failed and the client should refetch connections.'),
   "createdAt": zod.coerce.date()
 })
 
@@ -6459,6 +6462,7 @@ export const RejectAdDraftResponse = zod.object({
   "resultTargetId": zod.string().nullish(),
   "verifyStatus": zod.string().nullish().describe('verified | mismatch | unverified (post-apply remote check)'),
   "failureReason": zod.string().nullish(),
+  "authLost": zod.boolean().optional().describe('Present (true) on approve responses when the apply failed because the platform revoked or expired our access — the connection was marked failed and the client should refetch connections.'),
   "createdAt": zod.coerce.date()
 })
 

@@ -8923,6 +8923,9 @@ components:
           description: verified | mismatch | unverified (post-apply remote check)
         failureReason:
           type: ["string", "null"]
+        authLost:
+          type: boolean
+          description: Present (true) on approve responses when the apply failed because the platform revoked or expired our access — the connection was marked failed and the client should refetch connections.
         createdAt:
           type: string
           format: date-time

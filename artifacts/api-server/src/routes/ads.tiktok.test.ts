@@ -625,6 +625,7 @@ describe("tiktok approve → apply → verify", () => {
       const res = await request(app).post(`/api/ads/drafts/${draftId}/approve`);
       expect(res.status).toBe(200);
       expect(res.body.status).toBe("failed");
+      expect(res.body.authLost).toBe(true);
 
       const [conn] = await db
         .select()
@@ -637,6 +638,33 @@ describe("tiktok approve → apply → verify", () => {
         .from(adChangeRequestsTable)
         .where(eq(adChangeRequestsTable.id, draftId));
       expect(draft!.status).toBe("failed");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("does not flag authLost when an approve fails for a non-auth reason", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      const draftRes = await createUpdateDraft(tenant.clerkUserId, connectionId);
+      const draftId = draftRes.body.id as number;
+
+      mockUpdate.mockRejectedValue(
+        new TiktokAdsApiError("Rate limited", 429, 40100, false),
+      );
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post(`/api/ads/drafts/${draftId}/approve`);
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("failed");
+      expect(res.body.authLost).toBeUndefined();
+
+      const [conn] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(conn!.verifyStatus).toBe("verified");
     } finally {
       await deleteTenant(tenant.tenantId);
     }

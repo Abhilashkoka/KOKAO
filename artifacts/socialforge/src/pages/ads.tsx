@@ -2803,7 +2803,7 @@ export function TargetingDraftDialog({
 
   const activeFacet = TARGETING_FACETS.find((f) => f.key === facet)!;
   const trimmed = query.trim();
-  const { data: searchData, isFetching } = useSearchLinkedinTargeting(
+  const { data: searchData, isFetching, error: searchError } = useSearchLinkedinTargeting(
     { connectionId, facet, q: trimmed },
     {
       query: {
@@ -2812,6 +2812,7 @@ export function TargetingDraftDialog({
       },
     },
   );
+  useRefreshConnectionsOnAuthLoss(searchError);
 
   const addEntity = (loc: AdsTargetingLocation) => {
     setSelected((prev) =>
@@ -3035,6 +3036,13 @@ export function DraftsSection({
                 "The target changed on the ad platform since this draft was created.",
             });
           } else {
+            // A revoked/expired grant marks the connection failed server-side;
+            // refetch connections so the Reconnect prompt appears immediately.
+            if (res.authLost) {
+              queryClient.invalidateQueries({
+                queryKey: getListAdConnectionsQueryKey(),
+              });
+            }
             toast({
               variant: "destructive",
               title: "Change failed",

@@ -1033,7 +1033,7 @@ async function recordChangeLog(
 
 export type ApplyResult =
   | { kind: "applied"; draft: AdChangeRequest }
-  | { kind: "failed"; draft: AdChangeRequest }
+  | { kind: "failed"; draft: AdChangeRequest; authLost?: boolean }
   | { kind: "expired"; draft: AdChangeRequest }
   | { kind: "conflict" }
   | { kind: "not_found" }
@@ -1188,10 +1188,11 @@ export async function approveAndApplyDraft(
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "The ad platform rejected the change.";
-      if (isAdsAuthError(err)) {
+      const authLost = isAdsAuthError(err);
+      if (authLost) {
         await markAdConnectionAuthFailed(conn, message);
       }
-      return await finishFailed(claimed, message, approver);
+      return await finishFailed(claimed, message, approver, { authLost });
     }
   } finally {
     release();
@@ -1319,6 +1320,7 @@ async function finishFailed(
   draft: AdChangeRequest,
   reason: string,
   approver: { clerkUserId: string; email: string | null },
+  opts?: { authLost?: boolean },
 ): Promise<ApplyResult> {
   const updated = (
     await db
@@ -1335,7 +1337,7 @@ async function finishFailed(
     approvedByEmail: approver.email,
   });
   await notifyAdsChangeFailed(draft.tenantId, draft.targetName, draft.platform, reason);
-  return { kind: "failed", draft: updated };
+  return { kind: "failed", draft: updated, ...(opts?.authLost ? { authLost: true } : {}) };
 }
 
 // Re-export for routes that need the campaign read for draft creation.

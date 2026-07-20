@@ -1286,6 +1286,55 @@ describe("LinkedIn location targeting", () => {
     }
   });
 
+  it("flags authLost and marks the connection failed when geo search hits a dead grant", async () => {
+    const tenant = await createTenant();
+    try {
+      // No refresh token stored → an auth failure is definitive.
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      mockGeoSearch.mockRejectedValue(
+        new LinkedinAdsApiError("Token revoked", 401, true),
+      );
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .get("/api/ads/linkedin/geo-search")
+        .query({ connectionId, q: "ind" });
+      expect(res.status).toBe(502);
+      expect(res.body.authLost).toBe(true);
+
+      const [conn] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(conn!.verifyStatus).toBe("failed");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("does not flag authLost when geo search fails for a non-auth reason", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      mockGeoSearch.mockRejectedValue(
+        new LinkedinAdsApiError("LinkedIn is down", 500, false),
+      );
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .get("/api/ads/linkedin/geo-search")
+        .query({ connectionId, q: "ind" });
+      expect(res.status).toBe(502);
+      expect(res.body.authLost).toBeUndefined();
+
+      const [conn] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(conn!.verifyStatus).toBe("verified");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("drafts and applies a targeting change with valid geo URNs", async () => {
     const tenant = await createTenant();
     try {
@@ -1375,6 +1424,30 @@ describe("LinkedIn facet targeting (industries, job functions, titles)", () => {
         .get("/api/ads/linkedin/targeting-search")
         .query({ connectionId, facet: "industries", q: "s" });
       expect(shortQ.status).toBe(400);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("flags authLost and marks the connection failed when targeting search hits a dead grant", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      mockTargetingSearch.mockRejectedValue(
+        new LinkedinAdsApiError("Token revoked", 401, true),
+      );
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .get("/api/ads/linkedin/targeting-search")
+        .query({ connectionId, facet: "industries", q: "soft" });
+      expect(res.status).toBe(502);
+      expect(res.body.authLost).toBe(true);
+
+      const [conn] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(conn!.verifyStatus).toBe("failed");
     } finally {
       await deleteTenant(tenant.tenantId);
     }
