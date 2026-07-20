@@ -37,6 +37,9 @@ const DEFAULT_STATE = {
     schedule_start_time: "2026-07-01 00:00:00",
     schedule_end_time: "",
   },
+  // Campaigns created via /campaign/create/ land here so read-back verify works.
+  createdCampaigns: [],
+  nextCampaignId: 7100000000000000099n.toString(),
 };
 
 let log = [];
@@ -138,7 +141,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (path === "/campaign/get/") {
-    return ok({ list: [state.campaign] });
+    const all = [state.campaign, ...(state.createdCampaigns ?? [])];
+    let filterIds = null;
+    try {
+      const f = JSON.parse(url.searchParams.get("filtering") || "null");
+      if (f && Array.isArray(f.campaign_ids)) filterIds = f.campaign_ids.map(String);
+    } catch {}
+    const list = filterIds ? all.filter((c) => filterIds.includes(c.campaign_id)) : all;
+    return ok({ list });
   }
   if (path === "/adgroup/get/") {
     return ok({ list: [state.adgroup] });
@@ -215,7 +225,22 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (path === "/campaign/create/") {
-    return ok({ campaign_id: "7100000000000000099" });
+    const id = String(state.nextCampaignId ?? "7100000000000000099");
+    state.nextCampaignId = (BigInt(id) + 1n).toString();
+    const operation = body.operation_status === "ENABLE" ? "ENABLE" : "DISABLE";
+    const campaign = {
+      campaign_id: id,
+      campaign_name: String(body.campaign_name ?? "Untitled"),
+      operation_status: operation,
+      secondary_status:
+        operation === "ENABLE" ? "CAMPAIGN_STATUS_ENABLE" : "CAMPAIGN_STATUS_DISABLE",
+      objective_type: String(body.objective_type ?? "TRAFFIC"),
+      budget: body.budget != null ? Number(body.budget) : null,
+      budget_mode: String(body.budget_mode ?? "BUDGET_MODE_INFINITE"),
+    };
+    state.createdCampaigns = [...(state.createdCampaigns ?? []), campaign];
+    saveState();
+    return ok({ campaign_id: id });
   }
 
   record({ method: req.method, path, kind: "unknown" });
