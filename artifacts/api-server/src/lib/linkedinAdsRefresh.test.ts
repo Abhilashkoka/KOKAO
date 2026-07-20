@@ -321,6 +321,71 @@ describe("maybeRefreshLinkedinAdsToken", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it("coalesces two parallel refresh calls into a single token exchange", async () => {
+    const conn = await insertConnection({
+      accessToken: "old-token",
+      expiresAt: Date.now() + DAY,
+      refreshToken: "old-refresh",
+      refreshTokenExpiresAt: Date.now() + 300 * DAY,
+    });
+    // Hold the token exchange open until both callers are in flight, so the
+    // race window is guaranteed.
+    let releaseExchange!: () => void;
+    const gate = new Promise<void>((resolve) => (releaseExchange = resolve));
+    mockFetch.mockImplementation(async () => {
+      await gate;
+      return jsonResponse(200, {
+        access_token: "new-token",
+        expires_in: 5184000,
+        refresh_token: "rotated-refresh",
+        refresh_token_expires_in: 365 * 24 * 60 * 60,
+      });
+    });
+
+    const p1 = maybeRefreshLinkedinAdsToken(conn);
+    const p2 = maybeRefreshLinkedinAdsToken(conn);
+    // Give both calls a chance to reach the exchange before releasing it.
+    await new Promise((r) => setTimeout(r, 20));
+    releaseExchange();
+    const [r1, r2] = await Promise.all([p1, p2]);
+
+    // Exactly one exchange ran; both callers got the refreshed row.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(readCreds(r1).accessToken).toBe("new-token");
+    expect(readCreds(r2).accessToken).toBe("new-token");
+    expect(readCreds(await readConnection(conn.id)).refreshToken).toBe(
+      "rotated-refresh",
+    );
+  });
+
+  it("skips the exchange when a caller holds a stale snapshot after another refresh landed", async () => {
+    const conn = await insertConnection({
+      accessToken: "old-token",
+      expiresAt: Date.now() + DAY,
+      refreshToken: "old-refresh",
+      refreshTokenExpiresAt: Date.now() + 300 * DAY,
+    });
+    mockFetch.mockResolvedValue(
+      jsonResponse(200, {
+        access_token: "new-token",
+        expires_in: 5184000,
+        refresh_token: "rotated-refresh",
+        refresh_token_expires_in: 365 * 24 * 60 * 60,
+      }),
+    );
+
+    // First refresh lands and rotates the refresh token.
+    await maybeRefreshLinkedinAdsToken(conn);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    // A second caller still holding the PRE-refresh snapshot must not run a
+    // second exchange (which would use the dead pre-rotation refresh token).
+    const result = await maybeRefreshLinkedinAdsToken(conn);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(readCreds(result).accessToken).toBe("new-token");
+    expect(readCreds(result).refreshToken).toBe("rotated-refresh");
+  });
+
   it("is a no-op when the token is not yet due", async () => {
     const conn = await insertConnection({
       accessToken: "fresh",

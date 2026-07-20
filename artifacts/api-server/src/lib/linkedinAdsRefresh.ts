@@ -74,8 +74,25 @@ function refreshTokenExpired(
 }
 
 /**
+ * In-process serialization of refresh attempts per connection id. LinkedIn
+ * may ROTATE the refresh token on each exchange; if two refreshes race (e.g.
+ * sweep + a user request), the loser could persist the stale pre-rotation
+ * token and later force an unnecessary reconnect. The API server runs as a
+ * single process (same assumption as resendLock), so concurrent callers for
+ * the same connection share one in-flight promise: exactly one token
+ * exchange runs and every caller gets its result. The winner also re-reads
+ * the row from the DB before exchanging, so a caller holding a stale
+ * snapshot (taken before another refresh landed) sees the fresh credentials
+ * and skips the exchange entirely.
+ */
+const inflightRefreshes = new Map<number, Promise<AdAccountConnection>>();
+
+/**
  * Refresh the connection's LinkedIn access token if it is due. Returns the
  * (possibly updated) connection row. Never throws.
+ *
+ * Concurrent calls for the same connection are coalesced into a single token
+ * exchange (see inflightRefreshes above).
  *
  * Outcomes:
  * - Not LinkedIn / no refresh token / not yet due → row returned unchanged.
@@ -92,6 +109,51 @@ export async function maybeRefreshLinkedinAdsToken(
   conn: AdAccountConnection,
 ): Promise<AdAccountConnection> {
   if (!linkedinAdsRefreshDue(conn)) return conn;
+
+  const existing = inflightRefreshes.get(conn.id);
+  if (existing) return existing;
+
+  const run = (async () => {
+    try {
+      return await refreshSerialized(conn);
+    } finally {
+      inflightRefreshes.delete(conn.id);
+    }
+  })();
+  inflightRefreshes.set(conn.id, run);
+  return run;
+}
+
+/** The serialized body of maybeRefreshLinkedinAdsToken; runs at most once
+ * concurrently per connection id. Re-reads the row first so a stale caller
+ * snapshot never triggers a duplicate token exchange. */
+async function refreshSerialized(
+  snapshot: AdAccountConnection,
+): Promise<AdAccountConnection> {
+  let conn = snapshot;
+  try {
+    const fresh = (
+      await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(
+          and(
+            eq(adAccountConnectionsTable.id, snapshot.id),
+            eq(adAccountConnectionsTable.tenantId, snapshot.tenantId),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (!fresh) return snapshot; // Row deleted meanwhile.
+    conn = fresh;
+  } catch (err) {
+    logger.warn(
+      { err, connectionId: snapshot.id, tenantId: snapshot.tenantId },
+      "LinkedIn ads refresh pre-read failed; using caller snapshot",
+    );
+  }
+
+  if (!linkedinAdsRefreshDue(conn)) return conn; // Another refresh already landed.
   const creds = decryptCreds(conn);
   if (!creds?.refreshToken) return conn;
 
