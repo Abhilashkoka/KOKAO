@@ -21,6 +21,7 @@ import {
 import type { EmailPolicy } from "./notificationCatalog";
 import { isSuperadminEmail } from "./superadmins";
 import { sendTenantPush } from "./push";
+import type { SweepFailure } from "@workspace/db";
 
 export const SOCIAL_CONNECTION_FAILED = "social_connection_failed";
 export const PUBLISH_INTERRUPTED = "publish_interrupted";
@@ -1409,6 +1410,60 @@ export async function notifySweepHistoryTrimmed(
 
 export const SWEEP_FAIL_RATIO = "sweep_fail_ratio";
 
+/** How many individual failing connections the mass-outage message lists
+ * before collapsing the rest into "+N more". */
+const SWEEP_FAIL_RATIO_LIST_CAP = 8;
+
+/**
+ * Turn a sweep run's recorded failures into a human-readable suffix for the
+ * mass-outage alert: a per-platform tally plus up to a handful of the
+ * affected workspaces (identified by cached tenant email when available,
+ * falling back to the workspace id). Best-effort — any lookup error returns
+ * an empty string so the alert itself is never blocked. Note the failure
+ * list is capped upstream, so it may not cover every failing check.
+ */
+async function describeSweepFailures(
+  failures: SweepFailure[],
+): Promise<string> {
+  try {
+    if (failures.length === 0) return "";
+
+    const platformCounts = new Map<string, number>();
+    for (const f of failures) {
+      platformCounts.set(f.platform, (platformCounts.get(f.platform) ?? 0) + 1);
+    }
+    const platformSummary = [...platformCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([platform, count]) => `${platform} (${count})`)
+      .join(", ");
+
+    const tenantIds = [...new Set(failures.map((f) => f.tenantId))];
+    const tenants = await db
+      .select({ id: tenantsTable.id, email: tenantsTable.email })
+      .from(tenantsTable)
+      .where(inArray(tenantsTable.id, tenantIds));
+    const emailById = new Map(tenants.map((t) => [t.id, t.email]));
+
+    const listed = failures
+      .slice(0, SWEEP_FAIL_RATIO_LIST_CAP)
+      .map((f) => {
+        const who = emailById.get(f.tenantId) || `workspace #${f.tenantId}`;
+        return `${who} — ${f.platform}`;
+      })
+      .join("; ");
+    const extra = failures.length - SWEEP_FAIL_RATIO_LIST_CAP;
+    const more = extra > 0 ? `; +${extra} more` : "";
+
+    return (
+      ` Failing platforms: ${platformSummary}.` +
+      ` Disconnected: ${listed}${more}.`
+    );
+  } catch (err) {
+    logger.error({ err }, "Failed to build sweep failure breakdown");
+    return "";
+  }
+}
+
 /**
  * Alert every superadmin that a completed sweep run's failure ratio
  * (errorCount / accountsChecked) crossed the mass-outage threshold. Unlike
@@ -1429,6 +1484,7 @@ export async function notifySweepFailRatio(
   errorCount: number,
   accountsChecked: number,
   thresholdPercent: number,
+  failures: SweepFailure[] = [],
 ): Promise<void> {
   try {
     const candidates = await db
@@ -1457,7 +1513,8 @@ export async function notifySweepFailRatio(
       `${accountsChecked} connection checks fail (${percent}%), above the ` +
       `${thresholdPercent}% mass-outage threshold. This usually means a ` +
       `platform-wide outage is breaking many workspaces' connections at ` +
-      `once — review the admin dashboard now.`;
+      `once — review the admin dashboard now.` +
+      (await describeSweepFailures(failures));
 
     for (const recipient of recipients) {
       try {

@@ -1271,6 +1271,51 @@ describe("sweep failure-ratio alerts", () => {
     }
   });
 
+  it("lists which connections are failing in the alert message", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const broken = await createTenant();
+    try {
+      const outcome = {
+        ...ratioOutcome(20, 15),
+        recentFailures: [
+          {
+            tenantId: broken.tenantId,
+            platform: "facebook",
+            error: "boom",
+            at: new Date().toISOString(),
+          },
+          {
+            tenantId: broken.tenantId,
+            platform: "linkedin",
+            error: "boom",
+            at: new Date().toISOString(),
+          },
+          {
+            tenantId: 999999999,
+            platform: "facebook",
+            error: "boom",
+            at: new Date().toISOString(),
+          },
+        ],
+      };
+      await recordSweepRun(new Date(), 500, outcome);
+      const adminNotifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_fail_ratio" && n.readAt === null,
+      );
+      expect(adminNotifs).toHaveLength(1);
+      const message = adminNotifs[0]!.message;
+      // Per-platform tally, most-affected first.
+      expect(message).toContain("Failing platforms: facebook (2), linkedin (1)");
+      // Affected workspaces are listed; unknown tenants fall back to the id.
+      expect(message).toContain("Disconnected:");
+      expect(message).toContain("linkedin");
+      expect(message).toContain("workspace #999999999 — facebook");
+    } finally {
+      await deleteTenant(admin.tenantId);
+      await deleteTenant(broken.tenantId);
+    }
+  });
+
   it("never alerts when a high ratio comes from too few checks", async () => {
     const admin = await createTenant({ isSuperadmin: true });
     try {

@@ -486,6 +486,7 @@ export async function recordSweepRun(
         outcome.errorCount,
         outcome.accountsChecked,
         Math.round(SWEEP_FAIL_RATIO_ALERT_THRESHOLD * 100),
+        outcome.recentFailures,
       );
     } else {
       await resolveSweepFailRatioNotifications();
