@@ -281,6 +281,17 @@ function minorStrToMajorStr(v: string): string {
   return Number.isFinite(n) ? String(n / 100) : "";
 }
 
+/**
+ * Human label for a draft/log target type, platform-aware: Meta calls the
+ * mid-level object an "ad set", TikTok and Google call it an "ad group".
+ */
+function targetTypeLabel(platform: string, targetType: string): string {
+  if (targetType === "adset") {
+    return platform === "meta" ? "ad set" : "ad group";
+  }
+  return targetType.replace("_", " ");
+}
+
 const BID_STRATEGY_LABELS: Record<string, string> = {
   LOWEST_COST_WITHOUT_CAP: "Lowest cost",
   LOWEST_COST_WITH_BID_CAP: "Bid cap",
@@ -2465,14 +2476,7 @@ export function DraftDialog({
 
   const isCreate = state.action === "create";
   const isGroupCreate = state.targetType === "campaign_group";
-  const targetLabel =
-    state.targetType === "adset"
-      ? "ad set"
-      : state.targetType === "ad"
-        ? "ad"
-        : isGroupCreate
-          ? "campaign group"
-          : "campaign";
+  const targetLabel = targetTypeLabel(platform, state.targetType);
   const showBudgets =
     state.targetType === "campaign" || isGroupCreate || state.targetType === "adset";
   const showDailyBudget = showBudgets && !isGroupCreate;
@@ -3570,7 +3574,7 @@ export function DraftsSection({
                 >
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div className="font-medium">
-                      {d.action === "create" ? "Create" : "Update"} {d.targetType.replace("_", " ")}:{" "}
+                      {d.action === "create" ? "Create" : "Update"} {targetTypeLabel(d.platform, d.targetType)}:{" "}
                       {d.targetName}
                     </div>
                     {draftStatusBadge(d.status)}
@@ -3623,7 +3627,7 @@ export function DraftsSection({
               >
                 <div className="min-w-0">
                   <div className="font-medium truncate">
-                    {d.action === "create" ? "Create" : "Update"} {d.targetType.replace("_", " ")}:{" "}
+                    {d.action === "create" ? "Create" : "Update"} {targetTypeLabel(d.platform, d.targetType)}:{" "}
                     {d.targetName}
                   </div>
                   {d.failureReason && (
@@ -3676,7 +3680,8 @@ function ApproveConfirmDialog({
         <DialogHeader>
           <DialogTitle>Apply this change to your ad account?</DialogTitle>
           <DialogDescription>
-            This will {draft.action === "create" ? "create" : "modify"}{" "}
+            This will {draft.action === "create" ? "create" : "modify"} the{" "}
+            {targetTypeLabel(draft.platform, draft.targetType)}{" "}
             "{draft.targetName}" on{" "}
             {draft.platform === "meta" ? "Meta" : draft.platform}. The change is
             verified after it is applied and recorded in the change history.
@@ -3792,7 +3797,7 @@ function ChangeLogSection() {
               >
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="font-medium">
-                    {e.action === "create" ? "Created" : "Updated"} {e.targetType.replace("_", " ")}:{" "}
+                    {e.action === "create" ? "Created" : "Updated"} {targetTypeLabel(e.platform, e.targetType)}:{" "}
                     {e.targetName}
                   </div>
                   <div className="flex gap-2">
