@@ -93,3 +93,6 @@ channel = "stable-25_05"
 SUPERADMIN_EMAILS = "abhilash.koka1@gmail.com"
 
 [userenv.development]
+
+[objectStorage]
+defaultBucketID = "replit-objstore-5de15f91-0c92-4897-8b45-5045a61ac615"
