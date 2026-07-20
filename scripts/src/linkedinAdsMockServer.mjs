@@ -57,6 +57,38 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify(obj));
   };
 
+  // Targeting typeahead (facet-scoped)
+  if (req.method === "GET" && path === "adTargetingEntities") {
+    const facetUrn = url.searchParams.get("facet") || "";
+    const q = (url.searchParams.get("query") || "").toLowerCase();
+    record({ method: "GET", path, kind: "targeting_typeahead", facet: facetUrn, query: q });
+    const catalog = {
+      "urn:li:adTargetingFacet:locations": [
+        { urn: "urn:li:geo:103644278", name: "United States" },
+        { urn: "urn:li:geo:101174742", name: "Canada" },
+        { urn: "urn:li:geo:102713980", name: "India" },
+      ],
+      "urn:li:adTargetingFacet:industries": [
+        { urn: "urn:li:industry:4", name: "Computer Software" },
+        { urn: "urn:li:industry:6", name: "Internet" },
+        { urn: "urn:li:industry:43", name: "Financial Services" },
+      ],
+      "urn:li:adTargetingFacet:jobFunctions": [
+        { urn: "urn:li:function:13", name: "Information Technology" },
+        { urn: "urn:li:function:15", name: "Marketing" },
+      ],
+      "urn:li:adTargetingFacet:titles": [
+        { urn: "urn:li:title:9580", name: "Software Engineer" },
+        { urn: "urn:li:title:340", name: "Marketing Manager" },
+        { urn: "urn:li:title:100", name: "Product Manager" },
+      ],
+    };
+    const els = (catalog[facetUrn] || []).filter((e) =>
+      e.name.toLowerCase().includes(q),
+    );
+    return send({ elements: els });
+  }
+
   // Analytics
   if (req.method === "GET" && path === "adAnalytics") {
     record({ method: "GET", path, kind: "analytics" });
