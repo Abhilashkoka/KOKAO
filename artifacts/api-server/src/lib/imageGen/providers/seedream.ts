@@ -63,6 +63,12 @@ export async function generateWithSeedream(
       response_format: "b64_json",
       n: 1,
       watermark: false,
+      // Image-to-image: Seedream accepts a data-URI reference image.
+      ...(input.referenceImage
+        ? {
+            image: `data:${input.referenceImage.mimeType};base64,${input.referenceImage.buffer.toString("base64")}`,
+          }
+        : {}),
     }),
   });
   if (!res.ok) {

@@ -19,6 +19,7 @@ import {
   useGetInstagramCredentials,
   useGetLinkedinStatus,
   useGetTwitterStatus,
+  useRequestUploadUrl,
   getListContentQueryKey,
   getGetMeQueryKey,
   type BrandKit,
@@ -35,12 +36,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useToast } from "@/hooks/use-toast";
-import { Wand2, Image as ImageIcon, Save, Loader2, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon } from "lucide-react";
+import { Wand2, Image as ImageIcon, Save, Loader2, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
 import { CampaignPostCard, type GeneratedImage } from "@/components/campaign-post-card";
 import { VoiceNoteButton } from "@/components/voice-note-button";
 import { track, trackFeatureUse } from "@/lib/analytics";
+import { useFeatureFlags } from "@/lib/features";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -172,6 +174,69 @@ export function StudioPage() {
   ]);
 
   const { data: brandKits } = useListBrandKits();
+  const { flags } = useFeatureFlags();
+
+  // Reference image (optional, kill-switch gated): uploaded to object storage
+  // up front; its path rides along with the generate-image request.
+  const requestUploadUrl = useRequestUploadUrl();
+  const referenceFileRef = useRef<HTMLInputElement>(null);
+  const [referenceImagePath, setReferenceImagePath] = useState<string | null>(null);
+  const [referencePreview, setReferencePreview] = useState<string | null>(null);
+  const [referenceUploading, setReferenceUploading] = useState(false);
+
+  const clearReferenceImage = () => {
+    setReferenceImagePath(null);
+    setReferencePreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    if (referenceFileRef.current) referenceFileRef.current.value = "";
+  };
+
+  const handleReferenceUpload = async (file: File) => {
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      toast({
+        title: "Not a supported image",
+        description: "Please pick a PNG, JPEG, or WebP image.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        title: "Image too large",
+        description: "Reference images must be under 10 MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setReferenceUploading(true);
+    try {
+      const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
+        data: { name: file.name, size: file.size, contentType: file.type },
+      });
+      const put = await fetch(uploadURL, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type },
+      });
+      if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+      setReferencePreview((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return URL.createObjectURL(file);
+      });
+      setReferenceImagePath(objectPath);
+      toast({ title: "Reference image added", description: "It will guide your next image generation." });
+    } catch {
+      toast({
+        title: "Upload failed",
+        description: "Could not upload the reference image. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setReferenceUploading(false);
+    }
+  };
 
   const { data: fbStatus, isLoading: fbLoading } = useGetFacebookCredentials();
   const { data: igStatus, isLoading: igLoading } = useGetInstagramCredentials();
@@ -419,7 +484,15 @@ export function StudioPage() {
       ? ` ${IMAGE_TWEAKS.find((t) => t.label === tweak)?.instruction ?? tweak}`
       : "";
     generateImage.mutate(
-      { data: { prompt: `${data.prompt.trim()}${tweakInstruction}`, size: data.size as any, brandKitId: data.brandKitId || undefined } },
+      {
+        data: {
+          prompt: `${data.prompt.trim()}${tweakInstruction}`,
+          size: data.size as any,
+          brandKitId: data.brandKitId || undefined,
+          referenceImagePath:
+            flags.referenceImages && referenceImagePath ? referenceImagePath : undefined,
+        },
+      },
       {
         onSuccess: (res) => {
           setCampaignPosts(null);
@@ -974,6 +1047,66 @@ export function StudioPage() {
                       )}
                     />
                   </div>
+
+                  {flags.referenceImages && (
+                    <div className="rounded-lg border border-border p-3 space-y-2">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <ImageIcon className="h-4 w-4" /> Reference image (optional)
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Upload an image whose style, colors, and mood the generated image should
+                        follow.
+                      </p>
+                      <input
+                        ref={referenceFileRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) void handleReferenceUpload(file);
+                        }}
+                        data-testid="input-reference-image"
+                      />
+                      {referenceImagePath && referencePreview ? (
+                        <div className="flex items-center gap-3" data-testid="reference-image-preview">
+                          <img
+                            src={referencePreview}
+                            alt="Reference"
+                            className="h-14 w-14 rounded-md border border-border object-cover"
+                          />
+                          <div className="flex-1 text-xs text-muted-foreground">
+                            This image will guide your next generation.
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={clearReferenceImage}
+                            data-testid="button-remove-reference-image"
+                          >
+                            <X className="h-4 w-4 mr-1" /> Remove
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          disabled={referenceUploading}
+                          onClick={() => referenceFileRef.current?.click()}
+                          data-testid="button-upload-reference-image"
+                        >
+                          {referenceUploading ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : (
+                            <Upload className="h-4 w-4 mr-2" />
+                          )}
+                          Upload reference image
+                        </Button>
+                      )}
+                    </div>
+                  )}
 
                   <div className="rounded-lg border border-border p-3 space-y-2">
                     <div className="flex items-center gap-2 text-sm font-medium">

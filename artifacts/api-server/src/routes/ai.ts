@@ -22,6 +22,12 @@ import { getUsage, recordUsage, type UsageMeta } from "../lib/usage";
 import { spendCredit, refundCredits, type CreditKind } from "../lib/credits";
 import { loadActivePayload } from "../lib/brandKit/service";
 import { isDesignSkillEnabledFor, buildDesignedImagePrompt } from "../lib/designSkill";
+import {
+  loadReferenceImage,
+  buildReferenceGuide,
+  ReferenceImageError,
+} from "../lib/referenceGuide";
+import { isFeatureEnabled } from "../lib/featureFlags";
 import { buildTasteGuidance } from "../lib/tasteMemory";
 import multer from "multer";
 import {
@@ -244,6 +250,31 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
     return;
   }
 
+  // Reference image (optional): kill-switch gated, tenant-scope asserted, and
+  // loaded BEFORE any funding is reserved so a bad upload never burns quota.
+  const referenceImagePath = parsed.data.referenceImagePath ?? null;
+  let referenceImage = null;
+  if (referenceImagePath) {
+    if (!(await isFeatureEnabled("referenceImages"))) {
+      res.status(403).json({
+        error: "Reference images are currently disabled by the administrator.",
+        code: "feature_disabled",
+      });
+      return;
+    }
+    try {
+      referenceImage = await loadReferenceImage(referenceImagePath, req.tenantId);
+    } catch (error) {
+      if (error instanceof ReferenceImageError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      req.log.error({ err: error }, "Failed to load reference image");
+      res.status(500).json({ error: "Failed to load the reference image" });
+      return;
+    }
+  }
+
   const limits = await getPlanLimits(tenant.plan);
   const usage = await getUsage(req.tenantId);
   const imageFunding = await reserveFunding(
@@ -297,9 +328,29 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
     }
   }
 
+  // Reference guide: a vision pass distills the uploaded image into a short
+  // style guide appended AFTER the design skill so it always survives prompt
+  // rewriting. Fails soft (null) — the raw image still reaches providers that
+  // support image input.
+  if (referenceImage) {
+    const guide = await buildReferenceGuide({
+      model: tenant.aiModel,
+      image: referenceImage,
+    });
+    if (guide) {
+      prompt += ` Match the style of the user's reference image: ${guide}`;
+    } else {
+      prompt += " Match the overall style, palette, and mood of the user's reference image.";
+    }
+  }
+
   const startedAt = Date.now();
   try {
-    const { buffer, model: imageModel } = await generateImage(prompt, size);
+    const { buffer, model: imageModel } = await generateImage(
+      prompt,
+      size,
+      referenceImage ?? undefined,
+    );
 
     const uploadURL = await objectStorageService.getObjectEntityUploadURL(req.tenantId);
     const putRes = await fetch(uploadURL, {

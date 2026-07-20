@@ -7779,6 +7779,13 @@ components:
         platform:
           type: ["string", "null"]
           description: Target platform, for per-platform data metering
+        referenceImagePath:
+          type: ["string", "null"]
+          description: >-
+            Optional object-storage path (/objects/<tenantId>/uploads/<uuid>) of a
+            tenant-uploaded reference image to guide the generation. The server
+            analyzes it into a style guide and, when the selected provider supports
+            image input, also passes the image itself.
     ImageResult:
       type: object
       required: [imagePath, b64Json]
@@ -9171,6 +9178,7 @@ components:
           team,
           billing,
           pushNotifications,
+          referenceImages,
         ]
       properties:
         aiStudio:
@@ -9190,6 +9198,8 @@ components:
         billing:
           type: boolean
         pushNotifications:
+          type: boolean
+        referenceImages:
           type: boolean
     AdminFeatureFlag:
       type: object

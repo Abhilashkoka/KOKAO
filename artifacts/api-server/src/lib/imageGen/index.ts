@@ -8,10 +8,10 @@ import { generateWithReplicate, REPLICATE_MODEL } from "./providers/replicate";
 import { generateWithOpenAICompatible } from "./providers/openaiCompatible";
 import { generateWithBfl, BFL_MODEL } from "./providers/bfl";
 import { generateWithSeedream, SEEDREAM_MODEL } from "./providers/seedream";
-import type { ImageGenInput, ImageGenResult, ImageSize } from "./types";
+import type { ImageGenInput, ImageGenResult, ImageSize, ReferenceImage } from "./types";
 
 export { ImageGenNotConfiguredError, ImageGenProviderError } from "./types";
-export type { ImageGenInput, ImageGenResult, ImageSize } from "./types";
+export type { ImageGenInput, ImageGenResult, ImageSize, ReferenceImage } from "./types";
 
 export const DEFAULT_IMAGE_GEN_PROVIDER = "openai";
 
@@ -27,6 +27,9 @@ export interface ImageGenProviderDef {
   requiresBaseUrl: boolean;
   /** Suggested model choices shown in the admin UI (free text still allowed). */
   modelOptions?: readonly { value: string; label: string }[];
+  /** Whether this provider accepts a reference image (image-to-image). When
+   * false, reference guidance reaches the provider as prompt text only. */
+  supportsImageInput: boolean;
   generate: (input: ImageGenInput, apiKey: string | null) => Promise<ImageGenResult>;
 }
 
@@ -39,6 +42,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     envKey: null,
     supportsModelOverride: false,
     requiresBaseUrl: false,
+    supportsImageInput: true,
     generate: generateWithOpenAIBuiltin,
   },
   {
@@ -52,6 +56,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
       { value: GEMINI_IMAGE_MODEL, label: "Nano Banana (gemini-2.5-flash-image)" },
       { value: "gemini-3-pro-image-preview", label: "Nano Banana Pro (gemini-3-pro-image-preview)" },
     ],
+    supportsImageInput: true,
     generate: generateWithGemini,
   },
   {
@@ -68,6 +73,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
       { value: "flux-pro-1.1-ultra", label: "FLUX 1.1 Pro Ultra (flux-pro-1.1-ultra)" },
       { value: "flux-dev", label: "FLUX Dev (flux-dev)" },
     ],
+    supportsImageInput: false,
     generate: generateWithBfl,
   },
   {
@@ -83,6 +89,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
       { value: "seedream-4-5-251128", label: "Seedream 4.5 (seedream-4-5-251128)" },
       { value: "seedream-4-0", label: "Seedream 4.0 (seedream-4-0)" },
     ],
+    supportsImageInput: true,
     generate: generateWithSeedream,
   },
   {
@@ -92,6 +99,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     envKey: "STABILITY_API_KEY",
     supportsModelOverride: true,
     requiresBaseUrl: false,
+    supportsImageInput: false,
     generate: generateWithStability,
   },
   {
@@ -101,6 +109,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     envKey: "REPLICATE_API_TOKEN",
     supportsModelOverride: true,
     requiresBaseUrl: false,
+    supportsImageInput: false,
     generate: generateWithReplicate,
   },
   {
@@ -110,6 +119,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     envKey: "CUSTOM_IMAGE_API_KEY",
     supportsModelOverride: true,
     requiresBaseUrl: true,
+    supportsImageInput: false,
     generate: generateWithOpenAICompatible,
   },
 ] as const;
@@ -226,8 +236,14 @@ export function effectiveModel(def: ImageGenProviderDef, override: string | null
   return def.defaultModel;
 }
 
-/** Generate an image using the currently selected provider. */
-export async function generateImage(prompt: string, size: ImageSize): Promise<ImageGenResult> {
+/** Generate an image using the currently selected provider. The reference
+ * image is only forwarded when that provider supports image input; callers
+ * should bake reference guidance into the prompt text either way. */
+export async function generateImage(
+  prompt: string,
+  size: ImageSize,
+  referenceImage?: ReferenceImage,
+): Promise<ImageGenResult> {
   const selection = await getImageGenSelection();
   const def =
     getImageGenProviderDef(selection.provider) ??
@@ -239,6 +255,7 @@ export async function generateImage(prompt: string, size: ImageSize): Promise<Im
       size,
       model: effectiveModel(def, selection.model),
       baseUrl: def.requiresBaseUrl ? (selection.customBaseUrl ?? undefined) : undefined,
+      referenceImage: def.supportsImageInput ? referenceImage : undefined,
     },
     apiKey,
   );

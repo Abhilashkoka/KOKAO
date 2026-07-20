@@ -59,6 +59,12 @@ export const FEATURES = [
     description:
       "Mobile push notification delivery and device push-token registration.",
   },
+  {
+    id: "referenceImages",
+    label: "Reference Images",
+    description:
+      "Uploading a reference image in AI Studio to guide image generation.",
+  },
 ] as const;
 
 export type FeatureId = (typeof FEATURES)[number]["id"];

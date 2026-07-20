@@ -1,6 +1,14 @@
 /** Supported output sizes (mirrors the /ai/generate-image contract). */
 export type ImageSize = "1024x1024" | "1536x1024" | "1024x1536";
 
+/** A tenant-uploaded reference image passed to providers that support image input. */
+export interface ReferenceImage {
+  /** Raw image bytes. */
+  buffer: Buffer;
+  /** e.g. "image/png" or "image/jpeg". */
+  mimeType: string;
+}
+
 /** Input to an image generation provider. */
 export interface ImageGenInput {
   prompt: string;
@@ -9,6 +17,8 @@ export interface ImageGenInput {
   model: string;
   /** Only set for the OpenAI-compatible "custom" provider. */
   baseUrl?: string;
+  /** Only set when the selected provider supports image input. */
+  referenceImage?: ReferenceImage;
 }
 
 /** Result returned by every provider. */

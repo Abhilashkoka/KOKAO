@@ -34,7 +34,25 @@ export async function generateWithGemini(
       "x-goog-api-key": apiKey,
     },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: input.prompt }] }],
+      contents: [
+        {
+          parts: [
+            // Reference image (image-to-image) goes first so the model treats
+            // it as the visual anchor for the text instruction that follows.
+            ...(input.referenceImage
+              ? [
+                  {
+                    inlineData: {
+                      mimeType: input.referenceImage.mimeType,
+                      data: input.referenceImage.buffer.toString("base64"),
+                    },
+                  },
+                ]
+              : []),
+            { text: input.prompt },
+          ],
+        },
+      ],
       generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
     }),
   });

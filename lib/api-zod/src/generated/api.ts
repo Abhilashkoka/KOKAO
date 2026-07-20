@@ -74,7 +74,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "analytics": zod.boolean(),
   "team": zod.boolean(),
   "billing": zod.boolean(),
-  "pushNotifications": zod.boolean()
+  "pushNotifications": zod.boolean(),
+  "referenceImages": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -4028,7 +4029,8 @@ export const GenerateImageBody = zod.object({
   "size": zod.enum(['1024x1024', '1536x1024', '1024x1536']).optional(),
   "brandKitId": zod.number().nullish(),
   "campaignId": zod.string().nullish().describe('Ties this image\'s data usage to a generated campaign'),
-  "platform": zod.string().nullish().describe('Target platform, for per-platform data metering')
+  "platform": zod.string().nullish().describe('Target platform, for per-platform data metering'),
+  "referenceImagePath": zod.string().nullish().describe('Optional object-storage path (\/objects\/<tenantId>\/uploads\/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.')
 })
 
 export const GenerateImageResponse = zod.object({

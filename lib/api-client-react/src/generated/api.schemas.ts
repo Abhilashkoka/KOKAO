@@ -1949,6 +1949,11 @@ export interface ImageRequest {
      * @nullable
      */
   platform?: string | null;
+  /**
+     * Optional object-storage path (/objects/<tenantId>/uploads/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.
+     * @nullable
+     */
+  referenceImagePath?: string | null;
 }
 
 export interface ImageResult {
@@ -2996,6 +3001,7 @@ export interface FeatureFlags {
   team: boolean;
   billing: boolean;
   pushNotifications: boolean;
+  referenceImages: boolean;
 }
 
 export interface AdminFeatureFlag {
