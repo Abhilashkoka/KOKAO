@@ -49,6 +49,40 @@ const DEFAULT_STATE = {
       },
     },
   },
+  adGroups: {
+    666000001: {
+      id: "666000001",
+      customer: CLIENT_ID,
+      campaignId: "555000001",
+      name: "Morning Pastries",
+      status: "ENABLED",
+      cpcBidMicros: "2500000", // $2.50 default max CPC = 250 minor units
+      metrics: {
+        impressions: "12000",
+        clicks: "640",
+        ctr: 0.053,
+        costMicros: "41000000",
+        conversions: 20,
+      },
+    },
+  },
+  ads: {
+    888000001: {
+      id: "888000001",
+      customer: CLIENT_ID,
+      campaignId: "555000001",
+      adGroupId: "666000001",
+      name: "Fresh Croissants RSA",
+      status: "ENABLED",
+      metrics: {
+        impressions: "9000",
+        clicks: "480",
+        ctr: 0.053,
+        costMicros: "30000000",
+        conversions: 15,
+      },
+    },
+  },
 };
 
 let state;
@@ -250,12 +284,57 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (query.includes("FROM ad_group_ad")) {
-      record({ kind: "search_ads", customerId, headers });
-      return send({ results: [] });
+      const campMatchQ = query.match(/campaign\.id = (\d+)/);
+      const adIdMatch = query.match(/ad_group_ad\.ad\.id = (\d+)/);
+      record({
+        kind: "search_ads",
+        customerId,
+        campaignId: campMatchQ?.[1] ?? null,
+        adId: adIdMatch?.[1] ?? null,
+        headers,
+      });
+      let list = Object.values(state.ads).filter((a) => a.customer === customerId);
+      if (campMatchQ) list = list.filter((a) => a.campaignId === campMatchQ[1]);
+      if (adIdMatch) list = list.filter((a) => a.id === adIdMatch[1]);
+      const withMetrics = query.includes("metrics.");
+      return send({
+        results: list.map((a) => ({
+          adGroupAd: {
+            status: a.status,
+            ad: { id: a.id, name: a.name },
+          },
+          adGroup: { id: a.adGroupId },
+          ...(withMetrics && a.metrics ? { metrics: a.metrics } : {}),
+        })),
+      });
     }
     if (query.includes("FROM ad_group")) {
-      record({ kind: "search_ad_groups", customerId, headers });
-      return send({ results: [] });
+      const campMatchQ = query.match(/campaign\.id = (\d+)/);
+      const groupIdMatch = query.match(/ad_group\.id = (\d+)/);
+      record({
+        kind: "search_ad_groups",
+        customerId,
+        campaignId: campMatchQ?.[1] ?? null,
+        adGroupId: groupIdMatch?.[1] ?? null,
+        headers,
+      });
+      let list = Object.values(state.adGroups).filter(
+        (g) => g.customer === customerId,
+      );
+      if (campMatchQ) list = list.filter((g) => g.campaignId === campMatchQ[1]);
+      if (groupIdMatch) list = list.filter((g) => g.id === groupIdMatch[1]);
+      const withMetrics = query.includes("metrics.");
+      return send({
+        results: list.map((g) => ({
+          adGroup: {
+            id: g.id,
+            name: g.name,
+            status: g.status,
+            cpcBidMicros: g.cpcBidMicros,
+          },
+          ...(withMetrics && g.metrics ? { metrics: g.metrics } : {}),
+        })),
+      });
     }
 
     record({ kind: "search_unknown", customerId, query, headers });
@@ -348,6 +427,76 @@ const server = http.createServer(async (req, res) => {
           }
         }
         record({ kind: "mutate_campaign_update", customerId, id, changed, headers });
+        results.push({ resourceName: op.update.resourceName });
+      }
+    }
+    saveState();
+    return send({ results });
+  }
+
+  // adGroups:mutate
+  const agMatch = url.pathname.match(/\/customers\/(\d+)\/adGroups:mutate$/);
+  if (agMatch && req.method === "POST") {
+    const customerId = agMatch[1];
+    const ops = (JSON.parse(raw).operations ?? []);
+    const results = [];
+    for (const op of ops) {
+      if (op.update) {
+        const id = (op.update.resourceName || "").split("/").pop();
+        const g = state.adGroups[id];
+        if (!g) {
+          return send({ error: { code: 404, message: "Ad group not found" } }, 404);
+        }
+        const changed = {};
+        for (const key of ["name", "status", "cpcBidMicros"]) {
+          if (op.update[key] != null) {
+            g[key] = op.update[key];
+            changed[key] = op.update[key];
+          }
+        }
+        record({
+          kind: "mutate_ad_group_update",
+          customerId,
+          id,
+          updateMask: op.updateMask ?? null,
+          changed,
+          headers,
+        });
+        results.push({ resourceName: op.update.resourceName });
+      }
+    }
+    saveState();
+    return send({ results });
+  }
+
+  // adGroupAds:mutate (resourceName customers/<cid>/adGroupAds/<adGroupId>~<adId>)
+  const agaMatch = url.pathname.match(/\/customers\/(\d+)\/adGroupAds:mutate$/);
+  if (agaMatch && req.method === "POST") {
+    const customerId = agaMatch[1];
+    const ops = (JSON.parse(raw).operations ?? []);
+    const results = [];
+    for (const op of ops) {
+      if (op.update) {
+        const composite = (op.update.resourceName || "").split("/").pop();
+        const [adGroupId, adId] = composite.split("~");
+        const a = state.ads[adId];
+        if (!a || a.adGroupId !== adGroupId) {
+          return send({ error: { code: 404, message: "Ad not found" } }, 404);
+        }
+        const changed = {};
+        if (op.update.status != null) {
+          a.status = op.update.status;
+          changed.status = op.update.status;
+        }
+        record({
+          kind: "mutate_ad_group_ad_update",
+          customerId,
+          adGroupId,
+          adId,
+          updateMask: op.updateMask ?? null,
+          changed,
+          headers,
+        });
         results.push({ resourceName: op.update.resourceName });
       }
     }
