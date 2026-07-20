@@ -15,9 +15,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
  * - Renders all four facets and the search box; results come from the
  *   LinkedIn targeting search hook.
  * - Submits targetType "campaign" / action "update" with targetId set to
- *   the campaign id, and includes ONLY the targeting arrays for facets
- *   that have selections (a present-but-empty array would be interpreted
- *   as "clear this facet" server-side).
+ *   the campaign id. Facets with selections are included; untouched empty
+ *   facets are ABSENT ("leave as is"); a preloaded facet the user emptied is
+ *   sent as an explicit empty array ("clear this facet" server-side) —
+ *   except locations, which LinkedIn requires, so the last preloaded
+ *   location can't be removed.
  */
 
 // Radix dialogs need a few APIs jsdom doesn't implement.
@@ -342,10 +344,126 @@ describe("TargetingDraftDialog current-targeting preload", () => {
       { urn: "urn:li:geo:1", name: "India" },
       { urn: "urn:li:geo:2", name: "Canada" },
     ]);
-    // Cleared facets are ABSENT (untouched semantics preserved server-side).
-    expect("targetingTitles" in payload).toBe(false);
+    // The user emptied the preloaded titles facet, so the draft sends an
+    // EXPLICIT empty array (the server treats it as "clear this facet").
+    expect(payload.targetingTitles).toEqual([]);
+    // Facets that were empty to begin with and untouched stay ABSENT.
     expect("targetingIndustries" in payload).toBe(false);
     expect("targetingJobFunctions" in payload).toBe(false);
+  });
+
+  it("untouched preloaded facets are submitted as-is, not as clears", () => {
+    mockState.currentTargeting = {
+      locations: [{ urn: "urn:li:geo:1", name: "India" }],
+      industries: [{ urn: "urn:li:industry:4", name: "Software Development" }],
+      jobFunctions: [],
+      titles: [],
+    };
+    renderTargetingDialog();
+    // Only add a title; don't touch locations or industries.
+    fireEvent.click(screen.getByTestId("button-facet-titles"));
+    mockState.searchResults = [{ urn: "urn:li:title:9", name: "Product Manager" }];
+    fireEvent.change(screen.getByTestId("input-targeting-search"), {
+      target: { value: "Pro" },
+    });
+    fireEvent.click(screen.getByTestId("button-targeting-result-urn:li:title:9"));
+    fireEvent.click(screen.getByTestId("button-submit-targeting-draft"));
+
+    const payload = submittedPayload();
+    expect(payload.targetingLocations).toEqual([
+      { urn: "urn:li:geo:1", name: "India" },
+    ]);
+    expect(payload.targetingIndustries).toEqual([
+      { urn: "urn:li:industry:4", name: "Software Development" },
+    ]);
+    expect(payload.targetingTitles).toEqual([
+      { urn: "urn:li:title:9", name: "Product Manager" },
+    ]);
+    expect("targetingJobFunctions" in payload).toBe(false);
+  });
+
+  it("re-adding entities to a cleared facet sends the new selection, not a clear", () => {
+    mockState.currentTargeting = {
+      locations: [{ urn: "urn:li:geo:1", name: "India" }],
+      industries: [{ urn: "urn:li:industry:4", name: "Software Development" }],
+      jobFunctions: [],
+      titles: [],
+    };
+    renderTargetingDialog();
+    fireEvent.click(
+      screen.getByTestId("button-remove-targeting-urn:li:industry:4"),
+    );
+    fireEvent.click(screen.getByTestId("button-facet-industries"));
+    mockState.searchResults = [{ urn: "urn:li:industry:6", name: "Finance" }];
+    fireEvent.change(screen.getByTestId("input-targeting-search"), {
+      target: { value: "Fi" },
+    });
+    fireEvent.click(
+      screen.getByTestId("button-targeting-result-urn:li:industry:6"),
+    );
+    fireEvent.click(screen.getByTestId("button-submit-targeting-draft"));
+
+    const payload = submittedPayload();
+    expect(payload.targetingIndustries).toEqual([
+      { urn: "urn:li:industry:6", name: "Finance" },
+    ]);
+  });
+
+  it("blocks removing the last preloaded location and never sends empty targetingLocations", () => {
+    mockState.currentTargeting = {
+      locations: [{ urn: "urn:li:geo:1", name: "India" }],
+      industries: [],
+      jobFunctions: [],
+      titles: [],
+    };
+    renderTargetingDialog();
+    // Attempt to remove the only location — the badge must stay.
+    fireEvent.click(screen.getByTestId("button-remove-targeting-urn:li:geo:1"));
+    expect(screen.getByText("India")).toBeTruthy();
+    expect(
+      screen.getByTestId("button-remove-targeting-urn:li:geo:1"),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("button-submit-targeting-draft"));
+    const payload = submittedPayload();
+    expect(payload.targetingLocations).toEqual([
+      { urn: "urn:li:geo:1", name: "India" },
+    ]);
+  });
+
+  it("allows swapping the last location by adding a replacement first", () => {
+    mockState.currentTargeting = {
+      locations: [{ urn: "urn:li:geo:1", name: "India" }],
+      industries: [],
+      jobFunctions: [],
+      titles: [],
+    };
+    renderTargetingDialog();
+    mockState.searchResults = [{ urn: "urn:li:geo:2", name: "Canada" }];
+    fireEvent.change(screen.getByTestId("input-targeting-search"), {
+      target: { value: "Ca" },
+    });
+    fireEvent.click(screen.getByTestId("button-targeting-result-urn:li:geo:2"));
+    // Now the original can be removed.
+    fireEvent.click(screen.getByTestId("button-remove-targeting-urn:li:geo:1"));
+    fireEvent.click(screen.getByTestId("button-submit-targeting-draft"));
+
+    const payload = submittedPayload();
+    expect(payload.targetingLocations).toEqual([
+      { urn: "urn:li:geo:2", name: "Canada" },
+    ]);
+  });
+
+  it("still allows removing a just-added location when none were preloaded", () => {
+    // No current targeting (e.g. load failed) — the guard must not apply.
+    mockState.searchResults = [{ urn: "urn:li:geo:1", name: "India" }];
+    renderTargetingDialog();
+    fireEvent.change(screen.getByTestId("input-targeting-search"), {
+      target: { value: "In" },
+    });
+    fireEvent.click(screen.getByTestId("button-targeting-result-urn:li:geo:1"));
+    fireEvent.click(screen.getByTestId("button-remove-targeting-urn:li:geo:1"));
+    expect(screen.queryByTestId("button-remove-targeting-urn:li:geo:1")).toBeNull();
   });
 });
 

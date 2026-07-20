@@ -2940,6 +2940,19 @@ export function TargetingDraftDialog({
   >({ locations: [], industries: [], jobFunctions: [], titles: [] });
   const [preloaded, setPreloaded] = useState(false);
   const [edited, setEdited] = useState(false);
+  // Facets the user actually changed. An untouched facet is omitted from the
+  // draft ("leave as is"); a touched-and-emptied facet is sent as an explicit
+  // empty array ("clear this facet") — except locations, which LinkedIn
+  // requires, so the last location can never be removed once preloaded.
+  const [touched, setTouched] = useState<Record<TargetingFacetKey, boolean>>({
+    locations: false,
+    industries: false,
+    jobFunctions: false,
+    titles: false,
+  });
+  const [preloadedFacets, setPreloadedFacets] = useState<
+    Record<TargetingFacetKey, boolean>
+  >({ locations: false, industries: false, jobFunctions: false, titles: false });
 
   const {
     data: currentTargeting,
@@ -2968,6 +2981,12 @@ export function TargetingDraftDialog({
       jobFunctions: currentTargeting.jobFunctions,
       titles: currentTargeting.titles,
     });
+    setPreloadedFacets({
+      locations: currentTargeting.locations.length > 0,
+      industries: currentTargeting.industries.length > 0,
+      jobFunctions: currentTargeting.jobFunctions.length > 0,
+      titles: currentTargeting.titles.length > 0,
+    });
     setPreloaded(true);
   }, [currentTargeting, preloaded, edited]);
 
@@ -2986,6 +3005,7 @@ export function TargetingDraftDialog({
 
   const addEntity = (loc: AdsTargetingLocation) => {
     setEdited(true);
+    setTouched((prev) => (prev[facet] ? prev : { ...prev, [facet]: true }));
     setSelected((prev) =>
       prev[facet].some((s) => s.urn === loc.urn)
         ? prev
@@ -2995,7 +3015,23 @@ export function TargetingDraftDialog({
   };
 
   const removeEntity = (key: TargetingFacetKey, urn: string) => {
+    if (
+      key === "locations" &&
+      preloadedFacets.locations &&
+      selected.locations.length <= 1
+    ) {
+      // LinkedIn requires every campaign to target at least one location, so
+      // a preloaded location facet can never be emptied.
+      toast({
+        variant: "destructive",
+        title: "At least one location is required",
+        description:
+          "LinkedIn campaigns must target at least one location. Add a replacement location before removing this one.",
+      });
+      return;
+    }
     setEdited(true);
+    setTouched((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
     setSelected((prev) => ({
       ...prev,
       [key]: prev[key].filter((s) => s.urn !== urn),
@@ -3016,16 +3052,25 @@ export function TargetingDraftDialog({
           action: "update",
           targetId: campaign.id,
           idempotencyKey,
+          // Locations: never sent empty (LinkedIn requires at least one; the
+          // UI blocks removing the last preloaded location).
           ...(selected.locations.length > 0
             ? { targetingLocations: selected.locations }
             : {}),
-          ...(selected.industries.length > 0
+          // Other facets: non-empty selections replace the facet. A facet the
+          // user emptied out (touched + preloaded non-empty) is sent as an
+          // explicit empty array, which the server treats as "clear this
+          // facet". Untouched empty facets stay omitted ("leave as is").
+          ...(selected.industries.length > 0 ||
+          (touched.industries && preloadedFacets.industries)
             ? { targetingIndustries: selected.industries }
             : {}),
-          ...(selected.jobFunctions.length > 0
+          ...(selected.jobFunctions.length > 0 ||
+          (touched.jobFunctions && preloadedFacets.jobFunctions)
             ? { targetingJobFunctions: selected.jobFunctions }
             : {}),
-          ...(selected.titles.length > 0
+          ...(selected.titles.length > 0 ||
+          (touched.titles && preloadedFacets.titles)
             ? { targetingTitles: selected.titles }
             : {}),
         } as never,
