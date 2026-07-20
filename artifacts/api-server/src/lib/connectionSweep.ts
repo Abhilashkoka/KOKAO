@@ -30,6 +30,7 @@ import {
   resolveSweepFailStreakNotifications,
   resolveSweepHistoryTrimmedNotifications,
   resolveSweepStalledNotifications,
+  takeFailedSocialConnectionNoticeCount,
 } from "./notifications";
 import { refreshDueLinkedinAdsTokens } from "./linkedinAdsRefresh";
 import {
@@ -375,6 +376,23 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
     }
   } catch (err) {
     logger.error({ err }, "LinkedIn ads token refresh phase crashed");
+  }
+
+  // Tenant-facing breakage notices must never vanish silently: the
+  // verified -> failed transition fires notifySocialConnectionFailed exactly
+  // once, so a swallowed insert (schema drift, DB error) means the tenant
+  // never learns their connection died until a post fails. Drain the tally of
+  // failed notice writes (from this run AND any request-path reverify since
+  // the last run) and fold it into the outcome, mirroring how failed
+  // superadmin alert deliveries are surfaced in recordSweepRun.
+  const lostTenantNotices = takeFailedSocialConnectionNoticeCount();
+  if (lostTenantNotices > 0) {
+    logger.error(
+      { lostTenantNotices },
+      "Connection sweep detected tenant breakage notices that failed to save; affected tenants were not told their connection broke",
+    );
+    result.errorCount += lostTenantNotices;
+    result.lastError = `Failed to save ${lostTenantNotices} tenant connection-failure notice(s) — affected tenants were not notified (check server logs; possible schema drift or DB error)`;
   }
 
   // Cap the persisted failure list so the sweep_status row stays small even

@@ -651,6 +651,66 @@ describe("sweepDeadConnections", () => {
       await deleteTenant(healthy.tenantId);
     }
   });
+
+  it("surfaces a failed tenant breakage-notice write in the sweep outcome instead of a clean success", async () => {
+    const { db, notificationsTable } = await import("@workspace/db");
+    const { takeFailedSocialConnectionNoticeCount } = await import(
+      "./notifications"
+    );
+    // Drain any residue from earlier tests so this test's tally is its own.
+    takeFailedSocialConnectionNoticeCount();
+
+    const tenant = await createTenant();
+    // Simulate schema drift / DB errors on the notification write path only:
+    // any insert targeting notificationsTable throws, everything else (the
+    // account-status update path uses db.update) stays real.
+    const realInsert = db.insert.bind(db);
+    const insertSpy = vi
+      .spyOn(db, "insert")
+      .mockImplementation(((table: unknown) => {
+        if (table === notificationsTable) {
+          throw new Error('column "push" does not exist');
+        }
+        return realInsert(table as never);
+      }) as typeof db.insert);
+    try {
+      await insertConnectedAccount(
+        tenant.tenantId,
+        "facebook",
+        { pageId: "PAGE_N", pageAccessToken: "tok_n" },
+        "verified",
+      );
+      await setAccountState(tenant.tenantId, "facebook", {
+        verifiedAt: staleDate(),
+      });
+      // Definitive rejection: verified -> failed transition fires the notice.
+      mockFb.mockResolvedValue({ ok: false, error: "token revoked" });
+
+      const outcome = await sweepDeadConnections();
+
+      // The breakage was persisted (so the dedupe means the notice will
+      // never re-fire)...
+      const row = await getConnectedAccount(tenant.tenantId, "facebook");
+      expect(row?.verifyStatus).toBe("failed");
+      // ...and the tenant notice never landed...
+      const notifs = (await getNotifications(tenant.tenantId)).filter(
+        (n) => n.type === "social_connection_failed",
+      );
+      expect(notifs).toHaveLength(0);
+      // ...so the run must NOT look like a clean success: the lost notice is
+      // counted and named, exactly like a failed superadmin alert delivery.
+      expect(outcome.errorCount).toBeGreaterThanOrEqual(1);
+      expect(outcome.lastError).toContain("tenant connection-failure notice");
+
+      // The tally is drained by the sweep — a second run with nothing broken
+      // does not re-report the same loss.
+      expect(takeFailedSocialConnectionNoticeCount()).toBe(0);
+    } finally {
+      insertSpy.mockRestore();
+      takeFailedSocialConnectionNoticeCount();
+      await deleteTenant(tenant.tenantId);
+    }
+  });
 });
 
 describe("checkSweepStaleness", () => {
