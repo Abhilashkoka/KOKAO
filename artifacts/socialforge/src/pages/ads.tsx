@@ -39,6 +39,7 @@ import {
   useUpdateAdsBudgetCaps,
   getGetAdsBudgetCapsQueryKey,
   getListAdConnectionsQueryKey,
+  getListNotificationsQueryKey,
   getListAdDraftsQueryKey,
   getListAdsChangeLogQueryKey,
   type AdsDraft,
@@ -995,6 +996,7 @@ function GoogleAccountPicker({ canManage }: { canManage: boolean }) {
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListAdConnectionsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getListNotificationsQueryKey() });
           toast({ title: "Google Ads account connected" });
         },
         onError: (err) => {
@@ -1196,6 +1198,7 @@ function LinkedinAccountPicker({ canManage }: { canManage: boolean }) {
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListAdConnectionsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getListNotificationsQueryKey() });
           toast({ title: "Ad account connected" });
         },
         onError: (err) => {
@@ -1264,6 +1267,7 @@ function AccountPicker({ canManage }: { canManage: boolean }) {
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListAdConnectionsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getListNotificationsQueryKey() });
           toast({ title: "Ad account connected" });
         },
         onError: (err) => {
@@ -1609,6 +1613,7 @@ function TiktokAdvertiserPicker({ canManage }: { canManage: boolean }) {
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListAdConnectionsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getListNotificationsQueryKey() });
           toast({ title: "Advertiser account connected" });
         },
         onError: (err) => {

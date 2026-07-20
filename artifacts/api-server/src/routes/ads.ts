@@ -766,6 +766,9 @@ router.post(
           .where(eq(adAccountConnectionsTable.id, conn.id))
           .returning()
       )[0]!;
+      // The grant just verified again — auto-dismiss any lingering
+      // "ad account disconnected" notification for this platform.
+      await resolveAdsConnectionNotifications(req.tenantId, "tiktok");
       res.json(serializeConnection(updated));
     } catch (err) {
       res.status(400).json({
@@ -874,6 +877,9 @@ router.post(
           .where(eq(adAccountConnectionsTable.id, conn.id))
           .returning()
       )[0]!;
+      // The grant just verified again — auto-dismiss any lingering
+      // "ad account disconnected" notification for this platform.
+      await resolveAdsConnectionNotifications(req.tenantId, "meta");
       res.json(serializeConnection(updated));
     } catch (err) {
       res.status(400).json({
@@ -1237,6 +1243,9 @@ router.post(
           .where(eq(adAccountConnectionsTable.id, conn.id))
           .returning()
       )[0]!;
+      // The grant just verified again — auto-dismiss any lingering
+      // "ad account disconnected" notification for this platform.
+      await resolveAdsConnectionNotifications(req.tenantId, "linkedin");
       res.json(serializeConnection(updated));
     } catch (err) {
       res.status(400).json({

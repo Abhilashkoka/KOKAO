@@ -52,6 +52,7 @@ import {
   adsChangeLogsTable,
   adsSettingsTable,
   tenantMembersTable,
+  notificationsTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import {
@@ -324,6 +325,60 @@ describe("ads draft creation", () => {
         const res = await req;
         expect(res.status).toBe(503);
       }
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("meta reconnect restores a failed connection", () => {
+  it("flips a failed connection back to verified via select and resolves the lingering notification", async () => {
+    const tenant = await createTenant();
+    try {
+      // A previously broken grant: reverify flipped it to failed and left an
+      // unread "ad account disconnected" notification behind. The OAuth
+      // reconnect callback has since stored a fresh token.
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      await db
+        .update(adAccountConnectionsTable)
+        .set({
+          verifyStatus: "failed",
+          verifyError: "token expired or revoked",
+        })
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      const [notif] = await db
+        .insert(notificationsTable)
+        .values({
+          tenantId: tenant.tenantId,
+          type: "ads_connection_failed",
+          platform: "meta",
+          title: "Meta ad account disconnected",
+          message: "Your Meta ad account connection is no longer valid.",
+          linkUrl: "/ads",
+        })
+        .returning({ id: notificationsTable.id });
+
+      actAs(tenant.clerkUserId);
+      const sel = await request(app)
+        .post("/api/ads/connections/meta/select")
+        .send({ adAccountId: "act_123" });
+      expect(sel.status).toBe(200);
+      expect(sel.body.status).toBe("connected");
+      expect(sel.body.verifyStatus).toBe("verified");
+
+      const [row] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(row!.verifyStatus).toBe("verified");
+      expect(row!.verifyError).toBeNull();
+
+      // The stale disconnected notification is auto-dismissed.
+      const [n] = await db
+        .select()
+        .from(notificationsTable)
+        .where(eq(notificationsTable.id, notif!.id));
+      expect(n!.readAt).not.toBeNull();
     } finally {
       await deleteTenant(tenant.tenantId);
     }
