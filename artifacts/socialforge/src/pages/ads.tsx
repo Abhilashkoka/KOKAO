@@ -333,6 +333,31 @@ function statusBadge(status: string) {
   );
 }
 
+// LinkedIn creatives that are still in review (or were rejected) can't accept
+// status changes — surface the review state and block pointless drafts.
+function linkedinReviewBlocksStatusChange(reviewStatus: string | null | undefined) {
+  if (!reviewStatus) return false;
+  return reviewStatus.toUpperCase() !== "APPROVED";
+}
+
+function reviewStatusBadge(reviewStatus: string | null | undefined, adId: string) {
+  if (!reviewStatus) return null;
+  const s = reviewStatus.toUpperCase();
+  if (s === "APPROVED") return null;
+  return (
+    <Badge
+      variant={s === "REJECTED" ? "destructive" : "outline"}
+      data-testid={`badge-review-${adId}`}
+    >
+      {s === "PENDING"
+        ? "In review"
+        : s === "REJECTED"
+          ? "Rejected"
+          : `Review: ${reviewStatus}`}
+    </Badge>
+  );
+}
+
 function draftStatusBadge(status: string) {
   switch (status) {
     case "draft":
@@ -2003,7 +2028,12 @@ function CampaignDetailDialog({
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell>{statusBadge(a.effectiveStatus)}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap items-center gap-1">
+                            {statusBadge(a.effectiveStatus)}
+                            {isLinkedin && reviewStatusBadge(a.reviewStatus, a.id)}
+                          </div>
+                        </TableCell>
                         <TableCell className="text-right">
                           {a.metrics.impressions.toLocaleString()}
                         </TableCell>
@@ -2014,45 +2044,58 @@ function CampaignDetailDialog({
                           {formatSpend(a.metrics.spend, currency)}
                         </TableCell>
                         <TableCell className="text-right">
-                          {canManage && isLinkedin && (
-                            <div className="flex items-center justify-end gap-1">
-                              {a.status !== "ARCHIVED" && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() =>
-                                    setCreativeStatusDraft({
-                                      id: a.id,
-                                      name: a.name,
-                                      status: a.status === "ACTIVE" ? "PAUSED" : "ACTIVE",
-                                      targetType: "creative",
-                                    })
-                                  }
-                                  data-testid={`button-toggle-creative-${a.id}`}
-                                >
-                                  {a.status === "ACTIVE" ? "Pause" : "Activate"}
-                                </Button>
-                              )}
-                              {a.status !== "ARCHIVED" && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-destructive hover:text-destructive"
-                                  onClick={() =>
-                                    setCreativeStatusDraft({
-                                      id: a.id,
-                                      name: a.name,
-                                      status: "ARCHIVED",
-                                      targetType: "creative",
-                                    })
-                                  }
-                                  data-testid={`button-archive-creative-${a.id}`}
-                                >
-                                  Archive
-                                </Button>
-                              )}
-                            </div>
-                          )}
+                          {canManage && isLinkedin && (() => {
+                            const reviewBlocked = linkedinReviewBlocksStatusChange(a.reviewStatus);
+                            const blockedTitle =
+                              a.reviewStatus?.toUpperCase() === "REJECTED"
+                                ? "LinkedIn rejected this creative — status changes aren't possible."
+                                : "This creative is still in LinkedIn review — status changes aren't possible yet.";
+                            return (
+                              <div className="flex items-center justify-end gap-1">
+                                {a.status !== "ARCHIVED" && (
+                                  <span title={reviewBlocked ? blockedTitle : undefined}>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      disabled={reviewBlocked}
+                                      onClick={() =>
+                                        setCreativeStatusDraft({
+                                          id: a.id,
+                                          name: a.name,
+                                          status: a.status === "ACTIVE" ? "PAUSED" : "ACTIVE",
+                                          targetType: "creative",
+                                        })
+                                      }
+                                      data-testid={`button-toggle-creative-${a.id}`}
+                                    >
+                                      {a.status === "ACTIVE" ? "Pause" : "Activate"}
+                                    </Button>
+                                  </span>
+                                )}
+                                {a.status !== "ARCHIVED" && (
+                                  <span title={reviewBlocked ? blockedTitle : undefined}>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-destructive hover:text-destructive"
+                                      disabled={reviewBlocked}
+                                      onClick={() =>
+                                        setCreativeStatusDraft({
+                                          id: a.id,
+                                          name: a.name,
+                                          status: "ARCHIVED",
+                                          targetType: "creative",
+                                        })
+                                      }
+                                      data-testid={`button-archive-creative-${a.id}`}
+                                    >
+                                      Archive
+                                    </Button>
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
                           {canManage && !isLinkedin && (
                             <div className="flex items-center justify-end gap-1">
                               {a.status !== "ARCHIVED" && (

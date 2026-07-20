@@ -8907,6 +8907,9 @@ components:
         imageUrl:
           type: ["string", "null"]
           description: Thumbnail URL of the creative's image, when available.
+        reviewStatus:
+          type: ["string", "null"]
+          description: LinkedIn only — the creative's review status (e.g. PENDING, APPROVED, REJECTED).
         metrics:
           $ref: "#/components/schemas/AdsMetrics"
     AdsCampaignDetail:

@@ -24,5 +24,10 @@ export interface AdsAd {
      * @nullable
      */
   imageUrl?: string | null;
+  /**
+     * LinkedIn only — the creative's review status (e.g. PENDING, APPROVED, REJECTED).
+     * @nullable
+     */
+  reviewStatus?: string | null;
   metrics: AdsMetrics;
 }

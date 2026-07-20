@@ -1416,6 +1416,8 @@ describe("LinkedIn creative drafts", () => {
       expect(res.body.ads).toHaveLength(2);
       expect(res.body.ads[0].id).toBe("urn:li:sponsoredCreative:777");
       expect(res.body.ads[0].status).toBe("PAUSED");
+      expect(res.body.ads[0].reviewStatus).toBe("PENDING");
+      expect(res.body.ads[1].reviewStatus).toBeNull();
       expect(res.body.ads[0].text).toBe("Fresh roasted beans, delivered.");
       expect(res.body.ads[0].imageUrl).toBe("https://media.licdn.example/img.jpg");
       // Creative without a resolvable post falls back to nulls.

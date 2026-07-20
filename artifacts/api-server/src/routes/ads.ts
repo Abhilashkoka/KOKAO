@@ -1670,9 +1670,10 @@ router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
           const preview = c.postUrn ? previews.get(c.postUrn) : undefined;
           return {
             id: c.id,
-            name: c.reviewStatus ? `Creative ${c.id} (review: ${c.reviewStatus})` : `Creative ${c.id}`,
+            name: `Creative ${c.id}`,
             status: c.status,
             effectiveStatus: c.status,
+            reviewStatus: c.reviewStatus,
             adSetId: null,
             text: preview?.text ?? null,
             imageUrl: preview?.imageUrl ?? null,
