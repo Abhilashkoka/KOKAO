@@ -93,9 +93,26 @@ export function usePushRegistration() {
  * the in-app notifications screen, which always shows the item itself.
  */
 export function resolveNotificationRoute(data: unknown): Href {
-  const d = (data ?? {}) as { url?: unknown; type?: unknown };
+  const d = (data ?? {}) as {
+    url?: unknown;
+    type?: unknown;
+    contentItemId?: unknown;
+  };
   const url = typeof d.url === "string" ? d.url : "";
   if (url === "/library" || url.startsWith("/library?")) {
+    // Publish outcomes include the specific content item's id — open that
+    // post's edit screen directly; without one, the library list is the
+    // closest useful destination.
+    const rawId = d.contentItemId;
+    const id =
+      typeof rawId === "number" && Number.isInteger(rawId) && rawId > 0
+        ? rawId
+        : typeof rawId === "string" && /^\d+$/.test(rawId) && Number(rawId) > 0
+          ? Number(rawId)
+          : null;
+    if (id !== null) {
+      return { pathname: "/content/[id]", params: { id: String(id) } };
+    }
     return "/(tabs)/library";
   }
   if (url === "/accounts" || url.startsWith("/accounts?")) {

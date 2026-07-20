@@ -401,7 +401,12 @@ async function finishSchedule(
       { scheduledPostId: row.id, tenantId: row.tenantId, platform: row.platform, postId: outcome.postId },
       "Scheduled post published",
     );
-    await notifyScheduledPostPublished(row.tenantId, title, row.platform);
+    await notifyScheduledPostPublished(
+      row.tenantId,
+      title,
+      row.platform,
+      row.contentItemId,
+    );
   } else {
     const updated = await db
       .update(scheduledPostsTable)
@@ -431,6 +436,7 @@ async function finishSchedule(
       title,
       row.platform,
       outcome.error,
+      row.contentItemId,
     );
   }
 }
@@ -502,6 +508,7 @@ async function recoverStuckProcessing(): Promise<void> {
         title,
         r.platform,
         SCHEDULE_INTERRUPTED_REASON,
+        r.contentItemId,
       );
     }
   } catch (err) {

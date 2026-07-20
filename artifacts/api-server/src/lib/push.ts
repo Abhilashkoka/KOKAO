@@ -64,6 +64,10 @@ export interface PushPayload {
   title: string;
   message: string;
   linkUrl?: string | null;
+  /** The content item this notification is about, when there is exactly
+   * one — lets the mobile app deep-link straight to the post's edit
+   * screen instead of the library list. */
+  contentItemId?: number | null;
   type: string;
 }
 
@@ -73,7 +77,7 @@ interface ExpoPushMessage {
   body: string;
   sound: "default";
   badge?: number;
-  data: { url?: string; type: string };
+  data: { url?: string; type: string; contentItemId?: number };
 }
 
 function looksLikeExpoToken(token: string): boolean {
@@ -325,6 +329,9 @@ async function pushToUsers(
     ...(badge !== undefined ? { badge } : {}),
     data: {
       ...(payload.linkUrl ? { url: payload.linkUrl } : {}),
+      ...(payload.contentItemId != null
+        ? { contentItemId: payload.contentItemId }
+        : {}),
       type: payload.type,
     },
   }));

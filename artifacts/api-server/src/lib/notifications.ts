@@ -817,7 +817,7 @@ export async function resolveSocialConnectionNotifications(
  */
 export async function notifyPublishInterrupted(
   tenantId: number,
-  titles: string[],
+  items: Array<{ id: number; title: string }>,
 ): Promise<void> {
   try {
     const existing = await db
@@ -836,8 +836,10 @@ export async function notifyPublishInterrupted(
     const effective = await getEffectiveSetting(tenantId, PUBLISH_INTERRUPTED);
     if (!effective.enabled) return;
 
-    const count = titles.length;
-    const firstTitle = titles[0] ?? "";
+    const count = items.length;
+    const firstTitle = items[0]?.title ?? "";
+    // Only a single interrupted post can deep-link to a specific item.
+    const contentItemId = count === 1 ? (items[0]?.id ?? null) : null;
     const message =
       count === 1
         ? `"${firstTitle}" was being published when the server restarted, so it was marked failed. Nothing was wrong with the post — just publish it again from the Content Library.`
@@ -861,6 +863,7 @@ export async function notifyPublishInterrupted(
       title,
       message,
       linkUrl: "/library",
+      contentItemId,
     });
   } catch (err) {
     logger.error(
@@ -878,6 +881,7 @@ export async function notifyScheduledPostPublished(
   tenantId: number,
   title: string,
   platform: string,
+  contentItemId?: number | null,
 ): Promise<void> {
   try {
     const effective = await getEffectiveSetting(
@@ -900,6 +904,7 @@ export async function notifyScheduledPostPublished(
       title: "Scheduled post published",
       message,
       linkUrl: "/library",
+      contentItemId,
     });
   } catch (err) {
     logger.error(
@@ -921,6 +926,7 @@ export async function notifyScheduledPublishFailed(
   title: string,
   platform: string,
   reason: string,
+  contentItemId?: number | null,
 ): Promise<void> {
   try {
     const effective = await getEffectiveSetting(
@@ -944,6 +950,7 @@ export async function notifyScheduledPublishFailed(
       title: "Scheduled publish failed",
       message,
       linkUrl: "/library",
+      contentItemId,
     });
 
     if (effective.email && clerkUserId) {

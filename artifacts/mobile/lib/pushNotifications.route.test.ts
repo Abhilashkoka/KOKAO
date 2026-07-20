@@ -20,6 +20,61 @@ describe("resolveNotificationRoute", () => {
     ).toBe("/(tabs)/library");
   });
 
+  it("opens the specific post when a content item id is present", () => {
+    expect(
+      resolveNotificationRoute({
+        url: "/library",
+        type: "scheduled_post_published",
+        contentItemId: 42,
+      }),
+    ).toEqual({ pathname: "/content/[id]", params: { id: "42" } });
+    expect(
+      resolveNotificationRoute({
+        url: "/library",
+        type: "scheduled_publish_failed",
+        contentItemId: "7",
+      }),
+    ).toEqual({ pathname: "/content/[id]", params: { id: "7" } });
+    expect(
+      resolveNotificationRoute({
+        url: "/library",
+        type: "publish_interrupted",
+        contentItemId: 13,
+      }),
+    ).toEqual({ pathname: "/content/[id]", params: { id: "13" } });
+  });
+
+  it("falls back to the library tab when the content item id is invalid", () => {
+    expect(
+      resolveNotificationRoute({
+        url: "/library",
+        type: "scheduled_post_published",
+        contentItemId: "not-a-number",
+      }),
+    ).toBe("/(tabs)/library");
+    expect(
+      resolveNotificationRoute({
+        url: "/library",
+        type: "scheduled_post_published",
+        contentItemId: "0",
+      }),
+    ).toBe("/(tabs)/library");
+    expect(
+      resolveNotificationRoute({
+        url: "/library",
+        type: "publish_interrupted",
+        contentItemId: -5,
+      }),
+    ).toBe("/(tabs)/library");
+    expect(
+      resolveNotificationRoute({
+        url: "/library",
+        type: "scheduled_publish_failed",
+        contentItemId: null,
+      }),
+    ).toBe("/(tabs)/library");
+  });
+
   it("maps account links to the accounts tab", () => {
     expect(
       resolveNotificationRoute({ url: "/accounts", type: "social_connection_failed" }),

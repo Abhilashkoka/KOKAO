@@ -82,14 +82,14 @@ export async function recoverStuckPublishingItems(
 
       // Best-effort in-app heads-up so affected tenants learn why their post
       // flipped to failed even if they miss the reason badge in the library.
-      const byTenant = new Map<number, string[]>();
+      const byTenant = new Map<number, Array<{ id: number; title: string }>>();
       for (const r of reclaimed) {
-        const titles = byTenant.get(r.tenantId) ?? [];
-        titles.push(r.title);
-        byTenant.set(r.tenantId, titles);
+        const items = byTenant.get(r.tenantId) ?? [];
+        items.push({ id: r.id, title: r.title });
+        byTenant.set(r.tenantId, items);
       }
-      for (const [tenantId, titles] of byTenant) {
-        await notifyPublishInterrupted(tenantId, titles);
+      for (const [tenantId, items] of byTenant) {
+        await notifyPublishInterrupted(tenantId, items);
       }
     }
     return reclaimed.length;
