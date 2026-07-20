@@ -459,7 +459,7 @@ describe("publish-outcome push payloads (tap deep-link contract)", () => {
       const body = JSON.parse(String(pushCall![1]?.body));
       expect(body[0].to).toBe(TOKEN_A);
       expect(body[0].data).toEqual({
-        url: "/library",
+        url: "/library?item=123",
         contentItemId: 123,
         type: SCHEDULED_POST_PUBLISHED,
       });
@@ -502,7 +502,7 @@ describe("publish-outcome push payloads (tap deep-link contract)", () => {
       const body = JSON.parse(String(pushCall![1]?.body));
       expect(body[0].to).toBe(TOKEN_A);
       expect(body[0].data).toEqual({
-        url: "/library",
+        url: "/library?item=456",
         contentItemId: 456,
         type: SCHEDULED_PUBLISH_FAILED,
       });
