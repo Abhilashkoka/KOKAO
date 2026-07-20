@@ -151,12 +151,28 @@ describe("mobile analytics queue persistence", () => {
     expect(store.get(PENDING_KEY)).toBeUndefined();
   });
 
-  it("ignores foreground transitions", async () => {
+  it("flushes buffered events immediately when the app returns to the foreground", async () => {
+    // Simulate an outage while backgrounded, then a restore + return to active.
+    fetchMock.mockRejectedValueOnce(new Error("network down"));
     analytics.track("feature_use", { feature: "z" });
+    hooks.handleAppStateChange("background");
+    await vi.waitFor(() => {
+      expect(store.get(PENDING_KEY)).toBeDefined();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    hooks.handleAppStateChange("active");
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+    expect(hooks.getQueue()).toHaveLength(0);
+    expect(store.get(PENDING_KEY)).toBeUndefined();
+  });
+
+  it("does not send anything on active when the queue is empty", async () => {
     hooks.handleAppStateChange("active");
     await new Promise((r) => setTimeout(r, 10));
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(hooks.getQueue()).toHaveLength(1);
   });
 
   it("ignores corrupt or malformed persisted data", async () => {

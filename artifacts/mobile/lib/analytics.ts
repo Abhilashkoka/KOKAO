@@ -452,8 +452,17 @@ async function trackFirstOpenOnce(): Promise<void> {
  * Flush immediately and then persist whatever the flush couldn't send so
  * the events survive an app kill. Never throws — analytics must never
  * break the app.
+ *
+ * Returning to the foreground ("active") also triggers an immediate flush:
+ * connectivity is likely restored, so buffered/restored events shouldn't
+ * wait up to 15 seconds for the next interval tick. The existing attempt
+ * caps in flush() prevent duplicate sends.
  */
 function handleAppStateChange(nextState: AppStateStatus): void {
+  if (nextState === "active") {
+    void flush();
+    return;
+  }
   if (nextState !== "background" && nextState !== "inactive") return;
   void (async () => {
     try {
