@@ -29,3 +29,9 @@ id = "66cGi3QKyx22myR_mCwkM"
 uri = "file://loadtest/loadtest-bundle.zip"
 type = "unspecified"
 title = "k6 scripts + plan (download bundle)"
+
+[[outputs]]
+id = "RsbcHgoSvc80PgTkH-UAg"
+uri = "file://artifacts/kokao-promo/public/audio/bg_music.mp3"
+type = "audio"
+title = "background music"
