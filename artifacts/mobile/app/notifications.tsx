@@ -22,6 +22,7 @@ import {
 import { Card, ErrorState, Skeleton } from "@/components/ui";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
+import { mapLinkUrlToRoute } from "@/lib/notificationLinks";
 
 const c = colors.light;
 
@@ -99,21 +100,27 @@ export default function NotificationsScreen() {
   };
 
   const handlePress = (item: Notification) => {
-    if (item.readAt) return;
-    // Optimistically flip to read so the row updates immediately.
-    queryClient.setQueryData<Notification[]>(
-      getListNotificationsQueryKey(INBOX_PARAMS),
-      (old) =>
-        old?.map((n) =>
-          n.id === item.id ? { ...n, readAt: new Date().toISOString() } : n,
-        ),
-    );
-    markRead.mutate(
-      { id: item.id },
-      {
-        onSettled: invalidate,
-      },
-    );
+    if (!item.readAt) {
+      // Optimistically flip to read so the row updates immediately.
+      queryClient.setQueryData<Notification[]>(
+        getListNotificationsQueryKey(INBOX_PARAMS),
+        (old) =>
+          old?.map((n) =>
+            n.id === item.id ? { ...n, readAt: new Date().toISOString() } : n,
+          ),
+      );
+      markRead.mutate(
+        { id: item.id },
+        {
+          onSettled: invalidate,
+        },
+      );
+    }
+
+    const target = mapLinkUrlToRoute(item.linkUrl);
+    if (target) {
+      router.push(target);
+    }
   };
 
   const handleMarkAllRead = () => {
