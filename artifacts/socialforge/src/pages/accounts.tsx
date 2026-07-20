@@ -44,7 +44,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Share2, Plus, Trash2, CheckCircle2, Instagram, Facebook, Linkedin, Youtube, Loader2, Copy, ExternalLink, AlertCircle, Twitter, AtSign } from "lucide-react";
+import { Share2, Plus, Trash2, CheckCircle2, Loader2, Copy, ExternalLink, AlertCircle } from "lucide-react";
+import { FacebookIcon, InstagramIcon, LinkedinIcon, XIcon, ThreadsIcon, YoutubeIcon } from "@/components/brand-icons";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ReconnectHelpDialog } from "@/components/reconnect-help-dialog";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -172,7 +173,7 @@ function FacebookCredentialsCard() {
       <CardContent className="p-6">
         <div className="flex items-start gap-4">
           <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-blue-600/10 text-blue-600 shrink-0">
-            <Facebook className="h-6 w-6" />
+            <FacebookIcon className="h-6 w-6" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
@@ -371,7 +372,7 @@ function InstagramCredentialsCard() {
       <CardContent className="p-6">
         <div className="flex items-start gap-4">
           <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-pink-600/10 text-pink-600 shrink-0">
-            <Instagram className="h-6 w-6" />
+            <InstagramIcon className="h-6 w-6" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
@@ -606,7 +607,7 @@ function TwitterCredentialsCard() {
       <CardContent className="p-6">
         <div className="flex items-start gap-4">
           <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-sky-500/10 text-sky-500 shrink-0">
-            <Twitter className="h-6 w-6" />
+            <XIcon className="h-6 w-6" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
@@ -707,11 +708,11 @@ function TwitterCredentialsCard() {
 }
 
 const ICONS: Record<string, any> = {
-  instagram: { icon: Instagram, color: "text-pink-600", bg: "bg-pink-600/10" },
-  facebook: { icon: Facebook, color: "text-blue-600", bg: "bg-blue-600/10" },
-  linkedin: { icon: Linkedin, color: "text-blue-700", bg: "bg-blue-700/10" },
-  youtube: { icon: Youtube, color: "text-red-600", bg: "bg-red-600/10" },
-  threads: { icon: AtSign, color: "text-foreground", bg: "bg-foreground/10" },
+  instagram: { icon: InstagramIcon, color: "text-pink-600", bg: "bg-pink-600/10" },
+  facebook: { icon: FacebookIcon, color: "text-blue-600", bg: "bg-blue-600/10" },
+  linkedin: { icon: LinkedinIcon, color: "text-blue-700", bg: "bg-blue-700/10" },
+  youtube: { icon: YoutubeIcon, color: "text-red-600", bg: "bg-red-600/10" },
+  threads: { icon: ThreadsIcon, color: "text-foreground", bg: "bg-foreground/10" },
 };
 
 const HANDLE_HINTS: Record<string, { placeholder: string; hint: string }> = {
@@ -1208,7 +1209,7 @@ export function AccountsPage() {
         <CardContent className="p-6">
           <div className="flex items-start gap-4">
             <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-blue-700/10 text-blue-700 shrink-0">
-              <Linkedin className="h-6 w-6" />
+              <LinkedinIcon className="h-6 w-6" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -1277,7 +1278,7 @@ export function AccountsPage() {
                       {linkedinConnecting ? (
                         <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {linkedinStatus?.expired ? "Reconnecting..." : "Connecting..."}</>
                       ) : (
-                        <><Linkedin className="h-4 w-4 mr-2" /> {linkedinStatus?.expired ? "Reconnect LinkedIn" : "Connect LinkedIn"}</>
+                        <><LinkedinIcon className="h-4 w-4 mr-2" /> {linkedinStatus?.expired ? "Reconnect LinkedIn" : "Connect LinkedIn"}</>
                       )}
                     </Button>
                     {linkedinStatus?.expired && <ReconnectHelpDialog platform="linkedin" />}
@@ -1337,7 +1338,7 @@ export function AccountsPage() {
         <CardContent className="p-6">
           <div className="flex items-start gap-4">
             <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-red-600/10 text-red-600 shrink-0">
-              <Youtube className="h-6 w-6" />
+              <YoutubeIcon className="h-6 w-6" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -1406,7 +1407,7 @@ export function AccountsPage() {
                       {youtubeConnecting ? (
                         <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {youtubeStatus?.expired ? "Reconnecting..." : "Connecting..."}</>
                       ) : (
-                        <><Youtube className="h-4 w-4 mr-2" /> {youtubeStatus?.expired ? "Reconnect YouTube" : "Connect YouTube"}</>
+                        <><YoutubeIcon className="h-4 w-4 mr-2" /> {youtubeStatus?.expired ? "Reconnect YouTube" : "Connect YouTube"}</>
                       )}
                     </Button>
                     {youtubeStatus?.expired && <ReconnectHelpDialog platform="youtube" />}
@@ -1471,7 +1472,7 @@ export function AccountsPage() {
         <CardContent className="p-6">
           <div className="flex items-start gap-4">
             <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-foreground/10 text-foreground shrink-0">
-              <AtSign className="h-6 w-6" />
+              <ThreadsIcon className="h-6 w-6" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -1540,7 +1541,7 @@ export function AccountsPage() {
                       {threadsConnecting ? (
                         <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {threadsStatus?.expired ? "Reconnecting..." : "Connecting..."}</>
                       ) : (
-                        <><AtSign className="h-4 w-4 mr-2" /> {threadsStatus?.expired ? "Reconnect Threads" : "Connect Threads"}</>
+                        <><ThreadsIcon className="h-4 w-4 mr-2" /> {threadsStatus?.expired ? "Reconnect Threads" : "Connect Threads"}</>
                       )}
                     </Button>
                     {threadsStatus?.expired && <ReconnectHelpDialog platform="threads" />}
@@ -1657,11 +1658,11 @@ export function AccountsPage() {
               <Select onValueChange={setPlatform} value={platform}>
                 <SelectTrigger><SelectValue placeholder="Select platform" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="instagram"><div className="flex items-center gap-2"><Instagram className="text-pink-600"/> Instagram</div></SelectItem>
-                  <SelectItem value="facebook"><div className="flex items-center gap-2"><Facebook className="text-blue-600"/> Facebook</div></SelectItem>
-                  <SelectItem value="linkedin"><div className="flex items-center gap-2"><Linkedin className="text-blue-700"/> LinkedIn</div></SelectItem>
-                  <SelectItem value="youtube"><div className="flex items-center gap-2"><Youtube className="text-red-600"/> YouTube</div></SelectItem>
-                  <SelectItem value="threads"><div className="flex items-center gap-2"><AtSign className="text-foreground"/> Threads</div></SelectItem>
+                  <SelectItem value="instagram"><div className="flex items-center gap-2"><InstagramIcon className="h-6 w-6 text-pink-600"/> Instagram</div></SelectItem>
+                  <SelectItem value="facebook"><div className="flex items-center gap-2"><FacebookIcon className="h-6 w-6 text-blue-600"/> Facebook</div></SelectItem>
+                  <SelectItem value="linkedin"><div className="flex items-center gap-2"><LinkedinIcon className="h-6 w-6 text-blue-700"/> LinkedIn</div></SelectItem>
+                  <SelectItem value="youtube"><div className="flex items-center gap-2"><YoutubeIcon className="h-6 w-6 text-red-600"/> YouTube</div></SelectItem>
+                  <SelectItem value="threads"><div className="flex items-center gap-2"><ThreadsIcon className="h-6 w-6 text-foreground"/> Threads</div></SelectItem>
                 </SelectContent>
               </Select>
             </div>
