@@ -43,6 +43,14 @@ vi.mock("@workspace/api-client-react", async () => {
     useGetMe: () => ({ data: { isSuperadmin: false }, isLoading: false }),
     useGetAdsStatus: () => ({ data: adsStatus, isLoading: false }),
     useListAdConnections: () => ({ data: mockState.connections, isLoading: false }),
+    useListMetaAdAccountChoices: () => ({
+      data: [
+        { adAccountId: "act_123", name: "Choice One", currency: "USD" },
+        { adAccountId: "act_456", name: "Choice Two", currency: "EUR" },
+      ],
+      isLoading: false,
+      error: null,
+    }),
   });
 });
 
@@ -215,6 +223,61 @@ describe("Ads page connection card layout (connected accounts)", () => {
       expect(content).not.toBeNull();
       expect(content!.contains(nameEl)).toBe(true);
       expect(content!.contains(disconnectEl)).toBe(true);
+    }
+  });
+
+  it("renders the mid-connection Meta account picker inside the Meta card's flex-row body while cards stay stacked", () => {
+    mockState.connections = [
+      makeConnection("meta", 1, {
+        status: "pending_selection",
+        adAccountId: undefined,
+        adAccountName: undefined,
+        verifyStatus: null,
+      }),
+      makeConnection("google", 2),
+      makeConnection("tiktok", 3),
+      makeConnection("linkedin", 4),
+    ];
+    renderPage();
+
+    // The picker UI (select trigger + confirm button) renders inside the
+    // Meta card's stacked-to-horizontal body split.
+    const selectEl = screen.getByTestId("select-ad-account");
+    const confirmEl = screen.getByTestId("button-select-ad-account");
+    const wrapper = bodyWrapperOf(selectEl);
+    expect(wrapper).not.toBeNull();
+    expect(bodyWrapperOf(confirmEl)).toBe(wrapper);
+    const cls = wrapper!.className;
+    expect(cls).toContain("flex");
+    expect(cls).toContain("flex-col");
+    expect(cls).toContain("lg:flex-row");
+    // Picker lives in the growing content column, not the capped header.
+    const content = wrapper!.querySelector('[class*="lg:flex-1"]');
+    expect(content).not.toBeNull();
+    expect(content!.contains(selectEl)).toBe(true);
+    expect(content!.contains(confirmEl)).toBe(true);
+    const header = wrapper!.querySelector('[class*="lg:max-w-sm"]');
+    expect(header).not.toBeNull();
+    expect(header!.contains(selectEl)).toBe(false);
+
+    // Cards remain stacked siblings: Meta+Google in ConnectionSection's own
+    // space-y-4 stack, itself a direct child of the outer connection area.
+    const meta = cardOf(selectEl);
+    const google = cardOf(screen.getByTestId("text-google-account-name"));
+    const tiktok = cardOf(screen.getByTestId("text-tiktok-advertiser-name"));
+    const linkedin = cardOf(screen.getByTestId("text-linkedin-ad-account-name"));
+    expect(new Set([meta, google, tiktok, linkedin]).size).toBe(4);
+    const area = tiktok.parentElement!;
+    expect(area.className).toContain("space-y-4");
+    expect(linkedin.parentElement).toBe(area);
+    expect(meta.parentElement).toBe(google.parentElement);
+    expect(meta.parentElement?.className).toContain("space-y-4");
+    expect(meta.parentElement?.parentElement).toBe(area);
+    expect(area.querySelector('[class*="grid-cols-2"]')).toBeNull();
+    for (let el: HTMLElement | null = meta.parentElement; el; el = el.parentElement) {
+      const c = el.className;
+      expect(typeof c === "string" && /\bgrid\b/.test(c)).toBe(false);
+      if (el === area) break;
     }
   });
 
