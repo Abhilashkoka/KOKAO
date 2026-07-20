@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { 
   useListContent, 
   useDeleteContent,
@@ -94,6 +94,13 @@ export function LibraryPage() {
   // second click would race the scheduled retry and could double-post.
   const { isRetrying: publishRetryPending, run: runPublishWithRetry } = useRestartRetry();
 
+  // Synchronous in-flight guard: React state updates are async, so a rapid
+  // double-click can fire a publish/retry handler twice before the disabled
+  // re-render lands. The ref flips immediately on the first call, so the
+  // second call in the same frame is a no-op and never reaches the server's
+  // 409 guard. Keyed by action+itemId, mirroring usePendingResendActions.
+  const publishInFlightRef = useRef<Set<string>>(new Set());
+
   // True while ANY publish request is in flight (or its automatic retry is
   // pending). Used to grey out every publish control so a fast double-click
   // never reaches the server's 409 "already in progress" guard.
@@ -163,9 +170,13 @@ export function LibraryPage() {
 
   const handlePublish = () => {
     if (!publishItem) return;
+    const guardKey = `publish:facebook:${publishItem.id}`;
+    if (publishInFlightRef.current.has(guardKey)) return;
+    publishInFlightRef.current.add(guardKey);
     setPublishTarget({ id: publishItem.id, platform: "facebook" });
     runPublishWithRetry(publishContent, { id: publishItem.id }, {
       onSuccess: (res) => {
+        publishInFlightRef.current.delete(guardKey);
         track("post_published", { platform: "facebook" });
         toast({
           title: "Published to Facebook",
@@ -177,6 +188,7 @@ export function LibraryPage() {
       },
       onRetrying: (reason) => restartRetryToast("Facebook", reason),
       onError: (err: any, { retried }) => {
+        publishInFlightRef.current.delete(guardKey);
         toast({
           title: "Publish failed",
           description: publishErrorDescription(
@@ -192,9 +204,13 @@ export function LibraryPage() {
 
   const handlePublishInstagram = () => {
     if (!instagramItem) return;
+    const guardKey = `publish:instagram:${instagramItem.id}`;
+    if (publishInFlightRef.current.has(guardKey)) return;
+    publishInFlightRef.current.add(guardKey);
     setPublishTarget({ id: instagramItem.id, platform: "instagram" });
     runPublishWithRetry(publishInstagram, { id: instagramItem.id }, {
       onSuccess: () => {
+        publishInFlightRef.current.delete(guardKey);
         track("post_published", { platform: "instagram" });
         toast({
           title: "Publishing to Instagram",
@@ -206,6 +222,7 @@ export function LibraryPage() {
       },
       onRetrying: (reason) => restartRetryToast("Instagram", reason),
       onError: (err: any, { retried }) => {
+        publishInFlightRef.current.delete(guardKey);
         toast({
           title: "Publish failed",
           description: publishErrorDescription(
@@ -299,10 +316,14 @@ export function LibraryPage() {
   const handleRetry = (item: any) => {
     const target = retryTargetFor(item);
     const platformKey = retryTargets[item?.platform as string] ? item.platform : "instagram";
+    const guardKey = `retry:${item.id}`;
+    if (publishInFlightRef.current.has(guardKey)) return;
+    publishInFlightRef.current.add(guardKey);
     setRetryingId(item.id);
     setPublishTarget({ id: item.id, platform: platformKey });
     runPublishWithRetry(target.mutation, { id: item.id }, {
       onSuccess: () => {
+        publishInFlightRef.current.delete(guardKey);
         toast({
           title: "Retrying publish",
           description: target.successDescription,
@@ -312,6 +333,7 @@ export function LibraryPage() {
       },
       onRetrying: (reason) => restartRetryToast(target.label, reason),
       onError: (err: any, { retried }) => {
+        publishInFlightRef.current.delete(guardKey);
         toast({
           title: "Retry failed",
           description: publishErrorDescription(err, target.errorFallback, retried),
@@ -324,9 +346,13 @@ export function LibraryPage() {
 
   const handlePublishLinkedin = () => {
     if (!linkedinItem) return;
+    const guardKey = `publish:linkedin:${linkedinItem.id}`;
+    if (publishInFlightRef.current.has(guardKey)) return;
+    publishInFlightRef.current.add(guardKey);
     setPublishTarget({ id: linkedinItem.id, platform: "linkedin" });
     runPublishWithRetry(publishLinkedin, { id: linkedinItem.id }, {
         onSuccess: (res) => {
+          publishInFlightRef.current.delete(guardKey);
           track("post_published", { platform: "linkedin" });
           if (res?.commentWarning) {
             const itemId = linkedinItem.id;
@@ -361,6 +387,7 @@ export function LibraryPage() {
         },
         onRetrying: (reason) => restartRetryToast("LinkedIn", reason),
         onError: (err: any, { retried }) => {
+          publishInFlightRef.current.delete(guardKey);
           toast({
             title: "Publish failed",
             description: publishErrorDescription(
@@ -376,9 +403,13 @@ export function LibraryPage() {
 
   const handlePublishTwitter = () => {
     if (!twitterItem) return;
+    const guardKey = `publish:twitter:${twitterItem.id}`;
+    if (publishInFlightRef.current.has(guardKey)) return;
+    publishInFlightRef.current.add(guardKey);
     setPublishTarget({ id: twitterItem.id, platform: "twitter" });
     runPublishWithRetry(publishTwitter, { id: twitterItem.id }, {
       onSuccess: (res) => {
+        publishInFlightRef.current.delete(guardKey);
         track("post_published", { platform: "twitter" });
         if (res?.publishWarning) {
           const itemId = twitterItem.id;
@@ -406,6 +437,7 @@ export function LibraryPage() {
       },
       onRetrying: (reason) => restartRetryToast("X", reason),
       onError: (err: any, { retried }) => {
+        publishInFlightRef.current.delete(guardKey);
         toast({
           title: "Publish failed",
           description: publishErrorDescription(
@@ -421,9 +453,13 @@ export function LibraryPage() {
 
   const handlePublishThreads = () => {
     if (!threadsItem) return;
+    const guardKey = `publish:threads:${threadsItem.id}`;
+    if (publishInFlightRef.current.has(guardKey)) return;
+    publishInFlightRef.current.add(guardKey);
     setPublishTarget({ id: threadsItem.id, platform: "threads" });
     runPublishWithRetry(publishThreads, { id: threadsItem.id }, {
         onSuccess: (res) => {
+          publishInFlightRef.current.delete(guardKey);
           track("post_published", { platform: "threads" });
           if (res?.publishWarning) {
             const itemId = threadsItem.id;
@@ -458,6 +494,7 @@ export function LibraryPage() {
         },
         onRetrying: (reason) => restartRetryToast("Threads", reason),
         onError: (err: any, { retried }) => {
+          publishInFlightRef.current.delete(guardKey);
           toast({
             title: "Publish failed",
             description: publishErrorDescription(
