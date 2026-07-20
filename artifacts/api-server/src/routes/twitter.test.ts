@@ -493,6 +493,56 @@ describe("X (Twitter) publishing (happy path)", () => {
     }
   });
 
+  it("returns 503 and keeps the connection verified when the pre-publish refresh hits an outage", async () => {
+    const calls: MockCall[] = [];
+    // Token endpoint is down (503); nothing else should be reached.
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        calls.push({ url, auth: "", body: init?.body });
+        if (url.includes("/2/oauth2/token")) {
+          return new Response(JSON.stringify({ title: "Service Unavailable" }), {
+            status: 503,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    );
+
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      await setAccountState(tenant.tenantId, "twitter", {
+        tokenExpiresAt: new Date(Date.now() - 60 * 1000),
+      });
+      const itemId = await insertContentItem(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+
+      const res = await request(app).post(
+        `/api/content/${itemId}/publish-twitter`,
+      );
+
+      // Transient outage = retry-later, NOT a reconnect prompt.
+      expect(res.status).toBe(503);
+      expect(res.body.error).toMatch(/temporarily unavailable/i);
+      expect(calls.some((c) => c.url.includes("/2/tweets"))).toBe(false);
+
+      // The connection row was never flipped to failed.
+      const row = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(row.verifyStatus).toBe("verified");
+      expect(row.status).toBe("connected");
+
+      const item = await getContentItem(itemId, tenant.tenantId);
+      expect(item.status).not.toBe("published");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("posts captions longer than 280 characters as a reply-chained thread without truncation", async () => {
     const calls: MockCall[] = [];
     mockXApi(calls);
@@ -1505,7 +1555,14 @@ const STALE_VERIFIED_AT = new Date(Date.now() - 60 * 60 * 1000);
  * the expired/transient branches.
  */
 function mockReverifyApi(
-  opts: { userFails?: boolean; refreshFails?: boolean } = {},
+  opts: {
+    userFails?: boolean;
+    refreshFails?: boolean;
+    /** Token endpoint answers 503 — a passing outage, not a dead token. */
+    refreshTransient?: boolean;
+    /** Token endpoint is unreachable (network error). */
+    refreshNetworkError?: boolean;
+  } = {},
 ) {
   const calls: MockCall[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(
@@ -1521,6 +1578,9 @@ function mockReverifyApi(
           headers: { "content-type": "application/json" },
         });
       if (url.includes("/2/oauth2/token")) {
+        if (opts.refreshNetworkError) throw new Error("ECONNRESET");
+        if (opts.refreshTransient)
+          return json({ title: "Service Unavailable" }, 503);
         if (opts.refreshFails) return json({ error: "invalid_grant" }, 400);
         return json({
           access_token: "REFRESHED_ACCESS_TOKEN",
@@ -1681,6 +1741,74 @@ describe("X (Twitter) status auto re-verify: GET /twitter/status", () => {
       expect(res.body.connected).toBe(false);
       expect(res.body.expired).toBe(true);
       expect(calls.some((c) => c.url.includes("/2/oauth2/token"))).toBe(true);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("keeps the connection verified when the token refresh fails with a 5xx outage", async () => {
+    await setVerifiedTwitterRow();
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      await setAccountState(tenant.tenantId, "twitter", {
+        verifiedAt: STALE_VERIFIED_AT,
+        tokenExpiresAt: new Date(Date.now() - 60 * 1000),
+      });
+      const calls = mockReverifyApi({ refreshTransient: true });
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/twitter/status");
+      expect(res.status).toBe(200);
+      // The refresh was attempted but hit an outage — the refresh token was
+      // never rejected, so the connection must NOT prompt a reconnect.
+      expect(res.body.connected).toBe(true);
+      expect(res.body.expired).toBe(false);
+      expect(calls.some((c) => c.url.includes("/2/oauth2/token"))).toBe(true);
+
+      const row = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(row?.verifyStatus).toBe("verified");
+      expect(row?.status).toBe("connected");
+      expect(row?.encryptedCredentials).toBeTruthy();
+      // The check clock was reset so the next sweep retries the refresh.
+      expect(row?.verifiedAt!.getTime()).toBeGreaterThan(
+        STALE_VERIFIED_AT.getTime(),
+      );
+
+      // No spurious breakage notification for a passing outage.
+      const notes = await getNotifications(tenant.tenantId);
+      expect(notes.some((n) => n.type === "social_connection_failed")).toBe(
+        false,
+      );
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("keeps the connection verified when the token refresh hits a network error", async () => {
+    await setVerifiedTwitterRow();
+    const tenant = await createTenant();
+    try {
+      await connectVerifiedX(tenant.tenantId);
+      await setAccountState(tenant.tenantId, "twitter", {
+        verifiedAt: STALE_VERIFIED_AT,
+        tokenExpiresAt: new Date(Date.now() - 60 * 1000),
+      });
+      const calls = mockReverifyApi({ refreshNetworkError: true });
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/twitter/status");
+      expect(res.status).toBe(200);
+      expect(res.body.connected).toBe(true);
+      expect(res.body.expired).toBe(false);
+      expect(calls.some((c) => c.url.includes("/2/oauth2/token"))).toBe(true);
+
+      const row = await getConnectedAccount(tenant.tenantId, "twitter");
+      expect(row?.verifyStatus).toBe("verified");
+      expect(row?.status).toBe("connected");
+
+      const notes = await getNotifications(tenant.tenantId);
+      expect(notes.some((n) => n.type === "social_connection_failed")).toBe(
+        false,
+      );
     } finally {
       await deleteTenant(tenant.tenantId);
     }

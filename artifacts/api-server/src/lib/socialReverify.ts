@@ -376,6 +376,12 @@ export async function reverifyTwitter(
     if (tokenResult.reason === "not_connected") {
       return loadAccountRow(tenantId, "twitter");
     }
+    if (tokenResult.reason === "transient") {
+      // A passing outage during the refresh says nothing about the refresh
+      // token's health — reset the check clock and retry on the next sweep.
+      await touchChecked(row);
+      return loadAccountRow(tenantId, "twitter");
+    }
     // reconnect_required: the stored/refreshed token is dead. Persist a failed
     // status (idempotent) and notify on a fresh verified -> failed transition.
     await writeStatus(row, {

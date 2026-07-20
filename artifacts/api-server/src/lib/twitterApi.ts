@@ -191,32 +191,73 @@ export async function exchangeCodeForTokens(opts: {
   return normalizeTokens(json, null);
 }
 
-/** Refresh an access token using a refresh token. Throws on failure. */
+/**
+ * Thrown by `refreshTwitterTokens` on failure. `transient` distinguishes a
+ * passing outage (network error, timeout, 429, 5xx) from a definitive
+ * rejection of the refresh token (invalid_grant / 400 / 401). Callers must
+ * only flip a connection to "reconnect needed" on a DEFINITIVE rejection —
+ * a transient blip says nothing about whether the refresh token is alive.
+ */
+export class TwitterRefreshError extends Error {
+  readonly transient: boolean;
+  constructor(message: string, transient: boolean) {
+    super(message);
+    this.name = "TwitterRefreshError";
+    this.transient = transient;
+  }
+}
+
+/**
+ * Refresh an access token using a refresh token. Throws `TwitterRefreshError`
+ * on failure, with `transient` classifying whether the refresh token may
+ * still be valid (outage) or was definitively rejected.
+ */
 export async function refreshTwitterTokens(opts: {
   app: TwitterAppCredentials;
   refreshToken: string;
 }): Promise<TwitterTokens> {
-  const res = await platformFetch(TWITTER_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${basicAuth(opts.app)}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: opts.refreshToken,
-      client_id: opts.app.clientId,
-    }).toString(),
-  });
-  const json = (await res.json()) as TwitterTokenResponse;
-  if (!res.ok || !json.access_token) {
-    throw new Error(
-      json.error_description ||
-        json.error ||
-        `X token refresh failed (${res.status})`,
+  let res: Response;
+  try {
+    res = await platformFetch(TWITTER_TOKEN_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${basicAuth(opts.app)}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: opts.refreshToken,
+        client_id: opts.app.clientId,
+      }).toString(),
+    });
+  } catch {
+    throw new TwitterRefreshError(
+      "Could not reach X to refresh the access token.",
+      true,
     );
   }
-  return normalizeTokens(json, opts.refreshToken);
+
+  let json: TwitterTokenResponse = {};
+  try {
+    json = (await res.json()) as TwitterTokenResponse;
+  } catch {
+    // Fall through to the status-based classification below.
+  }
+
+  if (res.ok && json.access_token) {
+    return normalizeTokens(json, opts.refreshToken);
+  }
+
+  // Definitive rejection of the refresh token: invalid_grant, or a 400/401
+  // from the token endpoint. Only these may flip a connection to failed.
+  const definitive =
+    json.error === "invalid_grant" || res.status === 400 || res.status === 401;
+  throw new TwitterRefreshError(
+    json.error_description ||
+      json.error ||
+      `X token refresh failed (${res.status})`,
+    !definitive,
+  );
 }
 
 /**
@@ -465,7 +506,7 @@ export type TwitterTokenResult =
   | { ok: true; accessToken: string; accountName: string }
   | {
       ok: false;
-      reason: "not_connected" | "reconnect_required";
+      reason: "not_connected" | "reconnect_required" | "transient";
       message: string;
     };
 
@@ -542,7 +583,19 @@ export async function ensureFreshTwitterToken(
           verifiedAt: new Date(),
         })
         .where(eq(connectedAccountsTable.id, row.id));
-    } catch {
+    } catch (err) {
+      // A transient outage (network error / 429 / 5xx) says nothing about
+      // whether the refresh token is still alive — never flip the row to
+      // failed for it. Only a definitive rejection (invalid_grant/400/401)
+      // marks the connection reconnect-needed.
+      if (err instanceof TwitterRefreshError && err.transient) {
+        return {
+          ok: false,
+          reason: "transient",
+          message:
+            "X is temporarily unavailable, so the access token could not be refreshed. Try again in a few minutes.",
+        };
+      }
       await markTwitterReconnectNeeded(row.id);
       return {
         ok: false,

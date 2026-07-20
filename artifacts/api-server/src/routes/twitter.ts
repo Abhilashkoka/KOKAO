@@ -491,7 +491,13 @@ export async function publishTwitterCore(
 
   const tokenResult = await ensureFreshTwitterToken(tenantId, app);
   if (!tokenResult.ok) {
-    return { ok: false, errorStatus: 400, error: tokenResult.message };
+    // A transient refresh outage is a 503 (retry later), not a reconnect
+    // prompt — the connection row is left untouched by the token helper.
+    return {
+      ok: false,
+      errorStatus: tokenResult.reason === "transient" ? 503 : 400,
+      error: tokenResult.message,
+    };
   }
   const { accessToken, accountName } = tokenResult;
 
@@ -814,7 +820,10 @@ router.post(
     }
     const tokenResult = await ensureFreshTwitterToken(req.tenantId, app);
     if (!tokenResult.ok) {
-      res.status(400).json({ error: tokenResult.message });
+      // Transient refresh outage = 503 (retry later); the row is untouched.
+      res
+        .status(tokenResult.reason === "transient" ? 503 : 400)
+        .json({ error: tokenResult.message });
       return;
     }
     const { accessToken } = tokenResult;
