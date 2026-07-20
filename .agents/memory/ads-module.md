@@ -13,3 +13,9 @@ description: Draft-and-approve safety engine for ad platform writes; owner-only 
 - Meta Ads: budgets are in minor units; OAuth scope `ads_management,ads_read,business_management`; short-lived tokens exchanged for long-lived at callback; auth failures (`MetaAdsApiError.authFailed`) flip the connection to failed for a reconnect prompt.
 - TikTok Ads: same engine via a per-platform ops dispatch keyed on the connection's platform; the OAuth token response itself lists the granted advertiser ids (store them; validate any later selection against that list). Campaign schedules (start/stop) live on AD GROUPS, not campaigns — campaign drafts must reject schedule fields. Auth-failed = HTTP 401 or business codes 40101/40102/40104/40105/40001. Budgets in minor units like Meta.
 - **How to apply:** any new ads platform or target type must reuse this engine — add an adapter, not a new pipeline. Tests: mock only the adapter network fns; keep engine + DB real (see `routes/ads.test.ts`).
+
+## TikTok ad group schedules
+- TikTok schedules live on ad groups only (campaigns have none; ads have neither schedule nor budget).
+- Adapter normalizes TikTok's "YYYY-MM-DD HH:MM:SS" UTC times to ISO Z (tiktokTimeToIso/isoToTiktokTime); epoch/empty placeholders map to null; SCHEDULE_FROM_NOW means no end time.
+- adgroup/update/ requires a COMPLETE schedule: when a draft proposes only one side, the adapter reads the current ad group and fills the other side before writing.
+- readAdGroupState now returns the real schedule, so unmanaged schedule drift DOES expire drafts — that guard was lifted deliberately when schedule editing shipped.
