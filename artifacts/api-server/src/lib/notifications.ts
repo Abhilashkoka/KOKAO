@@ -1109,6 +1109,10 @@ export const SWEEP_FAIL_STREAK = "sweep_fail_streak";
  * count and duration. The dedupe re-arms when the streak resets
  * (see resolveSweepFailStreakNotifications) or when the admin dismisses the
  * banner. Never throws.
+ *
+ * Returns the number of recipients whose alert could NOT be written (DB
+ * error, schema drift, etc.) so the sweep can surface the failure instead of
+ * reporting a clean run while a critical alert silently vanished.
  */
 export async function notifySweepFailStreak(offender: {
   tenantId: number;
@@ -1116,7 +1120,8 @@ export async function notifySweepFailStreak(offender: {
   count: number;
   firstFailedAt: string;
   lastError: string | null;
-}): Promise<void> {
+}): Promise<number> {
+  let failedDeliveries = 0;
   try {
     const candidates = await db
       .select({
@@ -1132,7 +1137,7 @@ export async function notifySweepFailStreak(offender: {
     const recipients = candidates.filter(
       (t) => t.isSuperadmin || isSuperadminEmail(t.email),
     );
-    if (recipients.length === 0) return;
+    if (recipients.length === 0) return failedDeliveries;
 
     // Best-effort workspace name for a readable message; the id is the
     // authoritative pointer either way.
@@ -1227,6 +1232,7 @@ export async function notifySweepFailStreak(offender: {
           );
         }
       } catch (err) {
+        failedDeliveries += 1;
         logger.error(
           { err, recipientTenantId: recipient.id },
           "Failed to notify a superadmin about a fail streak",
@@ -1234,11 +1240,13 @@ export async function notifySweepFailStreak(offender: {
       }
     }
   } catch (err) {
+    failedDeliveries += 1;
     logger.error(
       { err, offenderTenantId: offender.tenantId, platform: offender.platform },
       "Failed to record sweep-fail-streak notifications",
     );
   }
+  return failedDeliveries;
 }
 
 /**
@@ -1297,11 +1305,16 @@ export const SWEEP_HISTORY_TRIMMED = "sweep_history_trimmed";
  * refreshed in place (no stacked banners, no re-emails). The dedupe re-arms
  * once a run completes with no trimming
  * (see resolveSweepHistoryTrimmedNotifications). Never throws.
+ *
+ * Returns the number of recipients whose alert could NOT be written (DB
+ * error, schema drift, etc.) so the sweep can surface the failure instead of
+ * reporting a clean run while a critical alert silently vanished.
  */
 export async function notifySweepHistoryTrimmed(
   droppedStreaks: number,
   cap: number,
-): Promise<void> {
+): Promise<number> {
+  let failedDeliveries = 0;
   try {
     const candidates = await db
       .select({
@@ -1317,7 +1330,7 @@ export async function notifySweepHistoryTrimmed(
     const recipients = candidates.filter(
       (t) => t.isSuperadmin || isSuperadminEmail(t.email),
     );
-    if (recipients.length === 0) return;
+    if (recipients.length === 0) return failedDeliveries;
 
     const title = "Mass connection outage suspected";
     const message =
@@ -1394,6 +1407,7 @@ export async function notifySweepHistoryTrimmed(
           );
         }
       } catch (err) {
+        failedDeliveries += 1;
         logger.error(
           { err, recipientTenantId: recipient.id },
           "Failed to notify a superadmin about trimmed sweep history",
@@ -1401,11 +1415,13 @@ export async function notifySweepHistoryTrimmed(
       }
     }
   } catch (err) {
+    failedDeliveries += 1;
     logger.error(
       { err },
       "Failed to record sweep-history-trimmed notifications",
     );
   }
+  return failedDeliveries;
 }
 
 export const SWEEP_FAIL_RATIO = "sweep_fail_ratio";
@@ -1479,13 +1495,18 @@ async function describeSweepFailures(
  * in place (no stacked banners, no re-emails). The dedupe re-arms once a run
  * completes below the threshold (see resolveSweepFailRatioNotifications).
  * Never throws.
+ *
+ * Returns the number of recipients whose alert could NOT be written (DB
+ * error, schema drift, etc.) so the sweep can surface the failure instead of
+ * reporting a clean run while a critical alert silently vanished.
  */
 export async function notifySweepFailRatio(
   errorCount: number,
   accountsChecked: number,
   thresholdPercent: number,
   failures: SweepFailure[] = [],
-): Promise<void> {
+): Promise<number> {
+  let failedDeliveries = 0;
   try {
     const candidates = await db
       .select({
@@ -1501,7 +1522,7 @@ export async function notifySweepFailRatio(
     const recipients = candidates.filter(
       (t) => t.isSuperadmin || isSuperadminEmail(t.email),
     );
-    if (recipients.length === 0) return;
+    if (recipients.length === 0) return failedDeliveries;
 
     const percent =
       accountsChecked > 0
@@ -1582,6 +1603,7 @@ export async function notifySweepFailRatio(
           );
         }
       } catch (err) {
+        failedDeliveries += 1;
         logger.error(
           { err, recipientTenantId: recipient.id },
           "Failed to notify a superadmin about a sweep failure-ratio outage",
@@ -1589,8 +1611,10 @@ export async function notifySweepFailRatio(
       }
     }
   } catch (err) {
+    failedDeliveries += 1;
     logger.error({ err }, "Failed to record sweep-fail-ratio notifications");
   }
+  return failedDeliveries;
 }
 
 /**

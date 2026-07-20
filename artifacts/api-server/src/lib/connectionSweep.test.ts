@@ -1316,6 +1316,48 @@ describe("sweep failure-ratio alerts", () => {
     }
   });
 
+  it("surfaces a failed alert write in the persisted sweep outcome instead of reporting a clean success", async () => {
+    const { db, notificationsTable, sweepStatusTable } = await import(
+      "@workspace/db"
+    );
+    const admin = await createTenant({ isSuperadmin: true });
+    // Simulate schema drift / DB errors on the notification write path only:
+    // any insert targeting notificationsTable throws, everything else (the
+    // sweep_status upsert) stays real.
+    const realInsert = db.insert.bind(db);
+    const insertSpy = vi
+      .spyOn(db, "insert")
+      .mockImplementation(((table: unknown) => {
+        if (table === notificationsTable) {
+          throw new Error('column "push" does not exist');
+        }
+        return realInsert(table as never);
+      }) as typeof db.insert);
+    try {
+      await recordSweepRun(new Date(), 500, ratioOutcome(60, 50));
+
+      // The alert never landed...
+      const adminNotifs = (await getNotifications(admin.tenantId)).filter(
+        (n) => n.type === "sweep_fail_ratio" && n.readAt === null,
+      );
+      expect(adminNotifs).toHaveLength(0);
+
+      // ...so the persisted run must NOT look like a clean success: the
+      // failed delivery is counted on top of the run's own errors and the
+      // lastError names the alert-delivery failure.
+      const [status] = await db
+        .select()
+        .from(sweepStatusTable)
+        .where((await import("drizzle-orm")).eq(sweepStatusTable.id, 1));
+      expect(status).toBeDefined();
+      expect(status!.errorCount).toBeGreaterThan(50);
+      expect(status!.lastError).toContain("superadmin sweep alert");
+    } finally {
+      insertSpy.mockRestore();
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
   it("never alerts when a high ratio comes from too few checks", async () => {
     const admin = await createTenant({ isSuperadmin: true });
     try {

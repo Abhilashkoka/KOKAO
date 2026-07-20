@@ -416,12 +416,72 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
  * `sweep_status` table (id=1 upsert), so the admin dashboard can show
  * "last sweep ran at" even across restarts/redeploys. Best-effort: a
  * bookkeeping failure is logged and never affects the sweep itself.
+ *
+ * The superadmin alert phase runs FIRST so that any alert delivery failure
+ * (e.g. schema drift making every notification insert throw) is folded into
+ * the persisted outcome — the run must never be recorded as a clean success
+ * when the critical alerts it tried to write silently vanished.
  */
 export async function recordSweepRun(
   lastRunAt: Date,
   durationMs: number,
   outcome: SweepResult,
 ): Promise<void> {
+  // The sweep just completed a run, so any outstanding "sweep stalled" alert
+  // is resolved — clearing it also re-arms the dedupe for a future stall.
+  await resolveSweepStalledNotifications();
+  // Chronic-breakage escalation: alert superadmins about every streak at or
+  // above the threshold (deduped per streak, so a continuing streak stays
+  // silent), and clear alerts for streaks that reset so the dedupe re-arms.
+  let failedAlertDeliveries = await processFailStreakAlerts(
+    outcome.failStreaks,
+  );
+  // Mass-outage escalation: a trimmed fail-streak history means MORE broken
+  // connections than the cap can hold — almost always a platform-wide
+  // outage. Alert superadmins proactively (deduped while trimming
+  // continues); a clean run resolves the alert and re-arms the dedupe.
+  if (outcome.droppedStreaks > 0) {
+    failedAlertDeliveries += await notifySweepHistoryTrimmed(
+      outcome.droppedStreaks,
+      SWEEP_FAIL_STREAKS_CAP,
+    );
+  } else {
+    await resolveSweepHistoryTrimmedNotifications();
+  }
+  // Ratio-based mass-outage escalation: catches platform-wide outages of any
+  // size (e.g. 50 of 60 checks failing) that never overflow the fail-streak
+  // cap. Requires a minimum sample so tiny installs don't false-positive.
+  // Deduped while the outage continues; a run below the threshold resolves
+  // the alert and re-arms the dedupe. Runs that checked too few accounts
+  // (including bookkeeping-failure runs with accountsChecked=0) neither
+  // alert nor resolve — they carry no signal either way.
+  if (outcome.accountsChecked >= SWEEP_FAIL_RATIO_MIN_CHECKS) {
+    const ratio = outcome.errorCount / outcome.accountsChecked;
+    if (ratio >= SWEEP_FAIL_RATIO_ALERT_THRESHOLD) {
+      failedAlertDeliveries += await notifySweepFailRatio(
+        outcome.errorCount,
+        outcome.accountsChecked,
+        Math.round(SWEEP_FAIL_RATIO_ALERT_THRESHOLD * 100),
+        outcome.recentFailures,
+      );
+    } else {
+      await resolveSweepFailRatioNotifications();
+    }
+  }
+
+  // Critical superadmin alerts must never vanish silently: when any alert
+  // write failed (DB error, schema drift, etc.), the run is NOT a clean
+  // success — surface the failure loudly in the log and fold it into the
+  // persisted outcome so the admin dashboard shows a non-zero error count.
+  if (failedAlertDeliveries > 0) {
+    logger.error(
+      { failedAlertDeliveries },
+      "Connection sweep could not deliver superadmin alerts; the run is not a clean success",
+    );
+    outcome.errorCount += failedAlertDeliveries;
+    outcome.lastError = `Failed to deliver ${failedAlertDeliveries} superadmin sweep alert(s) — check server logs (possible schema drift or DB error)`;
+  }
+
   try {
     await db
       .insert(sweepStatusTable)
@@ -453,45 +513,6 @@ export async function recordSweepRun(
   } catch (err) {
     logger.error({ err }, "Failed to record connection sweep status");
   }
-  // The sweep just completed a run, so any outstanding "sweep stalled" alert
-  // is resolved — clearing it also re-arms the dedupe for a future stall.
-  await resolveSweepStalledNotifications();
-  // Chronic-breakage escalation: alert superadmins about every streak at or
-  // above the threshold (deduped per streak, so a continuing streak stays
-  // silent), and clear alerts for streaks that reset so the dedupe re-arms.
-  await processFailStreakAlerts(outcome.failStreaks);
-  // Mass-outage escalation: a trimmed fail-streak history means MORE broken
-  // connections than the cap can hold — almost always a platform-wide
-  // outage. Alert superadmins proactively (deduped while trimming
-  // continues); a clean run resolves the alert and re-arms the dedupe.
-  if (outcome.droppedStreaks > 0) {
-    await notifySweepHistoryTrimmed(
-      outcome.droppedStreaks,
-      SWEEP_FAIL_STREAKS_CAP,
-    );
-  } else {
-    await resolveSweepHistoryTrimmedNotifications();
-  }
-  // Ratio-based mass-outage escalation: catches platform-wide outages of any
-  // size (e.g. 50 of 60 checks failing) that never overflow the fail-streak
-  // cap. Requires a minimum sample so tiny installs don't false-positive.
-  // Deduped while the outage continues; a run below the threshold resolves
-  // the alert and re-arms the dedupe. Runs that checked too few accounts
-  // (including bookkeeping-failure runs with accountsChecked=0) neither
-  // alert nor resolve — they carry no signal either way.
-  if (outcome.accountsChecked >= SWEEP_FAIL_RATIO_MIN_CHECKS) {
-    const ratio = outcome.errorCount / outcome.accountsChecked;
-    if (ratio >= SWEEP_FAIL_RATIO_ALERT_THRESHOLD) {
-      await notifySweepFailRatio(
-        outcome.errorCount,
-        outcome.accountsChecked,
-        Math.round(SWEEP_FAIL_RATIO_ALERT_THRESHOLD * 100),
-        outcome.recentFailures,
-      );
-    } else {
-      await resolveSweepFailRatioNotifications();
-    }
-  }
 }
 
 /**
@@ -501,10 +522,14 @@ export async function recordSweepRun(
  * and any outstanding alert whose streak has since reset (or dropped below
  * the threshold) is marked read so a future streak alerts afresh.
  * Best-effort: never throws.
+ *
+ * Returns the number of failed alert deliveries so the caller can surface
+ * them instead of letting critical alerts vanish silently.
  */
 export async function processFailStreakAlerts(
   failStreaks: Record<string, SweepStreak>,
-): Promise<void> {
+): Promise<number> {
+  let failedDeliveries = 0;
   try {
     const activeKeys: string[] = [];
     for (const [key, streak] of Object.entries(failStreaks)) {
@@ -514,7 +539,7 @@ export async function processFailStreakAlerts(
       const platform = platformParts.join(":");
       if (!Number.isFinite(tenantId) || !platform) continue;
       activeKeys.push(`streak:${tenantId}:${platform}`);
-      await notifySweepFailStreak({
+      failedDeliveries += await notifySweepFailStreak({
         tenantId,
         platform,
         count: streak.count,
@@ -526,8 +551,10 @@ export async function processFailStreakAlerts(
     // re-arming the per-streak dedupe for the next chronic breakage.
     await resolveSweepFailStreakNotifications(activeKeys);
   } catch (err) {
+    failedDeliveries += 1;
     logger.error({ err }, "Failed to process sweep fail-streak alerts");
   }
+  return failedDeliveries;
 }
 
 let lastStalenessCheckAt = 0;
