@@ -33,6 +33,7 @@ import {
   runScheduledPublishTick,
   retryScheduledPostNow,
   SCHEDULE_INTERRUPTED_REASON,
+  SCHEDULED_TRANSIENT_RETRY,
 } from "./scheduledPublisher";
 import { tryAcquireResendLock } from "./resendLock";
 
@@ -270,6 +271,140 @@ describe("runScheduledPublishTick", () => {
     }
   });
 
+  describe("transient (503) auto-retry", () => {
+    const TRANSIENT_ERROR = "X is temporarily unavailable. Please try again in a few minutes.";
+    const transientOutcome: PublishOutcome = {
+      ok: false,
+      errorStatus: 503,
+      error: TRANSIENT_ERROR,
+    };
+
+    it("re-queues a transient X failure as pending with a delay instead of failing", async () => {
+      const tenant = await createTenant();
+      try {
+        const itemId = await insertItem(tenant.tenantId, "Flaky bird");
+        const scheduleId = await insertSchedule(tenant.tenantId, itemId, "twitter");
+        twitterCore.mockResolvedValue(transientOutcome);
+
+        await runScheduledPublishTick();
+
+        const schedule = await getSchedule(scheduleId);
+        expect(schedule.status).toBe("pending");
+        expect(schedule.retryCount).toBe(1);
+        expect(schedule.failureReason).toBe(TRANSIENT_ERROR);
+        expect(schedule.scheduledAt.getTime()).toBeGreaterThan(Date.now());
+        // No failure notification while retries remain.
+        const notifs = await getNotifications(tenant.tenantId, "scheduled_publish_failed");
+        expect(notifs.length).toBe(0);
+      } finally {
+        await deleteTenant(tenant.tenantId);
+      }
+    });
+
+    it("retries then publishes once the outage clears", async () => {
+      const tenant = await createTenant();
+      const origDelay = SCHEDULED_TRANSIENT_RETRY.delayMs;
+      SCHEDULED_TRANSIENT_RETRY.delayMs = 0;
+      try {
+        const itemId = await insertItem(tenant.tenantId, "Second try");
+        const scheduleId = await insertSchedule(tenant.tenantId, itemId, "twitter");
+        twitterCore
+          .mockResolvedValueOnce(transientOutcome)
+          .mockResolvedValueOnce({ ok: true, postId: "tw_1", permalink: null });
+
+        await runScheduledPublishTick();
+        await runScheduledPublishTick();
+
+        expect(twitterCore).toHaveBeenCalledTimes(2);
+        const schedule = await getSchedule(scheduleId);
+        expect(schedule.status).toBe("published");
+        expect(schedule.failureReason).toBeNull();
+        const success = await getNotifications(tenant.tenantId, "scheduled_post_published");
+        expect(success.length).toBe(1);
+        const failures = await getNotifications(tenant.tenantId, "scheduled_publish_failed");
+        expect(failures.length).toBe(0);
+      } finally {
+        SCHEDULED_TRANSIENT_RETRY.delayMs = origDelay;
+        await deleteTenant(tenant.tenantId);
+      }
+    });
+
+    it("fails and notifies once the retry budget is exhausted", async () => {
+      const tenant = await createTenant();
+      const origDelay = SCHEDULED_TRANSIENT_RETRY.delayMs;
+      const origMax = SCHEDULED_TRANSIENT_RETRY.maxRetries;
+      SCHEDULED_TRANSIENT_RETRY.delayMs = 0;
+      SCHEDULED_TRANSIENT_RETRY.maxRetries = 2;
+      try {
+        const itemId = await insertItem(tenant.tenantId, "Persistent outage");
+        const scheduleId = await insertSchedule(tenant.tenantId, itemId, "twitter");
+        twitterCore.mockResolvedValue(transientOutcome);
+
+        await runScheduledPublishTick(); // attempt 1 -> retry 1
+        await runScheduledPublishTick(); // attempt 2 -> retry 2
+        await runScheduledPublishTick(); // attempt 3 -> budget exhausted -> failed
+
+        expect(twitterCore).toHaveBeenCalledTimes(3);
+        const schedule = await getSchedule(scheduleId);
+        expect(schedule.status).toBe("failed");
+        expect(schedule.retryCount).toBe(2);
+        expect(schedule.failureReason).toBe(TRANSIENT_ERROR);
+        const notifs = await getNotifications(tenant.tenantId, "scheduled_publish_failed");
+        expect(notifs.length).toBe(1);
+      } finally {
+        SCHEDULED_TRANSIENT_RETRY.delayMs = origDelay;
+        SCHEDULED_TRANSIENT_RETRY.maxRetries = origMax;
+        await deleteTenant(tenant.tenantId);
+      }
+    });
+
+    it("fails a definitive (non-503) error immediately without retrying", async () => {
+      const tenant = await createTenant();
+      try {
+        const itemId = await insertItem(tenant.tenantId);
+        const scheduleId = await insertSchedule(tenant.tenantId, itemId, "twitter");
+        twitterCore.mockResolvedValue({
+          ok: false,
+          errorStatus: 400,
+          error: "Your X connection expired. Reconnect and try again.",
+        });
+
+        await runScheduledPublishTick();
+
+        const schedule = await getSchedule(scheduleId);
+        expect(schedule.status).toBe("failed");
+        expect(schedule.retryCount).toBe(0);
+        const notifs = await getNotifications(tenant.tenantId, "scheduled_publish_failed");
+        expect(notifs.length).toBe(1);
+      } finally {
+        await deleteTenant(tenant.tenantId);
+      }
+    });
+
+    it("a mid-flight cancel wins over the transient re-queue", async () => {
+      const tenant = await createTenant();
+      try {
+        const itemId = await insertItem(tenant.tenantId);
+        const scheduleId = await insertSchedule(tenant.tenantId, itemId, "twitter");
+        twitterCore.mockImplementation(async () => {
+          await db
+            .update(scheduledPostsTable)
+            .set({ status: "cancelled", updatedAt: new Date() })
+            .where(eq(scheduledPostsTable.id, scheduleId));
+          return transientOutcome;
+        });
+
+        await runScheduledPublishTick();
+
+        const schedule = await getSchedule(scheduleId);
+        expect(schedule.status).toBe("cancelled");
+        expect(schedule.retryCount).toBe(0);
+      } finally {
+        await deleteTenant(tenant.tenantId);
+      }
+    });
+  });
+
   it("a core crash marks the schedule failed rather than leaving it processing", async () => {
     const tenant = await createTenant();
     try {
@@ -331,6 +466,30 @@ describe("retryScheduledPostNow", () => {
       const schedule = await getSchedule(scheduleId);
       expect(schedule.status).toBe("failed");
       expect(schedule.failureReason).toBe("X rejected the post.");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("a user-initiated retry hitting a transient 503 fails immediately (no silent re-queue)", async () => {
+    const tenant = await createTenant();
+    try {
+      const itemId = await insertItem(tenant.tenantId);
+      const scheduleId = await insertSchedule(tenant.tenantId, itemId, "twitter", {
+        status: "failed",
+      });
+      twitterCore.mockResolvedValue({
+        ok: false,
+        errorStatus: 503,
+        error: "X is temporarily unavailable.",
+      });
+
+      const result = await retryScheduledPostNow(tenant.tenantId, scheduleId);
+
+      expect(result).toEqual({ ok: false, status: 503, error: "X is temporarily unavailable." });
+      const schedule = await getSchedule(scheduleId);
+      expect(schedule.status).toBe("failed");
+      expect(schedule.retryCount).toBe(0);
     } finally {
       await deleteTenant(tenant.tenantId);
     }

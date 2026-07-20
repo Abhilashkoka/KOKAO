@@ -13,4 +13,6 @@ Classification (via `InstagramPublishError { retryable }` + `isRetryableStatus`)
 
 **Why:** many IG failures are transient (brief 5xx, rate-limit blip, image still processing), so a one-shot "failed" forced users to manually re-publish. Retrying definitive errors just wastes the budget and delays the visible failure.
 
+Scheduled posts have a parallel mechanism: the scheduled publisher re-queues (pending + delayed scheduledAt + `retryCount` bump, no notification) any core outcome with errorStatus 503 up to `SCHEDULED_TRANSIENT_RETRY.maxRetries`; cores signal "transient" by returning 503 (X token-refresh outage does today). User-initiated schedule retries fail immediately — no silent re-queue while a user is waiting.
+
 **How to apply:** if extending the same "wait until ready" / retry safety to Facebook photo posts, reuse this transient-vs-definitive split (5xx/429/still-processing = retry; 4xx/bad-media = fail fast). Test gotcha: the "Instagram container readiness" poll-cap tests must pin `IG_PUBLISH_RETRY.maxAttempts = 1`, otherwise the now-retryable IN_PROGRESS timeout multiplies the poll count (attempts × retries) and slows the suite.

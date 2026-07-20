@@ -58,6 +58,19 @@ export const STUCK_PROCESSING_TIMEOUT_MS = 15 * 60 * 1000;
 export const SCHEDULE_INTERRUPTED_REASON =
   "Publishing was interrupted by a server restart. Check the platform to see whether the post went out before retrying from the Content Library.";
 
+/**
+ * Bounded auto-retry for TRANSIENT scheduled-publish failures (errorStatus
+ * 503 — e.g. an X token refresh hitting a brief platform outage). Instead of
+ * failing the schedule, the row is re-queued as "pending" with a short delay
+ * up to maxRetries times; only when retries are exhausted (or on any
+ * definitive error) is it marked failed and the tenant notified. Exported
+ * and mutable so tests can shrink it.
+ */
+export const SCHEDULED_TRANSIENT_RETRY = {
+  maxRetries: 3,
+  delayMs: 5 * 60 * 1000,
+};
+
 const UNSUPPORTED_PLATFORM_REASON =
   "Automatic publishing is not supported for this platform yet. Publish it manually from the Content Library.";
 
@@ -146,6 +159,7 @@ async function publishOneScheduledPost(row: {
   tenantId: number;
   contentItemId: number;
   platform: string;
+  retryCount: number;
 }): Promise<number> {
   const logCtx = {
     scheduledPostId: row.id,
@@ -180,6 +194,21 @@ async function publishOneScheduledPost(row: {
     } finally {
       release();
     }
+
+    // Transient platform outage (e.g. an X token refresh hitting a brief
+    // 503): re-queue with a delay instead of failing, up to the bounded
+    // retry budget. Definitive errors fall through to finishSchedule.
+    if (
+      !outcome.ok &&
+      outcome.errorStatus === 503 &&
+      row.retryCount < SCHEDULED_TRANSIENT_RETRY.maxRetries
+    ) {
+      const requeued = await requeueForTransientRetry(row, outcome.error);
+      if (requeued) return 0;
+      // The row changed mid-publish (e.g. cancelled); nothing more to do.
+      return 0;
+    }
+
     await finishSchedule(row, outcome);
     return 1;
   } catch (err) {
@@ -191,6 +220,54 @@ async function publishOneScheduledPost(row: {
     });
     return 1;
   }
+}
+
+/**
+ * Re-queue a schedule after a transient publish failure: pending again,
+ * pushed out by the retry delay, retry counter bumped, and the transient
+ * error kept in failureReason for visibility. Status-guarded on
+ * "processing" so a mid-flight cancel wins. No tenant notification — the
+ * post is still going to be published. Returns false if the row changed.
+ */
+async function requeueForTransientRetry(
+  row: { id: number; tenantId: number; platform: string; retryCount: number },
+  error: string,
+): Promise<boolean> {
+  const updated = await db
+    .update(scheduledPostsTable)
+    .set({
+      status: "pending",
+      scheduledAt: new Date(Date.now() + SCHEDULED_TRANSIENT_RETRY.delayMs),
+      retryCount: row.retryCount + 1,
+      failureReason: error,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(scheduledPostsTable.id, row.id),
+        eq(scheduledPostsTable.status, "processing"),
+      ),
+    )
+    .returning({ id: scheduledPostsTable.id });
+  if (updated.length === 0) {
+    logger.warn(
+      { scheduledPostId: row.id, tenantId: row.tenantId, platform: row.platform },
+      "Schedule row changed mid-publish; skipping transient-retry requeue",
+    );
+    return false;
+  }
+  logger.info(
+    {
+      scheduledPostId: row.id,
+      tenantId: row.tenantId,
+      platform: row.platform,
+      attempt: row.retryCount + 1,
+      maxRetries: SCHEDULED_TRANSIENT_RETRY.maxRetries,
+      error,
+    },
+    "Scheduled publish hit a transient outage; re-queued for retry",
+  );
+  return true;
 }
 
 /** Result of a user-initiated retry of a failed scheduled post. */

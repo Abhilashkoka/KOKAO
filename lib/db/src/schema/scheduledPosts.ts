@@ -10,6 +10,9 @@ export const scheduledPostsTable = pgTable("scheduled_posts", {
   scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
   status: text("status").notNull().default("pending"),
   failureReason: text("failure_reason"),
+  // Bounded auto-retry bookkeeping: how many times the scheduled publisher
+  // has re-queued this row after a transient (503) publish failure.
+  retryCount: integer("retry_count").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
@@ -20,6 +23,7 @@ export const scheduledPostsTable = pgTable("scheduled_posts", {
 export const insertScheduledPostSchema = createInsertSchema(scheduledPostsTable).omit({
   id: true,
   tenantId: true,
+  retryCount: true,
   createdAt: true,
   updatedAt: true,
 });
