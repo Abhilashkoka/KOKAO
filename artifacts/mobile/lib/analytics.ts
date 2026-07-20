@@ -18,7 +18,8 @@ import * as Crypto from "expo-crypto";
 import * as Device from "expo-device";
 import * as Location from "expo-location";
 import * as Network from "expo-network";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
+import type { AppStateStatus } from "react-native";
 
 const domain = process.env.EXPO_PUBLIC_DOMAIN;
 const INGEST_URL = domain ? `https://${domain}/api/analytics/events` : null;
@@ -246,6 +247,7 @@ export const __analyticsTestHooks = {
   },
   persistQueue,
   restoreQueue,
+  handleAppStateChange: (nextState: AppStateStatus): void => handleAppStateChange(nextState),
 };
 
 export function track(name: string, params?: Record<string, unknown>): void {
@@ -444,9 +446,40 @@ async function trackFirstOpenOnce(): Promise<void> {
   }
 }
 
+/**
+ * When the app leaves the foreground the OS may kill it before the next
+ * 15-second flush tick, losing any events tracked since the last flush.
+ * Flush immediately and then persist whatever the flush couldn't send so
+ * the events survive an app kill. Never throws — analytics must never
+ * break the app.
+ */
+function handleAppStateChange(nextState: AppStateStatus): void {
+  if (nextState !== "background" && nextState !== "inactive") return;
+  void (async () => {
+    try {
+      await flush();
+    } catch {
+      // flush already swallows its own errors; belt and suspenders
+    }
+    try {
+      await persistQueue();
+    } catch {
+      // storage unavailable; best effort
+    }
+  })();
+}
+
 /** Initialize: first-open/session events, startup timing, telemetry probes. */
 export function initAnalytics(appStartedAt: number): void {
   if (flushTimer) return;
+
+  // Persist the freshest events the moment the app is backgrounded, since
+  // the OS can kill it before the next interval flush.
+  try {
+    AppState.addEventListener("change", handleAppStateChange);
+  } catch {
+    // AppState unavailable (e.g. web/test); interval flushes still persist
+  }
 
   // Recover events a previous launch couldn't send (e.g. the app was killed
   // while the network was down).

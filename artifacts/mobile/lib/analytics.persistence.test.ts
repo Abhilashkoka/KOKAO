@@ -125,6 +125,40 @@ describe("mobile analytics queue persistence", () => {
     expect(queue[queue.length - 1]!.name).toBe("fresh");
   });
 
+  it("flushes and persists the remaining queue when the app is backgrounded", async () => {
+    // Simulate an outage so the flush can't send; the events must land in
+    // AsyncStorage the moment the app goes to the background.
+    fetchMock.mockRejectedValue(new Error("network down"));
+    analytics.track("screen_view", { page: "home" });
+    analytics.track("feature_use", { feature: "x" });
+
+    hooks.handleAppStateChange("background");
+    await vi.waitFor(() => {
+      expect(store.get(PENDING_KEY)).toBeDefined();
+    });
+    const stored = JSON.parse(store.get(PENDING_KEY)!) as { name: string }[];
+    expect(stored.map((e) => e.name)).toEqual(["screen_view", "feature_use"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends the queue on background when the network is up and clears storage", async () => {
+    analytics.track("feature_use", { feature: "y" });
+    hooks.handleAppStateChange("inactive");
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+    expect(hooks.getQueue()).toHaveLength(0);
+    expect(store.get(PENDING_KEY)).toBeUndefined();
+  });
+
+  it("ignores foreground transitions", async () => {
+    analytics.track("feature_use", { feature: "z" });
+    hooks.handleAppStateChange("active");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(hooks.getQueue()).toHaveLength(1);
+  });
+
   it("ignores corrupt or malformed persisted data", async () => {
     store.set(PENDING_KEY, "not json");
     await hooks.restoreQueue();
