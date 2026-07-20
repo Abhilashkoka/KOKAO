@@ -1733,6 +1733,7 @@ function CampaignsSection({
                 <TableRow>
                   <TableHead>Campaign</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Schedule</TableHead>
                   <TableHead className="text-right">Budget</TableHead>
                   <TableHead className="text-right">Impressions</TableHead>
                   <TableHead className="text-right">Clicks</TableHead>
@@ -1758,6 +1759,12 @@ function CampaignsSection({
                       )}
                     </TableCell>
                     <TableCell>{statusBadge(c.effectiveStatus)}</TableCell>
+                    <TableCell
+                      className="whitespace-nowrap text-sm text-muted-foreground"
+                      data-testid={`text-campaign-schedule-${c.id}`}
+                    >
+                      {formatScheduleDate(c.startTime)} – {formatScheduleDate(c.stopTime)}
+                    </TableCell>
                     <TableCell className="text-right whitespace-nowrap">
                       {c.dailyBudget != null
                         ? `${formatMoneyMinor(c.dailyBudget, currency)}/day`
