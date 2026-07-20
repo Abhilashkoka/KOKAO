@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { generateWithSeedream, SEEDREAM_MODEL } from "./providers/seedream";
-import { generateWithGemini, GEMINI_MODEL } from "./providers/gemini";
+import { generateWithGemini, GEMINI_IMAGE_MODEL } from "./providers/gemini";
 import { getImageGenProviderDef, IMAGE_GEN_PROVIDERS } from "./index";
 import type { ReferenceImage } from "./types";
 
@@ -84,7 +84,7 @@ describe("reference image support", () => {
     );
 
     await generateWithGemini(
-      { prompt: "make it pop", size: "1024x1024", model: GEMINI_MODEL, referenceImage: reference },
+      { prompt: "make it pop", size: "1024x1024", model: GEMINI_IMAGE_MODEL, referenceImage: reference },
       "key",
     );
     const body = JSON.parse(
@@ -99,7 +99,7 @@ describe("reference image support", () => {
     expect(parts[1]).toEqual({ text: "make it pop" });
 
     await generateWithGemini(
-      { prompt: "make it pop", size: "1024x1024", model: GEMINI_MODEL },
+      { prompt: "make it pop", size: "1024x1024", model: GEMINI_IMAGE_MODEL },
       "key",
     );
     const body2 = JSON.parse(
