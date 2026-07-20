@@ -71,8 +71,23 @@ const ADS = [
     operation_status: "ENABLE",
     secondary_status: "AD_STATUS_DELIVERY_OK",
     adgroup_id: "7200000000000000001",
+    ad_text: "Fresh drops daily. Tap to see what everyone is talking about.",
+    image_ids: ["img-tt-0001"],
+  },
+  {
+    ad_id: "7300000000000000002",
+    ad_name: "TT No Creative Ad",
+    operation_status: "ENABLE",
+    secondary_status: "AD_STATUS_DELIVERY_OK",
+    adgroup_id: "7200000000000000001",
   },
 ];
+
+// 1x1 blue PNG served at /mock-image.png for creative thumbnails.
+const MOCK_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+  "base64",
+);
 
 const METRICS = {
   campaign_id: { impressions: "12345", clicks: "678", ctr: "5.49", spend: "42.5", conversion: "31" },
@@ -184,6 +199,24 @@ const server = http.createServer(async (req, res) => {
   }
   if (path === "/ad/get/") {
     return ok({ list: ADS });
+  }
+
+  if (path === "/file/image/ad/info/") {
+    let ids = [];
+    try {
+      ids = JSON.parse(url.searchParams.get("image_ids") || "[]").map(String);
+    } catch {}
+    const host = req.headers.host || "localhost";
+    return ok({
+      list: ids
+        .filter((id) => ADS.some((a) => (a.image_ids ?? []).includes(id)))
+        .map((id) => ({ image_id: id, image_url: `http://${host}/mock-image.png` })),
+    });
+  }
+
+  if (path === "/mock-image.png/" || path === "/mock-image.png") {
+    res.writeHead(200, { "content-type": "image/png" });
+    return res.end(MOCK_PNG);
   }
 
   if (path === "/report/integrated/get/") {

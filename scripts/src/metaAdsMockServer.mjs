@@ -50,12 +50,40 @@ const DEFAULT_STATE = {
       bid_strategy: "LOWEST_COST_WITHOUT_CAP",
     },
   },
+  ads: {
+    "140000000000001": {
+      id: "140000000000001",
+      campaign: "120000000000001",
+      adset_id: "130000000000001",
+      name: "Summer Sale - Image Ad",
+      status: "PAUSED",
+      creative: {
+        body: "Summer Sale is on! Get 30% off everything this week only.",
+        thumbnail_url: null, // filled at request time with this mock's own URL
+      },
+    },
+    "140000000000002": {
+      id: "140000000000002",
+      campaign: "120000000000001",
+      adset_id: "130000000000001",
+      name: "Summer Sale - No Creative Ad",
+      status: "PAUSED",
+      creative: null,
+    },
+  },
 };
+
+// 1x1 red PNG served at /mock-image.png for creative thumbnails.
+const MOCK_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
 
 let state;
 try {
   state = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
   if (!state.adSets) state.adSets = structuredClone(DEFAULT_STATE.adSets);
+  if (!state.ads) state.ads = structuredClone(DEFAULT_STATE.ads);
 } catch {
   state = structuredClone(DEFAULT_STATE);
 }
@@ -234,8 +262,35 @@ const server = http.createServer(async (req, res) => {
     });
   }
   if (req.method === "GET" && /\/ads$/.test(path)) {
+    const campaignId = path.split("/")[0];
     record({ method: "GET", path, kind: "list_ads" });
-    return send({ data: [] });
+    const host = req.headers.host || "localhost";
+    return send({
+      data: Object.values(state.ads ?? {})
+        .filter((a) => a.campaign === campaignId)
+        .map((a) => ({
+          id: a.id,
+          name: a.name,
+          status: a.status,
+          effective_status: a.status,
+          adset_id: a.adset_id,
+          ...(a.creative
+            ? {
+                creative: {
+                  ...a.creative,
+                  thumbnail_url:
+                    a.creative.thumbnail_url ?? `http://${host}/mock-image.png`,
+                },
+              }
+            : {}),
+        })),
+    });
+  }
+
+  // Creative thumbnail image
+  if (req.method === "GET" && path === "mock-image.png") {
+    res.writeHead(200, { "content-type": "image/png" });
+    return res.end(MOCK_PNG);
   }
 
   // Single object reads: ad account or campaign
