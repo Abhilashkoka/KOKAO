@@ -307,7 +307,7 @@ export function AdsPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="space-y-4">
         <ConnectionSection
           metaConn={metaConn}
           metaAvailable={status?.platforms.find((p) => p.platform === "meta")?.available ?? false}
@@ -473,9 +473,10 @@ function ConnectionSection({
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="space-y-4">
     <Card>
-      <CardHeader>
+      <div className="flex flex-col lg:flex-row lg:items-center">
+      <CardHeader className="lg:max-w-sm lg:shrink-0">
         <CardTitle className="flex items-center gap-2">
           <Megaphone className="h-5 w-5" /> Meta Ads
         </CardTitle>
@@ -484,7 +485,7 @@ function ConnectionSection({
           campaigns.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 lg:flex-1 lg:pt-6 lg:flex lg:flex-col lg:items-end">
         {!metaConn && (
           <div className="flex flex-col sm:flex-row gap-3">
             <Button
@@ -559,6 +560,7 @@ function ConnectionSection({
           </div>
         )}
       </CardContent>
+      </div>
     </Card>
     <GoogleConnectionCard
       googleConn={googleConn}
@@ -606,7 +608,8 @@ function GoogleConnectionCard({
 
   return (
     <Card>
-      <CardHeader>
+      <div className="flex flex-col lg:flex-row lg:items-center">
+      <CardHeader className="lg:max-w-sm lg:shrink-0">
         <CardTitle className="flex items-center gap-2">
           <Megaphone className="h-5 w-5" /> Google Ads
         </CardTitle>
@@ -615,7 +618,7 @@ function GoogleConnectionCard({
           manager account) this workspace manages.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 lg:flex-1 lg:pt-6 lg:flex lg:flex-col lg:items-end">
         {!googleConn && (
           <Button
             onClick={startOAuth}
@@ -681,6 +684,7 @@ function GoogleConnectionCard({
           </div>
         )}
       </CardContent>
+      </div>
     </Card>
   );
 }
@@ -817,7 +821,8 @@ function LinkedinConnectionSection({
 
   return (
     <Card>
-      <CardHeader>
+      <div className="flex flex-col lg:flex-row lg:items-center">
+      <CardHeader className="lg:max-w-sm lg:shrink-0">
         <CardTitle className="flex items-center gap-2">
           <Megaphone className="h-5 w-5" /> LinkedIn Ads
         </CardTitle>
@@ -825,7 +830,7 @@ function LinkedinConnectionSection({
           Connect the LinkedIn ad account behind your sponsored campaigns.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 lg:flex-1 lg:pt-6 lg:flex lg:flex-col lg:items-end">
         {!linkedinConn && (
           <Button
             onClick={startOAuth}
@@ -891,6 +896,7 @@ function LinkedinConnectionSection({
           </div>
         )}
       </CardContent>
+      </div>
     </Card>
   );
 }
@@ -1230,7 +1236,8 @@ function TiktokConnectionSection({
 
   return (
     <Card>
-      <CardHeader>
+      <div className="flex flex-col lg:flex-row lg:items-center">
+      <CardHeader className="lg:max-w-sm lg:shrink-0">
         <CardTitle className="flex items-center gap-2">
           <TrendingUp className="h-5 w-5" /> TikTok Ads
         </CardTitle>
@@ -1239,7 +1246,7 @@ function TiktokConnectionSection({
           campaigns.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 lg:flex-1 lg:pt-6 lg:flex lg:flex-col lg:items-end">
         {!tiktokConn && (
           <div className="flex flex-col sm:flex-row gap-3">
             <Button
@@ -1307,6 +1314,7 @@ function TiktokConnectionSection({
           </div>
         )}
       </CardContent>
+      </div>
     </Card>
   );
 }
