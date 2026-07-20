@@ -55,6 +55,17 @@ const DEFAULT_STATE = {
       id: "140000000000001",
       campaign: "120000000000001",
       adset_id: "130000000000001",
+      name: "Summer Sale - Carousel Ad",
+      status: "ACTIVE",
+      creative: {
+        body: "Shop the Summer Sale - up to 40% off.",
+        image_url: null,
+      },
+    },
+    "140000000000002": {
+      id: "140000000000002",
+      campaign: "120000000000001",
+      adset_id: "130000000000001",
       name: "Summer Sale - Image Ad",
       status: "PAUSED",
       creative: {
@@ -62,8 +73,8 @@ const DEFAULT_STATE = {
         thumbnail_url: null, // filled at request time with this mock's own URL
       },
     },
-    "140000000000002": {
-      id: "140000000000002",
+    "140000000000003": {
+      id: "140000000000003",
       campaign: "120000000000001",
       adset_id: "130000000000001",
       name: "Summer Sale - No Creative Ad",
@@ -107,6 +118,17 @@ function campaignFields(c) {
     lifetime_budget: c.lifetime_budget ?? undefined,
     start_time: c.start_time ?? undefined,
     stop_time: c.stop_time ?? undefined,
+  };
+}
+
+function adFields(a) {
+  return {
+    id: a.id,
+    name: a.name,
+    status: a.status,
+    effective_status: a.status,
+    adset_id: a.adset_id ?? undefined,
+    creative: a.creative ?? undefined,
   };
 }
 
@@ -269,11 +291,7 @@ const server = http.createServer(async (req, res) => {
       data: Object.values(state.ads ?? {})
         .filter((a) => a.campaign === campaignId)
         .map((a) => ({
-          id: a.id,
-          name: a.name,
-          status: a.status,
-          effective_status: a.status,
-          adset_id: a.adset_id,
+          ...adFields(a),
           ...(a.creative
             ? {
                 creative: {
@@ -304,6 +322,8 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method === "GET" && /^\d+$/.test(path)) {
     record({ method: "GET", path, kind: "read_object" });
+    const a = (state.ads ?? {})[path];
+    if (a) return send({ id: a.id, name: a.name, status: a.status });
     const s = state.adSets[path];
     if (s) return send(adSetFields(s));
     const c = state.campaigns[path];
@@ -313,6 +333,20 @@ const server = http.createServer(async (req, res) => {
 
   // Update object: POST <id>
   if (req.method === "POST" && /^\d+$/.test(path)) {
+    const a = (state.ads ?? {})[path];
+    if (a) {
+      const changed = {};
+      for (const key of ["name", "status"]) {
+        const v = params.get(key);
+        if (v != null) {
+          a[key] = v;
+          changed[key] = v;
+        }
+      }
+      saveState();
+      record({ method: "POST", path, kind: "update_ad", changed });
+      return send({ success: true });
+    }
     const s = state.adSets[path];
     if (s) {
       const changed = {};
