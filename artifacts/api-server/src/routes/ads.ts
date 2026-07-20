@@ -2348,7 +2348,7 @@ router.post(
         bidAmount: input.bidAmount,
         bidStrategy: input.bidStrategy,
         targetingLocations,
-      });
+      }, { platform: conn.platform });
       if (changes.length === 0) {
         res.status(400).json({
           error: "Nothing would change — the proposed values match the current state.",

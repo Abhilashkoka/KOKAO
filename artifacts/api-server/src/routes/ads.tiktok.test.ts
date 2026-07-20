@@ -295,6 +295,87 @@ describe("tiktok draft rules", () => {
     }
   });
 
+  it("labels a daily→lifetime budget mode flip on a TikTok ad group", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      // ADGROUP_STATE currently holds a daily budget; drafting a lifetime
+      // budget flips the ad group's budget_mode on apply.
+      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "adset",
+        targetId: "ag_1",
+        status: undefined,
+        dailyBudget: undefined,
+        lifetimeBudget: 20000,
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.changes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field: "Budget type",
+            before: "Daily",
+            after: "Lifetime (total)",
+          }),
+          expect.objectContaining({
+            field: "Lifetime budget (minor units)",
+            before: null,
+            after: "20000",
+          }),
+        ]),
+      );
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("labels a lifetime→daily budget mode flip on a TikTok ad group", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      mockReadAdGroup.mockResolvedValue({
+        ...ADGROUP_STATE,
+        dailyBudget: null,
+        lifetimeBudget: 50000,
+      });
+      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "adset",
+        targetId: "ag_1",
+        status: undefined,
+        dailyBudget: 9000,
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.changes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field: "Budget type",
+            before: "Lifetime (total)",
+            after: "Daily",
+          }),
+        ]),
+      );
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("adds no budget-type change when the drafted budget keeps the same mode", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "adset",
+        targetId: "ag_1",
+        status: undefined,
+        dailyBudget: 9000,
+      });
+      expect(res.status).toBe(201);
+      const fields = (res.body.changes as { field: string }[]).map((c) => c.field);
+      expect(fields).not.toContain("Budget type");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("accepts schedule fields on TikTok ad groups, normalized to TikTok time", async () => {
     const tenant = await createTenant();
     try {

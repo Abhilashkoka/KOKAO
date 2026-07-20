@@ -699,6 +699,14 @@ export function buildUpdateDiff(
     targetingLocations?: TargetingLocation[] | null;
     targetingFacets?: ProposedTargetingFacets | null;
   },
+  opts?: {
+    /**
+     * Platform of the connection. TikTok objects hold a single budget_mode
+     * (daily vs lifetime/total), so a drafted budget in the other mode FLIPS
+     * the mode on apply — surface that as an explicit "Budget type" change.
+     */
+    platform?: string;
+  },
 ): AdChangeField[] {
   const fields: AdChangeField[] = [];
   if (proposed.name != null && proposed.name !== before.name) {
@@ -706,6 +714,31 @@ export function buildUpdateDiff(
   }
   if (proposed.status != null && proposed.status !== before.status) {
     fields.push({ field: "Status", before: before.status, after: proposed.status });
+  }
+  if (opts?.platform === "tiktok") {
+    // TikTok apply sends budget_mode alongside budget: a daily budget wins
+    // over a lifetime one when both are present (mirrors tiktokAdsApi).
+    const beforeMode =
+      before.dailyBudget != null
+        ? "Daily"
+        : before.lifetimeBudget != null
+          ? "Lifetime (total)"
+          : null;
+    const afterMode =
+      proposed.dailyBudget != null
+        ? "Daily"
+        : proposed.lifetimeBudget != null
+          ? "Lifetime (total)"
+          : null;
+    if (beforeMode != null && afterMode != null && beforeMode !== afterMode) {
+      fields.push({
+        field: "Budget type",
+        before: beforeMode,
+        after: afterMode,
+        afterDetail:
+          "TikTok keeps a single budget type per object — applying this draft switches it.",
+      });
+    }
   }
   if (proposed.dailyBudget != null && proposed.dailyBudget !== before.dailyBudget) {
     fields.push({

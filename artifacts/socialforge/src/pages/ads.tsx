@@ -86,6 +86,7 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   ArrowRight,
   ImagePlus,
   MapPin,
@@ -97,6 +98,7 @@ import {
   Wallet,
   CalendarIcon,
 } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   MetaIcon,
@@ -2268,6 +2270,34 @@ export function DraftDialog({
   const isGoogleAdGroup = isGoogle && state.targetType === "adset";
   const nameLocked = isGoogle && state.targetType === "ad";
 
+  // TikTok ad groups hold a single budget_mode: daily OR lifetime (total).
+  // Drafting a budget in the other mode silently switches the mode on apply,
+  // so surface the current mode and warn about the flip. `form` (not `state`)
+  // reflects the ad group's current budgets at open time.
+  const tiktokBudgetModeTarget =
+    isTiktok && state.action === "update" && state.targetType === "adset";
+  const currentTiktokMode: "daily" | "lifetime" | null = !tiktokBudgetModeTarget
+    ? null
+    : form.dailyBudget
+      ? "daily"
+      : form.lifetimeBudget
+        ? "lifetime"
+        : null;
+  // The server-side apply prefers a daily budget when both are sent.
+  const draftedTiktokMode: "daily" | "lifetime" | null = !tiktokBudgetModeTarget
+    ? null
+    : state.dailyBudget.trim()
+      ? "daily"
+      : state.lifetimeBudget.trim()
+        ? "lifetime"
+        : null;
+  const tiktokModeFlips =
+    currentTiktokMode != null &&
+    draftedTiktokMode != null &&
+    draftedTiktokMode !== currentTiktokMode;
+  const tiktokModeLabel = (m: "daily" | "lifetime") =>
+    m === "daily" ? "daily" : "lifetime (total)";
+
   const isLinkedin = platform === "linkedin";
   const { data: groupData } = useListLinkedinCampaignGroups(
     { connectionId },
@@ -2523,6 +2553,26 @@ export function DraftDialog({
                 </div>
               )}
             </div>
+          )}
+          {tiktokBudgetModeTarget && currentTiktokMode != null && (
+            <p
+              className="text-xs text-muted-foreground"
+              data-testid="text-tiktok-budget-mode"
+            >
+              This TikTok ad group currently uses a {tiktokModeLabel(currentTiktokMode)}{" "}
+              budget.
+            </p>
+          )}
+          {tiktokModeFlips && currentTiktokMode != null && draftedTiktokMode != null && (
+            <Alert data-testid="alert-tiktok-budget-mode-flip">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                Applying this draft will switch the ad group's budget type from{" "}
+                {tiktokModeLabel(currentTiktokMode)} to {tiktokModeLabel(draftedTiktokMode)}.
+                TikTok ad groups keep a single budget type, so the current{" "}
+                {tiktokModeLabel(currentTiktokMode)} budget stops applying.
+              </AlertDescription>
+            </Alert>
           )}
           {showBids && (
             <div className="grid grid-cols-2 gap-4">
