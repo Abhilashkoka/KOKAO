@@ -202,6 +202,9 @@ export interface MetaAdSet {
   startTime: string | null;
   /** Meta ad sets call this `end_time` (campaigns use `stop_time`). */
   stopTime: string | null;
+  /** Bid cap / cost cap in minor currency units; null when the ad set has no cap. */
+  bidAmount: number | null;
+  bidStrategy: string | null;
 }
 
 export async function listAdSets(
@@ -213,9 +216,10 @@ export async function listAdSets(
       id?: string; name?: string; status?: string; effective_status?: string;
       daily_budget?: string; lifetime_budget?: string;
       start_time?: string; end_time?: string;
+      bid_amount?: string; bid_strategy?: string;
     }[];
   }>(`${encodeURIComponent(campaignId)}/adsets`, token, {
-    fields: "id,name,status,effective_status,daily_budget,lifetime_budget,start_time,end_time",
+    fields: "id,name,status,effective_status,daily_budget,lifetime_budget,start_time,end_time,bid_amount,bid_strategy",
     limit: "100",
   });
   return (json.data ?? []).map((s) => ({
@@ -227,6 +231,8 @@ export async function listAdSets(
     lifetimeBudget: toNum(s.lifetime_budget),
     startTime: s.start_time ?? null,
     stopTime: s.end_time ?? null,
+    bidAmount: toNum(s.bid_amount),
+    bidStrategy: s.bid_strategy ?? null,
   }));
 }
 

@@ -6286,6 +6286,8 @@ export const GetAdCampaignDetailResponse = zod.object({
   "lifetimeBudget": zod.number().nullish(),
   "startTime": zod.string().nullish(),
   "stopTime": zod.string().nullish(),
+  "bidAmount": zod.number().nullish().describe('Meta only — bid cap \/ cost cap in minor currency units, null when no cap is set.'),
+  "bidStrategy": zod.string().nullish().describe('Meta only — the ad set\'s current bid strategy.'),
   "metrics": zod.object({
   "impressions": zod.number(),
   "clicks": zod.number(),

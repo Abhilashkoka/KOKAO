@@ -271,6 +271,25 @@ function minorStrToMajorStr(v: string): string {
   return Number.isFinite(n) ? String(n / 100) : "";
 }
 
+const BID_STRATEGY_LABELS: Record<string, string> = {
+  LOWEST_COST_WITHOUT_CAP: "Lowest cost",
+  LOWEST_COST_WITH_BID_CAP: "Bid cap",
+  COST_CAP: "Cost cap",
+};
+
+/** Render a Meta ad set's current bid, e.g. "Cost cap · USD 2.50". */
+function formatBid(
+  strategy: string | null | undefined,
+  amountMinor: number | null | undefined,
+  currency: string | null,
+) {
+  if (!strategy && amountMinor == null) return "—";
+  const label = strategy ? (BID_STRATEGY_LABELS[strategy] ?? strategy) : null;
+  const amount = amountMinor != null ? formatMoneyMinor(amountMinor, currency) : null;
+  if (label && amount) return `${label} · ${amount}`;
+  return label ?? amount ?? "—";
+}
+
 function formatSpend(spend: number, currency: string | null) {
   return `${currency ? `${currency} ` : ""}${spend.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
@@ -1849,6 +1868,9 @@ function CampaignDetailDialog({
                       <TableHead className="text-right">
                         {platform === "google" ? "Default CPC bid" : "Budget"}
                       </TableHead>
+                      {platform === "meta" && (
+                        <TableHead className="text-right">Bid</TableHead>
+                      )}
                       <TableHead className="text-right">Impressions</TableHead>
                       <TableHead className="text-right">Spend</TableHead>
                       <TableHead />
@@ -1873,6 +1895,14 @@ function CampaignDetailDialog({
                               ? `${formatMoneyMinor(s.dailyBudget, currency)}/day`
                               : formatMoneyMinor(s.lifetimeBudget, currency)}
                         </TableCell>
+                        {platform === "meta" && (
+                          <TableCell
+                            className="text-right whitespace-nowrap"
+                            data-testid={`text-adset-bid-${s.id}`}
+                          >
+                            {formatBid(s.bidStrategy, s.bidAmount, currency)}
+                          </TableCell>
+                        )}
                         <TableCell className="text-right">
                           {s.metrics.impressions.toLocaleString()}
                         </TableCell>
@@ -1899,6 +1929,9 @@ function CampaignDetailDialog({
                                     s.lifetimeBudget != null ? String(s.lifetimeBudget) : "",
                                   startTime: s.startTime ?? "",
                                   stopTime: s.stopTime ?? "",
+                                  bidAmount:
+                                    s.bidAmount != null ? String(s.bidAmount) : "",
+                                  bidStrategy: s.bidStrategy ?? "",
                                 })
                               }
                               data-testid={`button-edit-adset-${s.id}`}

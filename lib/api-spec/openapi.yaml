@@ -8872,6 +8872,12 @@ components:
           type: ["string", "null"]
         stopTime:
           type: ["string", "null"]
+        bidAmount:
+          type: ["integer", "null"]
+          description: Meta only — bid cap / cost cap in minor currency units, null when no cap is set.
+        bidStrategy:
+          type: ["string", "null"]
+          description: Meta only — the ad set's current bid strategy.
         metrics:
           $ref: "#/components/schemas/AdsMetrics"
     AdsAd:

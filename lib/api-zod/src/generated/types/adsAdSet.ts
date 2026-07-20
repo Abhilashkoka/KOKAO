@@ -20,5 +20,15 @@ export interface AdsAdSet {
   startTime?: string | null;
   /** @nullable */
   stopTime?: string | null;
+  /**
+     * Meta only — bid cap / cost cap in minor currency units, null when no cap is set.
+     * @nullable
+     */
+  bidAmount?: number | null;
+  /**
+     * Meta only — the ad set's current bid strategy.
+     * @nullable
+     */
+  bidStrategy?: string | null;
   metrics: AdsMetrics;
 }
