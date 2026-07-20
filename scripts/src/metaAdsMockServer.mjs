@@ -46,6 +46,8 @@ const DEFAULT_STATE = {
       lifetime_budget: null,
       start_time: "2026-07-01T00:00:00+0000",
       end_time: "2026-07-31T00:00:00+0000",
+      bid_amount: null,
+      bid_strategy: "LOWEST_COST_WITHOUT_CAP",
     },
   },
 };
@@ -90,6 +92,8 @@ function adSetFields(s) {
     lifetime_budget: s.lifetime_budget ?? undefined,
     start_time: s.start_time ?? undefined,
     end_time: s.end_time ?? undefined,
+    bid_amount: s.bid_amount ?? undefined,
+    bid_strategy: s.bid_strategy ?? undefined,
   };
 }
 
@@ -217,6 +221,8 @@ const server = http.createServer(async (req, res) => {
         "lifetime_budget",
         "start_time",
         "end_time",
+        "bid_amount",
+        "bid_strategy",
       ]) {
         const v = params.get(key);
         if (v != null) {
