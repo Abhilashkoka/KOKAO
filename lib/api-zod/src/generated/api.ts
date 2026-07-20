@@ -6114,7 +6114,29 @@ export const SearchLinkedinGeoTargetsQueryParams = zod.object({
 
 export const SearchLinkedinGeoTargetsResponse = zod.object({
   "results": zod.array(zod.object({
-  "urn": zod.string().describe('LinkedIn geo URN, e.g. urn:li:geo:103644278.'),
+  "urn": zod.string().describe('LinkedIn targeting entity URN, e.g. urn:li:geo:103644278 or urn:li:industry:4.'),
+  "name": zod.string()
+}))
+})
+
+
+/**
+ * @summary Typeahead search for LinkedIn targeting entities within one facet
+ */
+export const searchLinkedinTargetingQueryQMin = 2;
+export const searchLinkedinTargetingQueryQMax = 100;
+
+
+
+export const SearchLinkedinTargetingQueryParams = zod.object({
+  "connectionId": zod.coerce.number().describe('The ad account connection to read from.'),
+  "facet": zod.enum(['locations', 'industries', 'jobFunctions', 'titles']),
+  "q": zod.coerce.string().min(searchLinkedinTargetingQueryQMin).max(searchLinkedinTargetingQueryQMax)
+})
+
+export const SearchLinkedinTargetingResponse = zod.object({
+  "results": zod.array(zod.object({
+  "urn": zod.string().describe('LinkedIn targeting entity URN, e.g. urn:li:geo:103644278 or urn:li:industry:4.'),
   "name": zod.string()
 }))
 })
@@ -6265,6 +6287,12 @@ export const createAdDraftBodyTextMax = 3000;
 
 export const createAdDraftBodyTargetingLocationsMax = 50;
 
+export const createAdDraftBodyTargetingIndustriesMax = 50;
+
+export const createAdDraftBodyTargetingJobFunctionsMax = 50;
+
+export const createAdDraftBodyTargetingTitlesMax = 50;
+
 
 
 export const CreateAdDraftBody = zod.object({
@@ -6286,9 +6314,21 @@ export const CreateAdDraftBody = zod.object({
   "imagePath": zod.string().nullish().describe('LinkedIn creative creates — content library image path (`\/objects\/<tenantId>\/uploads\/<uuid>`).'),
   "landingUrl": zod.string().nullish().describe('LinkedIn creative creates — click-through landing page URL (https).'),
   "targetingLocations": zod.array(zod.object({
-  "urn": zod.string().describe('LinkedIn geo URN, e.g. urn:li:geo:103644278.'),
+  "urn": zod.string().describe('LinkedIn targeting entity URN, e.g. urn:li:geo:103644278 or urn:li:industry:4.'),
   "name": zod.string()
-})).max(createAdDraftBodyTargetingLocationsMax).optional().describe('LinkedIn campaigns — replacement location targeting (geo URNs picked via geo search).')
+})).max(createAdDraftBodyTargetingLocationsMax).optional().describe('LinkedIn campaigns — replacement location targeting (geo URNs picked via targeting search). Must be non-empty when provided.'),
+  "targetingIndustries": zod.array(zod.object({
+  "urn": zod.string().describe('LinkedIn targeting entity URN, e.g. urn:li:geo:103644278 or urn:li:industry:4.'),
+  "name": zod.string()
+})).max(createAdDraftBodyTargetingIndustriesMax).optional().describe('LinkedIn campaign updates — replacement industry targeting (urn:li:industry URNs). An empty array clears the facet.'),
+  "targetingJobFunctions": zod.array(zod.object({
+  "urn": zod.string().describe('LinkedIn targeting entity URN, e.g. urn:li:geo:103644278 or urn:li:industry:4.'),
+  "name": zod.string()
+})).max(createAdDraftBodyTargetingJobFunctionsMax).optional().describe('LinkedIn campaign updates — replacement job function targeting (urn:li:function URNs). An empty array clears the facet.'),
+  "targetingTitles": zod.array(zod.object({
+  "urn": zod.string().describe('LinkedIn targeting entity URN, e.g. urn:li:geo:103644278 or urn:li:industry:4.'),
+  "name": zod.string()
+})).max(createAdDraftBodyTargetingTitlesMax).optional().describe('LinkedIn campaign updates — replacement job title targeting (urn:li:title URNs). An empty array clears the facet.')
 })
 
 export const CreateAdDraftResponse = zod.object({

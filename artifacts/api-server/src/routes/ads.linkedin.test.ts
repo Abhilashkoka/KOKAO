@@ -68,6 +68,7 @@ vi.mock("../lib/linkedinAdsApi", async (importOriginal) => {
     listLinkedinCreatives: vi.fn(),
     readLinkedinPostPreview: vi.fn(),
     searchLinkedinGeoLocations: vi.fn(),
+    searchLinkedinTargetingEntities: vi.fn(),
   };
 });
 
@@ -103,6 +104,7 @@ import {
   listLinkedinCreatives,
   readLinkedinPostPreview,
   searchLinkedinGeoLocations,
+  searchLinkedinTargetingEntities,
   LinkedinAdsApiError,
 } from "../lib/linkedinAdsApi";
 import { platformFetch } from "../lib/platformFetch";
@@ -134,6 +136,7 @@ const mockUpdateCreative = vi.mocked(updateLinkedinCreative);
 const mockListCreatives = vi.mocked(listLinkedinCreatives);
 const mockReadPostPreview = vi.mocked(readLinkedinPostPreview);
 const mockGeoSearch = vi.mocked(searchLinkedinGeoLocations);
+const mockTargetingSearch = vi.mocked(searchLinkedinTargetingEntities);
 const mockPlatformFetch = vi.mocked(platformFetch);
 
 function createAdsTestApp(): Express {
@@ -162,6 +165,9 @@ const REMOTE_STATE = {
   startTime: null,
   stopTime: null,
   targetingLocations: [] as string[],
+  targetingIndustries: [] as string[],
+  targetingJobFunctions: [] as string[],
+  targetingTitles: [] as string[],
 };
 
 async function insertLinkedinAdConnection(
@@ -570,13 +576,9 @@ describe("LinkedIn draft apply", () => {
       expect(groupChange!.afterDetail).toBe("grp_1");
 
       mockReadState.mockResolvedValue({
+        ...REMOTE_STATE,
         name: "LI Launch",
-        status: "PAUSED",
         dailyBudget: 10000,
-        lifetimeBudget: null,
-        startTime: null,
-        stopTime: null,
-        targetingLocations: [] as string[],
       });
       const res = await request(app).post(
         `/api/ads/drafts/${draftRes.body.id}/approve`,
@@ -1310,10 +1312,12 @@ describe("LinkedIn location targeting", () => {
       expect(res.body.status).toBe("applied");
       expect(mockUpdate).toHaveBeenCalledTimes(1);
       const params = mockUpdate.mock.calls[0]![3] as unknown as Record<string, unknown>;
-      expect(params.targetingLocations).toEqual([
-        "urn:li:geo:102713980",
-        "urn:li:geo:103644278",
-      ]);
+      expect(params.targetingFacets).toEqual({
+        locations: ["urn:li:geo:102713980", "urn:li:geo:103644278"],
+        industries: [],
+        jobFunctions: [],
+        titles: [],
+      });
     } finally {
       await deleteTenant(tenant.tenantId);
     }
@@ -1332,7 +1336,174 @@ describe("LinkedIn location targeting", () => {
         targetingLocations: [{ urn: "urn:li:organization:1", name: "Nope" }],
       });
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain("geo URN");
+      expect(res.body.error).toContain("valid LinkedIn URN");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("LinkedIn facet targeting (industries, job functions, titles)", () => {
+  it("searches targeting entities per facet through the typeahead endpoint", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      mockTargetingSearch.mockResolvedValue([
+        { urn: "urn:li:industry:4", name: "Software Development" },
+      ]);
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .get("/api/ads/linkedin/targeting-search")
+        .query({ connectionId, facet: "industries", q: "soft" });
+      expect(res.status).toBe(200);
+      expect(res.body.results).toEqual([
+        { urn: "urn:li:industry:4", name: "Software Development" },
+      ]);
+      expect(mockTargetingSearch).toHaveBeenCalledWith(
+        "li-ads-token",
+        "industries",
+        "soft",
+      );
+
+      const badFacet = await request(app)
+        .get("/api/ads/linkedin/targeting-search")
+        .query({ connectionId, facet: "companies", q: "soft" });
+      expect(badFacet.status).toBe(400);
+
+      const shortQ = await request(app)
+        .get("/api/ads/linkedin/targeting-search")
+        .query({ connectionId, facet: "industries", q: "s" });
+      expect(shortQ.status).toBe(400);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("drafts, diffs, and applies an industry + title change while preserving untouched facets", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      const beforeState = {
+        ...REMOTE_STATE,
+        targetingLocations: ["urn:li:geo:102713980"],
+        targetingJobFunctions: ["urn:li:function:12"],
+      };
+      mockReadState.mockResolvedValueOnce(beforeState); // draft creation read
+      mockReadState.mockResolvedValueOnce(beforeState); // approve drift check
+      mockReadState.mockResolvedValue({
+        ...beforeState,
+        targetingIndustries: ["urn:li:industry:4"],
+        targetingTitles: ["urn:li:title:100"],
+      }); // post-apply verify read
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign",
+        action: "update",
+        targetId: "cmp_1",
+        targetingIndustries: [
+          { urn: "urn:li:industry:4", name: "Software Development" },
+        ],
+        targetingTitles: [{ urn: "urn:li:title:100", name: "Product Manager" }],
+      });
+      expect(draftRes.status).toBe(201);
+      const changes = draftRes.body.changes as { field: string; after: string }[];
+      expect(changes.find((c) => c.field === "Target industries")?.after).toBe(
+        "Software Development",
+      );
+      expect(changes.find((c) => c.field === "Target job titles")?.after).toBe(
+        "Product Manager",
+      );
+      expect(changes.find((c) => c.field === "Target locations")).toBeUndefined();
+      expect(changes.find((c) => c.field === "Target job functions")).toBeUndefined();
+
+      const res = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("applied");
+      expect(res.body.verifyStatus).toBe("verified");
+      expect(mockUpdate).toHaveBeenCalledTimes(1);
+      const params = mockUpdate.mock.calls[0]![3] as unknown as Record<string, unknown>;
+      expect(params.targetingFacets).toEqual({
+        locations: ["urn:li:geo:102713980"],
+        industries: ["urn:li:industry:4"],
+        jobFunctions: ["urn:li:function:12"],
+        titles: ["urn:li:title:100"],
+      });
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("clears a facet with an empty array", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      mockReadState.mockResolvedValue({
+        ...REMOTE_STATE,
+        targetingLocations: ["urn:li:geo:102713980"],
+        targetingIndustries: ["urn:li:industry:4"],
+      });
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign",
+        action: "update",
+        targetId: "cmp_1",
+        targetingIndustries: [],
+      });
+      expect(draftRes.status).toBe(201);
+      const changes = draftRes.body.changes as { field: string; after: string }[];
+      expect(changes.find((c) => c.field === "Target industries")?.after).toBe(
+        "(none)",
+      );
+
+      const res = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("applied");
+      const params = mockUpdate.mock.calls[0]![3] as unknown as Record<string, unknown>;
+      expect(params.targetingFacets).toEqual({
+        locations: ["urn:li:geo:102713980"],
+        industries: [],
+        jobFunctions: [],
+        titles: [],
+      });
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects facet targeting on create drafts and malformed facet URNs", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const createRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign",
+        action: "create",
+        name: "New Campaign",
+        campaignGroupId: "grp_1",
+        dailyBudget: 1000,
+        targetingIndustries: [
+          { urn: "urn:li:industry:4", name: "Software Development" },
+        ],
+      });
+      expect(createRes.status).toBe(400);
+      expect(createRes.body.error).toContain("existing campaign");
+
+      const badUrn = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign",
+        action: "update",
+        targetId: "cmp_1",
+        targetingIndustries: [{ urn: "urn:li:geo:1", name: "Nope" }],
+      });
+      expect(badUrn.status).toBe(400);
+      expect(badUrn.body.error).toContain("valid LinkedIn URN");
     } finally {
       await deleteTenant(tenant.tenantId);
     }

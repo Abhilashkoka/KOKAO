@@ -4887,6 +4887,45 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/linkedin/targeting-search:
+    get:
+      operationId: searchLinkedinTargeting
+      tags: [ads]
+      summary: Typeahead search for LinkedIn targeting entities within one facet
+      parameters:
+        - $ref: "#/components/parameters/AdsConnectionId"
+        - name: facet
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [locations, industries, jobFunctions, titles]
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+      responses:
+        "200":
+          description: Matching targeting entities
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdsGeoSearchResult"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Platform error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ads/campaigns:
     get:
       operationId: listAdCampaigns
@@ -8841,14 +8880,32 @@ components:
           maxItems: 50
           items:
             $ref: "#/components/schemas/AdsTargetingLocation"
-          description: LinkedIn campaigns — replacement location targeting (geo URNs picked via geo search).
+          description: LinkedIn campaigns — replacement location targeting (geo URNs picked via targeting search). Must be non-empty when provided.
+        targetingIndustries:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/AdsTargetingLocation"
+          description: LinkedIn campaign updates — replacement industry targeting (urn:li:industry URNs). An empty array clears the facet.
+        targetingJobFunctions:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/AdsTargetingLocation"
+          description: LinkedIn campaign updates — replacement job function targeting (urn:li:function URNs). An empty array clears the facet.
+        targetingTitles:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/AdsTargetingLocation"
+          description: LinkedIn campaign updates — replacement job title targeting (urn:li:title URNs). An empty array clears the facet.
     AdsTargetingLocation:
       type: object
       required: [urn, name]
       properties:
         urn:
           type: string
-          description: LinkedIn geo URN, e.g. urn:li:geo:103644278.
+          description: LinkedIn targeting entity URN, e.g. urn:li:geo:103644278 or urn:li:industry:4.
         name:
           type: string
     AdsGeoSearchResult:

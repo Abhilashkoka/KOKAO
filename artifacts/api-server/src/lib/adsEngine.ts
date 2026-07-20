@@ -41,6 +41,7 @@ import {
   readLinkedinCampaignState,
   readLinkedinCampaignGroupState,
   type LinkedinAdsCredentials,
+  type LinkedinTargetingFacetKey,
   readLinkedinCreativeState,
   getLinkedinAdAccountReference,
   uploadLinkedinAdImage,
@@ -248,6 +249,8 @@ interface UpdateParams {
   stopTime?: string;
   /** LinkedIn only: replacement location targeting URNs (deduped + sorted). */
   targetingLocations?: string[];
+  /** LinkedIn only: full replacement of targeting across all managed facets. */
+  targetingFacets?: Partial<Record<LinkedinTargetingFacetKey, string[]>>;
 }
 
 /**
@@ -444,6 +447,7 @@ const linkedinOps: PlatformOps = {
       stopTime: params.stopTime ?? undefined,
       currency: conn.currency ?? "USD",
       targetingLocations: params.targetingLocations,
+      targetingFacets: params.targetingFacets,
     });
   },
   create: async (conn, params) => {
@@ -605,6 +609,12 @@ export interface RemoteSnapshot {
   stopTime: string | null;
   /** LinkedIn campaigns only: targeted location geo URNs (sorted). */
   targetingLocations?: string[];
+  /** LinkedIn campaigns only: targeted industry URNs (sorted). */
+  targetingIndustries?: string[];
+  /** LinkedIn campaigns only: targeted job function URNs (sorted). */
+  targetingJobFunctions?: string[];
+  /** LinkedIn campaigns only: targeted job title URNs (sorted). */
+  targetingTitles?: string[];
 }
 
 /** A named targeting location as picked from the typeahead. */
@@ -613,13 +623,34 @@ export interface TargetingLocation {
   name: string;
 }
 
-function sortedUrns(locations: TargetingLocation[]): string[] {
+export function sortedUrns(locations: TargetingLocation[]): string[] {
   return [...new Set(locations.map((l) => l.urn))].sort();
 }
 
 function locationNames(locations: TargetingLocation[]): string {
   return locations.map((l) => l.name).join(", ");
 }
+
+/** Diff/snapshot metadata per managed LinkedIn targeting facet. */
+const TARGETING_FACET_FIELDS: {
+  key: LinkedinTargetingFacetKey;
+  snapshotKey:
+    | "targetingLocations"
+    | "targetingIndustries"
+    | "targetingJobFunctions"
+    | "targetingTitles";
+  diffLabel: string;
+}[] = [
+  { key: "locations", snapshotKey: "targetingLocations", diffLabel: "Target locations" },
+  { key: "industries", snapshotKey: "targetingIndustries", diffLabel: "Target industries" },
+  { key: "jobFunctions", snapshotKey: "targetingJobFunctions", diffLabel: "Target job functions" },
+  { key: "titles", snapshotKey: "targetingTitles", diffLabel: "Target job titles" },
+];
+
+/** Proposed named entities per facet, as picked in the targeting dialog. */
+export type ProposedTargetingFacets = Partial<
+  Record<LinkedinTargetingFacetKey, TargetingLocation[] | null>
+>;
 
 function fmtBudget(minor: number | null): string | null {
   return minor == null ? null : String(minor);
@@ -636,6 +667,7 @@ export function buildUpdateDiff(
     startTime?: string | null;
     stopTime?: string | null;
     targetingLocations?: TargetingLocation[] | null;
+    targetingFacets?: ProposedTargetingFacets | null;
   },
 ): AdChangeField[] {
   const fields: AdChangeField[] = [];
@@ -665,16 +697,26 @@ export function buildUpdateDiff(
   if (proposed.stopTime != null && proposed.stopTime !== before.stopTime) {
     fields.push({ field: "End time", before: before.stopTime, after: proposed.stopTime });
   }
-  if (
-    proposed.targetingLocations != null &&
-    proposed.targetingLocations.length > 0 &&
-    JSON.stringify(sortedUrns(proposed.targetingLocations)) !==
-      JSON.stringify(before.targetingLocations ?? [])
-  ) {
+  const facets: ProposedTargetingFacets = {
+    ...(proposed.targetingFacets ?? {}),
+  };
+  if (facets.locations == null && proposed.targetingLocations?.length) {
+    facets.locations = proposed.targetingLocations;
+  }
+  for (const meta of TARGETING_FACET_FIELDS) {
+    const entities = facets[meta.key];
+    if (entities == null) continue;
+    // Locations can never be emptied (LinkedIn requires them); other facets
+    // may be cleared with an explicit empty list.
+    if (meta.key === "locations" && entities.length === 0) continue;
+    const beforeUrns = before[meta.snapshotKey] ?? [];
+    if (JSON.stringify(sortedUrns(entities)) === JSON.stringify(beforeUrns)) {
+      continue;
+    }
     fields.push({
-      field: "Target locations",
-      before: (before.targetingLocations ?? []).join(", ") || null,
-      after: locationNames(proposed.targetingLocations),
+      field: meta.diffLabel,
+      before: beforeUrns.join(", ") || null,
+      after: entities.length > 0 ? locationNames(entities) : "(none)",
     });
   }
   return fields;
@@ -749,9 +791,11 @@ export function snapshotForCompare(s: RemoteSnapshot): Record<string, unknown> {
     startTime: s.startTime,
     stopTime: s.stopTime,
   };
-  // Only present for LinkedIn campaigns; older snapshots without the key are
+  // Only present for LinkedIn campaigns; older snapshots without the keys are
   // still comparable (snapshotsMatch only compares shared keys).
-  if (s.targetingLocations != null) out.targetingLocations = s.targetingLocations;
+  for (const meta of TARGETING_FACET_FIELDS) {
+    if (s[meta.snapshotKey] != null) out[meta.snapshotKey] = s[meta.snapshotKey];
+  }
   return out;
 }
 
@@ -783,8 +827,14 @@ interface ApplyPayload {
   stopTime?: string | null;
   /** LinkedIn only: the campaign group a new campaign is created in. */
   campaignGroupId?: string;
-  /** LinkedIn only: replacement location targeting for a campaign update. */
+  /** LinkedIn only: replacement location targeting for a campaign update (legacy drafts). */
   targetingLocations?: TargetingLocation[];
+  /**
+   * LinkedIn only: full replacement targeting URNs per facet. Built at draft
+   * creation by merging the proposed facets with the campaign's current ones,
+   * so the apply always sends complete criteria.
+   */
+  targetingFacets?: Partial<Record<LinkedinTargetingFacetKey, string[]>>;
   /** LinkedIn creative creates: the campaign the creative attaches to. */
   campaignId?: string;
   /** LinkedIn creative creates: the sponsored post's text. */
@@ -1021,6 +1071,7 @@ export async function approveAndApplyDraft(
           targetingLocations: payload.targetingLocations?.length
             ? [...new Set(payload.targetingLocations.map((l) => l.urn))].sort()
             : undefined,
+          targetingFacets: payload.targetingFacets ?? undefined,
           targetType: asDraftTargetType(claimed.targetType),
         });
 
@@ -1149,6 +1200,21 @@ async function verifyApplied(
     }
     if (payload.stopTime != null && !timesEqual(state.stopTime, payload.stopTime)) {
       mismatches.push("stopTime");
+    }
+    if (payload.targetingFacets != null) {
+      for (const meta of TARGETING_FACET_FIELDS) {
+        const wanted = payload.targetingFacets[meta.key];
+        if (wanted == null) continue;
+        const got = state[meta.snapshotKey] ?? [];
+        if (JSON.stringify([...wanted].sort()) !== JSON.stringify(got)) {
+          mismatches.push(meta.snapshotKey);
+        }
+      }
+    } else if (payload.targetingLocations?.length) {
+      const wanted = [...new Set(payload.targetingLocations.map((l) => l.urn))].sort();
+      if (JSON.stringify(wanted) !== JSON.stringify(state.targetingLocations ?? [])) {
+        mismatches.push("targetingLocations");
+      }
     }
     return mismatches.length === 0 ? "verified" : "mismatch";
   } catch {

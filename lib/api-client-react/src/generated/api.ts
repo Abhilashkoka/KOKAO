@@ -165,6 +165,7 @@ import type {
   ScheduleUpdate,
   ScheduledPost,
   SearchLinkedinGeoTargetsParams,
+  SearchLinkedinTargetingParams,
   SeatRequestCreateInput,
   SeatRequestDecisionInput,
   SendTestEmailInput,
@@ -13736,6 +13737,90 @@ export function useSearchLinkedinGeoTargets<TData = Awaited<ReturnType<typeof se
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getSearchLinkedinGeoTargetsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSearchLinkedinTargetingUrl = (params: SearchLinkedinTargetingParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ads/linkedin/targeting-search?${stringifiedParams}` : `/api/ads/linkedin/targeting-search`
+}
+
+/**
+ * @summary Typeahead search for LinkedIn targeting entities within one facet
+ */
+export const searchLinkedinTargeting = async (params: SearchLinkedinTargetingParams, options?: RequestInit): Promise<AdsGeoSearchResult> => {
+
+  return customFetch<AdsGeoSearchResult>(getSearchLinkedinTargetingUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getSearchLinkedinTargetingQueryKey = (params?: SearchLinkedinTargetingParams,) => {
+    return [
+    `/api/ads/linkedin/targeting-search`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getSearchLinkedinTargetingQueryOptions = <TData = Awaited<ReturnType<typeof searchLinkedinTargeting>>, TError = ErrorType<ErrorEnvelope>>(params: SearchLinkedinTargetingParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchLinkedinTargeting>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getSearchLinkedinTargetingQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof searchLinkedinTargeting>>> = ({ signal }) => searchLinkedinTargeting(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof searchLinkedinTargeting>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type SearchLinkedinTargetingQueryResult = NonNullable<Awaited<ReturnType<typeof searchLinkedinTargeting>>>
+export type SearchLinkedinTargetingQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Typeahead search for LinkedIn targeting entities within one facet
+ */
+
+export function useSearchLinkedinTargeting<TData = Awaited<ReturnType<typeof searchLinkedinTargeting>>, TError = ErrorType<ErrorEnvelope>>(
+ params: SearchLinkedinTargetingParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchLinkedinTargeting>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getSearchLinkedinTargetingQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

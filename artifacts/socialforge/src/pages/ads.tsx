@@ -23,8 +23,8 @@ import {
   getGetAdsGoogleAuthUrlQueryKey,
   useListGoogleAdCustomerChoices,
   useSelectGoogleAdAccount,
-  useSearchLinkedinGeoTargets,
-  getSearchLinkedinGeoTargetsQueryKey,
+  useSearchLinkedinTargeting,
+  getSearchLinkedinTargetingQueryKey,
   useListContent,
   useListAdCampaigns,
   useGetAdCampaignDetail,
@@ -2518,6 +2518,35 @@ function CreativeDraftDialog({
   );
 }
 
+const TARGETING_FACETS = [
+  {
+    key: "locations",
+    label: "Locations",
+    placeholder: "Type a country, region, or city",
+    empty: "No locations selected yet.",
+  },
+  {
+    key: "industries",
+    label: "Industries",
+    placeholder: "Type an industry, e.g. Software",
+    empty: "No industries selected yet.",
+  },
+  {
+    key: "jobFunctions",
+    label: "Job functions",
+    placeholder: "Type a job function, e.g. Marketing",
+    empty: "No job functions selected yet.",
+  },
+  {
+    key: "titles",
+    label: "Job titles",
+    placeholder: "Type a job title, e.g. Product Manager",
+    empty: "No job titles selected yet.",
+  },
+] as const;
+
+type TargetingFacetKey = (typeof TARGETING_FACETS)[number]["key"];
+
 function TargetingDraftDialog({
   connectionId,
   campaign,
@@ -2531,26 +2560,44 @@ function TargetingDraftDialog({
   const queryClient = useQueryClient();
   const createDraft = useCreateAdDraft();
   const idempotencyKey = useMemo(() => crypto.randomUUID(), []);
+  const [facet, setFacet] = useState<TargetingFacetKey>("locations");
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<AdsTargetingLocation[]>([]);
+  const [selected, setSelected] = useState<
+    Record<TargetingFacetKey, AdsTargetingLocation[]>
+  >({ locations: [], industries: [], jobFunctions: [], titles: [] });
 
+  const activeFacet = TARGETING_FACETS.find((f) => f.key === facet)!;
   const trimmed = query.trim();
-  const { data: searchData, isFetching } = useSearchLinkedinGeoTargets(
-    { connectionId, q: trimmed },
+  const { data: searchData, isFetching } = useSearchLinkedinTargeting(
+    { connectionId, facet, q: trimmed },
     {
       query: {
         enabled: trimmed.length >= 2,
-        queryKey: getSearchLinkedinGeoTargetsQueryKey({ connectionId, q: trimmed }),
+        queryKey: getSearchLinkedinTargetingQueryKey({ connectionId, facet, q: trimmed }),
       },
     },
   );
 
-  const addLocation = (loc: AdsTargetingLocation) => {
-    if (!selected.some((s) => s.urn === loc.urn)) {
-      setSelected([...selected, loc]);
-    }
+  const addEntity = (loc: AdsTargetingLocation) => {
+    setSelected((prev) =>
+      prev[facet].some((s) => s.urn === loc.urn)
+        ? prev
+        : { ...prev, [facet]: [...prev[facet], loc] },
+    );
     setQuery("");
   };
+
+  const removeEntity = (key: TargetingFacetKey, urn: string) => {
+    setSelected((prev) => ({
+      ...prev,
+      [key]: prev[key].filter((s) => s.urn !== urn),
+    }));
+  };
+
+  const totalSelected = TARGETING_FACETS.reduce(
+    (n, f) => n + selected[f.key].length,
+    0,
+  );
 
   const submit = () => {
     createDraft.mutate(
@@ -2561,7 +2608,18 @@ function TargetingDraftDialog({
           action: "update",
           targetId: campaign.id,
           idempotencyKey,
-          targetingLocations: selected,
+          ...(selected.locations.length > 0
+            ? { targetingLocations: selected.locations }
+            : {}),
+          ...(selected.industries.length > 0
+            ? { targetingIndustries: selected.industries }
+            : {}),
+          ...(selected.jobFunctions.length > 0
+            ? { targetingJobFunctions: selected.jobFunctions }
+            : {}),
+          ...(selected.titles.length > 0
+            ? { targetingTitles: selected.titles }
+            : {}),
         } as never,
       },
       {
@@ -2592,17 +2650,35 @@ function TargetingDraftDialog({
         <DialogHeader>
           <DialogTitle>Edit targeting for "{campaign.name}"</DialogTitle>
           <DialogDescription>
-            Pick the locations this campaign should target. The change is saved
-            as a draft the workspace owner must approve; it replaces the
-            campaign's current location targeting.
+            Pick the audience this campaign should target. The change is saved
+            as a draft the workspace owner must approve; each facet you set
+            replaces that part of the campaign's current targeting.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
+          <div className="flex flex-wrap gap-1">
+            {TARGETING_FACETS.map((f) => (
+              <Button
+                key={f.key}
+                type="button"
+                size="sm"
+                variant={facet === f.key ? "default" : "outline"}
+                onClick={() => {
+                  setFacet(f.key);
+                  setQuery("");
+                }}
+                data-testid={`button-facet-${f.key}`}
+              >
+                {f.label}
+                {selected[f.key].length > 0 && ` (${selected[f.key].length})`}
+              </Button>
+            ))}
+          </div>
           <div className="space-y-2">
-            <Label htmlFor="targeting-search">Search locations</Label>
+            <Label htmlFor="targeting-search">Search {activeFacet.label.toLowerCase()}</Label>
             <Input
               id="targeting-search"
-              placeholder="Type a country, region, or city"
+              placeholder={activeFacet.placeholder}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               data-testid="input-targeting-search"
@@ -2620,8 +2696,8 @@ function TargetingDraftDialog({
                     key={loc.urn}
                     type="button"
                     className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted"
-                    onClick={() => addLocation(loc)}
-                    data-testid={`button-geo-result-${loc.urn}`}
+                    onClick={() => addEntity(loc)}
+                    data-testid={`button-targeting-result-${loc.urn}`}
                   >
                     {loc.name}
                   </button>
@@ -2629,31 +2705,29 @@ function TargetingDraftDialog({
               </div>
             )}
           </div>
-          <div className="space-y-2">
-            <Label>Selected locations</Label>
-            {selected.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No locations selected yet.
-              </p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {selected.map((loc) => (
-                  <Badge key={loc.urn} variant="secondary" className="gap-1">
-                    {loc.name}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSelected(selected.filter((s) => s.urn !== loc.urn))
-                      }
-                      data-testid={`button-remove-location-${loc.urn}`}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
+          {TARGETING_FACETS.map((f) => (
+            <div key={f.key} className="space-y-2">
+              <Label>Selected {f.label.toLowerCase()}</Label>
+              {selected[f.key].length === 0 ? (
+                <p className="text-sm text-muted-foreground">{f.empty}</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {selected[f.key].map((loc) => (
+                    <Badge key={loc.urn} variant="secondary" className="gap-1">
+                      {loc.name}
+                      <button
+                        type="button"
+                        onClick={() => removeEntity(f.key, loc.urn)}
+                        data-testid={`button-remove-targeting-${loc.urn}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
@@ -2661,7 +2735,7 @@ function TargetingDraftDialog({
           </Button>
           <Button
             onClick={submit}
-            disabled={createDraft.isPending || selected.length === 0}
+            disabled={createDraft.isPending || totalSelected === 0}
             data-testid="button-submit-targeting-draft"
           >
             {createDraft.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}

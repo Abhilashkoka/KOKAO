@@ -257,6 +257,8 @@ export * from './scheduleInput';
 export * from './scheduleUpdate';
 export * from './scheduleUpdateStatus';
 export * from './searchLinkedinGeoTargetsParams';
+export * from './searchLinkedinTargetingFacet';
+export * from './searchLinkedinTargetingParams';
 export * from './seatRequest';
 export * from './seatRequestCreateInput';
 export * from './seatRequestDecisionInput';

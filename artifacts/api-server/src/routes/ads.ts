@@ -63,6 +63,10 @@ import {
   listLinkedinCreatives,
   readLinkedinPostPreview,
   searchLinkedinGeoLocations,
+  searchLinkedinTargetingEntities,
+  LINKEDIN_TARGETING_FACETS,
+  LINKEDIN_TARGETING_FACET_KEYS,
+  type LinkedinTargetingFacetKey,
   type LinkedinAdsCredentials,
 } from "../lib/linkedinAdsApi";
 import {
@@ -123,7 +127,9 @@ import {
   adsApiErrorStatus,
   asDraftTargetType,
   ADS_APPLY_IN_PROGRESS_MESSAGE,
+  sortedUrns,
   type TargetingLocation,
+  type ProposedTargetingFacets,
 } from "../lib/adsEngine";
 import { notifyAdsDraftPending } from "../lib/notifications";
 import { AD_SWEEP_PLATFORMS, reverifyAdConnection } from "../lib/adsReverify";
@@ -1404,6 +1410,43 @@ router.get("/ads/linkedin/geo-search", async (req: Request, res: Response) => {
   }
 });
 
+router.get("/ads/linkedin/targeting-search", async (req: Request, res: Response) => {
+  if (!(await adsEnabledOr503(res))) return;
+  const ct = await requireConnectedConnection(req, res);
+  if (!ct) return;
+  if (ct.conn.platform !== "linkedin") {
+    res.status(400).json({ error: "This connection is not a LinkedIn ad account." });
+    return;
+  }
+  const facet = String(req.query.facet ?? "");
+  if (!LINKEDIN_TARGETING_FACET_KEYS.includes(facet as LinkedinTargetingFacetKey)) {
+    res.status(400).json({
+      error: `facet must be one of: ${LINKEDIN_TARGETING_FACET_KEYS.join(", ")}.`,
+    });
+    return;
+  }
+  const q = String(req.query.q ?? "").trim();
+  if (q.length < 2 || q.length > 100) {
+    res.status(400).json({ error: "q must be between 2 and 100 characters." });
+    return;
+  }
+  try {
+    const results = await searchLinkedinTargetingEntities(
+      ct.token,
+      facet as LinkedinTargetingFacetKey,
+      q,
+    );
+    res.json({ results });
+  } catch (err) {
+    if (isAdsAuthError(err)) {
+      await markAdConnectionFailed(ct.conn.id, (err as Error).message);
+    }
+    res.status(502).json({
+      error: err instanceof Error ? err.message : "Could not search targeting entities.",
+    });
+  }
+});
+
 router.get("/ads/campaigns", async (req: Request, res: Response) => {
   if (!(await adsEnabledOr503(res))) return;
   const ct = await requireConnectedConnection(req, res);
@@ -1898,31 +1941,52 @@ router.post(
       res.status(400).json({ error: "Only campaigns can be created in this phase." });
       return;
     }
-    if (
-      input.targetingLocations != null &&
-      input.targetingLocations.length > 0 &&
-      (conn.platform !== "linkedin" || input.targetType !== "campaign")
-    ) {
+    // Targeting facets: locations may accompany creates (legacy behavior);
+    // industries/job functions/titles are update-only replacements. An empty
+    // array clears a facet (except locations, which LinkedIn requires).
+    const rawFacetInputs: Record<LinkedinTargetingFacetKey, typeof input.targetingLocations> = {
+      locations: input.targetingLocations?.length ? input.targetingLocations : undefined,
+      industries: input.targetingIndustries,
+      jobFunctions: input.targetingJobFunctions,
+      titles: input.targetingTitles,
+    };
+    const hasTargetingInput = Object.values(rawFacetInputs).some((v) => v != null);
+    if (hasTargetingInput && (conn.platform !== "linkedin" || input.targetType !== "campaign")) {
       res.status(400).json({
-        error: "Location targeting is only supported on LinkedIn campaigns.",
+        error: "Audience targeting is only supported on LinkedIn campaigns.",
       });
       return;
     }
-    const targetingLocations: TargetingLocation[] | null =
-      input.targetingLocations?.length
-        ? input.targetingLocations.map((l) => ({ urn: l.urn.trim(), name: l.name.trim() }))
-        : null;
-    if (targetingLocations) {
-      const bad = targetingLocations.find(
-        (l) => !/^urn:li:geo:\d+$/.test(l.urn) || !l.name,
+    if (
+      input.action !== "update" &&
+      (rawFacetInputs.industries != null ||
+        rawFacetInputs.jobFunctions != null ||
+        rawFacetInputs.titles != null)
+    ) {
+      res.status(400).json({
+        error:
+          "Industry, job function, and job title targeting can only be changed on an existing campaign.",
+      });
+      return;
+    }
+    const proposedFacets: ProposedTargetingFacets = {};
+    for (const key of LINKEDIN_TARGETING_FACET_KEYS) {
+      const raw = rawFacetInputs[key];
+      if (raw == null) continue;
+      const entities = raw.map((l) => ({ urn: l.urn.trim(), name: l.name.trim() }));
+      const bad = entities.find(
+        (l) => !LINKEDIN_TARGETING_FACETS[key].entityPattern.test(l.urn) || !l.name,
       );
       if (bad) {
         res.status(400).json({
-          error: "Each target location needs a valid LinkedIn geo URN and a name. Pick locations from the search results.",
+          error: `Each entry under targeted ${LINKEDIN_TARGETING_FACETS[key].label} needs a valid LinkedIn URN and a name. Pick entries from the search results.`,
         });
         return;
       }
+      proposedFacets[key] = entities;
     }
+    const targetingLocations: TargetingLocation[] | null =
+      proposedFacets.locations?.length ? proposedFacets.locations : null;
     if (input.action === "update" && !input.targetId) {
       res.status(400).json({ error: "targetId is required for updates" });
       return;
@@ -2191,7 +2255,7 @@ router.post(
         lifetimeBudget: input.lifetimeBudget,
         startTime: input.startTime,
         stopTime: input.stopTime,
-        targetingLocations,
+        targetingFacets: proposedFacets,
       });
       if (changes.length === 0) {
         res.status(400).json({
@@ -2200,6 +2264,37 @@ router.post(
         return;
       }
       beforeSnapshot = snapshotForCompare(current);
+      if (hasTargetingInput) {
+        // The apply replaces the campaign's whole targetingCriteria, so store
+        // the FULL per-facet URN sets: the proposed facets plus the current
+        // values of every untouched facet. The drift check guarantees the
+        // remote state still matches this snapshot at apply time.
+        const merged: Record<string, string[]> = {
+          locations: proposedFacets.locations?.length
+            ? sortedUrns(proposedFacets.locations)
+            : current.targetingLocations ?? [],
+          industries:
+            proposedFacets.industries != null
+              ? sortedUrns(proposedFacets.industries)
+              : current.targetingIndustries ?? [],
+          jobFunctions:
+            proposedFacets.jobFunctions != null
+              ? sortedUrns(proposedFacets.jobFunctions)
+              : current.targetingJobFunctions ?? [],
+          titles:
+            proposedFacets.titles != null
+              ? sortedUrns(proposedFacets.titles)
+              : current.targetingTitles ?? [],
+        };
+        if (merged.locations.length === 0) {
+          res.status(400).json({
+            error: "LinkedIn campaigns must target at least one location.",
+          });
+          return;
+        }
+        payload.targetingFacets = merged;
+        delete payload.targetingLocations;
+      }
     } else {
       if (!input.name?.trim()) {
         res.status(400).json({

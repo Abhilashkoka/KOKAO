@@ -7,7 +7,7 @@
  */
 
 export interface AdsTargetingLocation {
-  /** LinkedIn geo URN, e.g. urn:li:geo:103644278. */
+  /** LinkedIn targeting entity URN, e.g. urn:li:geo:103644278 or urn:li:industry:4. */
   urn: string;
   name: string;
 }

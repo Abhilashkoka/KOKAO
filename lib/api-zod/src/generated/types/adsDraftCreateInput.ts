@@ -70,8 +70,23 @@ export interface AdsDraftCreateInput {
      */
   landingUrl?: string | null;
   /**
-     * LinkedIn campaigns — replacement location targeting (geo URNs picked via geo search).
+     * LinkedIn campaigns — replacement location targeting (geo URNs picked via targeting search). Must be non-empty when provided.
      * @maxItems 50
      */
   targetingLocations?: AdsTargetingLocation[];
+  /**
+     * LinkedIn campaign updates — replacement industry targeting (urn:li:industry URNs). An empty array clears the facet.
+     * @maxItems 50
+     */
+  targetingIndustries?: AdsTargetingLocation[];
+  /**
+     * LinkedIn campaign updates — replacement job function targeting (urn:li:function URNs). An empty array clears the facet.
+     * @maxItems 50
+     */
+  targetingJobFunctions?: AdsTargetingLocation[];
+  /**
+     * LinkedIn campaign updates — replacement job title targeting (urn:li:title URNs). An empty array clears the facet.
+     * @maxItems 50
+     */
+  targetingTitles?: AdsTargetingLocation[];
 }

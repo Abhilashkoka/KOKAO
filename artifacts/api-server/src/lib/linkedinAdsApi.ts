@@ -232,6 +232,12 @@ export interface LinkedinCampaign {
   campaignGroupId: string | null;
   /** Targeted location geo URNs (sorted). */
   targetingLocations: string[];
+  /** Targeted industry URNs (sorted). */
+  targetingIndustries: string[];
+  /** Targeted job function URNs (sorted). */
+  targetingJobFunctions: string[];
+  /** Targeted job title URNs (sorted). */
+  targetingTitles: string[];
 }
 
 interface RawTargetingCriteria {
@@ -254,23 +260,69 @@ interface RawCampaign {
 
 const LOCATIONS_FACET = "urn:li:adTargetingFacet:locations";
 
-/** Extract the targeted location geo URNs (sorted for stable comparison). */
-function extractTargetingLocations(tc: RawTargetingCriteria | undefined): string[] {
+/** Targeting facets drafts can manage. Keys double as API vocabulary. */
+export const LINKEDIN_TARGETING_FACETS = {
+  locations: {
+    facetUrn: LOCATIONS_FACET,
+    entityPattern: /^urn:li:geo:\d+$/,
+    label: "locations",
+  },
+  industries: {
+    facetUrn: "urn:li:adTargetingFacet:industries",
+    entityPattern: /^urn:li:industry:\d+$/,
+    label: "industries",
+  },
+  jobFunctions: {
+    facetUrn: "urn:li:adTargetingFacet:jobFunctions",
+    entityPattern: /^urn:li:function:\d+$/,
+    label: "job functions",
+  },
+  titles: {
+    facetUrn: "urn:li:adTargetingFacet:titles",
+    entityPattern: /^urn:li:title:\d+$/,
+    label: "job titles",
+  },
+} as const;
+
+export type LinkedinTargetingFacetKey = keyof typeof LINKEDIN_TARGETING_FACETS;
+
+export const LINKEDIN_TARGETING_FACET_KEYS = Object.keys(
+  LINKEDIN_TARGETING_FACETS,
+) as LinkedinTargetingFacetKey[];
+
+/** URNs a facet holds within the campaign's targetingCriteria (sorted). */
+function extractFacetUrns(
+  tc: RawTargetingCriteria | undefined,
+  facetUrn: string,
+): string[] {
   const out: string[] = [];
   for (const clause of tc?.include?.and ?? []) {
-    const urns = clause.or?.[LOCATIONS_FACET];
+    const urns = clause.or?.[facetUrn];
     if (Array.isArray(urns)) out.push(...urns);
   }
   return [...new Set(out)].sort();
 }
 
-/** Build LinkedIn targetingCriteria that includes the given location URNs. */
-function buildTargetingCriteria(locationUrns: string[]): RawTargetingCriteria {
-  return {
-    include: {
-      and: [{ or: { [LOCATIONS_FACET]: locationUrns } }],
-    },
-  };
+/** Extract the targeted location geo URNs (sorted for stable comparison). */
+function extractTargetingLocations(tc: RawTargetingCriteria | undefined): string[] {
+  return extractFacetUrns(tc, LOCATIONS_FACET);
+}
+
+/**
+ * Build LinkedIn targetingCriteria from per-facet URN lists. Facets are ANDed;
+ * URNs within a facet are ORed. Empty/missing facets are omitted entirely.
+ */
+export function buildTargetingCriteria(
+  facets: Partial<Record<LinkedinTargetingFacetKey, string[]>>,
+): RawTargetingCriteria {
+  const and: { or: Record<string, string[]> }[] = [];
+  for (const key of LINKEDIN_TARGETING_FACET_KEYS) {
+    const urns = facets[key];
+    if (urns && urns.length > 0) {
+      and.push({ or: { [LINKEDIN_TARGETING_FACETS[key].facetUrn]: urns } });
+    }
+  }
+  return { include: { and } };
 }
 
 function mapCampaign(c: RawCampaign): LinkedinCampaign {
@@ -286,6 +338,18 @@ function mapCampaign(c: RawCampaign): LinkedinCampaign {
     stopTime: msToIso(c.runSchedule?.end),
     campaignGroupId: idFromUrn(c.campaignGroup),
     targetingLocations: extractTargetingLocations(c.targetingCriteria),
+    targetingIndustries: extractFacetUrns(
+      c.targetingCriteria,
+      LINKEDIN_TARGETING_FACETS.industries.facetUrn,
+    ),
+    targetingJobFunctions: extractFacetUrns(
+      c.targetingCriteria,
+      LINKEDIN_TARGETING_FACETS.jobFunctions.facetUrn,
+    ),
+    targetingTitles: extractFacetUrns(
+      c.targetingCriteria,
+      LINKEDIN_TARGETING_FACETS.titles.facetUrn,
+    ),
   };
 }
 
@@ -449,11 +513,11 @@ export async function createLinkedinCampaign(
     locale: { country: "US", language: "en" },
     // Location targeting is required for a campaign to be valid; default to
     // worldwide when the draft does not specify locations.
-    targetingCriteria: buildTargetingCriteria(
-      params.targetingLocations?.length
+    targetingCriteria: buildTargetingCriteria({
+      locations: params.targetingLocations?.length
         ? params.targetingLocations
         : ["urn:li:geo:92000000"],
-    ),
+    }),
   };
   if (params.dailyBudget != null) {
     body.dailyBudget = {
@@ -622,6 +686,12 @@ export interface UpdateLinkedinCampaignParams {
   currency: string;
   /** Replace location targeting with these geo URNs (must be non-empty). */
   targetingLocations?: string[] | null;
+  /**
+   * Full replacement of the campaign's targeting across all managed facets.
+   * When present it wins over targetingLocations. Locations must be non-empty
+   * (LinkedIn requires location targeting on every campaign).
+   */
+  targetingFacets?: Partial<Record<LinkedinTargetingFacetKey, string[]>> | null;
 }
 
 /** Partial-update a campaign in place (Restli PARTIAL_UPDATE with $set). */
@@ -654,8 +724,21 @@ export async function updateLinkedinCampaign(
     if (endMs != null) runSchedule.end = endMs;
     set.runSchedule = runSchedule;
   }
-  if (params.targetingLocations != null && params.targetingLocations.length > 0) {
-    set.targetingCriteria = buildTargetingCriteria(params.targetingLocations);
+  if (params.targetingFacets != null) {
+    if (!params.targetingFacets.locations?.length) {
+      throw new LinkedinAdsApiError(
+        "LinkedIn campaigns must target at least one location.",
+        400,
+      );
+    }
+    set.targetingCriteria = buildTargetingCriteria(params.targetingFacets);
+  } else if (
+    params.targetingLocations != null &&
+    params.targetingLocations.length > 0
+  ) {
+    set.targetingCriteria = buildTargetingCriteria({
+      locations: params.targetingLocations,
+    });
   }
 
   const res = await platformFetch(
@@ -689,6 +772,9 @@ export async function readLinkedinCampaignState(
   startTime: string | null;
   stopTime: string | null;
   targetingLocations: string[];
+  targetingIndustries: string[];
+  targetingJobFunctions: string[];
+  targetingTitles: string[];
 }> {
   const c = await getLinkedinCampaign(token, adAccountId, campaignId);
   return {
@@ -699,6 +785,9 @@ export async function readLinkedinCampaignState(
     startTime: c.startTime,
     stopTime: c.stopTime,
     targetingLocations: c.targetingLocations,
+    targetingIndustries: c.targetingIndustries,
+    targetingJobFunctions: c.targetingJobFunctions,
+    targetingTitles: c.targetingTitles,
   };
 }
 
@@ -711,14 +800,15 @@ interface RawTargetingEntity {
   name?: string;
 }
 
-/** Typeahead search for location targeting entities (geo URNs). */
-export async function searchLinkedinGeoLocations(
+/** Typeahead search for targeting entities within one managed facet. */
+export async function searchLinkedinTargetingEntities(
   token: string,
+  facet: LinkedinTargetingFacetKey,
   query: string,
 ): Promise<{ urn: string; name: string }[]> {
   const qs =
     `q=typeahead&queryVersion=QUERY_USES_URNS` +
-    `&facet=${encodeURIComponent(LOCATIONS_FACET)}` +
+    `&facet=${encodeURIComponent(LINKEDIN_TARGETING_FACETS[facet].facetUrn)}` +
     `&query=${encodeURIComponent(query)}`;
   const json = await restGet<{ elements?: RawTargetingEntity[] }>(
     `adTargetingEntities?${qs}`,
@@ -728,6 +818,14 @@ export async function searchLinkedinGeoLocations(
     .filter((e) => !!e.urn && !!e.name)
     .map((e) => ({ urn: e.urn!, name: e.name! }))
     .slice(0, 20);
+}
+
+/** Typeahead search for location targeting entities (geo URNs). */
+export async function searchLinkedinGeoLocations(
+  token: string,
+  query: string,
+): Promise<{ urn: string; name: string }[]> {
+  return searchLinkedinTargetingEntities(token, "locations", query);
 }
 
 // ---------------------------------------------------------------------------

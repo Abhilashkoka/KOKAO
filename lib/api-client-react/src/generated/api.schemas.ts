@@ -2780,7 +2780,7 @@ export const AdsDraftCreateInputStatus = {
 } as const;
 
 export interface AdsTargetingLocation {
-  /** LinkedIn geo URN, e.g. urn:li:geo:103644278. */
+  /** LinkedIn targeting entity URN, e.g. urn:li:geo:103644278 or urn:li:industry:4. */
   urn: string;
   name: string;
 }
@@ -2845,10 +2845,25 @@ export interface AdsDraftCreateInput {
      */
   landingUrl?: string | null;
   /**
-     * LinkedIn campaigns — replacement location targeting (geo URNs picked via geo search).
+     * LinkedIn campaigns — replacement location targeting (geo URNs picked via targeting search). Must be non-empty when provided.
      * @maxItems 50
      */
   targetingLocations?: AdsTargetingLocation[];
+  /**
+     * LinkedIn campaign updates — replacement industry targeting (urn:li:industry URNs). An empty array clears the facet.
+     * @maxItems 50
+     */
+  targetingIndustries?: AdsTargetingLocation[];
+  /**
+     * LinkedIn campaign updates — replacement job function targeting (urn:li:function URNs). An empty array clears the facet.
+     * @maxItems 50
+     */
+  targetingJobFunctions?: AdsTargetingLocation[];
+  /**
+     * LinkedIn campaign updates — replacement job title targeting (urn:li:title URNs). An empty array clears the facet.
+     * @maxItems 50
+     */
+  targetingTitles?: AdsTargetingLocation[];
 }
 
 export interface AdsGeoSearchResult {
@@ -3258,6 +3273,29 @@ connectionId: AdsConnectionIdParameter;
  */
 q: string;
 };
+
+export type SearchLinkedinTargetingParams = {
+/**
+ * The ad account connection to read from.
+ */
+connectionId: AdsConnectionIdParameter;
+facet: SearchLinkedinTargetingFacet;
+/**
+ * @minLength 2
+ * @maxLength 100
+ */
+q: string;
+};
+
+export type SearchLinkedinTargetingFacet = typeof SearchLinkedinTargetingFacet[keyof typeof SearchLinkedinTargetingFacet];
+
+
+export const SearchLinkedinTargetingFacet = {
+  locations: 'locations',
+  industries: 'industries',
+  jobFunctions: 'jobFunctions',
+  titles: 'titles',
+} as const;
 
 export type ListAdCampaignsParams = {
 /**
