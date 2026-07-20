@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   useListNotifications,
   useMarkNotificationRead,
+  useMarkAllNotificationsRead,
   getListNotificationsQueryKey,
   type Notification,
 } from "@workspace/api-client-react";
@@ -87,6 +88,7 @@ export default function NotificationsScreen() {
     query: { queryKey: getListNotificationsQueryKey(INBOX_PARAMS) },
   });
   const markRead = useMarkNotificationRead();
+  const markAllRead = useMarkAllNotificationsRead();
 
   const notifications = list.data ?? [];
   const unreadCount = notifications.filter((n) => !n.readAt).length;
@@ -114,6 +116,16 @@ export default function NotificationsScreen() {
     );
   };
 
+  const handleMarkAllRead = () => {
+    if (markAllRead.isPending) return;
+    const now = new Date().toISOString();
+    queryClient.setQueryData<Notification[]>(
+      getListNotificationsQueryKey(INBOX_PARAMS),
+      (old) => old?.map((n) => (n.readAt ? n : { ...n, readAt: now })),
+    );
+    markAllRead.mutate(undefined, { onSettled: invalidate });
+  };
+
   return (
     <ScrollView
       style={{ backgroundColor: c.background }}
@@ -134,14 +146,30 @@ export default function NotificationsScreen() {
               ? "All caught up"
               : ""}
         </Text>
-        <Pressable
-          onPress={() => router.push("/notification-settings")}
-          accessibilityLabel="Notification settings"
-          style={({ pressed }) => [styles.settingsBtn, { opacity: pressed ? 0.7 : 1 }]}
-        >
-          <Feather name="settings" size={14} color={c.mutedForeground} />
-          <Text style={styles.settingsText}>Settings</Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          {unreadCount > 0 && (
+            <Pressable
+              onPress={handleMarkAllRead}
+              disabled={markAllRead.isPending}
+              accessibilityLabel="Mark all notifications read"
+              style={({ pressed }) => [
+                styles.settingsBtn,
+                { opacity: pressed || markAllRead.isPending ? 0.7 : 1 },
+              ]}
+            >
+              <Feather name="check-circle" size={14} color={c.mutedForeground} />
+              <Text style={styles.settingsText}>Mark all read</Text>
+            </Pressable>
+          )}
+          <Pressable
+            onPress={() => router.push("/notification-settings")}
+            accessibilityLabel="Notification settings"
+            style={({ pressed }) => [styles.settingsBtn, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <Feather name="settings" size={14} color={c.mutedForeground} />
+            <Text style={styles.settingsText}>Settings</Text>
+          </Pressable>
+        </View>
       </View>
 
       {list.isLoading ? (
@@ -180,6 +208,7 @@ const styles = StyleSheet.create({
     minHeight: 28,
   },
   headerText: { fontFamily: fonts.medium, fontSize: 13, color: c.mutedForeground },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   settingsBtn: {
     flexDirection: "row",
     alignItems: "center",

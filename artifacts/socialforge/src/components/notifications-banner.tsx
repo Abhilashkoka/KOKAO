@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useListNotifications,
   useMarkNotificationRead,
+  useMarkAllNotificationsRead,
   getListNotificationsQueryKey,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -12,24 +13,40 @@ export function NotificationsBanner() {
   const queryClient = useQueryClient();
   const { data: notifications } = useListNotifications();
   const { mutate: markRead, isPending } = useMarkNotificationRead();
+  const { mutate: markAllRead, isPending: isDismissingAll } =
+    useMarkAllNotificationsRead();
 
   if (!notifications || notifications.length === 0) return null;
 
+  const invalidate = () => {
+    queryClient.invalidateQueries({
+      queryKey: getListNotificationsQueryKey(),
+    });
+  };
+
   const dismiss = (id: number) => {
-    markRead(
-      { id },
-      {
-        onSuccess: () => {
-          queryClient.invalidateQueries({
-            queryKey: getListNotificationsQueryKey(),
-          });
-        },
-      },
-    );
+    markRead({ id }, { onSuccess: invalidate });
+  };
+
+  const dismissAll = () => {
+    markAllRead(undefined, { onSuccess: invalidate });
   };
 
   return (
     <div className="flex flex-col gap-2 mb-6">
+      {notifications.length > 1 && (
+        <div className="flex justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-muted-foreground"
+            onClick={dismissAll}
+            disabled={isDismissingAll}
+          >
+            Dismiss all
+          </Button>
+        </div>
+      )}
       {notifications.map((n) => (
         <div
           key={n.id}

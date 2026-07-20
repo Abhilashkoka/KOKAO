@@ -140,6 +140,64 @@ describe("social connection failure notifications", () => {
     }
   });
 
+  it("marks all unread notifications read at once, scoped to the tenant", async () => {
+    const tenant = await createTenant();
+    const other = await createTenant();
+    try {
+      // Two unread notifications for the tenant (different platforms so dedupe
+      // does not collapse them).
+      for (const platform of ["facebook", "instagram"] as const) {
+        await insertConnectedAccount(
+          tenant.tenantId,
+          "facebook",
+          { pageId: `PAGE_${platform}`, pageAccessToken: "tok" },
+          "verified",
+        );
+      }
+      await reverifyFacebook(tenant.tenantId, { force: true });
+
+      // One unread notification for the other tenant that must stay unread.
+      await insertConnectedAccount(
+        other.tenantId,
+        "facebook",
+        { pageId: "PAGE_OTHER", pageAccessToken: "tok" },
+        "verified",
+      );
+      await reverifyFacebook(other.tenantId, { force: true });
+
+      actAs(tenant.clerkUserId);
+
+      const before = await request(app).get("/api/notifications");
+      expect(before.status).toBe(200);
+      expect(before.body.length).toBeGreaterThan(0);
+
+      const res = await request(app).post("/api/notifications/read-all");
+      expect(res.status).toBe(204);
+
+      const after = await request(app).get("/api/notifications");
+      expect(after.status).toBe(200);
+      expect(after.body).toHaveLength(0);
+
+      // Inbox view still shows them, now read.
+      const inbox = await request(app).get("/api/notifications?all=true");
+      expect(inbox.status).toBe(200);
+      expect(inbox.body.length).toBe(before.body.length);
+      for (const n of inbox.body) {
+        expect(n.readAt).toEqual(expect.any(String));
+      }
+
+      // Other tenant's notification is untouched.
+      actAs(other.clerkUserId);
+      const otherList = await request(app).get("/api/notifications");
+      expect(otherList.status).toBe(200);
+      expect(otherList.body).toHaveLength(1);
+      expect(otherList.body[0].readAt).toBeNull();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+      await deleteTenant(other.tenantId);
+    }
+  });
+
   it("does not leak another tenant's notifications", async () => {
     const owner = await createTenant();
     const attacker = await createTenant();

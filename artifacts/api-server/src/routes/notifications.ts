@@ -46,6 +46,20 @@ router.get("/notifications", async (req: Request, res: Response) => {
   res.json(rows.map(serialize));
 });
 
+// Mark all of the current tenant's unread notifications as read.
+router.post("/notifications/read-all", async (req: Request, res: Response) => {
+  await db
+    .update(notificationsTable)
+    .set({ readAt: new Date() })
+    .where(
+      and(
+        eq(notificationsTable.tenantId, req.tenantId),
+        isNull(notificationsTable.readAt),
+      ),
+    );
+  res.status(204).end();
+});
+
 // Dismiss (mark read) a single notification, scoped to the current tenant.
 router.post(
   "/notifications/:id/read",

@@ -4679,6 +4679,12 @@ export const ListNotificationsResponse = zod.array(ListNotificationsResponseItem
 
 
 /**
+ * @summary Mark all of the current tenant's unread notifications as read
+ */
+export const MarkAllNotificationsReadResponse = zod.void()
+
+
+/**
  * @summary Dismiss (mark read) a notification
  */
 export const MarkNotificationReadParams = zod.object({

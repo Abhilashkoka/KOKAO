@@ -3028,6 +3028,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /notifications/read-all:
+    post:
+      operationId: markAllNotificationsRead
+      tags: [notifications]
+      summary: Mark all of the current tenant's unread notifications as read
+      responses:
+        "204":
+          description: All unread notifications marked read
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /notifications/{id}/read:
     post:
       operationId: markNotificationRead
