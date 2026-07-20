@@ -1687,6 +1687,8 @@ function CampaignDetailDialog({
                                     s.dailyBudget != null ? String(s.dailyBudget) : "",
                                   lifetimeBudget:
                                     s.lifetimeBudget != null ? String(s.lifetimeBudget) : "",
+                                  startTime: s.startTime ?? "",
+                                  stopTime: s.stopTime ?? "",
                                 })
                               }
                               data-testid={`button-edit-adset-${s.id}`}
@@ -1911,7 +1913,11 @@ export function DraftDialog({
     isGroupCreate ||
     (state.targetType === "adset" && !isTiktok);
   const showDailyBudget = showBudgets && !isGroupCreate;
-  const showSchedule = state.targetType === "campaign";
+  // Meta ad sets carry their own schedule (end_time); other platforms'
+  // ad-set-level objects stay name/status/budget only.
+  const showSchedule =
+    state.targetType === "campaign" ||
+    (state.targetType === "adset" && platform === "meta");
   // Google ad groups have no budget; the money knob there is the default
   // max CPC bid (still sent as dailyBudget in minor units). Google ads can
   // only be paused/activated — renaming is not supported.

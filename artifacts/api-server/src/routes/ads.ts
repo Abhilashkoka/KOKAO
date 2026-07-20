@@ -1936,9 +1936,15 @@ router.post(
       });
       return;
     }
-    if (input.targetType === "adset" && (input.startTime != null || input.stopTime != null)) {
+    // Ad set schedule edits are supported on Meta only (mapped to the ad
+    // set's end_time/start_time fields); other platforms still reject them.
+    if (
+      input.targetType === "adset" &&
+      conn.platform !== "meta" &&
+      (input.startTime != null || input.stopTime != null)
+    ) {
       res.status(400).json({
-        error: "Ad set schedule changes are not supported yet — only name, status, and budgets.",
+        error: "Ad set schedule changes are only supported on Meta — other platforms allow name, status, and budgets only.",
       });
       return;
     }

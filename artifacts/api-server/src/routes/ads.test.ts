@@ -113,6 +113,23 @@ async function insertMetaAdConnection(tenantId: number): Promise<number> {
   return row!.id;
 }
 
+async function insertGoogleAdConnection(tenantId: number): Promise<number> {
+  const [row] = await db
+    .insert(adAccountConnectionsTable)
+    .values({
+      tenantId,
+      platform: "google",
+      status: "connected",
+      adAccountId: "1234567890",
+      adAccountName: "Test Google Ads Account",
+      currency: "INR",
+      verifyStatus: "verified",
+      encryptedCredentials: encryptJson({ refreshToken: "g-refresh" }),
+    })
+    .returning({ id: adAccountConnectionsTable.id });
+  return row!.id;
+}
+
 async function addMember(
   tenantId: number,
   role: "admin" | "member",
@@ -900,19 +917,104 @@ describe("ad set and ad drafts", () => {
     }
   });
 
-  it("rejects schedule fields on an ad set draft", async () => {
+  it("creates an ad set schedule draft with a before/after preview", async () => {
     const tenant = await createTenant();
     try {
       const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      mockRead.mockResolvedValue({
+        name: "Retargeting",
+        status: "PAUSED",
+        dailyBudget: 2000,
+        lifetimeBudget: null,
+        startTime: "2026-07-01T00:00:00+0000",
+        stopTime: "2026-08-01T00:00:00+0000",
+      });
       actAs(tenant.clerkUserId);
       const res = await request(app).post("/api/ads/drafts").send({
         connectionId,
         targetType: "adset",
         action: "update",
         targetId: "adset_1",
+        stopTime: "2026-09-01T00:00:00+0000",
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.changes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field: "End time",
+            before: "2026-08-01T00:00:00+0000",
+            after: "2026-09-01T00:00:00+0000",
+          }),
+        ]),
+      );
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("applies an ad set schedule draft with the adset target type and verifies the read-back", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      const before = {
+        name: "Retargeting",
+        status: "PAUSED",
+        dailyBudget: 2000,
+        lifetimeBudget: null,
+        startTime: "2026-07-01T00:00:00+0000",
+        stopTime: "2026-08-01T00:00:00+0000",
+      };
+      mockRead.mockResolvedValue(before);
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "update",
+        targetId: "adset_1",
+        stopTime: "2026-09-01T00:00:00+0000",
+      });
+      expect(draftRes.status).toBe(201);
+
+      // Drift check read, then post-apply verification read.
+      mockRead.mockResolvedValueOnce(before);
+      mockRead.mockResolvedValueOnce({
+        ...before,
+        stopTime: "2026-09-01T00:00:00+0000",
+      });
+      const applied = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(applied.status).toBe(200);
+      expect(applied.body.status).toBe("applied");
+      expect(applied.body.verifyStatus).toBe("verified");
+      expect(mockUpdate).toHaveBeenCalledWith(
+        "ads-token",
+        "adset_1",
+        expect.objectContaining({
+          stopTime: "2026-09-01T00:00:00+0000",
+          targetType: "adset",
+        }),
+      );
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("still rejects schedule fields on a non-Meta ad set draft", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertGoogleAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "update",
+        targetId: "adgroup_1",
         startTime: "2026-08-01T00:00:00+0000",
       });
       expect(res.status).toBe(400);
+      expect(res.body.error).toContain("only supported on Meta");
+      expect(mockRead).not.toHaveBeenCalled();
     } finally {
       await deleteTenant(tenant.tenantId);
     }

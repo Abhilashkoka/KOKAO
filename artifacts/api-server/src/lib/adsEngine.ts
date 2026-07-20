@@ -284,7 +284,11 @@ const metaOps: PlatformOps = {
   defaultObjective: "OUTCOME_TRAFFIC",
   readState: (conn, targetId, targetType) =>
     readObjectState(metaToken(conn), targetId, asTargetType(targetType)),
-  update: (conn, targetId, params) => updateObject(metaToken(conn), targetId, params),
+  update: (conn, targetId, params) =>
+    updateObject(metaToken(conn), targetId, {
+      ...params,
+      targetType: asTargetType(params.targetType ?? "campaign"),
+    }),
   create: (conn, params) =>
     createCampaign(metaToken(conn), conn.adAccountId, params),
 };

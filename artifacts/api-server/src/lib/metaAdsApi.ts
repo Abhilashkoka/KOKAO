@@ -148,6 +148,8 @@ interface RawCampaign {
   lifetime_budget?: string;
   start_time?: string;
   stop_time?: string;
+  /** Ad sets only: their end timestamp field is named end_time. */
+  end_time?: string;
 }
 
 function mapCampaign(c: RawCampaign): MetaCampaign {
@@ -193,6 +195,9 @@ export interface MetaAdSet {
   effectiveStatus: string;
   dailyBudget: number | null;
   lifetimeBudget: number | null;
+  startTime: string | null;
+  /** Meta ad sets call this `end_time` (campaigns use `stop_time`). */
+  stopTime: string | null;
 }
 
 export async function listAdSets(
@@ -203,9 +208,10 @@ export async function listAdSets(
     data?: {
       id?: string; name?: string; status?: string; effective_status?: string;
       daily_budget?: string; lifetime_budget?: string;
+      start_time?: string; end_time?: string;
     }[];
   }>(`${encodeURIComponent(campaignId)}/adsets`, token, {
-    fields: "id,name,status,effective_status,daily_budget,lifetime_budget",
+    fields: "id,name,status,effective_status,daily_budget,lifetime_budget,start_time,end_time",
     limit: "100",
   });
   return (json.data ?? []).map((s) => ({
@@ -215,6 +221,8 @@ export async function listAdSets(
     effectiveStatus: s.effective_status ?? s.status ?? "UNKNOWN",
     dailyBudget: toNum(s.daily_budget),
     lifetimeBudget: toNum(s.lifetime_budget),
+    startTime: s.start_time ?? null,
+    stopTime: s.end_time ?? null,
   }));
 }
 
@@ -383,6 +391,11 @@ export interface UpdateObjectParams {
   lifetimeBudget?: number | null;
   startTime?: string | null;
   stopTime?: string | null;
+  /**
+   * Which Graph object is being updated. Ad sets name their end timestamp
+   * `end_time` while campaigns use `stop_time`, so the mapping depends on it.
+   */
+  targetType?: AdsTargetType;
 }
 
 /** Update a campaign/ad set/ad in place (POST to the object id). */
@@ -397,7 +410,10 @@ export async function updateObject(
   if (params.dailyBudget != null) body.daily_budget = String(params.dailyBudget);
   if (params.lifetimeBudget != null) body.lifetime_budget = String(params.lifetimeBudget);
   if (params.startTime != null) body.start_time = params.startTime;
-  if (params.stopTime != null) body.stop_time = params.stopTime;
+  if (params.stopTime != null) {
+    if (params.targetType === "adset") body.end_time = params.stopTime;
+    else body.stop_time = params.stopTime;
+  }
   await graphPost<{ success?: boolean }>(encodeURIComponent(objectId), token, body);
 }
 
@@ -405,12 +421,13 @@ export type AdsTargetType = "campaign" | "adset" | "ad";
 
 /**
  * Graph fields readable per object type. Requesting a field an object type
- * does not have (e.g. budgets on an ad, stop_time on an ad set) makes the
- * Graph API reject the whole read, so each type gets its own field list.
+ * does not have (e.g. budgets on an ad, stop_time on an ad set — ad sets
+ * call it end_time) makes the Graph API reject the whole read, so each type
+ * gets its own field list.
  */
 const OBJECT_STATE_FIELDS: Record<AdsTargetType, string> = {
   campaign: "id,name,status,daily_budget,lifetime_budget,start_time,stop_time",
-  adset: "id,name,status,daily_budget,lifetime_budget",
+  adset: "id,name,status,daily_budget,lifetime_budget,start_time,end_time",
   ad: "id,name,status",
 };
 
@@ -436,6 +453,7 @@ export async function readObjectState(
     dailyBudget: toNum(json.daily_budget),
     lifetimeBudget: toNum(json.lifetime_budget),
     startTime: json.start_time ?? null,
-    stopTime: json.stop_time ?? null,
+    // Ad sets report end_time; campaigns report stop_time.
+    stopTime: json.stop_time ?? json.end_time ?? null,
   };
 }

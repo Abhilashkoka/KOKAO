@@ -6156,6 +6156,8 @@ export const GetAdCampaignDetailResponse = zod.object({
   "effectiveStatus": zod.string(),
   "dailyBudget": zod.number().nullish(),
   "lifetimeBudget": zod.number().nullish(),
+  "startTime": zod.string().nullish(),
+  "stopTime": zod.string().nullish(),
   "metrics": zod.object({
   "impressions": zod.number(),
   "clicks": zod.number(),

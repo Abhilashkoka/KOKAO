@@ -2664,6 +2664,10 @@ export interface AdsAdSet {
   dailyBudget?: number | null;
   /** @nullable */
   lifetimeBudget?: number | null;
+  /** @nullable */
+  startTime?: string | null;
+  /** @nullable */
+  stopTime?: string | null;
   metrics: AdsMetrics;
 }
 

@@ -8541,6 +8541,10 @@ components:
           type: ["integer", "null"]
         lifetimeBudget:
           type: ["integer", "null"]
+        startTime:
+          type: ["string", "null"]
+        stopTime:
+          type: ["string", "null"]
         metrics:
           $ref: "#/components/schemas/AdsMetrics"
     AdsAd:
