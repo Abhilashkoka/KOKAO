@@ -136,7 +136,10 @@ import {
   type TargetingLocation,
   type ProposedTargetingFacets,
 } from "../lib/adsEngine";
-import { notifyAdsDraftPending } from "../lib/notifications";
+import {
+  notifyAdsDraftPending,
+  resolveAdsConnectionNotifications,
+} from "../lib/notifications";
 import { AD_SWEEP_PLATFORMS, reverifyAdConnection } from "../lib/adsReverify";
 
 const router: IRouter = Router();
@@ -1296,6 +1299,9 @@ router.post(
           .where(eq(adAccountConnectionsTable.id, conn.id))
           .returning()
       )[0]!;
+      // The grant just verified again — auto-dismiss any lingering
+      // "ad account disconnected" notification for this platform.
+      await resolveAdsConnectionNotifications(req.tenantId, "google");
       res.json(serializeConnection(updated));
     } catch (err) {
       res.status(400).json({

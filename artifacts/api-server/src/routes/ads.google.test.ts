@@ -50,6 +50,7 @@ import {
   db,
   pool,
   adAccountConnectionsTable,
+  notificationsTable,
   adChangeRequestsTable,
   adsChangeLogsTable,
   adsSettingsTable,
@@ -575,6 +576,86 @@ describe("google draft creation and apply", () => {
         .from(adAccountConnectionsTable)
         .where(eq(adAccountConnectionsTable.id, connectionId));
       expect(row!.verifyStatus).toBe("failed");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("google reconnect restores a failed connection", () => {
+  it("flips a failed connection back to verified via select and resolves the lingering notification", async () => {
+    const tenant = await createTenant();
+    try {
+      // A previously broken grant: reverify flipped it to failed and left an
+      // unread "ad account disconnected" notification behind. The OAuth
+      // reconnect callback has since stored a fresh refresh token.
+      const connectionId = await insertGoogleAdConnection(tenant.tenantId, {
+        verifyStatus: "failed",
+        verifyError: "invalid_grant: refresh token revoked",
+        encryptedCredentials: encryptJson({
+          refreshToken: "google-refresh-fresh",
+          loginCustomerId: null,
+        }),
+      });
+      await db.insert(notificationsTable).values({
+        tenantId: tenant.tenantId,
+        type: "ads_connection_failed",
+        platform: "google",
+        title: "Google Ads account disconnected",
+        message: "Your Google Ads connection is no longer valid.",
+        linkUrl: "/ads",
+      });
+
+      mockChoices.mockResolvedValue([
+        {
+          customerId: "1234567890",
+          name: "Test Google Ads",
+          currency: "INR",
+          manager: false,
+          loginCustomerId: "5556667778",
+        },
+      ]);
+      mockReadCustomer.mockResolvedValue({
+        customerId: "1234567890",
+        name: "Test Google Ads",
+        currency: "INR",
+        manager: false,
+      } as never);
+
+      actAs(tenant.clerkUserId);
+      const list = await request(app).get("/api/ads/connections/google/accounts");
+      expect(list.status).toBe(200);
+      expect(list.body.length).toBe(1);
+
+      const sel = await request(app)
+        .post("/api/ads/connections/google/select")
+        .send({ customerId: "1234567890", loginCustomerId: "5556667778" });
+      expect(sel.status).toBe(200);
+      expect(sel.body.status).toBe("connected");
+      expect(sel.body.verifyStatus).toBe("verified");
+
+      const [row] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(row!.verifyStatus).toBe("verified");
+      expect(row!.verifyError).toBeNull();
+      const creds = decryptJson<{
+        refreshToken: string;
+        loginCustomerId: string | null;
+      }>(row!.encryptedCredentials!);
+      expect(creds.refreshToken).toBe("google-refresh-fresh");
+      expect(creds.loginCustomerId).toBe("5556667778");
+
+      // The lingering disconnected notification is auto-resolved (marked read).
+      const notifications = await db
+        .select()
+        .from(notificationsTable)
+        .where(eq(notificationsTable.tenantId, tenant.tenantId));
+      const lingering = notifications.filter(
+        (n) => n.type === "ads_connection_failed" && n.readAt == null,
+      );
+      expect(lingering.length).toBe(0);
     } finally {
       await deleteTenant(tenant.tenantId);
     }
