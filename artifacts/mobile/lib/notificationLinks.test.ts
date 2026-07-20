@@ -11,6 +11,24 @@ describe("mapLinkUrlToRoute", () => {
     expect(mapLinkUrlToRoute("/library")).toBe("/(tabs)/library");
   });
 
+  it("maps /library?item=<id> to the post's edit screen", () => {
+    expect(mapLinkUrlToRoute("/library?item=42")).toEqual({
+      pathname: "/content/[id]",
+      params: { id: "42" },
+    });
+    expect(mapLinkUrlToRoute("/library?item=7#recent")).toEqual({
+      pathname: "/content/[id]",
+      params: { id: "7" },
+    });
+  });
+
+  it("falls back to the Library tab for invalid item ids", () => {
+    expect(mapLinkUrlToRoute("/library?item=abc")).toBe("/(tabs)/library");
+    expect(mapLinkUrlToRoute("/library?item=0")).toBe("/(tabs)/library");
+    expect(mapLinkUrlToRoute("/library?item=-3")).toBe("/(tabs)/library");
+    expect(mapLinkUrlToRoute("/library?item=")).toBe("/(tabs)/library");
+  });
+
   it("ignores query strings, hashes, and trailing slashes", () => {
     expect(mapLinkUrlToRoute("/accounts?platform=facebook")).toBe("/(tabs)/accounts");
     expect(mapLinkUrlToRoute("/library/")).toBe("/(tabs)/library");

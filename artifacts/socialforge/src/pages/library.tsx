@@ -1,4 +1,5 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import { useLocation, useSearch } from "wouter";
 import { 
   useListContent, 
   useDeleteContent,
@@ -531,6 +532,34 @@ export function LibraryPage() {
     setEditImagePrompt(item.imagePrompt ?? null);
     setEditImageB64(null);
   };
+
+  // Deep link from notifications: /library?item=<id> opens that post's edit
+  // dialog once the list is loaded, then cleans the URL so refreshes don't
+  // re-trigger it. Guarded per search string (not a one-shot latch) so a
+  // second notification click while the page stays mounted still works.
+  // Unknown ids (deleted items) just land on the library list.
+  const search = useSearch();
+  const [, setLocation] = useLocation();
+  const handledDeepLinkRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!search) {
+      // URL cleaned (or plain /library) — re-arm so clicking the same
+      // notification again later still opens the dialog.
+      handledDeepLinkRef.current = null;
+      return;
+    }
+    if (!content || handledDeepLinkRef.current === search) return;
+    const raw = new URLSearchParams(search).get("item");
+    if (!raw) return;
+    handledDeepLinkRef.current = search;
+    const id = Number(raw);
+    const item = Number.isInteger(id) && id > 0
+      ? content.find((i: any) => i.id === id)
+      : undefined;
+    if (item) openEdit(item);
+    setLocation("/library", { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content, search]);
 
   const handleUpdate = () => {
     if (!editItem) return;

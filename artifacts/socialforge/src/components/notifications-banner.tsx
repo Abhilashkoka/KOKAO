@@ -9,6 +9,14 @@ import {
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 
+// Publish-outcome notifications link to the library (optionally a specific
+// post); connection alerts link to reconnect flows. Label accordingly.
+function linkLabel(linkUrl: string): string {
+  const path = linkUrl.split(/[?#]/)[0] ?? "";
+  if (path === "/library") return "View post";
+  return "Reconnect now";
+}
+
 export function NotificationsBanner() {
   const queryClient = useQueryClient();
   const { data: notifications } = useListNotifications();
@@ -59,7 +67,7 @@ export function NotificationsBanner() {
             {n.linkUrl && (
               <Link href={n.linkUrl}>
                 <span className="inline-block mt-1 text-sm font-medium text-primary hover:underline cursor-pointer">
-                  Reconnect now
+                  {linkLabel(n.linkUrl)}
                 </span>
               </Link>
             )}

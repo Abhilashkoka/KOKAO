@@ -712,6 +712,15 @@ function platformLabel(platform: string): string {
   return PLATFORM_LABELS[platform] ?? platform;
 }
 
+/**
+ * Link a publish-outcome notification to the specific content item when its
+ * id is known, so notification feeds can open the exact post instead of the
+ * generic library list.
+ */
+function contentItemLinkUrl(contentItemId?: number | null): string {
+  return contentItemId ? `/library?item=${contentItemId}` : "/library";
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -849,20 +858,22 @@ export async function notifyPublishInterrupted(
       count === 1
         ? "A publish was interrupted"
         : `${count} publishes were interrupted`;
+    const linkUrl = contentItemLinkUrl(contentItemId);
     await db.insert(notificationsTable).values({
       tenantId,
       type: PUBLISH_INTERRUPTED,
       platform: null,
       title,
       message,
-      linkUrl: "/library",
+      referenceId: contentItemId,
+      linkUrl,
       inApp: effective.inApp,
     });
 
     await sendTenantPush(tenantId, PUBLISH_INTERRUPTED, {
       title,
       message,
-      linkUrl: "/library",
+      linkUrl,
       contentItemId,
     });
   } catch (err) {
@@ -890,20 +901,22 @@ export async function notifyScheduledPostPublished(
     );
     if (!effective.enabled) return;
     const message = `"${title}" was published to ${platformLabel(platform)} as scheduled.`;
+    const linkUrl = contentItemLinkUrl(contentItemId);
     await db.insert(notificationsTable).values({
       tenantId,
       type: SCHEDULED_POST_PUBLISHED,
       platform,
       title: "Scheduled post published",
       message,
-      linkUrl: "/library",
+      referenceId: contentItemId ?? null,
+      linkUrl,
       inApp: effective.inApp,
     });
 
     await sendTenantPush(tenantId, SCHEDULED_POST_PUBLISHED, {
       title: "Scheduled post published",
       message,
-      linkUrl: "/library",
+      linkUrl,
       contentItemId,
     });
   } catch (err) {
@@ -936,20 +949,22 @@ export async function notifyScheduledPublishFailed(
     if (!effective.enabled) return;
 
     const message = `"${title}" could not be published to ${platformLabel(platform)} as scheduled. ${reason}`;
+    const linkUrl = contentItemLinkUrl(contentItemId);
     await db.insert(notificationsTable).values({
       tenantId,
       type: SCHEDULED_PUBLISH_FAILED,
       platform,
       title: "Scheduled publish failed",
       message,
-      linkUrl: "/library",
+      referenceId: contentItemId ?? null,
+      linkUrl,
       inApp: effective.inApp,
     });
 
     await sendTenantPush(tenantId, SCHEDULED_PUBLISH_FAILED, {
       title: "Scheduled publish failed",
       message,
-      linkUrl: "/library",
+      linkUrl,
       contentItemId,
     });
 

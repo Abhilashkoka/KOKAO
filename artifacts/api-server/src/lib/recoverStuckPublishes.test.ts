@@ -63,7 +63,9 @@ describe("recoverStuckPublishingItems", () => {
         );
       expect(notifications.length).toBe(1);
       expect(notifications[0].message).toContain("server restarted");
-      expect(notifications[0].linkUrl).toBe("/library");
+      // A single interrupted post deep-links straight to that item.
+      expect(notifications[0].linkUrl).toBe(`/library?item=${id}`);
+      expect(notifications[0].referenceId).toBe(id);
     } finally {
       await deleteTenant(tenant.tenantId);
     }
