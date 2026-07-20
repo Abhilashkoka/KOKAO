@@ -2001,6 +2001,14 @@ export function CampaignDetailDialog({
           <DialogDescription>
             Ad sets and ads with their delivery for the selected period.
           </DialogDescription>
+          {data && (
+            <p
+              className="text-sm text-muted-foreground"
+              data-testid="text-campaign-schedule"
+            >
+              Schedule: {formatScheduleRange(data.campaign.startTime, data.campaign.stopTime)}
+            </p>
+          )}
         </DialogHeader>
         {isLoading && <Skeleton className="h-40 w-full" />}
         {error && (
