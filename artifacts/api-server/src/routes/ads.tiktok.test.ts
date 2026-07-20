@@ -562,6 +562,25 @@ describe("tiktok draft rules", () => {
     }
   });
 
+  it("rejects an ad group schedule whose end is not after its start", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "adset",
+        targetId: "ag_1",
+        status: undefined,
+        dailyBudget: undefined,
+        startTime: "2026-08-31 12:30:00",
+        stopTime: "2026-08-01 00:00:00",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/end time must be after/i);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("still rejects budget changes on TikTok ads", async () => {
     const tenant = await createTenant();
     try {

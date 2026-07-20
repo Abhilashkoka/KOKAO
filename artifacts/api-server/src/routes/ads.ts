@@ -1762,6 +1762,18 @@ router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Parse a draft schedule time into epoch millis, or null when unparseable.
+ * Accepts ISO date-times and TikTok's "YYYY-MM-DD HH:MM:SS" form (the TikTok
+ * normalization above may already have rewritten the value into that shape).
+ */
+function parseScheduleTime(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const ms = Date.parse(trimmed.replace(" ", "T"));
+  return Number.isNaN(ms) ? null : ms;
+}
+
 // ---------------------------------------------------------------------------
 // Budget caps (optional per-tenant spend guardrails, minor units)
 // ---------------------------------------------------------------------------
@@ -2241,6 +2253,35 @@ router.post(
       });
       return;
     }
+    // Schedule sanity guardrail: reject unparseable times and end <= start
+    // HERE (draft creation, like the budget caps below) so an obviously
+    // invalid schedule never reaches the owner's approval queue. The
+    // adapter-level checks remain as a backstop at apply time.
+    if (input.startTime != null || input.stopTime != null) {
+      const startMs =
+        input.startTime != null ? parseScheduleTime(input.startTime) : null;
+      if (input.startTime != null && startMs == null) {
+        res.status(400).json({
+          error: `Could not understand the start time "${input.startTime}". Use an ISO date-time like 2026-08-01T00:00:00.`,
+        });
+        return;
+      }
+      const stopMs =
+        input.stopTime != null ? parseScheduleTime(input.stopTime) : null;
+      if (input.stopTime != null && stopMs == null) {
+        res.status(400).json({
+          error: `Could not understand the end time "${input.stopTime}". Use an ISO date-time like 2026-08-01T00:00:00.`,
+        });
+        return;
+      }
+      if (startMs != null && stopMs != null && stopMs <= startMs) {
+        res.status(400).json({
+          error: "The schedule's end time must be after its start time.",
+        });
+        return;
+      }
+    }
+
     // Bid tuning (amount/strategy) is a Meta ad-set update knob only.
     if (input.bidAmount != null || input.bidStrategy != null) {
       if (

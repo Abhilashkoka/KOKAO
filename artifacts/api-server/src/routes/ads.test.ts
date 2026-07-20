@@ -1073,6 +1073,88 @@ describe("ad set and ad drafts", () => {
     }
   });
 
+  it("rejects a schedule draft with an unparseable start time", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "update",
+        targetId: "adset_1",
+        startTime: "not-a-date",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/start time/i);
+      expect(mockRead).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects a schedule draft with an unparseable end time", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "update",
+        targetId: "adset_1",
+        stopTime: "next tuesday",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/end time/i);
+      expect(mockRead).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects a schedule draft whose end time is not after its start time", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "update",
+        targetId: "adset_1",
+        startTime: "2026-09-01T00:00:00+0000",
+        stopTime: "2026-08-01T00:00:00+0000",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/end time must be after/i);
+      expect(mockRead).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects a schedule draft with equal start and end times", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "update",
+        targetId: "adset_1",
+        startTime: "2026-08-01T00:00:00+0000",
+        stopTime: "2026-08-01T00:00:00+0000",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/end time must be after/i);
+      expect(mockRead).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("applies an ad set schedule draft with the adset target type and verifies the read-back", async () => {
     const tenant = await createTenant();
     try {
