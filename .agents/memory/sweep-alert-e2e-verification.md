@@ -5,6 +5,12 @@ description: How to reproduce and verify the sweep_fail_ratio superadmin banner 
 
 # Verifying the sweep_fail_ratio ("Mass connection outage suspected") alert
 
+**Seeding sweep_status for dashboard checks:** the in-process sweep overwrites
+the single sweep_status row 60s after an API-server restart and every 15 min
+after — a row seeded from the shell can be wiped before the browser test reads
+it. Seed it as a [DB] step inside the test plan right before navigating to
+/admin, and don't click "Run now".
+
 To force the alert cheaply in dev: set `SWEEP_CHECK_TIMEOUT_MS=1` and
 `SWEEP_FAIL_RATIO_MIN_CHECKS=1` (development env), restart the API server, seed
 one `connected_accounts` row for a superadmin tenant, then hit "Run now" on the
