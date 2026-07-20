@@ -472,6 +472,72 @@ describe("handleLinkedinAdsAuthFailure", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it("coalesces with a concurrent regular refresh into a single token exchange", async () => {
+    const conn = await insertConnection({
+      accessToken: "old-token",
+      expiresAt: Date.now() + DAY,
+      refreshToken: "old-refresh",
+      refreshTokenExpiresAt: Date.now() + 300 * DAY,
+    });
+    // Hold the exchange open until both the sweep-style refresh and the
+    // auth-failure refresh are in flight, guaranteeing the race window.
+    let releaseExchange!: () => void;
+    const gate = new Promise<void>((resolve) => (releaseExchange = resolve));
+    mockFetch.mockImplementation(async () => {
+      await gate;
+      return jsonResponse(200, {
+        access_token: "new-token",
+        expires_in: 5184000,
+        refresh_token: "rotated-refresh",
+        refresh_token_expires_in: 365 * 24 * 60 * 60,
+      });
+    });
+
+    const regular = maybeRefreshLinkedinAdsToken(conn);
+    const authFailure = handleLinkedinAdsAuthFailure(conn, "401 from LinkedIn");
+    await new Promise((r) => setTimeout(r, 20));
+    releaseExchange();
+    await Promise.all([regular, authFailure]);
+
+    // Exactly one exchange ran; the rotated refresh token was persisted and
+    // the row stayed healthy.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const after = await readConnection(conn.id);
+    expect(after.verifyStatus).toBe("verified");
+    expect(readCreds(after).accessToken).toBe("new-token");
+    expect(readCreds(after).refreshToken).toBe("rotated-refresh");
+  });
+
+  it("skips a second exchange when a refresh already landed after the caller's snapshot", async () => {
+    const conn = await insertConnection({
+      accessToken: "old-token",
+      expiresAt: Date.now() + DAY,
+      refreshToken: "old-refresh",
+      refreshTokenExpiresAt: Date.now() + 300 * DAY,
+    });
+    mockFetch.mockResolvedValue(
+      jsonResponse(200, {
+        access_token: "new-token",
+        expires_in: 5184000,
+        refresh_token: "rotated-refresh",
+        refresh_token_expires_in: 365 * 24 * 60 * 60,
+      }),
+    );
+
+    // A regular refresh lands and rotates the refresh token.
+    await maybeRefreshLinkedinAdsToken(conn);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    // The auth-failure handler still holds the PRE-refresh snapshot; it must
+    // re-read the row and skip the exchange (which would burn the rotated
+    // token) instead of marking anything failed.
+    await handleLinkedinAdsAuthFailure(conn, "401 from LinkedIn");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const after = await readConnection(conn.id);
+    expect(after.verifyStatus).toBe("verified");
+    expect(readCreds(after).refreshToken).toBe("rotated-refresh");
+  });
+
   it("marks failed when the refresh token itself is expired", async () => {
     const conn = await insertConnection({
       accessToken: "stale",

@@ -85,7 +85,54 @@ function refreshTokenExpired(
  * snapshot (taken before another refresh landed) sees the fresh credentials
  * and skips the exchange entirely.
  */
-const inflightRefreshes = new Map<number, Promise<AdAccountConnection>>();
+const inflightRefreshes = new Map<number, Promise<SerializedRefreshResult>>();
+
+/**
+ * Result of a serialized refresh run:
+ * - "renewed": credentials were re-encrypted and persisted (or a concurrent
+ *   refresh had already landed a fresh token).
+ * - "marked_failed": the run itself flipped the row to failed (due-mode
+ *   dead-token handling) — callers must not mark it failed again.
+ * - "dead": LinkedIn definitively rejected the refresh token but the row was
+ *   NOT yet marked failed; the caller decides how to surface it.
+ * - "transient": nothing changed; the next sweep retries.
+ * - "skipped": no exchange needed (not due / no refresh token / row gone).
+ */
+type SerializedRefreshResult = {
+  outcome: "renewed" | "marked_failed" | "dead" | "transient" | "skipped";
+  row: AdAccountConnection;
+};
+
+/**
+ * Run one serialized refresh for this connection. All refresh entry points
+ * (sweep, on-demand, auth-failure last chance) MUST go through here so that
+ * at most one token exchange is ever in flight per connection.
+ *
+ * `mode`:
+ * - "due": normal proactive refresh — skips unless linkedinAdsRefreshDue and
+ *   marks the row failed itself when the refresh token is dead.
+ * - "force": auth-failure last-chance refresh — always attempts the exchange
+ *   (after a fresh row re-read) unless a concurrent refresh already rotated
+ *   the token; returns "dead" without marking so the caller can persist its
+ *   own failure message.
+ */
+function runSerializedRefresh(
+  snapshot: AdAccountConnection,
+  mode: "due" | "force",
+): Promise<SerializedRefreshResult> {
+  const existing = inflightRefreshes.get(snapshot.id);
+  if (existing) return existing;
+
+  const run = (async () => {
+    try {
+      return await refreshSerialized(snapshot, mode);
+    } finally {
+      inflightRefreshes.delete(snapshot.id);
+    }
+  })();
+  inflightRefreshes.set(snapshot.id, run);
+  return run;
+}
 
 /**
  * Refresh the connection's LinkedIn access token if it is due. Returns the
@@ -109,27 +156,17 @@ export async function maybeRefreshLinkedinAdsToken(
   conn: AdAccountConnection,
 ): Promise<AdAccountConnection> {
   if (!linkedinAdsRefreshDue(conn)) return conn;
-
-  const existing = inflightRefreshes.get(conn.id);
-  if (existing) return existing;
-
-  const run = (async () => {
-    try {
-      return await refreshSerialized(conn);
-    } finally {
-      inflightRefreshes.delete(conn.id);
-    }
-  })();
-  inflightRefreshes.set(conn.id, run);
-  return run;
+  const { row } = await runSerializedRefresh(conn, "due");
+  return row;
 }
 
-/** The serialized body of maybeRefreshLinkedinAdsToken; runs at most once
- * concurrently per connection id. Re-reads the row first so a stale caller
- * snapshot never triggers a duplicate token exchange. */
+/** The serialized refresh body; runs at most once concurrently per
+ * connection id. Re-reads the row first so a stale caller snapshot never
+ * triggers a duplicate token exchange. */
 async function refreshSerialized(
   snapshot: AdAccountConnection,
-): Promise<AdAccountConnection> {
+  mode: "due" | "force",
+): Promise<SerializedRefreshResult> {
   let conn = snapshot;
   try {
     const fresh = (
@@ -144,7 +181,7 @@ async function refreshSerialized(
         )
         .limit(1)
     )[0];
-    if (!fresh) return snapshot; // Row deleted meanwhile.
+    if (!fresh) return { outcome: "skipped", row: snapshot }; // Row deleted meanwhile.
     conn = fresh;
   } catch (err) {
     logger.warn(
@@ -153,9 +190,34 @@ async function refreshSerialized(
     );
   }
 
-  if (!linkedinAdsRefreshDue(conn)) return conn; // Another refresh already landed.
   const creds = decryptCreds(conn);
-  if (!creds?.refreshToken) return conn;
+
+  if (mode === "force") {
+    // Auth-failure last chance: if a concurrent refresh already rotated the
+    // token since the caller's snapshot was taken, the fresh token is what
+    // the caller's retry should use — no second exchange.
+    const snapshotCreds = decryptCreds(snapshot);
+    const rotatedSinceSnapshot =
+      creds != null &&
+      snapshotCreds != null &&
+      (creds.accessToken !== snapshotCreds.accessToken ||
+        creds.refreshToken !== snapshotCreds.refreshToken);
+    if (rotatedSinceSnapshot) {
+      return { outcome: "renewed", row: conn };
+    }
+    if (!creds?.refreshToken || refreshTokenExpired(creds)) {
+      return { outcome: "dead", row: conn };
+    }
+    const attempt = await attemptRefresh(
+      conn,
+      creds as LinkedinAdsCredentials & { refreshToken: string },
+    );
+    return { outcome: attempt.outcome, row: attempt.row };
+  }
+
+  if (!linkedinAdsRefreshDue(conn))
+    return { outcome: "skipped", row: conn }; // Another refresh already landed.
+  if (!creds?.refreshToken) return { outcome: "skipped", row: conn };
 
   const now = Date.now();
   if (refreshTokenExpired(creds, now)) {
@@ -167,12 +229,13 @@ async function refreshSerialized(
       creds.expiresAt != null &&
       creds.expiresAt <= now
     ) {
-      return await markFailed(
+      const row = await markFailed(
         conn,
         "LinkedIn sign-in expired. Reconnect LinkedIn Ads to continue.",
       );
+      return { outcome: "marked_failed", row };
     }
-    return conn;
+    return { outcome: "skipped", row: conn };
   }
 
   const attempt = await attemptRefresh(
@@ -180,12 +243,13 @@ async function refreshSerialized(
     creds as LinkedinAdsCredentials & { refreshToken: string },
   );
   if (attempt.outcome === "dead") {
-    return await markFailed(
+    const row = await markFailed(
       conn,
       "LinkedIn sign-in expired. Reconnect LinkedIn Ads to continue.",
     );
+    return { outcome: "marked_failed", row };
   }
-  return attempt.row;
+  return { outcome: attempt.outcome, row: attempt.row };
 }
 
 /**
@@ -323,17 +387,14 @@ export async function handleLinkedinAdsAuthFailure(
   message: string,
 ): Promise<void> {
   try {
-    const creds = decryptCreds(conn);
-    if (!creds?.refreshToken || refreshTokenExpired(creds)) {
-      await markFailed(conn, message);
-      return;
-    }
-    const attempt = await attemptRefresh(
-      conn,
-      creds as LinkedinAdsCredentials & { refreshToken: string },
-    );
+    // Goes through the same per-connection serialization as the sweep and
+    // on-demand refreshes: LinkedIn rotates refresh tokens, so a racing
+    // second exchange could persist a dead token. The serialized run
+    // re-reads the row first; if another refresh already landed, this
+    // resolves to "renewed" without a second exchange.
+    const attempt = await runSerializedRefresh(conn, "force");
     if (attempt.outcome === "dead") {
-      await markFailed(conn, message);
+      await markFailed(attempt.row, message);
     } else if (attempt.outcome === "transient") {
       logger.warn(
         { connectionId: conn.id, tenantId: conn.tenantId },
