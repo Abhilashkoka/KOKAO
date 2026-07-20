@@ -18,4 +18,5 @@ export interface FeatureFlags {
   analytics: boolean;
   team: boolean;
   billing: boolean;
+  pushNotifications: boolean;
 }

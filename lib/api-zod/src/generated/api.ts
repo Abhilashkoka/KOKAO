@@ -73,7 +73,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "connectedAccounts": zod.boolean(),
   "analytics": zod.boolean(),
   "team": zod.boolean(),
-  "billing": zod.boolean()
+  "billing": zod.boolean(),
+  "pushNotifications": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -183,11 +184,13 @@ export const GetNotificationSettingsResponse = zod.object({
   "emailPolicy": zod.enum(['optional', 'forced', 'off']).describe('How the email channel is offered: \"optional\" lets the tenant choose, \"forced\" always emails, \"off\" never emails.'),
   "preference": zod.object({
   "inApp": zod.boolean(),
-  "email": zod.boolean()
+  "email": zod.boolean(),
+  "push": zod.boolean().describe('Mobile push notifications to the user\'s registered devices.')
 }),
   "effective": zod.object({
   "inApp": zod.boolean(),
-  "email": zod.boolean()
+  "email": zod.boolean(),
+  "push": zod.boolean().describe('Mobile push notifications to the user\'s registered devices.')
 })
 }))
 })
@@ -200,7 +203,8 @@ export const UpdateNotificationSettingsBody = zod.object({
   "preferences": zod.array(zod.object({
   "type": zod.string(),
   "inApp": zod.boolean(),
-  "email": zod.boolean()
+  "email": zod.boolean(),
+  "push": zod.boolean().optional().describe('Mobile push channel choice. Optional so older clients that only manage in-app\/email never clobber a stored push choice; when omitted, the stored value is kept.')
 }))
 })
 
@@ -215,13 +219,40 @@ export const UpdateNotificationSettingsResponse = zod.object({
   "emailPolicy": zod.enum(['optional', 'forced', 'off']).describe('How the email channel is offered: \"optional\" lets the tenant choose, \"forced\" always emails, \"off\" never emails.'),
   "preference": zod.object({
   "inApp": zod.boolean(),
-  "email": zod.boolean()
+  "email": zod.boolean(),
+  "push": zod.boolean().describe('Mobile push notifications to the user\'s registered devices.')
 }),
   "effective": zod.object({
   "inApp": zod.boolean(),
-  "email": zod.boolean()
+  "email": zod.boolean(),
+  "push": zod.boolean().describe('Mobile push notifications to the user\'s registered devices.')
 })
 }))
+})
+
+
+/**
+ * @summary Register (or re-bind) this device's Expo push token to the signed-in user
+ */
+export const RegisterPushTokenBody = zod.object({
+  "token": zod.string().describe('The Expo push token for this device, e.g. \"ExponentPushToken[xxxx]\".'),
+  "platform": zod.enum(['ios', 'android', 'unknown']).optional().describe('Device OS hint. Defaults to \"unknown\".')
+})
+
+export const RegisterPushTokenResponse = zod.object({
+  "ok": zod.boolean()
+})
+
+
+/**
+ * @summary Remove this device's Expo push token so it stops receiving pushes
+ */
+export const UnregisterPushTokenBody = zod.object({
+  "token": zod.string()
+})
+
+export const UnregisterPushTokenResponse = zod.object({
+  "ok": zod.boolean()
 })
 
 

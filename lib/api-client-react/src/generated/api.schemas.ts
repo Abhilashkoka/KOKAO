@@ -925,6 +925,8 @@ export interface AdminAuditLogPage {
 export interface NotificationChannelPreference {
   inApp: boolean;
   email: boolean;
+  /** Mobile push notifications to the user's registered devices. */
+  push: boolean;
 }
 
 /**
@@ -974,10 +976,39 @@ export interface UpdateNotificationPreferenceItem {
   type: string;
   inApp: boolean;
   email: boolean;
+  /** Mobile push channel choice. Optional so older clients that only manage in-app/email never clobber a stored push choice; when omitted, the stored value is kept. */
+  push?: boolean;
 }
 
 export interface NotificationSettingsInput {
   preferences: UpdateNotificationPreferenceItem[];
+}
+
+/**
+ * Device OS hint. Defaults to "unknown".
+ */
+export type PushTokenInputPlatform = typeof PushTokenInputPlatform[keyof typeof PushTokenInputPlatform];
+
+
+export const PushTokenInputPlatform = {
+  ios: 'ios',
+  android: 'android',
+  unknown: 'unknown',
+} as const;
+
+export interface PushTokenInput {
+  /** The Expo push token for this device, e.g. "ExponentPushToken[xxxx]". */
+  token: string;
+  /** Device OS hint. Defaults to "unknown". */
+  platform?: PushTokenInputPlatform;
+}
+
+export interface PushTokenUnregisterInput {
+  token: string;
+}
+
+export interface PushTokenResult {
+  ok: boolean;
 }
 
 export interface TasteSignalCounts {
@@ -2938,6 +2969,7 @@ export interface FeatureFlags {
   analytics: boolean;
   team: boolean;
   billing: boolean;
+  pushNotifications: boolean;
 }
 
 export interface AdminFeatureFlag {

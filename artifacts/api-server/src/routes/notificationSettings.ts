@@ -132,6 +132,7 @@ router.put(
             type: pref.type,
             inApp: pref.inApp,
             email: pref.email,
+            push: pref.push ?? true,
             updatedAt: new Date(),
           })
           .onConflictDoUpdate({
@@ -143,6 +144,9 @@ router.put(
             set: {
               inApp: pref.inApp,
               email: pref.email,
+              // Optional so older clients that only manage in-app/email
+              // never clobber a stored push choice.
+              ...(pref.push !== undefined ? { push: pref.push } : {}),
               updatedAt: new Date(),
             },
           });
@@ -156,6 +160,7 @@ router.put(
             type: pref.type,
             inApp: pref.inApp,
             email: pref.email,
+            push: pref.push ?? true,
             updatedAt: new Date(),
           })
           .onConflictDoUpdate({
@@ -166,6 +171,9 @@ router.put(
             set: {
               inApp: pref.inApp,
               email: pref.email,
+              // Optional so older clients that only manage in-app/email
+              // never clobber a stored push choice.
+              ...(pref.push !== undefined ? { push: pref.push } : {}),
               updatedAt: new Date(),
             },
           });

@@ -96,7 +96,7 @@ describe("GET /notification-settings", () => {
       // No policy row and no preference row -> built-in defaults.
       expect(type.enabled).toBe(true);
       expect(type.emailPolicy).toBe("optional");
-      expect(type.preference).toEqual({ inApp: true, email: true });
+      expect(type.preference).toEqual({ inApp: true, email: true, push: true });
       expect(type.effective).toMatchObject({ inApp: true, email: true });
     } finally {
       await deleteTenant(tenant.tenantId);
@@ -126,7 +126,7 @@ describe("GET /notification-settings", () => {
         (t: { type: string }) => t.type === SOCIAL_CONNECTION_FAILED,
       );
       // Raw preference reflects what the toggle stored...
-      expect(type.preference).toEqual({ inApp: true, email: true });
+      expect(type.preference).toEqual({ inApp: true, email: true, push: true });
       // ...but the effective email channel is forced off by policy.
       expect(type.emailPolicy).toBe("off");
       expect(type.effective).toMatchObject({ inApp: true, email: false });
@@ -206,7 +206,11 @@ describe("PUT /notification-settings", () => {
       const type = res.body.types.find(
         (t: { type: string }) => t.type === "sweep_stalled",
       );
-      expect(type.preference).toEqual({ inApp: true, email: false });
+      expect(type.preference).toEqual({
+        inApp: true,
+        email: false,
+        push: true,
+      });
     } finally {
       await deleteTenant(admin.tenantId);
     }
@@ -238,7 +242,11 @@ describe("PUT /notification-settings", () => {
       const type = res.body.types.find(
         (t: { type: string }) => t.type === SOCIAL_CONNECTION_FAILED,
       );
-      expect(type.preference).toEqual({ inApp: true, email: false });
+      expect(type.preference).toEqual({
+        inApp: true,
+        email: false,
+        push: true,
+      });
       // Default policy is "optional", so the tenant's choice takes effect.
       expect(type.effective).toMatchObject({ inApp: true, email: false });
     } finally {
@@ -321,7 +329,11 @@ describe("PUT /notification-settings", () => {
       const putType = put.body.types.find(
         (t: { type: string }) => t.type === SOCIAL_CONNECTION_FAILED,
       );
-      expect(putType.preference).toEqual({ inApp: true, email: false });
+      expect(putType.preference).toEqual({
+        inApp: true,
+        email: false,
+        push: true,
+      });
 
       // Member-scoped row exists...
       const memberRows = await db
@@ -352,7 +364,11 @@ describe("PUT /notification-settings", () => {
       const memberType = memberGet.body.types.find(
         (t: { type: string }) => t.type === SOCIAL_CONNECTION_FAILED,
       );
-      expect(memberType.preference).toEqual({ inApp: true, email: false });
+      expect(memberType.preference).toEqual({
+        inApp: true,
+        email: false,
+        push: true,
+      });
 
       // GET as the owner still shows the owner's own choice with scope=workspace.
       actAs(tenant.clerkUserId);
@@ -361,7 +377,11 @@ describe("PUT /notification-settings", () => {
       const ownerType = ownerGet.body.types.find(
         (t: { type: string }) => t.type === SOCIAL_CONNECTION_FAILED,
       );
-      expect(ownerType.preference).toEqual({ inApp: true, email: true });
+      expect(ownerType.preference).toEqual({
+        inApp: true,
+        email: true,
+        push: true,
+      });
     } finally {
       await db
         .delete(memberNotificationPreferencesTable)

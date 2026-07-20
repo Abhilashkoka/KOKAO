@@ -60,7 +60,7 @@ vi.mock("../lib/notificationSettings", async (importOriginal) => {
     ...actual,
     getEffectiveSetting: vi.fn(async (tenantId: number, type: string) => {
       if (emailState.forceEmailOn) {
-        return { enabled: true, inApp: true, email: true };
+        return { enabled: true, inApp: true, email: true, push: true };
       }
       return actual.getEffectiveSetting(tenantId, type);
     }),
@@ -607,6 +607,7 @@ describe("invite auto-accept join notification", () => {
         enabled: false,
         inApp: false,
         email: false,
+        push: false,
       });
       emailState.verifiedEmails = { [inviteeClerkUserId]: inviteeEmail };
       actAs(inviteeClerkUserId, inviteeEmail);

@@ -16,6 +16,7 @@ const ALL_ON: FeatureFlags = {
   analytics: true,
   team: true,
   billing: true,
+  pushNotifications: true,
 };
 
 /**

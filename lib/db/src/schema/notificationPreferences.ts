@@ -28,6 +28,9 @@ export const notificationPreferencesTable = pgTable(
     inApp: boolean("in_app").notNull().default(true),
     // Also send an email for this type (only when policy allows it).
     email: boolean("email").notNull().default(true),
+    // Also send a mobile push notification for this type. Only reaches
+    // devices that explicitly registered a push token, so default-on is safe.
+    push: boolean("push").notNull().default(true),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

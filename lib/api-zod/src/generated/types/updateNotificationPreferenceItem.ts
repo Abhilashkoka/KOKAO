@@ -10,4 +10,6 @@ export interface UpdateNotificationPreferenceItem {
   type: string;
   inApp: boolean;
   email: boolean;
+  /** Mobile push channel choice. Optional so older clients that only manage in-app/email never clobber a stored push choice; when omitted, the stored value is kept. */
+  push?: boolean;
 }

@@ -20,6 +20,7 @@ import {
 } from "./notificationSettings";
 import type { EmailPolicy } from "./notificationCatalog";
 import { isSuperadminEmail } from "./superadmins";
+import { sendTenantPush } from "./push";
 
 export const SOCIAL_CONNECTION_FAILED = "social_connection_failed";
 export const PUBLISH_INTERRUPTED = "publish_interrupted";
@@ -182,6 +183,12 @@ export async function notifySeatRequestDecided(
       inApp: effective.inApp,
     });
 
+    await sendTenantPush(tenantId, SEAT_REQUEST_DECIDED, {
+      title,
+      message,
+      linkUrl: "/settings",
+    });
+
     if (effective.email) {
       // Owner + admin members: admins manage the team day-to-day, so a seat
       // decision (which changes how many people they can invite) reaches
@@ -246,6 +253,12 @@ export async function notifyTeamMemberJoined(
       inApp: effective.inApp,
     });
 
+    await sendTenantPush(tenantId, TEAM_MEMBER_JOINED, {
+      title,
+      message,
+      linkUrl: "/settings",
+    });
+
     if (effective.email) {
       // Owner + admins, excluding the joiner themselves.
       await emailWorkspaceRecipients(
@@ -304,6 +317,12 @@ export async function notifyTeamMemberLeft(
       message,
       linkUrl: "/settings",
       inApp: effective.inApp,
+    });
+
+    await sendTenantPush(tenantId, TEAM_MEMBER_LEFT, {
+      title,
+      message,
+      linkUrl: "/settings",
     });
 
     if (effective.email) {
@@ -367,6 +386,12 @@ export async function notifyTeamMemberRemoved(
       message,
       linkUrl: "/settings",
       inApp: effective.inApp,
+    });
+
+    await sendTenantPush(tenantId, TEAM_MEMBER_REMOVED, {
+      title,
+      message,
+      linkUrl: "/settings",
     });
 
     if (effective.email) {
@@ -456,6 +481,11 @@ export async function notifyRemovedMember(
         title,
         message,
         inApp: effective.inApp,
+      });
+
+      await sendTenantPush(personalTenant.id, REMOVED_FROM_WORKSPACE, {
+        title,
+        message,
       });
     }
 
@@ -573,6 +603,12 @@ export async function notifySeatRequestSubmitted(details: {
           message,
           linkUrl: "/admin",
           inApp: effective.inApp,
+        });
+
+        await sendTenantPush(recipient.id, SEAT_REQUEST_SUBMITTED, {
+          title,
+          message,
+          linkUrl: "/admin",
         });
 
         if (effective.email) {
@@ -806,17 +842,24 @@ export async function notifyPublishInterrupted(
         ? `"${firstTitle}" was being published when the server restarted, so it was marked failed. Nothing was wrong with the post — just publish it again from the Content Library.`
         : `${count} posts were being published when the server restarted, so they were marked failed. Nothing was wrong with them — just publish them again from the Content Library.`;
 
+    const title =
+      count === 1
+        ? "A publish was interrupted"
+        : `${count} publishes were interrupted`;
     await db.insert(notificationsTable).values({
       tenantId,
       type: PUBLISH_INTERRUPTED,
       platform: null,
-      title:
-        count === 1
-          ? "A publish was interrupted"
-          : `${count} publishes were interrupted`,
+      title,
       message,
       linkUrl: "/library",
       inApp: effective.inApp,
+    });
+
+    await sendTenantPush(tenantId, PUBLISH_INTERRUPTED, {
+      title,
+      message,
+      linkUrl: "/library",
     });
   } catch (err) {
     logger.error(
@@ -841,14 +884,21 @@ export async function notifyScheduledPostPublished(
       SCHEDULED_POST_PUBLISHED,
     );
     if (!effective.enabled) return;
+    const message = `"${title}" was published to ${platformLabel(platform)} as scheduled.`;
     await db.insert(notificationsTable).values({
       tenantId,
       type: SCHEDULED_POST_PUBLISHED,
       platform,
       title: "Scheduled post published",
-      message: `"${title}" was published to ${platformLabel(platform)} as scheduled.`,
+      message,
       linkUrl: "/library",
       inApp: effective.inApp,
+    });
+
+    await sendTenantPush(tenantId, SCHEDULED_POST_PUBLISHED, {
+      title: "Scheduled post published",
+      message,
+      linkUrl: "/library",
     });
   } catch (err) {
     logger.error(
@@ -887,6 +937,12 @@ export async function notifyScheduledPublishFailed(
       message,
       linkUrl: "/library",
       inApp: effective.inApp,
+    });
+
+    await sendTenantPush(tenantId, SCHEDULED_PUBLISH_FAILED, {
+      title: "Scheduled publish failed",
+      message,
+      linkUrl: "/library",
     });
 
     if (effective.email && clerkUserId) {
@@ -999,6 +1055,12 @@ export async function notifySweepStalled(
         .onConflictDoNothing()
         .returning({ id: notificationsTable.id });
       if (inserted.length === 0) continue;
+
+      await sendTenantPush(tenant.id, SWEEP_STALLED, {
+        title: "Background safety check stalled",
+        message,
+        linkUrl: "/admin",
+      });
 
       // Fresh alert only (past the dedupe guard) -> best-effort email,
       // gated on this admin's own email-channel choice.
@@ -1135,6 +1197,12 @@ export async function notifySweepFailStreak(offender: {
           message,
           linkUrl: "/admin",
           inApp: effective.inApp,
+        });
+
+        await sendTenantPush(recipient.id, SWEEP_FAIL_STREAK, {
+          title,
+          message,
+          linkUrl: "/admin",
         });
 
         // Fresh alert only (past the dedupe guard) -> best-effort email,
@@ -1298,6 +1366,12 @@ export async function notifySweepHistoryTrimmed(
           inApp: effective.inApp,
         });
 
+        await sendTenantPush(recipient.id, SWEEP_HISTORY_TRIMMED, {
+          title,
+          message,
+          linkUrl: "/admin",
+        });
+
         // Fresh alert only (past the dedupe guard) -> best-effort email,
         // gated on this admin's own email-channel choice.
         try {
@@ -1422,6 +1496,12 @@ export async function notifySweepFailRatio(
           message,
           linkUrl: "/admin",
           inApp: effective.inApp,
+        });
+
+        await sendTenantPush(recipient.id, SWEEP_FAIL_RATIO, {
+          title,
+          message,
+          linkUrl: "/admin",
         });
 
         // Fresh alert only (past the dedupe guard) -> best-effort email,
@@ -1576,6 +1656,12 @@ export async function notifySocialConnectionFailed(
       inApp: effective.inApp,
     });
 
+    await sendTenantPush(tenantId, SOCIAL_CONNECTION_FAILED, {
+      title: `${label} disconnected`,
+      message: resolvedMessage,
+      linkUrl: "/accounts",
+    });
+
     // Fresh breakage only (past the dedupe guard) -> email when the tenant's
     // effective settings opt into the email channel.
     if (effective.email) {
@@ -1649,6 +1735,12 @@ export async function notifyAdsConnectionFailed(
       message: resolvedMessage,
       linkUrl: "/ads",
       inApp: effective.inApp,
+    });
+
+    await sendTenantPush(tenantId, ADS_CONNECTION_FAILED, {
+      title: `${label} disconnected`,
+      message: resolvedMessage,
+      linkUrl: "/ads",
     });
 
     if (effective.email) {
@@ -1738,6 +1830,12 @@ export async function notifyAdsDraftPending(
       linkUrl: "/ads",
       inApp: effective.inApp,
     });
+
+    await sendTenantPush(tenantId, ADS_DRAFT_PENDING, {
+      title: "Ad change awaiting approval",
+      message,
+      linkUrl: "/ads",
+    });
     if (effective.email && ownerClerkUserId) {
       try {
         const email = await fetchVerifiedEmail(ownerClerkUserId);
@@ -1770,14 +1868,21 @@ export async function notifyAdsChangeApplied(
   try {
     const effective = await getEffectiveSetting(tenantId, ADS_CHANGE_APPLIED);
     if (!effective.enabled) return;
+    const message = `The approved advertising change to "${targetName}" was applied on ${platformLabel(platform)}.`;
     await db.insert(notificationsTable).values({
       tenantId,
       type: ADS_CHANGE_APPLIED,
       platform,
       title: "Ad change applied",
-      message: `The approved advertising change to "${targetName}" was applied on ${platformLabel(platform)}.`,
+      message,
       linkUrl: "/ads",
       inApp: effective.inApp,
+    });
+
+    await sendTenantPush(tenantId, ADS_CHANGE_APPLIED, {
+      title: "Ad change applied",
+      message,
+      linkUrl: "/ads",
     });
   } catch (err) {
     logger.error({ err, tenantId }, "Failed to record ads-change-applied notification");
@@ -1806,6 +1911,12 @@ export async function notifyAdsChangeFailed(
       message,
       linkUrl: "/ads",
       inApp: effective.inApp,
+    });
+
+    await sendTenantPush(tenantId, ADS_CHANGE_FAILED, {
+      title: "Ad change failed",
+      message,
+      linkUrl: "/ads",
     });
     const owner = await db
       .select({ clerkUserId: tenantsTable.clerkUserId })

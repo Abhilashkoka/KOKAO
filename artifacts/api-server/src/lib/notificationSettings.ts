@@ -18,12 +18,14 @@ export interface PolicyState {
 export interface PreferenceState {
   inApp: boolean;
   email: boolean;
+  push: boolean;
 }
 
 export interface EffectiveState {
   enabled: boolean;
   inApp: boolean;
   email: boolean;
+  push: boolean;
 }
 
 export function defaultPolicy(): PolicyState {
@@ -31,7 +33,7 @@ export function defaultPolicy(): PolicyState {
 }
 
 export function defaultPreference(): PreferenceState {
-  return { inApp: true, email: true };
+  return { inApp: true, email: true, push: true };
 }
 
 /**
@@ -44,14 +46,18 @@ export function resolveEffective(
   policy: PolicyState,
   pref: PreferenceState,
 ): EffectiveState {
-  if (!policy.enabled) return { enabled: false, inApp: false, email: false };
+  if (!policy.enabled)
+    return { enabled: false, inApp: false, email: false, push: false };
   const email =
     policy.emailPolicy === "forced"
       ? true
       : policy.emailPolicy === "off"
         ? false
         : pref.email;
-  return { enabled: true, inApp: pref.inApp, email };
+  // Push has no admin policy knob beyond the type's enabled switch: it only
+  // reaches devices whose owner explicitly registered a push token, so the
+  // user's own preference is the gate.
+  return { enabled: true, inApp: pref.inApp, email, push: pref.push };
 }
 
 export async function getPolicyMap(): Promise<Map<string, PolicyState>> {
@@ -75,7 +81,7 @@ export async function getPreferenceMap(
     .where(eq(notificationPreferencesTable.tenantId, tenantId));
   const map = new Map<string, PreferenceState>();
   for (const r of rows) {
-    map.set(r.type, { inApp: r.inApp, email: r.email });
+    map.set(r.type, { inApp: r.inApp, email: r.email, push: r.push });
   }
   return map;
 }
@@ -100,7 +106,7 @@ export async function getMemberPreferenceMap(
     );
   const map = new Map<string, PreferenceState>();
   for (const r of rows) {
-    map.set(r.type, { inApp: r.inApp, email: r.email });
+    map.set(r.type, { inApp: r.inApp, email: r.email, push: r.push });
   }
   return map;
 }
@@ -173,7 +179,7 @@ export async function getEffectiveSetting(
     )
     .limit(1);
   const pref: PreferenceState = prefRow
-    ? { inApp: prefRow.inApp, email: prefRow.email }
+    ? { inApp: prefRow.inApp, email: prefRow.email, push: prefRow.push }
     : defaultPreference();
 
   return resolveEffective(policy, pref);

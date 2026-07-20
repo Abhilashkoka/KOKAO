@@ -53,6 +53,12 @@ export const FEATURES = [
     label: "Billing",
     description: "Subscriptions, plan upgrades, and credit pack purchases.",
   },
+  {
+    id: "pushNotifications",
+    label: "Push Notifications",
+    description:
+      "Mobile push notification delivery and device push-token registration.",
+  },
 ] as const;
 
 export type FeatureId = (typeof FEATURES)[number]["id"];

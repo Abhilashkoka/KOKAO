@@ -9,4 +9,6 @@
 export interface NotificationChannelPreference {
   inApp: boolean;
   email: boolean;
+  /** Mobile push notifications to the user's registered devices. */
+  push: boolean;
 }

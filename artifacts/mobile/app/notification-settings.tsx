@@ -14,6 +14,8 @@ import {
   useGetNotificationSettings,
   useUpdateNotificationSettings,
   getGetNotificationSettingsQueryKey,
+  useListFeatureFlags,
+  getListFeatureFlagsQueryKey,
 } from "@workspace/api-client-react";
 
 import { Card, ErrorState, Skeleton } from "@/components/ui";
@@ -22,7 +24,7 @@ import { fonts } from "@/constants/fonts";
 
 const c = colors.light;
 
-type PrefState = { inApp: boolean; email: boolean };
+type PrefState = { inApp: boolean; email: boolean; push: boolean };
 
 export default function NotificationSettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -31,6 +33,10 @@ export default function NotificationSettingsScreen() {
     query: { queryKey: getGetNotificationSettingsQueryKey() },
   });
   const update = useUpdateNotificationSettings();
+  const featuresQuery = useListFeatureFlags({
+    query: { queryKey: getListFeatureFlagsQueryKey() },
+  });
+  const pushFeatureOn = featuresQuery.data?.pushNotifications === true;
 
   const [prefs, setPrefs] = useState<Record<string, PrefState>>({});
 
@@ -40,7 +46,11 @@ export default function NotificationSettingsScreen() {
     if (data) {
       const next: Record<string, PrefState> = {};
       for (const t of data.types) {
-        next[t.type] = { inApp: t.preference.inApp, email: t.preference.email };
+        next[t.type] = {
+          inApp: t.preference.inApp,
+          email: t.preference.email,
+          push: t.preference.push,
+        };
       }
       setPrefs(next);
     }
@@ -64,6 +74,7 @@ export default function NotificationSettingsScreen() {
       type: t.type,
       inApp: next[t.type]?.inApp ?? t.preference.inApp,
       email: next[t.type]?.email ?? t.preference.email,
+      push: next[t.type]?.push ?? t.preference.push,
     }));
     update.mutate(
       { data: { preferences } },
@@ -91,8 +102,8 @@ export default function NotificationSettingsScreen() {
     >
       <Text style={styles.intro}>
         Choose how you want to be alerted for each kind of notification. In-app
-        alerts show inside the app; email reaches you even when the app is
-        closed. Changes save automatically.
+        alerts show inside the app; email and push reach you even when the app
+        is closed. Changes save automatically.
       </Text>
 
       {memberScoped ? (
@@ -134,6 +145,7 @@ export default function NotificationSettingsScreen() {
             const pref = prefs[t.type] ?? {
               inApp: t.preference.inApp,
               email: t.preference.email,
+              push: t.preference.push,
             };
             const emailLocked = t.emailPolicy !== "optional" || !t.enabled;
             const emailChecked =
@@ -195,6 +207,26 @@ export default function NotificationSettingsScreen() {
                     accessibilityLabel={`Toggle email for ${t.label}`}
                   />
                 </View>
+
+                {pushFeatureOn ? (
+                  <View style={styles.channelRow}>
+                    <View style={styles.channelLeft}>
+                      <Feather
+                        name="bell"
+                        size={15}
+                        color={c.mutedForeground}
+                      />
+                      <Text style={styles.channelText}>Push</Text>
+                    </View>
+                    <Switch
+                      value={t.enabled && pref.push}
+                      disabled={!t.enabled || update.isPending}
+                      onValueChange={(v) => handleToggle(t.type, "push", v)}
+                      trackColor={{ true: c.primary, false: c.muted }}
+                      accessibilityLabel={`Toggle push for ${t.label}`}
+                    />
+                  </View>
+                ) : null}
               </Card>
             );
           })}

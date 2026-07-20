@@ -11,6 +11,7 @@ import emailSettingsRouter from "../routes/emailSettings";
 import { protectedAppBrandRouter } from "../routes/appBrand";
 import notificationsRouter from "../routes/notifications";
 import notificationSettingsRouter from "../routes/notificationSettings";
+import pushTokensRouter from "../routes/pushTokens";
 import meRouter from "../routes/me";
 import teamRouter from "../routes/team";
 
@@ -60,6 +61,7 @@ export function createTestApp(): Express {
     youtubeRouter,
     notificationsRouter,
     notificationSettingsRouter,
+    pushTokensRouter,
     meRouter,
     teamRouter,
   );

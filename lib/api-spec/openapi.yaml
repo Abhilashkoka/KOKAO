@@ -244,6 +244,68 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /push-tokens:
+    post:
+      operationId: registerPushToken
+      tags: [notifications]
+      summary: Register (or re-bind) this device's Expo push token to the signed-in user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushTokenInput"
+      responses:
+        "200":
+          description: Token registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushTokenResult"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /push-tokens/unregister:
+    post:
+      operationId: unregisterPushToken
+      tags: [notifications]
+      summary: Remove this device's Expo push token so it stops receiving pushes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushTokenUnregisterInput"
+      responses:
+        "200":
+          description: Token removed (idempotent — also succeeds when the token was not registered)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushTokenResult"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /taste-profile:
     get:
       operationId: getTasteProfile
@@ -6415,12 +6477,15 @@ components:
 
     NotificationChannelPreference:
       type: object
-      required: [inApp, email]
+      required: [inApp, email, push]
       properties:
         inApp:
           type: boolean
         email:
           type: boolean
+        push:
+          type: boolean
+          description: Mobile push notifications to the user's registered devices.
     NotificationTypeSetting:
       type: object
       required:
@@ -6474,6 +6539,12 @@ components:
           type: boolean
         email:
           type: boolean
+        push:
+          type: boolean
+          description: >-
+            Mobile push channel choice. Optional so older clients that only
+            manage in-app/email never clobber a stored push choice; when
+            omitted, the stored value is kept.
     NotificationSettingsInput:
       type: object
       required: [preferences]
@@ -6482,6 +6553,29 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/UpdateNotificationPreferenceItem"
+    PushTokenInput:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: The Expo push token for this device, e.g. "ExponentPushToken[xxxx]".
+        platform:
+          type: string
+          enum: [ios, android, unknown]
+          description: Device OS hint. Defaults to "unknown".
+    PushTokenUnregisterInput:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+    PushTokenResult:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
     TasteSignalCounts:
       type: object
       required: [saved, scheduled, published, discarded]
@@ -8990,6 +9084,7 @@ components:
           analytics,
           team,
           billing,
+          pushNotifications,
         ]
       properties:
         aiStudio:
@@ -9007,6 +9102,8 @@ components:
         team:
           type: boolean
         billing:
+          type: boolean
+        pushNotifications:
           type: boolean
     AdminFeatureFlag:
       type: object

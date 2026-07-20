@@ -73,6 +73,7 @@
     "expo-battery": "~10.0.8",
     "expo-cellular": "~8.0.8",
     "expo-device": "~8.0.10",
-    "expo-network": "~8.0.8"
+    "expo-network": "~8.0.8",
+    "expo-notifications": "^57.0.6"
   }
 }

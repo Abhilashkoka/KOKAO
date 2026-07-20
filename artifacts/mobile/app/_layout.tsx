@@ -17,6 +17,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { setBaseUrl } from "@workspace/api-client-react";
 
 import { AnalyticsTracker } from "@/components/AnalyticsTracker";
+import { PushRegistrar } from "@/lib/pushNotifications";
 import { trackError } from "@/lib/analytics";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { fonts } from "@/constants/fonts";
@@ -87,6 +88,7 @@ export default function RootLayout() {
           >
             <QueryClientProvider client={queryClient}>
               <AnalyticsTracker />
+              <PushRegistrar />
               <GestureHandlerRootView>
                 <KeyboardProvider>
                   <RootLayoutNav />
