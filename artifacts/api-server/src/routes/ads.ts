@@ -2025,13 +2025,20 @@ router.post(
       res.status(400).json({ error: "targetId is required for updates" });
       return;
     }
-    // ARCHIVED is terminal and only exists for LinkedIn creatives.
+    // ARCHIVED is only valid for LinkedIn creatives and Meta ads; every other
+    // object supports ACTIVE and PAUSED only.
     if (
       input.status === "ARCHIVED" &&
-      !(input.targetType === "creative" && input.action === "update")
+      !(input.targetType === "creative" && input.action === "update") &&
+      !(
+        input.targetType === "ad" &&
+        input.action === "update" &&
+        conn.platform === "meta"
+      )
     ) {
       res.status(400).json({
-        error: "Only LinkedIn creatives can be archived — other objects support ACTIVE and PAUSED.",
+        error:
+          "Only LinkedIn creatives and Meta ads can be archived — other objects support ACTIVE and PAUSED.",
       });
       return;
     }

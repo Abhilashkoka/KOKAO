@@ -473,6 +473,23 @@ describe("google draft creation and apply", () => {
     }
   });
 
+  it("rejects archiving a google ad with a 400", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertGoogleAdConnection(tenant.tenantId);
+      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "ad",
+        targetId: "ad_77",
+        status: "ARCHIVED",
+        dailyBudget: undefined,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/archiv/i);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("rejects renaming a google ad with a 400", async () => {
     const tenant = await createTenant();
     try {

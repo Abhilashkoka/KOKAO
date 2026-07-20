@@ -390,7 +390,7 @@ export async function createCampaign(
 
 export interface UpdateObjectParams {
   name?: string;
-  status?: "ACTIVE" | "PAUSED";
+  status?: "ACTIVE" | "PAUSED" | "ARCHIVED";
   dailyBudget?: number | null;
   lifetimeBudget?: number | null;
   startTime?: string | null;

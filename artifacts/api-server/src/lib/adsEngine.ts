@@ -321,12 +321,12 @@ const metaOps: PlatformOps = {
   defaultObjective: "OUTCOME_TRAFFIC",
   readState: (conn, targetId, targetType) =>
     readObjectState(metaToken(conn), targetId, asTargetType(targetType)),
-  update: (conn, targetId, params) =>
-    updateObject(metaToken(conn), targetId, {
-      ...params,
-      status: nonArchivedStatus(params),
-      targetType: asTargetType(params.targetType ?? "campaign"),
-    }),
+  update: (conn, targetId, params) => {
+    const targetType = asTargetType(params.targetType ?? "campaign");
+    // Meta ads can be archived; campaigns and ad sets stay ACTIVE/PAUSED only.
+    const status = targetType === "ad" ? params.status : nonArchivedStatus(params);
+    return updateObject(metaToken(conn), targetId, { ...params, status, targetType });
+  },
   create: (conn, params) =>
     createCampaign(metaToken(conn), conn.adAccountId, params),
 };

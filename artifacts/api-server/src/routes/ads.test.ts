@@ -855,6 +855,56 @@ describe("ad set and ad drafts", () => {
     }
   });
 
+  it("applies an approved Meta ad archive draft", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      mockRead.mockResolvedValue({
+        name: "Blue creative",
+        status: "ACTIVE",
+        dailyBudget: null,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "ad",
+        action: "update",
+        targetId: "ad_1",
+        status: "ARCHIVED",
+      });
+      expect(draftRes.status).toBe(201);
+
+      mockRead.mockResolvedValueOnce({
+        name: "Blue creative",
+        status: "ACTIVE",
+        dailyBudget: null,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+      mockRead.mockResolvedValueOnce({
+        name: "Blue creative",
+        status: "ARCHIVED",
+        dailyBudget: null,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+      const applied = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(applied.status).toBe(200);
+      expect(applied.body.status).toBe("applied");
+      expect(applied.body.verifyStatus).toBe("verified");
+      expect(mockUpdate).toHaveBeenCalledTimes(1);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("expires an ad set draft when the remote object drifted, with an ad set message", async () => {
     const tenant = await createTenant();
     try {

@@ -1756,11 +1756,15 @@ function CampaignDetailDialog({
   const queryClient = useQueryClient();
   const createDraft = useCreateAdDraft();
   const isLinkedin = platform === "linkedin";
-  // LinkedIn "ads" are creatives: status-only drafts (activate/pause/archive).
+  const isMeta = platform === "meta";
+  // LinkedIn "ads" are creatives; Meta/Google/TikTok "ads" are ad objects.
+  // Both are status-only drafts here (activate/pause, plus archive where the
+  // platform supports it).
   const [creativeStatusDraft, setCreativeStatusDraft] = useState<{
     id: string;
     name: string;
     status: "ACTIVE" | "PAUSED" | "ARCHIVED";
+    targetType: "creative" | "ad";
   } | null>(null);
 
   const submitCreativeStatus = () => {
@@ -1769,7 +1773,7 @@ function CampaignDetailDialog({
       {
         data: {
           connectionId,
-          targetType: "creative",
+          targetType: creativeStatusDraft.targetType,
           action: "update",
           targetId: creativeStatusDraft.id,
           status: creativeStatusDraft.status,
@@ -1950,6 +1954,7 @@ function CampaignDetailDialog({
                                       id: a.id,
                                       name: a.name,
                                       status: a.status === "ACTIVE" ? "PAUSED" : "ACTIVE",
+                                      targetType: "creative",
                                     })
                                   }
                                   data-testid={`button-toggle-creative-${a.id}`}
@@ -1967,6 +1972,7 @@ function CampaignDetailDialog({
                                       id: a.id,
                                       name: a.name,
                                       status: "ARCHIVED",
+                                      targetType: "creative",
                                     })
                                   }
                                   data-testid={`button-archive-creative-${a.id}`}
@@ -1977,24 +1983,61 @@ function CampaignDetailDialog({
                             </div>
                           )}
                           {canManage && !isLinkedin && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                onEdit({
-                                  ...EMPTY_FORM,
-                                  action: "update",
-                                  targetType: "ad",
-                                  targetId: a.id,
-                                  currentName: a.name,
-                                  name: a.name,
-                                  status: a.status,
-                                })
-                              }
-                              data-testid={`button-edit-ad-${a.id}`}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
+                            <div className="flex items-center justify-end gap-1">
+                              {a.status !== "ARCHIVED" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    setCreativeStatusDraft({
+                                      id: a.id,
+                                      name: a.name,
+                                      status: a.status === "ACTIVE" ? "PAUSED" : "ACTIVE",
+                                      targetType: "ad",
+                                    })
+                                  }
+                                  data-testid={`button-toggle-ad-${a.id}`}
+                                >
+                                  {a.status === "ACTIVE" ? "Pause" : "Activate"}
+                                </Button>
+                              )}
+                              {isMeta && a.status !== "ARCHIVED" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-destructive hover:text-destructive"
+                                  onClick={() =>
+                                    setCreativeStatusDraft({
+                                      id: a.id,
+                                      name: a.name,
+                                      status: "ARCHIVED",
+                                      targetType: "ad",
+                                    })
+                                  }
+                                  data-testid={`button-archive-ad-${a.id}`}
+                                >
+                                  Archive
+                                </Button>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() =>
+                                  onEdit({
+                                    ...EMPTY_FORM,
+                                    action: "update",
+                                    targetType: "ad",
+                                    targetId: a.id,
+                                    currentName: a.name,
+                                    name: a.name,
+                                    status: a.status,
+                                  })
+                                }
+                                data-testid={`button-edit-ad-${a.id}`}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            </div>
                           )}
                         </TableCell>
                       </TableRow>
@@ -2011,14 +2054,16 @@ function CampaignDetailDialog({
               <DialogHeader>
                 <DialogTitle>
                   {creativeStatusDraft.status === "ARCHIVED"
-                    ? "Archive this creative?"
+                    ? `Archive this ${creativeStatusDraft.targetType === "ad" ? "ad" : "creative"}?`
                     : creativeStatusDraft.status === "PAUSED"
-                      ? "Pause this creative?"
-                      : "Activate this creative?"}
+                      ? `Pause this ${creativeStatusDraft.targetType === "ad" ? "ad" : "creative"}?`
+                      : `Activate this ${creativeStatusDraft.targetType === "ad" ? "ad" : "creative"}?`}
                 </DialogTitle>
                 <DialogDescription>
                   {creativeStatusDraft.status === "ARCHIVED"
-                    ? `"${creativeStatusDraft.name}" will be archived on LinkedIn. Archiving is permanent — the creative cannot be reactivated afterwards.`
+                    ? creativeStatusDraft.targetType === "ad"
+                      ? `"${creativeStatusDraft.name}" will be archived and stop delivering once the change is applied.`
+                      : `"${creativeStatusDraft.name}" will be archived on LinkedIn. Archiving is permanent — the creative cannot be reactivated afterwards.`
                     : creativeStatusDraft.status === "PAUSED"
                       ? `"${creativeStatusDraft.name}" will stop delivering once the change is applied.`
                       : `"${creativeStatusDraft.name}" will resume delivering once the change is applied.`}{" "}
