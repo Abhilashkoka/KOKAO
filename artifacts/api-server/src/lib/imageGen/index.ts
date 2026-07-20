@@ -7,6 +7,7 @@ import { generateWithStability, STABILITY_MODEL } from "./providers/stability";
 import { generateWithReplicate, REPLICATE_MODEL } from "./providers/replicate";
 import { generateWithOpenAICompatible } from "./providers/openaiCompatible";
 import { generateWithBfl, BFL_MODEL } from "./providers/bfl";
+import { generateWithSeedream, SEEDREAM_MODEL } from "./providers/seedream";
 import type { ImageGenInput, ImageGenResult, ImageSize } from "./types";
 
 export { ImageGenNotConfiguredError, ImageGenProviderError } from "./types";
@@ -68,6 +69,20 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
       { value: "flux-dev", label: "FLUX Dev (flux-dev)" },
     ],
     generate: generateWithBfl,
+  },
+  {
+    id: "seedream",
+    label: "ByteDance Seedream",
+    defaultModel: SEEDREAM_MODEL,
+    envKey: "ARK_API_KEY",
+    supportsModelOverride: true,
+    requiresBaseUrl: false,
+    modelOptions: [
+      { value: SEEDREAM_MODEL, label: "Seedream 5.0 Pro (seedream-5-0-pro)" },
+      { value: "seedream-4-5-251128", label: "Seedream 4.5 (seedream-4-5-251128)" },
+      { value: "seedream-4-0", label: "Seedream 4.0 (seedream-4-0)" },
+    ],
+    generate: generateWithSeedream,
   },
   {
     id: "stability",
