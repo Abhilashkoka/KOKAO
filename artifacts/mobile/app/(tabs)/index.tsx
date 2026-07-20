@@ -12,7 +12,12 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useGetMe, useListContent } from "@workspace/api-client-react";
+import {
+  useGetMe,
+  useListContent,
+  useListNotifications,
+  getListNotificationsQueryKey,
+} from "@workspace/api-client-react";
 
 import { Badge, Card, ErrorState, Skeleton } from "@/components/ui";
 import { ConsentPrompt } from "@/components/ConsentPrompt";
@@ -71,12 +76,17 @@ export default function HomeScreen() {
   const queryClient = useQueryClient();
   const me = useGetMe();
   const content = useListContent();
+  const notifications = useListNotifications(undefined, {
+    query: { queryKey: getListNotificationsQueryKey() },
+  });
+  const unreadCount = notifications.data?.length ?? 0;
 
   const recent = (content.data ?? []).slice(0, 3);
 
   const onRefresh = () => {
     me.refetch();
     content.refetch();
+    notifications.refetch();
   };
 
   const handleSignOut = async () => {
@@ -113,11 +123,22 @@ export default function HomeScreen() {
         </View>
         <View style={{ flexDirection: "row", gap: 10 }}>
           <Pressable
-            onPress={() => router.push("/notification-settings")}
-            accessibilityLabel="Notification settings"
+            onPress={() => router.push("/notifications")}
+            accessibilityLabel={
+              unreadCount > 0
+                ? `Notifications, ${unreadCount} unread`
+                : "Notifications"
+            }
             style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.7 : 1 }]}
           >
             <Feather name="bell" size={18} color={c.mutedForeground} />
+            {unreadCount > 0 ? (
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadBadgeText}>
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </Text>
+              </View>
+            ) : null}
           </Pressable>
           <Pressable
             onPress={() => router.push("/privacy")}
@@ -268,6 +289,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  unreadBadge: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    backgroundColor: c.destructive,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  unreadBadgeText: { fontFamily: fonts.bold, fontSize: 9, color: "#ffffff" },
   planRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   cardTitle: { fontFamily: fonts.semiBold, fontSize: 15, color: c.foreground },
   usageRow: { marginTop: 16 },

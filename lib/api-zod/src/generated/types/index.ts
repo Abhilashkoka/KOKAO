@@ -211,6 +211,7 @@ export * from './linkedInStatus';
 export * from './listAdCampaignsParams';
 export * from './listBrandKitsParams';
 export * from './listLinkedinCampaignGroupsParams';
+export * from './listNotificationsParams';
 export * from './meProfile';
 export * from './metaAppCredentialInput';
 export * from './metaAppCredentialStatus';

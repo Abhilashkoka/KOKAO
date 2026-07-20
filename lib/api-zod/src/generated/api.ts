@@ -4629,6 +4629,10 @@ export const ResendTwitterPostsResponse = zod.object({
 /**
  * @summary List the current tenant's unread notifications
  */
+export const ListNotificationsQueryParams = zod.object({
+  "all": zod.coerce.boolean().optional().describe('When true, include recently read notifications too.')
+})
+
 export const ListNotificationsResponseItem = zod.object({
   "id": zod.number(),
   "type": zod.string(),
@@ -4636,7 +4640,8 @@ export const ListNotificationsResponseItem = zod.object({
   "title": zod.string(),
   "message": zod.string(),
   "linkUrl": zod.string().nullish(),
-  "createdAt": zod.coerce.date()
+  "createdAt": zod.coerce.date(),
+  "readAt": zod.coerce.date().nullish()
 })
 export const ListNotificationsResponse = zod.array(ListNotificationsResponseItem)
 

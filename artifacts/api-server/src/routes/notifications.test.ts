@@ -123,6 +123,18 @@ describe("social connection failure notifications", () => {
       const afterRes = await request(app).get("/api/notifications");
       expect(afterRes.status).toBe(200);
       expect(afterRes.body).toHaveLength(0);
+
+      // The inbox view (?all=true) still includes the read notification,
+      // with readAt populated so the client can render read/unread state.
+      const inboxRes = await request(app).get("/api/notifications?all=true");
+      expect(inboxRes.status).toBe(200);
+      expect(inboxRes.body).toHaveLength(1);
+      expect(inboxRes.body[0].id).toBe(id);
+      expect(inboxRes.body[0].readAt).toEqual(expect.any(String));
+
+      // Unread notifications carry readAt: null in the inbox view.
+      const unreadInList = listRes.body[0];
+      expect(unreadInList.readAt).toBeNull();
     } finally {
       await deleteTenant(tenant.tenantId);
     }

@@ -135,6 +135,7 @@ import type {
   ListAdCampaignsParams,
   ListBrandKitsParams,
   ListLinkedinCampaignGroupsParams,
+  ListNotificationsParams,
   MeProfile,
   MetaAppCredentialInput,
   MetaAppCredentialStatus,
@@ -8002,20 +8003,27 @@ export const useResendTwitterPosts = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getResendTwitterPostsMutationOptions(options));
     }
 
-export const getListNotificationsUrl = () => {
+export const getListNotificationsUrl = (params?: ListNotificationsParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/notifications`
+  return stringifiedParams.length > 0 ? `/api/notifications?${stringifiedParams}` : `/api/notifications`
 }
 
 /**
  * @summary List the current tenant's unread notifications
  */
-export const listNotifications = async ( options?: RequestInit): Promise<Notification[]> => {
+export const listNotifications = async (params?: ListNotificationsParams, options?: RequestInit): Promise<Notification[]> => {
 
-  return customFetch<Notification[]>(getListNotificationsUrl(),
+  return customFetch<Notification[]>(getListNotificationsUrl(params),
   {
     ...options,
     method: 'GET'
@@ -8028,23 +8036,23 @@ export const listNotifications = async ( options?: RequestInit): Promise<Notific
 
 
 
-export const getListNotificationsQueryKey = () => {
+export const getListNotificationsQueryKey = (params?: ListNotificationsParams,) => {
     return [
-    `/api/notifications`
+    `/api/notifications`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getListNotificationsQueryOptions = <TData = Awaited<ReturnType<typeof listNotifications>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listNotifications>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getListNotificationsQueryOptions = <TData = Awaited<ReturnType<typeof listNotifications>>, TError = ErrorType<ErrorEnvelope>>(params?: ListNotificationsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listNotifications>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListNotificationsQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getListNotificationsQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listNotifications>>> = ({ signal }) => listNotifications({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listNotifications>>> = ({ signal }) => listNotifications(params, { signal, ...requestOptions });
 
 
 
@@ -8062,11 +8070,11 @@ export type ListNotificationsQueryError = ErrorType<ErrorEnvelope>
  */
 
 export function useListNotifications<TData = Awaited<ReturnType<typeof listNotifications>>, TError = ErrorType<ErrorEnvelope>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listNotifications>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ params?: ListNotificationsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listNotifications>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getListNotificationsQueryOptions(options)
+  const queryOptions = getListNotificationsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

@@ -1601,6 +1601,8 @@ export interface Notification {
   /** @nullable */
   linkUrl?: string | null;
   createdAt: string;
+  /** @nullable */
+  readAt?: string | null;
 }
 
 export interface LinkedinAppCredentialInput {
@@ -3094,6 +3096,13 @@ export const AdminExportAuditLogsAction = {
 
 export type ListBrandKitsParams = {
 includeArchived?: boolean;
+};
+
+export type ListNotificationsParams = {
+/**
+ * When true, include recently read notifications too.
+ */
+all?: boolean;
 };
 
 export type AdminGrantCredits200 = {

@@ -47,8 +47,12 @@ function RootLayoutNav() {
       <Stack.Screen name="content/[id]" options={{ title: "Edit Content" }} />
       <Stack.Screen name="privacy" options={{ title: "Privacy & Data" }} />
       <Stack.Screen
-        name="notification-settings"
+        name="notifications"
         options={{ title: "Notifications" }}
+      />
+      <Stack.Screen
+        name="notification-settings"
+        options={{ title: "Notification Settings" }}
       />
     </Stack>
   );

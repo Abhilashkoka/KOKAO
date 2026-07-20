@@ -16,4 +16,6 @@ export interface Notification {
   /** @nullable */
   linkUrl?: string | null;
   createdAt: Date;
+  /** @nullable */
+  readAt?: Date | null;
 }

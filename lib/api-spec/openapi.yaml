@@ -2943,9 +2943,16 @@ paths:
       operationId: listNotifications
       tags: [notifications]
       summary: List the current tenant's unread notifications
+      parameters:
+        - name: all
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: When true, include recently read notifications too.
       responses:
         "200":
-          description: Unread notifications, newest first
+          description: Notifications, newest first
           content:
             application/json:
               schema:
@@ -7204,6 +7211,9 @@ components:
           type: ["string", "null"]
         createdAt:
           type: string
+          format: date-time
+        readAt:
+          type: ["string", "null"]
           format: date-time
     LinkedinAppCredentialInput:
       type: object

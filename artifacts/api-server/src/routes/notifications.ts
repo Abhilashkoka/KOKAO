@@ -13,6 +13,7 @@ function serialize(row: typeof notificationsTable.$inferSelect) {
     message: row.message,
     linkUrl: row.linkUrl,
     createdAt: row.createdAt.toISOString(),
+    readAt: row.readAt ? row.readAt.toISOString() : null,
   };
 }
 
@@ -26,18 +27,22 @@ router.param("id", (req, res, next, value) => {
 });
 
 // List the current tenant's unread notifications, newest first.
+// Pass ?all=true to include recently read notifications (capped) for inbox views.
 router.get("/notifications", async (req: Request, res: Response) => {
-  const rows = await db
+  const includeRead = req.query.all === "true";
+  const conditions = [
+    eq(notificationsTable.tenantId, req.tenantId),
+    eq(notificationsTable.inApp, true),
+  ];
+  if (!includeRead) {
+    conditions.push(isNull(notificationsTable.readAt));
+  }
+  let query = db
     .select()
     .from(notificationsTable)
-    .where(
-      and(
-        eq(notificationsTable.tenantId, req.tenantId),
-        eq(notificationsTable.inApp, true),
-        isNull(notificationsTable.readAt),
-      ),
-    )
+    .where(and(...conditions))
     .orderBy(desc(notificationsTable.createdAt));
+  const rows = includeRead ? await query.limit(100) : await query;
   res.json(rows.map(serialize));
 });
 
