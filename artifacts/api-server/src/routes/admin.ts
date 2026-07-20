@@ -42,6 +42,7 @@ import {
   AdminUpdateTenantSuperadminBody,
   AdminUpdateTenantDesignSkillBody,
   AdminUpdateDesignSkillBody,
+  AdminUpdateFeatureFlagBody,
   AdminUpdateAsrSettingsBody,
   AdminSetAsrProviderKeyBody,
   AdminUpdateImageGenSettingsBody,
@@ -82,6 +83,13 @@ import {
   getGlobalDesignSkillEnabled,
   loadDesignSkillRow,
 } from "../lib/designSkill";
+import {
+  FEATURES,
+  getFeatureFlags,
+  isKnownFeature,
+  invalidateFeatureFlagCache,
+} from "../lib/featureFlags";
+import { featureFlagsTable } from "@workspace/db";
 import { designSkillSettingsTable } from "@workspace/db";
 import { fetchVerifiedEmail } from "../lib/clerkUser";
 import { currentPeriodStart } from "../lib/usage";
@@ -825,6 +833,76 @@ router.delete(
       req.log.error({ err: error }, "Failed to write image-gen key audit log");
     }
     res.json(await serializeImageGenSettings());
+  },
+);
+
+/**
+ * GET /admin/features
+ * Platform-wide feature switches with labels, for the admin toggle card.
+ */
+router.get("/admin/features", async (_req: Request, res: Response) => {
+  const flags = await getFeatureFlags();
+  res.json(
+    FEATURES.map((f) => ({
+      feature: f.id,
+      label: f.label,
+      description: f.description,
+      enabled: flags[f.id],
+    })),
+  );
+});
+
+/**
+ * PUT /admin/features/:feature
+ * Turn an app module on or off for every tenant on the platform.
+ */
+router.put(
+  "/admin/features/:feature",
+  async (req: Request, res: Response) => {
+    const feature = String(req.params.feature);
+    if (!isKnownFeature(feature)) {
+      res.status(400).json({ error: "Unknown feature" });
+      return;
+    }
+    const parsed = AdminUpdateFeatureFlagBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+
+    const before = (await getFeatureFlags())[feature];
+    await db
+      .insert(featureFlagsTable)
+      .values({ feature, enabled: parsed.data.enabled })
+      .onConflictDoUpdate({
+        target: featureFlagsTable.feature,
+        set: { enabled: parsed.data.enabled, updatedAt: new Date() },
+      });
+    invalidateFeatureFlagCache();
+
+    if (before !== parsed.data.enabled) {
+      try {
+        await recordAdminAction({
+          action: "feature_flag_change",
+          actorTenantId: req.tenantId,
+          actorEmail: req.tenantEmail,
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: `${feature}:${before ? "enabled" : "disabled"}`,
+          newValue: `${feature}:${parsed.data.enabled ? "enabled" : "disabled"}`,
+        });
+      } catch (error) {
+        req.log.error({ err: error }, "Failed to write feature-flag audit log");
+      }
+    }
+
+    const def = FEATURES.find((f) => f.id === feature)!;
+    res.json({
+      feature,
+      label: def.label,
+      description: def.description,
+      enabled: parsed.data.enabled,
+    });
   },
 );
 

@@ -63,6 +63,21 @@ export const GetMeResponse = zod.object({
 
 
 /**
+ * @summary Get the platform-wide feature switches (which app modules are enabled)
+ */
+export const ListFeatureFlagsResponse = zod.object({
+  "aiStudio": zod.boolean(),
+  "contentLibrary": zod.boolean(),
+  "scheduling": zod.boolean(),
+  "brandKits": zod.boolean(),
+  "connectedAccounts": zod.boolean(),
+  "analytics": zod.boolean(),
+  "team": zod.boolean(),
+  "billing": zod.boolean()
+}).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
+
+
+/**
  * @summary Update tenant settings (name, plan, AI model)
  */
 
@@ -6417,6 +6432,37 @@ export const UpdateAdsBudgetCapsBody = zod.object({
 export const UpdateAdsBudgetCapsResponse = zod.object({
   "maxDailyBudget": zod.number().nullable().describe('Maximum allowed daily budget in minor currency units; null = no cap.'),
   "maxLifetimeBudget": zod.number().nullable().describe('Maximum allowed lifetime budget in minor currency units; null = no cap.')
+})
+
+
+/**
+ * @summary List platform-wide feature switches with labels (superadmin only)
+ */
+export const AdminListFeatureFlagsResponseItem = zod.object({
+  "feature": zod.string(),
+  "label": zod.string(),
+  "description": zod.string(),
+  "enabled": zod.boolean()
+})
+export const AdminListFeatureFlagsResponse = zod.array(AdminListFeatureFlagsResponseItem)
+
+
+/**
+ * @summary Enable or disable an app module platform-wide (superadmin only)
+ */
+export const AdminUpdateFeatureFlagParams = zod.object({
+  "feature": zod.coerce.string()
+})
+
+export const AdminUpdateFeatureFlagBody = zod.object({
+  "enabled": zod.boolean()
+})
+
+export const AdminUpdateFeatureFlagResponse = zod.object({
+  "feature": zod.string(),
+  "label": zod.string(),
+  "description": zod.string(),
+  "enabled": zod.boolean()
 })
 
 

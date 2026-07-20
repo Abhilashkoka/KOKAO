@@ -13,6 +13,7 @@ import { AnalyticsPage } from "@/pages/analytics";
 import { HealthPage } from "@/pages/health";
 import { AdsPage } from "@/pages/ads";
 import { BrandProvider } from "@/lib/brand";
+import { FeatureGate, type FeatureId } from "@/lib/features";
 
 import { Switch, Route, Redirect, useLocation, Router as WouterRouter } from "wouter";
 import {
@@ -92,12 +93,26 @@ function ClerkQueryClientCacheInvalidator() {
   return null;
 }
 
-function ProtectedRoute({ component: Component }: { component: any }) {
+function ProtectedRoute({
+  component: Component,
+  feature,
+  featureLabel,
+}: {
+  component: any;
+  feature?: FeatureId;
+  featureLabel?: string;
+}) {
   return (
     <>
       <Show when="signed-in">
         <AppLayout>
-          <Component />
+          {feature ? (
+            <FeatureGate feature={feature} label={featureLabel ?? "This feature"}>
+              <Component />
+            </FeatureGate>
+          ) : (
+            <Component />
+          )}
         </AppLayout>
       </Show>
       <Show when="signed-out">
@@ -150,15 +165,15 @@ function ClerkProviderWithRoutes() {
             <Route path="/sign-in/*?" component={SignInPage} />
             <Route path="/sign-up/*?" component={SignUpPage} />
             
-            <Route path="/studio" component={() => <ProtectedRoute component={StudioPage} />} />
-            <Route path="/library" component={() => <ProtectedRoute component={LibraryPage} />} />
-            <Route path="/schedule" component={() => <ProtectedRoute component={SchedulePage} />} />
-            <Route path="/brand-kits" component={() => <ProtectedRoute component={BrandKitsPage} />} />
-            <Route path="/accounts" component={() => <ProtectedRoute component={AccountsPage} />} />
+            <Route path="/studio" component={() => <ProtectedRoute component={StudioPage} feature="aiStudio" featureLabel="AI Studio" />} />
+            <Route path="/library" component={() => <ProtectedRoute component={LibraryPage} feature="contentLibrary" featureLabel="Content Library" />} />
+            <Route path="/schedule" component={() => <ProtectedRoute component={SchedulePage} feature="scheduling" featureLabel="Scheduling" />} />
+            <Route path="/brand-kits" component={() => <ProtectedRoute component={BrandKitsPage} feature="brandKits" featureLabel="Brand Kits" />} />
+            <Route path="/accounts" component={() => <ProtectedRoute component={AccountsPage} feature="connectedAccounts" featureLabel="Connected Accounts" />} />
             <Route path="/ads" component={() => <ProtectedRoute component={AdsPage} />} />
             <Route path="/settings" component={() => <ProtectedRoute component={SettingsPage} />} />
             <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} />} />
-            <Route path="/analytics" component={() => <ProtectedRoute component={AnalyticsPage} />} />
+            <Route path="/analytics" component={() => <ProtectedRoute component={AnalyticsPage} feature="analytics" featureLabel="Analytics" />} />
             <Route path="/health" component={() => <ProtectedRoute component={HealthPage} />} />
             {/* Branding moved into Settings; keep old links working. */}
             <Route path="/app-brand" component={() => <Redirect to="/settings" />} />

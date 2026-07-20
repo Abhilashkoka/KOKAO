@@ -30,8 +30,10 @@ import analyticsIngestRouter from "./analyticsIngest";
 import analyticsRouter from "./analytics";
 import healthReportRouter from "./healthReport";
 import { publicAppBrandRouter, protectedAppBrandRouter } from "./appBrand";
+import featuresRouter from "./features";
 import { requireTenant } from "../middlewares/requireTenant";
 import { aiLimiter, sensitiveLimiter } from "../middlewares/rateLimit";
+import { requireFeature } from "../lib/featureFlags";
 
 const router: IRouter = Router();
 
@@ -70,7 +72,28 @@ router.use(requireTenant);
 router.use("/ai", aiLimiter);
 router.use("/social-credentials", sensitiveLimiter);
 
+// Platform-wide feature kill switches (superadmin-controlled): when a module
+// is disabled, its routes answer 403 feature_disabled for every tenant. The
+// admin router below is deliberately NOT gated so switches can be re-enabled.
+router.use("/ai", requireFeature("aiStudio"));
+router.use("/content", requireFeature("contentLibrary"));
+router.use("/schedules", requireFeature("scheduling"));
+router.use("/brand-kits", requireFeature("brandKits"));
+router.use("/brand-preferences", requireFeature("brandKits"));
+router.use("/onboarding", requireFeature("brandKits"));
+router.use("/accounts", requireFeature("connectedAccounts"));
+router.use("/social-credentials", requireFeature("connectedAccounts"));
+router.use("/meta", requireFeature("connectedAccounts"));
+router.use("/twitter", requireFeature("connectedAccounts"));
+router.use("/linkedin", requireFeature("connectedAccounts"));
+router.use("/youtube", requireFeature("connectedAccounts"));
+router.use("/threads", requireFeature("connectedAccounts"));
+router.use("/analytics", requireFeature("analytics"));
+router.use("/team", requireFeature("team"));
+router.use("/billing", requireFeature("billing"));
+
 router.use(protectedStorageRouter);
+router.use(featuresRouter);
 router.use(meRouter);
 router.use(teamRouter);
 router.use(brandKitsRouter);

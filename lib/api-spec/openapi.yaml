@@ -67,6 +67,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /features:
+    get:
+      operationId: listFeatureFlags
+      tags: [account]
+      summary: Get the platform-wide feature switches (which app modules are enabled)
+      responses:
+        "200":
+          description: Feature switches
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeatureFlags"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /me/settings:
     patch:
       operationId: updateSettings
@@ -5104,6 +5122,62 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/features:
+    get:
+      operationId: adminListFeatureFlags
+      tags: [admin]
+      summary: List platform-wide feature switches with labels (superadmin only)
+      responses:
+        "200":
+          description: Feature switches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminFeatureFlag"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/features/{feature}:
+    put:
+      operationId: adminUpdateFeatureFlag
+      tags: [admin]
+      summary: Enable or disable an app module platform-wide (superadmin only)
+      parameters:
+        - name: feature
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminFeatureFlagInput"
+      responses:
+        "200":
+          description: Updated switch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminFeatureFlag"
+        "400":
+          description: Unknown feature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/ads/settings:
     get:
       operationId: adminGetAdsSettings
@@ -8827,6 +8901,55 @@ components:
         note:
           type: ["string", "null"]
           description: Where this platform's credentials come from (e.g. reuses the Meta app credentials).
+    FeatureFlags:
+      type: object
+      description: Platform-wide feature switches. false = the module is disabled for all tenants.
+      required:
+        [
+          aiStudio,
+          contentLibrary,
+          scheduling,
+          brandKits,
+          connectedAccounts,
+          analytics,
+          team,
+          billing,
+        ]
+      properties:
+        aiStudio:
+          type: boolean
+        contentLibrary:
+          type: boolean
+        scheduling:
+          type: boolean
+        brandKits:
+          type: boolean
+        connectedAccounts:
+          type: boolean
+        analytics:
+          type: boolean
+        team:
+          type: boolean
+        billing:
+          type: boolean
+    AdminFeatureFlag:
+      type: object
+      required: [feature, label, description, enabled]
+      properties:
+        feature:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+    AdminFeatureFlagInput:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
     AdminAdsSettings:
       type: object
       required: [enabled, platforms]

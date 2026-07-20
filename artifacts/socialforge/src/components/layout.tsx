@@ -24,14 +24,20 @@ import { PendingInviteBanner } from "@/components/pending-invite-banner";
 import { OnboardingWizard } from "@/components/onboarding-wizard";
 import { TeamWelcomeDialog } from "@/components/team-welcome-dialog";
 import { useBrand } from "@/lib/brand";
+import { useFeatureFlags, type FeatureId } from "@/lib/features";
 
-const NAV_ITEMS = [
+const NAV_ITEMS: {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  feature?: FeatureId;
+}[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/studio", label: "AI Studio", icon: Wand2 },
-  { href: "/library", label: "Content Library", icon: Library },
-  { href: "/schedule", label: "Schedule", icon: Calendar },
-  { href: "/brand-kits", label: "Brand Kits", icon: Palette },
-  { href: "/accounts", label: "Accounts", icon: Share2 },
+  { href: "/studio", label: "AI Studio", icon: Wand2, feature: "aiStudio" },
+  { href: "/library", label: "Content Library", icon: Library, feature: "contentLibrary" },
+  { href: "/schedule", label: "Schedule", icon: Calendar, feature: "scheduling" },
+  { href: "/brand-kits", label: "Brand Kits", icon: Palette, feature: "brandKits" },
+  { href: "/accounts", label: "Accounts", icon: Share2, feature: "connectedAccounts" },
   { href: "/ads", label: "Ads", icon: Megaphone },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -77,9 +83,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const canSeeAnalytics = Boolean(
     me && (me.isSuperadmin || !me.team || role === "owner" || role === "admin"),
   );
+  const { flags: featureFlags } = useFeatureFlags();
   const navItems = [
-    ...NAV_ITEMS,
-    ...(canSeeAnalytics ? [ANALYTICS_NAV_ITEM, HEALTH_NAV_ITEM] : []),
+    ...NAV_ITEMS.filter((item) => !item.feature || featureFlags[item.feature]),
+    ...(canSeeAnalytics && featureFlags.analytics
+      ? [ANALYTICS_NAV_ITEM]
+      : []),
+    ...(canSeeAnalytics ? [HEALTH_NAV_ITEM] : []),
     ...(me?.isSuperadmin ? ADMIN_NAV_ITEMS : []),
   ];
   

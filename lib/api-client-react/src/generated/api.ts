@@ -29,6 +29,8 @@ import type {
   AdminAdsSettingsInput,
   AdminAuditLogPage,
   AdminExportAuditLogsParams,
+  AdminFeatureFlag,
+  AdminFeatureFlagInput,
   AdminGrantCredits200,
   AdminListAuditLogsParams,
   AdminSeatRequest,
@@ -104,6 +106,7 @@ import type {
   EngagementAnalytics,
   ErrorEnvelope,
   FacebookCredentialInput,
+  FeatureFlags,
   FunnelAnalytics,
   GetAcquisitionAnalyticsParams,
   GetAdCampaignDetailParams,
@@ -376,6 +379,83 @@ export function useGetMe<TData = Awaited<ReturnType<typeof getMe>>, TError = Err
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetMeQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListFeatureFlagsUrl = () => {
+
+
+
+
+  return `/api/features`
+}
+
+/**
+ * @summary Get the platform-wide feature switches (which app modules are enabled)
+ */
+export const listFeatureFlags = async ( options?: RequestInit): Promise<FeatureFlags> => {
+
+  return customFetch<FeatureFlags>(getListFeatureFlagsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListFeatureFlagsQueryKey = () => {
+    return [
+    `/api/features`
+    ] as const;
+    }
+
+
+export const getListFeatureFlagsQueryOptions = <TData = Awaited<ReturnType<typeof listFeatureFlags>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listFeatureFlags>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListFeatureFlagsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listFeatureFlags>>> = ({ signal }) => listFeatureFlags({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listFeatureFlags>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListFeatureFlagsQueryResult = NonNullable<Awaited<ReturnType<typeof listFeatureFlags>>>
+export type ListFeatureFlagsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the platform-wide feature switches (which app modules are enabled)
+ */
+
+export function useListFeatureFlags<TData = Awaited<ReturnType<typeof listFeatureFlags>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listFeatureFlags>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListFeatureFlagsQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -14345,6 +14425,154 @@ export const useUpdateAdsBudgetCaps = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getUpdateAdsBudgetCapsMutationOptions(options));
+    }
+
+export const getAdminListFeatureFlagsUrl = () => {
+
+
+
+
+  return `/api/admin/features`
+}
+
+/**
+ * @summary List platform-wide feature switches with labels (superadmin only)
+ */
+export const adminListFeatureFlags = async ( options?: RequestInit): Promise<AdminFeatureFlag[]> => {
+
+  return customFetch<AdminFeatureFlag[]>(getAdminListFeatureFlagsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListFeatureFlagsQueryKey = () => {
+    return [
+    `/api/admin/features`
+    ] as const;
+    }
+
+
+export const getAdminListFeatureFlagsQueryOptions = <TData = Awaited<ReturnType<typeof adminListFeatureFlags>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListFeatureFlags>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListFeatureFlagsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListFeatureFlags>>> = ({ signal }) => adminListFeatureFlags({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListFeatureFlags>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListFeatureFlagsQueryResult = NonNullable<Awaited<ReturnType<typeof adminListFeatureFlags>>>
+export type AdminListFeatureFlagsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List platform-wide feature switches with labels (superadmin only)
+ */
+
+export function useAdminListFeatureFlags<TData = Awaited<ReturnType<typeof adminListFeatureFlags>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListFeatureFlags>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListFeatureFlagsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateFeatureFlagUrl = (feature: string,) => {
+
+
+
+
+  return `/api/admin/features/${feature}`
+}
+
+/**
+ * @summary Enable or disable an app module platform-wide (superadmin only)
+ */
+export const adminUpdateFeatureFlag = async (feature: string,
+    adminFeatureFlagInput: AdminFeatureFlagInput, options?: RequestInit): Promise<AdminFeatureFlag> => {
+
+  return customFetch<AdminFeatureFlag>(getAdminUpdateFeatureFlagUrl(feature),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(adminFeatureFlagInput)
+  }
+);}
+
+
+
+
+export const getAdminUpdateFeatureFlagMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateFeatureFlag>>, TError,{feature: string;data: BodyType<AdminFeatureFlagInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateFeatureFlag>>, TError,{feature: string;data: BodyType<AdminFeatureFlagInput>}, TContext> => {
+
+const mutationKey = ['adminUpdateFeatureFlag'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateFeatureFlag>>, {feature: string;data: BodyType<AdminFeatureFlagInput>}> = (props) => {
+          const {feature,data} = props ?? {};
+
+          return  adminUpdateFeatureFlag(feature,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateFeatureFlagMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateFeatureFlag>>>
+    export type AdminUpdateFeatureFlagMutationBody = BodyType<AdminFeatureFlagInput>
+    export type AdminUpdateFeatureFlagMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Enable or disable an app module platform-wide (superadmin only)
+ */
+export const useAdminUpdateFeatureFlag = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateFeatureFlag>>, TError,{feature: string;data: BodyType<AdminFeatureFlagInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateFeatureFlag>>,
+        TError,
+        {feature: string;data: BodyType<AdminFeatureFlagInput>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateFeatureFlagMutationOptions(options));
     }
 
 export const getAdminGetAdsSettingsUrl = () => {

@@ -13,6 +13,7 @@ export type AdminAuditAction =
   | "app_brand_change"
   | "email_settings_change"
   | "design_skill_change"
+  | "feature_flag_change"
   | "asr_provider_change"
   | "asr_key_change"
   | "ads_module_toggled"

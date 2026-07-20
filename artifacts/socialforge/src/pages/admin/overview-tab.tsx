@@ -27,6 +27,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { PLAN_LABELS } from "./shared";
+import { FeatureControlsCard } from "./feature-controls-card";
 
 /** The sweep runs every 15 minutes; call it stale after two missed cycles. */
 const SWEEP_STALE_MS = 35 * 60 * 1000;
@@ -384,6 +385,8 @@ export function OverviewTab() {
           )}
         </CardContent>
       </Card>
+
+      <FeatureControlsCard />
     </div>
   );
 }

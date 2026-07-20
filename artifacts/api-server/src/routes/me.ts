@@ -10,6 +10,7 @@ import { isSuperadminEmail } from "../lib/superadmins";
 import { getEffectiveSeatLimit, getMembershipDetails } from "../lib/team";
 import { requireWorkspaceAdmin } from "../middlewares/requireWorkspaceAdmin";
 import { getPendingInviteHint } from "../lib/teamInviteEmail";
+import { isFeatureEnabled } from "../lib/featureFlags";
 
 const router: IRouter = Router();
 
@@ -79,6 +80,15 @@ router.patch("/me/settings", requireWorkspaceAdmin, async (req: Request, res: Re
   // The plan catalog is dynamic (superadmins can add/delete plans), so the
   // requested plan must be validated against the live catalog, not an enum.
   if (parsed.data.plan !== undefined) {
+    // Plan changes are billing functionality: blocked when the billing
+    // module is disabled platform-wide by a superadmin.
+    if (!(await isFeatureEnabled("billing"))) {
+      res.status(403).json({
+        error: "This feature is currently disabled by the administrator",
+        code: "feature_disabled",
+      });
+      return;
+    }
     const plans = await listPlans();
     if (!plans.some((p) => p.id === parsed.data.plan)) {
       res.status(400).json({ error: "Unknown plan" });

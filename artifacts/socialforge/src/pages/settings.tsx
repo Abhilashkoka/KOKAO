@@ -21,6 +21,7 @@ import { AppBrandingSettings } from "@/components/app-branding-settings";
 import { TasteMemorySettings } from "@/components/taste-memory-settings";
 import { BillingSettings } from "@/components/billing-settings";
 import { ConsentSettings } from "@/components/consent-settings";
+import { useFeatureFlags } from "@/lib/features";
 
 export function SettingsPage() {
   const { data: me, isLoading: meLoading } = useGetMe();
@@ -28,6 +29,7 @@ export function SettingsPage() {
   const updateSettings = useUpdateSettings();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { flags: featureFlags } = useFeatureFlags();
 
   const [name, setName] = useState("");
   const [aiModel, setAiModel] = useState("");
@@ -80,8 +82,12 @@ export function SettingsPage() {
       <Tabs defaultValue="general" className="space-y-8">
         <TabsList>
           <TabsTrigger value="general">General</TabsTrigger>
-          {me?.team?.enabled && <TabsTrigger value="team">Team</TabsTrigger>}
-          <TabsTrigger value="billing">Billing</TabsTrigger>
+          {me?.team?.enabled && featureFlags.team && (
+            <TabsTrigger value="team">Team</TabsTrigger>
+          )}
+          {featureFlags.billing && (
+            <TabsTrigger value="billing">Billing</TabsTrigger>
+          )}
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
           <TabsTrigger value="style-memory">Style memory</TabsTrigger>
           <TabsTrigger value="privacy">Privacy &amp; Data</TabsTrigger>
@@ -148,6 +154,7 @@ export function SettingsPage() {
           </Card>
         </div>
 
+        {featureFlags.billing && (
         <div className="lg:col-span-7">
           <Card className="border-border shadow-sm h-full">
             <CardHeader>
@@ -189,6 +196,7 @@ export function SettingsPage() {
             </CardContent>
           </Card>
         </div>
+        )}
       </div>
         </TabsContent>
 

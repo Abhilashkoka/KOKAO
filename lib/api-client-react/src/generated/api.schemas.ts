@@ -2880,6 +2880,31 @@ export interface AdminAdsPlatformSlot {
   note?: string | null;
 }
 
+/**
+ * Platform-wide feature switches. false = the module is disabled for all tenants.
+ */
+export interface FeatureFlags {
+  aiStudio: boolean;
+  contentLibrary: boolean;
+  scheduling: boolean;
+  brandKits: boolean;
+  connectedAccounts: boolean;
+  analytics: boolean;
+  team: boolean;
+  billing: boolean;
+}
+
+export interface AdminFeatureFlag {
+  feature: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+}
+
+export interface AdminFeatureFlagInput {
+  enabled: boolean;
+}
+
 export interface AdminAdsSettings {
   enabled: boolean;
   platforms: AdminAdsPlatformSlot[];

@@ -13,6 +13,7 @@ export * from "./asrSettings";
 export * from "./imageGenSettings";
 export * from "./emailSettings";
 export * from "./designSkillSettings";
+export * from "./featureFlags";
 export * from "./usageEvents";
 export * from "./notifications";
 export * from "./notificationPreferences";

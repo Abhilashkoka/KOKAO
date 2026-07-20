@@ -30,6 +30,7 @@ import { and, eq, lte, lt } from "drizzle-orm";
 import { logger } from "./logger";
 import { tryAcquireResendLock } from "./resendLock";
 import { isShuttingDown } from "./backgroundJobs";
+import { isFeatureEnabled } from "./featureFlags";
 import {
   notifyScheduledPostPublished,
   notifyScheduledPublishFailed,
@@ -85,6 +86,12 @@ export async function runScheduledPublishTick(): Promise<number> {
   if (running) return 0;
   running = true;
   try {
+    // Platform kill switch: when the scheduling module is disabled by a
+    // superadmin, due posts stay pending (and publish later if re-enabled).
+    if (!(await isFeatureEnabled("scheduling"))) return 0;
+    // Publishing to social platforms is part of the connected-accounts
+    // module; when it is disabled, due posts also stay pending.
+    if (!(await isFeatureEnabled("connectedAccounts"))) return 0;
     await recoverStuckProcessing();
     if (isShuttingDown()) return 0;
 

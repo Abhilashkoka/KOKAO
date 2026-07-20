@@ -47,3 +47,4 @@
 - [Image gen providers](imagegen-providers.md) — admin-selected provider like ASR; custom OpenAI-compatible URLs must pass the shared SSRF guard (endpoint AND returned image URL).
 - [LinkedIn organic silent refresh](linkedin-organic-refresh.md) — reconnect prompt only when the REFRESH token is dead; access-token lapse gets a silent refresh first; refresh token lives encrypted on the row.
 - [LinkedIn Ads module](linkedin-ads.md) — reuses shared ads engine; budgets are MAJOR units on LinkedIn (adapter converts ×100); creates need campaignGroupId; authFailed flag gates reconnect marking.
+- [Feature kill switches](feature-kill-switches.md) — gate every execution path (background jobs, settings mutations), not just route prefixes; admin routes stay ungated; fail open on DB errors.
