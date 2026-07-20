@@ -146,18 +146,19 @@ export default function AccountsScreen() {
     return d.connected ? "connected" : "disconnected";
   };
 
-  const brokenCount = [
-    metaHealth(fb),
-    metaHealth(ig),
-    oauthHealth(li),
-    oauthHealth(tw),
-    oauthHealth(yt),
-    oauthHealth(th),
-  ].filter((h) => h === "broken").length;
-
   const failedAdConnections = (ads.data || []).filter(
     (conn) => conn.status === "connected" && conn.verifyStatus === "failed",
   );
+
+  const brokenCount =
+    [
+      metaHealth(fb),
+      metaHealth(ig),
+      oauthHealth(li),
+      oauthHealth(tw),
+      oauthHealth(yt),
+      oauthHealth(th),
+    ].filter((h) => h === "broken").length + failedAdConnections.length;
 
   return (
     <ScrollView
@@ -176,30 +177,22 @@ export default function AccountsScreen() {
       </Text>
 
       {brokenCount > 0 ? (
-        <View style={styles.alertBanner}>
+        <View style={styles.alertBanner} testID="banner-connections-attention">
           <Feather name="alert-circle" size={16} color={c.destructive} />
           <Text style={styles.alertText}>
             {brokenCount === 1
               ? "1 connection needs attention. Reconnect it from KOKAO on the web."
               : `${brokenCount} connections need attention. Reconnect them from KOKAO on the web.`}
-          </Text>
-        </View>
-      ) : null}
-
-      {failedAdConnections.length > 0 ? (
-        <View style={styles.alertBanner} testID="banner-ads-connection-failed">
-          <Feather name="alert-circle" size={16} color={c.destructive} />
-          <Text style={styles.alertText}>
-            Ad account connection lost:{" "}
-            {failedAdConnections
-              .map(
-                (conn) =>
-                  `${adPlatformLabel(conn.platform)}${conn.adAccountName ? ` (${conn.adAccountName})` : ""}`,
-              )
-              .join(", ")}{" "}
-            {failedAdConnections.length === 1 ? "has" : "have"} lost access.
-            Scheduled and pending ad changes will fail until you reconnect on the
-            web Ads page.
+            {failedAdConnections.length > 0
+              ? ` Ad account connection lost: ${failedAdConnections
+                  .map(
+                    (conn) =>
+                      `${adPlatformLabel(conn.platform)}${conn.adAccountName ? ` (${conn.adAccountName})` : ""}`,
+                  )
+                  .join(
+                    ", ",
+                  )} ${failedAdConnections.length === 1 ? "has" : "have"} lost access. Scheduled and pending ad changes will fail until you reconnect on the web Ads page.`
+              : ""}
           </Text>
         </View>
       ) : null}

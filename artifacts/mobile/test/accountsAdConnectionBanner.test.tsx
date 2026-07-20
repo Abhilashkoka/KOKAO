@@ -62,9 +62,11 @@ describe("Accounts screen ad connection banner", () => {
       },
     ];
     renderScreen();
+    expect(screen.getByText(/1 connection needs attention/)).toBeTruthy();
     expect(screen.getByText(/Ad account connection lost/)).toBeTruthy();
     expect(screen.getByText(/Meta Ads \(Acme Ads\)/)).toBeTruthy();
     expect(screen.getByText(/reconnect on the\s*web Ads page/)).toBeTruthy();
+    expect(screen.getAllByTestId("banner-connections-attention").length).toBe(1);
   });
 
   it("lists multiple failed ad connections", () => {
@@ -73,8 +75,10 @@ describe("Accounts screen ad connection banner", () => {
       { platform: "tiktok", status: "connected", verifyStatus: "failed" },
     ];
     renderScreen();
+    expect(screen.getByText(/2 connections need attention/)).toBeTruthy();
     expect(screen.getByText(/Meta Ads, TikTok Ads/)).toBeTruthy();
     expect(screen.getByText(/have lost access/)).toBeTruthy();
+    expect(screen.getAllByTestId("banner-connections-attention").length).toBe(1);
   });
 
   it("shows no banner when ad connections are healthy or disconnected", () => {
@@ -84,6 +88,7 @@ describe("Accounts screen ad connection banner", () => {
     ];
     renderScreen();
     expect(screen.queryByText(/Ad account connection lost/)).toBeNull();
+    expect(screen.queryByTestId("banner-connections-attention")).toBeNull();
   });
 
   it("renders a card per ad platform with health badges", () => {
