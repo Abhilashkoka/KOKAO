@@ -213,7 +213,10 @@ describe("edit prefill of bid fields", () => {
     expect(form.bidStrategy).toBe("");
   });
 
-  function renderDraftDialog(bid: { bidAmount: string; bidStrategy: string }) {
+  function renderDraftDialog(
+    bid: { bidAmount: string; bidStrategy: string },
+    platform: string = "meta",
+  ) {
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -221,7 +224,7 @@ describe("edit prefill of bid fields", () => {
       <QueryClientProvider client={queryClient}>
         <DraftDialog
           connectionId={7}
-          platform="meta"
+          platform={platform}
           currency="USD"
           form={{
             action: "update",
@@ -277,6 +280,62 @@ describe("edit prefill of bid fields", () => {
     const payload = createDraftMutate.mock.calls[0]![0].data;
     expect(payload.bidStrategy).toBe("COST_CAP");
     expect(payload.bidAmount).toBe(250);
+  });
+
+  it("entering a fresh bid submits minor units and the chosen strategy", () => {
+    renderDraftDialog({ bidAmount: "", bidStrategy: "" });
+
+    fireEvent.click(screen.getByTestId("select-draft-bid-strategy"));
+    fireEvent.click(screen.getByText("Cost cap"));
+    fireEvent.change(screen.getByTestId("input-draft-bid-amount"), {
+      target: { value: "2.5" },
+    });
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+
+    expect(createDraftMutate).toHaveBeenCalledTimes(1);
+    const payload = createDraftMutate.mock.calls[0]![0].data;
+    expect(payload.bidAmount).toBe(250);
+    expect(payload.bidStrategy).toBe("COST_CAP");
+  });
+
+  it("submitting with both bid fields blank sends no bid keys", () => {
+    renderDraftDialog({ bidAmount: "", bidStrategy: "" });
+
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+
+    expect(createDraftMutate).toHaveBeenCalledTimes(1);
+    const payload = createDraftMutate.mock.calls[0]![0].data;
+    expect("bidAmount" in payload).toBe(false);
+    expect("bidStrategy" in payload).toBe(false);
+  });
+
+  it("choosing Lowest cost (no cap) disables the amount and omits it on submit", () => {
+    renderDraftDialog({ bidAmount: "250", bidStrategy: "COST_CAP" });
+
+    fireEvent.click(screen.getByTestId("select-draft-bid-strategy"));
+    fireEvent.click(screen.getByText("Lowest cost (no cap)"));
+
+    const amount = screen.getByTestId("input-draft-bid-amount") as HTMLInputElement;
+    expect(amount.disabled).toBe(true);
+
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+
+    const payload = createDraftMutate.mock.calls[0]![0].data;
+    expect(payload.bidStrategy).toBe("LOWEST_COST_WITHOUT_CAP");
+    expect(payload.bidAmount).toBeUndefined();
+  });
+
+  it("never renders bid controls for a non-Meta ad set edit", () => {
+    renderDraftDialog({ bidAmount: "250", bidStrategy: "COST_CAP" }, "linkedin");
+
+    expect(screen.queryByTestId("select-draft-bid-strategy")).toBeNull();
+    expect(screen.queryByTestId("input-draft-bid-amount")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+
+    const payload = createDraftMutate.mock.calls[0]![0].data;
+    expect("bidAmount" in payload).toBe(false);
+    expect("bidStrategy" in payload).toBe(false);
   });
 
   it("DraftDialog prefills the bid amount in major units and the strategy", () => {
