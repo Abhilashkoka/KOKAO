@@ -50,7 +50,13 @@ import {
   pruneUnseenPushTokens,
   PUSH_TOKEN_MAX_UNSEEN_MS,
 } from "../lib/push";
-import { SOCIAL_CONNECTION_FAILED } from "../lib/notifications";
+import {
+  SOCIAL_CONNECTION_FAILED,
+  SCHEDULED_POST_PUBLISHED,
+  SCHEDULED_PUBLISH_FAILED,
+  notifyScheduledPostPublished,
+  notifyScheduledPublishFailed,
+} from "../lib/notifications";
 
 const app = createTestApp();
 
@@ -414,6 +420,132 @@ describe("sendTenantPush", () => {
           message: "Failure path",
         }),
       ).resolves.toBeUndefined();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("publish-outcome push payloads (tap deep-link contract)", () => {
+  it("scheduled_post_published carries the content item id in the wire payload", async () => {
+    const tenant = await createTenant();
+    try {
+      await db.insert(pushTokensTable).values({
+        clerkUserId: tenant.clerkUserId,
+        token: TOKEN_A,
+        platform: "ios",
+      });
+
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(
+          new Response(JSON.stringify({ data: [{ status: "ok" }] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+
+      await notifyScheduledPostPublished(
+        tenant.tenantId,
+        "My post",
+        "facebook",
+        123,
+      );
+
+      const pushCall = fetchSpy.mock.calls.find(([url]) =>
+        String(url).includes("push/send"),
+      );
+      expect(pushCall).toBeTruthy();
+      const body = JSON.parse(String(pushCall![1]?.body));
+      expect(body[0].to).toBe(TOKEN_A);
+      expect(body[0].data).toEqual({
+        url: "/library",
+        contentItemId: 123,
+        type: SCHEDULED_POST_PUBLISHED,
+      });
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("scheduled_publish_failed carries the content item id in the wire payload", async () => {
+    const tenant = await createTenant();
+    try {
+      await db.insert(pushTokensTable).values({
+        clerkUserId: tenant.clerkUserId,
+        token: TOKEN_A,
+        platform: "android",
+      });
+
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(
+          new Response(JSON.stringify({ data: [{ status: "ok" }] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+
+      await notifyScheduledPublishFailed(
+        tenant.tenantId,
+        null,
+        "My post",
+        "instagram",
+        "Token expired.",
+        456,
+      );
+
+      const pushCall = fetchSpy.mock.calls.find(([url]) =>
+        String(url).includes("push/send"),
+      );
+      expect(pushCall).toBeTruthy();
+      const body = JSON.parse(String(pushCall![1]?.body));
+      expect(body[0].to).toBe(TOKEN_A);
+      expect(body[0].data).toEqual({
+        url: "/library",
+        contentItemId: 456,
+        type: SCHEDULED_PUBLISH_FAILED,
+      });
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("omits contentItemId from the wire payload when the id is absent", async () => {
+    const tenant = await createTenant();
+    try {
+      await db.insert(pushTokensTable).values({
+        clerkUserId: tenant.clerkUserId,
+        token: TOKEN_A,
+        platform: "ios",
+      });
+
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(
+          new Response(JSON.stringify({ data: [{ status: "ok" }] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+
+      await notifyScheduledPostPublished(
+        tenant.tenantId,
+        "My post",
+        "linkedin",
+        null,
+      );
+
+      const pushCall = fetchSpy.mock.calls.find(([url]) =>
+        String(url).includes("push/send"),
+      );
+      expect(pushCall).toBeTruthy();
+      const body = JSON.parse(String(pushCall![1]?.body));
+      expect(body[0].data).toEqual({
+        url: "/library",
+        type: SCHEDULED_POST_PUBLISHED,
+      });
+      expect(body[0].data).not.toHaveProperty("contentItemId");
     } finally {
       await deleteTenant(tenant.tenantId);
     }

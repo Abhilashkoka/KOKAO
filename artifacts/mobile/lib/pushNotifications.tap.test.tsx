@@ -65,6 +65,50 @@ describe("useNotificationTapNavigation", () => {
     expect(pushMock).toHaveBeenCalledWith("/(tabs)/library");
   });
 
+  it("opens the post's edit screen on a warm publish-outcome tap with a content item id", async () => {
+    render(<Harness />);
+    await waitFor(() => expect(responseListener).toBeTruthy());
+    responseListener!(
+      makeResponse("n1a", 110, {
+        url: "/library",
+        type: "scheduled_post_published",
+        contentItemId: 42,
+      }),
+    );
+    expect(pushMock).toHaveBeenCalledWith({
+      pathname: "/content/[id]",
+      params: { id: "42" },
+    });
+  });
+
+  it("opens the post's edit screen on a cold-start publish-failed tap with a content item id", async () => {
+    lastResponse = makeResponse("n1b", 120, {
+      url: "/library",
+      type: "scheduled_publish_failed",
+      contentItemId: "7",
+    });
+    render(<Harness />);
+    await waitFor(() =>
+      expect(pushMock).toHaveBeenCalledWith({
+        pathname: "/content/[id]",
+        params: { id: "7" },
+      }),
+    );
+    expect(clearMock).toHaveBeenCalled();
+  });
+
+  it("lands on the library tab when a publish push has no content item id", async () => {
+    render(<Harness />);
+    await waitFor(() => expect(responseListener).toBeTruthy());
+    responseListener!(
+      makeResponse("n1c", 130, {
+        url: "/library",
+        type: "scheduled_post_published",
+      }),
+    );
+    expect(pushMock).toHaveBeenCalledWith("/(tabs)/library");
+  });
+
   it("navigates on cold start from the stored last response and clears it", async () => {
     lastResponse = makeResponse("n2", 200, { url: "/accounts", type: "social_connection_failed" });
     render(<Harness />);
