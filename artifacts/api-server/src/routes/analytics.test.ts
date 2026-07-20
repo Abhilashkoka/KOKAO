@@ -328,12 +328,23 @@ describe("POST /analytics/events (ingestion consent enforcement)", () => {
 });
 
 describe("GET /analytics/* (access gating)", () => {
-  it("workspace owner can read their analytics", async () => {
+  it("superadmin can read platform analytics", async () => {
+    const tenant = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(tenant.clerkUserId, "super@example.com");
+      const res = await request(app).get("/api/analytics/audience");
+      expect(res.status).toBe(200);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("workspace owners get 403", async () => {
     const tenant = await createTenant();
     try {
       actAs(tenant.clerkUserId, "owner@example.com");
       const res = await request(app).get("/api/analytics/audience");
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(403);
     } finally {
       await deleteTenant(tenant.tenantId);
     }
@@ -359,7 +370,7 @@ describe("GET /analytics/* (access gating)", () => {
     }
   });
 
-  it("admin team members can read the workspace analytics", async () => {
+  it("admin team members get 403", async () => {
     const owner = await createTenant();
     const adminClerkId = `test_admin_${Date.now()}`;
     try {
@@ -370,7 +381,7 @@ describe("GET /analytics/* (access gating)", () => {
       });
       actAs(adminClerkId, "admin@example.com");
       const res = await request(app).get("/api/analytics/audience");
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(403);
     } finally {
       await db
         .delete(tenantMembersTable)

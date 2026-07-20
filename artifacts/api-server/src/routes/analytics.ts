@@ -13,10 +13,9 @@ import { isSuperadminEmail } from "../lib/superadmins";
 
 /**
  * Analytics reporting endpoints. Access model:
- * - Superadmin (verified live, same trust chain as requireSuperadmin):
+ * - Superadmin ONLY (verified live, same trust chain as requireSuperadmin):
  *   platform-wide scope; `tenantId` query param drills into one tenant.
- * - Workspace owner/admin: their own workspace only (tenantId param ignored).
- * - Plain members: 403.
+ * - Everyone else (workspace owners, admins, members): 403.
  */
 const router: IRouter = Router();
 
@@ -49,9 +48,6 @@ async function resolveScope(req: Request): Promise<Scope | null> {
       tenantId: Number.isFinite(parsed) ? parsed : null,
       platform: true,
     };
-  }
-  if (req.memberRole === "owner" || req.memberRole === "admin") {
-    return { tenantId: req.tenantId, platform: false };
   }
   return null;
 }
@@ -94,7 +90,7 @@ function analyticsRoute(path: string, handler: Handler): void {
     try {
       const scope = await resolveScope(req);
       if (!scope) {
-        res.status(403).json({ error: "Analytics are available to workspace owners and admins only" });
+        res.status(403).json({ error: "Analytics are available to platform administrators only" });
         return;
       }
       const { from, to } = parseWindow(req);

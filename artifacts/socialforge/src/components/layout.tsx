@@ -77,19 +77,19 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     signOutPendingRef.current = false;
   }, [isLoaded, isSignedIn, meError, signOut]);
 
-  // Analytics is for superadmins and workspace owners/admins; plain team
-  // members don't see it (the server also rejects them with 403).
+  // Analytics is superadmin-only (the server also rejects everyone else
+  // with 403). Health stays visible to workspace owners/admins.
   const role = me?.team?.role;
-  const canSeeAnalytics = Boolean(
+  const canSeeHealth = Boolean(
     me && (me.isSuperadmin || !me.team || role === "owner" || role === "admin"),
   );
   const { flags: featureFlags } = useFeatureFlags();
   const navItems = [
     ...NAV_ITEMS.filter((item) => !item.feature || featureFlags[item.feature]),
-    ...(canSeeAnalytics && featureFlags.analytics
+    ...(me?.isSuperadmin && featureFlags.analytics
       ? [ANALYTICS_NAV_ITEM]
       : []),
-    ...(canSeeAnalytics ? [HEALTH_NAV_ITEM] : []),
+    ...(canSeeHealth ? [HEALTH_NAV_ITEM] : []),
     ...(me?.isSuperadmin ? ADMIN_NAV_ITEMS : []),
   ];
   

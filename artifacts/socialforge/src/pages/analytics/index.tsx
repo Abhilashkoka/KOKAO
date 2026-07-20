@@ -55,9 +55,7 @@ export function AnalyticsPage() {
   const [tenantFilter, setTenantFilter] = useState("all");
 
   const isSuperadmin = Boolean(me?.isSuperadmin);
-  const role = me?.team?.role;
-  const isWorkspaceAdmin = !me?.team || role === "owner" || role === "admin";
-  const accessDenied = me && !isSuperadmin && !isWorkspaceAdmin;
+  const accessDenied = me && !isSuperadmin;
 
   const { data: tenants } = useAdminListTenants({
     query: { queryKey: getAdminListTenantsQueryKey(), enabled: isSuperadmin },
@@ -88,7 +86,7 @@ export function AnalyticsPage() {
         <ShieldAlert className="h-12 w-12 text-muted-foreground mb-4" />
         <h1 className="text-2xl font-bold">Access denied</h1>
         <p className="text-muted-foreground mt-2">
-          Analytics are available to workspace owners and admins only.
+          Analytics are available to platform administrators only.
         </p>
       </div>
     );
@@ -100,9 +98,7 @@ export function AnalyticsPage() {
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight">Analytics</h1>
           <p className="text-muted-foreground text-lg mt-1">
-            {isSuperadmin
-              ? "Platform-wide usage, revenue, and reliability metrics."
-              : "Usage, revenue, and reliability metrics for your workspace."}
+            Platform-wide usage, revenue, and reliability metrics.
           </p>
         </div>
         <div className="flex items-center gap-2">
