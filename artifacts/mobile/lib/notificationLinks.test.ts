@@ -17,10 +17,15 @@ describe("mapLinkUrlToRoute", () => {
     expect(mapLinkUrlToRoute("/library#recent")).toBe("/(tabs)/library");
   });
 
+  it("maps /settings to the plan & billing screen", () => {
+    expect(mapLinkUrlToRoute("/settings")).toBe("/settings");
+    expect(mapLinkUrlToRoute("/settings?tab=billing")).toBe("/settings");
+    expect(mapLinkUrlToRoute("/settings/")).toBe("/settings");
+  });
+
   it("returns null for unmapped web-only paths", () => {
     expect(mapLinkUrlToRoute("/admin")).toBeNull();
     expect(mapLinkUrlToRoute("/ads")).toBeNull();
-    expect(mapLinkUrlToRoute("/settings")).toBeNull();
   });
 
   it("returns null for empty or missing linkUrl", () => {

@@ -1,11 +1,15 @@
 // Map web link URLs carried by notifications to the matching mobile screens.
 // Unknown paths return null so a tap just marks the item read without navigating.
 
-export type NotificationRoute = "/(tabs)/accounts" | "/(tabs)/library";
+export type NotificationRoute =
+  | "/(tabs)/accounts"
+  | "/(tabs)/library"
+  | "/settings";
 
 const LINK_ROUTES: Record<string, NotificationRoute> = {
   "/accounts": "/(tabs)/accounts",
   "/library": "/(tabs)/library",
+  "/settings": "/settings",
 };
 
 export function mapLinkUrlToRoute(
