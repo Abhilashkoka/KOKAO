@@ -85,4 +85,42 @@ describe("Accounts screen ad connection banner", () => {
     renderScreen();
     expect(screen.queryByText(/Ad account connection lost/)).toBeNull();
   });
+
+  it("renders a card per ad platform with health badges", () => {
+    mockState.adConnections = [
+      {
+        platform: "meta",
+        status: "connected",
+        verifyStatus: "failed",
+        adAccountName: "Acme Ads",
+      },
+      {
+        platform: "google",
+        status: "connected",
+        verifyStatus: "ok",
+        adAccountName: "Acme Google",
+      },
+    ];
+    renderScreen();
+    expect(screen.getByText("Meta Ads")).toBeTruthy();
+    expect(screen.getByText("LinkedIn Ads")).toBeTruthy();
+    expect(screen.getByText("TikTok Ads")).toBeTruthy();
+    expect(screen.getByText("Google Ads")).toBeTruthy();
+    expect(screen.getByText("Acme Ads")).toBeTruthy();
+    expect(screen.getByText("Acme Google")).toBeTruthy();
+    expect(
+      screen.getByText(/This ad account lost access.*web Ads page/),
+    ).toBeTruthy();
+    expect(screen.getAllByText("Not connected").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("shows disconnected ad platforms as not connected when nothing is linked", () => {
+    mockState.adConnections = [
+      { platform: "meta", status: "pending_selection", verifyStatus: null },
+    ];
+    renderScreen();
+    // pending_selection is not a live connection; all four ad cards show Not connected
+    expect(screen.getByText("Meta Ads")).toBeTruthy();
+    expect(screen.queryByText(/This ad account lost access/)).toBeNull();
+  });
 });

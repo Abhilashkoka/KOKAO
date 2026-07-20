@@ -34,6 +34,16 @@ function adPlatformLabel(platform: string) {
 
 type Health = "connected" | "broken" | "disconnected" | "loading";
 
+const AD_PLATFORMS: Array<{
+  platform: string;
+  icon: keyof typeof Feather.glyphMap;
+}> = [
+  { platform: "meta", icon: "facebook" },
+  { platform: "linkedin", icon: "linkedin" },
+  { platform: "tiktok", icon: "music" },
+  { platform: "google", icon: "chrome" },
+];
+
 function PlatformCard({
   name,
   icon,
@@ -263,6 +273,35 @@ export default function AccountsScreen() {
         }
       />
 
+      <Text style={styles.sectionTitle}>Ad Accounts</Text>
+      {AD_PLATFORMS.map(({ platform, icon }) => {
+        const conn = (ads.data || []).find(
+          (item) => item.platform === platform && item.status === "connected",
+        );
+        const health: Health = ads.isLoading
+          ? "loading"
+          : !conn
+            ? "disconnected"
+            : conn.verifyStatus === "failed"
+              ? "broken"
+              : "connected";
+        return (
+          <PlatformCard
+            key={platform}
+            name={adPlatformLabel(platform)}
+            icon={icon}
+            health={health}
+            accountName={conn?.adAccountName}
+            detail={
+              health === "broken"
+                ? conn?.verifyError ||
+                  "This ad account lost access. Reconnect it on the web Ads page."
+                : null
+            }
+          />
+        );
+      })}
+
       <View style={styles.note}>
         <Feather name="info" size={14} color={c.mutedForeground} />
         <Text style={styles.noteText}>
@@ -297,6 +336,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: c.destructive,
     lineHeight: 18,
+  },
+  sectionTitle: {
+    fontFamily: fonts.semiBold,
+    fontSize: 16,
+    color: c.foreground,
+    marginTop: 8,
   },
   platformCard: { padding: 14 },
   platformRow: { flexDirection: "row", alignItems: "center", gap: 12 },
