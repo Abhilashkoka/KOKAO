@@ -1,11 +1,12 @@
 import {
   db,
   memberNotificationPreferencesTable,
+  notificationsTable,
   pushTokensTable,
   tenantMembersTable,
   tenantsTable,
 } from "@workspace/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, count, eq, inArray, isNull } from "drizzle-orm";
 import { logger } from "./logger";
 import { getFeatureFlags } from "./featureFlags";
 import { getEffectiveSetting } from "./notificationSettings";
@@ -36,6 +37,7 @@ interface ExpoPushMessage {
   title: string;
   body: string;
   sound: "default";
+  badge?: number;
   data: { url?: string; type: string };
 }
 
@@ -109,6 +111,7 @@ async function sendExpoPushMessages(messages: ExpoPushMessage[]): Promise<void> 
 async function pushToUsers(
   clerkUserIds: string[],
   payload: PushPayload,
+  badge?: number,
 ): Promise<void> {
   if (clerkUserIds.length === 0) return;
   const rows = await db
@@ -123,6 +126,7 @@ async function pushToUsers(
     title: payload.title,
     body: payload.message,
     sound: "default",
+    ...(badge !== undefined ? { badge } : {}),
     data: {
       ...(payload.linkUrl ? { url: payload.linkUrl } : {}),
       type: payload.type,
@@ -202,7 +206,30 @@ export async function sendTenantPush(
       }
     }
 
-    await pushToUsers(Array.from(recipients), { ...payload, type });
+    // iOS app-icon badge: the unread count of this tenant's in-app feed —
+    // the same feed every recipient (owner and members) sees in the app.
+    // Computed after the fresh row insert so it includes this notification.
+    // Best-effort: a count failure just sends the push without a badge.
+    let badge: number | undefined;
+    try {
+      const unread = (
+        await db
+          .select({ value: count() })
+          .from(notificationsTable)
+          .where(
+            and(
+              eq(notificationsTable.tenantId, tenantId),
+              eq(notificationsTable.inApp, true),
+              isNull(notificationsTable.readAt),
+            ),
+          )
+      )[0];
+      if (unread) badge = unread.value;
+    } catch (err) {
+      logger.error({ err, tenantId }, "Failed to compute push badge count");
+    }
+
+    await pushToUsers(Array.from(recipients), { ...payload, type }, badge);
   } catch (err) {
     logger.error({ err, tenantId, type }, "Failed to send tenant push");
   }

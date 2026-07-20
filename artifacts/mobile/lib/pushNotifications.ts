@@ -180,6 +180,21 @@ export function useNotificationTapNavigation() {
 }
 
 /**
+ * Sync the app-icon badge to the given unread count (0 clears it).
+ * Native-only and best-effort: on web or when the native module is missing
+ * (Expo Go limitations) it silently does nothing. Never throws.
+ */
+export async function syncBadgeCount(unreadCount: number): Promise<void> {
+  if (Platform.OS === "web") return;
+  try {
+    const Notifications = await import("expo-notifications");
+    await Notifications.setBadgeCountAsync(Math.max(0, unreadCount));
+  } catch {
+    // Best-effort: missing module or OS refusal just leaves the badge as-is.
+  }
+}
+
+/**
  * Renderless mount point for push registration and notification-tap
  * navigation; lives inside both the Clerk and QueryClient providers in the
  * root layout.

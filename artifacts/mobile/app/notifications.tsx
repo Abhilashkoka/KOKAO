@@ -20,6 +20,7 @@ import {
 } from "@workspace/api-client-react";
 
 import { Card, ErrorState, Skeleton } from "@/components/ui";
+import { syncBadgeCount } from "@/lib/pushNotifications";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
 import { mapLinkUrlToRoute } from "@/lib/notificationLinks";
@@ -93,6 +94,14 @@ export default function NotificationsScreen() {
 
   const notifications = list.data ?? [];
   const unreadCount = notifications.filter((n) => !n.readAt).length;
+
+  // Keep the app-icon badge honest: whenever this screen has fresh data
+  // (on view, after a mark-read, after a refetch) sync the badge to the
+  // actual unread count — clearing it once everything is read.
+  React.useEffect(() => {
+    if (!list.data) return;
+    void syncBadgeCount(unreadCount);
+  }, [list.data, unreadCount]);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getListNotificationsQueryKey(INBOX_PARAMS) });

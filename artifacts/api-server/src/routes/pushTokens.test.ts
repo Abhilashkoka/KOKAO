@@ -33,7 +33,7 @@ vi.mock("@clerk/express", async () => {
   };
 });
 
-import { db, pool, pushTokensTable } from "@workspace/db";
+import { db, pool, pushTokensTable, notificationsTable } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 import { createTestApp } from "../test/testApp";
 import { resetAuthState, actAs } from "../test/authState";
@@ -196,6 +196,40 @@ describe("sendTenantPush", () => {
         platform: "ios",
       });
 
+      // Seed the tenant's in-app feed so the push carries a badge count:
+      // two unread in-app rows, one read, one email-only (excluded).
+      await db.insert(notificationsTable).values([
+        {
+          tenantId: tenant.tenantId,
+          type: SOCIAL_CONNECTION_FAILED,
+          title: "Unread 1",
+          message: "m",
+          inApp: true,
+        },
+        {
+          tenantId: tenant.tenantId,
+          type: SOCIAL_CONNECTION_FAILED,
+          title: "Unread 2",
+          message: "m",
+          inApp: true,
+        },
+        {
+          tenantId: tenant.tenantId,
+          type: SOCIAL_CONNECTION_FAILED,
+          title: "Read",
+          message: "m",
+          inApp: true,
+          readAt: new Date(),
+        },
+        {
+          tenantId: tenant.tenantId,
+          type: SOCIAL_CONNECTION_FAILED,
+          title: "Email only",
+          message: "m",
+          inApp: false,
+        },
+      ]);
+
       const fetchSpy = vi
         .spyOn(globalThis, "fetch")
         .mockResolvedValue(
@@ -222,6 +256,7 @@ describe("sendTenantPush", () => {
         url: "/accounts",
         type: SOCIAL_CONNECTION_FAILED,
       });
+      expect(body[0].badge).toBe(2);
     } finally {
       await deleteTenant(tenant.tenantId);
     }
