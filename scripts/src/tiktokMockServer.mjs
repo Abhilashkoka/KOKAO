@@ -40,6 +40,24 @@ const DEFAULT_STATE = {
   // Campaigns created via /campaign/create/ land here so read-back verify works.
   createdCampaigns: [],
   nextCampaignId: 7100000000000000099n.toString(),
+  ads: [
+    {
+      ad_id: "7300000000000000001",
+      ad_name: "TT Video Ad 1",
+      operation_status: "ENABLE",
+      secondary_status: "AD_STATUS_DELIVERY_OK",
+      adgroup_id: "7200000000000000001",
+      ad_text: "Fresh drops daily. Tap to see what everyone is talking about.",
+      image_ids: ["img-tt-0001"],
+    },
+    {
+      ad_id: "7300000000000000002",
+      ad_name: "TT No Creative Ad",
+      operation_status: "ENABLE",
+      secondary_status: "AD_STATUS_DELIVERY_OK",
+      adgroup_id: "7200000000000000001",
+    },
+  ],
 };
 
 let log = [];
@@ -62,25 +80,6 @@ function record(entry) {
 const ADVERTISERS = [
   { advertiser_id: "9000000001", name: "KOKAO Test Advertiser", currency: "USD", status: "STATUS_ENABLE" },
   { advertiser_id: "9000000002", name: "KOKAO Secondary Advertiser", currency: "USD", status: "STATUS_ENABLE" },
-];
-
-const ADS = [
-  {
-    ad_id: "7300000000000000001",
-    ad_name: "TT Video Ad 1",
-    operation_status: "ENABLE",
-    secondary_status: "AD_STATUS_DELIVERY_OK",
-    adgroup_id: "7200000000000000001",
-    ad_text: "Fresh drops daily. Tap to see what everyone is talking about.",
-    image_ids: ["img-tt-0001"],
-  },
-  {
-    ad_id: "7300000000000000002",
-    ad_name: "TT No Creative Ad",
-    operation_status: "ENABLE",
-    secondary_status: "AD_STATUS_DELIVERY_OK",
-    adgroup_id: "7200000000000000001",
-  },
 ];
 
 // 1x1 blue PNG served at /mock-image.png for creative thumbnails.
@@ -198,7 +197,48 @@ const server = http.createServer(async (req, res) => {
     return ok({ adgroup_ids: [state.adgroup.adgroup_id] });
   }
   if (path === "/ad/get/") {
-    return ok({ list: ADS });
+    const all = state.ads ?? [];
+    let filterIds = null;
+    try {
+      const f = JSON.parse(url.searchParams.get("filtering") || "null");
+      if (f && Array.isArray(f.ad_ids)) filterIds = f.ad_ids.map(String);
+    } catch {}
+    const list = filterIds ? all.filter((a) => filterIds.includes(a.ad_id)) : all;
+    return ok({ list });
+  }
+
+  if (path === "/ad/update/") {
+    const creatives = Array.isArray(body.creatives) ? body.creatives : [];
+    const updated = [];
+    for (const c of creatives) {
+      const ad = (state.ads ?? []).find((a) => a.ad_id === String(c.ad_id));
+      if (!ad) {
+        return send({ code: 40002, message: "Ad not found", data: {} });
+      }
+      if (String(body.adgroup_id ?? "") !== ad.adgroup_id) {
+        return send({ code: 40002, message: "Ad group mismatch", data: {} });
+      }
+      if (c.ad_name != null) ad.ad_name = String(c.ad_name);
+      updated.push(ad.ad_id);
+    }
+    saveState();
+    return ok({ ad_ids: updated });
+  }
+
+  if (path === "/ad/status/update/") {
+    const ids = (Array.isArray(body.ad_ids) ? body.ad_ids : []).map(String);
+    const hits = (state.ads ?? []).filter((a) => ids.includes(a.ad_id));
+    if (hits.length !== ids.length) {
+      return send({ code: 40002, message: "Ad not found", data: {} });
+    }
+    const operation = body.operation_status === "DISABLE" ? "DISABLE" : "ENABLE";
+    for (const ad of hits) {
+      ad.operation_status = operation;
+      ad.secondary_status =
+        operation === "ENABLE" ? "AD_STATUS_DELIVERY_OK" : "AD_STATUS_DISABLE";
+    }
+    saveState();
+    return ok({ ad_ids: ids });
   }
 
   if (path === "/file/image/ad/info/") {
@@ -209,7 +249,7 @@ const server = http.createServer(async (req, res) => {
     const host = req.headers.host || "localhost";
     return ok({
       list: ids
-        .filter((id) => ADS.some((a) => (a.image_ids ?? []).includes(id)))
+        .filter((id) => (state.ads ?? []).some((a) => (a.image_ids ?? []).includes(id)))
         .map((id) => ({ image_id: id, image_url: `http://${host}/mock-image.png` })),
     });
   }
@@ -231,7 +271,7 @@ const server = http.createServer(async (req, res) => {
     } else if (idDim === "adgroup_id") {
       rows.push({ dimensions: { adgroup_id: state.adgroup.adgroup_id }, metrics: METRICS.adgroup_id });
     } else if (idDim === "ad_id") {
-      rows.push({ dimensions: { ad_id: ADS[0].ad_id }, metrics: METRICS.ad_id });
+      rows.push({ dimensions: { ad_id: (state.ads ?? [])[0]?.ad_id }, metrics: METRICS.ad_id });
     }
     return ok({ list: rows });
   }
