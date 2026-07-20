@@ -305,6 +305,17 @@ function formatScheduleDate(iso: string | null | undefined) {
   });
 }
 
+function formatScheduleRange(
+  startIso: string | null | undefined,
+  stopIso: string | null | undefined,
+) {
+  const start = formatScheduleDate(startIso);
+  const stop = formatScheduleDate(stopIso);
+  if (start === "—" && stop === "—") return "Runs continuously";
+  if (stop === "—") return `${start} – no end date`;
+  return `${start} – ${stop}`;
+}
+
 function statusBadge(status: string) {
   const s = status.toUpperCase();
   if (s === "ACTIVE") return <Badge data-testid={`badge-status-${status}`}>Active</Badge>;
@@ -1885,8 +1896,7 @@ function CampaignDetailDialog({
                           className="whitespace-nowrap"
                           data-testid={`text-adset-schedule-${s.id}`}
                         >
-                          {formatScheduleDate(s.startTime)} –{" "}
-                          {formatScheduleDate(s.stopTime)}
+                          {formatScheduleRange(s.startTime, s.stopTime)}
                         </TableCell>
                         <TableCell className="text-right whitespace-nowrap">
                           {platform === "google"
