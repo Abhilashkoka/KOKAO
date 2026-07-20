@@ -102,6 +102,7 @@ function renderDraftDialog(
       <DraftDialog
         connectionId={7}
         platform={platform}
+        currency="USD"
         form={{ ...CREATE_FORM, ...formOverrides }}
         onClose={onClose}
       />
@@ -165,7 +166,7 @@ describe("DraftDialog LinkedIn campaign create mode", () => {
       target: { value: "LI Launch" },
     });
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
-      target: { value: "10000" },
+      target: { value: "100" },
     });
     await user.click(screen.getByTestId("select-draft-campaign-group"));
     await user.click(await screen.findByText("Always On"));
@@ -217,7 +218,7 @@ describe("DraftDialog group mode switching", () => {
     });
     await switchToGroupMode(user);
     fireEvent.change(screen.getByTestId("input-draft-lifetime-budget"), {
-      target: { value: "500000" },
+      target: { value: "5000" },
     });
     const submit = screen.getByTestId("button-submit-draft") as HTMLButtonElement;
     // No group selection required in group mode.
@@ -270,7 +271,7 @@ describe("DraftDialog Google", () => {
       target: { value: "G Search" },
     });
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
-      target: { value: "5000" },
+      target: { value: "50" },
     });
     fireEvent.click(screen.getByTestId("button-submit-draft"));
 
@@ -293,7 +294,7 @@ describe("DraftDialog Google", () => {
       name: "Ad group A",
     });
 
-    expect(screen.getByText("Default CPC bid (minor units)")).toBeTruthy();
+    expect(screen.getByText("Default CPC bid (USD)")).toBeTruthy();
     expect(screen.getByTestId("input-draft-daily-budget")).toBeTruthy();
     expect(screen.queryByTestId("input-draft-lifetime-budget")).toBeNull();
     expect(screen.queryByTestId("input-draft-start")).toBeNull();
@@ -301,7 +302,7 @@ describe("DraftDialog Google", () => {
     expect(screen.queryByTestId("select-draft-objective")).toBeNull();
 
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
-      target: { value: "150" },
+      target: { value: "1.5" },
     });
     fireEvent.click(screen.getByTestId("button-submit-draft"));
     const payload = submittedPayload();
@@ -374,7 +375,7 @@ describe("DraftDialog TikTok", () => {
       target: { value: "TT Launch" },
     });
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
-      target: { value: "2000" },
+      target: { value: "20" },
     });
     fireEvent.click(screen.getByTestId("button-submit-draft"));
 
@@ -408,7 +409,7 @@ describe("DraftDialog TikTok", () => {
       target: { value: "TT group renamed" },
     });
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
-      target: { value: "2500" },
+      target: { value: "25" },
     });
     fireEvent.click(screen.getByTestId("button-submit-draft"));
     const payload = submittedPayload();
@@ -461,10 +462,10 @@ describe("DraftDialog Meta", () => {
       target: { value: "Meta Launch" },
     });
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
-      target: { value: "3000" },
+      target: { value: "30" },
     });
     fireEvent.change(screen.getByTestId("input-draft-lifetime-budget"), {
-      target: { value: "90000" },
+      target: { value: "900" },
     });
     fireEvent.click(screen.getByTestId("button-submit-draft"));
 
@@ -496,7 +497,7 @@ describe("DraftDialog Meta", () => {
     expect(screen.getByTestId("input-draft-stop")).toBeTruthy();
 
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
-      target: { value: "1500" },
+      target: { value: "15" },
     });
     fireEvent.click(screen.getByTestId("button-submit-draft"));
     const payload = submittedPayload();

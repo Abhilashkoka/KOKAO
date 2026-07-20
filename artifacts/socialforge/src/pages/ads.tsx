@@ -260,6 +260,13 @@ function formatMoneyMinor(minor: number | null | undefined, currency: string | n
   return `${currency ? `${currency} ` : ""}${major.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
 
+/** Convert a minor-units amount string (e.g. "1050") to a major-units input string ("10.5"). */
+function minorStrToMajorStr(v: string): string {
+  if (!v.trim()) return "";
+  const n = Number(v);
+  return Number.isFinite(n) ? String(n / 100) : "";
+}
+
 function formatSpend(spend: number, currency: string | null) {
   return `${currency ? `${currency} ` : ""}${spend.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
@@ -1695,6 +1702,7 @@ function CampaignsSection({
         <DraftDialog
           connectionId={connection.id}
           platform={connection.platform}
+          currency={currency}
           form={draftForm}
           onClose={() => setDraftForm(null)}
         />
@@ -2156,11 +2164,13 @@ function LinkedinGroupsCard({
 export function DraftDialog({
   connectionId,
   platform,
+  currency = null,
   form,
   onClose,
 }: {
   connectionId: number;
   platform: string;
+  currency?: string | null;
   form: DraftFormState;
   onClose: () => void;
 }) {
@@ -2169,11 +2179,18 @@ export function DraftDialog({
   const queryClient = useQueryClient();
   const createDraft = useCreateAdDraft();
   const isTiktok = platform === "tiktok";
-  const [state, setState] = useState(() =>
-    isTiktok && form.action === "create" && form.objective === "OUTCOME_TRAFFIC"
-      ? { ...form, objective: "TRAFFIC" }
-      : form,
-  );
+  // Money fields arrive from the API in minor units; the inputs work in the
+  // ad account's currency (major units) and convert back on submit.
+  const [state, setState] = useState(() => {
+    const base =
+      isTiktok && form.action === "create" && form.objective === "OUTCOME_TRAFFIC"
+        ? { ...form, objective: "TRAFFIC" }
+        : { ...form };
+    base.dailyBudget = minorStrToMajorStr(base.dailyBudget);
+    base.lifetimeBudget = minorStrToMajorStr(base.lifetimeBudget);
+    base.bidAmount = minorStrToMajorStr(base.bidAmount);
+    return base;
+  });
   const [campaignGroupId, setCampaignGroupId] = useState("");
   const idempotencyKey = useMemo(() => crypto.randomUUID(), []);
 
@@ -2236,13 +2253,14 @@ export function DraftDialog({
     if (isCreate && isLinkedin && !isGroupCreate && campaignGroupId) {
       data.campaignGroupId = campaignGroupId;
     }
-    if (showDailyBudget && state.dailyBudget) data.dailyBudget = Number(state.dailyBudget);
+    const toMinor = (v: string) => Math.round(Number(v) * 100);
+    if (showDailyBudget && state.dailyBudget) data.dailyBudget = toMinor(state.dailyBudget);
     if (showBudgets && state.lifetimeBudget) {
-      data.lifetimeBudget = Number(state.lifetimeBudget);
+      data.lifetimeBudget = toMinor(state.lifetimeBudget);
     }
     if (showSchedule && state.startTime) data.startTime = state.startTime;
     if (showSchedule && state.stopTime) data.stopTime = state.stopTime;
-    if (showBids && state.bidAmount) data.bidAmount = Number(state.bidAmount);
+    if (showBids && state.bidAmount) data.bidAmount = toMinor(state.bidAmount);
     if (showBids && state.bidStrategy) data.bidStrategy = state.bidStrategy;
 
     createDraft.mutate(
@@ -2429,13 +2447,14 @@ export function DraftDialog({
                 <div className="space-y-2">
                   <Label htmlFor="draft-daily-budget">
                     {isGoogleAdGroup
-                      ? "Default CPC bid (minor units)"
-                      : "Daily budget (minor units)"}
+                      ? `Default CPC bid${currency ? ` (${currency})` : ""}`
+                      : `Daily budget${currency ? ` (${currency})` : ""}`}
                   </Label>
                   <Input
                     id="draft-daily-budget"
                     type="number"
                     min="0"
+                    step="0.01"
                     value={state.dailyBudget}
                     onChange={(e) => setState({ ...state, dailyBudget: e.target.value })}
                     data-testid="input-draft-daily-budget"
@@ -2444,11 +2463,14 @@ export function DraftDialog({
               )}
               {!isGoogle && (
                 <div className="space-y-2">
-                  <Label htmlFor="draft-lifetime-budget">Lifetime budget (minor units)</Label>
+                  <Label htmlFor="draft-lifetime-budget">
+                    Lifetime budget{currency ? ` (${currency})` : ""}
+                  </Label>
                   <Input
                     id="draft-lifetime-budget"
                     type="number"
                     min="0"
+                    step="0.01"
                     value={state.lifetimeBudget}
                     onChange={(e) => setState({ ...state, lifetimeBudget: e.target.value })}
                     data-testid="input-draft-lifetime-budget"
@@ -2478,11 +2500,14 @@ export function DraftDialog({
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="draft-bid-amount">Bid amount (minor units)</Label>
+                <Label htmlFor="draft-bid-amount">
+                  Bid amount{currency ? ` (${currency})` : ""}
+                </Label>
                 <Input
                   id="draft-bid-amount"
                   type="number"
-                  min="1"
+                  min="0.01"
+                  step="0.01"
                   value={state.bidAmount}
                   onChange={(e) => setState({ ...state, bidAmount: e.target.value })}
                   disabled={state.bidStrategy === "LOWEST_COST_WITHOUT_CAP"}
