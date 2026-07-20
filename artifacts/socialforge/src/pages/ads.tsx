@@ -2535,7 +2535,7 @@ export function DraftDialog({
   );
 }
 
-function CreativeDraftDialog({
+export function CreativeDraftDialog({
   connectionId,
   campaign,
   onClose,
@@ -2712,7 +2712,7 @@ const TARGETING_FACETS = [
 
 type TargetingFacetKey = (typeof TARGETING_FACETS)[number]["key"];
 
-function TargetingDraftDialog({
+export function TargetingDraftDialog({
   connectionId,
   campaign,
   onClose,
