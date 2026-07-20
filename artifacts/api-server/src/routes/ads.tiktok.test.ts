@@ -644,3 +644,61 @@ describe("tiktok advertiser selection", () => {
     }
   });
 });
+
+describe("GET /ads/connections auto re-verify (tiktok)", () => {
+  it("flips a stale tiktok connection with a rejected token to failed on page load", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertTiktokConnection(tenant.tenantId); // verifiedAt null => stale
+      mockReadAdvertiser.mockRejectedValue(
+        new TiktokAdsApiError("token expired", 401, 40102, true),
+      );
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/connections");
+      expect(res.status).toBe(200);
+      const tiktok = res.body.find(
+        (c: { platform: string }) => c.platform === "tiktok",
+      );
+      expect(tiktok.verifyStatus).toBe("failed");
+      expect(mockReadAdvertiser).toHaveBeenCalledTimes(1);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("skips the re-check when the tiktok connection was verified recently", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      await db
+        .update(adAccountConnectionsTable)
+        .set({ verifiedAt: new Date() })
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/connections");
+      expect(res.status).toBe(200);
+      expect(mockReadAdvertiser).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("keeps a verified tiktok status when the re-check fails transiently", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertTiktokConnection(tenant.tenantId);
+      mockReadAdvertiser.mockRejectedValue(
+        new TiktokAdsApiError("TikTok is down", 500, 50000, false),
+      );
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/connections");
+      expect(res.status).toBe(200);
+      const tiktok = res.body.find(
+        (c: { platform: string }) => c.platform === "tiktok",
+      );
+      expect(tiktok.verifyStatus).toBe("verified");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});

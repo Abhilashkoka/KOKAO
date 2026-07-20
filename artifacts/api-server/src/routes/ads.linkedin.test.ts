@@ -1620,6 +1620,85 @@ describe("LinkedIn campaign-detail auth-failure gating", () => {
   });
 });
 
+describe("GET /ads/connections auto re-verify (linkedin)", () => {
+  it("flips a stale linkedin connection with an expired, unrefreshable token to failed on page load", async () => {
+    const tenant = await createTenant();
+    try {
+      // verifiedAt null => stale; expiresAt in the past with no refresh token
+      // is a definitive failure that needs no live call.
+      await insertLinkedinAdConnection(tenant.tenantId, {
+        encryptedCredentials: encryptJson({
+          accessToken: "li-ads-token",
+          expiresAt: Date.now() - 1000,
+        }),
+      });
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/connections");
+      expect(res.status).toBe(200);
+      const linkedin = res.body.find(
+        (c: { platform: string }) => c.platform === "linkedin",
+      );
+      expect(linkedin.verifyStatus).toBe("failed");
+      expect(mockReadAccount).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("re-probes a stale linkedin connection and keeps it verified when the grant is alive", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertLinkedinAdConnection(tenant.tenantId); // verifiedAt null => stale
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/connections");
+      expect(res.status).toBe(200);
+      const linkedin = res.body.find(
+        (c: { platform: string }) => c.platform === "linkedin",
+      );
+      expect(linkedin.verifyStatus).toBe("verified");
+      expect(mockReadAccount).toHaveBeenCalledTimes(1);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("skips the re-check when the linkedin connection was verified recently", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      await db
+        .update(adAccountConnectionsTable)
+        .set({ verifiedAt: new Date() })
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/connections");
+      expect(res.status).toBe(200);
+      expect(mockReadAccount).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("keeps a verified linkedin status when the re-check fails transiently", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertLinkedinAdConnection(tenant.tenantId);
+      mockReadAccount.mockRejectedValue(
+        new LinkedinAdsApiError("LinkedIn is down", 500, false),
+      );
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/connections");
+      expect(res.status).toBe(200);
+      const linkedin = res.body.find(
+        (c: { platform: string }) => c.platform === "linkedin",
+      );
+      expect(linkedin.verifyStatus).toBe("verified");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
 describe("Legacy campaign group name resolution", () => {
   it("resolves a raw-id Campaign group field in older drafts at read time", async () => {
     const tenant = await createTenant();
