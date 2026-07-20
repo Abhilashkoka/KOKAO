@@ -26,6 +26,17 @@ const DEFAULT_STATE = {
     budget: 50, // major units, BUDGET_MODE_DAY
     budget_mode: "BUDGET_MODE_DAY",
   },
+  adgroup: {
+    adgroup_id: "7200000000000000001",
+    adgroup_name: "TT Prospecting Ad Group",
+    operation_status: "ENABLE",
+    secondary_status: "ADGROUP_STATUS_DELIVERY_OK",
+    budget: 20,
+    budget_mode: "BUDGET_MODE_DAY",
+    schedule_type: "SCHEDULE_FROM_NOW",
+    schedule_start_time: "2026-07-01 00:00:00",
+    schedule_end_time: "",
+  },
 };
 
 let log = [];
@@ -48,17 +59,6 @@ function record(entry) {
 const ADVERTISERS = [
   { advertiser_id: "9000000001", name: "KOKAO Test Advertiser", currency: "USD", status: "STATUS_ENABLE" },
   { advertiser_id: "9000000002", name: "KOKAO Secondary Advertiser", currency: "USD", status: "STATUS_ENABLE" },
-];
-
-const ADGROUPS = [
-  {
-    adgroup_id: "7200000000000000001",
-    adgroup_name: "TT Prospecting Ad Group",
-    operation_status: "ENABLE",
-    secondary_status: "ADGROUP_STATUS_DELIVERY_OK",
-    budget: 20,
-    budget_mode: "BUDGET_MODE_DAY",
-  },
 ];
 
 const ADS = [
@@ -141,7 +141,36 @@ const server = http.createServer(async (req, res) => {
     return ok({ list: [state.campaign] });
   }
   if (path === "/adgroup/get/") {
-    return ok({ list: ADGROUPS });
+    return ok({ list: [state.adgroup] });
+  }
+
+  if (path === "/adgroup/update/") {
+    if (String(body.adgroup_id) !== state.adgroup.adgroup_id) {
+      return send({ code: 40002, message: "Ad group not found", data: {} });
+    }
+    if (body.adgroup_name != null) state.adgroup.adgroup_name = String(body.adgroup_name);
+    if (body.budget != null) {
+      state.adgroup.budget = Number(body.budget);
+      state.adgroup.budget_mode = String(body.budget_mode || state.adgroup.budget_mode);
+    }
+    if (body.schedule_type != null) {
+      state.adgroup.schedule_type = String(body.schedule_type);
+      state.adgroup.schedule_start_time = String(body.schedule_start_time || "");
+      state.adgroup.schedule_end_time =
+        body.schedule_type === "SCHEDULE_START_END" ? String(body.schedule_end_time || "") : "";
+    }
+    saveState();
+    return ok({ adgroup_id: state.adgroup.adgroup_id });
+  }
+
+  if (path === "/adgroup/status/update/") {
+    state.adgroup.operation_status = body.operation_status === "DISABLE" ? "DISABLE" : "ENABLE";
+    state.adgroup.secondary_status =
+      state.adgroup.operation_status === "ENABLE"
+        ? "ADGROUP_STATUS_DELIVERY_OK"
+        : "ADGROUP_STATUS_DISABLE";
+    saveState();
+    return ok({ adgroup_ids: [state.adgroup.adgroup_id] });
   }
   if (path === "/ad/get/") {
     return ok({ list: ADS });
@@ -157,7 +186,7 @@ const server = http.createServer(async (req, res) => {
     if (idDim === "campaign_id") {
       rows.push({ dimensions: { campaign_id: state.campaign.campaign_id }, metrics: METRICS.campaign_id });
     } else if (idDim === "adgroup_id") {
-      rows.push({ dimensions: { adgroup_id: ADGROUPS[0].adgroup_id }, metrics: METRICS.adgroup_id });
+      rows.push({ dimensions: { adgroup_id: state.adgroup.adgroup_id }, metrics: METRICS.adgroup_id });
     } else if (idDim === "ad_id") {
       rows.push({ dimensions: { ad_id: ADS[0].ad_id }, metrics: METRICS.ad_id });
     }
