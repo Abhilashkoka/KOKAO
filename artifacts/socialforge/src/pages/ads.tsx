@@ -275,6 +275,17 @@ function formatSpend(spend: number, currency: string | null) {
   return `${currency ? `${currency} ` : ""}${spend.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
 
+function formatScheduleDate(iso: string | null | undefined) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function statusBadge(status: string) {
   const s = status.toUpperCase();
   if (s === "ACTIVE") return <Badge data-testid={`badge-status-${status}`}>Active</Badge>;
@@ -1834,6 +1845,7 @@ function CampaignDetailDialog({
                     <TableRow>
                       <TableHead>Name</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Schedule</TableHead>
                       <TableHead className="text-right">
                         {platform === "google" ? "Default CPC bid" : "Budget"}
                       </TableHead>
@@ -1847,6 +1859,13 @@ function CampaignDetailDialog({
                       <TableRow key={s.id} data-testid={`row-adset-${s.id}`}>
                         <TableCell className="font-medium">{s.name}</TableCell>
                         <TableCell>{statusBadge(s.effectiveStatus)}</TableCell>
+                        <TableCell
+                          className="whitespace-nowrap"
+                          data-testid={`text-adset-schedule-${s.id}`}
+                        >
+                          {formatScheduleDate(s.startTime)} –{" "}
+                          {formatScheduleDate(s.stopTime)}
+                        </TableCell>
                         <TableCell className="text-right whitespace-nowrap">
                           {platform === "google"
                             ? formatMoneyMinor(s.dailyBudget, currency)
