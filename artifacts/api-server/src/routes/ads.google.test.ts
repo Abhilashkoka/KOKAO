@@ -580,3 +580,69 @@ describe("google draft creation and apply", () => {
     }
   });
 });
+
+describe("GET /ads/connections auto re-verify (google)", () => {
+  it("flips a stale google connection with a revoked refresh token to failed on page load", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertGoogleAdConnection(tenant.tenantId); // verifiedAt null => stale
+      mockAuth.mockRejectedValue(
+        new GoogleAdsApiError("invalid_grant: refresh token revoked", 401, true),
+      );
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/connections");
+      expect(res.status).toBe(200);
+      const google = res.body.find(
+        (c: { platform: string }) => c.platform === "google",
+      );
+      expect(google.verifyStatus).toBe("failed");
+      expect(mockAuth).toHaveBeenCalledTimes(1);
+
+      const [row] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(row!.verifyStatus).toBe("failed");
+      expect(row!.verifyError).toContain("invalid_grant");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("skips the re-check when the google connection was verified recently", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertGoogleAdConnection(tenant.tenantId);
+      await db
+        .update(adAccountConnectionsTable)
+        .set({ verifiedAt: new Date() })
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/connections");
+      expect(res.status).toBe(200);
+      expect(mockAuth).not.toHaveBeenCalled();
+      expect(mockReadCustomer).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("keeps a verified google status when the re-check fails transiently", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertGoogleAdConnection(tenant.tenantId);
+      mockReadCustomer.mockRejectedValue(
+        new GoogleAdsApiError("Google Ads is down", 500, false),
+      );
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/connections");
+      expect(res.status).toBe(200);
+      const google = res.body.find(
+        (c: { platform: string }) => c.platform === "google",
+      );
+      expect(google.verifyStatus).toBe("verified");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
