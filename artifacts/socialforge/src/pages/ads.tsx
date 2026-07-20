@@ -25,6 +25,8 @@ import {
   useSelectGoogleAdAccount,
   useSearchLinkedinTargeting,
   getSearchLinkedinTargetingQueryKey,
+  useGetLinkedinCampaignTargeting,
+  getGetLinkedinCampaignTargetingQueryKey,
   useListContent,
   useListAdCampaigns,
   useGetAdCampaignDetail,
@@ -2865,6 +2867,38 @@ export function TargetingDraftDialog({
   const [selected, setSelected] = useState<
     Record<TargetingFacetKey, AdsTargetingLocation[]>
   >({ locations: [], industries: [], jobFunctions: [], titles: [] });
+  const [preloaded, setPreloaded] = useState(false);
+  const [edited, setEdited] = useState(false);
+
+  const {
+    data: currentTargeting,
+    isLoading: isLoadingCurrent,
+    error: currentError,
+  } = useGetLinkedinCampaignTargeting(
+    { connectionId, campaignId: campaign.id },
+    {
+      query: {
+        queryKey: getGetLinkedinCampaignTargetingQueryKey({
+          connectionId,
+          campaignId: campaign.id,
+        }),
+        staleTime: 0,
+      },
+    },
+  );
+  useRefreshConnectionsOnAuthLoss(currentError);
+
+  useEffect(() => {
+    // Never clobber selections the user already made before the fetch landed.
+    if (preloaded || edited || !currentTargeting) return;
+    setSelected({
+      locations: currentTargeting.locations,
+      industries: currentTargeting.industries,
+      jobFunctions: currentTargeting.jobFunctions,
+      titles: currentTargeting.titles,
+    });
+    setPreloaded(true);
+  }, [currentTargeting, preloaded, edited]);
 
   const activeFacet = TARGETING_FACETS.find((f) => f.key === facet)!;
   const trimmed = query.trim();
@@ -2880,6 +2914,7 @@ export function TargetingDraftDialog({
   useRefreshConnectionsOnAuthLoss(searchError);
 
   const addEntity = (loc: AdsTargetingLocation) => {
+    setEdited(true);
     setSelected((prev) =>
       prev[facet].some((s) => s.urn === loc.urn)
         ? prev
@@ -2889,6 +2924,7 @@ export function TargetingDraftDialog({
   };
 
   const removeEntity = (key: TargetingFacetKey, urn: string) => {
+    setEdited(true);
     setSelected((prev) => ({
       ...prev,
       [key]: prev[key].filter((s) => s.urn !== urn),
@@ -2957,6 +2993,23 @@ export function TargetingDraftDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
+          {isLoadingCurrent && (
+            <p
+              className="text-sm text-muted-foreground"
+              data-testid="text-targeting-loading"
+            >
+              Loading the campaign's current targeting...
+            </p>
+          )}
+          {!isLoadingCurrent && currentError != null && (
+            <p
+              className="text-sm text-muted-foreground"
+              data-testid="text-targeting-load-error"
+            >
+              Could not load the campaign's current targeting. You can still
+              pick a new audience below.
+            </p>
+          )}
           <div className="flex flex-wrap gap-1">
             {TARGETING_FACETS.map((f) => (
               <Button

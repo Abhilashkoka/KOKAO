@@ -69,6 +69,7 @@ vi.mock("../lib/linkedinAdsApi", async (importOriginal) => {
     readLinkedinPostPreview: vi.fn(),
     searchLinkedinGeoLocations: vi.fn(),
     searchLinkedinTargetingEntities: vi.fn(),
+    resolveLinkedinTargetingEntityNames: vi.fn(),
   };
 });
 
@@ -105,6 +106,7 @@ import {
   readLinkedinPostPreview,
   searchLinkedinGeoLocations,
   searchLinkedinTargetingEntities,
+  resolveLinkedinTargetingEntityNames,
   LinkedinAdsApiError,
 } from "../lib/linkedinAdsApi";
 import { platformFetch } from "../lib/platformFetch";
@@ -137,6 +139,7 @@ const mockListCreatives = vi.mocked(listLinkedinCreatives);
 const mockReadPostPreview = vi.mocked(readLinkedinPostPreview);
 const mockGeoSearch = vi.mocked(searchLinkedinGeoLocations);
 const mockTargetingSearch = vi.mocked(searchLinkedinTargetingEntities);
+const mockResolveNames = vi.mocked(resolveLinkedinTargetingEntityNames);
 const mockPlatformFetch = vi.mocked(platformFetch);
 
 function createAdsTestApp(): Express {
@@ -1612,6 +1615,112 @@ describe("LinkedIn facet targeting (industries, job functions, titles)", () => {
         .query({ connectionId, facet: "industries", q: "soft" });
       expect(res.status).toBe(502);
       expect(res.body.authLost).toBe(true);
+
+      const [conn] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(conn!.verifyStatus).toBe("failed");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("returns the campaign's current targeting with names resolved from URNs", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      mockGetCampaign.mockResolvedValue({
+        id: "cmp_1",
+        name: "Brand Push",
+        status: "ACTIVE",
+        effectiveStatus: "ACTIVE",
+        objective: null,
+        dailyBudget: 5000,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+        campaignGroupId: null,
+        targetingLocations: ["urn:li:geo:102713980"],
+        targetingIndustries: ["urn:li:industry:4"],
+        targetingJobFunctions: [],
+        targetingTitles: ["urn:li:title:100"],
+      });
+      mockResolveNames.mockResolvedValue(
+        new Map([
+          ["urn:li:geo:102713980", "India"],
+          ["urn:li:industry:4", "Software Development"],
+        ]),
+      );
+      actAs(tenant.clerkUserId);
+      const res = await request(app)
+        .get("/api/ads/linkedin/campaign-targeting")
+        .query({ connectionId, campaignId: "cmp_1" });
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        locations: [{ urn: "urn:li:geo:102713980", name: "India" }],
+        industries: [{ urn: "urn:li:industry:4", name: "Software Development" }],
+        jobFunctions: [],
+        // Unresolvable URNs fall back to the raw URN.
+        titles: [{ urn: "urn:li:title:100", name: "urn:li:title:100" }],
+      });
+      expect(mockResolveNames).toHaveBeenCalledWith("li-ads-token", [
+        "urn:li:geo:102713980",
+        "urn:li:industry:4",
+        "urn:li:title:100",
+      ]);
+
+      const missingId = await request(app)
+        .get("/api/ads/linkedin/campaign-targeting")
+        .query({ connectionId });
+      expect(missingId.status).toBe(400);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("skips the name lookup when the campaign has no targeting and flags authLost on dead grants", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      mockGetCampaign.mockResolvedValueOnce({
+        id: "cmp_1",
+        name: "Brand Push",
+        status: "ACTIVE",
+        effectiveStatus: "ACTIVE",
+        objective: null,
+        dailyBudget: 5000,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+        campaignGroupId: null,
+        targetingLocations: [],
+        targetingIndustries: [],
+        targetingJobFunctions: [],
+        targetingTitles: [],
+      });
+      mockResolveNames.mockClear();
+      actAs(tenant.clerkUserId);
+      const empty = await request(app)
+        .get("/api/ads/linkedin/campaign-targeting")
+        .query({ connectionId, campaignId: "cmp_1" });
+      expect(empty.status).toBe(200);
+      expect(empty.body).toEqual({
+        locations: [],
+        industries: [],
+        jobFunctions: [],
+        titles: [],
+      });
+      expect(mockResolveNames).not.toHaveBeenCalled();
+
+      mockGetCampaign.mockRejectedValueOnce(
+        new LinkedinAdsApiError("Token revoked", 401, true),
+      );
+      const dead = await request(app)
+        .get("/api/ads/linkedin/campaign-targeting")
+        .query({ connectionId, campaignId: "cmp_1" });
+      expect(dead.status).toBe(502);
+      expect(dead.body.authLost).toBe(true);
 
       const [conn] = await db
         .select()

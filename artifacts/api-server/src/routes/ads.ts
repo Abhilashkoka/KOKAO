@@ -65,6 +65,7 @@ import {
   type LinkedinPostPreview,
   searchLinkedinGeoLocations,
   searchLinkedinTargetingEntities,
+  resolveLinkedinTargetingEntityNames,
   LINKEDIN_TARGETING_FACETS,
   LINKEDIN_TARGETING_FACET_KEYS,
   type LinkedinTargetingFacetKey,
@@ -1451,6 +1452,53 @@ router.get("/ads/linkedin/targeting-search", async (req: Request, res: Response)
     }
     res.status(502).json({
       error: err instanceof Error ? err.message : "Could not search targeting entities.",
+      ...(authLost ? { authLost: true } : {}),
+    });
+  }
+});
+
+router.get("/ads/linkedin/campaign-targeting", async (req: Request, res: Response) => {
+  if (!(await adsEnabledOr503(res))) return;
+  const ct = await requireConnectedConnection(req, res);
+  if (!ct) return;
+  if (ct.conn.platform !== "linkedin") {
+    res.status(400).json({ error: "This connection is not a LinkedIn ad account." });
+    return;
+  }
+  const campaignId = String(req.query.campaignId ?? "").trim();
+  if (!campaignId) {
+    res.status(400).json({ error: "campaignId is required." });
+    return;
+  }
+  try {
+    const campaign = await getLinkedinCampaign(ct.token, ct.conn.adAccountId, campaignId);
+    const facetUrns: Record<LinkedinTargetingFacetKey, string[]> = {
+      locations: campaign.targetingLocations,
+      industries: campaign.targetingIndustries,
+      jobFunctions: campaign.targetingJobFunctions,
+      titles: campaign.targetingTitles,
+    };
+    const allUrns = LINKEDIN_TARGETING_FACET_KEYS.flatMap((k) => facetUrns[k]);
+    const names =
+      allUrns.length > 0
+        ? await resolveLinkedinTargetingEntityNames(ct.token, allUrns)
+        : new Map<string, string>();
+    const toEntities = (urns: string[]) =>
+      urns.map((urn) => ({ urn, name: names.get(urn) ?? urn }));
+    res.json({
+      locations: toEntities(facetUrns.locations),
+      industries: toEntities(facetUrns.industries),
+      jobFunctions: toEntities(facetUrns.jobFunctions),
+      titles: toEntities(facetUrns.titles),
+    });
+  } catch (err) {
+    const authLost = isAdsAuthError(err);
+    if (authLost) {
+      await markAdConnectionAuthFailed(ct.conn, (err as Error).message);
+    }
+    res.status(502).json({
+      error:
+        err instanceof Error ? err.message : "Could not load the campaign's targeting.",
       ...(authLost ? { authLost: true } : {}),
     });
   }

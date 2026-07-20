@@ -4995,6 +4995,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ads/linkedin/campaign-targeting:
+    get:
+      operationId: getLinkedinCampaignTargeting
+      tags: [ads]
+      summary: A LinkedIn campaign's current targeting facets with names resolved from URNs
+      parameters:
+        - $ref: "#/components/parameters/AdsConnectionId"
+        - name: campaignId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Current targeting per facet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdsCampaignTargeting"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Platform error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ads/campaigns:
     get:
       operationId: listAdCampaigns
@@ -9033,6 +9064,27 @@ components:
           description: LinkedIn targeting entity URN, e.g. urn:li:geo:103644278 or urn:li:industry:4.
         name:
           type: string
+    AdsCampaignTargeting:
+      type: object
+      required: [locations, industries, jobFunctions, titles]
+      properties:
+        locations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdsTargetingLocation"
+        industries:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdsTargetingLocation"
+        jobFunctions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdsTargetingLocation"
+        titles:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdsTargetingLocation"
+      description: A campaign's current targeting per managed facet; names fall back to the raw URN when LinkedIn can't resolve them.
     AdsGeoSearchResult:
       type: object
       required: [results]

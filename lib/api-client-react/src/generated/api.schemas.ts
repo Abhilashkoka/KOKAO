@@ -2929,6 +2929,16 @@ export interface AdsDraftCreateInput {
   targetingTitles?: AdsTargetingLocation[];
 }
 
+/**
+ * A campaign's current targeting per managed facet; names fall back to the raw URN when LinkedIn can't resolve them.
+ */
+export interface AdsCampaignTargeting {
+  locations: AdsTargetingLocation[];
+  industries: AdsTargetingLocation[];
+  jobFunctions: AdsTargetingLocation[];
+  titles: AdsTargetingLocation[];
+}
+
 export interface AdsGeoSearchResult {
   results: AdsTargetingLocation[];
 }
@@ -3367,6 +3377,14 @@ export const SearchLinkedinTargetingFacet = {
   jobFunctions: 'jobFunctions',
   titles: 'titles',
 } as const;
+
+export type GetLinkedinCampaignTargetingParams = {
+/**
+ * The ad account connection to read from.
+ */
+connectionId: AdsConnectionIdParameter;
+campaignId: string;
+};
 
 export type ListAdCampaignsParams = {
 /**

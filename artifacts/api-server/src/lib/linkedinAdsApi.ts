@@ -824,6 +824,33 @@ export async function searchLinkedinTargetingEntities(
     .slice(0, 20);
 }
 
+/**
+ * Batch-resolve targeting entity URNs to display names via the
+ * adTargetingEntities finder (q=urns). Unknown URNs are omitted from the map;
+ * callers should fall back to showing the raw URN. Chunked to stay well under
+ * URL length limits.
+ */
+export async function resolveLinkedinTargetingEntityNames(
+  token: string,
+  urns: string[],
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  const unique = [...new Set(urns)];
+  const CHUNK = 50;
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const chunk = unique.slice(i, i + CHUNK);
+    const list = `List(${chunk.map((u) => encodeURIComponent(u)).join(",")})`;
+    const json = await restGet<{ elements?: RawTargetingEntity[] }>(
+      `adTargetingEntities?q=urns&queryVersion=QUERY_USES_URNS&urns=${list}`,
+      token,
+    );
+    for (const e of json.elements ?? []) {
+      if (e.urn && e.name) names.set(e.urn, e.name);
+    }
+  }
+  return names;
+}
+
 /** Typeahead search for location targeting entities (geo URNs). */
 export async function searchLinkedinGeoLocations(
   token: string,

@@ -6180,6 +6180,34 @@ export const SearchLinkedinTargetingResponse = zod.object({
 
 
 /**
+ * @summary A LinkedIn campaign's current targeting facets with names resolved from URNs
+ */
+export const GetLinkedinCampaignTargetingQueryParams = zod.object({
+  "connectionId": zod.coerce.number().describe('The ad account connection to read from.'),
+  "campaignId": zod.coerce.string()
+})
+
+export const GetLinkedinCampaignTargetingResponse = zod.object({
+  "locations": zod.array(zod.object({
+  "urn": zod.string().describe('LinkedIn targeting entity URN, e.g. urn:li:geo:103644278 or urn:li:industry:4.'),
+  "name": zod.string()
+})),
+  "industries": zod.array(zod.object({
+  "urn": zod.string().describe('LinkedIn targeting entity URN, e.g. urn:li:geo:103644278 or urn:li:industry:4.'),
+  "name": zod.string()
+})),
+  "jobFunctions": zod.array(zod.object({
+  "urn": zod.string().describe('LinkedIn targeting entity URN, e.g. urn:li:geo:103644278 or urn:li:industry:4.'),
+  "name": zod.string()
+})),
+  "titles": zod.array(zod.object({
+  "urn": zod.string().describe('LinkedIn targeting entity URN, e.g. urn:li:geo:103644278 or urn:li:industry:4.'),
+  "name": zod.string()
+}))
+}).describe('A campaign\'s current targeting per managed facet; names fall back to the raw URN when LinkedIn can\'t resolve them.')
+
+
+/**
  * @summary List campaigns with delivery status and metrics for a date range
  */
 export const ListAdCampaignsQueryParams = zod.object({

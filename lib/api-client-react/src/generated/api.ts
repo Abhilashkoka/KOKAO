@@ -42,6 +42,7 @@ import type {
   AdsCampaignDetail,
   AdsCampaignGroupList,
   AdsCampaignList,
+  AdsCampaignTargeting,
   AdsChangeLogEntry,
   AdsDraft,
   AdsDraftCreateInput,
@@ -115,6 +116,7 @@ import type {
   GetDataConsumptionAnalyticsParams,
   GetEngagementAnalyticsParams,
   GetFunnelAnalyticsParams,
+  GetLinkedinCampaignTargetingParams,
   GetReliabilityAnalyticsParams,
   GetRevenueAnalyticsParams,
   GoogleAdCustomerChoice,
@@ -13972,6 +13974,90 @@ export function useSearchLinkedinTargeting<TData = Awaited<ReturnType<typeof sea
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getSearchLinkedinTargetingQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetLinkedinCampaignTargetingUrl = (params: GetLinkedinCampaignTargetingParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ads/linkedin/campaign-targeting?${stringifiedParams}` : `/api/ads/linkedin/campaign-targeting`
+}
+
+/**
+ * @summary A LinkedIn campaign's current targeting facets with names resolved from URNs
+ */
+export const getLinkedinCampaignTargeting = async (params: GetLinkedinCampaignTargetingParams, options?: RequestInit): Promise<AdsCampaignTargeting> => {
+
+  return customFetch<AdsCampaignTargeting>(getGetLinkedinCampaignTargetingUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLinkedinCampaignTargetingQueryKey = (params?: GetLinkedinCampaignTargetingParams,) => {
+    return [
+    `/api/ads/linkedin/campaign-targeting`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetLinkedinCampaignTargetingQueryOptions = <TData = Awaited<ReturnType<typeof getLinkedinCampaignTargeting>>, TError = ErrorType<ErrorEnvelope>>(params: GetLinkedinCampaignTargetingParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLinkedinCampaignTargeting>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLinkedinCampaignTargetingQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLinkedinCampaignTargeting>>> = ({ signal }) => getLinkedinCampaignTargeting(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLinkedinCampaignTargeting>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLinkedinCampaignTargetingQueryResult = NonNullable<Awaited<ReturnType<typeof getLinkedinCampaignTargeting>>>
+export type GetLinkedinCampaignTargetingQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary A LinkedIn campaign's current targeting facets with names resolved from URNs
+ */
+
+export function useGetLinkedinCampaignTargeting<TData = Awaited<ReturnType<typeof getLinkedinCampaignTargeting>>, TError = ErrorType<ErrorEnvelope>>(
+ params: GetLinkedinCampaignTargetingParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLinkedinCampaignTargeting>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLinkedinCampaignTargetingQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

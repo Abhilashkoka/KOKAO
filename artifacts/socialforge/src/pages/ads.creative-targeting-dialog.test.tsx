@@ -40,9 +40,19 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 
 const createDraftMutate = vi.fn();
 
+type Entity = { urn: string; name: string };
+
 const mockState = {
   content: [] as Array<{ id: number; imagePath: string | null }>,
-  searchResults: [] as Array<{ urn: string; name: string }>,
+  searchResults: [] as Entity[],
+  currentTargeting: null as {
+    locations: Entity[];
+    industries: Entity[];
+    jobFunctions: Entity[];
+    titles: Entity[];
+  } | null,
+  currentTargetingLoading: false,
+  currentTargetingError: null as unknown,
 };
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -66,6 +76,15 @@ vi.mock("@workspace/api-client-react", async () => {
     }),
     getSearchLinkedinTargetingQueryKey: (params?: unknown) => [
       "/api/ads/linkedin/targeting-search",
+      params,
+    ],
+    useGetLinkedinCampaignTargeting: () => ({
+      data: mockState.currentTargeting ?? undefined,
+      isLoading: mockState.currentTargetingLoading,
+      error: mockState.currentTargetingError,
+    }),
+    getGetLinkedinCampaignTargetingQueryKey: (params?: unknown) => [
+      "/api/ads/linkedin/campaign-targeting",
       params,
     ],
   });
@@ -109,6 +128,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockState.content = [];
   mockState.searchResults = [];
+  mockState.currentTargeting = null;
+  mockState.currentTargetingLoading = false;
+  mockState.currentTargetingError = null;
 });
 
 afterEach(() => {
@@ -261,6 +283,69 @@ describe("TargetingDraftDialog rendering", () => {
       (screen.getByTestId("button-submit-targeting-draft") as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+  });
+});
+
+describe("TargetingDraftDialog current-targeting preload", () => {
+  it("shows a loading note while the current targeting is loading", () => {
+    mockState.currentTargetingLoading = true;
+    renderTargetingDialog();
+    expect(screen.getByTestId("text-targeting-loading")).toBeTruthy();
+  });
+
+  it("shows a soft error note when the current targeting fails to load", () => {
+    mockState.currentTargetingError = new Error("boom");
+    renderTargetingDialog();
+    expect(screen.getByTestId("text-targeting-load-error")).toBeTruthy();
+    // The dialog stays usable.
+    expect(screen.getByTestId("input-targeting-search")).toBeTruthy();
+  });
+
+  it("pre-selects the campaign's current targeting as removable badges", () => {
+    mockState.currentTargeting = {
+      locations: [{ urn: "urn:li:geo:1", name: "India" }],
+      industries: [{ urn: "urn:li:industry:4", name: "Software Development" }],
+      jobFunctions: [],
+      titles: [{ urn: "urn:li:title:9", name: "Product Manager" }],
+    };
+    renderTargetingDialog();
+    expect(screen.getByText("India")).toBeTruthy();
+    expect(screen.getByText("Software Development")).toBeTruthy();
+    expect(screen.getByText("Product Manager")).toBeTruthy();
+    expect(screen.getByTestId("button-remove-targeting-urn:li:geo:1")).toBeTruthy();
+    // Save is enabled since the campaign already has targeting selected.
+    expect(
+      (screen.getByTestId("button-submit-targeting-draft") as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
+  it("submits the preloaded facets, including edits on top of them", () => {
+    mockState.currentTargeting = {
+      locations: [{ urn: "urn:li:geo:1", name: "India" }],
+      industries: [],
+      jobFunctions: [],
+      titles: [{ urn: "urn:li:title:9", name: "Product Manager" }],
+    };
+    renderTargetingDialog();
+    // Remove the preloaded title, add a new location.
+    fireEvent.click(screen.getByTestId("button-remove-targeting-urn:li:title:9"));
+    mockState.searchResults = [{ urn: "urn:li:geo:2", name: "Canada" }];
+    fireEvent.change(screen.getByTestId("input-targeting-search"), {
+      target: { value: "Ca" },
+    });
+    fireEvent.click(screen.getByTestId("button-targeting-result-urn:li:geo:2"));
+    fireEvent.click(screen.getByTestId("button-submit-targeting-draft"));
+
+    const payload = submittedPayload();
+    expect(payload.targetingLocations).toEqual([
+      { urn: "urn:li:geo:1", name: "India" },
+      { urn: "urn:li:geo:2", name: "Canada" },
+    ]);
+    // Cleared facets are ABSENT (untouched semantics preserved server-side).
+    expect("targetingTitles" in payload).toBe(false);
+    expect("targetingIndustries" in payload).toBe(false);
+    expect("targetingJobFunctions" in payload).toBe(false);
   });
 });
 
