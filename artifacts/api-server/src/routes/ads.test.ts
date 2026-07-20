@@ -394,6 +394,81 @@ describe("budget caps", () => {
     }
   });
 
+  it("rejects approving a stale draft whose budget exceeds the current cap", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      // Draft created while no cap (or a looser cap) is in place.
+      const draftRes = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        dailyBudget: 60000,
+      });
+      expect(draftRes.status).toBe(201);
+      const draftId = draftRes.body.id as number;
+
+      // Owner tightens the cap AFTER the draft exists.
+      await db
+        .update(tenantsTable)
+        .set({ adsMaxDailyBudget: 6000 })
+        .where(eq(tenantsTable.id, tenant.tenantId));
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post(`/api/ads/drafts/${draftId}/approve`);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/daily budget cap/i);
+      expect(res.body.error).toMatch(/raise the cap/i);
+      expect(mockUpdate).not.toHaveBeenCalled();
+
+      // The draft stays pending, untouched.
+      const [row] = await db
+        .select()
+        .from(adChangeRequestsTable)
+        .where(eq(adChangeRequestsTable.id, draftId));
+      expect(row!.status).toBe("draft");
+
+      // Raising the cap back lets the same draft be approved.
+      await db
+        .update(tenantsTable)
+        .set({ adsMaxDailyBudget: 60000 })
+        .where(eq(tenantsTable.id, tenant.tenantId));
+      const approved = await request(app).post(`/api/ads/drafts/${draftId}/approve`);
+      expect(approved.status).toBe(200);
+      expect(approved.body.status).toBe("applied");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects approving a stale draft whose lifetime budget exceeds the current cap", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      const draftRes = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        lifetimeBudget: 1000000,
+      });
+      expect(draftRes.status).toBe(201);
+      const draftId = draftRes.body.id as number;
+
+      await db
+        .update(tenantsTable)
+        .set({ adsMaxLifetimeBudget: 100000 })
+        .where(eq(tenantsTable.id, tenant.tenantId));
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post(`/api/ads/drafts/${draftId}/approve`);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/lifetime budget cap/i);
+      expect(mockUpdate).not.toHaveBeenCalled();
+
+      const [row] = await db
+        .select()
+        .from(adChangeRequestsTable)
+        .where(eq(adChangeRequestsTable.id, draftId));
+      expect(row!.status).toBe("draft");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("rejects non-positive and fractional cap values", async () => {
     const tenant = await createTenant();
     try {

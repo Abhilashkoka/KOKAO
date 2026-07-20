@@ -2235,6 +2235,49 @@ router.post("/ads/drafts/:id/approve", async (req: Request, res: Response) => {
     });
     return;
   }
+  // Spend guardrail, re-checked at approval time: a draft created before the
+  // owner tightened the caps must not be able to spend over the CURRENT cap.
+  // Checked here (before the engine claims the draft) so the draft stays in
+  // 'draft' status and can be rejected/recreated instead of ending up failed.
+  const pending = (
+    await db
+      .select()
+      .from(adChangeRequestsTable)
+      .where(
+        and(
+          eq(adChangeRequestsTable.id, Number(req.params.id)),
+          eq(adChangeRequestsTable.tenantId, req.tenantId),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (pending && pending.status === "draft") {
+    const payload = (pending.payload ?? {}) as {
+      dailyBudget?: unknown;
+      lifetimeBudget?: unknown;
+    };
+    const caps = await loadBudgetCaps(req.tenantId);
+    if (
+      caps.maxDailyBudget != null &&
+      typeof payload.dailyBudget === "number" &&
+      payload.dailyBudget > caps.maxDailyBudget
+    ) {
+      res.status(400).json({
+        error: `This draft's daily budget (${payload.dailyBudget} minor units) exceeds this workspace's current daily budget cap of ${caps.maxDailyBudget}. Raise the cap, or reject this draft and create a new one within the cap.`,
+      });
+      return;
+    }
+    if (
+      caps.maxLifetimeBudget != null &&
+      typeof payload.lifetimeBudget === "number" &&
+      payload.lifetimeBudget > caps.maxLifetimeBudget
+    ) {
+      res.status(400).json({
+        error: `This draft's lifetime budget (${payload.lifetimeBudget} minor units) exceeds this workspace's current lifetime budget cap of ${caps.maxLifetimeBudget}. Raise the cap, or reject this draft and create a new one within the cap.`,
+      });
+      return;
+    }
+  }
   const result = await approveAndApplyDraft(req.tenantId, Number(req.params.id), {
     clerkUserId: req.clerkUserId,
     email: req.tenantEmail ?? null,
