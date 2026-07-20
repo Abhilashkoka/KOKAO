@@ -36,6 +36,22 @@ function isSweepStale(lastRunAt: string): boolean {
   return Date.now() - new Date(lastRunAt).getTime() > SWEEP_STALE_MS;
 }
 
+/**
+ * Ad-platform sweep checks use "<platform>-ads" pseudo-keys in the failure
+ * history; map them to readable names. Organic platforms pass through
+ * unchanged (the badge's `capitalize` class handles their casing).
+ */
+const SWEEP_PLATFORM_LABELS: Record<string, string> = {
+  "meta-ads": "Meta Ads",
+  "google-ads": "Google Ads",
+  "linkedin-ads": "LinkedIn Ads",
+  "tiktok-ads": "TikTok Ads",
+};
+
+function sweepPlatformLabel(platform: string): string {
+  return SWEEP_PLATFORM_LABELS[platform] ?? platform;
+}
+
 function formatSweepDuration(ms: number): string {
   if (ms < 1000) return `${ms} ms`;
   return `${(ms / 1000).toFixed(1)} s`;
@@ -350,7 +366,7 @@ export function OverviewTab() {
                             {f.tenantName ?? `Tenant #${f.tenantId}`}
                           </span>
                           <Badge variant="outline" className="capitalize">
-                            {f.platform}
+                            {sweepPlatformLabel(f.platform)}
                           </Badge>
                           {(f.consecutiveFailures ?? 1) > 1 && (
                             <Badge

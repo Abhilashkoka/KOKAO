@@ -663,7 +663,12 @@ const PLATFORM_LABELS: Record<string, string> = {
   twitter: "X account",
   youtube: "YouTube channel",
   threads: "Threads profile",
-  meta_ads: "Meta Ads account",
+  // Ad-platform sweep pseudo-keys ("<platform>-ads", see connectionSweep.ts)
+  // so fail-streak alerts read as real names instead of raw keys.
+  "meta-ads": "Meta Ads account",
+  "google-ads": "Google Ads account",
+  "linkedin-ads": "LinkedIn Ads account",
+  "tiktok-ads": "TikTok Ads account",
 };
 
 function platformLabel(platform: string): string {
