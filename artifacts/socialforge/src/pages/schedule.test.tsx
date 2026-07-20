@@ -122,6 +122,51 @@ describe("SchedulePage pending-chain warnings", () => {
 });
 
 /**
+ * Regression guard: a pending post that was silently re-queued after a
+ * transient platform outage (retryCount > 0) must be shown as auto-retrying,
+ * not as a plain pending post whose time mysteriously moved.
+ */
+describe("SchedulePage transient-retry indicator", () => {
+  beforeEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    mockState.content = [contentItem()];
+  });
+
+  it("plain pending posts show Pending and no retry note", () => {
+    mockState.schedules = [{ ...schedule(), status: "pending", retryCount: 0, failureReason: null }];
+    renderPage();
+    expect(screen.getByTestId("text-schedule-status-1").textContent).toBe("Pending");
+    expect(screen.queryByTestId("text-schedule-retrying-1")).toBeNull();
+  });
+
+  it("pending posts with retryCount > 0 show the retrying indicator with the transient reason", () => {
+    mockState.schedules = [
+      { ...schedule(), status: "pending", retryCount: 1, failureReason: "X returned a temporary error (503)" },
+    ];
+    renderPage();
+    expect(screen.getByTestId("text-schedule-status-1").textContent).toContain(
+      "Retrying after a temporary outage",
+    );
+    expect(screen.getByTestId("text-schedule-retrying-1").textContent).toContain(
+      "X returned a temporary error (503)",
+    );
+  });
+
+  it("the indicator clears when the post ends up published or failed", () => {
+    mockState.schedules = [
+      { ...schedule(), id: 1, status: "published", retryCount: 1, failureReason: null },
+      { ...schedule(), id: 2, status: "failed", retryCount: 2, failureReason: "gave up" },
+    ];
+    renderPage();
+    expect(screen.queryByTestId("text-schedule-retrying-1")).toBeNull();
+    expect(screen.queryByTestId("text-schedule-retrying-2")).toBeNull();
+    expect(screen.getByTestId("text-schedule-status-1").textContent).toContain("Published");
+    expect(screen.getByTestId("text-schedule-status-2").textContent).toContain("Failed");
+  });
+});
+
+/**
  * Regression guard: the "Remove this scheduled post?" confirmation must use an
  * in-app dialog. Native confirm() is silently blocked inside the sandboxed
  * preview iframe, making the button appear dead.

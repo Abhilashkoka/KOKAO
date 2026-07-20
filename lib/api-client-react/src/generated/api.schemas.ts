@@ -2063,10 +2063,12 @@ export interface ScheduledPost {
   /** pending = waiting for the scheduled time; processing = the background publisher is publishing it right now; published = automatically published; failed = the automatic publish failed (see failureReason); cancelled = called off by the user. */
   status: ScheduledPostStatus;
   /**
-     * Why the automatic publish failed, when status is failed.
+     * Why the automatic publish failed, when status is failed. When status is pending and retryCount > 0, holds the transient error that triggered the automatic retry.
      * @nullable
      */
   failureReason?: string | null;
+  /** Number of automatic retries after transient platform outages. When status is pending and retryCount > 0, the post is auto-retrying after a temporary outage. */
+  retryCount: number;
   createdAt: string;
   updatedAt: string;
 }

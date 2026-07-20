@@ -22,7 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
-import { Calendar as CalendarIcon, Clock, Plus, Trash2, CheckCircle2, XCircle, Loader2, RotateCw } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, Plus, Trash2, CheckCircle2, XCircle, Loader2, RotateCw, RefreshCw } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -259,13 +259,19 @@ export function SchedulePage() {
                           {post.status === "published" && <><CheckCircle2 className="h-3 w-3" /> Published</>}
                           {post.status === "failed" && <><XCircle className="h-3 w-3" /> Failed</>}
                           {post.status === "processing" && <><Loader2 className="h-3 w-3 animate-spin" /> Publishing</>}
-                          {post.status === "pending" && "Pending"}
+                          {post.status === "pending" && (post.retryCount ?? 0) > 0 && <><RefreshCw className="h-3 w-3" /> Retrying after a temporary outage</>}
+                          {post.status === "pending" && !((post.retryCount ?? 0) > 0) && "Pending"}
                           {post.status === "cancelled" && "Cancelled"}
                         </span>
                       </div>
                       {post.status === "failed" && post.failureReason && (
                         <p className="text-xs text-destructive mt-2" data-testid={`text-schedule-failure-${post.id}`}>
                           {post.failureReason}
+                        </p>
+                      )}
+                      {post.status === "pending" && (post.retryCount ?? 0) > 0 && (
+                        <p className="text-xs text-blue-600 mt-2" data-testid={`text-schedule-retrying-${post.id}`}>
+                          The last attempt hit a temporary outage{post.failureReason ? ` (${post.failureReason})` : ""}. We'll automatically try again at the new time.
                         </p>
                       )}
                       {contentItem && (

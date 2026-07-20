@@ -4141,7 +4141,8 @@ export const ListSchedulesResponseItem = zod.object({
   "platform": zod.string(),
   "scheduledAt": zod.coerce.date(),
   "status": zod.enum(['pending', 'processing', 'published', 'failed', 'cancelled']).describe('pending = waiting for the scheduled time; processing = the background publisher is publishing it right now; published = automatically published; failed = the automatic publish failed (see failureReason); cancelled = called off by the user.'),
-  "failureReason": zod.string().nullish().describe('Why the automatic publish failed, when status is failed.'),
+  "failureReason": zod.string().nullish().describe('Why the automatic publish failed, when status is failed. When status is pending and retryCount > 0, holds the transient error that triggered the automatic retry.'),
+  "retryCount": zod.number().describe('Number of automatic retries after transient platform outages. When status is pending and retryCount > 0, the post is auto-retrying after a temporary outage.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -4166,7 +4167,8 @@ export const CreateScheduleResponse = zod.object({
   "platform": zod.string(),
   "scheduledAt": zod.coerce.date(),
   "status": zod.enum(['pending', 'processing', 'published', 'failed', 'cancelled']).describe('pending = waiting for the scheduled time; processing = the background publisher is publishing it right now; published = automatically published; failed = the automatic publish failed (see failureReason); cancelled = called off by the user.'),
-  "failureReason": zod.string().nullish().describe('Why the automatic publish failed, when status is failed.'),
+  "failureReason": zod.string().nullish().describe('Why the automatic publish failed, when status is failed. When status is pending and retryCount > 0, holds the transient error that triggered the automatic retry.'),
+  "retryCount": zod.number().describe('Number of automatic retries after transient platform outages. When status is pending and retryCount > 0, the post is auto-retrying after a temporary outage.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -4194,7 +4196,8 @@ export const UpdateScheduleResponse = zod.object({
   "platform": zod.string(),
   "scheduledAt": zod.coerce.date(),
   "status": zod.enum(['pending', 'processing', 'published', 'failed', 'cancelled']).describe('pending = waiting for the scheduled time; processing = the background publisher is publishing it right now; published = automatically published; failed = the automatic publish failed (see failureReason); cancelled = called off by the user.'),
-  "failureReason": zod.string().nullish().describe('Why the automatic publish failed, when status is failed.'),
+  "failureReason": zod.string().nullish().describe('Why the automatic publish failed, when status is failed. When status is pending and retryCount > 0, holds the transient error that triggered the automatic retry.'),
+  "retryCount": zod.number().describe('Number of automatic retries after transient platform outages. When status is pending and retryCount > 0, the post is auto-retrying after a temporary outage.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -4224,7 +4227,8 @@ export const RetryScheduleResponse = zod.object({
   "platform": zod.string(),
   "scheduledAt": zod.coerce.date(),
   "status": zod.enum(['pending', 'processing', 'published', 'failed', 'cancelled']).describe('pending = waiting for the scheduled time; processing = the background publisher is publishing it right now; published = automatically published; failed = the automatic publish failed (see failureReason); cancelled = called off by the user.'),
-  "failureReason": zod.string().nullish().describe('Why the automatic publish failed, when status is failed.'),
+  "failureReason": zod.string().nullish().describe('Why the automatic publish failed, when status is failed. When status is pending and retryCount > 0, holds the transient error that triggered the automatic retry.'),
+  "retryCount": zod.number().describe('Number of automatic retries after transient platform outages. When status is pending and retryCount > 0, the post is auto-retrying after a temporary outage.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })

@@ -63,6 +63,7 @@ export function serializeSchedule(s: ScheduledPost) {
     scheduledAt: s.scheduledAt.toISOString(),
     status: s.status,
     failureReason: s.failureReason,
+    retryCount: s.retryCount,
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt.toISOString(),
   };
