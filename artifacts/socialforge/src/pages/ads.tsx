@@ -1614,6 +1614,51 @@ function CampaignDetailDialog({
     connectionId,
     datePreset: datePreset as never,
   });
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const createDraft = useCreateAdDraft();
+  const isLinkedin = platform === "linkedin";
+  // LinkedIn "ads" are creatives: status-only drafts (activate/pause/archive).
+  const [creativeStatusDraft, setCreativeStatusDraft] = useState<{
+    id: string;
+    name: string;
+    status: "ACTIVE" | "PAUSED" | "ARCHIVED";
+  } | null>(null);
+
+  const submitCreativeStatus = () => {
+    if (!creativeStatusDraft) return;
+    createDraft.mutate(
+      {
+        data: {
+          connectionId,
+          targetType: "creative",
+          action: "update",
+          targetId: creativeStatusDraft.id,
+          status: creativeStatusDraft.status,
+          idempotencyKey: crypto.randomUUID(),
+        } as never,
+      },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListAdDraftsQueryKey() });
+          toast({
+            title: "Draft created",
+            description:
+              "The status change is saved as a draft. The workspace owner can review and approve it under Approvals.",
+          });
+          setCreativeStatusDraft(null);
+        },
+        onError: (err) => {
+          toast({
+            variant: "destructive",
+            title: "Could not create the draft",
+            description:
+              (err as { payload?: { error?: string } }).payload?.error ?? undefined,
+          });
+        },
+      },
+    );
+  };
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -1756,7 +1801,44 @@ function CampaignDetailDialog({
                           {formatSpend(a.metrics.spend, currency)}
                         </TableCell>
                         <TableCell className="text-right">
-                          {canManage && (
+                          {canManage && isLinkedin && (
+                            <div className="flex items-center justify-end gap-1">
+                              {a.status !== "ARCHIVED" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    setCreativeStatusDraft({
+                                      id: a.id,
+                                      name: a.name,
+                                      status: a.status === "ACTIVE" ? "PAUSED" : "ACTIVE",
+                                    })
+                                  }
+                                  data-testid={`button-toggle-creative-${a.id}`}
+                                >
+                                  {a.status === "ACTIVE" ? "Pause" : "Activate"}
+                                </Button>
+                              )}
+                              {a.status !== "ARCHIVED" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-destructive hover:text-destructive"
+                                  onClick={() =>
+                                    setCreativeStatusDraft({
+                                      id: a.id,
+                                      name: a.name,
+                                      status: "ARCHIVED",
+                                    })
+                                  }
+                                  data-testid={`button-archive-creative-${a.id}`}
+                                >
+                                  Archive
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                          {canManage && !isLinkedin && (
                             <Button
                               variant="ghost"
                               size="sm"
@@ -1784,6 +1866,52 @@ function CampaignDetailDialog({
               )}
             </div>
           </div>
+        )}
+        {creativeStatusDraft && (
+          <Dialog open onOpenChange={(open) => !open && setCreativeStatusDraft(null)}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>
+                  {creativeStatusDraft.status === "ARCHIVED"
+                    ? "Archive this creative?"
+                    : creativeStatusDraft.status === "PAUSED"
+                      ? "Pause this creative?"
+                      : "Activate this creative?"}
+                </DialogTitle>
+                <DialogDescription>
+                  {creativeStatusDraft.status === "ARCHIVED"
+                    ? `"${creativeStatusDraft.name}" will be archived on LinkedIn. Archiving is permanent — the creative cannot be reactivated afterwards.`
+                    : creativeStatusDraft.status === "PAUSED"
+                      ? `"${creativeStatusDraft.name}" will stop delivering once the change is applied.`
+                      : `"${creativeStatusDraft.name}" will resume delivering once the change is applied.`}{" "}
+                  Nothing touches your ad account yet — this creates a draft the
+                  workspace owner must approve first.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setCreativeStatusDraft(null)}
+                  data-testid="button-cancel-creative-status"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant={
+                    creativeStatusDraft.status === "ARCHIVED" ? "destructive" : "default"
+                  }
+                  onClick={submitCreativeStatus}
+                  disabled={createDraft.isPending}
+                  data-testid="button-confirm-creative-status"
+                >
+                  {createDraft.isPending && (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  )}
+                  Create draft
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         )}
       </DialogContent>
     </Dialog>

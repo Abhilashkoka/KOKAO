@@ -6,10 +6,14 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * ARCHIVED is only accepted for LinkedIn creative status updates.
+ */
 export type AdsDraftCreateInputStatus = typeof AdsDraftCreateInputStatus[keyof typeof AdsDraftCreateInputStatus];
 
 
 export const AdsDraftCreateInputStatus = {
   ACTIVE: 'ACTIVE',
   PAUSED: 'PAUSED',
+  ARCHIVED: 'ARCHIVED',
 } as const;

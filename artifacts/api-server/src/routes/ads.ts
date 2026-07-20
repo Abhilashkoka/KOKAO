@@ -1867,12 +1867,32 @@ router.post(
       }
     } else if (input.targetType === "creative") {
       if (conn.platform !== "linkedin") {
-        res.status(400).json({ error: "Creatives can only be created on LinkedIn." });
+        res.status(400).json({ error: "Creatives are only supported on LinkedIn." });
         return;
       }
-      if (input.action !== "create") {
-        res.status(400).json({ error: "Creatives can only be created, not edited." });
-        return;
+      if (input.action === "update") {
+        // Live creatives are status-only: activate, pause, or archive.
+        if (
+          input.name != null ||
+          input.dailyBudget != null ||
+          input.lifetimeBudget != null ||
+          input.startTime != null ||
+          input.stopTime != null ||
+          input.text != null ||
+          input.imagePath != null ||
+          input.landingUrl != null ||
+          input.campaignId != null
+        ) {
+          res.status(400).json({
+            error:
+              "LinkedIn creatives only support status changes (activate, pause, or archive).",
+          });
+          return;
+        }
+        if (!input.status) {
+          res.status(400).json({ error: "status is required to update a creative" });
+          return;
+        }
       }
     } else if (input.action === "create" && input.targetType !== "campaign") {
       res.status(400).json({ error: "Only campaigns can be created in this phase." });
@@ -1905,6 +1925,16 @@ router.post(
     }
     if (input.action === "update" && !input.targetId) {
       res.status(400).json({ error: "targetId is required for updates" });
+      return;
+    }
+    // ARCHIVED is terminal and only exists for LinkedIn creatives.
+    if (
+      input.status === "ARCHIVED" &&
+      !(input.targetType === "creative" && input.action === "update")
+    ) {
+      res.status(400).json({
+        error: "Only LinkedIn creatives can be archived — other objects support ACTIVE and PAUSED.",
+      });
       return;
     }
     if (conn.platform === "tiktok") {
@@ -2026,7 +2056,7 @@ router.post(
     if (input.stopTime != null) payload.stopTime = input.stopTime;
     if (targetingLocations) payload.targetingLocations = targetingLocations;
 
-    if (input.targetType === "creative") {
+    if (input.targetType === "creative" && input.action === "create") {
       // Creative create: attach sponsored content (text + optional library
       // image + optional landing URL) to an existing LinkedIn campaign.
       const campaignId = input.campaignId?.trim();

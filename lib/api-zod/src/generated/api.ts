@@ -6269,12 +6269,12 @@ export const createAdDraftBodyTargetingLocationsMax = 50;
 
 export const CreateAdDraftBody = zod.object({
   "connectionId": zod.number(),
-  "targetType": zod.enum(['campaign', 'adset', 'ad', 'campaign_group', 'creative']).describe('campaign_group is LinkedIn-only (create and update); creative is LinkedIn create-only.'),
+  "targetType": zod.enum(['campaign', 'adset', 'ad', 'campaign_group', 'creative']).describe('campaign_group is LinkedIn-only (create and update); creative is LinkedIn-only (create, plus status-only updates).'),
   "action": zod.enum(['create', 'update']),
   "targetId": zod.string().optional().describe('Remote object id (required for update).'),
   "idempotencyKey": zod.string().max(createAdDraftBodyIdempotencyKeyMax).optional().describe('Client-supplied key to make retries safe; server generates one when omitted.'),
   "name": zod.string().max(createAdDraftBodyNameMax).optional(),
-  "status": zod.enum(['ACTIVE', 'PAUSED']).optional(),
+  "status": zod.enum(['ACTIVE', 'PAUSED', 'ARCHIVED']).optional().describe('ARCHIVED is only accepted for LinkedIn creative status updates.'),
   "objective": zod.string().optional().describe('Campaign objective (Meta create only), e.g. OUTCOME_TRAFFIC.'),
   "campaignGroupId": zod.string().optional().describe('LinkedIn only — campaign group to create the campaign in (required for LinkedIn creates).'),
   "dailyBudget": zod.number().min(createAdDraftBodyDailyBudgetMin).nullish().describe('Daily budget in minor currency units.'),

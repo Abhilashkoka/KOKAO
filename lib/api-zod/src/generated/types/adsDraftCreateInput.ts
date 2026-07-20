@@ -12,7 +12,7 @@ import type { AdsTargetingLocation } from './adsTargetingLocation';
 
 export interface AdsDraftCreateInput {
   connectionId: number;
-  /** campaign_group is LinkedIn-only (create and update); creative is LinkedIn create-only. */
+  /** campaign_group is LinkedIn-only (create and update); creative is LinkedIn-only (create, plus status-only updates). */
   targetType: AdsDraftCreateInputTargetType;
   action: AdsDraftCreateInputAction;
   /** Remote object id (required for update). */
@@ -24,6 +24,7 @@ export interface AdsDraftCreateInput {
   idempotencyKey?: string;
   /** @maxLength 400 */
   name?: string;
+  /** ARCHIVED is only accepted for LinkedIn creative status updates. */
   status?: AdsDraftCreateInputStatus;
   /** Campaign objective (Meta create only), e.g. OUTCOME_TRAFFIC. */
   objective?: string;

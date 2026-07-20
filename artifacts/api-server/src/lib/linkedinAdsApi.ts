@@ -856,6 +856,32 @@ export async function createLinkedinCreative(
   return idFromUrn(created) ?? created;
 }
 
+/**
+ * Update a creative's intended status (ACTIVE | PAUSED | ARCHIVED) via a
+ * Rest.li partial update. Archiving is terminal on LinkedIn's side.
+ */
+export async function updateLinkedinCreative(
+  token: string,
+  adAccountId: string,
+  creativeId: string,
+  update: { status: "ACTIVE" | "PAUSED" | "ARCHIVED" },
+): Promise<void> {
+  const urn = `urn:li:sponsoredCreative:${creativeId}`;
+  const res = await platformFetch(
+    `${restBase()}/adAccounts/${encodeURIComponent(adAccountId)}/creatives/${encodeURIComponent(urn)}`,
+    {
+      method: "POST",
+      headers: {
+        ...baseHeaders(token),
+        "Content-Type": "application/json",
+        "X-RestLi-Method": "PARTIAL_UPDATE",
+      },
+      body: JSON.stringify({ patch: { $set: { intendedStatus: update.status } } }),
+    },
+  );
+  if (!res.ok) throw await toError(res);
+}
+
 interface RawCreative {
   id?: string;
   intendedStatus?: string;

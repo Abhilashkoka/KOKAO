@@ -2746,7 +2746,7 @@ export interface AdsDraft {
 }
 
 /**
- * campaign_group is LinkedIn-only (create and update); creative is LinkedIn create-only.
+ * campaign_group is LinkedIn-only (create and update); creative is LinkedIn-only (create, plus status-only updates).
  */
 export type AdsDraftCreateInputTargetType = typeof AdsDraftCreateInputTargetType[keyof typeof AdsDraftCreateInputTargetType];
 
@@ -2767,12 +2767,16 @@ export const AdsDraftCreateInputAction = {
   update: 'update',
 } as const;
 
+/**
+ * ARCHIVED is only accepted for LinkedIn creative status updates.
+ */
 export type AdsDraftCreateInputStatus = typeof AdsDraftCreateInputStatus[keyof typeof AdsDraftCreateInputStatus];
 
 
 export const AdsDraftCreateInputStatus = {
   ACTIVE: 'ACTIVE',
   PAUSED: 'PAUSED',
+  ARCHIVED: 'ARCHIVED',
 } as const;
 
 export interface AdsTargetingLocation {
@@ -2783,7 +2787,7 @@ export interface AdsTargetingLocation {
 
 export interface AdsDraftCreateInput {
   connectionId: number;
-  /** campaign_group is LinkedIn-only (create and update); creative is LinkedIn create-only. */
+  /** campaign_group is LinkedIn-only (create and update); creative is LinkedIn-only (create, plus status-only updates). */
   targetType: AdsDraftCreateInputTargetType;
   action: AdsDraftCreateInputAction;
   /** Remote object id (required for update). */
@@ -2795,6 +2799,7 @@ export interface AdsDraftCreateInput {
   idempotencyKey?: string;
   /** @maxLength 400 */
   name?: string;
+  /** ARCHIVED is only accepted for LinkedIn creative status updates. */
   status?: AdsDraftCreateInputStatus;
   /** Campaign objective (Meta create only), e.g. OUTCOME_TRAFFIC. */
   objective?: string;

@@ -8785,7 +8785,7 @@ components:
         targetType:
           type: string
           enum: [campaign, adset, ad, campaign_group, creative]
-          description: campaign_group is LinkedIn-only (create and update); creative is LinkedIn create-only.
+          description: campaign_group is LinkedIn-only (create and update); creative is LinkedIn-only (create, plus status-only updates).
         action:
           type: string
           enum: [create, update]
@@ -8801,7 +8801,8 @@ components:
           maxLength: 400
         status:
           type: string
-          enum: [ACTIVE, PAUSED]
+          enum: [ACTIVE, PAUSED, ARCHIVED]
+          description: ARCHIVED is only accepted for LinkedIn creative status updates.
         objective:
           type: string
           description: Campaign objective (Meta create only), e.g. OUTCOME_TRAFFIC.

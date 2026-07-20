@@ -46,6 +46,7 @@ import {
   uploadLinkedinAdImage,
   createLinkedinAdPost,
   createLinkedinCreative,
+  updateLinkedinCreative,
 } from "./linkedinAdsApi";
 import { ObjectStorageService } from "./objectStorage";
 import { isLinkedinAppConfigured } from "./linkedinApp";
@@ -239,13 +240,29 @@ interface CreateParams {
 
 interface UpdateParams {
   name?: string;
-  status?: "ACTIVE" | "PAUSED";
+  /** ARCHIVED is only meaningful for LinkedIn creatives; other paths reject it. */
+  status?: "ACTIVE" | "PAUSED" | "ARCHIVED";
   dailyBudget?: number;
   lifetimeBudget?: number;
   startTime?: string;
   stopTime?: string;
   /** LinkedIn only: replacement location targeting URNs (deduped + sorted). */
   targetingLocations?: string[];
+}
+
+/**
+ * Narrow an update's status for objects that cannot be archived. The route
+ * already rejects ARCHIVED outside LinkedIn creative updates; this is
+ * defense in depth for the engine's other adapter paths.
+ */
+function nonArchivedStatus(params: UpdateParams): "ACTIVE" | "PAUSED" | undefined {
+  if (params.status === "ARCHIVED") {
+    throw new LinkedinAdsApiError(
+      "Only LinkedIn creatives can be archived here.",
+      400,
+    );
+  }
+  return params.status;
 }
 
 /**
@@ -287,6 +304,7 @@ const metaOps: PlatformOps = {
   update: (conn, targetId, params) =>
     updateObject(metaToken(conn), targetId, {
       ...params,
+      status: nonArchivedStatus(params),
       targetType: asTargetType(params.targetType ?? "campaign"),
     }),
   create: (conn, params) =>
@@ -315,11 +333,12 @@ const googleOps: PlatformOps = {
       );
     }
     const targetType = params.targetType ?? "campaign";
+    const status = nonArchivedStatus(params);
     const auth = await getGoogleAdsAuth(conn);
     if (targetType === "adset") {
       await updateGoogleAdGroup(auth, targetId, {
         name: params.name,
-        status: params.status,
+        status,
         dailyBudget: params.dailyBudget ?? undefined,
       });
       return;
@@ -331,10 +350,10 @@ const googleOps: PlatformOps = {
           400,
         );
       }
-      await updateGoogleAd(auth, targetId, { status: params.status });
+      await updateGoogleAd(auth, targetId, { status });
       return;
     }
-    await updateGoogleCampaign(auth, targetId, params);
+    await updateGoogleCampaign(auth, targetId, { ...params, status });
   },
   create: async (conn, params) => {
     if (params.lifetimeBudget != null) {
@@ -379,12 +398,38 @@ const linkedinOps: PlatformOps = {
     return readLinkedinCampaignState(linkedinToken(conn), conn.adAccountId, targetId);
   },
   update: async (conn, targetId, params) => {
+    if (params.targetType === "creative") {
+      // Creatives are status-only: ACTIVE | PAUSED | ARCHIVED. Everything
+      // else about a creative (post text, image) is immutable on LinkedIn.
+      if (
+        params.name != null ||
+        params.dailyBudget != null ||
+        params.lifetimeBudget != null ||
+        params.startTime != null ||
+        params.stopTime != null
+      ) {
+        throw new LinkedinAdsApiError(
+          "LinkedIn creatives only support status changes (activate, pause, or archive).",
+          400,
+        );
+      }
+      if (!params.status) {
+        throw new LinkedinAdsApiError(
+          "A status is required to update a LinkedIn creative.",
+          400,
+        );
+      }
+      await updateLinkedinCreative(linkedinToken(conn), conn.adAccountId, targetId, {
+        status: params.status,
+      });
+      return;
+    }
     if (params.targetType === "campaign_group") {
       // Groups only carry a name, status, and total (lifetime) budget; the
       // adapter converts minor units to LinkedIn's major-unit strings.
       await updateLinkedinCampaignGroup(linkedinToken(conn), conn.adAccountId, targetId, {
         name: params.name,
-        status: params.status,
+        status: nonArchivedStatus(params),
         lifetimeBudget: params.lifetimeBudget ?? undefined,
         currency: conn.currency ?? "USD",
       });
@@ -392,7 +437,7 @@ const linkedinOps: PlatformOps = {
     }
     await updateLinkedinCampaign(linkedinToken(conn), conn.adAccountId, targetId, {
       name: params.name,
-      status: params.status,
+      status: nonArchivedStatus(params),
       dailyBudget: params.dailyBudget ?? undefined,
       lifetimeBudget: params.lifetimeBudget ?? undefined,
       startTime: params.startTime ?? undefined,
@@ -457,25 +502,26 @@ const tiktokOps: PlatformOps = {
   },
   update: async (conn, targetId, params) => {
     const targetType = params.targetType ?? "campaign";
+    const status = nonArchivedStatus(params);
     if (conn.platform === "tiktok") {
       if (targetType === "adset") {
         await updateTiktokAdGroup(tiktokToken(conn), conn.adAccountId, targetId, {
           name: params.name,
-          status: params.status,
+          status,
         });
         return;
       }
       if (targetType === "ad") {
         await updateTiktokAd(tiktokToken(conn), conn.adAccountId, targetId, {
           name: params.name,
-          status: params.status,
+          status,
         });
         return;
       }
     }
     await updateTiktokCampaign(tiktokToken(conn), conn.adAccountId, targetId, {
       name: params.name,
-      status: params.status,
+      status,
       dailyBudget: params.dailyBudget ?? undefined,
       lifetimeBudget: params.lifetimeBudget ?? undefined,
     });
@@ -730,7 +776,7 @@ export const ADS_APPLY_IN_PROGRESS_MESSAGE =
 interface ApplyPayload {
   name?: string;
   objective?: string;
-  status?: "ACTIVE" | "PAUSED";
+  status?: "ACTIVE" | "PAUSED" | "ARCHIVED";
   dailyBudget?: number | null;
   lifetimeBudget?: number | null;
   startTime?: string | null;
@@ -798,7 +844,7 @@ async function applyCreativeCreate(
     conn.adAccountId,
     payload.campaignId,
     postUrn,
-    payload.status ?? "PAUSED",
+    payload.status === "ACTIVE" ? "ACTIVE" : "PAUSED",
   );
 }
 
@@ -1017,7 +1063,8 @@ export async function approveAndApplyDraft(
       const newId = await ops.create(conn, {
         name: payload.name ?? claimed.targetName,
         objective: payload.objective ?? ops.defaultObjective,
-        status: payload.status ?? "PAUSED",
+        // Creates never archive; the route rejects ARCHIVED for creates.
+        status: payload.status === "ACTIVE" ? "ACTIVE" : "PAUSED",
         dailyBudget: payload.dailyBudget ?? null,
         lifetimeBudget: payload.lifetimeBudget ?? null,
         startTime: payload.startTime ?? null,

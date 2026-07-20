@@ -64,6 +64,7 @@ vi.mock("../lib/linkedinAdsApi", async (importOriginal) => {
     uploadLinkedinAdImage: vi.fn(),
     createLinkedinAdPost: vi.fn(),
     createLinkedinCreative: vi.fn(),
+    updateLinkedinCreative: vi.fn(),
     listLinkedinCreatives: vi.fn(),
     readLinkedinPostPreview: vi.fn(),
     searchLinkedinGeoLocations: vi.fn(),
@@ -98,6 +99,7 @@ import {
   uploadLinkedinAdImage,
   createLinkedinAdPost,
   createLinkedinCreative,
+  updateLinkedinCreative,
   listLinkedinCreatives,
   readLinkedinPostPreview,
   searchLinkedinGeoLocations,
@@ -128,6 +130,7 @@ const mockGetAccountRef = vi.mocked(getLinkedinAdAccountReference);
 const mockUploadImage = vi.mocked(uploadLinkedinAdImage);
 const mockCreatePost = vi.mocked(createLinkedinAdPost);
 const mockCreateCreative = vi.mocked(createLinkedinCreative);
+const mockUpdateCreative = vi.mocked(updateLinkedinCreative);
 const mockListCreatives = vi.mocked(listLinkedinCreatives);
 const mockReadPostPreview = vi.mocked(readLinkedinPostPreview);
 const mockGeoSearch = vi.mocked(searchLinkedinGeoLocations);
@@ -973,6 +976,222 @@ describe("LinkedIn creative drafts", () => {
       });
       expect(httpRes.status).toBe(400);
       expect(httpRes.body.error).toContain("https");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("pauses a live creative through a status-only update draft end to end", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      mockReadCreativeState.mockResolvedValue({
+        name: "urn:li:share:555",
+        status: "ACTIVE",
+        dailyBudget: null,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+      mockUpdateCreative.mockResolvedValue(undefined);
+
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "creative",
+        action: "update",
+        targetId: "777",
+        status: "PAUSED",
+      });
+      expect(draftRes.status).toBe(201);
+      expect(draftRes.body.targetType).toBe("creative");
+      expect(draftRes.body.action).toBe("update");
+      expect(
+        (draftRes.body.changes as { field: string; after: string }[]).find(
+          (c) => c.field === "Status",
+        )?.after,
+      ).toBe("PAUSED");
+
+      // Drift check still sees the original state; post-apply verify reads
+      // the new status.
+      mockReadCreativeState
+        .mockResolvedValueOnce({
+          name: "urn:li:share:555",
+          status: "ACTIVE",
+          dailyBudget: null,
+          lifetimeBudget: null,
+          startTime: null,
+          stopTime: null,
+        })
+        .mockResolvedValue({
+          name: "urn:li:share:555",
+          status: "PAUSED",
+          dailyBudget: null,
+          lifetimeBudget: null,
+          startTime: null,
+          stopTime: null,
+        });
+      const res = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("applied");
+      expect(res.body.verifyStatus).toBe("verified");
+      expect(mockUpdateCreative).toHaveBeenCalledWith(
+        "li-ads-token",
+        "512345678",
+        "777",
+        { status: "PAUSED" },
+      );
+
+      // Change log recorded the applied outcome.
+      const logRes = await request(app).get("/api/ads/change-log");
+      expect(logRes.status).toBe(200);
+      const entry = (logRes.body as { targetType: string; outcome: string }[]).find(
+        (e) => e.targetType === "creative" && e.outcome === "applied",
+      );
+      expect(entry).toBeDefined();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("archives a creative (ARCHIVED status draft)", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      mockReadCreativeState.mockResolvedValue({
+        name: "urn:li:share:555",
+        status: "PAUSED",
+        dailyBudget: null,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+      mockUpdateCreative.mockResolvedValue(undefined);
+
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "creative",
+        action: "update",
+        targetId: "777",
+        status: "ARCHIVED",
+      });
+      expect(draftRes.status).toBe(201);
+
+      mockReadCreativeState
+        .mockResolvedValueOnce({
+          name: "urn:li:share:555",
+          status: "PAUSED",
+          dailyBudget: null,
+          lifetimeBudget: null,
+          startTime: null,
+          stopTime: null,
+        })
+        .mockResolvedValue({
+          name: "urn:li:share:555",
+          status: "ARCHIVED",
+          dailyBudget: null,
+          lifetimeBudget: null,
+          startTime: null,
+          stopTime: null,
+        });
+      const res = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("applied");
+      expect(res.body.verifyStatus).toBe("verified");
+      expect(mockUpdateCreative).toHaveBeenCalledWith(
+        "li-ads-token",
+        "512345678",
+        "777",
+        { status: "ARCHIVED" },
+      );
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("expires a creative status draft when the creative drifted remotely", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      mockReadCreativeState.mockResolvedValue({
+        name: "urn:li:share:555",
+        status: "ACTIVE",
+        dailyBudget: null,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "creative",
+        action: "update",
+        targetId: "777",
+        status: "PAUSED",
+      });
+      expect(draftRes.status).toBe(201);
+
+      // Someone paused it in Campaign Manager after the draft was made.
+      mockReadCreativeState.mockResolvedValue({
+        name: "urn:li:share:555",
+        status: "PAUSED",
+        dailyBudget: null,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+      const res = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("expired");
+      expect(res.body.failureReason).toContain("changed on the ad platform");
+      expect(mockUpdateCreative).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects non-status fields on creative updates and ARCHIVED elsewhere", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+
+      const withName = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "creative",
+        action: "update",
+        targetId: "777",
+        status: "PAUSED",
+        name: "Renamed",
+      });
+      expect(withName.status).toBe(400);
+      expect(withName.body.error).toContain("status changes");
+
+      const noStatus = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "creative",
+        action: "update",
+        targetId: "777",
+      });
+      expect(noStatus.status).toBe(400);
+      expect(noStatus.body.error).toContain("status is required");
+
+      const archivedCampaign = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign",
+        action: "update",
+        targetId: "cmp_1",
+        status: "ARCHIVED",
+      });
+      expect(archivedCampaign.status).toBe(400);
+      expect(archivedCampaign.body.error).toContain("archived");
     } finally {
       await deleteTenant(tenant.tenantId);
     }
