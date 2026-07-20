@@ -111,7 +111,7 @@ import { platformFetch } from "../lib/platformFetch";
 import { LINKEDIN_ADS_REFRESH_WINDOW_MS } from "../lib/linkedinAdsRefresh";
 import { encryptJson } from "../lib/secretCrypto";
 import { requireTenant } from "../middlewares/requireTenant";
-import adsRouter from "./ads";
+import adsRouter, { clearLinkedinGroupNamesCache } from "./ads";
 import { resetAuthState, actAs } from "../test/authState";
 import { createTenant, deleteTenant } from "../test/dbHelpers";
 
@@ -224,6 +224,7 @@ async function createUpdateDraft(
 beforeEach(async () => {
   resetAuthState();
   vi.clearAllMocks();
+  clearLinkedinGroupNamesCache();
   mockReadState.mockResolvedValue({ ...REMOTE_STATE });
   mockUpdate.mockResolvedValue(undefined as never);
   mockUpdateGroup.mockResolvedValue(undefined as never);
@@ -1730,6 +1731,129 @@ describe("Legacy campaign group name resolution", () => {
         (d: { targetName: string }) => d.targetName === "Old Draft",
       );
       expect(draft).toBeDefined();
+      const groupChange = (
+        draft.changes as { field: string; after: string | null; afterDetail?: string | null }[]
+      ).find((c) => c.field === "Campaign group");
+      expect(groupChange!.after).toBe("Always On");
+      expect(groupChange!.afterDetail).toBe("grp_1");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("caches group name lookups so repeated page loads don't re-hit LinkedIn", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      await db.insert(adChangeRequestsTable).values({
+        tenantId: tenant.tenantId,
+        connectionId,
+        platform: "linkedin",
+        targetType: "campaign",
+        targetId: null,
+        targetName: "Cached Draft",
+        action: "create",
+        changes: [
+          { field: "Name", before: null, after: "Cached Draft" },
+          { field: "Status", before: null, after: "PAUSED" },
+          { field: "Campaign group", before: null, after: "grp_1" },
+        ],
+        payload: { campaignGroupId: "grp_1", name: "Cached Draft" },
+        status: "draft",
+        idempotencyKey: randomUUID(),
+        createdByClerkUserId: tenant.clerkUserId,
+      });
+      await db.insert(adsChangeLogsTable).values({
+        tenantId: tenant.tenantId,
+        platform: "linkedin",
+        targetType: "campaign",
+        targetId: "cmp_9",
+        targetName: "Cached Applied",
+        action: "create",
+        changes: [
+          { field: "Name", before: null, after: "Cached Applied" },
+          { field: "Campaign group", before: null, after: "grp_1" },
+        ],
+        outcome: "applied",
+        verifyStatus: "verified",
+      });
+
+      actAs(tenant.clerkUserId);
+      const first = await request(app).get("/api/ads/drafts");
+      expect(first.status).toBe(200);
+      expect(mockListGroups).toHaveBeenCalledTimes(1);
+
+      // Second drafts load and a change-log load within the TTL reuse the cache.
+      const second = await request(app).get("/api/ads/drafts");
+      expect(second.status).toBe(200);
+      const log = await request(app).get("/api/ads/change-log");
+      expect(log.status).toBe(200);
+      expect(mockListGroups).toHaveBeenCalledTimes(1);
+
+      // Names still resolve from the cache.
+      const draft = second.body.find(
+        (d: { targetName: string }) => d.targetName === "Cached Draft",
+      );
+      const groupChange = (
+        draft.changes as { field: string; after: string | null; afterDetail?: string | null }[]
+      ).find((c) => c.field === "Campaign group");
+      expect(groupChange!.after).toBe("Always On");
+      expect(groupChange!.afterDetail).toBe("grp_1");
+
+      // An expired/cleared cache re-hits LinkedIn.
+      clearLinkedinGroupNamesCache();
+      const third = await request(app).get("/api/ads/drafts");
+      expect(third.status).toBe(200);
+      expect(mockListGroups).toHaveBeenCalledTimes(2);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("does not cache failed lookups — the next load retries LinkedIn", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      await db.insert(adChangeRequestsTable).values({
+        tenantId: tenant.tenantId,
+        connectionId,
+        platform: "linkedin",
+        targetType: "campaign",
+        targetId: null,
+        targetName: "Retry Draft",
+        action: "create",
+        changes: [
+          { field: "Name", before: null, after: "Retry Draft" },
+          { field: "Status", before: null, after: "PAUSED" },
+          { field: "Campaign group", before: null, after: "grp_1" },
+        ],
+        payload: { campaignGroupId: "grp_1", name: "Retry Draft" },
+        status: "draft",
+        idempotencyKey: randomUUID(),
+        createdByClerkUserId: tenant.clerkUserId,
+      });
+
+      actAs(tenant.clerkUserId);
+      mockListGroups.mockRejectedValueOnce(
+        new LinkedinAdsApiError("boom", 500, false),
+      );
+      const failed = await request(app).get("/api/ads/drafts");
+      expect(failed.status).toBe(200);
+      const rawDraft = failed.body.find(
+        (d: { targetName: string }) => d.targetName === "Retry Draft",
+      );
+      const rawChange = (
+        rawDraft.changes as { field: string; after: string | null }[]
+      ).find((c) => c.field === "Campaign group");
+      expect(rawChange!.after).toBe("grp_1");
+
+      // Failure was not cached: the next load retries and resolves.
+      const retried = await request(app).get("/api/ads/drafts");
+      expect(retried.status).toBe(200);
+      expect(mockListGroups).toHaveBeenCalledTimes(2);
+      const draft = retried.body.find(
+        (d: { targetName: string }) => d.targetName === "Retry Draft",
+      );
       const groupChange = (
         draft.changes as { field: string; after: string | null; afterDetail?: string | null }[]
       ).find((c) => c.field === "Campaign group");

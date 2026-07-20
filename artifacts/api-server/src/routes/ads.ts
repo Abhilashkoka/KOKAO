@@ -1755,11 +1755,27 @@ function draftLegacyGroupId(d: AdChangeRequest): string | null {
     : null;
 }
 
+// Short in-process cache of campaign-group listings per LinkedIn connection
+// so repeated drafts/change-log page loads don't re-hit LinkedIn's API.
+// Successful lookups only; failures are never cached (raw id stays the
+// fallback and the next read retries).
+const LINKEDIN_GROUP_NAMES_TTL_MS = 5 * 60 * 1000;
+const linkedinGroupNamesCache = new Map<
+  number,
+  { expiresAt: number; groups: Array<{ id: string; name: string }> }
+>();
+
+/** Test-only: clear the campaign-group name cache. */
+export function clearLinkedinGroupNamesCache(): void {
+  linkedinGroupNamesCache.clear();
+}
+
 /**
  * Best-effort: list campaign groups for the tenant's LinkedIn connections and
  * build an id -> name map. `connectionIds` limits which connections are
  * queried (null = all). Any failure just yields fewer names — the stored raw
- * id remains the fallback.
+ * id remains the fallback. Results are cached per connection for a few
+ * minutes to avoid re-hitting LinkedIn on every page load.
  */
 async function loadLinkedinGroupNames(
   tenantId: number,
@@ -1778,10 +1794,21 @@ async function loadLinkedinGroupNames(
   for (const conn of conns) {
     if (connectionIds && !connectionIds.has(conn.id)) continue;
     if (conn.status !== "connected" || !conn.encryptedCredentials) continue;
+    const cached = linkedinGroupNamesCache.get(conn.id);
+    if (cached && cached.expiresAt > Date.now()) {
+      for (const g of cached.groups) {
+        if (!names.has(g.id)) names.set(g.id, g.name);
+      }
+      continue;
+    }
     try {
       const token = getConnectionToken(conn);
       if (!token) continue;
       const groups = await listLinkedinCampaignGroups(token, conn.adAccountId);
+      linkedinGroupNamesCache.set(conn.id, {
+        expiresAt: Date.now() + LINKEDIN_GROUP_NAMES_TTL_MS,
+        groups: groups.map((g) => ({ id: g.id, name: g.name })),
+      });
       for (const g of groups) {
         if (!names.has(g.id)) names.set(g.id, g.name);
       }
