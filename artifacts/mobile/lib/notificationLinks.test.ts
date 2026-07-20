@@ -23,9 +23,15 @@ describe("mapLinkUrlToRoute", () => {
     expect(mapLinkUrlToRoute("/settings/")).toBe("/settings");
   });
 
+  it("maps /ads to the ads status screen", () => {
+    expect(mapLinkUrlToRoute("/ads")).toBe("/ads");
+    expect(mapLinkUrlToRoute("/ads?platform=meta")).toBe("/ads");
+    expect(mapLinkUrlToRoute("/ads/")).toBe("/ads");
+  });
+
   it("returns null for unmapped web-only paths", () => {
     expect(mapLinkUrlToRoute("/admin")).toBeNull();
-    expect(mapLinkUrlToRoute("/ads")).toBeNull();
+    expect(mapLinkUrlToRoute("/analytics")).toBeNull();
   });
 
   it("returns null for empty or missing linkUrl", () => {

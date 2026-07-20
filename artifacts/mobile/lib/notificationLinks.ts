@@ -4,12 +4,14 @@
 export type NotificationRoute =
   | "/(tabs)/accounts"
   | "/(tabs)/library"
-  | "/settings";
+  | "/settings"
+  | "/ads";
 
 const LINK_ROUTES: Record<string, NotificationRoute> = {
   "/accounts": "/(tabs)/accounts",
   "/library": "/(tabs)/library",
   "/settings": "/settings",
+  "/ads": "/ads",
 };
 
 export function mapLinkUrlToRoute(
