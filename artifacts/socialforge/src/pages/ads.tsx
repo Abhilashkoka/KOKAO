@@ -1887,7 +1887,7 @@ function CampaignsSection({
   );
 }
 
-function CampaignDetailDialog({
+export function CampaignDetailDialog({
   connectionId,
   platform,
   campaignId,
