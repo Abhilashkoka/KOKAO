@@ -104,13 +104,22 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // Single campaign group (state read-back for verify)
+  // Single campaign group (read-back for verify + PARTIAL_UPDATE)
   m = path.match(/^adAccounts\/(\d+)\/adCampaignGroups\/(\d+)$/);
-  if (req.method === "GET" && m) {
-    record({ method: "GET", path, kind: "read_campaign_group" });
+  if (m) {
     const g = state.groups[m[2]];
     if (!g) return send({ message: "Unknown campaign group" }, 404);
-    return send(g);
+    if (req.method === "GET") {
+      record({ method: "GET", path, kind: "read_campaign_group" });
+      return send(g);
+    }
+    if (req.method === "POST") {
+      const set = body?.patch?.$set ?? {};
+      Object.assign(g, set);
+      saveState();
+      record({ method: "POST", path, kind: "update_campaign_group", set });
+      return send({});
+    }
   }
 
   // Campaigns: list + create

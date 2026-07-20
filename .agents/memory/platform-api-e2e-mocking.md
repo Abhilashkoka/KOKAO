@@ -24,6 +24,7 @@ description: How to make Threads/X publish flows succeed end-to-end in a real br
 **E2E DB-seeding pitfalls (cost several false failures):**
 - Never have the browser-test agent RETYPE a long encrypted blob into SQL — it mistranscribes characters and decrypt fails ("Unsupported state or unable to authenticate data"). Pre-insert a template row (e.g. tenant_id 0, platform 'e2e-template-…') and have the test copy `encrypted_credentials` via a SQL subselect; delete the template afterwards.
 - Tenant provisioning is lazy and can race the test's DB seed step: make the plan explicitly POLL `SELECT id FROM tenants WHERE email=…` (up to ~30s) before inserting tenant-scoped rows; "navigate and wait for shell" alone is not enough.
+- `tenants.email` is stored LOWERCASED — poll/join with `lower(email)=lower(…)` or use an all-lowercase test email, or the tenant poll returns empty forever (cost a false "unable" run).
 - A silent 0-row `INSERT … SELECT FROM tenants WHERE email=…` is the classic symptom — always verify the insert with a count.
 - TENANT-SCOPE every e2e DB assertion (join on `tenants.email = <test login>`), never `ORDER BY id DESC LIMIT 1` on a shared table: the `test` workflow's vitest suite writes rows (including deliberate-failure ones like "(#100) Invalid budget") into the same dev DB concurrently and caused a false e2e failure on the ads budget-increase flow.
 
