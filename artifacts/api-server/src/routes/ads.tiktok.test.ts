@@ -417,6 +417,65 @@ describe("tiktok draft rules", () => {
     }
   });
 
+  it("rejects a TikTok campaign daily budget below the platform minimum", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        dailyBudget: 4999,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/at least 50/);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects a TikTok campaign lifetime budget below the platform minimum", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        dailyBudget: undefined,
+        lifetimeBudget: 2500,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/lifetime budget of at least 50/);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects a TikTok ad group budget below the platform minimum", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "adset",
+        targetId: "ag_1",
+        status: undefined,
+        dailyBudget: 1999,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/ad group daily budget of at least 20/);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("accepts a TikTok campaign budget at exactly the platform minimum", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        dailyBudget: 5000,
+      });
+      expect(res.status).toBe(201);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("labels a daily→lifetime budget mode flip on a TikTok ad group", async () => {
     const tenant = await createTenant();
     try {

@@ -110,6 +110,8 @@ import {
   getImageInfos as getTiktokImageInfos,
   getInsightsByLevel as getTiktokInsightsByLevel,
   toTiktokTime,
+  TIKTOK_MIN_CAMPAIGN_BUDGET_MINOR,
+  TIKTOK_MIN_ADGROUP_BUDGET_MINOR,
   EMPTY_TIKTOK_INSIGHTS,
   type TiktokAdsCredentials,
 } from "../lib/tiktokAdsApi";
@@ -2217,6 +2219,28 @@ router.post(
             error: err instanceof Error ? err.message : "Invalid schedule time.",
           });
           return;
+        }
+      }
+      // TikTok enforces platform budget minimums (campaign >= 50, ad group
+      // >= 20 in major units). Reject below-minimum budgets HERE (draft
+      // creation) so the owner never approves a draft that can only fail at
+      // apply time with a raw platform error.
+      if (input.targetType === "campaign" || input.targetType === "adset") {
+        const minMinor =
+          input.targetType === "campaign"
+            ? TIKTOK_MIN_CAMPAIGN_BUDGET_MINOR
+            : TIKTOK_MIN_ADGROUP_BUDGET_MINOR;
+        const noun = input.targetType === "campaign" ? "campaign" : "ad group";
+        for (const [label, value] of [
+          ["daily", input.dailyBudget],
+          ["lifetime", input.lifetimeBudget],
+        ] as const) {
+          if (value != null && value < minMinor) {
+            res.status(400).json({
+              error: `TikTok requires a ${noun} ${label} budget of at least ${minMinor / 100} (in the ad account's currency). Raise the budget${input.targetType === "campaign" ? ", or leave it blank for an unlimited campaign budget" : ""}.`,
+            });
+            return;
+          }
         }
       }
     }

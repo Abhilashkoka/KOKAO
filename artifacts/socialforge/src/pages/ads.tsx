@@ -226,6 +226,14 @@ export function useRefreshConnectionsOnAuthLoss(error: unknown) {
   }, [authLost, queryClient]);
 }
 
+/**
+ * TikTok platform budget minimums in MAJOR currency units (the draft dialog
+ * inputs work in major units). Mirrors the server-side backstop in
+ * routes/ads.ts: campaigns need >= 50, ad groups >= 20.
+ */
+export const TIKTOK_MIN_CAMPAIGN_BUDGET = 50;
+export const TIKTOK_MIN_ADGROUP_BUDGET = 20;
+
 export interface BudgetIncrease {
   field: string;
   before: number;
@@ -2516,6 +2524,38 @@ export function DraftDialog({
   const tiktokModeLabel = (m: "daily" | "lifetime" | "none") =>
     m === "daily" ? "daily" : m === "lifetime" ? "lifetime (total)" : "no";
 
+  // TikTok enforces platform budget minimums (campaign >= 50, ad group >= 20
+  // in the account's currency). Validate inline so an invalid budget is
+  // caught before the draft is even created; the server rejects it too as a
+  // backstop.
+  const tiktokMinBudget =
+    isTiktok && state.targetType === "campaign"
+      ? TIKTOK_MIN_CAMPAIGN_BUDGET
+      : isTiktok && state.targetType === "adset"
+        ? TIKTOK_MIN_ADGROUP_BUDGET
+        : null;
+  const belowTiktokMin = (v: string) => {
+    if (tiktokMinBudget == null || !v.trim()) return false;
+    const n = Number(v);
+    return Number.isFinite(n) && n < tiktokMinBudget;
+  };
+  const tiktokDailyTooLow = belowTiktokMin(state.dailyBudget);
+  const tiktokLifetimeTooLow = belowTiktokMin(state.lifetimeBudget);
+  const tiktokBudgetError =
+    tiktokDailyTooLow || tiktokLifetimeTooLow
+      ? `TikTok requires a ${tiktokTargetNoun} ${
+          tiktokDailyTooLow && tiktokLifetimeTooLow
+            ? "daily and lifetime budget"
+            : tiktokDailyTooLow
+              ? "daily budget"
+              : "lifetime budget"
+        } of at least ${tiktokMinBudget}${currency ? ` ${currency}` : ""}.${
+          state.targetType === "campaign"
+            ? " Leave the budget blank for an unlimited campaign budget."
+            : ""
+        }`
+      : null;
+
   const isLinkedin = platform === "linkedin";
   const { data: groupData } = useListLinkedinCampaignGroups(
     { connectionId },
@@ -2782,6 +2822,14 @@ export function DraftDialog({
               )}
             </div>
           )}
+          {tiktokBudgetError && (
+            <p
+              className="text-xs font-medium text-destructive"
+              data-testid="text-tiktok-budget-min-error"
+            >
+              {tiktokBudgetError}
+            </p>
+          )}
           {tiktokBudgetModeTarget && currentTiktokMode != null && (
             <p
               className="text-xs text-muted-foreground"
@@ -2870,7 +2918,8 @@ export function DraftDialog({
             disabled={
               createDraft.isPending ||
               (isCreate && !state.name.trim()) ||
-              (isCreate && isLinkedin && !isGroupCreate && !campaignGroupId)
+              (isCreate && isLinkedin && !isGroupCreate && !campaignGroupId) ||
+              tiktokBudgetError != null
             }
             data-testid="button-submit-draft"
           >

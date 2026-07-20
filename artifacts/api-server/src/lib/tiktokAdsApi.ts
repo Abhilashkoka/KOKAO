@@ -238,6 +238,15 @@ export interface TiktokCampaign {
   stopTime: string | null;
 }
 
+/**
+ * TikTok platform budget minimums, in MINOR currency units. TikTok rejects
+ * campaign budgets below 50 (major units) and ad group daily/lifetime
+ * budgets below 20 (major units) — validate at draft time so an invalid
+ * budget never reaches the approval queue only to fail at apply.
+ */
+export const TIKTOK_MIN_CAMPAIGN_BUDGET_MINOR = 5000;
+export const TIKTOK_MIN_ADGROUP_BUDGET_MINOR = 2000;
+
 function toMinor(budget: number | string | null | undefined): number | null {
   if (budget == null || budget === "") return null;
   const n = Number(budget);

@@ -425,14 +425,14 @@ describe("DraftDialog TikTok", () => {
       target: { value: "TT Launch" },
     });
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
-      target: { value: "20" },
+      target: { value: "60" },
     });
     fireEvent.click(screen.getByTestId("button-submit-draft"));
 
     const payload = submittedPayload();
     expect(payload.targetType).toBe("campaign");
     expect(payload.objective).toBe("TRAFFIC");
-    expect(payload.dailyBudget).toBe(2000);
+    expect(payload.dailyBudget).toBe(6000);
     expect(payload.startTime).toBeUndefined();
     expect(payload.stopTime).toBeUndefined();
     expect(payload.campaignGroupId).toBeUndefined();
@@ -468,6 +468,74 @@ describe("DraftDialog TikTok", () => {
     expect(payload.dailyBudget).toBe(2500);
     expect(payload.startTime).toBe("2026-08-01 00:00:00");
     expect(payload.stopTime).toBe("2026-08-31 00:00:00");
+  });
+
+  it("blocks a campaign create with a daily budget below TikTok's minimum", () => {
+    renderDraftDialog(() => {}, "tiktok", { objective: "OUTCOME_TRAFFIC" });
+    fireEvent.change(screen.getByTestId("input-draft-name"), {
+      target: { value: "TT Launch" },
+    });
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "20" },
+    });
+
+    const error = screen.getByTestId("text-tiktok-budget-min-error");
+    expect(error.textContent).toContain("at least 50");
+    expect(
+      (screen.getByTestId("button-submit-draft") as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    // Raising to the minimum clears the error and re-enables submit.
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "50" },
+    });
+    expect(screen.queryByTestId("text-tiktok-budget-min-error")).toBeNull();
+    expect(
+      (screen.getByTestId("button-submit-draft") as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  it("blocks a zero TikTok budget too", () => {
+    renderDraftDialog(() => {}, "tiktok", { objective: "OUTCOME_TRAFFIC" });
+    fireEvent.change(screen.getByTestId("input-draft-name"), {
+      target: { value: "TT Launch" },
+    });
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "0" },
+    });
+
+    expect(
+      screen.getByTestId("text-tiktok-budget-min-error").textContent,
+    ).toContain("at least 50");
+    expect(
+      (screen.getByTestId("button-submit-draft") as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it("blocks an ad group edit with a lifetime budget below TikTok's minimum", () => {
+    renderDraftDialog(() => {}, "tiktok", {
+      action: "update",
+      targetType: "adset",
+      targetId: "ag_tt",
+      currentName: "TT group",
+      name: "TT group",
+    });
+    fireEvent.change(screen.getByTestId("input-draft-lifetime-budget"), {
+      target: { value: "19" },
+    });
+
+    const error = screen.getByTestId("text-tiktok-budget-min-error");
+    expect(error.textContent).toContain("ad group");
+    expect(error.textContent).toContain("at least 20");
+    expect(
+      (screen.getByTestId("button-submit-draft") as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    // Clearing the budget removes the error (no budget change drafted).
+    fireEvent.change(screen.getByTestId("input-draft-lifetime-budget"), {
+      target: { value: "" },
+    });
+    expect(screen.queryByTestId("text-tiktok-budget-min-error")).toBeNull();
   });
 
   it("ad group edit shows the current budget type and warns on a mode flip", () => {
