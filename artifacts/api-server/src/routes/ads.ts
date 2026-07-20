@@ -49,6 +49,7 @@ import {
   readObjectState,
   ADS_DATE_PRESETS,
   EMPTY_INSIGHTS,
+  adsGraphBase,
   type AdsDatePreset,
   type MetaAdsCredentials,
 } from "../lib/metaAdsApi";
@@ -358,7 +359,7 @@ adsCallbackRouter.get(
 
     try {
       // Exchange the code for a user token (secret in POST body, never URL).
-      const tokenRes = await platformFetch(`${GRAPH_BASE}/oauth/access_token`, {
+      const tokenRes = await platformFetch(`${adsGraphBase()}/oauth/access_token`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
@@ -384,7 +385,7 @@ adsCallbackRouter.get(
       // Exchange for a long-lived (~60 day) user token.
       let accessToken = tokenJson.access_token;
       try {
-        const longRes = await platformFetch(`${GRAPH_BASE}/oauth/access_token`, {
+        const longRes = await platformFetch(`${adsGraphBase()}/oauth/access_token`, {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({

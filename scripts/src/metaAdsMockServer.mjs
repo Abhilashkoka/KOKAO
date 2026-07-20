@@ -110,6 +110,53 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify(obj));
   };
 
+  // Test control: POST /__control {"revoked":true} makes every Graph call
+  // fail with an OAuthException (code 190) until the next OAuth code
+  // exchange, simulating a revoked/expired grant for reconnect-flow e2e.
+  if (req.method === "POST" && path === "__control") {
+    try {
+      const ctl = JSON.parse(body || "{}");
+      if (typeof ctl.revoked === "boolean") state.revoked = ctl.revoked;
+      saveState();
+      record({ method: "POST", path, kind: "control", revoked: state.revoked });
+      return send({ ok: true, revoked: !!state.revoked });
+    } catch {
+      return send({ error: { message: "Bad control body" } }, 400);
+    }
+  }
+
+  // OAuth code exchange + long-lived (fb_exchange_token) exchange. Any code
+  // is accepted; the returned token matches the seeded connection tokens so
+  // reconnect flows work without validating tokens. A code exchange clears
+  // revoked mode (the user "re-granted" access).
+  if (req.method === "POST" && path === "oauth/access_token") {
+    const grant = params.get("grant_type") || "authorization_code";
+    if (state.revoked) {
+      state.revoked = false;
+      saveState();
+    }
+    record({ method: "POST", path, kind: "oauth_token_exchange", grant });
+    return send({
+      access_token: "mock-meta-ads-token",
+      token_type: "bearer",
+      expires_in: 5184000,
+    });
+  }
+
+  if (state.revoked) {
+    record({ method: req.method, path, kind: "revoked_rejection" });
+    return send(
+      {
+        error: {
+          message: "Error validating access token: the user has revoked access.",
+          type: "OAuthException",
+          code: 190,
+        },
+      },
+      401,
+    );
+  }
+
   if (req.method === "GET" && path === "me/adaccounts") {
     record({ method: "GET", path, kind: "list_adaccounts" });
     return send({ data: state.adAccounts });

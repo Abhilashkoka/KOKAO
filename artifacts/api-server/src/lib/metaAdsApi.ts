@@ -68,7 +68,7 @@ async function graphPost<T>(path: string, token: string, body: Record<string, st
 }
 
 /** Dev/test-only escape hatch so tests can point Graph calls at a mock. */
-function adsGraphBase(): string {
+export function adsGraphBase(): string {
   return (
     (process.env.NODE_ENV !== "production" &&
       process.env.META_ADS_GRAPH_BASE_OVERRIDE) ||
