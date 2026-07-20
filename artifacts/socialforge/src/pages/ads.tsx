@@ -2608,8 +2608,21 @@ export function DraftDialog({
     }
     if (showSchedule && state.startTime) data.startTime = state.startTime;
     if (showSchedule && state.stopTime) data.stopTime = state.stopTime;
-    if (showBids && state.bidAmount) data.bidAmount = toMinor(state.bidAmount);
-    if (showBids && state.bidStrategy) data.bidStrategy = state.bidStrategy;
+    // Bid fields are prefilled from the ad set's live values so the user can
+    // see the current strategy/amount; only draft a bid change when something
+    // actually differs from those prefills. When the strategy changes to a
+    // capped one, the unchanged amount is still sent because the server
+    // requires an amount alongside bid-cap/cost-cap strategies.
+    if (showBids) {
+      const strategyChanged = state.bidStrategy !== form.bidStrategy;
+      const amountChanged = state.bidAmount !== minorStrToMajorStr(form.bidAmount);
+      const strategyNeedsAmount =
+        strategyChanged && state.bidStrategy !== "" && state.bidStrategy !== "LOWEST_COST_WITHOUT_CAP";
+      if (state.bidAmount && (amountChanged || strategyNeedsAmount)) {
+        data.bidAmount = toMinor(state.bidAmount);
+      }
+      if (state.bidStrategy && strategyChanged) data.bidStrategy = state.bidStrategy;
+    }
 
     createDraft.mutate(
       { data: data as never },

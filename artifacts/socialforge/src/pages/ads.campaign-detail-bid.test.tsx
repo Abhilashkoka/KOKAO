@@ -48,6 +48,8 @@ const mockState = {
   adSets: [] as AdSet[],
 };
 
+const createDraftMutate = vi.fn();
+
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
@@ -64,7 +66,7 @@ vi.mock("@workspace/api-client-react", async () => {
       isLoading: false,
       error: null,
     }),
-    useCreateAdDraft: () => ({ mutate: vi.fn(), isPending: false }),
+    useCreateAdDraft: () => ({ mutate: createDraftMutate, isPending: false }),
   });
 });
 
@@ -209,6 +211,72 @@ describe("edit prefill of bid fields", () => {
     const form = onEdit.mock.calls[0]![0];
     expect(form.bidAmount).toBe("");
     expect(form.bidStrategy).toBe("");
+  });
+
+  function renderDraftDialog(bid: { bidAmount: string; bidStrategy: string }) {
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <DraftDialog
+          connectionId={7}
+          platform="meta"
+          currency="USD"
+          form={{
+            action: "update",
+            targetType: "adset",
+            targetId: "as_1",
+            currentName: "Ad set A",
+            name: "Ad set A",
+            status: "",
+            dailyBudget: "",
+            lifetimeBudget: "",
+            startTime: "",
+            stopTime: "",
+            objective: "OUTCOME_TRAFFIC",
+            ...bid,
+          }}
+          onClose={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("submitting untouched prefilled bid fields drafts no bid change", () => {
+    renderDraftDialog({ bidAmount: "250", bidStrategy: "COST_CAP" });
+
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+
+    expect(createDraftMutate).toHaveBeenCalledTimes(1);
+    const payload = createDraftMutate.mock.calls[0]![0].data;
+    expect(payload.bidAmount).toBeUndefined();
+    expect(payload.bidStrategy).toBeUndefined();
+  });
+
+  it("submitting a changed bid amount sends only the amount", () => {
+    renderDraftDialog({ bidAmount: "250", bidStrategy: "COST_CAP" });
+
+    fireEvent.change(screen.getByTestId("input-draft-bid-amount"), {
+      target: { value: "5" },
+    });
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+
+    const payload = createDraftMutate.mock.calls[0]![0].data;
+    expect(payload.bidAmount).toBe(500);
+    expect(payload.bidStrategy).toBeUndefined();
+  });
+
+  it("changing only the strategy to a capped one still sends the unchanged amount", () => {
+    renderDraftDialog({ bidAmount: "250", bidStrategy: "LOWEST_COST_WITH_BID_CAP" });
+
+    fireEvent.click(screen.getByTestId("select-draft-bid-strategy"));
+    fireEvent.click(screen.getByText("Cost cap"));
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+
+    const payload = createDraftMutate.mock.calls[0]![0].data;
+    expect(payload.bidStrategy).toBe("COST_CAP");
+    expect(payload.bidAmount).toBe(250);
   });
 
   it("DraftDialog prefills the bid amount in major units and the strategy", () => {
