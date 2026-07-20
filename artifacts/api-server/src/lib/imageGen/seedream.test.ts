@@ -36,6 +36,7 @@ describe("seedream provider", () => {
     expect(def!.requiresBaseUrl).toBe(false);
     expect(def!.modelOptions?.map((m) => m.value)).toEqual([
       "seedream-5-0-pro",
+      "seedream-5-0-260128",
       "seedream-4-5-251128",
       "seedream-4-0",
     ]);

@@ -79,6 +79,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     requiresBaseUrl: false,
     modelOptions: [
       { value: SEEDREAM_MODEL, label: "Seedream 5.0 Pro (seedream-5-0-pro)" },
+      { value: "seedream-5-0-260128", label: "Seedream 5.0 Lite (seedream-5-0-260128)" },
       { value: "seedream-4-5-251128", label: "Seedream 4.5 (seedream-4-5-251128)" },
       { value: "seedream-4-0", label: "Seedream 4.0 (seedream-4-0)" },
     ],
