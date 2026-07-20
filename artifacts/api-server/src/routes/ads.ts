@@ -2551,7 +2551,8 @@ router.post(
         };
         if (merged.locations.length === 0) {
           res.status(400).json({
-            error: "LinkedIn campaigns must target at least one location.",
+            error:
+              "This change would leave the campaign with no target locations. LinkedIn requires every campaign to target at least one location — add a replacement location instead of only removing them.",
           });
           return;
         }

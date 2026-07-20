@@ -3315,6 +3315,16 @@ export function TargetingDraftDialog({
               </div>
             )}
           </div>
+          {facet === "locations" && (
+            <p
+              className="text-xs text-muted-foreground"
+              data-testid="text-locations-required-note"
+            >
+              LinkedIn requires every campaign to target at least one location,
+              so locations can be replaced but never emptied. Add a replacement
+              before removing the last one.
+            </p>
+          )}
           {TARGETING_FACETS.map((f) => (
             <div key={f.key} className="space-y-2">
               <Label>Selected {f.label.toLowerCase()}</Label>
