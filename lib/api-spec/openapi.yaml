@@ -8970,6 +8970,9 @@ components:
           type: ["integer", "null"]
           minimum: 0
           description: Lifetime budget in minor currency units.
+        removeLifetimeBudget:
+          type: boolean
+          description: LinkedIn campaign group updates only — remove the group's lifetime budget entirely (mutually exclusive with lifetimeBudget).
         startTime:
           type: ["string", "null"]
           description: ISO-8601 schedule start.

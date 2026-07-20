@@ -120,8 +120,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST") {
       const set = body?.patch?.$set ?? {};
       Object.assign(g, set);
+      const del = body?.patch?.$delete ?? [];
+      for (const key of del) delete g[key];
       saveState();
-      record({ method: "POST", path, kind: "update_campaign_group", set });
+      record({ method: "POST", path, kind: "update_campaign_group", set, delete: del });
       return send({});
     }
   }

@@ -640,10 +640,12 @@ export interface UpdateLinkedinCampaignGroupParams {
   status?: "ACTIVE" | "PAUSED";
   /** Minor units; groups only support a total (lifetime) budget. */
   lifetimeBudget?: number | null;
+  /** Remove the group's total budget entirely (Restli $delete). */
+  removeLifetimeBudget?: boolean;
   currency: string;
 }
 
-/** Partial-update a campaign group in place (Restli PARTIAL_UPDATE with $set). */
+/** Partial-update a campaign group in place (Restli PARTIAL_UPDATE with $set / $delete). */
 export async function updateLinkedinCampaignGroup(
   token: string,
   adAccountId: string,
@@ -653,12 +655,14 @@ export async function updateLinkedinCampaignGroup(
   const set: Record<string, unknown> = {};
   if (params.name != null) set.name = params.name;
   if (params.status != null) set.status = params.status;
-  if (params.lifetimeBudget != null) {
+  if (params.lifetimeBudget != null && !params.removeLifetimeBudget) {
     set.totalBudget = {
       amount: minorToAmount(params.lifetimeBudget),
       currencyCode: params.currency,
     };
   }
+  const patch: Record<string, unknown> = { $set: set };
+  if (params.removeLifetimeBudget) patch.$delete = ["totalBudget"];
 
   const res = await platformFetch(
     `${restBase()}/adAccounts/${encodeURIComponent(adAccountId)}/adCampaignGroups/${encodeURIComponent(groupId)}`,
@@ -669,7 +673,7 @@ export async function updateLinkedinCampaignGroup(
         "Content-Type": "application/json",
         "X-RestLi-Method": "PARTIAL_UPDATE",
       },
-      body: JSON.stringify({ patch: { $set: set } }),
+      body: JSON.stringify({ patch }),
     },
   );
   if (!res.ok) throw await toError(res);

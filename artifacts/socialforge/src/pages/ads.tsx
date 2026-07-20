@@ -2338,6 +2338,16 @@ export function DraftDialog({
     if (showBudgets && state.lifetimeBudget) {
       data.lifetimeBudget = toMinor(state.lifetimeBudget);
     }
+    // Clearing a LinkedIn campaign group's lifetime budget means "remove the
+    // cap" — surface that as an explicit removal rather than silently ignoring it.
+    if (
+      state.targetType === "campaign_group" &&
+      !isCreate &&
+      !state.lifetimeBudget.trim() &&
+      form.lifetimeBudget.trim()
+    ) {
+      data.removeLifetimeBudget = true;
+    }
     if (showSchedule && state.startTime) data.startTime = state.startTime;
     if (showSchedule && state.stopTime) data.stopTime = state.stopTime;
     if (showBids && state.bidAmount) data.bidAmount = toMinor(state.bidAmount);

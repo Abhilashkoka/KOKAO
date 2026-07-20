@@ -2000,6 +2000,24 @@ router.post(
         });
         return;
       }
+      if (input.removeLifetimeBudget && input.action !== "update") {
+        res.status(400).json({
+          error: "A lifetime budget can only be removed from an existing campaign group.",
+        });
+        return;
+      }
+      if (input.removeLifetimeBudget && input.lifetimeBudget != null) {
+        res.status(400).json({
+          error:
+            "Choose one: set a new lifetime budget, or remove it — not both.",
+        });
+        return;
+      }
+    } else if (input.removeLifetimeBudget) {
+      res.status(400).json({
+        error: "Removing a lifetime budget is only supported for LinkedIn campaign groups.",
+      });
+      return;
     } else if (input.targetType === "creative") {
       if (conn.platform !== "linkedin") {
         res.status(400).json({ error: "Creatives are only supported on LinkedIn." });
@@ -2257,6 +2275,7 @@ router.post(
     if (input.status != null) payload.status = input.status;
     if (input.dailyBudget != null) payload.dailyBudget = input.dailyBudget;
     if (input.lifetimeBudget != null) payload.lifetimeBudget = input.lifetimeBudget;
+    if (input.removeLifetimeBudget) payload.removeLifetimeBudget = true;
     if (input.startTime != null) payload.startTime = input.startTime;
     if (input.stopTime != null) payload.stopTime = input.stopTime;
     if (input.bidAmount != null) payload.bidAmount = input.bidAmount;
@@ -2396,6 +2415,7 @@ router.post(
         status: input.status,
         dailyBudget: input.dailyBudget,
         lifetimeBudget: input.lifetimeBudget,
+        removeLifetimeBudget: input.removeLifetimeBudget,
         startTime: input.startTime,
         stopTime: input.stopTime,
         targetingFacets: proposedFacets,

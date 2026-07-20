@@ -240,6 +240,56 @@ describe("DraftDialog group mode switching", () => {
   });
 });
 
+describe("DraftDialog campaign group budget removal", () => {
+  const GROUP_UPDATE = {
+    action: "update" as const,
+    targetType: "campaign_group",
+    targetId: "grp_1",
+    currentName: "Always On",
+    name: "Always On",
+    lifetimeBudget: "200000",
+  };
+
+  it("clearing the lifetime budget on a group edit sends removeLifetimeBudget", () => {
+    renderDraftDialog(() => {}, "linkedin", GROUP_UPDATE);
+    fireEvent.change(screen.getByTestId("input-draft-lifetime-budget"), {
+      target: { value: "" },
+    });
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+
+    const payload = submittedPayload();
+    expect(payload.targetType).toBe("campaign_group");
+    expect(payload.targetId).toBe("grp_1");
+    expect(payload.removeLifetimeBudget).toBe(true);
+    expect(payload.lifetimeBudget).toBeUndefined();
+  });
+
+  it("keeping or changing the budget does not send removeLifetimeBudget", () => {
+    renderDraftDialog(() => {}, "linkedin", GROUP_UPDATE);
+    fireEvent.change(screen.getByTestId("input-draft-lifetime-budget"), {
+      target: { value: "3000" },
+    });
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+
+    const payload = submittedPayload();
+    expect(payload.lifetimeBudget).toBe(300000);
+    expect(payload.removeLifetimeBudget).toBeUndefined();
+  });
+
+  it("a group that never had a budget does not send removeLifetimeBudget", () => {
+    renderDraftDialog(() => {}, "linkedin", {
+      ...GROUP_UPDATE,
+      lifetimeBudget: "",
+      status: "PAUSED",
+    });
+    fireEvent.click(screen.getByTestId("button-submit-draft"));
+
+    const payload = submittedPayload();
+    expect(payload.removeLifetimeBudget).toBeUndefined();
+    expect(payload.lifetimeBudget).toBeUndefined();
+  });
+});
+
 describe("DraftDialog Google", () => {
   it("campaign create shows objective and schedule but hides lifetime budget", async () => {
     const user = userEvent.setup();

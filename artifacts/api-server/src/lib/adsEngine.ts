@@ -245,6 +245,8 @@ interface UpdateParams {
   status?: "ACTIVE" | "PAUSED" | "ARCHIVED";
   dailyBudget?: number;
   lifetimeBudget?: number;
+  /** LinkedIn campaign groups only: remove the lifetime budget entirely. */
+  removeLifetimeBudget?: boolean;
   startTime?: string;
   stopTime?: string;
   /** Meta ad sets only: bid cap / cost cap amount in minor units. */
@@ -453,6 +455,7 @@ const linkedinOps: PlatformOps = {
         name: params.name,
         status: nonArchivedStatus(params),
         lifetimeBudget: params.lifetimeBudget ?? undefined,
+        removeLifetimeBudget: params.removeLifetimeBudget,
         currency: conn.currency ?? "USD",
       });
       return;
@@ -692,6 +695,7 @@ export function buildUpdateDiff(
     status?: string;
     dailyBudget?: number | null;
     lifetimeBudget?: number | null;
+    removeLifetimeBudget?: boolean;
     startTime?: string | null;
     stopTime?: string | null;
     bidAmount?: number | null;
@@ -747,7 +751,13 @@ export function buildUpdateDiff(
       after: fmtBudget(proposed.dailyBudget),
     });
   }
-  if (proposed.lifetimeBudget != null && proposed.lifetimeBudget !== before.lifetimeBudget) {
+  if (proposed.removeLifetimeBudget && before.lifetimeBudget != null) {
+    fields.push({
+      field: "Lifetime budget (minor units)",
+      before: fmtBudget(before.lifetimeBudget),
+      after: "(removed — no cap)",
+    });
+  } else if (proposed.lifetimeBudget != null && proposed.lifetimeBudget !== before.lifetimeBudget) {
     fields.push({
       field: "Lifetime budget (minor units)",
       before: fmtBudget(before.lifetimeBudget),
@@ -904,6 +914,8 @@ interface ApplyPayload {
   status?: "ACTIVE" | "PAUSED" | "ARCHIVED";
   dailyBudget?: number | null;
   lifetimeBudget?: number | null;
+  /** LinkedIn campaign groups only: remove the lifetime budget entirely. */
+  removeLifetimeBudget?: boolean;
   startTime?: string | null;
   stopTime?: string | null;
   /** Meta ad sets only: bid cap / cost cap amount in minor units. */
@@ -1151,6 +1163,7 @@ export async function approveAndApplyDraft(
           status: payload.status,
           dailyBudget: payload.dailyBudget ?? undefined,
           lifetimeBudget: payload.lifetimeBudget ?? undefined,
+          removeLifetimeBudget: payload.removeLifetimeBudget ?? undefined,
           startTime: payload.startTime ?? undefined,
           stopTime: payload.stopTime ?? undefined,
           bidAmount: payload.bidAmount ?? undefined,
@@ -1280,7 +1293,9 @@ async function verifyApplied(
     if (payload.dailyBudget != null && state.dailyBudget !== payload.dailyBudget) {
       mismatches.push("dailyBudget");
     }
-    if (payload.lifetimeBudget != null && state.lifetimeBudget !== payload.lifetimeBudget) {
+    if (payload.removeLifetimeBudget) {
+      if (state.lifetimeBudget != null) mismatches.push("lifetimeBudget");
+    } else if (payload.lifetimeBudget != null && state.lifetimeBudget !== payload.lifetimeBudget) {
       mismatches.push("lifetimeBudget");
     }
     if (payload.startTime != null && !timesEqual(state.startTime, payload.startTime)) {

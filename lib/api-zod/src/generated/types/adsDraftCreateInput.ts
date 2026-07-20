@@ -43,6 +43,8 @@ export interface AdsDraftCreateInput {
      * @nullable
      */
   lifetimeBudget?: number | null;
+  /** LinkedIn campaign group updates only — remove the group's lifetime budget entirely (mutually exclusive with lifetimeBudget). */
+  removeLifetimeBudget?: boolean;
   /**
      * ISO-8601 schedule start.
      * @nullable

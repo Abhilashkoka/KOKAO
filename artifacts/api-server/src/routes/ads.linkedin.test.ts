@@ -804,6 +804,176 @@ describe("LinkedIn draft apply", () => {
     }
   });
 
+  it("removes a campaign group's lifetime budget end to end", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign_group",
+        action: "update",
+        targetId: "grp_1",
+        removeLifetimeBudget: true,
+      });
+      expect(draftRes.status).toBe(201);
+      expect(draftRes.body.changes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field: "Lifetime budget (minor units)",
+            before: "200000",
+            after: "(removed — no cap)",
+          }),
+        ]),
+      );
+
+      // Drift check sees the unchanged group; read-back sees the budget gone.
+      mockReadGroupState.mockResolvedValueOnce({
+        name: "Always On",
+        status: "ACTIVE",
+        dailyBudget: null,
+        lifetimeBudget: 200000,
+        startTime: null,
+        stopTime: null,
+      });
+      mockReadGroupState.mockResolvedValue({
+        name: "Always On",
+        status: "ACTIVE",
+        dailyBudget: null,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+
+      const res = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("applied");
+      expect(res.body.verifyStatus).toBe("verified");
+      expect(mockUpdateGroup).toHaveBeenCalledTimes(1);
+      expect(mockUpdateGroup).toHaveBeenCalledWith(
+        "li-ads-token",
+        "512345678",
+        "grp_1",
+        expect.objectContaining({
+          removeLifetimeBudget: true,
+          currency: "USD",
+        }),
+      );
+      const params = mockUpdateGroup.mock.calls[0]![3] as unknown as Record<
+        string,
+        unknown
+      >;
+      expect(params.lifetimeBudget).toBeUndefined();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("flags a mismatch when the budget is still present after a removal", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const draftRes = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign_group",
+        action: "update",
+        targetId: "grp_1",
+        removeLifetimeBudget: true,
+      });
+      expect(draftRes.status).toBe(201);
+
+      // Both the drift check and read-back still show the budget: apply
+      // succeeds but verification must flag the mismatch.
+      mockReadGroupState.mockResolvedValue({
+        name: "Always On",
+        status: "ACTIVE",
+        dailyBudget: null,
+        lifetimeBudget: 200000,
+        startTime: null,
+        stopTime: null,
+      });
+
+      const res = await request(app).post(
+        `/api/ads/drafts/${draftRes.body.id}/approve`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("applied");
+      expect(res.body.verifyStatus).toBe("mismatch");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects removing and setting a lifetime budget in the same draft", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      const both = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign_group",
+        action: "update",
+        targetId: "grp_1",
+        lifetimeBudget: 100000,
+        removeLifetimeBudget: true,
+      });
+      expect(both.status).toBe(400);
+      expect(both.body.error).toContain("not both");
+
+      const onCreate = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign_group",
+        action: "create",
+        name: "New Group",
+        removeLifetimeBudget: true,
+      });
+      expect(onCreate.status).toBe(400);
+      expect(onCreate.body.error).toContain("existing campaign group");
+
+      const onCampaign = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign",
+        action: "update",
+        targetId: "cmp_1",
+        removeLifetimeBudget: true,
+      });
+      expect(onCampaign.status).toBe(400);
+      expect(onCampaign.body.error).toContain("campaign groups");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("rejects a budget-removal draft when the group has no budget", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      mockReadGroupState.mockResolvedValueOnce({
+        name: "Always On",
+        status: "ACTIVE",
+        dailyBudget: null,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+      });
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign_group",
+        action: "update",
+        targetId: "grp_1",
+        removeLifetimeBudget: true,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("Nothing would change");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("expires a campaign-group update when the group drifted since drafting", async () => {
     const tenant = await createTenant();
     try {

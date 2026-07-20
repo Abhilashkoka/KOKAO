@@ -6346,6 +6346,7 @@ export const CreateAdDraftBody = zod.object({
   "campaignGroupId": zod.string().optional().describe('LinkedIn only — campaign group to create the campaign in (required for LinkedIn creates).'),
   "dailyBudget": zod.number().min(createAdDraftBodyDailyBudgetMin).nullish().describe('Daily budget in minor currency units.'),
   "lifetimeBudget": zod.number().min(createAdDraftBodyLifetimeBudgetMin).nullish().describe('Lifetime budget in minor currency units.'),
+  "removeLifetimeBudget": zod.boolean().optional().describe('LinkedIn campaign group updates only — remove the group\'s lifetime budget entirely (mutually exclusive with lifetimeBudget).'),
   "startTime": zod.string().nullish().describe('ISO-8601 schedule start.'),
   "stopTime": zod.string().nullish().describe('ISO-8601 schedule end.'),
   "bidAmount": zod.number().min(1).nullish().describe('Meta ad set updates only — bid cap \/ cost cap amount in minor currency units.'),
