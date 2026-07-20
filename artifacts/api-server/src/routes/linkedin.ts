@@ -12,7 +12,8 @@ import {
 } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { ObjectStorageService } from "../lib/objectStorage";
-import { decryptJson } from "../lib/secretCrypto";
+import { decryptJson, encryptJson } from "../lib/secretCrypto";
+import type { LinkedinOrganicStoredCredentials } from "../lib/linkedinOrganicRefresh";
 import { platformFetch } from "../lib/platformFetch";
 import {
   signOAuthState,
@@ -385,6 +386,8 @@ linkedinCallbackRouter.get(
     const tokenJson = (await tokenRes.json()) as {
       access_token?: string;
       expires_in?: number;
+      refresh_token?: string;
+      refresh_token_expires_in?: number;
       error?: string;
       error_description?: string;
     };
@@ -400,6 +403,26 @@ linkedinCallbackRouter.get(
     const accessToken = tokenJson.access_token;
     const expiresAt = tokenJson.expires_in
       ? new Date(Date.now() + tokenJson.expires_in * 1000)
+      : null;
+
+    // Store the programmatic refresh token (when LinkedIn issues one) so the
+    // connection sweep can silently renew the ~60-day access token and the
+    // tenant never sees a reconnect prompt for a routine expiry (see
+    // lib/linkedinOrganicRefresh.ts). Encrypted at rest; null when the app
+    // has no refresh-token grant so stale creds from a prior connect can't
+    // linger.
+    const storedCredentials: LinkedinOrganicStoredCredentials | null =
+      tokenJson.refresh_token
+        ? {
+            refreshToken: tokenJson.refresh_token,
+            refreshTokenExpiresAt:
+              tokenJson.refresh_token_expires_in != null
+                ? Date.now() + tokenJson.refresh_token_expires_in * 1000
+                : undefined,
+          }
+        : null;
+    const encryptedCredentials = storedCredentials
+      ? encryptJson(storedCredentials)
       : null;
 
     const userRes = await platformFetch(USERINFO_URL, {
@@ -426,6 +449,7 @@ linkedinCallbackRouter.get(
           status: "connected",
           accessToken,
           tokenExpiresAt: expiresAt,
+          encryptedCredentials,
           providerUserId: userJson.sub,
           verifyStatus: "verified",
           verifyError: null,
@@ -440,6 +464,7 @@ linkedinCallbackRouter.get(
         status: "connected",
         accessToken,
         tokenExpiresAt: expiresAt,
+        encryptedCredentials,
         providerUserId: userJson.sub,
         verifyStatus: "verified",
         verifyError: null,
@@ -503,6 +528,7 @@ router.delete("/linkedin", async (req: Request, res: Response) => {
         status: "disconnected",
         accessToken: null,
         tokenExpiresAt: null,
+        encryptedCredentials: null,
         providerUserId: null,
       })
       .where(eq(connectedAccountsTable.id, existing.id));
@@ -547,6 +573,7 @@ router.post("/linkedin/retest", async (req: Request, res: Response) => {
         status: "disconnected",
         accessToken: null,
         tokenExpiresAt: null,
+        encryptedCredentials: null,
         providerUserId: null,
       })
       .where(eq(connectedAccountsTable.id, existing.id));

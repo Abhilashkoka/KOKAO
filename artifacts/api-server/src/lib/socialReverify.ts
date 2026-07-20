@@ -23,6 +23,11 @@ import {
   notifySocialConnectionFailed,
   resolveSocialConnectionNotifications,
 } from "./notifications";
+import {
+  linkedinOrganicRefreshDue,
+  maybeRefreshLinkedinOrganicToken,
+  handleLinkedinOrganicAuthFailure,
+} from "./linkedinOrganicRefresh";
 
 /**
  * How long a stored credential's last verification stays "fresh" before an
@@ -251,8 +256,34 @@ export async function reverifyLinkedin(
   tenantId: number,
   opts: ReverifyOptions = {},
 ): Promise<AccountRow | undefined> {
-  const row = await loadAccountRow(tenantId, "linkedin");
+  let row = await loadAccountRow(tenantId, "linkedin");
   if (!row?.accessToken) return row;
+
+  // Silent renewal first: when the OAuth callback stored a refresh token and
+  // the access token is inside the refresh window (or already lapsed), renew
+  // it instead of flipping to failed — a reconnect prompt should only appear
+  // when the refresh token itself is dead. Transient refresh failures fall
+  // through to the ordinary logic with the still-stored token.
+  if (linkedinOrganicRefreshDue(row)) {
+    const outcome = await maybeRefreshLinkedinOrganicToken(row);
+    if (outcome === "refreshed" || outcome === "invalid") {
+      return loadAccountRow(tenantId, "linkedin");
+    }
+    if (outcome === "transient") {
+      // Nothing changed, but an already-lapsed token must not be flipped to
+      // failed below while the refresh token may still be alive — reset the
+      // check clock and retry on the next sweep instead.
+      if (
+        row.tokenExpiresAt !== null &&
+        row.tokenExpiresAt.getTime() <= Date.now()
+      ) {
+        await touchChecked(row);
+        return loadAccountRow(tenantId, "linkedin");
+      }
+    }
+    row = (await loadAccountRow(tenantId, "linkedin")) ?? row;
+    if (!row.accessToken) return row;
+  }
 
   // Expired by timestamp — no live call needed to know it's dead. Flip a
   // previously-verified row to failed so the breakage notification fires even
@@ -285,23 +316,17 @@ export async function reverifyLinkedin(
       headers: { Authorization: `Bearer ${row.accessToken}` },
     });
     if (userRes.status === 401 || userRes.status === 403) {
-      await db
-        .update(connectedAccountsTable)
-        .set({
-          status: "error",
-          verifyStatus: "failed",
-          verifyError: LINKEDIN_TOKEN_INVALID_MESSAGE,
-          verifiedAt: new Date(),
-        })
-        .where(eq(connectedAccountsTable.id, row.id));
-      // Notify once when a previously-good connection first breaks.
-      if (row.verifyStatus === "verified") {
-        await notifySocialConnectionFailed(
-          tenantId,
-          "linkedin",
-          LINKEDIN_TOKEN_INVALID_MESSAGE,
-        );
-      }
+      // The access token was rejected, but that alone doesn't mean the
+      // tenant must reconnect: when a refresh token is stored, one last
+      // refresh attempt can silently revive the connection. Only a dead
+      // refresh token (or none at all) flips the row to failed — with the
+      // deduped breakage notification handled inside. Transient refresh
+      // failures leave the row untouched for the next sweep.
+      const outcome = await handleLinkedinOrganicAuthFailure(
+        row,
+        LINKEDIN_TOKEN_INVALID_MESSAGE,
+      );
+      if (outcome === "transient") await touchChecked(row);
     } else if (userRes.ok) {
       await db
         .update(connectedAccountsTable)
