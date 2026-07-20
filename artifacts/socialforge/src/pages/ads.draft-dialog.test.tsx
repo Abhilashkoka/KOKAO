@@ -549,23 +549,23 @@ describe("DraftDialog TikTok", () => {
       lifetimeBudget: "50000",
     });
 
-    expect(screen.getByTestId("text-tiktok-budget-mode").textContent).toContain(
+    expect(screen.getByTestId("text-budget-mode").textContent).toContain(
       "lifetime (total)",
     );
-    expect(screen.queryByTestId("alert-tiktok-budget-mode-flip")).toBeNull();
+    expect(screen.queryByTestId("alert-budget-mode-flip")).toBeNull();
 
     // Entering a daily budget would flip the mode on apply.
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
       target: { value: "25" },
     });
-    const alert = screen.getByTestId("alert-tiktok-budget-mode-flip");
+    const alert = screen.getByTestId("alert-budget-mode-flip");
     expect(alert.textContent).toContain("lifetime (total) to daily");
 
     // Clearing it removes the warning again.
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
       target: { value: "" },
     });
-    expect(screen.queryByTestId("alert-tiktok-budget-mode-flip")).toBeNull();
+    expect(screen.queryByTestId("alert-budget-mode-flip")).toBeNull();
   });
 
   it("ad group edit with a daily budget warns only when switched to lifetime", () => {
@@ -578,14 +578,14 @@ describe("DraftDialog TikTok", () => {
       dailyBudget: "3000",
     });
 
-    expect(screen.getByTestId("text-tiktok-budget-mode").textContent).toContain("daily");
-    expect(screen.queryByTestId("alert-tiktok-budget-mode-flip")).toBeNull();
+    expect(screen.getByTestId("text-budget-mode").textContent).toContain("daily");
+    expect(screen.queryByTestId("alert-budget-mode-flip")).toBeNull();
 
     // Raising the daily budget keeps the mode: no warning.
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
       target: { value: "90" },
     });
-    expect(screen.queryByTestId("alert-tiktok-budget-mode-flip")).toBeNull();
+    expect(screen.queryByTestId("alert-budget-mode-flip")).toBeNull();
 
     // Clearing daily and entering lifetime flips it: warn.
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
@@ -595,7 +595,7 @@ describe("DraftDialog TikTok", () => {
       target: { value: "500" },
     });
     expect(
-      screen.getByTestId("alert-tiktok-budget-mode-flip").textContent,
+      screen.getByTestId("alert-budget-mode-flip").textContent,
     ).toContain("daily to lifetime (total)");
   });
 
@@ -609,10 +609,10 @@ describe("DraftDialog TikTok", () => {
       dailyBudget: "5000",
     });
 
-    expect(screen.getByTestId("text-tiktok-budget-mode").textContent).toContain(
+    expect(screen.getByTestId("text-budget-mode").textContent).toContain(
       "campaign currently uses a daily budget",
     );
-    expect(screen.queryByTestId("alert-tiktok-budget-mode-flip")).toBeNull();
+    expect(screen.queryByTestId("alert-budget-mode-flip")).toBeNull();
 
     // Clearing daily and entering lifetime flips the campaign mode: warn.
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
@@ -621,7 +621,7 @@ describe("DraftDialog TikTok", () => {
     fireEvent.change(screen.getByTestId("input-draft-lifetime-budget"), {
       target: { value: "700" },
     });
-    const alert = screen.getByTestId("alert-tiktok-budget-mode-flip");
+    const alert = screen.getByTestId("alert-budget-mode-flip");
     expect(alert.textContent).toContain("campaign's budget type");
     expect(alert.textContent).toContain("daily to lifetime (total)");
   });
@@ -635,16 +635,16 @@ describe("DraftDialog TikTok", () => {
       name: "TT campaign",
     });
 
-    expect(screen.getByTestId("text-tiktok-budget-mode").textContent).toContain(
+    expect(screen.getByTestId("text-budget-mode").textContent).toContain(
       "currently has no budget (unlimited)",
     );
-    expect(screen.queryByTestId("alert-tiktok-budget-mode-flip")).toBeNull();
+    expect(screen.queryByTestId("alert-budget-mode-flip")).toBeNull();
 
     // Drafting a daily budget onto an unlimited campaign caps spend: warn.
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
       target: { value: "40" },
     });
-    const alert = screen.getByTestId("alert-tiktok-budget-mode-flip");
+    const alert = screen.getByTestId("alert-budget-mode-flip");
     expect(alert.textContent).toContain("give this campaign a daily budget");
     expect(alert.textContent).toContain("no budget (unlimited)");
 
@@ -652,11 +652,10 @@ describe("DraftDialog TikTok", () => {
     fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
       target: { value: "" },
     });
-    expect(screen.queryByTestId("alert-tiktok-budget-mode-flip")).toBeNull();
+    expect(screen.queryByTestId("alert-budget-mode-flip")).toBeNull();
   });
 
-  it("hides the budget-type note outside TikTok ad group edits", () => {
-    // Meta ad set edit with a lifetime budget: no TikTok note.
+  it("Meta ad set edit shows the current budget type and warns on a mode flip", () => {
     renderDraftDialog(() => {}, "meta", {
       action: "update",
       targetType: "adset",
@@ -665,7 +664,94 @@ describe("DraftDialog TikTok", () => {
       name: "Meta set",
       lifetimeBudget: "50000",
     });
-    expect(screen.queryByTestId("text-tiktok-budget-mode")).toBeNull();
+
+    const note = screen.getByTestId("text-budget-mode");
+    expect(note.textContent).toContain("Meta ad set");
+    expect(note.textContent).toContain("lifetime (total)");
+    expect(screen.queryByTestId("alert-budget-mode-flip")).toBeNull();
+
+    // Drafting a daily budget flips the mode: warn.
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "25" },
+    });
+    const alert = screen.getByTestId("alert-budget-mode-flip");
+    expect(alert.textContent).toContain("ad set's budget type");
+    expect(alert.textContent).toContain("lifetime (total) to daily");
+
+    // Clearing it removes the warning again.
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "" },
+    });
+    expect(screen.queryByTestId("alert-budget-mode-flip")).toBeNull();
+  });
+
+  it("Meta campaign edit with a daily budget warns only when switched to lifetime", () => {
+    renderDraftDialog(() => {}, "meta", {
+      action: "update",
+      targetType: "campaign",
+      targetId: "c_meta",
+      currentName: "Meta campaign",
+      name: "Meta campaign",
+      dailyBudget: "5000",
+    });
+
+    expect(screen.getByTestId("text-budget-mode").textContent).toContain(
+      "Meta campaign currently uses a daily budget",
+    );
+    expect(screen.queryByTestId("alert-budget-mode-flip")).toBeNull();
+
+    // Raising the daily budget keeps the mode: no warning.
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "90" },
+    });
+    expect(screen.queryByTestId("alert-budget-mode-flip")).toBeNull();
+
+    // Clearing daily and entering lifetime flips it: warn.
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "" },
+    });
+    fireEvent.change(screen.getByTestId("input-draft-lifetime-budget"), {
+      target: { value: "500" },
+    });
+    expect(
+      screen.getByTestId("alert-budget-mode-flip").textContent,
+    ).toContain("daily to lifetime (total)");
+  });
+
+  it("Meta ad set with no budget of its own notes it and warns when a budget is drafted", () => {
+    // CBO campaign: the ad set carries no budget itself.
+    renderDraftDialog(() => {}, "meta", {
+      action: "update",
+      targetType: "adset",
+      targetId: "as_cbo",
+      currentName: "CBO set",
+      name: "CBO set",
+    });
+
+    expect(screen.getByTestId("text-budget-mode").textContent).toContain(
+      "currently has no budget of its own",
+    );
+    expect(screen.queryByTestId("alert-budget-mode-flip")).toBeNull();
+
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "40" },
+    });
+    const alert = screen.getByTestId("alert-budget-mode-flip");
+    expect(alert.textContent).toContain("give this ad set a daily budget");
+    expect(alert.textContent).toContain("no budget of its own");
+  });
+
+  it("hides the budget-type note outside TikTok/Meta budget-holder edits", () => {
+    // Google ad group edit: no budget-type note.
+    renderDraftDialog(() => {}, "google", {
+      action: "update",
+      targetType: "adset",
+      targetId: "ag_g",
+      currentName: "G group",
+      name: "G group",
+      dailyBudget: "5000",
+    });
+    expect(screen.queryByTestId("text-budget-mode")).toBeNull();
   });
 
   it("ad edit hides budgets and schedule", () => {

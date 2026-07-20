@@ -2492,41 +2492,50 @@ export function DraftDialog({
   const isGoogleAdGroup = isGoogle && state.targetType === "adset";
   const nameLocked = isGoogle && state.targetType === "ad";
 
-  // TikTok campaigns and ad groups hold a single budget_mode: daily OR
-  // lifetime (total) — campaigns can also carry no budget at all
-  // (BUDGET_MODE_INFINITE, i.e. unlimited). Drafting a budget in another mode
-  // silently switches the mode on apply, so surface the current mode and warn
-  // about the flip. `form` (not `state`) reflects the target's current
-  // budgets at open time.
-  const tiktokBudgetModeTarget =
-    isTiktok &&
+  // TikTok campaigns/ad groups and Meta campaigns/ad sets hold a single
+  // budget type: daily OR lifetime (total). Drafting a budget of the other
+  // kind silently switches how spend is paced on apply, so surface the
+  // current type and warn about the flip. `form` (not `state`) reflects the
+  // target's current budgets at open time.
+  const isMeta = platform === "meta";
+  const budgetModeTarget =
+    (isTiktok || isMeta) &&
     state.action === "update" &&
     (state.targetType === "adset" || state.targetType === "campaign");
-  const tiktokTargetNoun =
-    state.targetType === "campaign" ? "campaign" : "ad group";
-  const currentTiktokMode: "daily" | "lifetime" | "none" | null =
-    !tiktokBudgetModeTarget
+  const budgetModePlatformLabel = isTiktok ? "TikTok" : "Meta";
+  const budgetModeTargetNoun =
+    state.targetType === "campaign"
+      ? "campaign"
+      : isTiktok
+        ? "ad group"
+        : "ad set";
+  // A budget-less target: TikTok campaigns can be unlimited
+  // (BUDGET_MODE_INFINITE); Meta campaigns and ad sets can both be
+  // budget-less because the budget lives on the other level.
+  const budgetNoneAllowed = isMeta || state.targetType === "campaign";
+  const currentBudgetMode: "daily" | "lifetime" | "none" | null =
+    !budgetModeTarget
       ? null
       : form.dailyBudget
         ? "daily"
         : form.lifetimeBudget
           ? "lifetime"
-          : state.targetType === "campaign"
+          : budgetNoneAllowed
             ? "none"
             : null;
   // The server-side apply prefers a daily budget when both are sent.
-  const draftedTiktokMode: "daily" | "lifetime" | null = !tiktokBudgetModeTarget
+  const draftedBudgetMode: "daily" | "lifetime" | null = !budgetModeTarget
     ? null
     : state.dailyBudget.trim()
       ? "daily"
       : state.lifetimeBudget.trim()
         ? "lifetime"
         : null;
-  const tiktokModeFlips =
-    currentTiktokMode != null &&
-    draftedTiktokMode != null &&
-    draftedTiktokMode !== currentTiktokMode;
-  const tiktokModeLabel = (m: "daily" | "lifetime" | "none") =>
+  const budgetModeFlips =
+    currentBudgetMode != null &&
+    draftedBudgetMode != null &&
+    draftedBudgetMode !== currentBudgetMode;
+  const budgetModeLabel = (m: "daily" | "lifetime" | "none") =>
     m === "daily" ? "daily" : m === "lifetime" ? "lifetime (total)" : "no";
 
   // TikTok enforces platform budget minimums (campaign >= 50, ad group >= 20
@@ -2548,7 +2557,7 @@ export function DraftDialog({
   const tiktokLifetimeTooLow = belowTiktokMin(state.lifetimeBudget);
   const tiktokBudgetError =
     tiktokDailyTooLow || tiktokLifetimeTooLow
-      ? `TikTok requires a ${tiktokTargetNoun} ${
+      ? `TikTok requires a ${budgetModeTargetNoun} ${
           tiktokDailyTooLow && tiktokLifetimeTooLow
             ? "daily and lifetime budget"
             : tiktokDailyTooLow
@@ -2848,23 +2857,27 @@ export function DraftDialog({
               {tiktokBudgetError}
             </p>
           )}
-          {tiktokBudgetModeTarget && currentTiktokMode != null && (
+          {budgetModeTarget && currentBudgetMode != null && (
             <p
               className="text-xs text-muted-foreground"
-              data-testid="text-tiktok-budget-mode"
+              data-testid="text-budget-mode"
             >
-              {currentTiktokMode === "none"
-                ? `This TikTok ${tiktokTargetNoun} currently has no budget (unlimited).`
-                : `This TikTok ${tiktokTargetNoun} currently uses a ${tiktokModeLabel(currentTiktokMode)} budget.`}
+              {currentBudgetMode === "none"
+                ? isTiktok
+                  ? `This TikTok ${budgetModeTargetNoun} currently has no budget (unlimited).`
+                  : `This Meta ${budgetModeTargetNoun} currently has no budget of its own.`
+                : `This ${budgetModePlatformLabel} ${budgetModeTargetNoun} currently uses a ${budgetModeLabel(currentBudgetMode)} budget.`}
             </p>
           )}
-          {tiktokModeFlips && currentTiktokMode != null && draftedTiktokMode != null && (
-            <Alert data-testid="alert-tiktok-budget-mode-flip">
+          {budgetModeFlips && currentBudgetMode != null && draftedBudgetMode != null && (
+            <Alert data-testid="alert-budget-mode-flip">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
-                {currentTiktokMode === "none"
-                  ? `Applying this draft will give this campaign a ${tiktokModeLabel(draftedTiktokMode)} budget. It currently has no budget (unlimited), so spend will become capped by the new budget.`
-                  : `Applying this draft will switch the ${tiktokTargetNoun}'s budget type from ${tiktokModeLabel(currentTiktokMode)} to ${tiktokModeLabel(draftedTiktokMode)}. TikTok ${tiktokTargetNoun}s keep a single budget type, so the current ${tiktokModeLabel(currentTiktokMode)} budget stops applying.`}
+                {currentBudgetMode === "none"
+                  ? isTiktok
+                    ? `Applying this draft will give this campaign a ${budgetModeLabel(draftedBudgetMode)} budget. It currently has no budget (unlimited), so spend will become capped by the new budget.`
+                    : `Applying this draft will give this ${budgetModeTargetNoun} a ${budgetModeLabel(draftedBudgetMode)} budget. It currently has no budget of its own, so this changes how its spend is paced.`
+                  : `Applying this draft will switch the ${budgetModeTargetNoun}'s budget type from ${budgetModeLabel(currentBudgetMode)} to ${budgetModeLabel(draftedBudgetMode)}. ${budgetModePlatformLabel} ${budgetModeTargetNoun}s keep a single budget type, so the current ${budgetModeLabel(currentBudgetMode)} budget stops applying.`}
               </AlertDescription>
             </Alert>
           )}
