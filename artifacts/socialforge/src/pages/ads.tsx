@@ -2056,12 +2056,10 @@ export function DraftDialog({
         : isGroupCreate
           ? "campaign group"
           : "campaign";
-  // TikTok ad group changes are name/status-only for now; budgets stay on
-  // the campaign there.
   const showBudgets =
     state.targetType === "campaign" ||
     isGroupCreate ||
-    (state.targetType === "adset" && !isTiktok);
+    state.targetType === "adset";
   const showDailyBudget = showBudgets && !isGroupCreate;
   // Meta ad sets carry their own schedule (end_time); other platforms'
   // ad-set-level objects stay name/status/budget only.

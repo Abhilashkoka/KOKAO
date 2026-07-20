@@ -2013,17 +2013,8 @@ router.post(
         });
         return;
       }
-      // Ad group and ad drafts are name/status-only in this phase.
-      if (
-        input.targetType !== "campaign" &&
-        (input.dailyBudget != null || input.lifetimeBudget != null)
-      ) {
-        res.status(400).json({
-          error:
-            "TikTok ad group and ad changes support name and status only in this phase — budgets stay on the campaign.",
-        });
-        return;
-      }
+      // Ad group budgets are editable (like Meta ad sets); ad-level budgets
+      // are rejected by the generic ad rule below.
     }
 
     if (conn.platform === "google" && input.lifetimeBudget != null) {

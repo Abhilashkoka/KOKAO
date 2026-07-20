@@ -668,11 +668,15 @@ export async function readCampaignState(
 export interface TiktokUpdateAdGroupParams {
   name?: string;
   status?: "ACTIVE" | "PAUSED";
+  dailyBudget?: number | null;
+  lifetimeBudget?: number | null;
 }
 
 /**
- * Update an ad group in place (name/status only in this phase). Rename goes
- * through adgroup/update/; the pause/resume flip uses adgroup/status/update/.
+ * Update an ad group in place (name, status, budget). Name/budget go through
+ * adgroup/update/; the pause/resume flip uses adgroup/status/update/. Budgets
+ * are stored in minor units internally but TikTok expects major units
+ * (budget_mode + budget), like campaigns.
  */
 export async function updateAdGroup(
   token: string,
@@ -680,12 +684,26 @@ export async function updateAdGroup(
   adGroupId: string,
   params: TiktokUpdateAdGroupParams,
 ): Promise<void> {
+  const body: Record<string, unknown> = {
+    advertiser_id: advertiserId,
+    adgroup_id: adGroupId,
+  };
+  let hasFieldUpdate = false;
   if (params.name != null) {
-    await apiPost("adgroup/update/", token, {
-      advertiser_id: advertiserId,
-      adgroup_id: adGroupId,
-      adgroup_name: params.name,
-    });
+    body.adgroup_name = params.name;
+    hasFieldUpdate = true;
+  }
+  if (params.dailyBudget != null) {
+    body.budget_mode = "BUDGET_MODE_DAY";
+    body.budget = toMajor(params.dailyBudget);
+    hasFieldUpdate = true;
+  } else if (params.lifetimeBudget != null) {
+    body.budget_mode = "BUDGET_MODE_TOTAL";
+    body.budget = toMajor(params.lifetimeBudget);
+    hasFieldUpdate = true;
+  }
+  if (hasFieldUpdate) {
+    await apiPost("adgroup/update/", token, body);
   }
   if (params.status != null) {
     await apiPost("adgroup/status/update/", token, {

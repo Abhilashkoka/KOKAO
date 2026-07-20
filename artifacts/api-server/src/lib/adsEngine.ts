@@ -512,6 +512,8 @@ const tiktokOps: PlatformOps = {
         await updateTiktokAdGroup(tiktokToken(conn), conn.adAccountId, targetId, {
           name: params.name,
           status,
+          dailyBudget: params.dailyBudget ?? undefined,
+          lifetimeBudget: params.lifetimeBudget ?? undefined,
         });
         return;
       }

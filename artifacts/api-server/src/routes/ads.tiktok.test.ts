@@ -261,17 +261,42 @@ describe("tiktok draft rules", () => {
     }
   });
 
-  it("rejects budget changes on TikTok ad groups and ads", async () => {
+  it("accepts a budget change draft on a TikTok ad group with a diff", async () => {
     const tenant = await createTenant();
     try {
       const connectionId = await insertTiktokConnection(tenant.tenantId);
       const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
         targetType: "adset",
         targetId: "ag_1",
+        status: undefined,
+        dailyBudget: 9000,
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.changes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field: "Daily budget (minor units)",
+            before: "3000",
+            after: "9000",
+          }),
+        ]),
+      );
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("still rejects budget changes on TikTok ads", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      const res = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "ad",
+        targetId: "ad_9",
         dailyBudget: 9000,
       });
       expect(res.status).toBe(400);
-      expect(res.body.error).toMatch(/name and status only/i);
+      expect(res.body.error).toMatch(/name and status/i);
     } finally {
       await deleteTenant(tenant.tenantId);
     }
@@ -408,6 +433,36 @@ describe("tiktok approve → apply → verify", () => {
       expect(logs.length).toBe(1);
       expect(logs[0]!.targetType).toBe("ad");
       expect(logs[0]!.outcome).toBe("applied");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("applies an ad group budget update end to end and verifies read-back", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      const draftRes = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "adset",
+        targetId: "ag_1",
+        status: undefined,
+        dailyBudget: 9000,
+      });
+      expect(draftRes.status).toBe(201);
+      const draftId = draftRes.body.id as number;
+
+      mockReadAdGroup.mockResolvedValueOnce({ ...ADGROUP_STATE }); // drift check
+      mockReadAdGroup.mockResolvedValue({ ...ADGROUP_STATE, dailyBudget: 9000 });
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post(`/api/ads/drafts/${draftId}/approve`);
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("applied");
+      expect(res.body.verifyStatus).toBe("verified");
+      expect(mockUpdateAdGroup).toHaveBeenCalledTimes(1);
+      expect(mockUpdateAdGroup.mock.calls[0]![3]).toMatchObject({
+        dailyBudget: 9000,
+      });
     } finally {
       await deleteTenant(tenant.tenantId);
     }

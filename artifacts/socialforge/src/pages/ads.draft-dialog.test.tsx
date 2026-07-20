@@ -387,7 +387,7 @@ describe("DraftDialog TikTok", () => {
     expect(payload.campaignGroupId).toBeUndefined();
   });
 
-  it("ad group edit hides budgets and schedule and submits neither", () => {
+  it("ad group edit shows budgets, hides schedule, and submits the budget", () => {
     renderDraftDialog(() => {}, "tiktok", {
       action: "update",
       targetType: "adset",
@@ -395,24 +395,26 @@ describe("DraftDialog TikTok", () => {
       currentName: "TT group",
       name: "TT group",
       dailyBudget: "999",
-      lifetimeBudget: "999",
     });
 
-    expect(screen.queryByTestId("input-draft-daily-budget")).toBeNull();
-    expect(screen.queryByTestId("input-draft-lifetime-budget")).toBeNull();
+    expect(screen.queryByTestId("input-draft-daily-budget")).not.toBeNull();
+    expect(screen.queryByTestId("input-draft-lifetime-budget")).not.toBeNull();
     expect(screen.queryByTestId("input-draft-start")).toBeNull();
     expect(screen.queryByTestId("input-draft-stop")).toBeNull();
 
     fireEvent.change(screen.getByTestId("input-draft-name"), {
       target: { value: "TT group renamed" },
     });
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "2500" },
+    });
     fireEvent.click(screen.getByTestId("button-submit-draft"));
     const payload = submittedPayload();
     expect(payload.targetType).toBe("adset");
     expect(payload.name).toBe("TT group renamed");
-    // Budgets stay off the payload even though the form carried values.
-    expect(payload.dailyBudget).toBeUndefined();
-    expect(payload.lifetimeBudget).toBeUndefined();
+    expect(payload.dailyBudget).toBe(2500);
+    expect(payload.startTime).toBeUndefined();
+    expect(payload.stopTime).toBeUndefined();
   });
 });
 
