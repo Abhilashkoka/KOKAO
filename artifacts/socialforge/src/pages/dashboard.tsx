@@ -2,14 +2,16 @@ import { useGetMe, useListContent, useListSchedules } from "@workspace/api-clien
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Sparkles, Image as ImageIcon, Calendar as CalendarIcon, Clock, Layers } from "lucide-react";
+import { Sparkles, Image as ImageIcon, Calendar as CalendarIcon, Clock, Layers, Wand2 } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
+import { useFeatureFlags } from "@/lib/features";
 
 export function DashboardPage() {
   const { data: me, isLoading: meLoading } = useGetMe();
   const { data: content, isLoading: contentLoading } = useListContent();
   const { data: schedules, isLoading: schedulesLoading } = useListSchedules();
+  const { flags: featureFlags } = useFeatureFlags();
 
   if (meLoading || contentLoading || schedulesLoading) {
     return (
@@ -33,9 +35,16 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div>
-        <h1 className="text-3xl font-extrabold tracking-tight">Welcome back, {me?.tenant.name}</h1>
-        <p className="text-muted-foreground text-lg mt-1">Here's what's happening in your workspace today.</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight">Welcome back, {me?.tenant.name}</h1>
+          <p className="text-muted-foreground text-lg mt-1">Here's what's happening in your workspace today.</p>
+        </div>
+        <Link href="/studio">
+          <Button size="lg" className="shrink-0" data-testid="button-open-studio">
+            <Wand2 className="h-4 w-4 mr-2" /> Open AI Studio
+          </Button>
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -88,6 +97,18 @@ export function DashboardPage() {
           <CardContent>
             <div className="text-4xl font-bold tracking-tight mb-2 capitalize">{me?.tenant.plan}</div>
             <p className="text-sm text-primary-foreground/80">Using {me?.tenant.aiModel} model</p>
+            {featureFlags.billing && (
+              <Link href="/settings?tab=billing">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="mt-4"
+                  data-testid="button-change-plan"
+                >
+                  Upgrade / change plan
+                </Button>
+              </Link>
+            )}
           </CardContent>
         </Card>
       </div>

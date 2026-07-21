@@ -22,8 +22,11 @@ import { TasteMemorySettings } from "@/components/taste-memory-settings";
 import { BillingSettings } from "@/components/billing-settings";
 import { ConsentSettings } from "@/components/consent-settings";
 import { useFeatureFlags } from "@/lib/features";
+import { useSearch } from "wouter";
 
 export function SettingsPage() {
+  const search = useSearch();
+  const requestedTab = new URLSearchParams(search).get("tab");
   const { data: me, isLoading: meLoading } = useGetMe();
   const { data: plans, isLoading: plansLoading } = useListPlans();
   const updateSettings = useUpdateSettings();
@@ -72,6 +75,18 @@ export function SettingsPage() {
     );
   }
 
+  const allowedTabs = [
+    "general",
+    ...(me?.team?.enabled && featureFlags.team ? ["team"] : []),
+    ...(featureFlags.billing ? ["billing"] : []),
+    "notifications",
+    "style-memory",
+    "privacy",
+    ...(me?.isSuperadmin ? ["branding"] : []),
+  ];
+  const initialTab =
+    requestedTab && allowedTabs.includes(requestedTab) ? requestedTab : "general";
+
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-5xl mx-auto">
       <div>
@@ -79,7 +94,7 @@ export function SettingsPage() {
         <p className="text-muted-foreground text-lg mt-1">Manage your workspace preferences and billing.</p>
       </div>
 
-      <Tabs defaultValue="general" className="space-y-8">
+      <Tabs defaultValue={initialTab} className="space-y-8">
         <TabsList>
           <TabsTrigger value="general">General</TabsTrigger>
           {me?.team?.enabled && featureFlags.team && (
@@ -200,7 +215,7 @@ export function SettingsPage() {
       </div>
         </TabsContent>
 
-        {me?.team?.enabled && (
+        {me?.team?.enabled && featureFlags.team && (
           <TabsContent value="team">
             <div className="max-w-2xl">
               <TeamSettings />
@@ -208,9 +223,11 @@ export function SettingsPage() {
           </TabsContent>
         )}
 
-        <TabsContent value="billing">
-          <BillingSettings />
-        </TabsContent>
+        {featureFlags.billing && (
+          <TabsContent value="billing">
+            <BillingSettings />
+          </TabsContent>
+        )}
 
         <TabsContent value="notifications">
           <div className="max-w-2xl">
