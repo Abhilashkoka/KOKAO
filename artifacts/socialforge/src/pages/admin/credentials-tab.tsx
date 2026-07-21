@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import {
   useAdminGetMetaCredentials,
   useAdminSaveMetaCredentials,
@@ -38,7 +39,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { CheckCircle2, AlertCircle } from "lucide-react";
 
 function MetaCredentialsCard() {
   const queryClient = useQueryClient();
@@ -169,7 +170,7 @@ function MetaCredentialsCard() {
             >
               {saveMeta.isPending ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving &
+                  <RippleSpinner className="h-4 w-4 mr-2" /> Saving &
                   testing...
                 </>
               ) : (
@@ -333,7 +334,7 @@ function GoogleAdsCredentialsCard() {
             >
               {save.isPending ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                  <RippleSpinner className="h-4 w-4 mr-2" /> Saving...
                 </>
               ) : (
                 "Save"
@@ -481,7 +482,7 @@ function TwitterCredentialsCard() {
             >
               {saveTwitter.isPending ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                  <RippleSpinner className="h-4 w-4 mr-2" /> Saving...
                 </>
               ) : (
                 "Save"
@@ -629,7 +630,7 @@ function LinkedinCredentialsCard() {
             >
               {saveLinkedin.isPending ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                  <RippleSpinner className="h-4 w-4 mr-2" /> Saving...
                 </>
               ) : (
                 "Save"
@@ -788,7 +789,7 @@ function RazorpayCredentialsCard() {
             >
               {saveRazorpay.isPending ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                  <RippleSpinner className="h-4 w-4 mr-2" /> Saving...
                 </>
               ) : (
                 "Save & test"
@@ -935,7 +936,7 @@ function YoutubeCredentialsCard() {
             >
               {saveYoutube.isPending ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                  <RippleSpinner className="h-4 w-4 mr-2" /> Saving...
                 </>
               ) : (
                 "Save"
@@ -1085,7 +1086,7 @@ function ThreadsCredentialsCard() {
             >
               {saveThreads.isPending ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                  <RippleSpinner className="h-4 w-4 mr-2" /> Saving...
                 </>
               ) : (
                 "Save"
@@ -1234,7 +1235,7 @@ function TiktokCredentialsCard() {
             >
               {saveTiktok.isPending ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                  <RippleSpinner className="h-4 w-4 mr-2" /> Saving...
                 </>
               ) : (
                 "Save"

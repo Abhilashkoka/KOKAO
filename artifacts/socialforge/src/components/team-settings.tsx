@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import {
   useGetMe,
   useGetTeam,
@@ -40,7 +41,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Loader2, Trash2, X, LogOut } from "lucide-react";
+import { Users, Trash2, X, LogOut } from "lucide-react";
 
 export function TeamSettings() {
   const { data: me } = useGetMe();
@@ -213,7 +214,7 @@ export function TeamSettings() {
               disabled={leaveTeam.isPending}
             >
               {leaveTeam.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <RippleSpinner className="h-4 w-4 mr-2" />
               ) : (
                 <LogOut className="h-4 w-4 mr-2" />
               )}
@@ -260,7 +261,7 @@ export function TeamSettings() {
                 disabled={createInvite.isPending || !inviteEmail.trim()}
               >
                 {createInvite.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <RippleSpinner className="h-4 w-4" />
                 ) : (
                   "Invite"
                 )}
@@ -416,7 +417,7 @@ export function TeamSettings() {
                 >
                   {createSeatRequest.isPending ? (
                     <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />{" "}
+                      <RippleSpinner className="h-4 w-4 mr-2" />{" "}
                       Sending...
                     </>
                   ) : (

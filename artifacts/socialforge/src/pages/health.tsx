@@ -1,3 +1,4 @@
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import {
   useGetMe,
   useGetHealthReport,
@@ -319,9 +320,11 @@ export function HealthPage() {
           disabled={runMutation.isPending}
           data-testid="button-run-audit"
         >
-          <RefreshCw
-            className={`h-4 w-4 mr-2 ${runMutation.isPending ? "animate-spin" : ""}`}
-          />
+          {runMutation.isPending ? (
+            <RippleSpinner className="h-4 w-4 mr-2" />
+          ) : (
+            <RefreshCw className="h-4 w-4 mr-2" />
+          )}
           {runMutation.isPending
             ? "Running checkup..."
             : latest

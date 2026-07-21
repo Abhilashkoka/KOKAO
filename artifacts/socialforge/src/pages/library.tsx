@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { useLocation, useSearch } from "wouter";
 import { 
   useListContent, 
@@ -24,7 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
-import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, Twitter, ExternalLink, AtSign, AlertCircle, RotateCw, Wand2, Image as ImageIcon, Loader2, X } from "lucide-react";
+import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, Twitter, ExternalLink, AtSign, AlertCircle, RotateCw, Wand2, Image as ImageIcon, X } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -777,7 +778,7 @@ export function LibraryPage() {
                         >
                           {isActivePublish ? (
                             <>
-                              <Loader2 className="h-3 w-3 mr-1 animate-spin" /> Publishing...
+                              <RippleSpinner className="h-3 w-3 mr-1" /> Publishing...
                             </>
                           ) : (
                             <>
@@ -807,7 +808,7 @@ export function LibraryPage() {
                               : `Retry publishing to ${target.label}`
                         }
                       >
-                        <RotateCw className={`h-3 w-3 mr-1 ${retryingId === item.id ? 'animate-spin' : ''}`} />
+                        {retryingId === item.id ? <RippleSpinner className="h-3 w-3 mr-1" /> : <RotateCw className="h-3 w-3 mr-1" />}
                         {retryingId === item.id ? "Retrying..." : "Retry"}
                       </Button>
                     );
@@ -896,7 +897,7 @@ export function LibraryPage() {
                   disabled={generateCaption.isPending}
                 >
                   {generateCaption.isPending ? (
-                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    <RippleSpinner className="h-3 w-3 mr-1" />
                   ) : (
                     <Wand2 className="h-3 w-3 mr-1" />
                   )}
@@ -954,7 +955,7 @@ export function LibraryPage() {
                     disabled={generateImage.isPending}
                   >
                     {generateImage.isPending ? (
-                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      <RippleSpinner className="h-3 w-3 mr-1" />
                     ) : (
                       <ImageIcon className="h-3 w-3 mr-1" />
                     )}

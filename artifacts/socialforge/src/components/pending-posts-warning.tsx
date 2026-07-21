@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import {
   useResendLinkedinComments,
   useResendThreadsPosts,
@@ -272,7 +273,7 @@ export function PendingPostsWarnings({
             onClick={() => handleResendLinkedinComments(item.id)}
             data-testid={`button-${idPrefix}resend-linkedin-comments-${item.id}`}
           >
-            <RotateCw className={`h-3 w-3 mr-1 ${resendingLinkedin ? "animate-spin" : ""}`} />
+            {resendingLinkedin ? <RippleSpinner className="h-3 w-3 mr-1" /> : <RotateCw className="h-3 w-3 mr-1" />}
             {resendingLinkedin ? "Resending..." : "Resend comments"}
           </Button>
         </div>
@@ -297,7 +298,7 @@ export function PendingPostsWarnings({
             onClick={() => handleResendThreadsPosts(item.id)}
             data-testid={`button-${idPrefix}resend-threads-posts-${item.id}`}
           >
-            <RotateCw className={`h-3 w-3 mr-1 ${resendingThreads ? "animate-spin" : ""}`} />
+            {resendingThreads ? <RippleSpinner className="h-3 w-3 mr-1" /> : <RotateCw className="h-3 w-3 mr-1" />}
             {resendingThreads ? "Resending..." : "Resend posts"}
           </Button>
         </div>
@@ -322,7 +323,7 @@ export function PendingPostsWarnings({
             onClick={() => handleResendTwitterPosts(item.id)}
             data-testid={`button-${idPrefix}resend-twitter-posts-${item.id}`}
           >
-            <RotateCw className={`h-3 w-3 mr-1 ${resendingTwitter ? "animate-spin" : ""}`} />
+            {resendingTwitter ? <RippleSpinner className="h-3 w-3 mr-1" /> : <RotateCw className="h-3 w-3 mr-1" />}
             {resendingTwitter ? "Resending..." : "Resend posts"}
           </Button>
         </div>

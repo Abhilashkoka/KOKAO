@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { 
   useListSchedules, 
   useListContent,
@@ -22,7 +23,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
-import { Calendar as CalendarIcon, Clock, Plus, Trash2, CheckCircle2, XCircle, Loader2, RotateCw, RefreshCw } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, Plus, Trash2, CheckCircle2, XCircle, RotateCw, RefreshCw } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -258,7 +259,7 @@ export function SchedulePage() {
                         >
                           {post.status === "published" && <><CheckCircle2 className="h-3 w-3" /> Published</>}
                           {post.status === "failed" && <><XCircle className="h-3 w-3" /> Failed</>}
-                          {post.status === "processing" && <><Loader2 className="h-3 w-3 animate-spin" /> Publishing</>}
+                          {post.status === "processing" && <><RippleSpinner className="h-3 w-3" /> Publishing</>}
                           {post.status === "pending" && (post.retryCount ?? 0) > 0 && <><RefreshCw className="h-3 w-3" /> Retrying after a temporary outage</>}
                           {post.status === "pending" && !((post.retryCount ?? 0) > 0) && "Pending"}
                           {post.status === "cancelled" && "Cancelled"}
@@ -307,7 +308,7 @@ export function SchedulePage() {
                           onClick={() => handleRetry(post)}
                         >
                           {retryingId === post.id && retryBusy ? (
-                            <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                            <RippleSpinner className="h-4 w-4 mr-1.5" />
                           ) : (
                             <RotateCw className="h-4 w-4 mr-1.5" />
                           )}

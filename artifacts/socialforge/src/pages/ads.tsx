@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import {
   useGetMe,
   useGetAdsStatus,
@@ -85,23 +86,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import {
-  Megaphone,
-  Loader2,
-  CheckCircle2,
-  AlertCircle,
-  AlertTriangle,
-  ArrowRight,
-  ImagePlus,
-  MapPin,
-  Pencil,
-  Plus,
-  ShieldCheck,
-  X,
-  TrendingUp,
-  Wallet,
-  CalendarIcon,
-} from "lucide-react";
+import { Megaphone, CheckCircle2, AlertCircle, AlertTriangle, ArrowRight, ImagePlus, MapPin, Pencil, Plus, ShieldCheck, X, TrendingUp, Wallet, CalendarIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -832,7 +817,7 @@ function ConnectionSection({
               disabled={!canManage || !metaAvailable || authUrl.isFetching}
               data-testid="button-connect-meta-ads"
             >
-              {authUrl.isFetching && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {authUrl.isFetching && <RippleSpinner className="h-4 w-4 mr-2" />}
               Connect Meta Ads
             </Button>
             <Button
@@ -842,7 +827,7 @@ function ConnectionSection({
               data-testid="button-connect-from-facebook"
             >
               {fromFacebook.isPending && (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <RippleSpinner className="h-4 w-4 mr-2" />
               )}
               Reuse Facebook connection
             </Button>
@@ -959,7 +944,7 @@ function GoogleConnectionCard({
             disabled={!canManage || !googleAvailable || authUrl.isFetching}
             data-testid="button-connect-google-ads"
           >
-            {authUrl.isFetching && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {authUrl.isFetching && <RippleSpinner className="h-4 w-4 mr-2" />}
             Connect Google Ads
           </Button>
         )}
@@ -1095,7 +1080,7 @@ function GoogleAccountPicker({ canManage }: { canManage: boolean }) {
           disabled={!canManage || !picked || select.isPending}
           data-testid="button-select-google-account"
         >
-          {select.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+          {select.isPending && <RippleSpinner className="h-4 w-4 mr-2" />}
           Use this account
         </Button>
       </div>
@@ -1167,7 +1152,7 @@ function LinkedinConnectionSection({
             disabled={!canManage || !available || authUrl.isFetching}
             data-testid="button-connect-linkedin-ads"
           >
-            {authUrl.isFetching && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {authUrl.isFetching && <RippleSpinner className="h-4 w-4 mr-2" />}
             Connect LinkedIn Ads
           </Button>
         )}
@@ -1287,7 +1272,7 @@ function LinkedinAccountPicker({ canManage }: { canManage: boolean }) {
           disabled={!canManage || !picked || select.isPending}
           data-testid="button-select-linkedin-ad-account"
         >
-          {select.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+          {select.isPending && <RippleSpinner className="h-4 w-4 mr-2" />}
           Use this account
         </Button>
       </div>
@@ -1356,7 +1341,7 @@ function AccountPicker({ canManage }: { canManage: boolean }) {
           disabled={!canManage || !picked || select.isPending}
           data-testid="button-select-ad-account"
         >
-          {select.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+          {select.isPending && <RippleSpinner className="h-4 w-4 mr-2" />}
           Use this account
         </Button>
       </div>
@@ -1477,7 +1462,7 @@ function BudgetCapsCard({
             </div>
             <div className="flex gap-2">
               <Button size="sm" onClick={save} disabled={update.isPending} data-testid="button-save-caps">
-                {update.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                {update.isPending && <RippleSpinner className="h-4 w-4 mr-2" />}
                 Save caps
               </Button>
               <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
@@ -1581,7 +1566,7 @@ function TiktokConnectionSection({
               disabled={!canManage || !tiktokAvailable || authUrl.isFetching}
               data-testid="button-connect-tiktok-ads"
             >
-              {authUrl.isFetching && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {authUrl.isFetching && <RippleSpinner className="h-4 w-4 mr-2" />}
               Connect TikTok Ads
             </Button>
           </div>
@@ -1703,7 +1688,7 @@ function TiktokAdvertiserPicker({ canManage }: { canManage: boolean }) {
           disabled={!canManage || !picked || select.isPending}
           data-testid="button-select-tiktok-advertiser"
         >
-          {select.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+          {select.isPending && <RippleSpinner className="h-4 w-4 mr-2" />}
           Use this account
         </Button>
       </div>
@@ -2362,7 +2347,7 @@ export function CampaignDetailDialog({
                   data-testid="button-confirm-creative-status"
                 >
                   {createDraft.isPending && (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    <RippleSpinner className="h-4 w-4 mr-2" />
                   )}
                   Create draft
                 </Button>
@@ -3063,7 +3048,7 @@ export function DraftDialog({
             }
             data-testid="button-submit-draft"
           >
-            {createDraft.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {createDraft.isPending && <RippleSpinner className="h-4 w-4 mr-2" />}
             Save draft
           </Button>
         </DialogFooter>
@@ -3211,7 +3196,7 @@ export function CreativeDraftDialog({
             disabled={createDraft.isPending || !text.trim()}
             data-testid="button-submit-creative-draft"
           >
-            {createDraft.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {createDraft.isPending && <RippleSpinner className="h-4 w-4 mr-2" />}
             Save draft
           </Button>
         </DialogFooter>
@@ -3551,7 +3536,7 @@ export function TargetingDraftDialog({
             disabled={createDraft.isPending || totalSelected === 0}
             data-testid="button-submit-targeting-draft"
           >
-            {createDraft.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {createDraft.isPending && <RippleSpinner className="h-4 w-4 mr-2" />}
             Save draft
           </Button>
         </DialogFooter>
@@ -3845,7 +3830,7 @@ function ApproveConfirmDialog({
             disabled={applying || (needsAck && !acknowledged)}
             data-testid="button-confirm-approve"
           >
-            {applying && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {applying && <RippleSpinner className="h-4 w-4 mr-2" />}
             Approve and apply
           </Button>
         </DialogFooter>

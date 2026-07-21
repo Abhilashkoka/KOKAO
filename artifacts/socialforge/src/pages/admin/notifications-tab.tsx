@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import {
   useAdminGetEmailSettings,
   useAdminUpdateEmailSettings,
@@ -28,7 +29,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { CheckCircle2, AlertCircle } from "lucide-react";
 
 function EmailDeliveryCard() {
   const queryClient = useQueryClient();
@@ -217,7 +218,7 @@ function EmailDeliveryCard() {
             <Button onClick={handleSave} disabled={save.isPending}>
               {save.isPending ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...
+                  <RippleSpinner className="h-4 w-4 mr-2" /> Saving...
                 </>
               ) : (
                 "Save email settings"
@@ -262,7 +263,7 @@ function EmailDeliveryCard() {
                 >
                   {sendTest.isPending ? (
                     <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Sending...
+                      <RippleSpinner className="h-4 w-4 mr-2" /> Sending...
                     </>
                   ) : (
                     "Send test email"

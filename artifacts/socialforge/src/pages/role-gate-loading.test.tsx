@@ -39,7 +39,10 @@ afterEach(() => {
   meState.isLoading = true;
 });
 
-describe("role-gated pages while /me is unresolved", () => {
+// Each test dynamically imports a full page bundle (so the api-client mock is
+// in place first); under full-suite CPU contention that import alone can
+// exceed the default 5s timeout, so this file gets a larger one.
+describe("role-gated pages while /me is unresolved", { timeout: 30_000 }, () => {
   it("admin page shows only a loading placeholder", async () => {
     const { AdminPage } = await import("./admin/index");
     renderWithClient(<AdminPage />);

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { 
   useListAccounts,
   useCreateAccount,
@@ -44,7 +45,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Share2, Plus, Trash2, CheckCircle2, Loader2, Copy, ExternalLink, AlertCircle } from "lucide-react";
+import { Share2, Plus, Trash2, CheckCircle2, Copy, ExternalLink, AlertCircle } from "lucide-react";
 import { FacebookIcon, InstagramIcon, LinkedinIcon, XIcon, ThreadsIcon, YoutubeIcon } from "@/components/brand-icons";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ReconnectHelpDialog } from "@/components/reconnect-help-dialog";
@@ -238,7 +239,7 @@ function FacebookCredentialsCard() {
                 <div className="flex flex-wrap items-center gap-2">
                   <Button onClick={handleSave} disabled={save.isPending || !pageId.trim() || !pageAccessToken.trim()}>
                     {save.isPending ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving & testing...</>
+                      <><RippleSpinner className="h-4 w-4 mr-2" /> Saving & testing...</>
                     ) : (
                       "Save and verify"
                     )}
@@ -247,14 +248,14 @@ function FacebookCredentialsCard() {
                     <>
                       <Button variant="outline" onClick={handleRetest} disabled={retest.isPending}>
                         {retest.isPending ? (
-                          <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Re-testing...</>
+                          <><RippleSpinner className="h-4 w-4 mr-2" /> Re-testing...</>
                         ) : (
                           "Re-test now"
                         )}
                       </Button>
                       <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setConfirmDisconnectOpen(true)} disabled={disconnect.isPending}>
                         {disconnect.isPending ? (
-                          <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
+                          <><RippleSpinner className="h-4 w-4 mr-2" /> Disconnecting...</>
                         ) : (
                           <><Trash2 className="h-4 w-4 mr-2" /> Disconnect</>
                         )}
@@ -410,7 +411,7 @@ function InstagramCredentialsCard() {
                     </p>
                     <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setConfirmDisconnectOpen(true)} disabled={disconnect.isPending}>
                       {disconnect.isPending ? (
-                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
+                        <><RippleSpinner className="h-4 w-4 mr-2" /> Disconnecting...</>
                       ) : (
                         <><Trash2 className="h-4 w-4 mr-2" /> Disconnect Instagram</>
                       )}
@@ -447,7 +448,7 @@ function InstagramCredentialsCard() {
                 <div className="flex flex-wrap items-center gap-2">
                   <Button onClick={handleSave} disabled={save.isPending || !igUserId.trim()}>
                     {save.isPending ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving & verifying...</>
+                      <><RippleSpinner className="h-4 w-4 mr-2" /> Saving & verifying...</>
                     ) : (
                       "Save and verify"
                     )}
@@ -456,14 +457,14 @@ function InstagramCredentialsCard() {
                     <>
                       <Button variant="outline" onClick={handleRetest} disabled={retest.isPending}>
                         {retest.isPending ? (
-                          <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Re-testing...</>
+                          <><RippleSpinner className="h-4 w-4 mr-2" /> Re-testing...</>
                         ) : (
                           "Re-test now"
                         )}
                       </Button>
                       <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setConfirmDisconnectOpen(true)} disabled={disconnect.isPending}>
                         {disconnect.isPending ? (
-                          <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
+                          <><RippleSpinner className="h-4 w-4 mr-2" /> Disconnecting...</>
                         ) : (
                           <><Trash2 className="h-4 w-4 mr-2" /> Disconnect</>
                         )}
@@ -647,21 +648,21 @@ function TwitterCredentialsCard() {
                 <div className="flex flex-wrap items-center gap-2">
                   <Button variant="outline" size="sm" onClick={handleConnect} disabled={connecting}>
                     {connecting ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Reconnecting...</>
+                      <><RippleSpinner className="h-4 w-4 mr-2" /> Reconnecting...</>
                     ) : (
                       "Reconnect"
                     )}
                   </Button>
                   <Button variant="outline" size="sm" onClick={handleRetest} disabled={retest.isPending}>
                     {retest.isPending ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Re-testing...</>
+                      <><RippleSpinner className="h-4 w-4 mr-2" /> Re-testing...</>
                     ) : (
                       "Re-test now"
                     )}
                   </Button>
                   <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setConfirmDisconnectOpen(true)} disabled={disconnect.isPending}>
                     {disconnect.isPending ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
+                      <><RippleSpinner className="h-4 w-4 mr-2" /> Disconnecting...</>
                     ) : (
                       <><Trash2 className="h-4 w-4 mr-2" /> Disconnect</>
                     )}
@@ -682,7 +683,7 @@ function TwitterCredentialsCard() {
                 <div className="flex flex-wrap items-center gap-2">
                   <Button onClick={handleConnect} disabled={connecting}>
                     {connecting ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Connecting...</>
+                      <><RippleSpinner className="h-4 w-4 mr-2" /> Connecting...</>
                     ) : (
                       data?.expired ? "Reconnect X" : "Connect X"
                     )}
@@ -1241,21 +1242,21 @@ export function AccountsPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <Button variant="outline" size="sm" onClick={handleRetestLinkedin} disabled={retestLinkedin.isPending}>
                       {retestLinkedin.isPending ? (
-                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Re-testing...</>
+                        <><RippleSpinner className="h-4 w-4 mr-2" /> Re-testing...</>
                       ) : (
                         "Re-test now"
                       )}
                     </Button>
                     <Button variant="outline" size="sm" onClick={handleConnectLinkedin} disabled={linkedinConnecting}>
                       {linkedinConnecting ? (
-                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Reconnecting...</>
+                        <><RippleSpinner className="h-4 w-4 mr-2" /> Reconnecting...</>
                       ) : (
                         "Reconnect"
                       )}
                     </Button>
                     <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setConfirmDisconnect({ kind: "linkedin" })} disabled={disconnectLinkedin.isPending}>
                       {disconnectLinkedin.isPending ? (
-                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
+                        <><RippleSpinner className="h-4 w-4 mr-2" /> Disconnecting...</>
                       ) : (
                         <><Trash2 className="h-4 w-4 mr-2" /> Disconnect</>
                       )}
@@ -1276,7 +1277,7 @@ export function AccountsPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <Button onClick={handleConnectLinkedin} disabled={linkedinConnecting}>
                       {linkedinConnecting ? (
-                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {linkedinStatus?.expired ? "Reconnecting..." : "Connecting..."}</>
+                        <><RippleSpinner className="h-4 w-4 mr-2" /> {linkedinStatus?.expired ? "Reconnecting..." : "Connecting..."}</>
                       ) : (
                         <><LinkedinIcon className="h-4 w-4 mr-2" /> {linkedinStatus?.expired ? "Reconnect LinkedIn" : "Connect LinkedIn"}</>
                       )}
@@ -1370,21 +1371,21 @@ export function AccountsPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <Button variant="outline" size="sm" onClick={handleRetestYoutube} disabled={retestYoutube.isPending}>
                       {retestYoutube.isPending ? (
-                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Re-testing...</>
+                        <><RippleSpinner className="h-4 w-4 mr-2" /> Re-testing...</>
                       ) : (
                         "Re-test now"
                       )}
                     </Button>
                     <Button variant="outline" size="sm" onClick={handleConnectYoutube} disabled={youtubeConnecting}>
                       {youtubeConnecting ? (
-                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Reconnecting...</>
+                        <><RippleSpinner className="h-4 w-4 mr-2" /> Reconnecting...</>
                       ) : (
                         "Reconnect"
                       )}
                     </Button>
                     <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setConfirmDisconnect({ kind: "youtube" })} disabled={disconnectYoutube.isPending}>
                       {disconnectYoutube.isPending ? (
-                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
+                        <><RippleSpinner className="h-4 w-4 mr-2" /> Disconnecting...</>
                       ) : (
                         <><Trash2 className="h-4 w-4 mr-2" /> Disconnect</>
                       )}
@@ -1405,7 +1406,7 @@ export function AccountsPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <Button onClick={handleConnectYoutube} disabled={youtubeConnecting}>
                       {youtubeConnecting ? (
-                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {youtubeStatus?.expired ? "Reconnecting..." : "Connecting..."}</>
+                        <><RippleSpinner className="h-4 w-4 mr-2" /> {youtubeStatus?.expired ? "Reconnecting..." : "Connecting..."}</>
                       ) : (
                         <><YoutubeIcon className="h-4 w-4 mr-2" /> {youtubeStatus?.expired ? "Reconnect YouTube" : "Connect YouTube"}</>
                       )}
@@ -1504,21 +1505,21 @@ export function AccountsPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <Button variant="outline" size="sm" onClick={handleRetestThreads} disabled={retestThreads.isPending}>
                       {retestThreads.isPending ? (
-                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Re-testing...</>
+                        <><RippleSpinner className="h-4 w-4 mr-2" /> Re-testing...</>
                       ) : (
                         "Re-test now"
                       )}
                     </Button>
                     <Button variant="outline" size="sm" onClick={handleConnectThreads} disabled={threadsConnecting}>
                       {threadsConnecting ? (
-                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Reconnecting...</>
+                        <><RippleSpinner className="h-4 w-4 mr-2" /> Reconnecting...</>
                       ) : (
                         "Reconnect"
                       )}
                     </Button>
                     <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setConfirmDisconnect({ kind: "threads" })} disabled={disconnectThreads.isPending}>
                       {disconnectThreads.isPending ? (
-                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Disconnecting...</>
+                        <><RippleSpinner className="h-4 w-4 mr-2" /> Disconnecting...</>
                       ) : (
                         <><Trash2 className="h-4 w-4 mr-2" /> Disconnect</>
                       )}
@@ -1539,7 +1540,7 @@ export function AccountsPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <Button onClick={handleConnectThreads} disabled={threadsConnecting}>
                       {threadsConnecting ? (
-                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> {threadsStatus?.expired ? "Reconnecting..." : "Connecting..."}</>
+                        <><RippleSpinner className="h-4 w-4 mr-2" /> {threadsStatus?.expired ? "Reconnecting..." : "Connecting..."}</>
                       ) : (
                         <><ThreadsIcon className="h-4 w-4 mr-2" /> {threadsStatus?.expired ? "Reconnect Threads" : "Connect Threads"}</>
                       )}
@@ -1682,7 +1683,7 @@ export function AccountsPage() {
             <Button variant="outline" onClick={() => setOpen(false)} disabled={createAccount.isPending}>Cancel</Button>
             <Button onClick={handleCreate} disabled={createAccount.isPending || !accountName}>
               {createAccount.isPending ? (
-                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Connecting...</>
+                <><RippleSpinner className="h-4 w-4 mr-2" /> Connecting...</>
               ) : (
                 "Connect"
               )}

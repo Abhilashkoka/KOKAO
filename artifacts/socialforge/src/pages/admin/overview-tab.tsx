@@ -1,3 +1,4 @@
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import {
   useAdminGetStats,
   getAdminGetStatsQueryKey,
@@ -18,14 +19,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import {
-  Users,
-  Layers,
-  Calendar,
-  Share2,
-  RadioTower,
-  Loader2,
-} from "lucide-react";
+import { Users, Layers, Calendar, Share2, RadioTower } from "lucide-react";
 import { PLAN_LABELS } from "./shared";
 import { FeatureControlsCard } from "./feature-controls-card";
 
@@ -227,7 +221,7 @@ export function OverviewTab() {
             >
               {runSweep.isPending || stats?.sweepRunning ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <RippleSpinner className="mr-2 h-4 w-4" />
                   Running...
                 </>
               ) : (

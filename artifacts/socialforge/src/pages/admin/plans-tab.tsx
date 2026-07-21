@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import {
   useListPlans,
   useAdminUpdatePlan,
@@ -29,7 +30,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 
 interface PlanDraft {
   name: string;
@@ -350,7 +351,7 @@ function CreditPacksCard() {
                     >
                       {createPack.isPending ? (
                         <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Creating...
+                          <RippleSpinner className="h-4 w-4 mr-2" /> Creating...
                         </>
                       ) : (
                         "Create pack"
@@ -746,7 +747,7 @@ function PlansCard() {
                   >
                     {savingId === p.id && updatePlan.isPending ? (
                       <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />{" "}
+                        <RippleSpinner className="h-4 w-4 mr-2" />{" "}
                         Saving...
                       </>
                     ) : (
@@ -897,7 +898,7 @@ function PlansCard() {
                     >
                       {createPlan.isPending ? (
                         <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />{" "}
+                          <RippleSpinner className="h-4 w-4 mr-2" />{" "}
                           Creating...
                         </>
                       ) : (

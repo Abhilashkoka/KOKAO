@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { useQueryClient } from "@tanstack/react-query";
 import { LogoLoader } from "@/components/logo-loader";
 import {
@@ -9,7 +10,7 @@ import {
   getGetAppBrandQueryKey,
 } from "@workspace/api-client-react";
 import type { AppBrandInput } from "@workspace/api-client-react";
-import { ShieldAlert, Upload, Loader2, ImageOff } from "lucide-react";
+import { ShieldAlert, Upload, ImageOff } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -89,7 +90,7 @@ function UploadSlot({
             onClick={() => inputRef.current?.click()}
           >
             {uploading ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              <RippleSpinner className="h-4 w-4 mr-2" />
             ) : (
               <Upload className="h-4 w-4 mr-2" />
             )}
@@ -381,7 +382,7 @@ export function AppBrandingSettings() {
 
         <div className="flex justify-end">
           <Button onClick={handleSaveDetails} disabled={saving}>
-            {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {saving && <RippleSpinner className="h-4 w-4 mr-2" />}
             Save changes
           </Button>
         </div>

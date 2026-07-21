@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import {
   useAdminListTenants,
   useAdminUpdateTenantPlan,
@@ -52,7 +53,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2 } from "lucide-react";
+
 import { PLAN_LABELS } from "./shared";
 
 function SeatRequestsCard() {
@@ -641,7 +642,7 @@ export function TenantsTab() {
             >
               {grantCredits.isPending ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Granting...
+                  <RippleSpinner className="h-4 w-4 mr-2" /> Granting...
                 </>
               ) : (
                 "Apply adjustment"

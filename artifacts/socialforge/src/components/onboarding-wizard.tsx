@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { track } from "@/lib/analytics";
 import { useLocation } from "wouter";
 import {
@@ -21,14 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useFeatureFlags } from "@/lib/features";
-import {
-  Sparkles,
-  Loader2,
-  Palette,
-  Wand2,
-  ArrowRight,
-  ShieldCheck,
-} from "lucide-react";
+import { Sparkles, Palette, Wand2, ArrowRight, ShieldCheck } from "lucide-react";
 
 const CONSENT_OPTIONS = [
   {
@@ -260,7 +254,7 @@ export function OnboardingWizard() {
             <div className="flex justify-end pt-1">
               <Button onClick={handleConsentContinue} disabled={consentBusy}>
                 {consentBusy ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <RippleSpinner className="mr-2 h-4 w-4" />
                 ) : (
                   <ArrowRight className="mr-2 h-4 w-4" />
                 )}
@@ -292,7 +286,7 @@ export function OnboardingWizard() {
                 disabled={completeOnboarding.isPending}
               >
                 {completeOnboarding.isPending ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <RippleSpinner className="mr-2 h-4 w-4" />
                 ) : null}
                 Skip for now
               </Button>
@@ -356,7 +350,7 @@ export function OnboardingWizard() {
               </Button>
               <Button onClick={handleCreate} disabled={busy || !name.trim()}>
                 {busy ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <RippleSpinner className="mr-2 h-4 w-4" />
                 ) : url.trim() || notes.trim() ? (
                   <Wand2 className="mr-2 h-4 w-4" />
                 ) : (

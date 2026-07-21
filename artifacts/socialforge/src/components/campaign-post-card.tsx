@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import {
   useGenerateImage,
   useCreateContent,
@@ -11,7 +12,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Image as ImageIcon, Save, Loader2, Check } from "lucide-react";
+import { Image as ImageIcon, Save, Check } from "lucide-react";
 import { LogoLoader } from "@/components/logo-loader";
 import { IMAGE_TWEAKS } from "@workspace/studio-presets";
 import {
@@ -149,7 +150,7 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
               data-testid={`button-campaign-image-${post.platform}`}
             >
               {generateImage.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <RippleSpinner className="mr-2 h-4 w-4" />
               ) : (
                 <ImageIcon className="mr-2 h-4 w-4" />
               )}
@@ -157,7 +158,7 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
             </Button>
             <Button type="button" size="sm" onClick={onSave} disabled={createContent.isPending || saved}>
               {createContent.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <RippleSpinner className="mr-2 h-4 w-4" />
               ) : saved ? (
                 <Check className="mr-2 h-4 w-4" />
               ) : (

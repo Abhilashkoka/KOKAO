@@ -7,11 +7,7 @@
 
 import { useBrand } from "@/lib/brand";
 
-const KEYFRAMES = `
-@keyframes lg-ripple {
-  0%   { transform: scale(0.28); opacity: 0.9; }
-  100% { transform: scale(1.15); opacity: 0; }
-}`;
+// Keyframes live in index.css (@keyframes brand-ripple), shared with RippleSpinner.
 
 export function LogoLoader({
   size = 80,
@@ -28,7 +24,7 @@ export function LogoLoader({
 
   const ring: React.CSSProperties = {
     transformOrigin: "50px 50px",
-    animation: "lg-ripple 1.8s ease-out infinite",
+    animation: "brand-ripple 1.8s ease-out infinite",
   };
   return (
     <div
@@ -48,7 +44,6 @@ export function LogoLoader({
         />
       ) : (
         <>
-          <style>{KEYFRAMES}</style>
           <svg
             width={size}
             height={size}

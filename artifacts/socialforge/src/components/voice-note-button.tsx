@@ -1,8 +1,9 @@
 import { useRef, useState } from "react";
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { useTranscribeAudio } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Mic, Square, Loader2 } from "lucide-react";
+import { Mic, Square } from "lucide-react";
 
 interface VoiceNoteButtonProps {
   onTranscript: (text: string) => void;
@@ -88,7 +89,7 @@ export function VoiceNoteButton({ onTranscript, disabled }: VoiceNoteButtonProps
   if (transcribe.isPending) {
     return (
       <Button type="button" variant="outline" size="sm" disabled data-testid="button-voice-note">
-        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+        <RippleSpinner className="h-4 w-4 mr-2" />
         Transcribing...
       </Button>
     );

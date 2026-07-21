@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -40,7 +41,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { Wand2, Image as ImageIcon, Save, Loader2, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd } from "lucide-react";
+import { Wand2, Image as ImageIcon, Save, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
 import { CampaignPostCard, type GeneratedImage } from "@/components/campaign-post-card";
@@ -972,7 +973,7 @@ export function StudioPage() {
                     />
                     <Button type="button" variant="secondary" onClick={onSuggestTopics} disabled={suggestTopics.isPending}>
                       {suggestTopics.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <RippleSpinner className="h-4 w-4" />
                       ) : (
                         <Lightbulb className="h-4 w-4" />
                       )}
@@ -1026,7 +1027,7 @@ export function StudioPage() {
                       data-testid="button-research"
                     >
                       {researchTopic.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <RippleSpinner className="h-4 w-4" />
                       ) : (
                         <Globe className="h-4 w-4" />
                       )}
@@ -1115,7 +1116,7 @@ export function StudioPage() {
                     />
                     <Button type="button" variant="secondary" onClick={onSummarizeUrl} disabled={summarizeUrl.isPending}>
                       {summarizeUrl.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <RippleSpinner className="h-4 w-4" />
                       ) : (
                         <Link2 className="h-4 w-4" />
                       )}
@@ -1308,7 +1309,7 @@ export function StudioPage() {
                           data-testid="button-upload-reference-image"
                         >
                           {referenceUploading ? (
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            <RippleSpinner className="h-4 w-4 mr-2" />
                           ) : (
                             <Upload className="h-4 w-4 mr-2" />
                           )}
@@ -1397,7 +1398,7 @@ export function StudioPage() {
                       data-testid="button-generate-campaign"
                     >
                       {generateCampaign.isPending ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        <RippleSpinner className="mr-2 h-4 w-4" />
                       ) : (
                         <Layers className="mr-2 h-4 w-4" />
                       )}
@@ -1413,7 +1414,7 @@ export function StudioPage() {
                         data-testid="button-generate-carousel"
                       >
                         {generateCarousel.isPending ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          <RippleSpinner className="mr-2 h-4 w-4" />
                         ) : (
                           <GalleryHorizontalEnd className="mr-2 h-4 w-4" />
                         )}
@@ -1429,7 +1430,7 @@ export function StudioPage() {
                         data-testid="button-generate-caption"
                       >
                         {generateCaption.isPending ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          <RippleSpinner className="mr-2 h-4 w-4" />
                         ) : (
                           <Wand2 className="mr-2 h-4 w-4" />
                         )}
@@ -1444,7 +1445,7 @@ export function StudioPage() {
                         data-testid="button-generate-image"
                       >
                         {generateImage.isPending ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          <RippleSpinner className="mr-2 h-4 w-4" />
                         ) : (
                           <ImageIcon className="mr-2 h-4 w-4" />
                         )}
@@ -1495,7 +1496,7 @@ export function StudioPage() {
                     data-testid="button-save-carousel"
                   >
                     {carouselSaving ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <RippleSpinner className="mr-2 h-4 w-4" />
                     ) : (
                       <Save className="mr-2 h-4 w-4" />
                     )}
@@ -1531,7 +1532,7 @@ export function StudioPage() {
                   data-testid="button-generate-all-slide-images"
                 >
                   {carouselBusySlide === "all" ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <RippleSpinner className="mr-2 h-4 w-4" />
                   ) : (
                     <ImageIcon className="mr-2 h-4 w-4" />
                   )}
@@ -1567,7 +1568,7 @@ export function StudioPage() {
                             data-testid={`button-generate-slide-image-${i}`}
                           >
                             {carouselBusySlide === i ? (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              <RippleSpinner className="mr-2 h-4 w-4" />
                             ) : (
                               <ImageIcon className="mr-2 h-4 w-4" />
                             )}
@@ -1634,7 +1635,7 @@ export function StudioPage() {
                         data-testid="button-discard-draft"
                       >
                         {deleteContent.isPending ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          <RippleSpinner className="mr-2 h-4 w-4" />
                         ) : (
                           <Trash2 className="mr-2 h-4 w-4" />
                         )}
@@ -1642,7 +1643,7 @@ export function StudioPage() {
                       </Button>
                       <Button onClick={handleSave} disabled={isPending} size="sm" data-testid="button-save-draft">
                         {createContent.isPending || updateContent.isPending ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          <RippleSpinner className="mr-2 h-4 w-4" />
                         ) : (
                           <Save className="mr-2 h-4 w-4" />
                         )}
@@ -1723,7 +1724,7 @@ export function StudioPage() {
                             data-testid="button-regenerate-image"
                           >
                             {generateImage.isPending ? (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              <RippleSpinner className="mr-2 h-4 w-4" />
                             ) : (
                               <RefreshCw className="mr-2 h-4 w-4" />
                             )}
@@ -1815,7 +1816,7 @@ export function StudioPage() {
                             data-testid="button-regenerate-caption"
                           >
                             {generateCaption.isPending ? (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              <RippleSpinner className="mr-2 h-4 w-4" />
                             ) : (
                               <RefreshCw className="mr-2 h-4 w-4" />
                             )}

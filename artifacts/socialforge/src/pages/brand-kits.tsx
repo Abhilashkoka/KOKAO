@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import {
   useRequestUploadUrl,
   useListBrandKits,
@@ -35,17 +36,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Palette,
-  Plus,
-  Trash2,
-  Star,
-  Pencil,
-  Wand2,
-  Loader2,
-  Upload,
-  X,
-} from "lucide-react";
+import { Palette, Plus, Trash2, Star, Pencil, Wand2, Upload, X } from "lucide-react";
 
 function commaList(input: string): string[] {
   return input
@@ -768,7 +759,7 @@ export function BrandKitsPage() {
               data-testid="button-confirm-archive"
             >
               {deleteBrandKit.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <RippleSpinner className="mr-2 h-4 w-4" />
               ) : null}
               Archive
             </Button>
@@ -853,7 +844,7 @@ export function BrandKitsPage() {
             </Button>
             <Button onClick={handleCreate} disabled={creating || !name.trim()}>
               {creating ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <RippleSpinner className="mr-2 h-4 w-4" />
               ) : draftUrl.trim() || draftNotes.trim() ? (
                 <Wand2 className="mr-2 h-4 w-4" />
               ) : null}
@@ -901,7 +892,7 @@ export function BrandKitsPage() {
                         data-testid="button-pull-website"
                       >
                         {pulling ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <RippleSpinner className="h-4 w-4" />
                         ) : (
                           "Pull"
                         )}
@@ -960,7 +951,7 @@ export function BrandKitsPage() {
                         data-testid="button-upload-logo"
                       >
                         {logoUploading ? (
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          <RippleSpinner className="h-4 w-4 mr-2" />
                         ) : (
                           <Upload className="h-4 w-4 mr-2" />
                         )}
@@ -1151,7 +1142,7 @@ export function BrandKitsPage() {
               }
             >
               {createVersion.isPending || updateBrandKit.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <RippleSpinner className="mr-2 h-4 w-4" />
               ) : null}
               Save Changes
             </Button>
