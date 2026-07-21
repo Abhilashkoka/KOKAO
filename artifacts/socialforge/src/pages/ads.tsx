@@ -2506,16 +2506,22 @@ export function DraftDialog({
   const nameLocked = isGoogle && state.targetType === "ad";
 
   // TikTok campaigns/ad groups and Meta campaigns/ad sets hold a single
-  // budget type: daily OR lifetime (total). Drafting a budget of the other
-  // kind silently switches how spend is paced on apply, so surface the
-  // current type and warn about the flip. `form` (not `state`) reflects the
-  // target's current budgets at open time.
+  // budget type: daily OR lifetime (total). LinkedIn campaigns also carry a
+  // daily and/or total budget. Drafting a budget of the other kind silently
+  // switches how spend is paced on apply, so surface the current type and
+  // warn about the flip. `form` (not `state`) reflects the target's current
+  // budgets at open time.
   const isMeta = platform === "meta";
+  const isLinkedin = platform === "linkedin";
   const budgetModeTarget =
-    (isTiktok || isMeta) &&
+    (isTiktok || isMeta || (isLinkedin && state.targetType === "campaign")) &&
     state.action === "update" &&
     (state.targetType === "adset" || state.targetType === "campaign");
-  const budgetModePlatformLabel = isTiktok ? "TikTok" : "Meta";
+  const budgetModePlatformLabel = isTiktok
+    ? "TikTok"
+    : isMeta
+      ? "Meta"
+      : "LinkedIn";
   const budgetModeTargetNoun =
     state.targetType === "campaign"
       ? "campaign"
@@ -2591,7 +2597,6 @@ export function DraftDialog({
     return stop.getTime() <= start.getTime() ? "End must be after start" : null;
   })();
 
-  const isLinkedin = platform === "linkedin";
   const { data: groupData } = useListLinkedinCampaignGroups(
     { connectionId },
     {
@@ -2899,7 +2904,7 @@ export function DraftDialog({
               {currentBudgetMode === "none"
                 ? isTiktok
                   ? `This TikTok ${budgetModeTargetNoun} currently has no budget (unlimited).`
-                  : `This Meta ${budgetModeTargetNoun} currently has no budget of its own.`
+                  : `This ${budgetModePlatformLabel} ${budgetModeTargetNoun} currently has no budget of its own.`
                 : `This ${budgetModePlatformLabel} ${budgetModeTargetNoun} currently uses a ${budgetModeLabel(currentBudgetMode)} budget.`}
             </p>
           )}
@@ -2911,7 +2916,9 @@ export function DraftDialog({
                   ? isTiktok
                     ? `Applying this draft will give this campaign a ${budgetModeLabel(draftedBudgetMode)} budget. It currently has no budget (unlimited), so spend will become capped by the new budget.`
                     : `Applying this draft will give this ${budgetModeTargetNoun} a ${budgetModeLabel(draftedBudgetMode)} budget. It currently has no budget of its own, so this changes how its spend is paced.`
-                  : `Applying this draft will switch the ${budgetModeTargetNoun}'s budget type from ${budgetModeLabel(currentBudgetMode)} to ${budgetModeLabel(draftedBudgetMode)}. ${budgetModePlatformLabel} ${budgetModeTargetNoun}s keep a single budget type, so the current ${budgetModeLabel(currentBudgetMode)} budget stops applying.`}
+                  : isLinkedin
+                    ? `Applying this draft will switch the ${budgetModeTargetNoun}'s budget type from ${budgetModeLabel(currentBudgetMode)} to ${budgetModeLabel(draftedBudgetMode)}, which changes how LinkedIn paces its spend. The current ${budgetModeLabel(currentBudgetMode)} budget stops applying.`
+                    : `Applying this draft will switch the ${budgetModeTargetNoun}'s budget type from ${budgetModeLabel(currentBudgetMode)} to ${budgetModeLabel(draftedBudgetMode)}. ${budgetModePlatformLabel} ${budgetModeTargetNoun}s keep a single budget type, so the current ${budgetModeLabel(currentBudgetMode)} budget stops applying.`}
               </AlertDescription>
             </Alert>
           )}

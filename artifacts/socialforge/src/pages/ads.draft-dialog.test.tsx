@@ -766,6 +766,101 @@ describe("DraftDialog TikTok", () => {
     expect(alert.textContent).toContain("no budget of its own");
   });
 
+  it("LinkedIn campaign edit shows the current budget type and warns on a mode flip", () => {
+    renderDraftDialog(() => {}, "linkedin", {
+      action: "update",
+      targetType: "campaign",
+      targetId: "c_li",
+      currentName: "LI campaign",
+      name: "LI campaign",
+      dailyBudget: "5000",
+    });
+
+    expect(screen.getByTestId("text-budget-mode").textContent).toContain(
+      "LinkedIn campaign currently uses a daily budget",
+    );
+    expect(screen.queryByTestId("alert-budget-mode-flip")).toBeNull();
+
+    // Raising the daily budget keeps the mode: no warning.
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "90" },
+    });
+    expect(screen.queryByTestId("alert-budget-mode-flip")).toBeNull();
+
+    // Clearing daily and entering lifetime flips it: warn.
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "" },
+    });
+    fireEvent.change(screen.getByTestId("input-draft-lifetime-budget"), {
+      target: { value: "500" },
+    });
+    const alert = screen.getByTestId("alert-budget-mode-flip");
+    expect(alert.textContent).toContain("daily to lifetime (total)");
+    expect(alert.textContent).toContain("changes how LinkedIn paces its spend");
+
+    // Clearing the drafted budget removes the warning again.
+    fireEvent.change(screen.getByTestId("input-draft-lifetime-budget"), {
+      target: { value: "" },
+    });
+    expect(screen.queryByTestId("alert-budget-mode-flip")).toBeNull();
+  });
+
+  it("LinkedIn campaign with a total budget warns when a daily budget is drafted", () => {
+    renderDraftDialog(() => {}, "linkedin", {
+      action: "update",
+      targetType: "campaign",
+      targetId: "c_li2",
+      currentName: "LI total",
+      name: "LI total",
+      lifetimeBudget: "80000",
+    });
+
+    expect(screen.getByTestId("text-budget-mode").textContent).toContain(
+      "lifetime (total)",
+    );
+    expect(screen.queryByTestId("alert-budget-mode-flip")).toBeNull();
+
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "25" },
+    });
+    const alert = screen.getByTestId("alert-budget-mode-flip");
+    expect(alert.textContent).toContain("lifetime (total) to daily");
+  });
+
+  it("LinkedIn campaign with no budget of its own notes it and warns when a budget is drafted", () => {
+    renderDraftDialog(() => {}, "linkedin", {
+      action: "update",
+      targetType: "campaign",
+      targetId: "c_li3",
+      currentName: "LI no budget",
+      name: "LI no budget",
+    });
+
+    expect(screen.getByTestId("text-budget-mode").textContent).toContain(
+      "LinkedIn campaign currently has no budget of its own",
+    );
+    expect(screen.queryByTestId("alert-budget-mode-flip")).toBeNull();
+
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "40" },
+    });
+    const alert = screen.getByTestId("alert-budget-mode-flip");
+    expect(alert.textContent).toContain("give this campaign a daily budget");
+    expect(alert.textContent).toContain("no budget of its own");
+  });
+
+  it("hides the budget-type note on LinkedIn campaign group edits", () => {
+    renderDraftDialog(() => {}, "linkedin", {
+      action: "update",
+      targetType: "campaign_group",
+      targetId: "cg_li",
+      currentName: "LI group",
+      name: "LI group",
+      lifetimeBudget: "90000",
+    });
+    expect(screen.queryByTestId("text-budget-mode")).toBeNull();
+  });
+
   it("hides the budget-type note outside TikTok/Meta budget-holder edits", () => {
     // Google ad group edit: no budget-type note.
     renderDraftDialog(() => {}, "google", {
