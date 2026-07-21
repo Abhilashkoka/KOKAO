@@ -22,8 +22,17 @@ import { getEffectiveSetting } from "./notificationSettings";
  * device by its token — so there is nothing to configure server-side.
  */
 
-const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
-const EXPO_PUSH_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts";
+/** Dev-only base URL override so e2e runs can point Expo push traffic at a
+ * local mock. Ignored in production. */
+const EXPO_PUSH_BASE = (() => {
+  const override = process.env.EXPO_PUSH_BASE_OVERRIDE;
+  if (override && process.env.NODE_ENV !== "production") {
+    return override.replace(/\/$/, "");
+  }
+  return "https://exp.host";
+})();
+const EXPO_PUSH_URL = `${EXPO_PUSH_BASE}/--/api/v2/push/send`;
+const EXPO_PUSH_RECEIPTS_URL = `${EXPO_PUSH_BASE}/--/api/v2/push/getReceipts`;
 const EXPO_PUSH_CHUNK = 100;
 const EXPO_PUSH_TIMEOUT_MS = 10_000;
 
@@ -43,8 +52,19 @@ const RECEIPT_PENDING_CAP = 10_000;
  * are pruned: an uninstalled app never errors, it just goes silent. */
 export const PUSH_TOKEN_MAX_UNSEEN_MS = 90 * 24 * 60 * 60 * 1000;
 
-/** How often the maintenance loop checks due receipts and prunes. */
-const PUSH_MAINTENANCE_INTERVAL_MS = 15 * 60 * 1000;
+/** How often the maintenance loop checks due receipts and prunes.
+ * Overridable (non-production only) for tests/ops. */
+const PUSH_MAINTENANCE_INTERVAL_MS = (() => {
+  const raw = Number(process.env.PUSH_MAINTENANCE_INTERVAL_MS);
+  if (
+    Number.isFinite(raw) &&
+    raw > 0 &&
+    process.env.NODE_ENV !== "production"
+  ) {
+    return Math.floor(raw);
+  }
+  return 15 * 60 * 1000;
+})();
 
 interface PendingReceipt {
   ticketId: string;
