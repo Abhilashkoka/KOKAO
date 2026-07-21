@@ -1,6 +1,8 @@
 import { Feather } from "@expo/vector-icons";
 import React, { useState } from "react";
 import {
+  Modal,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -21,6 +23,8 @@ import {
   useBillingVerifySubscription,
   useBillingPurchaseCredits,
   useBillingVerifyPurchase,
+  useBillingCancelSubscription,
+  useBillingSwitchPayg,
 } from "@workspace/api-client-react";
 import type { Plan } from "@workspace/api-client-react";
 
@@ -119,6 +123,8 @@ export default function SettingsScreen() {
   const verifySubscription = useBillingVerifySubscription();
   const purchaseCredits = useBillingPurchaseCredits();
   const verifyPurchase = useBillingVerifyPurchase();
+  const cancelSubscription = useBillingCancelSubscription();
+  const switchPayg = useBillingSwitchPayg();
 
   const [cycle, setCycle] = useState<"monthly" | "yearly">("monthly");
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -128,6 +134,7 @@ export default function SettingsScreen() {
     kind: "success" | "error" | "info";
     text: string;
   } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<"cancel" | "payg" | null>(null);
 
   const refreshing = me.isRefetching || billing.isRefetching;
   const refetchAll = () => {
@@ -189,6 +196,41 @@ export default function SettingsScreen() {
     }
   };
 
+  const runConfirmedAction = () => {
+    const action = confirmAction;
+    setConfirmAction(null);
+    if (!action) return;
+    setNotice(null);
+    if (action === "cancel") {
+      cancelSubscription.mutate(undefined, {
+        onSuccess: () => {
+          setNotice({
+            kind: "success",
+            text: "Your subscription will end after the current paid period.",
+          });
+          refreshAfterPurchase();
+        },
+        onError: (error) =>
+          setNotice({
+            kind: "error",
+            text: errorMessage(error, "Could not cancel the subscription. Please try again."),
+          }),
+      });
+    } else {
+      switchPayg.mutate(undefined, {
+        onSuccess: () => {
+          setNotice({ kind: "success", text: "Switched to Pay As You Go." });
+          refreshAfterPurchase();
+        },
+        onError: (error) =>
+          setNotice({
+            kind: "error",
+            text: errorMessage(error, "Could not switch plans. Please try again."),
+          }),
+      });
+    }
+  };
+
   if (me.isLoading) {
     return (
       <ScrollView
@@ -235,6 +277,12 @@ export default function SettingsScreen() {
   );
   const creditPacks = overview?.creditPacks ?? [];
   const canPurchase = isOwner && configured;
+  const subIsLive =
+    !!subscription &&
+    (subscription.status === "active" || subscription.status === "authenticated");
+  const canCancel = isOwner && subIsLive && !subscription?.cancelAtPeriodEnd;
+  const canSwitchPayg = isOwner && tenant.plan !== "payg" && !subIsLive;
+  const billingBusy = cancelSubscription.isPending || switchPayg.isPending;
 
   const handleCheckoutSuccess = (result: {
     paymentId: string;
@@ -411,8 +459,8 @@ export default function SettingsScreen() {
           </View>
           {hasActiveSub ? (
             <Text style={styles.hint}>
-              You already have an active subscription. Cancel it from the web app before
-              switching plans.
+              You already have an active subscription. Cancel it below before switching
+              plans.
             </Text>
           ) : (
             <>
@@ -522,11 +570,80 @@ export default function SettingsScreen() {
             No active paid subscription. You are on the {tenant.plan} plan.
           </Text>
         )}
+        {canCancel ? (
+          <TouchableOpacity
+            style={[styles.dangerButton, billingBusy && styles.buttonDisabled]}
+            disabled={billingBusy}
+            onPress={() => setConfirmAction("cancel")}
+          >
+            <Text style={styles.dangerButtonText}>
+              {cancelSubscription.isPending ? "Cancelling..." : "Cancel subscription"}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+        {canSwitchPayg ? (
+          <>
+            <TouchableOpacity
+              style={[styles.outlineButton, billingBusy && styles.buttonDisabled]}
+              disabled={billingBusy}
+              onPress={() => setConfirmAction("payg")}
+            >
+              <Text style={styles.outlineButtonText}>
+                {switchPayg.isPending ? "Switching..." : "Switch to Pay As You Go"}
+              </Text>
+            </TouchableOpacity>
+            <Text style={styles.hint}>
+              Pay As You Go has no monthly quota; generations use prepaid credits
+              instead.
+            </Text>
+          </>
+        ) : null}
         <Text style={styles.hint}>
-          Subscription cancellation and detailed billing history are available in the
-          web app under Settings &gt; Billing.
+          Detailed billing history is available in the web app under Settings &gt;
+          Billing.
         </Text>
       </Card>
+
+      <Modal
+        visible={confirmAction !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmAction(null)}
+      >
+        <View style={styles.confirmBackdrop}>
+          <View style={styles.confirmBox}>
+            <Text style={styles.confirmTitle}>
+              {confirmAction === "cancel"
+                ? "Cancel subscription?"
+                : "Switch to Pay As You Go?"}
+            </Text>
+            <Text style={styles.confirmBody}>
+              {confirmAction === "cancel"
+                ? "Your subscription will stay active until the end of the current paid period, then you will move to the free plan."
+                : "Pay As You Go has no monthly quota. Caption and image generations will use prepaid credits instead."}
+            </Text>
+            <View style={styles.confirmActions}>
+              <Pressable
+                style={styles.confirmCancelButton}
+                onPress={() => setConfirmAction(null)}
+              >
+                <Text style={styles.confirmCancelText}>Keep as is</Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.confirmOkButton,
+                  confirmAction === "cancel" && styles.confirmOkDanger,
+                ]}
+                onPress={runConfirmedAction}
+              >
+                <Text style={styles.confirmOkText}>
+                  {confirmAction === "cancel" ? "Cancel subscription" : "Switch plan"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <RazorpayCheckoutModal
         request={checkout}
@@ -653,4 +770,83 @@ const styles = StyleSheet.create({
     color: c.mutedForeground,
   },
   cycleOptionTextActive: { color: c.foreground },
+  dangerButton: {
+    borderWidth: 1,
+    borderColor: c.destructive,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: "center",
+    marginTop: 4,
+  },
+  dangerButtonText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: c.destructive,
+  },
+  outlineButton: {
+    borderWidth: 1,
+    borderColor: c.border,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: "center",
+    marginTop: 4,
+  },
+  outlineButtonText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: c.foreground,
+  },
+  confirmBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    padding: 24,
+  },
+  confirmBox: {
+    backgroundColor: c.background,
+    borderRadius: 14,
+    padding: 20,
+    gap: 10,
+  },
+  confirmTitle: {
+    fontFamily: fonts.semiBold,
+    fontSize: 16,
+    color: c.foreground,
+  },
+  confirmBody: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    lineHeight: 19,
+    color: c.mutedForeground,
+  },
+  confirmActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 6,
+  },
+  confirmCancelButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: c.border,
+  },
+  confirmCancelText: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: c.foreground,
+  },
+  confirmOkButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: c.primary,
+  },
+  confirmOkDanger: { backgroundColor: c.destructive },
+  confirmOkText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: c.primaryForeground,
+  },
 });

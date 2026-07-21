@@ -11,20 +11,31 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const subscribeMutateAsync = vi.fn();
 const purchaseMutateAsync = vi.fn();
+const cancelMutate = vi.fn();
+const switchPaygMutate = vi.fn();
 
 const mockState: {
   team: { role: string; workspaceName: string } | null;
   configured: boolean;
   plans: Array<Record<string, unknown>>;
   creditPacks: Array<Record<string, unknown>>;
-} = { team: null, configured: true, plans: [], creditPacks: [] };
+  plan: string;
+  subscription: Record<string, unknown> | null;
+} = {
+  team: null,
+  configured: true,
+  plans: [],
+  creditPacks: [],
+  plan: "free",
+  subscription: null,
+};
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock, idleMutation } = await import("./apiClientMock");
   return createApiClientMock({
     useGetMe: () => ({
       data: {
-        tenant: { id: 1, name: "Test Workspace", plan: "free" },
+        tenant: { id: 1, name: "Test Workspace", plan: mockState.plan },
         usage: { captions: 1, images: 1 },
         limits: { captions: 10, images: 10 },
         credits: { captionCredits: 0, imageCredits: 0 },
@@ -40,8 +51,8 @@ vi.mock("@workspace/api-client-react", async () => {
       data: {
         configured: mockState.configured,
         keyId: mockState.configured ? "rzp_test_key" : null,
-        plan: "free",
-        subscription: null,
+        plan: mockState.plan,
+        subscription: mockState.subscription,
         credits: { captionCredits: 0, imageCredits: 0 },
         creditPacks: mockState.creditPacks,
         history: [],
@@ -67,6 +78,14 @@ vi.mock("@workspace/api-client-react", async () => {
     useBillingPurchaseCredits: () => ({
       ...idleMutation(),
       mutateAsync: purchaseMutateAsync,
+    }),
+    useBillingCancelSubscription: () => ({
+      ...idleMutation(),
+      mutate: cancelMutate,
+    }),
+    useBillingSwitchPayg: () => ({
+      ...idleMutation(),
+      mutate: switchPaygMutate,
     }),
   });
 });
@@ -107,11 +126,23 @@ beforeEach(() => {
   checkoutRequests.length = 0;
   subscribeMutateAsync.mockReset();
   purchaseMutateAsync.mockReset();
+  cancelMutate.mockReset();
+  switchPaygMutate.mockReset();
   mockState.team = null;
   mockState.configured = true;
   mockState.plans = [paidPlan];
   mockState.creditPacks = [pack];
+  mockState.plan = "free";
+  mockState.subscription = null;
 });
+
+const activeSub = {
+  planId: "pro",
+  status: "active",
+  billingCycle: "monthly",
+  cancelAtPeriodEnd: false,
+  currentPeriodEnd: "2026-08-21T00:00:00.000Z",
+};
 
 describe("Mobile Plan & Billing purchase actions", () => {
   it("owner sees upgrade and buy buttons and buying opens checkout", async () => {
@@ -170,6 +201,69 @@ describe("Mobile Plan & Billing purchase actions", () => {
     expect(
       screen.getByText("Only the workspace owner can buy credits or change the plan."),
     ).toBeTruthy();
+  });
+
+  it("owner with an active subscription can cancel via the in-app confirm dialog", async () => {
+    mockState.plan = "pro";
+    mockState.subscription = { ...activeSub };
+    renderScreen();
+
+    expect(cancelMutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Cancel subscription"));
+    // Confirmation dialog appears; nothing sent yet.
+    expect(screen.getByText("Cancel subscription?")).toBeTruthy();
+    expect(cancelMutate).not.toHaveBeenCalled();
+
+    const confirmButtons = screen.getAllByText("Cancel subscription");
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]);
+    await waitFor(() => expect(cancelMutate).toHaveBeenCalledTimes(1));
+  });
+
+  it("dismissing the cancel dialog sends nothing", () => {
+    mockState.plan = "pro";
+    mockState.subscription = { ...activeSub };
+    renderScreen();
+
+    fireEvent.click(screen.getByText("Cancel subscription"));
+    fireEvent.click(screen.getByText("Keep as is"));
+    expect(cancelMutate).not.toHaveBeenCalled();
+  });
+
+  it("hides the cancel button once cancellation is already scheduled", () => {
+    mockState.plan = "pro";
+    mockState.subscription = { ...activeSub, cancelAtPeriodEnd: true };
+    renderScreen();
+
+    expect(screen.queryByText("Cancel subscription")).toBeNull();
+  });
+
+  it("free-plan owner can switch to Pay As You Go after confirming", async () => {
+    renderScreen();
+
+    fireEvent.click(screen.getByText("Switch to Pay As You Go"));
+    expect(screen.getByText("Switch to Pay As You Go?")).toBeTruthy();
+    expect(switchPaygMutate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText("Switch plan"));
+    await waitFor(() => expect(switchPaygMutate).toHaveBeenCalledTimes(1));
+  });
+
+  it("hides the Pay As You Go switch while a subscription is live", () => {
+    mockState.plan = "pro";
+    mockState.subscription = { ...activeSub };
+    renderScreen();
+
+    expect(screen.queryByText("Switch to Pay As You Go")).toBeNull();
+  });
+
+  it("non-owner members see neither cancel nor Pay As You Go actions", () => {
+    mockState.team = { role: "member", workspaceName: "Owner WS" };
+    mockState.plan = "pro";
+    mockState.subscription = { ...activeSub };
+    renderScreen();
+
+    expect(screen.queryByText("Cancel subscription")).toBeNull();
+    expect(screen.queryByText("Switch to Pay As You Go")).toBeNull();
   });
 
   it("explains when payments are not configured instead of offering checkout", () => {
