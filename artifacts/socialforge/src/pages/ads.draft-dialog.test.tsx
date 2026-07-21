@@ -470,6 +470,31 @@ describe("DraftDialog TikTok", () => {
     expect(payload.stopTime).toBe("2026-08-31 00:00:00");
   });
 
+  it("shows the TikTok campaign minimum hint before any budget is typed", () => {
+    renderDraftDialog(() => {}, "tiktok", { objective: "OUTCOME_TRAFFIC" });
+    const hint = screen.getByTestId("text-tiktok-budget-min-hint");
+    expect(hint.textContent).toContain("TikTok minimum: 50 USD");
+    expect(hint.textContent).toContain("campaigns");
+  });
+
+  it("shows the TikTok ad group minimum hint with the account currency", () => {
+    renderDraftDialog(() => {}, "tiktok", {
+      action: "update",
+      targetType: "adset",
+      targetId: "ag_tt",
+      currentName: "TT group",
+      name: "TT group",
+    });
+    const hint = screen.getByTestId("text-tiktok-budget-min-hint");
+    expect(hint.textContent).toContain("TikTok minimum: 20 USD");
+    expect(hint.textContent).toContain("ad groups");
+  });
+
+  it("does not show the TikTok minimum hint for Meta drafts", () => {
+    renderDraftDialog(() => {}, "meta", { objective: "OUTCOME_TRAFFIC" });
+    expect(screen.queryByTestId("text-tiktok-budget-min-hint")).toBeNull();
+  });
+
   it("blocks a campaign create with a daily budget below TikTok's minimum", () => {
     renderDraftDialog(() => {}, "tiktok", { objective: "OUTCOME_TRAFFIC" });
     fireEvent.change(screen.getByTestId("input-draft-name"), {

@@ -2870,6 +2870,19 @@ export function DraftDialog({
               )}
             </div>
           )}
+          {showBudgets && tiktokMinBudget != null && !tiktokBudgetError && (
+            <p
+              className="text-xs text-muted-foreground"
+              data-testid="text-tiktok-budget-min-hint"
+            >
+              TikTok minimum: {tiktokMinBudget}
+              {currency ? ` ${currency}` : ""} for{" "}
+              {state.targetType === "campaign" ? "campaigns" : "ad groups"}
+              {state.targetType === "campaign"
+                ? " — leave blank for an unlimited campaign budget."
+                : "."}
+            </p>
+          )}
           {tiktokBudgetError && (
             <p
               className="text-xs font-medium text-destructive"
