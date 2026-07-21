@@ -500,6 +500,184 @@ export interface GrantCreditsInput {
   note?: string;
 }
 
+export type PromoCodeAudience = typeof PromoCodeAudience[keyof typeof PromoCodeAudience];
+
+
+export const PromoCodeAudience = {
+  all: 'all',
+  new: 'new',
+  existing: 'existing',
+} as const;
+
+export interface PromoCode {
+  id: number;
+  code: string;
+  /** @nullable */
+  campaign: string | null;
+  captionCredits: number;
+  imageCredits: number;
+  /** @nullable */
+  allowedPlans: string[] | null;
+  audience: PromoCodeAudience;
+  newTenantDays: number;
+  /** @nullable */
+  maxRedemptions: number | null;
+  perTenantLimit: number;
+  redemptionCount: number;
+  /** @nullable */
+  startsAt: string | null;
+  /** @nullable */
+  expiresAt: string | null;
+  active: boolean;
+  /** @nullable */
+  batchId: string | null;
+  /** @nullable */
+  note: string | null;
+  createdAt: string;
+}
+
+export type PromoCodeCreateInputAudience = typeof PromoCodeCreateInputAudience[keyof typeof PromoCodeCreateInputAudience];
+
+
+export const PromoCodeCreateInputAudience = {
+  all: 'all',
+  new: 'new',
+  existing: 'existing',
+} as const;
+
+export interface PromoCodeCreateInput {
+  /**
+     * @minLength 3
+     * @maxLength 64
+     */
+  code?: string;
+  /**
+     * @minimum 1
+     * @maximum 500
+     */
+  generateCount?: number;
+  /** @maxLength 20 */
+  prefix?: string;
+  /** @maxLength 80 */
+  campaign?: string;
+  /** @minimum 0 */
+  captionCredits: number;
+  /** @minimum 0 */
+  imageCredits: number;
+  allowedPlans?: string[];
+  audience?: PromoCodeCreateInputAudience;
+  /**
+     * @minimum 1
+     * @maximum 365
+     */
+  newTenantDays?: number;
+  /**
+     * @minimum 1
+     * @nullable
+     */
+  maxRedemptions?: number | null;
+  /** @minimum 1 */
+  perTenantLimit?: number;
+  /** @nullable */
+  startsAt?: string | null;
+  /** @nullable */
+  expiresAt?: string | null;
+  active?: boolean;
+  /** @maxLength 200 */
+  note?: string;
+}
+
+export type PromoCodeUpdateInputAudience = typeof PromoCodeUpdateInputAudience[keyof typeof PromoCodeUpdateInputAudience];
+
+
+export const PromoCodeUpdateInputAudience = {
+  all: 'all',
+  new: 'new',
+  existing: 'existing',
+} as const;
+
+export interface PromoCodeUpdateInput {
+  /**
+     * @maxLength 80
+     * @nullable
+     */
+  campaign?: string | null;
+  /** @minimum 0 */
+  captionCredits?: number;
+  /** @minimum 0 */
+  imageCredits?: number;
+  /** @nullable */
+  allowedPlans?: string[] | null;
+  audience?: PromoCodeUpdateInputAudience;
+  /**
+     * @minimum 1
+     * @maximum 365
+     */
+  newTenantDays?: number;
+  /**
+     * @minimum 1
+     * @nullable
+     */
+  maxRedemptions?: number | null;
+  /** @minimum 1 */
+  perTenantLimit?: number;
+  /** @nullable */
+  startsAt?: string | null;
+  /** @nullable */
+  expiresAt?: string | null;
+  active?: boolean;
+  /**
+     * @maxLength 200
+     * @nullable
+     */
+  note?: string | null;
+}
+
+export interface RedeemPromoInput {
+  /**
+     * @minLength 1
+     * @maxLength 64
+     */
+  code: string;
+}
+
+export interface PromoRedeemResult {
+  ok: boolean;
+  captionCredits: number;
+  imageCredits: number;
+  message: string;
+}
+
+export type PromoMetricsByCampaignItem = {
+  campaign: string;
+  redemptions: number;
+  captionCredits: number;
+  imageCredits: number;
+};
+
+export type PromoMetricsByPlanItem = {
+  plan: string;
+  redemptions: number;
+};
+
+export interface PromoMetrics {
+  totalRedemptions: number;
+  totalCaptionCredits: number;
+  totalImageCredits: number;
+  byCampaign: PromoMetricsByCampaignItem[];
+  byPlan: PromoMetricsByPlanItem[];
+}
+
+export interface PromoFailure {
+  id: number;
+  tenantId: number;
+  code: string;
+  reason: string;
+  createdAt: string;
+  /** @nullable */
+  tenantEmail: string | null;
+}
+
 export interface CreditLedgerEntry {
   id: number;
   kind: string;
@@ -3010,6 +3188,7 @@ export interface FeatureFlags {
   team: boolean;
   billing: boolean;
   pushNotifications: boolean;
+  promoCodes: boolean;
   referenceImages: boolean;
 }
 

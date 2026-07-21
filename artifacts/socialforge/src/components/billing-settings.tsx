@@ -9,6 +9,7 @@ import {
   useBillingSwitchPayg,
   useBillingPurchaseCredits,
   useBillingVerifyPurchase,
+  useBillingRedeemPromo,
   getBillingGetOverviewQueryKey,
   getGetMeQueryKey,
 } from "@workspace/api-client-react";
@@ -24,9 +25,11 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { CreditCard, Coins, ReceiptText } from "lucide-react";
+import { useFeatureFlags } from "@/lib/features";
+import { CreditCard, Coins, ReceiptText, TicketPercent } from "lucide-react";
 
 declare global {
   interface Window {
@@ -76,11 +79,14 @@ export function BillingSettings() {
   const switchPayg = useBillingSwitchPayg();
   const purchaseCredits = useBillingPurchaseCredits();
   const verifyPurchase = useBillingVerifyPurchase();
+  const redeemPromo = useBillingRedeemPromo();
+  const { flags } = useFeatureFlags();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [cycle, setCycle] = useState<"monthly" | "yearly">("monthly");
+  const [promoCode, setPromoCode] = useState("");
 
   const isOwner = me?.team ? me.team.role === "owner" : true;
 
@@ -226,6 +232,27 @@ export function BillingSettings() {
     } finally {
       setBusyId(null);
     }
+  };
+
+  const handleRedeemPromo = () => {
+    const code = promoCode.trim();
+    if (!code) return;
+    redeemPromo.mutate(
+      { data: { code } },
+      {
+        onSuccess: (result) => {
+          toast({ title: "Code redeemed", description: result.message });
+          setPromoCode("");
+          refresh();
+        },
+        onError: (error) =>
+          toast({
+            title: "Could not redeem the code",
+            description: errorMessage(error, "Please check the code and try again."),
+            variant: "destructive",
+          }),
+      },
+    );
   };
 
   return (
@@ -443,6 +470,44 @@ export function BillingSettings() {
         </CardContent>
       </Card>
 
+      {flags.promoCodes && isOwner && (
+        <Card className="border-border shadow-sm">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TicketPercent className="h-5 w-5 text-primary" /> Have a promo code?
+            </CardTitle>
+            <CardDescription>
+              Enter a promotional code to add free credits to your workspace.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form
+              className="flex flex-col gap-2 sm:flex-row sm:max-w-md"
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleRedeemPromo();
+              }}
+            >
+              <Input
+                value={promoCode}
+                onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                placeholder="Enter code"
+                maxLength={64}
+                autoComplete="off"
+                data-testid="input-promo-code"
+              />
+              <Button
+                type="submit"
+                disabled={!promoCode.trim() || redeemPromo.isPending}
+                data-testid="button-redeem-promo"
+              >
+                {redeemPromo.isPending ? "Checking..." : "Redeem"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
       <Card className="border-border shadow-sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -465,9 +530,11 @@ export function BillingSettings() {
                         ? "Credit pack"
                         : entry.kind === "admin_grant"
                           ? "Granted by admin"
-                          : entry.kind === "refund"
-                            ? "Refunded"
-                            : "Used"}
+                          : entry.kind === "promo"
+                            ? "Promo code"
+                            : entry.kind === "refund"
+                              ? "Refunded"
+                              : "Used"}
                     </span>
                     {entry.note && (
                       <span className="text-muted-foreground"> — {entry.note}</span>

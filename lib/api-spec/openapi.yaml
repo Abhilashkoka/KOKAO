@@ -3652,6 +3652,207 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /admin/promo-codes:
+    get:
+      operationId: adminListPromoCodes
+      tags: [billing]
+      summary: List all promo codes, including inactive (superadmin only)
+      responses:
+        "200":
+          description: Promo codes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PromoCode"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: adminCreatePromoCodes
+      tags: [billing]
+      summary: Create one promo code or bulk-generate a batch (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PromoCodeCreateInput"
+      responses:
+        "200":
+          description: The created code(s)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PromoCode"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Code already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/promo-codes/{id}:
+    put:
+      operationId: adminUpdatePromoCode
+      tags: [billing]
+      summary: Edit a promo code's limits, window, or status (superadmin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PromoCodeUpdateInput"
+      responses:
+        "200":
+          description: Updated promo code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromoCode"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: adminDeactivatePromoCode
+      tags: [billing]
+      summary: Instantly deactivate a promo code (superadmin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deactivated promo code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromoCode"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/promo-metrics:
+    get:
+      operationId: adminGetPromoMetrics
+      tags: [billing]
+      summary: Aggregate promo redemption metrics (superadmin only)
+      responses:
+        "200":
+          description: Promo metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromoMetrics"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/promo-failures:
+    get:
+      operationId: adminListPromoFailures
+      tags: [billing]
+      summary: Recent rejected redemption attempts (superadmin only)
+      responses:
+        "200":
+          description: Failure log
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PromoFailure"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/promo/redeem:
+    post:
+      operationId: billingRedeemPromo
+      tags: [billing]
+      summary: Redeem a promo code for prepaid credits (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RedeemPromoInput"
+      responses:
+        "200":
+          description: Credits granted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromoRedeemResult"
+        "400":
+          description: Code rejected (invalid, expired, limit reached, ...)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /billing:
     get:
       operationId: billingGetOverview
@@ -5997,6 +6198,225 @@ components:
         note:
           type: string
           maxLength: 200
+    PromoCode:
+      type: object
+      required:
+        [
+          id,
+          code,
+          campaign,
+          captionCredits,
+          imageCredits,
+          allowedPlans,
+          audience,
+          newTenantDays,
+          maxRedemptions,
+          perTenantLimit,
+          redemptionCount,
+          startsAt,
+          expiresAt,
+          active,
+          batchId,
+          note,
+          createdAt,
+        ]
+      properties:
+        id:
+          type: integer
+        code:
+          type: string
+        campaign:
+          type: ["string", "null"]
+        captionCredits:
+          type: integer
+        imageCredits:
+          type: integer
+        allowedPlans:
+          type: ["array", "null"]
+          items:
+            type: string
+        audience:
+          type: string
+          enum: [all, new, existing]
+        newTenantDays:
+          type: integer
+        maxRedemptions:
+          type: ["integer", "null"]
+        perTenantLimit:
+          type: integer
+        redemptionCount:
+          type: integer
+        startsAt:
+          type: ["string", "null"]
+        expiresAt:
+          type: ["string", "null"]
+        active:
+          type: boolean
+        batchId:
+          type: ["string", "null"]
+        note:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+    PromoCodeCreateInput:
+      type: object
+      required: [captionCredits, imageCredits]
+      properties:
+        code:
+          type: string
+          minLength: 3
+          maxLength: 64
+        generateCount:
+          type: integer
+          minimum: 1
+          maximum: 500
+        prefix:
+          type: string
+          maxLength: 20
+        campaign:
+          type: string
+          maxLength: 80
+        captionCredits:
+          type: integer
+          minimum: 0
+        imageCredits:
+          type: integer
+          minimum: 0
+        allowedPlans:
+          type: array
+          items:
+            type: string
+        audience:
+          type: string
+          enum: [all, new, existing]
+        newTenantDays:
+          type: integer
+          minimum: 1
+          maximum: 365
+        maxRedemptions:
+          type: ["integer", "null"]
+          minimum: 1
+        perTenantLimit:
+          type: integer
+          minimum: 1
+        startsAt:
+          type: ["string", "null"]
+        expiresAt:
+          type: ["string", "null"]
+        active:
+          type: boolean
+        note:
+          type: string
+          maxLength: 200
+    PromoCodeUpdateInput:
+      type: object
+      properties:
+        campaign:
+          type: ["string", "null"]
+          maxLength: 80
+        captionCredits:
+          type: integer
+          minimum: 0
+        imageCredits:
+          type: integer
+          minimum: 0
+        allowedPlans:
+          type: ["array", "null"]
+          items:
+            type: string
+        audience:
+          type: string
+          enum: [all, new, existing]
+        newTenantDays:
+          type: integer
+          minimum: 1
+          maximum: 365
+        maxRedemptions:
+          type: ["integer", "null"]
+          minimum: 1
+        perTenantLimit:
+          type: integer
+          minimum: 1
+        startsAt:
+          type: ["string", "null"]
+        expiresAt:
+          type: ["string", "null"]
+        active:
+          type: boolean
+        note:
+          type: ["string", "null"]
+          maxLength: 200
+    RedeemPromoInput:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
+    PromoRedeemResult:
+      type: object
+      required: [ok, captionCredits, imageCredits, message]
+      properties:
+        ok:
+          type: boolean
+        captionCredits:
+          type: integer
+        imageCredits:
+          type: integer
+        message:
+          type: string
+    PromoMetrics:
+      type: object
+      required:
+        [totalRedemptions, totalCaptionCredits, totalImageCredits, byCampaign, byPlan]
+      properties:
+        totalRedemptions:
+          type: integer
+        totalCaptionCredits:
+          type: integer
+        totalImageCredits:
+          type: integer
+        byCampaign:
+          type: array
+          items:
+            type: object
+            required: [campaign, redemptions, captionCredits, imageCredits]
+            properties:
+              campaign:
+                type: string
+              redemptions:
+                type: integer
+              captionCredits:
+                type: integer
+              imageCredits:
+                type: integer
+        byPlan:
+          type: array
+          items:
+            type: object
+            required: [plan, redemptions]
+            properties:
+              plan:
+                type: string
+              redemptions:
+                type: integer
+    PromoFailure:
+      type: object
+      required: [id, tenantId, code, reason, createdAt, tenantEmail]
+      properties:
+        id:
+          type: integer
+        tenantId:
+          type: integer
+        code:
+          type: string
+        reason:
+          type: string
+        createdAt:
+          type: string
+        tenantEmail:
+          type: ["string", "null"]
     CreditLedgerEntry:
       type: object
       required: [id, kind, captionDelta, imageDelta, note, createdAt]
@@ -9196,6 +9616,7 @@ components:
           team,
           billing,
           pushNotifications,
+          promoCodes,
           referenceImages,
         ]
       properties:
@@ -9216,6 +9637,8 @@ components:
         billing:
           type: boolean
         pushNotifications:
+          type: boolean
+        promoCodes:
           type: boolean
         referenceImages:
           type: boolean

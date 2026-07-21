@@ -60,6 +60,12 @@ export const FEATURES = [
       "Mobile push notification delivery and device push-token registration.",
   },
   {
+    id: "promoCodes",
+    label: "Promo Codes",
+    description:
+      "Redeeming promotional codes for free credits on the Billing page.",
+  },
+  {
     id: "referenceImages",
     label: "Reference Images",
     description:

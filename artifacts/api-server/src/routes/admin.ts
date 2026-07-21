@@ -54,6 +54,8 @@ import {
   AdminCreateCreditPackBody,
   AdminUpdateCreditPackBody,
   AdminGrantCreditsBody,
+  AdminCreatePromoCodesBody,
+  AdminUpdatePromoCodeBody,
 } from "@workspace/api-zod";
 import {
   notificationPoliciesTable,
@@ -69,8 +71,14 @@ import {
   getEffectiveSeatLimit,
   getSeatsUsed,
 } from "../lib/team";
-import { creditPacksTable } from "@workspace/db";
+import { creditPacksTable, promoCodesTable, type PromoCode } from "@workspace/db";
 import { grantCredits, getCreditBalances } from "../lib/credits";
+import {
+  normalizePromoCode,
+  generatePromoCode,
+  getPromoMetrics,
+  listPromoFailures,
+} from "../lib/promoCodes";
 import { isRazorpayConfigured, createRazorpayPlan } from "../lib/razorpay";
 import {
   DEFAULT_PLAN_IDS,
@@ -1515,6 +1523,285 @@ router.delete("/admin/credit-packs/:id", async (req: Request, res: Response) => 
   res.json(await listAllCreditPacks());
 });
 
+// ---------------------------------------------------------------------------
+// Promo codes (superadmin-defined credit giveaways)
+// ---------------------------------------------------------------------------
+
+function serializePromoCode(p: PromoCode) {
+  return {
+    id: p.id,
+    code: p.code,
+    campaign: p.campaign,
+    captionCredits: p.captionCredits,
+    imageCredits: p.imageCredits,
+    allowedPlans: p.allowedPlans,
+    audience: p.audience as "all" | "new" | "existing",
+    newTenantDays: p.newTenantDays,
+    maxRedemptions: p.maxRedemptions,
+    perTenantLimit: p.perTenantLimit,
+    redemptionCount: p.redemptionCount,
+    startsAt: p.startsAt?.toISOString() ?? null,
+    expiresAt: p.expiresAt?.toISOString() ?? null,
+    active: p.active,
+    batchId: p.batchId,
+    note: p.note,
+    createdAt: p.createdAt.toISOString(),
+  };
+}
+
+function parsePromoDate(
+  value: string | null | undefined,
+): Date | null | undefined | "invalid" {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "invalid" : d;
+}
+
+async function auditPromoChange(
+  req: Request,
+  oldValue: PromoCode | null,
+  newValue: ReturnType<typeof serializePromoCode> | { batchId: string; count: number } | null,
+) {
+  try {
+    await recordAdminAction({
+      action: "promo_code_change",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: oldValue ? JSON.stringify(serializePromoCode(oldValue)) : null,
+      newValue: newValue ? JSON.stringify(newValue) : null,
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write promo-code audit log");
+  }
+}
+
+/** GET /admin/promo-codes — every code, newest first. */
+router.get("/admin/promo-codes", async (_req: Request, res: Response) => {
+  const rows = await db
+    .select()
+    .from(promoCodesTable)
+    .orderBy(desc(promoCodesTable.createdAt), desc(promoCodesTable.id));
+  res.json(rows.map(serializePromoCode));
+});
+
+/**
+ * POST /admin/promo-codes — create one code (explicit `code`) or bulk-
+ * generate a batch (`generateCount`, optional `prefix`). Returns the created
+ * code(s) so a batch can be exported immediately.
+ */
+router.post("/admin/promo-codes", async (req: Request, res: Response) => {
+  const parsed = AdminCreatePromoCodesBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const b = parsed.data;
+  if ((b.captionCredits ?? 0) <= 0 && (b.imageCredits ?? 0) <= 0) {
+    res.status(400).json({ error: "A promo code must grant at least one credit." });
+    return;
+  }
+  const hasCode = typeof b.code === "string" && b.code.trim().length > 0;
+  const count = b.generateCount ?? 0;
+  if (hasCode === (count > 0)) {
+    res.status(400).json({
+      error: "Provide either a specific code or a number of codes to generate.",
+    });
+    return;
+  }
+  const startsAt = parsePromoDate(b.startsAt);
+  const expiresAt = parsePromoDate(b.expiresAt);
+  if (startsAt === "invalid" || expiresAt === "invalid") {
+    res.status(400).json({ error: "Invalid date" });
+    return;
+  }
+  if (startsAt && expiresAt && expiresAt <= startsAt) {
+    res.status(400).json({ error: "The expiry must be after the start." });
+    return;
+  }
+
+  const base = {
+    campaign: b.campaign?.trim() || null,
+    captionCredits: b.captionCredits,
+    imageCredits: b.imageCredits,
+    allowedPlans:
+      b.allowedPlans && b.allowedPlans.length > 0 ? b.allowedPlans : null,
+    audience: b.audience ?? "all",
+    newTenantDays: b.newTenantDays ?? 30,
+    maxRedemptions: b.maxRedemptions ?? null,
+    perTenantLimit: b.perTenantLimit ?? 1,
+    startsAt: startsAt ?? null,
+    expiresAt: expiresAt ?? null,
+    active: b.active ?? true,
+    note: b.note?.trim() || null,
+  };
+
+  if (hasCode) {
+    const code = normalizePromoCode(b.code!);
+    if (!/^[A-Z0-9_-]{3,64}$/.test(code)) {
+      res.status(400).json({
+        error: "Codes may only use letters, numbers, hyphens, and underscores.",
+      });
+      return;
+    }
+    const created = (
+      await db
+        .insert(promoCodesTable)
+        .values({ ...base, code })
+        .onConflictDoNothing({ target: promoCodesTable.code })
+        .returning()
+    )[0];
+    if (!created) {
+      res.status(409).json({ error: "That code already exists." });
+      return;
+    }
+    await auditPromoChange(req, null, serializePromoCode(created));
+    res.json([serializePromoCode(created)]);
+    return;
+  }
+
+  // Bulk generation: random codes are effectively collision-free, but
+  // onConflictDoNothing + top-up keeps the batch exact even if one collides.
+  const batchId = generatePromoCode(undefined, 8);
+  const created: PromoCode[] = [];
+  for (let attempt = 0; attempt < 10 && created.length < count; attempt++) {
+    const missing = count - created.length;
+    const values = Array.from({ length: missing }, () => ({
+      ...base,
+      code: generatePromoCode(b.prefix),
+      batchId,
+    }));
+    const rows = await db
+      .insert(promoCodesTable)
+      .values(values)
+      .onConflictDoNothing({ target: promoCodesTable.code })
+      .returning();
+    created.push(...rows);
+  }
+  await auditPromoChange(req, null, { batchId, count: created.length });
+  res.json(created.map(serializePromoCode));
+});
+
+/** PUT /admin/promo-codes/:id — edit limits, window, targeting, or status. */
+router.put("/admin/promo-codes/:id", async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const parsed = AdminUpdatePromoCodeBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const previous = (
+    await db.select().from(promoCodesTable).where(eq(promoCodesTable.id, id)).limit(1)
+  )[0];
+  if (!previous) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  const b = parsed.data;
+  const startsAt = parsePromoDate(b.startsAt);
+  const expiresAt = parsePromoDate(b.expiresAt);
+  if (startsAt === "invalid" || expiresAt === "invalid") {
+    res.status(400).json({ error: "Invalid date" });
+    return;
+  }
+  const nextCaptions = b.captionCredits ?? previous.captionCredits;
+  const nextImages = b.imageCredits ?? previous.imageCredits;
+  if (nextCaptions <= 0 && nextImages <= 0) {
+    res.status(400).json({ error: "A promo code must grant at least one credit." });
+    return;
+  }
+  const nextStarts = startsAt === undefined ? previous.startsAt : startsAt;
+  const nextExpires = expiresAt === undefined ? previous.expiresAt : expiresAt;
+  if (nextStarts && nextExpires && nextExpires <= nextStarts) {
+    res.status(400).json({ error: "The expiry must be after the start." });
+    return;
+  }
+  const updated = (
+    await db
+      .update(promoCodesTable)
+      .set({
+        campaign:
+          b.campaign === undefined ? previous.campaign : b.campaign?.trim() || null,
+        captionCredits: nextCaptions,
+        imageCredits: nextImages,
+        allowedPlans:
+          b.allowedPlans === undefined
+            ? previous.allowedPlans
+            : b.allowedPlans && b.allowedPlans.length > 0
+              ? b.allowedPlans
+              : null,
+        audience: b.audience ?? previous.audience,
+        newTenantDays: b.newTenantDays ?? previous.newTenantDays,
+        maxRedemptions:
+          b.maxRedemptions === undefined ? previous.maxRedemptions : b.maxRedemptions,
+        perTenantLimit: b.perTenantLimit ?? previous.perTenantLimit,
+        startsAt: nextStarts,
+        expiresAt: nextExpires,
+        active: b.active ?? previous.active,
+        note: b.note === undefined ? previous.note : b.note?.trim() || null,
+        updatedAt: new Date(),
+      })
+      .where(eq(promoCodesTable.id, id))
+      .returning()
+  )[0];
+  if (!updated) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  await auditPromoChange(req, previous, serializePromoCode(updated));
+  res.json(serializePromoCode(updated));
+});
+
+/**
+ * DELETE /admin/promo-codes/:id — instant deactivate (soft; the redemption
+ * history must stay resolvable, so rows are never hard-deleted).
+ */
+router.delete("/admin/promo-codes/:id", async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const previous = (
+    await db.select().from(promoCodesTable).where(eq(promoCodesTable.id, id)).limit(1)
+  )[0];
+  if (!previous) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  const updated = (
+    await db
+      .update(promoCodesTable)
+      .set({ active: false, updatedAt: new Date() })
+      .where(eq(promoCodesTable.id, id))
+      .returning()
+  )[0];
+  await auditPromoChange(
+    req,
+    previous,
+    updated ? serializePromoCode(updated) : null,
+  );
+  res.json(serializePromoCode(updated ?? { ...previous, active: false }));
+});
+
+/** GET /admin/promo-metrics — totals plus per-campaign and per-plan splits. */
+router.get("/admin/promo-metrics", async (_req: Request, res: Response) => {
+  res.json(await getPromoMetrics());
+});
+
+/** GET /admin/promo-failures — recent rejected redemption attempts. */
+router.get("/admin/promo-failures", async (_req: Request, res: Response) => {
+  const rows = await listPromoFailures();
+  res.json(
+    rows.map((r) => ({
+      id: r.id,
+      tenantId: r.tenantId,
+      code: r.code,
+      reason: r.reason,
+      createdAt: r.createdAt.toISOString(),
+      tenantEmail: r.tenantEmail,
+    })),
+  );
+});
+
 /**
  * POST /admin/tenants/:id/credits — manual credit grant (or deduction with
  * negative deltas). Audited; the ledger records it as admin_grant.
@@ -1585,6 +1872,7 @@ const AUDIT_ACTIONS = new Set([
   "sweep_run",
   "credit_pack_change",
   "credit_grant",
+  "promo_code_change",
 ]);
 
 function escapeLike(value: string): string {

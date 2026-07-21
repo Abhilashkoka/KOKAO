@@ -92,6 +92,9 @@ router.use("/threads", requireFeature("connectedAccounts"));
 router.use("/analytics", requireFeature("analytics"));
 router.use("/team", requireFeature("team"));
 router.use("/billing", requireFeature("billing"));
+// Promo redemption gets its own switch on top of billing's, plus the tight
+// rate-limit bucket so codes can't be brute-forced.
+router.use("/billing/promo", sensitiveLimiter, requireFeature("promoCodes"));
 router.use("/push-tokens", requireFeature("pushNotifications"));
 
 router.use(protectedStorageRouter);

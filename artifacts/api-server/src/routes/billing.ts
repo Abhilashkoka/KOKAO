@@ -11,7 +11,9 @@ import {
   BillingVerifySubscriptionBody,
   BillingPurchaseCreditsBody,
   BillingVerifyPurchaseBody,
+  BillingRedeemPromoBody,
 } from "@workspace/api-zod";
+import { redeemPromoCode } from "../lib/promoCodes";
 import {
   isRazorpayConfigured,
   getRazorpayKeyId,
@@ -483,6 +485,46 @@ router.post("/billing/verify-purchase", async (req: Request, res: Response) => {
     res.json({ ok: true, credits: await getCreditBalances(req.tenantId) });
   } catch (error) {
     handleRazorpayError(req, res, error, "Failed to verify purchase");
+  }
+});
+
+/**
+ * POST /billing/promo/redeem
+ * Redeem a promo code for prepaid credits (owner only). All eligibility
+ * checks and the grant run atomically inside the redemption engine; the
+ * route just translates the outcome. Rejections come back as 400 with a
+ * user-readable message and a machine `code`.
+ */
+router.post("/billing/promo/redeem", async (req: Request, res: Response) => {
+  if (!requireOwner(req, res)) return;
+  const parsed = BillingRedeemPromoBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Enter a promo code." });
+    return;
+  }
+  try {
+    const result = await redeemPromoCode(req.tenantId, parsed.data.code);
+    if (!result.ok) {
+      res.status(400).json({ error: result.message, code: result.reason });
+      return;
+    }
+    void recordServerEvent({
+      name: "promo_redeemed",
+      tenantId: req.tenantId,
+      params: {
+        caption_credits: result.captionCredits,
+        image_credits: result.imageCredits,
+      },
+    });
+    res.json({
+      ok: true,
+      captionCredits: result.captionCredits,
+      imageCredits: result.imageCredits,
+      message: result.message,
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Promo redemption failed");
+    res.status(500).json({ error: "Could not redeem the code. Please try again." });
   }
 });
 

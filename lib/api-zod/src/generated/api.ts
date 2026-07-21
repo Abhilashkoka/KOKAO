@@ -75,6 +75,7 @@ export const ListFeatureFlagsResponse = zod.object({
   "team": zod.boolean(),
   "billing": zod.boolean(),
   "pushNotifications": zod.boolean(),
+  "promoCodes": zod.boolean(),
   "referenceImages": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
@@ -5112,6 +5113,233 @@ export const AdminGrantCreditsResponse = zod.object({
   "captionCredits": zod.number(),
   "imageCredits": zod.number()
 })
+})
+
+
+/**
+ * @summary List all promo codes, including inactive (superadmin only)
+ */
+export const AdminListPromoCodesResponseItem = zod.object({
+  "id": zod.number(),
+  "code": zod.string(),
+  "campaign": zod.string().nullable(),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "allowedPlans": zod.array(zod.string()).nullable(),
+  "audience": zod.enum(['all', 'new', 'existing']),
+  "newTenantDays": zod.number(),
+  "maxRedemptions": zod.number().nullable(),
+  "perTenantLimit": zod.number(),
+  "redemptionCount": zod.number(),
+  "startsAt": zod.string().nullable(),
+  "expiresAt": zod.string().nullable(),
+  "active": zod.boolean(),
+  "batchId": zod.string().nullable(),
+  "note": zod.string().nullable(),
+  "createdAt": zod.string()
+})
+export const AdminListPromoCodesResponse = zod.array(AdminListPromoCodesResponseItem)
+
+
+/**
+ * @summary Create one promo code or bulk-generate a batch (superadmin only)
+ */
+export const adminCreatePromoCodesBodyCodeMin = 3;
+export const adminCreatePromoCodesBodyCodeMax = 64;
+
+export const adminCreatePromoCodesBodyGenerateCountMax = 500;
+
+export const adminCreatePromoCodesBodyPrefixMax = 20;
+
+export const adminCreatePromoCodesBodyCampaignMax = 80;
+
+export const adminCreatePromoCodesBodyCaptionCreditsMin = 0;
+
+export const adminCreatePromoCodesBodyImageCreditsMin = 0;
+
+export const adminCreatePromoCodesBodyNewTenantDaysMax = 365;
+
+
+
+export const adminCreatePromoCodesBodyNoteMax = 200;
+
+
+
+export const AdminCreatePromoCodesBody = zod.object({
+  "code": zod.string().min(adminCreatePromoCodesBodyCodeMin).max(adminCreatePromoCodesBodyCodeMax).optional(),
+  "generateCount": zod.number().min(1).max(adminCreatePromoCodesBodyGenerateCountMax).optional(),
+  "prefix": zod.string().max(adminCreatePromoCodesBodyPrefixMax).optional(),
+  "campaign": zod.string().max(adminCreatePromoCodesBodyCampaignMax).optional(),
+  "captionCredits": zod.number().min(adminCreatePromoCodesBodyCaptionCreditsMin),
+  "imageCredits": zod.number().min(adminCreatePromoCodesBodyImageCreditsMin),
+  "allowedPlans": zod.array(zod.string()).optional(),
+  "audience": zod.enum(['all', 'new', 'existing']).optional(),
+  "newTenantDays": zod.number().min(1).max(adminCreatePromoCodesBodyNewTenantDaysMax).optional(),
+  "maxRedemptions": zod.number().min(1).nullish(),
+  "perTenantLimit": zod.number().min(1).optional(),
+  "startsAt": zod.string().nullish(),
+  "expiresAt": zod.string().nullish(),
+  "active": zod.boolean().optional(),
+  "note": zod.string().max(adminCreatePromoCodesBodyNoteMax).optional()
+})
+
+export const AdminCreatePromoCodesResponseItem = zod.object({
+  "id": zod.number(),
+  "code": zod.string(),
+  "campaign": zod.string().nullable(),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "allowedPlans": zod.array(zod.string()).nullable(),
+  "audience": zod.enum(['all', 'new', 'existing']),
+  "newTenantDays": zod.number(),
+  "maxRedemptions": zod.number().nullable(),
+  "perTenantLimit": zod.number(),
+  "redemptionCount": zod.number(),
+  "startsAt": zod.string().nullable(),
+  "expiresAt": zod.string().nullable(),
+  "active": zod.boolean(),
+  "batchId": zod.string().nullable(),
+  "note": zod.string().nullable(),
+  "createdAt": zod.string()
+})
+export const AdminCreatePromoCodesResponse = zod.array(AdminCreatePromoCodesResponseItem)
+
+
+/**
+ * @summary Edit a promo code's limits, window, or status (superadmin only)
+ */
+export const AdminUpdatePromoCodeParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const adminUpdatePromoCodeBodyCampaignMax = 80;
+
+export const adminUpdatePromoCodeBodyCaptionCreditsMin = 0;
+
+export const adminUpdatePromoCodeBodyImageCreditsMin = 0;
+
+export const adminUpdatePromoCodeBodyNewTenantDaysMax = 365;
+
+
+
+export const adminUpdatePromoCodeBodyNoteMax = 200;
+
+
+
+export const AdminUpdatePromoCodeBody = zod.object({
+  "campaign": zod.string().max(adminUpdatePromoCodeBodyCampaignMax).nullish(),
+  "captionCredits": zod.number().min(adminUpdatePromoCodeBodyCaptionCreditsMin).optional(),
+  "imageCredits": zod.number().min(adminUpdatePromoCodeBodyImageCreditsMin).optional(),
+  "allowedPlans": zod.array(zod.string()).nullish(),
+  "audience": zod.enum(['all', 'new', 'existing']).optional(),
+  "newTenantDays": zod.number().min(1).max(adminUpdatePromoCodeBodyNewTenantDaysMax).optional(),
+  "maxRedemptions": zod.number().min(1).nullish(),
+  "perTenantLimit": zod.number().min(1).optional(),
+  "startsAt": zod.string().nullish(),
+  "expiresAt": zod.string().nullish(),
+  "active": zod.boolean().optional(),
+  "note": zod.string().max(adminUpdatePromoCodeBodyNoteMax).nullish()
+})
+
+export const AdminUpdatePromoCodeResponse = zod.object({
+  "id": zod.number(),
+  "code": zod.string(),
+  "campaign": zod.string().nullable(),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "allowedPlans": zod.array(zod.string()).nullable(),
+  "audience": zod.enum(['all', 'new', 'existing']),
+  "newTenantDays": zod.number(),
+  "maxRedemptions": zod.number().nullable(),
+  "perTenantLimit": zod.number(),
+  "redemptionCount": zod.number(),
+  "startsAt": zod.string().nullable(),
+  "expiresAt": zod.string().nullable(),
+  "active": zod.boolean(),
+  "batchId": zod.string().nullable(),
+  "note": zod.string().nullable(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Instantly deactivate a promo code (superadmin only)
+ */
+export const AdminDeactivatePromoCodeParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AdminDeactivatePromoCodeResponse = zod.object({
+  "id": zod.number(),
+  "code": zod.string(),
+  "campaign": zod.string().nullable(),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "allowedPlans": zod.array(zod.string()).nullable(),
+  "audience": zod.enum(['all', 'new', 'existing']),
+  "newTenantDays": zod.number(),
+  "maxRedemptions": zod.number().nullable(),
+  "perTenantLimit": zod.number(),
+  "redemptionCount": zod.number(),
+  "startsAt": zod.string().nullable(),
+  "expiresAt": zod.string().nullable(),
+  "active": zod.boolean(),
+  "batchId": zod.string().nullable(),
+  "note": zod.string().nullable(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Aggregate promo redemption metrics (superadmin only)
+ */
+export const AdminGetPromoMetricsResponse = zod.object({
+  "totalRedemptions": zod.number(),
+  "totalCaptionCredits": zod.number(),
+  "totalImageCredits": zod.number(),
+  "byCampaign": zod.array(zod.object({
+  "campaign": zod.string(),
+  "redemptions": zod.number(),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number()
+})),
+  "byPlan": zod.array(zod.object({
+  "plan": zod.string(),
+  "redemptions": zod.number()
+}))
+})
+
+
+/**
+ * @summary Recent rejected redemption attempts (superadmin only)
+ */
+export const AdminListPromoFailuresResponseItem = zod.object({
+  "id": zod.number(),
+  "tenantId": zod.number(),
+  "code": zod.string(),
+  "reason": zod.string(),
+  "createdAt": zod.string(),
+  "tenantEmail": zod.string().nullable()
+})
+export const AdminListPromoFailuresResponse = zod.array(AdminListPromoFailuresResponseItem)
+
+
+/**
+ * @summary Redeem a promo code for prepaid credits (owner only)
+ */
+export const billingRedeemPromoBodyCodeMax = 64;
+
+
+
+export const BillingRedeemPromoBody = zod.object({
+  "code": zod.string().min(1).max(billingRedeemPromoBodyCodeMax)
+})
+
+export const BillingRedeemPromoResponse = zod.object({
+  "ok": zod.boolean(),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "message": zod.string()
 })
 
 

@@ -149,6 +149,12 @@ import type {
   Plan,
   PlanCreateInput,
   PlanUpdateInput,
+  PromoCode,
+  PromoCodeCreateInput,
+  PromoCodeUpdateInput,
+  PromoFailure,
+  PromoMetrics,
+  PromoRedeemResult,
   PublishFacebookResult,
   PublishInstagramResult,
   PublishLinkedInResult,
@@ -159,6 +165,7 @@ import type {
   PushTokenUnregisterInput,
   RazorpayAppCredentialInput,
   RazorpayAppCredentialStatus,
+  RedeemPromoInput,
   ReliabilityAnalytics,
   ResearchRequest,
   ResearchResult,
@@ -10122,6 +10129,518 @@ export const useAdminGrantCredits = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAdminGrantCreditsMutationOptions(options));
+    }
+
+export const getAdminListPromoCodesUrl = () => {
+
+
+
+
+  return `/api/admin/promo-codes`
+}
+
+/**
+ * @summary List all promo codes, including inactive (superadmin only)
+ */
+export const adminListPromoCodes = async ( options?: RequestInit): Promise<PromoCode[]> => {
+
+  return customFetch<PromoCode[]>(getAdminListPromoCodesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListPromoCodesQueryKey = () => {
+    return [
+    `/api/admin/promo-codes`
+    ] as const;
+    }
+
+
+export const getAdminListPromoCodesQueryOptions = <TData = Awaited<ReturnType<typeof adminListPromoCodes>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListPromoCodes>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListPromoCodesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListPromoCodes>>> = ({ signal }) => adminListPromoCodes({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListPromoCodes>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListPromoCodesQueryResult = NonNullable<Awaited<ReturnType<typeof adminListPromoCodes>>>
+export type AdminListPromoCodesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List all promo codes, including inactive (superadmin only)
+ */
+
+export function useAdminListPromoCodes<TData = Awaited<ReturnType<typeof adminListPromoCodes>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListPromoCodes>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListPromoCodesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminCreatePromoCodesUrl = () => {
+
+
+
+
+  return `/api/admin/promo-codes`
+}
+
+/**
+ * @summary Create one promo code or bulk-generate a batch (superadmin only)
+ */
+export const adminCreatePromoCodes = async (promoCodeCreateInput: PromoCodeCreateInput, options?: RequestInit): Promise<PromoCode[]> => {
+
+  return customFetch<PromoCode[]>(getAdminCreatePromoCodesUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promoCodeCreateInput)
+  }
+);}
+
+
+
+
+export const getAdminCreatePromoCodesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminCreatePromoCodes>>, TError,{data: BodyType<PromoCodeCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminCreatePromoCodes>>, TError,{data: BodyType<PromoCodeCreateInput>}, TContext> => {
+
+const mutationKey = ['adminCreatePromoCodes'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminCreatePromoCodes>>, {data: BodyType<PromoCodeCreateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminCreatePromoCodes(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminCreatePromoCodesMutationResult = NonNullable<Awaited<ReturnType<typeof adminCreatePromoCodes>>>
+    export type AdminCreatePromoCodesMutationBody = BodyType<PromoCodeCreateInput>
+    export type AdminCreatePromoCodesMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create one promo code or bulk-generate a batch (superadmin only)
+ */
+export const useAdminCreatePromoCodes = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminCreatePromoCodes>>, TError,{data: BodyType<PromoCodeCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminCreatePromoCodes>>,
+        TError,
+        {data: BodyType<PromoCodeCreateInput>},
+        TContext
+      > => {
+      return useMutation(getAdminCreatePromoCodesMutationOptions(options));
+    }
+
+export const getAdminUpdatePromoCodeUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/promo-codes/${id}`
+}
+
+/**
+ * @summary Edit a promo code's limits, window, or status (superadmin only)
+ */
+export const adminUpdatePromoCode = async (id: number,
+    promoCodeUpdateInput: PromoCodeUpdateInput, options?: RequestInit): Promise<PromoCode> => {
+
+  return customFetch<PromoCode>(getAdminUpdatePromoCodeUrl(id),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promoCodeUpdateInput)
+  }
+);}
+
+
+
+
+export const getAdminUpdatePromoCodeMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdatePromoCode>>, TError,{id: number;data: BodyType<PromoCodeUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdatePromoCode>>, TError,{id: number;data: BodyType<PromoCodeUpdateInput>}, TContext> => {
+
+const mutationKey = ['adminUpdatePromoCode'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdatePromoCode>>, {id: number;data: BodyType<PromoCodeUpdateInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminUpdatePromoCode(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdatePromoCodeMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdatePromoCode>>>
+    export type AdminUpdatePromoCodeMutationBody = BodyType<PromoCodeUpdateInput>
+    export type AdminUpdatePromoCodeMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Edit a promo code's limits, window, or status (superadmin only)
+ */
+export const useAdminUpdatePromoCode = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdatePromoCode>>, TError,{id: number;data: BodyType<PromoCodeUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdatePromoCode>>,
+        TError,
+        {id: number;data: BodyType<PromoCodeUpdateInput>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdatePromoCodeMutationOptions(options));
+    }
+
+export const getAdminDeactivatePromoCodeUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/promo-codes/${id}`
+}
+
+/**
+ * @summary Instantly deactivate a promo code (superadmin only)
+ */
+export const adminDeactivatePromoCode = async (id: number, options?: RequestInit): Promise<PromoCode> => {
+
+  return customFetch<PromoCode>(getAdminDeactivatePromoCodeUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getAdminDeactivatePromoCodeMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminDeactivatePromoCode>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminDeactivatePromoCode>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['adminDeactivatePromoCode'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminDeactivatePromoCode>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  adminDeactivatePromoCode(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminDeactivatePromoCodeMutationResult = NonNullable<Awaited<ReturnType<typeof adminDeactivatePromoCode>>>
+
+    export type AdminDeactivatePromoCodeMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Instantly deactivate a promo code (superadmin only)
+ */
+export const useAdminDeactivatePromoCode = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminDeactivatePromoCode>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminDeactivatePromoCode>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getAdminDeactivatePromoCodeMutationOptions(options));
+    }
+
+export const getAdminGetPromoMetricsUrl = () => {
+
+
+
+
+  return `/api/admin/promo-metrics`
+}
+
+/**
+ * @summary Aggregate promo redemption metrics (superadmin only)
+ */
+export const adminGetPromoMetrics = async ( options?: RequestInit): Promise<PromoMetrics> => {
+
+  return customFetch<PromoMetrics>(getAdminGetPromoMetricsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetPromoMetricsQueryKey = () => {
+    return [
+    `/api/admin/promo-metrics`
+    ] as const;
+    }
+
+
+export const getAdminGetPromoMetricsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetPromoMetrics>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetPromoMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetPromoMetricsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetPromoMetrics>>> = ({ signal }) => adminGetPromoMetrics({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetPromoMetrics>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetPromoMetricsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetPromoMetrics>>>
+export type AdminGetPromoMetricsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Aggregate promo redemption metrics (superadmin only)
+ */
+
+export function useAdminGetPromoMetrics<TData = Awaited<ReturnType<typeof adminGetPromoMetrics>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetPromoMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetPromoMetricsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminListPromoFailuresUrl = () => {
+
+
+
+
+  return `/api/admin/promo-failures`
+}
+
+/**
+ * @summary Recent rejected redemption attempts (superadmin only)
+ */
+export const adminListPromoFailures = async ( options?: RequestInit): Promise<PromoFailure[]> => {
+
+  return customFetch<PromoFailure[]>(getAdminListPromoFailuresUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListPromoFailuresQueryKey = () => {
+    return [
+    `/api/admin/promo-failures`
+    ] as const;
+    }
+
+
+export const getAdminListPromoFailuresQueryOptions = <TData = Awaited<ReturnType<typeof adminListPromoFailures>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListPromoFailures>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListPromoFailuresQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListPromoFailures>>> = ({ signal }) => adminListPromoFailures({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListPromoFailures>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListPromoFailuresQueryResult = NonNullable<Awaited<ReturnType<typeof adminListPromoFailures>>>
+export type AdminListPromoFailuresQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Recent rejected redemption attempts (superadmin only)
+ */
+
+export function useAdminListPromoFailures<TData = Awaited<ReturnType<typeof adminListPromoFailures>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListPromoFailures>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListPromoFailuresQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getBillingRedeemPromoUrl = () => {
+
+
+
+
+  return `/api/billing/promo/redeem`
+}
+
+/**
+ * @summary Redeem a promo code for prepaid credits (owner only)
+ */
+export const billingRedeemPromo = async (redeemPromoInput: RedeemPromoInput, options?: RequestInit): Promise<PromoRedeemResult> => {
+
+  return customFetch<PromoRedeemResult>(getBillingRedeemPromoUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(redeemPromoInput)
+  }
+);}
+
+
+
+
+export const getBillingRedeemPromoMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof billingRedeemPromo>>, TError,{data: BodyType<RedeemPromoInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof billingRedeemPromo>>, TError,{data: BodyType<RedeemPromoInput>}, TContext> => {
+
+const mutationKey = ['billingRedeemPromo'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof billingRedeemPromo>>, {data: BodyType<RedeemPromoInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  billingRedeemPromo(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BillingRedeemPromoMutationResult = NonNullable<Awaited<ReturnType<typeof billingRedeemPromo>>>
+    export type BillingRedeemPromoMutationBody = BodyType<RedeemPromoInput>
+    export type BillingRedeemPromoMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Redeem a promo code for prepaid credits (owner only)
+ */
+export const useBillingRedeemPromo = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof billingRedeemPromo>>, TError,{data: BodyType<RedeemPromoInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof billingRedeemPromo>>,
+        TError,
+        {data: BodyType<RedeemPromoInput>},
+        TContext
+      > => {
+      return useMutation(getBillingRedeemPromoMutationOptions(options));
     }
 
 export const getBillingGetOverviewUrl = () => {

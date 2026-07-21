@@ -6,6 +6,7 @@ import { ShieldAlert } from "lucide-react";
 import { OverviewTab } from "./overview-tab";
 import { TenantsTab } from "./tenants-tab";
 import { PlansTab } from "./plans-tab";
+import { PromosTab } from "./promos-tab";
 import { CredentialsTab } from "./credentials-tab";
 import { AiTab } from "./ai-tab";
 import { NotificationsTab } from "./notifications-tab";
@@ -17,6 +18,7 @@ const TAB_IDS = [
   "overview",
   "tenants",
   "plans",
+  "promos",
   "credentials",
   "ai",
   "notifications",
@@ -97,6 +99,9 @@ export function AdminPage() {
             <TabsTrigger value="plans" data-testid="tab-plans">
               Plans
             </TabsTrigger>
+            <TabsTrigger value="promos" data-testid="tab-promos">
+              Promos
+            </TabsTrigger>
             <TabsTrigger value="credentials" data-testid="tab-credentials">
               Platform Credentials
             </TabsTrigger>
@@ -121,6 +126,9 @@ export function AdminPage() {
         </TabsContent>
         <TabsContent value="plans" className="mt-6">
           <PlansTab />
+        </TabsContent>
+        <TabsContent value="promos" className="mt-6">
+          <PromosTab />
         </TabsContent>
         <TabsContent value="credentials" className="mt-6">
           <CredentialsTab />

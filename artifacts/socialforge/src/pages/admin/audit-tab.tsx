@@ -48,6 +48,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   asr_key_change: "Speech-to-text key changed",
   email_test_send: "Test email sent",
   sweep_run: "Manual sweep run",
+  promo_code_change: "Promo code changed",
 };
 function formatAuditValue(action: string, value: string | null): string {
   if (value === null || value === "") return "—";
