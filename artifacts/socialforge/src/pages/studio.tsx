@@ -1635,7 +1635,7 @@ export function StudioPage() {
           </Card>
         </div>
 
-        <div className="lg:col-span-7 flex flex-col gap-6">
+        <div className="lg:col-span-7 flex flex-col gap-6 lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
           {carousel ? (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
