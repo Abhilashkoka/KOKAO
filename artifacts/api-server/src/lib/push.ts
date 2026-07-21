@@ -7,7 +7,18 @@ import {
   tenantMembersTable,
   tenantsTable,
 } from "@workspace/db";
-import { and, count, eq, inArray, isNull, lt, lte, notInArray, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 import { logger } from "./logger";
 import { getFeatureFlags } from "./featureFlags";
 import { getEffectiveSetting } from "./notificationSettings";
@@ -92,7 +103,12 @@ interface ExpoPushMessage {
   body: string;
   sound: "default";
   badge?: number;
-  data: { url?: string; type: string; contentItemId?: number };
+  data: {
+    url?: string;
+    type: string;
+    contentItemId?: number;
+    notificationId?: number;
+  };
 }
 
 function looksLikeExpoToken(token: string): boolean {
@@ -384,6 +400,7 @@ async function pushToUsers(
   clerkUserIds: string[],
   payload: PushPayload,
   badge?: number,
+  notificationId?: number,
 ): Promise<void> {
   if (clerkUserIds.length === 0) return;
   const rows = await db
@@ -404,6 +421,7 @@ async function pushToUsers(
       ...(payload.contentItemId != null
         ? { contentItemId: payload.contentItemId }
         : {}),
+      ...(notificationId !== undefined ? { notificationId } : {}),
       type: payload.type,
     },
   }));
@@ -481,6 +499,36 @@ export async function sendTenantPush(
       }
     }
 
+    // The in-app row this push mirrors: sendTenantPush is called right after
+    // the FRESH notification insert, so the newest unread row of this type is
+    // that row. Its id rides along in the push data so a tap that deep-links
+    // past the inbox can mark exactly this alert read. Best-effort: a lookup
+    // failure just sends the push without an id.
+    let notificationId: number | undefined;
+    try {
+      const fresh = (
+        await db
+          .select({ id: notificationsTable.id })
+          .from(notificationsTable)
+          .where(
+            and(
+              eq(notificationsTable.tenantId, tenantId),
+              eq(notificationsTable.type, type),
+              eq(notificationsTable.inApp, true),
+              isNull(notificationsTable.readAt),
+            ),
+          )
+          .orderBy(desc(notificationsTable.createdAt), desc(notificationsTable.id))
+          .limit(1)
+      )[0];
+      if (fresh) notificationId = fresh.id;
+    } catch (err) {
+      logger.error(
+        { err, tenantId, type },
+        "Failed to resolve the push's notification id",
+      );
+    }
+
     // iOS app-icon badge: the unread count of this tenant's in-app feed —
     // the same feed every recipient (owner and members) sees in the app.
     // Computed after the fresh row insert so it includes this notification.
@@ -504,7 +552,12 @@ export async function sendTenantPush(
       logger.error({ err, tenantId }, "Failed to compute push badge count");
     }
 
-    await pushToUsers(Array.from(recipients), { ...payload, type }, badge);
+    await pushToUsers(
+      Array.from(recipients),
+      { ...payload, type },
+      badge,
+      notificationId,
+    );
   } catch (err) {
     logger.error({ err, tenantId, type }, "Failed to send tenant push");
   }

@@ -6,9 +6,14 @@ vi.mock("@workspace/api-client-react", () => ({
   useListFeatureFlags: () => ({ data: undefined }),
   getListFeatureFlagsQueryKey: () => ["feature-flags"],
   useRegisterPushToken: () => ({ mutateAsync: vi.fn() }),
+  listNotifications: vi.fn(),
+  markNotificationRead: vi.fn(),
 }));
 
-import { resolveNotificationRoute } from "./pushNotifications";
+import {
+  extractNotificationId,
+  resolveNotificationRoute,
+} from "./pushNotifications";
 
 describe("resolveNotificationRoute", () => {
   it("maps library links to the library tab", () => {
@@ -102,5 +107,23 @@ describe("resolveNotificationRoute", () => {
     );
     expect(resolveNotificationRoute(undefined)).toBe("/notifications");
     expect(resolveNotificationRoute({ url: 42 })).toBe("/notifications");
+  });
+});
+
+describe("extractNotificationId", () => {
+  it("accepts positive integer ids as numbers or numeric strings", () => {
+    expect(extractNotificationId({ notificationId: 42 })).toBe(42);
+    expect(extractNotificationId({ notificationId: "7" })).toBe(7);
+  });
+
+  it("rejects missing or invalid ids", () => {
+    expect(extractNotificationId({})).toBeNull();
+    expect(extractNotificationId(undefined)).toBeNull();
+    expect(extractNotificationId(null)).toBeNull();
+    expect(extractNotificationId({ notificationId: 0 })).toBeNull();
+    expect(extractNotificationId({ notificationId: -3 })).toBeNull();
+    expect(extractNotificationId({ notificationId: 1.5 })).toBeNull();
+    expect(extractNotificationId({ notificationId: "abc" })).toBeNull();
+    expect(extractNotificationId({ notificationId: "0" })).toBeNull();
   });
 });

@@ -7,6 +7,7 @@ import {
   getListFeatureFlagsQueryKey,
   useRegisterPushToken,
   listNotifications,
+  markNotificationRead,
 } from "@workspace/api-client-react";
 
 /**
@@ -128,6 +129,46 @@ export function resolveNotificationRoute(data: unknown): Href {
 }
 
 /**
+ * Extract the in-app notification id the server attached to the push
+ * payload, if any. Mirrors contentItemId parsing: accepts a positive
+ * integer as a number or numeric string, rejects everything else.
+ */
+export function extractNotificationId(data: unknown): number | null {
+  const raw = (data as { notificationId?: unknown } | null | undefined)
+    ?.notificationId;
+  if (typeof raw === "number" && Number.isInteger(raw) && raw > 0) return raw;
+  if (typeof raw === "string" && /^\d+$/.test(raw) && Number(raw) > 0) {
+    return Number(raw);
+  }
+  return null;
+}
+
+/**
+ * A push tap that deep-links PAST the notifications inbox (straight to a
+ * post or the accounts tab) means the user acted on the alert without ever
+ * seeing the inbox — mark the matching in-app notification read so the
+ * badge and inbox count stop nagging, then re-sync the app-icon badge from
+ * the fresh unread count. Entirely best-effort: offline or an
+ * already-dismissed row just leaves the badge to the next foreground sync.
+ */
+async function markPushNotificationHandled(
+  notificationId: number,
+): Promise<void> {
+  try {
+    await markNotificationRead(notificationId);
+  } catch {
+    // 404 (already read/dismissed elsewhere) or network failure — the
+    // foreground badge sync will reconcile later either way.
+  }
+  try {
+    const unread = await listNotifications();
+    if (Array.isArray(unread)) await syncBadgeCount(unread.length);
+  } catch {
+    // Best-effort: leave the badge as-is.
+  }
+}
+
+/**
  * Navigates when the user taps a push notification. Handles both warm taps
  * (app backgrounded — response listener) and cold starts (app killed —
  * getLastNotificationResponseAsync), deduping by response identifier +
@@ -159,10 +200,21 @@ export function useNotificationTapNavigation() {
       const key = `${request?.identifier ?? "?"}:${date ?? "?"}`;
       if (handledKey.current === key) return;
       handledKey.current = key;
+      const data = request?.content?.data;
+      const route = resolveNotificationRoute(data);
       try {
-        router.push(resolveNotificationRoute(request?.content?.data));
+        router.push(route);
       } catch {
         // Navigation not ready or route missing — leave the user where they are.
+      }
+      // Deep links skip the inbox, so the alert would stay unread forever —
+      // mark it read server-side and re-sync the badge. Taps landing ON the
+      // notifications screen keep their unread state so the item is visible.
+      if (route !== "/notifications") {
+        const notificationId = extractNotificationId(data);
+        if (notificationId !== null) {
+          void markPushNotificationHandled(notificationId);
+        }
       }
     };
 

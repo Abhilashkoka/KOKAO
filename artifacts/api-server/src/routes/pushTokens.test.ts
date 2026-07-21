@@ -285,6 +285,7 @@ describe("sendTenantPush", () => {
       expect(body[0].data).toEqual({
         url: "/accounts",
         type: SOCIAL_CONNECTION_FAILED,
+        notificationId: expect.any(Number),
       });
       expect(body[0].badge).toBe(2);
     } finally {
@@ -462,6 +463,7 @@ describe("publish-outcome push payloads (tap deep-link contract)", () => {
         url: "/library?item=123",
         contentItemId: 123,
         type: SCHEDULED_POST_PUBLISHED,
+        notificationId: expect.any(Number),
       });
     } finally {
       await deleteTenant(tenant.tenantId);
@@ -505,6 +507,7 @@ describe("publish-outcome push payloads (tap deep-link contract)", () => {
         url: "/library?item=456",
         contentItemId: 456,
         type: SCHEDULED_PUBLISH_FAILED,
+        notificationId: expect.any(Number),
       });
     } finally {
       await deleteTenant(tenant.tenantId);
@@ -544,6 +547,7 @@ describe("publish-outcome push payloads (tap deep-link contract)", () => {
       expect(body[0].data).toEqual({
         url: "/library",
         type: SCHEDULED_POST_PUBLISHED,
+        notificationId: expect.any(Number),
       });
       expect(body[0].data).not.toHaveProperty("contentItemId");
     } finally {
