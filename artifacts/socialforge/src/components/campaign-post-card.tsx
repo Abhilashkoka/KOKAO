@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Image as ImageIcon, Save, Loader2, Check } from "lucide-react";
+import { LogoLoader } from "@/components/logo-loader";
 import { IMAGE_TWEAKS } from "@workspace/studio-presets";
 import {
   TWEET_MAX_LENGTH,
@@ -173,7 +174,15 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
             {imageLimitHint}
           </p>
         )}
-        {image && (
+        {generateImage.isPending && (
+          <div
+            className="w-full max-w-[420px] rounded-lg border border-border bg-muted/30 flex items-center justify-center py-10"
+            data-testid={`campaign-image-loading-${post.platform}`}
+          >
+            <LogoLoader variant="trace" size={56} label="Generating image..." />
+          </div>
+        )}
+        {image && !generateImage.isPending && (
           <div className="space-y-1">
             <div
               className="w-full max-w-[420px] overflow-hidden rounded-lg border border-border bg-muted/30"

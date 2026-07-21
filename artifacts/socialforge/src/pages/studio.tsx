@@ -41,6 +41,7 @@ import { navigate } from "wouter/use-browser-location";
 import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
 import { CampaignPostCard, type GeneratedImage } from "@/components/campaign-post-card";
 import { VoiceNoteButton } from "@/components/voice-note-button";
+import { LogoLoader } from "@/components/logo-loader";
 import { track, trackFeatureUse } from "@/lib/analytics";
 import { useFeatureFlags } from "@/lib/features";
 import {
@@ -1314,7 +1315,21 @@ export function StudioPage() {
                 </div>
               </CardHeader>
               <CardContent className="p-0 flex-1 bg-muted/10">
-                {briefQuestions && briefQuestions.length > 0 && !hasSingleResult ? (
+                {(generateCaption.isPending || generateImage.isPending || generateCampaign.isPending) &&
+                !hasSingleResult ? (
+                  <div className="h-full min-h-[400px] flex items-center justify-center p-8">
+                    <LogoLoader
+                      variant="trace"
+                      label={
+                        generateCampaign.isPending
+                          ? "Generating your campaign..."
+                          : generateImage.isPending
+                            ? "Generating your image..."
+                            : "Generating your caption..."
+                      }
+                    />
+                  </div>
+                ) : briefQuestions && briefQuestions.length > 0 && !hasSingleResult ? (
                   <div className="p-6 bg-card space-y-3" data-testid="card-brief-questions">
                     <h3 className="font-bold text-base">Your brief needs a bit more detail</h3>
                     <p className="text-sm text-muted-foreground">

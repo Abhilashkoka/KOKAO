@@ -20,6 +20,7 @@ import { useGetMe } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { NotificationsBanner } from "@/components/notifications-banner";
+import { LogoLoader } from "@/components/logo-loader";
 import { PendingInviteBanner } from "@/components/pending-invite-banner";
 import { OnboardingWizard } from "@/components/onboarding-wizard";
 import { TeamWelcomeDialog } from "@/components/team-welcome-dialog";
@@ -94,7 +95,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   ];
   
   if (!isLoaded) {
-    return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse flex flex-col items-center gap-4"><div className="h-8 w-8 bg-primary/20 rounded-full"></div><div className="text-muted-foreground">Loading workspace...</div></div></div>;
+    return <div className="min-h-screen flex items-center justify-center"><LogoLoader label="Loading workspace..." /></div>;
   }
 
   const NavLinks = () => (

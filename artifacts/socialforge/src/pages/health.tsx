@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LogoLoader } from "@/components/logo-loader";
 import { useToast } from "@/hooks/use-toast";
 import {
   ShieldAlert,
@@ -284,7 +285,7 @@ export function HealthPage() {
         className="flex items-center justify-center py-24"
         data-testid="health-loading"
       >
-        <div className="animate-pulse text-muted-foreground">Loading...</div>
+        <LogoLoader label="Loading..." size={64} />
       </div>
     );
   }

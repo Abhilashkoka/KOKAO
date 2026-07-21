@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { LogoLoader } from "@/components/logo-loader";
 import {
   useGetMe,
   useGetAppBrand,
@@ -143,7 +144,7 @@ export function AppBrandingSettings() {
         className="flex items-center justify-center py-24"
         data-testid="app-branding-loading"
       >
-        <div className="animate-pulse text-muted-foreground">Loading...</div>
+        <LogoLoader label="Loading..." size={64} />
       </div>
     );
   }
