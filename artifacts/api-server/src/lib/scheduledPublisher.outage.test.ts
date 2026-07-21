@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
-import { db, scheduledPostsTable, contentItemsTable, pool } from "@workspace/db";
+import {
+  db,
+  scheduledPostsTable,
+  contentItemsTable,
+  pool,
+  type AppCredential,
+} from "@workspace/db";
 import { eq } from "drizzle-orm";
 import {
   createTenant,
@@ -7,8 +13,12 @@ import {
   insertConnectedAccount,
   insertLinkedinAccount,
   insertThreadsAccount,
+  insertTwitterAccount,
   insertContentItem,
   getContentItem,
+  snapshotTwitterRow,
+  setVerifiedTwitterRow,
+  restoreTwitterRow,
 } from "../test/dbHelpers";
 
 /**
@@ -116,6 +126,18 @@ function routePlatformCall(url: string, method: string): Response {
     return jsonRes(200, {});
   }
 
+  // ---- X (Twitter) ----
+  if (url.includes("api.x.com")) {
+    if (url.includes("/2/users/") && url.includes("/tweets")) {
+      return jsonRes(200, { data: [], meta: {} }); // dedupe probe
+    }
+    if (url.includes("/2/tweets")) {
+      if (outage) return jsonRes(500, { detail: "temporarily down" });
+      return jsonRes(201, { data: { id: "tw_post_1" } });
+    }
+    return jsonRes(200, {});
+  }
+
   // ---- Facebook / Instagram (Graph API) ----
   if (url.includes("graph.facebook.com")) {
     if (url.includes("/debug_token")) {
@@ -169,8 +191,13 @@ const saved = {
 };
 
 let originalFetch: typeof fetch;
+let twitterAppSnapshot: AppCredential | null = null;
 
-beforeAll(() => {
+beforeAll(async () => {
+  // The X core needs app-level OAuth client credentials to exist; snapshot
+  // whatever the shared dev DB holds and restore it afterwards.
+  twitterAppSnapshot = await snapshotTwitterRow();
+  await setVerifiedTwitterRow();
   // Retry immediately (no real waiting) and let a single 500 exhaust the
   // cores' own seconds-scale retry budgets so tick 1 surfaces the 503.
   SCHEDULED_TRANSIENT_RETRY.delayMs = 0;
@@ -182,6 +209,7 @@ beforeAll(() => {
 });
 
 afterAll(async () => {
+  await restoreTwitterRow(twitterAppSnapshot);
   Object.assign(SCHEDULED_TRANSIENT_RETRY, saved.transient);
   Object.assign(FB_PUBLISH_RETRY, saved.fb);
   Object.assign(IG_PUBLISH_RETRY, saved.ig);
@@ -264,6 +292,18 @@ const CASES: PlatformCase[] = [
       c.url.includes("/threads") &&
       !c.url.includes("/threads_publish"),
     expectedPostId: "th_post_1",
+  },
+  {
+    platform: "twitter",
+    seed: async (tenantId) => {
+      // Token expiry defaults far enough out that no refresh is due — the
+      // outage hits the tweet-creating write itself.
+      await insertTwitterAccount(tenantId);
+    },
+    withImage: false,
+    isCreateWrite: (c) =>
+      c.method === "POST" && c.url.includes("api.x.com/2/tweets"),
+    expectedPostId: "tw_post_1",
   },
   {
     platform: "facebook",

@@ -199,6 +199,42 @@ export async function insertLinkedinAccount(
   });
 }
 
+export async function insertTwitterAccount(
+  tenantId: number,
+  opts: {
+    accessToken?: string;
+    refreshToken?: string;
+    providerUserId?: string | null;
+    tokenExpiresAt?: Date | null;
+    status?: string;
+    accountName?: string;
+    verifyStatus?: string | null;
+    verifyError?: string | null;
+    verifiedAt?: Date | null;
+  } = {},
+): Promise<void> {
+  await db.insert(connectedAccountsTable).values({
+    tenantId,
+    platform: "twitter",
+    accountName: opts.accountName ?? "@testuser",
+    status: opts.status ?? "connected",
+    encryptedCredentials: encryptJson({
+      accessToken: opts.accessToken ?? "tw_access_token",
+      refreshToken: opts.refreshToken ?? "tw_refresh_token",
+    }),
+    providerUserId:
+      opts.providerUserId === undefined ? "tw_user_123" : opts.providerUserId,
+    // Far enough out by default that no token refresh is due.
+    tokenExpiresAt:
+      opts.tokenExpiresAt === undefined
+        ? new Date(Date.now() + 60 * 60 * 1000)
+        : opts.tokenExpiresAt,
+    verifyStatus: opts.verifyStatus ?? "verified",
+    verifyError: opts.verifyError ?? null,
+    verifiedAt: opts.verifiedAt ?? new Date(),
+  });
+}
+
 export async function insertYoutubeAccount(
   tenantId: number,
   opts: {

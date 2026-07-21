@@ -34,7 +34,11 @@ import {
 } from "../lib/resendLock";
 import { resolveSocialConnectionNotifications } from "../lib/notifications";
 import { logger } from "../lib/logger";
-import type { PublishOutcome } from "../lib/publishOutcome";
+import {
+  PublishTransientError,
+  isTransientPlatformStatus,
+  type PublishOutcome,
+} from "../lib/publishOutcome";
 
 const router: IRouter = Router();
 
@@ -450,13 +454,20 @@ async function postTweet(opts: {
     if (tweetRes.status === 401) {
       throw new PublishAuthRevokedError(TWITTER_RECONNECT_MESSAGE);
     }
-    throw new Error(
+    const detail =
       tweetJson.errors?.[0]?.detail ||
-        tweetJson.errors?.[0]?.message ||
-        tweetJson.detail ||
-        tweetJson.title ||
-        `X API error (${tweetRes.status})`,
-    );
+      tweetJson.errors?.[0]?.message ||
+      tweetJson.detail ||
+      tweetJson.title ||
+      `X API error (${tweetRes.status})`;
+    // A 5xx/429 is a passing platform outage, not a rejection of the post:
+    // classify it transient so publishTwitterCore maps it to errorStatus 503
+    // and the scheduled executor's bounded auto-retry re-queues instead of
+    // permanently failing the schedule.
+    if (isTransientPlatformStatus(tweetRes.status)) {
+      throw new PublishTransientError(detail);
+    }
+    throw new Error(detail);
   }
   return tweetJson.data.id;
 }
@@ -713,9 +724,11 @@ export async function publishTwitterCore(
     }
 
     const reason =
-      error instanceof Error && error.message
-        ? `X rejected the post: ${error.message}`
-        : "Failed to publish to X.";
+      error instanceof PublishTransientError
+        ? `X is temporarily unavailable: ${error.message}`
+        : error instanceof Error && error.message
+          ? `X rejected the post: ${error.message}`
+          : "Failed to publish to X.";
     // Persist the rejection so it stays reviewable in the Content Library
     // after the toast is gone. Best-effort: a DB hiccup here must not mask
     // the original publish error in the response.
@@ -735,7 +748,14 @@ export async function publishTwitterCore(
         "Failed to record X publish failure",
       );
     }
-    return { ok: false, errorStatus: 502, error: reason };
+    return {
+      ok: false,
+      // A transient platform outage (5xx/429) is 503 so the scheduled
+      // executor's bounded auto-retry re-queues the post instead of failing
+      // it permanently; anything else stays a definitive 502.
+      errorStatus: error instanceof PublishTransientError ? 503 : 502,
+      error: reason,
+    };
   }
 }
 
