@@ -1,0 +1,25 @@
+The core features and functional requirements needed to design this application are detailed below. 
+1. Code Generation & Campaign Management (Admin Dashboard)
+The admin panel requires full control over how codes are created, targeted, and distributed.
+Custom or Auto-Generated Codes: Options to manually input a code string (e.g., PREMIUM_BOOST_2026) or randomly auto-generate unique alpha-numeric strings.
+Plan-Specific Targeting: A mandatory configuration mapping each code to specific subscription plan tiers (e.g., Code X is only valid for "Pro" users; "Basic" users will get an error).
+Credit Reward Definition: A field to specify the exact credit value added upon successful redemption (e.g., +500 API credits).
+Usage Constraints: Setting global limits (e.g., valid for the first 100 redeemers) or per-user limits (e.g., max 1 redemption per user account). 
+Expiration Windows: Calendar scheduling to automatically activate and deactivate a promotional code based on specific dates and times.
+2. Eligibility & Redemption Logic (User-Facing)
+The backend logic must evaluate the user's current account state before altering their balance.
+Plan Validation Check: When a user submits a code, the backend must instantly check their current subscription status against the permitted plans list.
+Active Status Check: The system must verify the campaign is currently running, not expired, and has not hit its maximum total redemptions.
+Double-Redemption Prevention: A verification layer ensuring the specific user ID has not already claimed the unique code.
+Instant Credit Allocation: Upon passing all checks, the module immediately adds the defined credits to the user's running database balance.
+Atomic Transactions: Database operations must use atomic updates to prevent race conditions (e.g., a user clicking "Submit" rapidly twice to get double credits).
+3. Analytics & Logging (Audit Trail)
+A robust logging system is vital for debugging code issues and tracking promotional performance.
+Redemption Ledger: A master ledger recording every successful redemption with timestamps, user IDs, credit amounts, and their plan type at the time of usage.
+Performance Metrics: Admin-facing metrics showing aggregate total credits distributed, active conversion rates, and the most popular subscription plans utilizing the codes.
+Failure Tracking Log: A simple log capture for rejected attempts (e.g., "User X tried to use a Pro code while on a Basic plan") to flag potential abuse patterns or user confusion.
+4. User Interface Elements
+The front-end structure needs clear visual entry points to minimize checkout friction.
+Admin Promo Form: A structured form with dropdown menus selecting your existing subscription plans, numerical credit input boxes, and date pickers.
+User Redemption Field: A clean input text field inside the user's "Billing" or "Account Balance" tab.
+Dynamic Response Feedback: Instant, descriptive visual notifications indicating success (e.g., "Success! 100 credits added to your Pro account") or specific failure reasons ("This code is only valid for Premium tier subscribers").
