@@ -74,6 +74,7 @@
     "expo-cellular": "~8.0.8",
     "expo-device": "~8.0.10",
     "expo-network": "~8.0.8",
-    "expo-notifications": "^57.0.6"
+    "expo-notifications": "^57.0.6",
+    "react-native-webview": "13.15.0"
   }
 }
