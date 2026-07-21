@@ -50,3 +50,4 @@
 - [Mobile push notifications](push-notifications.md) — push only after FRESH inserts (dedupe inherited); token table keyed by token, re-binds on re-register; testApp mounts routers explicitly; createTenant returns tenantId not id.
 - [Feature kill switches](feature-kill-switches.md) — gate every execution path (background jobs, settings mutations), not just route prefixes; admin routes stay ungated; fail open on DB errors.
 - [Sweep fail-ratio alert e2e](sweep-alert-e2e-verification.md) — force via 1ms timeout env (delete after); notification path breaks on notification_preferences schema drift; verify suppression at DB level not banner presence.
+- [E2E tenant seeding](e2e-tenant-seeding.md) — resolve tenant by polling email lookup, never "newest row" fallback; /ads tabs need a seeded connected ad connection.
