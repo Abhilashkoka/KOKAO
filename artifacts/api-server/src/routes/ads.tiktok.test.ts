@@ -41,6 +41,8 @@ vi.mock("../lib/tiktokAdsApi", async (importOriginal) => {
     createCampaign: vi.fn(),
     listAdvertisers: vi.fn(),
     readAdvertiser: vi.fn(),
+    getTiktokAppCredentials: vi.fn(),
+    exchangeAuthCode: vi.fn(),
     listCampaigns: vi.fn(),
     getCampaign: vi.fn(),
     listAdGroups: vi.fn(),
@@ -69,6 +71,8 @@ import {
   createCampaign,
   listAdvertisers,
   readAdvertiser,
+  getTiktokAppCredentials,
+  exchangeAuthCode,
   listCampaigns,
   getCampaign,
   listAdGroups,
@@ -79,7 +83,8 @@ import {
 } from "../lib/tiktokAdsApi";
 import { encryptJson } from "../lib/secretCrypto";
 import { requireTenant } from "../middlewares/requireTenant";
-import adsRouter from "./ads";
+import adsRouter, { adsCallbackRouter } from "./ads";
+import { signOAuthState } from "../lib/oauthState";
 import { resetAuthState, actAs } from "../test/authState";
 import { createTenant, deleteTenant } from "../test/dbHelpers";
 
@@ -92,6 +97,8 @@ const mockUpdateAd = vi.mocked(updateAd);
 const mockCreate = vi.mocked(createCampaign);
 const mockListAdvertisers = vi.mocked(listAdvertisers);
 const mockReadAdvertiser = vi.mocked(readAdvertiser);
+const mockAppCreds = vi.mocked(getTiktokAppCredentials);
+const mockExchangeCode = vi.mocked(exchangeAuthCode);
 const mockListCampaigns = vi.mocked(listCampaigns);
 const mockGetCampaign = vi.mocked(getCampaign);
 const mockListAdGroups = vi.mocked(listAdGroups);
@@ -111,6 +118,7 @@ function createAdsTestApp(): Express {
     };
     next();
   });
+  app.use("/api", adsCallbackRouter);
   app.use("/api", requireTenant, adsRouter);
   return app;
 }
@@ -194,6 +202,9 @@ beforeEach(async () => {
   mockCreate.mockReset();
   mockListAdvertisers.mockReset();
   mockReadAdvertiser.mockReset();
+  mockAppCreds.mockReset();
+  mockAppCreds.mockResolvedValue({ appId: "tt-app", appSecret: "tt-secret" });
+  mockExchangeCode.mockReset();
   mockReadAdGroup.mockReset();
   mockReadAd.mockReset();
   mockUpdateAdGroup.mockReset();
@@ -996,6 +1007,103 @@ describe("tiktok approve → apply → verify", () => {
         .from(adAccountConnectionsTable)
         .where(eq(adAccountConnectionsTable.id, connectionId));
       expect(conn!.verifyStatus).toBe("verified");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("tiktok oauth callback reconnect fast path", () => {
+  it("auto-verifies the previous advertiser when the fresh grant still includes it", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId, {
+        verifyStatus: "failed",
+        verifyError: "token revoked",
+      });
+      mockExchangeCode.mockResolvedValue({
+        accessToken: "fresh-token",
+        advertiserIds: ["adv_123", "adv_456"],
+      });
+      mockReadAdvertiser.mockResolvedValue({
+        name: "Test Advertiser",
+        currency: "INR",
+      });
+
+      const state = signOAuthState(tenant.tenantId, "nonce");
+      const res = await request(app).get(
+        `/api/ads/tiktok/auth/callback?auth_code=code123&state=${state}`,
+      );
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toContain("tiktok=connected");
+
+      const [conn] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(conn!.status).toBe("connected");
+      expect(conn!.adAccountId).toBe("adv_123");
+      expect(conn!.verifyStatus).toBe("verified");
+      expect(conn!.verifyError).toBeNull();
+      expect(mockReadAdvertiser).toHaveBeenCalledWith("fresh-token", "adv_123");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("falls back to pending_selection when the previous advertiser is gone", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      mockExchangeCode.mockResolvedValue({
+        accessToken: "fresh-token",
+        advertiserIds: ["adv_other"],
+      });
+
+      const state = signOAuthState(tenant.tenantId, "nonce");
+      const res = await request(app).get(
+        `/api/ads/tiktok/auth/callback?auth_code=code123&state=${state}`,
+      );
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toContain("tiktok=connected");
+
+      const [conn] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(conn!.status).toBe("pending_selection");
+      expect(conn!.adAccountId).toBe("");
+      expect(mockReadAdvertiser).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("falls back to pending_selection when verification of the previous advertiser fails", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      mockExchangeCode.mockResolvedValue({
+        accessToken: "fresh-token",
+        advertiserIds: ["adv_123"],
+      });
+      mockReadAdvertiser.mockRejectedValue(
+        new TiktokAdsApiError("advertiser unavailable", 400, 40001, false),
+      );
+
+      const state = signOAuthState(tenant.tenantId, "nonce");
+      const res = await request(app).get(
+        `/api/ads/tiktok/auth/callback?auth_code=code123&state=${state}`,
+      );
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toContain("tiktok=connected");
+
+      const [conn] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(conn!.status).toBe("pending_selection");
+      expect(conn!.verifyStatus).toBeNull();
     } finally {
       await deleteTenant(tenant.tenantId);
     }

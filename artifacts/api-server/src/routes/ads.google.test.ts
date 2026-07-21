@@ -43,6 +43,7 @@ vi.mock("../lib/googleAdsApi", async (importOriginal) => {
     listCustomerChoices: vi.fn(),
     readCustomer: vi.fn(),
     isGoogleAdsConfigured: vi.fn(),
+    exchangeGoogleAdsCode: vi.fn(),
   };
 });
 
@@ -68,11 +69,14 @@ import {
   listCustomerChoices,
   readCustomer,
   isGoogleAdsConfigured,
+  exchangeGoogleAdsCode,
   GoogleAdsApiError,
+  type GoogleAdsCredentials,
 } from "../lib/googleAdsApi";
+import { signOAuthState } from "../lib/oauthState";
 import { encryptJson, decryptJson } from "../lib/secretCrypto";
 import { requireTenant } from "../middlewares/requireTenant";
-import adsRouter from "./ads";
+import adsRouter, { adsCallbackRouter } from "./ads";
 import { resetAuthState, actAs } from "../test/authState";
 import { createTenant, deleteTenant } from "../test/dbHelpers";
 
@@ -87,6 +91,7 @@ const mockUpdateAd = vi.mocked(updateGoogleAd);
 const mockChoices = vi.mocked(listCustomerChoices);
 const mockReadCustomer = vi.mocked(readCustomer);
 const mockConfigured = vi.mocked(isGoogleAdsConfigured);
+const mockExchangeCode = vi.mocked(exchangeGoogleAdsCode);
 
 function createAdsTestApp(): Express {
   const app = express();
@@ -100,6 +105,7 @@ function createAdsTestApp(): Express {
     };
     next();
   });
+  app.use("/api", adsCallbackRouter);
   app.use("/api", requireTenant, adsRouter);
   return app;
 }
@@ -180,6 +186,7 @@ beforeEach(async () => {
   mockReadCustomer.mockReset();
   mockConfigured.mockReset();
   mockConfigured.mockResolvedValue(true);
+  mockExchangeCode.mockReset();
   mockAuth.mockResolvedValue({ ...AUTH } as never);
   mockRead.mockResolvedValue({ ...REMOTE_STATE });
   mockUpdate.mockResolvedValue(undefined as never);
@@ -204,6 +211,92 @@ describe("google ads status", () => {
       ).find((p) => p.platform === "google");
       expect(google).toBeDefined();
       expect(google!.available).toBe(true);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("google oauth callback reconnect fast path", () => {
+  it("auto-verifies the previous customer (keeping its MCC login id) when still readable", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertGoogleAdConnection(tenant.tenantId, {
+        verifyStatus: "failed",
+        verifyError: "token revoked",
+        encryptedCredentials: encryptJson({
+          refreshToken: "old-refresh",
+          loginCustomerId: "9998887776",
+        }),
+      });
+      mockExchangeCode.mockResolvedValue({
+        refreshToken: "new-refresh",
+        accessToken: "new-access",
+        expiresIn: 3600,
+      } as never);
+      mockReadCustomer.mockResolvedValue({
+        customerId: "1234567890",
+        name: "Test Google Ads",
+        currency: "INR",
+        manager: false,
+      } as never);
+
+      const state = signOAuthState(tenant.tenantId, "nonce");
+      const res = await request(app).get(
+        `/api/ads/google/auth/callback?code=code123&state=${state}`,
+      );
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toContain("google=connected");
+
+      const [conn] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(conn!.status).toBe("connected");
+      expect(conn!.adAccountId).toBe("1234567890");
+      expect(conn!.verifyStatus).toBe("verified");
+      expect(conn!.verifyError).toBeNull();
+      const creds = decryptJson<GoogleAdsCredentials>(
+        conn!.encryptedCredentials!,
+      );
+      expect(creds.refreshToken).toBe("new-refresh");
+      expect(creds.loginCustomerId).toBe("9998887776");
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("falls back to pending_selection when the previous customer can no longer be read", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertGoogleAdConnection(tenant.tenantId);
+      mockExchangeCode.mockResolvedValue({
+        refreshToken: "new-refresh",
+        accessToken: "new-access",
+        expiresIn: 3600,
+      } as never);
+      mockReadCustomer.mockRejectedValue(
+        new GoogleAdsApiError("customer not accessible", 403),
+      );
+
+      const state = signOAuthState(tenant.tenantId, "nonce");
+      const res = await request(app).get(
+        `/api/ads/google/auth/callback?code=code123&state=${state}`,
+      );
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toContain("google=connected");
+
+      const [conn] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(conn!.status).toBe("pending_selection");
+      expect(conn!.adAccountId).toBe("");
+      const creds = decryptJson<GoogleAdsCredentials>(
+        conn!.encryptedCredentials!,
+      );
+      expect(creds.refreshToken).toBe("new-refresh");
+      expect(creds.loginCustomerId).toBeUndefined();
     } finally {
       await deleteTenant(tenant.tenantId);
     }

@@ -629,7 +629,7 @@ async function upsertPendingTiktokConnection(
       .limit(1)
   )[0];
   if (existing) {
-    return (
+    const pending = (
       await db
         .update(adAccountConnectionsTable)
         .set({
@@ -646,6 +646,36 @@ async function upsertPendingTiktokConnection(
         .where(eq(adAccountConnectionsTable.id, existing.id))
         .returning()
     )[0]!;
+    // Reconnect fast path: if the fresh grant still includes the previously
+    // selected advertiser, auto-verify it so the tenant skips the re-pick.
+    // Fails soft back to the normal picker on any error.
+    const previousId = existing.adAccountId;
+    if (previousId && (creds.advertiserIds ?? []).includes(previousId)) {
+      try {
+        const info = await readTiktokAdvertiser(creds.accessToken, previousId);
+        const verified = (
+          await db
+            .update(adAccountConnectionsTable)
+            .set({
+              adAccountId: previousId,
+              adAccountName: info.name,
+              currency: info.currency,
+              status: "connected",
+              verifyStatus: "verified",
+              verifyError: null,
+              verifiedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(eq(adAccountConnectionsTable.id, existing.id))
+            .returning()
+        )[0]!;
+        await resolveAdsConnectionNotifications(tenantId, "tiktok");
+        return verified;
+      } catch {
+        // Verification failed — leave the connection pending selection.
+      }
+    }
+    return pending;
   }
   return (
     await db
@@ -1119,7 +1149,20 @@ async function upsertPendingGoogleConnection(
   const encrypted = encryptJson(creds);
   const existing = await getPlatformConnection(tenantId, "google");
   if (existing) {
-    return (
+    // Carry the previously selected account + MCC login id so we can try the
+    // reconnect fast path below.
+    const previousId = existing.adAccountId;
+    let previousLoginCustomerId: string | null = null;
+    if (previousId && existing.encryptedCredentials) {
+      try {
+        previousLoginCustomerId =
+          decryptJson<GoogleAdsCredentials>(existing.encryptedCredentials)
+            .loginCustomerId ?? null;
+      } catch {
+        previousLoginCustomerId = null;
+      }
+    }
+    const pending = (
       await db
         .update(adAccountConnectionsTable)
         .set({
@@ -1136,6 +1179,65 @@ async function upsertPendingGoogleConnection(
         .where(eq(adAccountConnectionsTable.id, existing.id))
         .returning()
     )[0]!;
+    // Reconnect fast path: if the fresh grant can still read the previously
+    // selected customer (with the same MCC login id, if any), auto-verify it
+    // so the tenant skips the re-pick. Fails soft back to the picker.
+    if (previousId) {
+      try {
+        const next: GoogleAdsCredentials = {
+          ...creds,
+          loginCustomerId: previousLoginCustomerId,
+        };
+        await db
+          .update(adAccountConnectionsTable)
+          .set({
+            encryptedCredentials: encryptJson(next),
+            adAccountId: previousId,
+            updatedAt: new Date(),
+          })
+          .where(eq(adAccountConnectionsTable.id, existing.id));
+        const fresh = (
+          await db
+            .select()
+            .from(adAccountConnectionsTable)
+            .where(eq(adAccountConnectionsTable.id, existing.id))
+            .limit(1)
+        )[0]!;
+        const auth = await getGoogleAdsAuth(fresh);
+        const info = await readCustomer(auth);
+        const verified = (
+          await db
+            .update(adAccountConnectionsTable)
+            .set({
+              adAccountName: info.name,
+              currency: info.currency,
+              status: "connected",
+              verifyStatus: "verified",
+              verifyError: null,
+              verifiedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(eq(adAccountConnectionsTable.id, existing.id))
+            .returning()
+        )[0]!;
+        await resolveAdsConnectionNotifications(tenantId, "google");
+        return verified;
+      } catch {
+        // Verification failed — revert to the normal picker flow.
+        return (
+          await db
+            .update(adAccountConnectionsTable)
+            .set({
+              encryptedCredentials: encrypted,
+              adAccountId: "",
+              updatedAt: new Date(),
+            })
+            .where(eq(adAccountConnectionsTable.id, existing.id))
+            .returning()
+        )[0]!;
+      }
+    }
+    return pending;
   }
   return (
     await db

@@ -457,7 +457,8 @@ export function AdsPage() {
     if (google === "connected" || meta === "connected" || linkedin === "connected") {
       toast({
         title: `${google ? "Google" : meta ? "Meta" : "LinkedIn"} Ads access granted`,
-        description: "Now pick which ad account this workspace manages.",
+        description:
+          "Your previous ad account is restored automatically when it is still available — otherwise pick one below.",
       });
     } else if (google === "error" || meta === "error" || linkedin === "error") {
       const reason = params.get("reason");
