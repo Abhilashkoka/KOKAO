@@ -20,6 +20,10 @@ import {
   useAdminClearTextGenKey,
   getAdminGetTextGenSettingsQueryKey,
   getListAiModelsQueryKey,
+  useAdminGetAiSpendSettings,
+  useAdminUpdateAiSpendSettings,
+  getAdminGetAiSpendSettingsQueryKey,
+  getGetAiSpendRatesQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
@@ -898,10 +902,160 @@ function DesignSkillCard() {
   );
 }
 
+function AiSpendCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: settings, isLoading } = useAdminGetAiSpendSettings();
+  const updateSettings = useAdminUpdateAiSpendSettings();
+  const [captionRupees, setCaptionRupees] = useState<string | null>(null);
+  const [imageRupees, setImageRupees] = useState<string | null>(null);
+  const [feePercent, setFeePercent] = useState<string | null>(null);
+
+  const paiseToRupees = (paise: number) => (paise / 100).toString();
+  const captionValue = captionRupees ?? (settings ? paiseToRupees(settings.captionCostPaise) : "");
+  const imageValue = imageRupees ?? (settings ? paiseToRupees(settings.imageCostPaise) : "");
+  const feeValue = feePercent ?? (settings ? String(settings.feePercent) : "");
+
+  const handleSave = () => {
+    const caption = Math.round(Number(captionValue) * 100);
+    const image = Math.round(Number(imageValue) * 100);
+    const fee = Math.round(Number(feeValue));
+    if (
+      [caption, image, fee].some((n) => !Number.isFinite(n) || n < 0) ||
+      fee > 1000
+    ) {
+      toast({
+        title: "Invalid values",
+        description: "Costs must be 0 or more, and the fee must be between 0 and 1000 percent.",
+        variant: "destructive",
+      });
+      return;
+    }
+    updateSettings.mutate(
+      { data: { captionCostPaise: caption, imageCostPaise: image, feePercent: fee } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getAdminGetAiSpendSettingsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetAiSpendRatesQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getAdminListAuditLogsQueryKey() });
+          setCaptionRupees(null);
+          setImageRupees(null);
+          setFeePercent(null);
+          toast({
+            title: "AI spend rates saved",
+            description:
+              "Generated content now shows the combined amount (base cost plus your platform fee) as \u201CAI amount spent\u201D.",
+          });
+        },
+        onError: () => {
+          toast({
+            title: "Save failed",
+            description: "Could not save the AI spend settings.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const preview = (basePaise: number, fee: number) =>
+    `\u20B9${((Math.round(basePaise * (1 + fee / 100))) / 100).toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  const captionPaiseNow = Math.round(Number(captionValue || "0") * 100);
+  const imagePaiseNow = Math.round(Number(imageValue || "0") * 100);
+  const feeNow = Number(feeValue || "0");
+  const previewsValid =
+    [captionPaiseNow, imagePaiseNow, feeNow].every((n) => Number.isFinite(n) && n >= 0);
+
+  return (
+    <Card data-testid="card-ai-spend">
+      <CardHeader>
+        <CardTitle>AI Spend Display</CardTitle>
+        <CardDescription>
+          Show an "AI amount spent" figure on every generated caption, image, campaign, and
+          carousel. Users see one combined number: your base AI cost plus the platform fee
+          percentage below. Set everything to 0 to show nothing, or turn the whole display off
+          from Feature Controls on the Overview tab.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : (
+          <>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="ai-spend-caption">
+                  Cost per caption ({"\u20B9"})
+                </label>
+                <Input
+                  id="ai-spend-caption"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={captionValue}
+                  onChange={(e) => setCaptionRupees(e.target.value)}
+                  data-testid="input-ai-spend-caption"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="ai-spend-image">
+                  Cost per image ({"\u20B9"})
+                </label>
+                <Input
+                  id="ai-spend-image"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={imageValue}
+                  onChange={(e) => setImageRupees(e.target.value)}
+                  data-testid="input-ai-spend-image"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="ai-spend-fee">
+                  Platform fee (%)
+                </label>
+                <Input
+                  id="ai-spend-fee"
+                  type="number"
+                  min="0"
+                  max="1000"
+                  step="1"
+                  value={feeValue}
+                  onChange={(e) => setFeePercent(e.target.value)}
+                  data-testid="input-ai-spend-fee"
+                />
+              </div>
+            </div>
+            {previewsValid && (
+              <p className="text-sm text-muted-foreground" data-testid="text-ai-spend-preview">
+                Users will see: {preview(captionPaiseNow, feeNow)} per caption,{" "}
+                {preview(imagePaiseNow, feeNow)} per image (fee included, shown only as "AI
+                amount spent").
+              </p>
+            )}
+            <Button
+              onClick={handleSave}
+              disabled={updateSettings.isPending}
+              data-testid="button-save-ai-spend"
+            >
+              Save AI spend rates
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function AiTab() {
   return (
     <div className="space-y-8">
       <DesignSkillCard />
+      <AiSpendCard />
       <TextGenProviderCard />
       <ImageGenProviderCard />
       <AsrProviderCard />

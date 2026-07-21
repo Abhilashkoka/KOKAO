@@ -72,6 +72,12 @@ export const FEATURES = [
       "Multi-slide carousel generation in AI Studio (per-slide images) and LinkedIn document-carousel publishing.",
   },
   {
+    id: "aiSpend",
+    label: "AI Spend Display",
+    description:
+      "Showing the 'AI amount spent' figure on generated captions, images, campaigns, and carousels.",
+  },
+  {
     id: "referenceImages",
     label: "Reference Images",
     description:

@@ -55,6 +55,8 @@ import type {
   AdsTiktokAuthUrlResult,
   AdsTiktokSelectInput,
   AiModelChoicesView,
+  AiSpendRatesView,
+  AiSpendSettingsView,
   AnalyticsIngestInput,
   AnalyticsIngestResult,
   AppBrand,
@@ -213,6 +215,7 @@ import type {
   TwitterAppCredentialStatus,
   TwitterAuthUrlResult,
   TwitterStatus,
+  UpdateAiSpendSettingsRequest,
   UpdateAsrSettingsRequest,
   UpdateDesignSkillBody,
   UpdateImageGenSettingsRequest,
@@ -3223,6 +3226,230 @@ export const useAdminClearImageGenProviderKey = <TError = ErrorType<ErrorEnvelop
         TContext
       > => {
       return useMutation(getAdminClearImageGenProviderKeyMutationOptions(options));
+    }
+
+export const getGetAiSpendRatesUrl = () => {
+
+
+
+
+  return `/api/ai-spend/rates`
+}
+
+/**
+ * @summary Effective per-caption/per-image display amounts (fee included)
+ */
+export const getAiSpendRates = async ( options?: RequestInit): Promise<AiSpendRatesView> => {
+
+  return customFetch<AiSpendRatesView>(getGetAiSpendRatesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAiSpendRatesQueryKey = () => {
+    return [
+    `/api/ai-spend/rates`
+    ] as const;
+    }
+
+
+export const getGetAiSpendRatesQueryOptions = <TData = Awaited<ReturnType<typeof getAiSpendRates>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiSpendRates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAiSpendRatesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiSpendRates>>> = ({ signal }) => getAiSpendRates({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAiSpendRates>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAiSpendRatesQueryResult = NonNullable<Awaited<ReturnType<typeof getAiSpendRates>>>
+export type GetAiSpendRatesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Effective per-caption/per-image display amounts (fee included)
+ */
+
+export function useGetAiSpendRates<TData = Awaited<ReturnType<typeof getAiSpendRates>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiSpendRates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAiSpendRatesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminGetAiSpendSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/ai-spend-settings`
+}
+
+/**
+ * @summary Get the AI spend display settings (superadmin only)
+ */
+export const adminGetAiSpendSettings = async ( options?: RequestInit): Promise<AiSpendSettingsView> => {
+
+  return customFetch<AiSpendSettingsView>(getAdminGetAiSpendSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetAiSpendSettingsQueryKey = () => {
+    return [
+    `/api/admin/ai-spend-settings`
+    ] as const;
+    }
+
+
+export const getAdminGetAiSpendSettingsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetAiSpendSettings>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetAiSpendSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetAiSpendSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetAiSpendSettings>>> = ({ signal }) => adminGetAiSpendSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetAiSpendSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetAiSpendSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetAiSpendSettings>>>
+export type AdminGetAiSpendSettingsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the AI spend display settings (superadmin only)
+ */
+
+export function useAdminGetAiSpendSettings<TData = Awaited<ReturnType<typeof adminGetAiSpendSettings>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetAiSpendSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetAiSpendSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateAiSpendSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/ai-spend-settings`
+}
+
+/**
+ * @summary Update the AI spend display settings (superadmin only)
+ */
+export const adminUpdateAiSpendSettings = async (updateAiSpendSettingsRequest: UpdateAiSpendSettingsRequest, options?: RequestInit): Promise<AiSpendSettingsView> => {
+
+  return customFetch<AiSpendSettingsView>(getAdminUpdateAiSpendSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateAiSpendSettingsRequest)
+  }
+);}
+
+
+
+
+export const getAdminUpdateAiSpendSettingsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAiSpendSettings>>, TError,{data: BodyType<UpdateAiSpendSettingsRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAiSpendSettings>>, TError,{data: BodyType<UpdateAiSpendSettingsRequest>}, TContext> => {
+
+const mutationKey = ['adminUpdateAiSpendSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateAiSpendSettings>>, {data: BodyType<UpdateAiSpendSettingsRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateAiSpendSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateAiSpendSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateAiSpendSettings>>>
+    export type AdminUpdateAiSpendSettingsMutationBody = BodyType<UpdateAiSpendSettingsRequest>
+    export type AdminUpdateAiSpendSettingsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update the AI spend display settings (superadmin only)
+ */
+export const useAdminUpdateAiSpendSettings = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAiSpendSettings>>, TError,{data: BodyType<UpdateAiSpendSettingsRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateAiSpendSettings>>,
+        TError,
+        {data: BodyType<UpdateAiSpendSettingsRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateAiSpendSettingsMutationOptions(options));
     }
 
 export const getAdminGetTextGenSettingsUrl = () => {

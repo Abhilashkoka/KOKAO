@@ -55,6 +55,7 @@ const mockState: {
   lastCampaignVars: any;
   me: any;
   campaignError: any;
+  aiSpendRates: any;
   connections: {
     facebook: any;
     instagram: any;
@@ -68,6 +69,7 @@ const mockState: {
   lastCampaignVars: null,
   me: defaultMe(),
   campaignError: null,
+  aiSpendRates: undefined,
   connections: defaultConnections(),
 };
 
@@ -127,6 +129,7 @@ vi.mock("@workspace/api-client-react", async () => {
       },
     }),
     useGetMe: () => ({ data: mockState.me }),
+    useGetAiSpendRates: () => ({ data: mockState.aiSpendRates, isLoading: false }),
     useListBrandKits: () => ({ data: [] }),
     useGetFacebookCredentials: () => ({ data: mockState.connections.facebook, isLoading: false }),
     useGetInstagramCredentials: () => ({ data: mockState.connections.instagram, isLoading: false }),
@@ -173,6 +176,7 @@ beforeEach(() => {
   mockState.lastCampaignVars = null;
   mockState.me = defaultMe();
   mockState.campaignError = null;
+  mockState.aiSpendRates = undefined;
   mockState.connections = defaultConnections();
   toastSpy.mockClear();
   localStorage.clear();
@@ -638,5 +642,28 @@ describe("Studio session persistence", () => {
     );
     fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "" } });
     await waitFor(() => expect(localStorage.getItem(sessionKey)).toBeNull(), { timeout: 2000 });
+  });
+});
+
+describe("Studio AI amount spent line", () => {
+  it("shows the combined amount on a generated caption when rates are set", async () => {
+    mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100 };
+    await generateCaption("A caption with spend shown.");
+    const line = screen.getByTestId("text-ai-spent-caption");
+    expect(line.textContent).toContain("AI amount spent");
+    expect(line.textContent).toContain("5.50");
+  });
+
+  it("shows the per-image amount on a generated image", async () => {
+    mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100 };
+    await generateImage();
+    const line = await screen.findByTestId("text-ai-spent-image");
+    expect(line.textContent).toContain("11.00");
+  });
+
+  it("renders nothing when rates are zero or missing", async () => {
+    mockState.aiSpendRates = { captionPaise: 0, imagePaise: 0 };
+    await generateCaption("A caption without spend.");
+    expect(screen.queryByTestId("text-ai-spent-caption")).toBeNull();
   });
 });

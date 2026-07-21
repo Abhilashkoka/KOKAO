@@ -22,4 +22,5 @@ export interface FeatureFlags {
   promoCodes: boolean;
   referenceImages: boolean;
   carousel: boolean;
+  aiSpend: boolean;
 }

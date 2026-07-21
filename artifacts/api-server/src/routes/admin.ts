@@ -58,6 +58,7 @@ import {
   AdminSetImageGenProviderKeyBody,
   AdminUpdateTextGenSettingsBody,
   AdminSetTextGenKeyBody,
+  AdminUpdateAiSpendSettingsBody,
   AdminUpdateNotificationPoliciesBody,
   AdminUpdatePlanBody,
   AdminCreatePlanBody,
@@ -102,6 +103,7 @@ import {
   getGlobalDesignSkillEnabled,
   loadDesignSkillRow,
 } from "../lib/designSkill";
+import { getAiSpendConfig, setAiSpendConfig } from "../lib/aiSpend";
 import {
   FEATURES,
   getFeatureFlags,
@@ -868,6 +870,49 @@ async function serializeTextGenSettings() {
     envKey: "OPENROUTER_API_KEY",
   };
 }
+
+/**
+ * GET /admin/ai-spend-settings
+ * The "AI amount spent" display configuration (base costs + platform fee).
+ */
+router.get("/admin/ai-spend-settings", async (_req: Request, res: Response) => {
+  res.json(await getAiSpendConfig());
+});
+
+/**
+ * PUT /admin/ai-spend-settings
+ * Set the base AI cost per caption/image (paise) and the platform fee
+ * percentage folded into the tenant-facing "AI amount spent" number.
+ */
+router.put("/admin/ai-spend-settings", async (req: Request, res: Response) => {
+  const parsed = AdminUpdateAiSpendSettingsBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const before = await getAiSpendConfig();
+  const after = await setAiSpendConfig(parsed.data);
+  const changed =
+    before.captionCostPaise !== after.captionCostPaise ||
+    before.imageCostPaise !== after.imageCostPaise ||
+    before.feePercent !== after.feePercent;
+  if (changed) {
+    try {
+      await recordAdminAction({
+        action: "ai_spend_settings_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: `caption=${before.captionCostPaise} image=${before.imageCostPaise} fee=${before.feePercent}%`,
+        newValue: `caption=${after.captionCostPaise} image=${after.imageCostPaise} fee=${after.feePercent}%`,
+      });
+    } catch (error) {
+      req.log?.error({ err: error }, "Failed to audit AI spend settings change");
+    }
+  }
+  res.json(after);
+});
 
 /**
  * GET /admin/text-gen-settings
@@ -2025,6 +2070,7 @@ const AUDIT_ACTIONS = new Set([
   "promo_code_change",
   "textgen_provider_change",
   "textgen_key_change",
+  "ai_spend_settings_change",
 ]);
 
 function escapeLike(value: string): string {

@@ -1168,6 +1168,71 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai-spend/rates:
+    get:
+      operationId: getAiSpendRates
+      tags: [ai]
+      summary: Effective per-caption/per-image display amounts (fee included)
+      responses:
+        "200":
+          description: AI spend rates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiSpendRatesView"
+        "403":
+          description: Feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ai-spend-settings:
+    get:
+      operationId: adminGetAiSpendSettings
+      tags: [admin]
+      summary: Get the AI spend display settings (superadmin only)
+      responses:
+        "200":
+          description: AI spend settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiSpendSettingsView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminUpdateAiSpendSettings
+      tags: [admin]
+      summary: Update the AI spend display settings (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAiSpendSettingsRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiSpendSettingsView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/text-gen-settings:
     get:
       operationId: adminGetTextGenSettings
@@ -9923,6 +9988,7 @@ components:
           promoCodes,
           referenceImages,
           carousel,
+          aiSpend,
         ]
       properties:
         aiStudio:
@@ -9949,6 +10015,47 @@ components:
           type: boolean
         carousel:
           type: boolean
+        aiSpend:
+          type: boolean
+    AiSpendSettingsView:
+      type: object
+      description: Platform-wide "AI amount spent" display configuration (superadmin).
+      required: [captionCostPaise, imageCostPaise, feePercent]
+      properties:
+        captionCostPaise:
+          type: integer
+          description: Base AI cost per generated caption, in paise (before the platform fee).
+        imageCostPaise:
+          type: integer
+          description: Base AI cost per generated image, in paise (before the platform fee).
+        feePercent:
+          type: integer
+          description: Whole-number platform fee percentage added on top of the base costs.
+    UpdateAiSpendSettingsRequest:
+      type: object
+      required: [captionCostPaise, imageCostPaise, feePercent]
+      properties:
+        captionCostPaise:
+          type: integer
+          minimum: 0
+        imageCostPaise:
+          type: integer
+          minimum: 0
+        feePercent:
+          type: integer
+          minimum: 0
+          maximum: 1000
+    AiSpendRatesView:
+      type: object
+      description: Effective per-unit display amounts (base cost + platform fee, combined).
+      required: [captionPaise, imagePaise]
+      properties:
+        captionPaise:
+          type: integer
+          description: Amount shown per generated caption, in paise (fee included).
+        imagePaise:
+          type: integer
+          description: Amount shown per generated image, in paise (fee included).
     AdminFeatureFlag:
       type: object
       required: [feature, label, description, enabled]

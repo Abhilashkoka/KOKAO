@@ -77,7 +77,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "pushNotifications": zod.boolean(),
   "promoCodes": zod.boolean(),
   "referenceImages": zod.boolean(),
-  "carousel": zod.boolean()
+  "carousel": zod.boolean(),
+  "aiSpend": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -1090,6 +1091,50 @@ export const AdminClearImageGenProviderKeyResponse = zod.object({
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
 }))
 })
+
+
+/**
+ * @summary Effective per-caption/per-image display amounts (fee included)
+ */
+export const GetAiSpendRatesResponse = zod.object({
+  "captionPaise": zod.number().describe('Amount shown per generated caption, in paise (fee included).'),
+  "imagePaise": zod.number().describe('Amount shown per generated image, in paise (fee included).')
+}).describe('Effective per-unit display amounts (base cost + platform fee, combined).')
+
+
+/**
+ * @summary Get the AI spend display settings (superadmin only)
+ */
+export const AdminGetAiSpendSettingsResponse = zod.object({
+  "captionCostPaise": zod.number().describe('Base AI cost per generated caption, in paise (before the platform fee).'),
+  "imageCostPaise": zod.number().describe('Base AI cost per generated image, in paise (before the platform fee).'),
+  "feePercent": zod.number().describe('Whole-number platform fee percentage added on top of the base costs.')
+}).describe('Platform-wide \"AI amount spent\" display configuration (superadmin).')
+
+
+/**
+ * @summary Update the AI spend display settings (superadmin only)
+ */
+export const adminUpdateAiSpendSettingsBodyCaptionCostPaiseMin = 0;
+
+export const adminUpdateAiSpendSettingsBodyImageCostPaiseMin = 0;
+
+export const adminUpdateAiSpendSettingsBodyFeePercentMin = 0;
+export const adminUpdateAiSpendSettingsBodyFeePercentMax = 1000;
+
+
+
+export const AdminUpdateAiSpendSettingsBody = zod.object({
+  "captionCostPaise": zod.number().min(adminUpdateAiSpendSettingsBodyCaptionCostPaiseMin),
+  "imageCostPaise": zod.number().min(adminUpdateAiSpendSettingsBodyImageCostPaiseMin),
+  "feePercent": zod.number().min(adminUpdateAiSpendSettingsBodyFeePercentMin).max(adminUpdateAiSpendSettingsBodyFeePercentMax)
+})
+
+export const AdminUpdateAiSpendSettingsResponse = zod.object({
+  "captionCostPaise": zod.number().describe('Base AI cost per generated caption, in paise (before the platform fee).'),
+  "imageCostPaise": zod.number().describe('Base AI cost per generated image, in paise (before the platform fee).'),
+  "feePercent": zod.number().describe('Whole-number platform fee percentage added on top of the base costs.')
+}).describe('Platform-wide \"AI amount spent\" display configuration (superadmin).')
 
 
 /**

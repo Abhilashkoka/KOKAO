@@ -3340,6 +3340,41 @@ export interface FeatureFlags {
   promoCodes: boolean;
   referenceImages: boolean;
   carousel: boolean;
+  aiSpend: boolean;
+}
+
+/**
+ * Platform-wide "AI amount spent" display configuration (superadmin).
+ */
+export interface AiSpendSettingsView {
+  /** Base AI cost per generated caption, in paise (before the platform fee). */
+  captionCostPaise: number;
+  /** Base AI cost per generated image, in paise (before the platform fee). */
+  imageCostPaise: number;
+  /** Whole-number platform fee percentage added on top of the base costs. */
+  feePercent: number;
+}
+
+export interface UpdateAiSpendSettingsRequest {
+  /** @minimum 0 */
+  captionCostPaise: number;
+  /** @minimum 0 */
+  imageCostPaise: number;
+  /**
+     * @minimum 0
+     * @maximum 1000
+     */
+  feePercent: number;
+}
+
+/**
+ * Effective per-unit display amounts (base cost + platform fee, combined).
+ */
+export interface AiSpendRatesView {
+  /** Amount shown per generated caption, in paise (fee included). */
+  captionPaise: number;
+  /** Amount shown per generated image, in paise (fee included). */
+  imagePaise: number;
 }
 
 export interface AdminFeatureFlag {

@@ -22,8 +22,10 @@ import {
   useGetLinkedinStatus,
   useGetTwitterStatus,
   useRequestUploadUrl,
+  useGetAiSpendRates,
   getListContentQueryKey,
   getGetMeQueryKey,
+  getGetAiSpendRatesQueryKey,
   type BrandKit,
   type CampaignPost,
   type ResearchResult,
@@ -211,6 +213,28 @@ export function StudioPage() {
 
   const { data: brandKits } = useListBrandKits();
   const { flags } = useFeatureFlags();
+
+  // "AI amount spent" display (kill-switch gated): admin-set per-caption and
+  // per-image amounts with the platform fee already folded in. One combined
+  // number is shown; nothing renders while rates are zero or the switch is off.
+  const { data: aiSpendRates } = useGetAiSpendRates({
+    query: {
+      queryKey: getGetAiSpendRatesQueryKey(),
+      staleTime: 60_000,
+      enabled: flags.aiSpend,
+    },
+  });
+  const aiSpendPaise = (captions: number, images: number): number => {
+    if (!flags.aiSpend || !aiSpendRates) return 0;
+    return captions * aiSpendRates.captionPaise + images * aiSpendRates.imagePaise;
+  };
+  const AiSpentLine = ({ paise, testId }: { paise: number; testId: string }) =>
+    paise > 0 ? (
+      <p className="text-xs text-muted-foreground" data-testid={testId}>
+        AI amount spent: {"\u20B9"}
+        {(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+      </p>
+    ) : null;
 
   // Reference image (optional, kill-switch gated): uploaded to object storage
   // up front; its path rides along with the generate-image request.
@@ -1647,6 +1671,10 @@ export function StudioPage() {
                     Generate an image for each slide, then save the carousel to your library. On
                     LinkedIn it publishes as a swipeable document.
                   </p>
+                  <AiSpentLine
+                    paise={aiSpendPaise(1, carousel.slides.filter((s) => s.imagePath).length)}
+                    testId="text-ai-spent-carousel"
+                  />
                 </div>
                 <div className="flex items-center gap-2">
                   <Button
@@ -1771,6 +1799,13 @@ export function StudioPage() {
                   <p className="text-sm text-muted-foreground">
                     Each platform below gets its own tailored version. Generate an image and save each one to your library.
                   </p>
+                  <AiSpentLine
+                    paise={aiSpendPaise(
+                      campaignPosts.length,
+                      Object.values(campaignImages).filter(Boolean).length,
+                    )}
+                    testId="text-ai-spent-campaign"
+                  />
                 </div>
               </div>
               {campaignPosts.map((post) => (
@@ -1879,6 +1914,7 @@ export function StudioPage() {
                               : `/api/storage${imageResult.imagePath}`
                           }
                         />
+                        <AiSpentLine paise={aiSpendPaise(0, 1)} testId="text-ai-spent-image" />
                         <div className="flex flex-wrap items-center gap-2">
                           {IMAGE_TWEAKS.map((t) => (
                             <Button
@@ -1937,6 +1973,9 @@ export function StudioPage() {
                           Caption
                         </h4>
                         <p className="whitespace-pre-wrap text-lg">{captionResult.caption}</p>
+                        <div className="mt-2">
+                          <AiSpentLine paise={aiSpendPaise(1, 0)} testId="text-ai-spent-caption" />
+                        </div>
                         {captionPlatform === "twitter" && (() => {
                           const tweetText = (captionResult.caption ?? "").trim();
                           const overLimit = isOverTweetLimit(tweetText);

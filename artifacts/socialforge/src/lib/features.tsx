@@ -20,6 +20,7 @@ const ALL_ON: FeatureFlags = {
   promoCodes: true,
   referenceImages: true,
   carousel: true,
+  aiSpend: true,
 };
 
 /**

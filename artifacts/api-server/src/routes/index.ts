@@ -21,6 +21,7 @@ import adsRouter, { adsCallbackRouter } from "./ads";
 import notificationsRouter from "./notifications";
 import notificationSettingsRouter from "./notificationSettings";
 import pushTokensRouter from "./pushTokens";
+import aiSpendRouter from "./aiSpend";
 import tasteProfileRouter from "./tasteProfile";
 import emailSettingsRouter from "./emailSettings";
 import billingRouter from "./billing";
@@ -97,6 +98,7 @@ router.use("/billing", requireFeature("billing"));
 // rate-limit bucket so codes can't be brute-forced.
 router.use("/billing/promo", sensitiveLimiter, requireFeature("promoCodes"));
 router.use("/push-tokens", requireFeature("pushNotifications"));
+router.use("/ai-spend", requireFeature("aiSpend"));
 
 router.use(protectedStorageRouter);
 router.use(featuresRouter);
@@ -119,6 +121,7 @@ router.use(adsRouter);
 router.use(notificationsRouter);
 router.use(notificationSettingsRouter);
 router.use(pushTokensRouter);
+router.use(aiSpendRouter);
 router.use(tasteProfileRouter);
 router.use(emailSettingsRouter);
 router.use(billingRouter);
