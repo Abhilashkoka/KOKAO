@@ -38,6 +38,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { Wand2, Image as ImageIcon, Save, Loader2, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
@@ -1332,24 +1333,39 @@ export function StudioPage() {
                       onValueChange={(val) => setCampaignPlatforms(val.filter((p) => platformLive[p]))}
                       className="flex flex-wrap justify-start gap-2"
                     >
-                      {CAMPAIGN_PLATFORMS.map((p) => (
-                        <ToggleGroupItem
-                          key={p.value}
-                          value={p.value}
-                          disabled={connectionsLoading || !platformLive[p.value]}
-                          title={
-                            connectionsLoading
-                              ? "Checking connections..."
-                              : platformLive[p.value]
-                                ? undefined
-                                : `${p.label} is not connected. Connect it on the Accounts page first.`
-                          }
-                          data-testid={`toggle-campaign-${p.value}`}
-                          className="text-xs px-3 cursor-pointer border-foreground/25 text-foreground shadow-sm hover:border-foreground/40 hover:bg-accent hover:text-accent-foreground data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90 data-[state=on]:hover:text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          {p.label}
-                        </ToggleGroupItem>
-                      ))}
+                      {CAMPAIGN_PLATFORMS.map((p) => {
+                        const live = platformLive[p.value];
+                        const item = (
+                          <ToggleGroupItem
+                            key={p.value}
+                            value={p.value}
+                            disabled={connectionsLoading}
+                            title={connectionsLoading ? "Checking connections..." : undefined}
+                            onClick={(e) => {
+                              if (!connectionsLoading && !live) {
+                                e.preventDefault();
+                                navigate("/accounts");
+                              }
+                            }}
+                            data-testid={`toggle-campaign-${p.value}`}
+                            className={
+                              "text-xs px-3 cursor-pointer border-foreground/25 text-foreground shadow-sm hover:border-foreground/40 hover:bg-accent hover:text-accent-foreground data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90 data-[state=on]:hover:text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40" +
+                              (!connectionsLoading && !live ? " opacity-40 hover:opacity-70" : "")
+                            }
+                          >
+                            {p.label}
+                          </ToggleGroupItem>
+                        );
+                        if (connectionsLoading || live) return item;
+                        return (
+                          <Tooltip key={p.value}>
+                            <TooltipTrigger asChild>{item}</TooltipTrigger>
+                            <TooltipContent data-testid={`tooltip-connect-${p.value}`}>
+                              Connect account to activate. Click to open Accounts.
+                            </TooltipContent>
+                          </Tooltip>
+                        );
+                      })}
                     </ToggleGroup>
                     {!connectionsLoading &&
                       CAMPAIGN_PLATFORMS.every((p) => !platformLive[p.value]) && (

@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { navigate } from "wouter/use-browser-location";
 import {
   TWEET_MAX_LENGTH,
   isOverTweetLimit,
@@ -138,7 +140,9 @@ function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <StudioPage />
+      <TooltipProvider>
+        <StudioPage />
+      </TooltipProvider>
     </QueryClientProvider>,
   );
 }
@@ -410,10 +414,16 @@ describe("Studio campaign generation quota-relevant variables", () => {
 });
 
 describe("Studio campaign platform toggles gated by connection status", () => {
-  it("disables a platform whose tenant connection is missing and drops it from the default selection", async () => {
+  it("keeps an unconnected platform out of the default selection and routes clicks to Accounts", async () => {
     mockState.connections.twitter = { configured: true, connected: false, expired: false };
     renderPage();
-    expect(screen.getByTestId("toggle-campaign-twitter")).toHaveProperty("disabled", true);
+    const twitterToggle = screen.getByTestId("toggle-campaign-twitter");
+    expect(twitterToggle).toHaveProperty("disabled", false);
+    expect(twitterToggle.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(twitterToggle);
+    expect(vi.mocked(navigate)).toHaveBeenCalledWith("/accounts");
+    // Clicking never selects it.
+    expect(twitterToggle.getAttribute("aria-pressed")).toBe("false");
     fireEvent.change(screen.getByLabelText("Prompt"), {
       target: { value: "A campaign prompt long enough to pass validation" },
     });
@@ -426,10 +436,10 @@ describe("Studio campaign platform toggles gated by connection status", () => {
     ]);
   });
 
-  it("disables a platform whose app-level credentials are not configured", async () => {
+  it("keeps a platform without app-level credentials out of the campaign selection", async () => {
     mockState.connections.linkedin = { configured: false, connected: true, expired: false };
     renderPage();
-    expect(screen.getByTestId("toggle-campaign-linkedin")).toHaveProperty("disabled", true);
+    expect(screen.getByTestId("toggle-campaign-linkedin").getAttribute("aria-pressed")).toBe("false");
     fireEvent.change(screen.getByLabelText("Prompt"), {
       target: { value: "A campaign prompt long enough to pass validation" },
     });
@@ -442,18 +452,21 @@ describe("Studio campaign platform toggles gated by connection status", () => {
     ]);
   });
 
-  it("disables Instagram when Facebook is not verified, even if Instagram itself is verified", () => {
+  it("deselects Instagram when Facebook is not verified, even if Instagram itself is verified", () => {
     mockState.connections.facebook = { appConfigured: true, saved: true, verifyStatus: "failed" };
     renderPage();
-    expect(screen.getByTestId("toggle-campaign-instagram")).toHaveProperty("disabled", true);
-    expect(screen.getByTestId("toggle-campaign-facebook")).toHaveProperty("disabled", true);
-    expect(screen.getByTestId("toggle-campaign-linkedin")).toHaveProperty("disabled", false);
+    expect(screen.getByTestId("toggle-campaign-instagram").getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByTestId("toggle-campaign-facebook").getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByTestId("toggle-campaign-linkedin").getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("disables an expired connection", () => {
+  it("deselects an expired connection and routes its click to Accounts", () => {
     mockState.connections.twitter = { configured: true, connected: true, expired: true };
     renderPage();
-    expect(screen.getByTestId("toggle-campaign-twitter")).toHaveProperty("disabled", true);
+    const twitterToggle = screen.getByTestId("toggle-campaign-twitter");
+    expect(twitterToggle.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(twitterToggle);
+    expect(vi.mocked(navigate)).toHaveBeenCalledWith("/accounts");
   });
 
   it("shows the connect-accounts hint when nothing is connected", () => {
