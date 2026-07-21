@@ -34,6 +34,7 @@ import {
   retryScheduledPostNow,
   SCHEDULE_INTERRUPTED_REASON,
   SCHEDULED_TRANSIENT_RETRY,
+  outageExhaustedReason,
 } from "./scheduledPublisher";
 import { tryAcquireResendLock } from "./resendLock";
 
@@ -348,9 +349,16 @@ describe("runScheduledPublishTick", () => {
         const schedule = await getSchedule(scheduleId);
         expect(schedule.status).toBe("failed");
         expect(schedule.retryCount).toBe(2);
-        expect(schedule.failureReason).toBe(TRANSIENT_ERROR);
+        // Exhausted budget wraps the last error in an outage explanation so
+        // the failureReason and notification distinguish "the platform kept
+        // being down" from a definitive rejection.
+        expect(schedule.failureReason).toBe(outageExhaustedReason(3, TRANSIENT_ERROR));
+        expect(schedule.failureReason).toContain("temporary problems");
+        expect(schedule.failureReason).toContain(TRANSIENT_ERROR);
         const notifs = await getNotifications(tenant.tenantId, "scheduled_publish_failed");
         expect(notifs.length).toBe(1);
+        expect(notifs[0].message).toContain("platform outage");
+        expect(notifs[0].message).toContain("3 attempts");
       } finally {
         SCHEDULED_TRANSIENT_RETRY.delayMs = origDelay;
         SCHEDULED_TRANSIENT_RETRY.maxRetries = origMax;

@@ -71,6 +71,22 @@ export const SCHEDULED_TRANSIENT_RETRY = {
   delayMs: 5 * 60 * 1000,
 };
 
+/**
+ * Wrap the final transient error once the auto-retry budget is exhausted so
+ * the failureReason (and the notification/email built from it) tells the
+ * tenant this was a repeated temporary platform outage — not a definitive
+ * rejection of their post — and points them at the retry action. Exported
+ * for tests.
+ */
+export function outageExhaustedReason(attempts: number, error: string): string {
+  const attemptsLabel = `${attempts} attempt${attempts === 1 ? "" : "s"}`;
+  return (
+    `The platform had repeated temporary problems: publishing was tried ${attemptsLabel} automatically and the platform was still unavailable. ` +
+    `This looks like a platform outage rather than a problem with your post — retry it from the Schedule or Content Library page once the platform recovers. ` +
+    `Last error: ${error}`
+  );
+}
+
 const UNSUPPORTED_PLATFORM_REASON =
   "Automatic publishing is not supported for this platform yet. Publish it manually from the Content Library.";
 
@@ -198,15 +214,22 @@ async function publishOneScheduledPost(row: {
     // Transient platform outage (e.g. an X token refresh hitting a brief
     // 503): re-queue with a delay instead of failing, up to the bounded
     // retry budget. Definitive errors fall through to finishSchedule.
-    if (
-      !outcome.ok &&
-      outcome.errorStatus === 503 &&
-      row.retryCount < SCHEDULED_TRANSIENT_RETRY.maxRetries
-    ) {
-      const requeued = await requeueForTransientRetry(row, outcome.error);
-      if (requeued) return 0;
-      // The row changed mid-publish (e.g. cancelled); nothing more to do.
-      return 0;
+    if (!outcome.ok && outcome.errorStatus === 503) {
+      if (row.retryCount < SCHEDULED_TRANSIENT_RETRY.maxRetries) {
+        const requeued = await requeueForTransientRetry(row, outcome.error);
+        if (requeued) return 0;
+        // The row changed mid-publish (e.g. cancelled); nothing more to do.
+        return 0;
+      }
+      // Retry budget exhausted on a still-transient outage: fail the
+      // schedule, but make the reason (and the notification/email built
+      // from it) say this was a repeated temporary platform outage, not a
+      // definitive rejection of the post.
+      outcome = {
+        ok: false,
+        errorStatus: 503,
+        error: outageExhaustedReason(row.retryCount + 1, outcome.error),
+      };
     }
 
     await finishSchedule(row, outcome);
