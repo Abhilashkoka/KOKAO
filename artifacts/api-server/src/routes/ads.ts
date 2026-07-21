@@ -443,7 +443,7 @@ async function upsertPendingAdsConnection(
       .limit(1)
   )[0];
   if (existing) {
-    return (
+    const pending = (
       await db
         .update(adAccountConnectionsTable)
         .set({
@@ -460,6 +460,40 @@ async function upsertPendingAdsConnection(
         .where(eq(adAccountConnectionsTable.id, existing.id))
         .returning()
     )[0]!;
+    // Reconnect fast path: if the fresh grant still includes the previously
+    // selected ad account, auto-verify it so the tenant skips the re-pick
+    // (mirrors the TikTok/Google reconnect pattern). Fails soft back to the
+    // normal picker on any verification error.
+    const previousId = existing.adAccountId;
+    if (previousId) {
+      try {
+        const info =
+          platform === "meta"
+            ? await readAdAccount(credentials.accessToken, previousId)
+            : await readLinkedinAdAccount(credentials.accessToken, previousId);
+        const verified = (
+          await db
+            .update(adAccountConnectionsTable)
+            .set({
+              adAccountId: previousId,
+              adAccountName: info.name,
+              currency: info.currency,
+              status: "connected",
+              verifyStatus: "verified",
+              verifyError: null,
+              verifiedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(eq(adAccountConnectionsTable.id, existing.id))
+            .returning()
+        )[0]!;
+        await resolveAdsConnectionNotifications(tenantId, platform);
+        return verified;
+      } catch {
+        // Verification failed — leave the connection pending selection.
+      }
+    }
+    return pending;
   }
   return (
     await db

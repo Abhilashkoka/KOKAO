@@ -114,7 +114,8 @@ import { platformFetch } from "../lib/platformFetch";
 import { LINKEDIN_ADS_REFRESH_WINDOW_MS } from "../lib/linkedinAdsRefresh";
 import { encryptJson, decryptJson } from "../lib/secretCrypto";
 import { requireTenant } from "../middlewares/requireTenant";
-import adsRouter, { clearLinkedinGroupNamesCache } from "./ads";
+import adsRouter, { adsCallbackRouter, clearLinkedinGroupNamesCache } from "./ads";
+import { signOAuthState } from "../lib/oauthState";
 import { resetAuthState, actAs } from "../test/authState";
 import { createTenant, deleteTenant } from "../test/dbHelpers";
 
@@ -155,6 +156,7 @@ function createAdsTestApp(): Express {
     };
     next();
   });
+  app.use("/api", adsCallbackRouter);
   app.use("/api", requireTenant, adsRouter);
   return app;
 }
@@ -471,6 +473,126 @@ describe("linkedin reconnect restores a failed connection", () => {
         (n) => n.type === "ads_connection_failed" && n.readAt == null,
       );
       expect(lingering.length).toBe(0);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+});
+
+describe("linkedin oauth callback reconnect fast path", () => {
+  function mockTokenExchange() {
+    mockPlatformFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: "li-fresh-token", expires_in: 3600 }),
+    } as never);
+  }
+
+  it("auto-verifies the previous ad account when still readable with the new token", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId, {
+        verifyStatus: "failed",
+        verifyError: "token revoked",
+      });
+      mockTokenExchange();
+      await db.insert(notificationsTable).values({
+        tenantId: tenant.tenantId,
+        type: "ads_connection_failed",
+        platform: "linkedin",
+        title: "LinkedIn Ads account disconnected",
+        message: "Your LinkedIn Ads connection is no longer valid.",
+        linkUrl: "/ads",
+      });
+
+      const state = signOAuthState(tenant.tenantId, "nonce");
+      const res = await request(app).get(
+        `/api/ads/linkedin/auth/callback?code=code123&state=${state}`,
+      );
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toContain("linkedin=connected");
+
+      const [conn] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(conn!.status).toBe("connected");
+      expect(conn!.adAccountId).toBe("512345678");
+      expect(conn!.verifyStatus).toBe("verified");
+      expect(conn!.verifyError).toBeNull();
+      expect(mockReadAccount).toHaveBeenCalledWith("li-fresh-token", "512345678");
+      const creds = decryptJson<{ accessToken: string }>(
+        conn!.encryptedCredentials!,
+      );
+      expect(creds.accessToken).toBe("li-fresh-token");
+
+      // The lingering disconnected notification is auto-resolved.
+      const notifications = await db
+        .select()
+        .from(notificationsTable)
+        .where(eq(notificationsTable.tenantId, tenant.tenantId));
+      const lingering = notifications.filter(
+        (n) => n.type === "ads_connection_failed" && n.readAt == null,
+      );
+      expect(lingering.length).toBe(0);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("falls back to pending_selection when the previous ad account cannot be verified", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      mockTokenExchange();
+      mockReadAccount.mockRejectedValue(
+        new LinkedinAdsApiError("account gone", 404),
+      );
+
+      const state = signOAuthState(tenant.tenantId, "nonce");
+      const res = await request(app).get(
+        `/api/ads/linkedin/auth/callback?code=code123&state=${state}`,
+      );
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toContain("linkedin=connected");
+
+      const [conn] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(conn!.status).toBe("pending_selection");
+      expect(conn!.adAccountId).toBe("");
+      expect(conn!.verifyStatus).toBeNull();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("stays pending_selection when there was no previously selected account", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId, {
+        status: "pending_selection",
+        adAccountId: "",
+        adAccountName: "",
+        currency: null,
+        verifyStatus: null,
+      });
+      mockTokenExchange();
+
+      const state = signOAuthState(tenant.tenantId, "nonce");
+      const res = await request(app).get(
+        `/api/ads/linkedin/auth/callback?code=code123&state=${state}`,
+      );
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toContain("linkedin=connected");
+
+      const [conn] = await db
+        .select()
+        .from(adAccountConnectionsTable)
+        .where(eq(adAccountConnectionsTable.id, connectionId));
+      expect(conn!.status).toBe("pending_selection");
+      expect(mockReadAccount).not.toHaveBeenCalled();
     } finally {
       await deleteTenant(tenant.tenantId);
     }
