@@ -95,10 +95,16 @@ describe("resolveNotificationRoute", () => {
     ).toBe("/ads");
   });
 
-  it("falls back to the notifications screen for web-only or unknown targets", () => {
+  it("routes settings alerts to the settings screen", () => {
     expect(
       resolveNotificationRoute({ url: "/settings", type: "team_member_joined" }),
-    ).toBe("/notifications");
+    ).toBe("/settings");
+    expect(
+      resolveNotificationRoute({ url: "/settings?tab=billing", type: "seat_request_decided" }),
+    ).toBe("/settings");
+  });
+
+  it("falls back to the notifications screen for web-only or unknown targets", () => {
     expect(resolveNotificationRoute({ url: "/admin", type: "sweep_stalled" })).toBe(
       "/notifications",
     );

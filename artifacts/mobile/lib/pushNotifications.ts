@@ -123,7 +123,10 @@ export function resolveNotificationRoute(data: unknown): Href {
   if (url === "/ads" || url.startsWith("/ads?")) {
     return "/ads";
   }
-  // /settings, /admin and anything unknown have no mobile screen —
+  if (url === "/settings" || url.startsWith("/settings?")) {
+    return "/settings";
+  }
+  // /admin and anything unknown have no mobile screen —
   // the notifications feed is the actionable fallback for all of them.
   return "/notifications";
 }
