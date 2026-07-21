@@ -51,6 +51,42 @@ vi.mock("@workspace/api-client-react", async () => {
       isLoading: false,
       error: null,
     }),
+    useListGoogleAdCustomerChoices: () => ({
+      data: [
+        {
+          customerId: "111",
+          name: "Google One",
+          currency: "USD",
+          loginCustomerId: null,
+          manager: false,
+        },
+        {
+          customerId: "222",
+          name: "Google Two",
+          currency: "EUR",
+          loginCustomerId: "999",
+          manager: false,
+        },
+      ],
+      isLoading: false,
+      error: null,
+    }),
+    useListTiktokAdvertiserChoices: () => ({
+      data: [
+        { adAccountId: "tt_1", name: "TikTok One", currency: "USD" },
+        { adAccountId: "tt_2", name: "TikTok Two", currency: "EUR" },
+      ],
+      isLoading: false,
+      error: null,
+    }),
+    useListLinkedinAdAccountChoices: () => ({
+      data: [
+        { adAccountId: "li_1", name: "LinkedIn One", currency: "USD" },
+        { adAccountId: "li_2", name: "LinkedIn Two", currency: "EUR" },
+      ],
+      isLoading: false,
+      error: null,
+    }),
   });
 });
 
@@ -279,6 +315,106 @@ describe("Ads page connection card layout (connected accounts)", () => {
       expect(typeof c === "string" && /\bgrid\b/.test(c)).toBe(false);
       if (el === area) break;
     }
+  });
+
+  /**
+   * Shared assertions for a platform's mid-connection account picker:
+   * the picker UI must render inside its own card's stacked-to-horizontal
+   * body split while all four cards remain stacked siblings.
+   */
+  function assertPendingPickerLayout(
+    pendingPlatform: "meta" | "google" | "tiktok" | "linkedin",
+    selectTestId: string,
+    confirmTestId: string,
+  ) {
+    const connectedNameIds: Record<string, string> = {
+      meta: "text-ad-account-name",
+      google: "text-google-account-name",
+      tiktok: "text-tiktok-advertiser-name",
+      linkedin: "text-linkedin-ad-account-name",
+    };
+    mockState.connections = (["meta", "google", "tiktok", "linkedin"] as const).map(
+      (platform, i) =>
+        platform === pendingPlatform
+          ? makeConnection(platform, i + 1, {
+              status: "pending_selection",
+              adAccountId: undefined,
+              adAccountName: undefined,
+              verifyStatus: null,
+            })
+          : makeConnection(platform, i + 1),
+    );
+    renderPage();
+
+    // The picker UI (select trigger + confirm button) renders inside the
+    // platform card's stacked-to-horizontal body split.
+    const selectEl = screen.getByTestId(selectTestId);
+    const confirmEl = screen.getByTestId(confirmTestId);
+    const wrapper = bodyWrapperOf(selectEl);
+    expect(wrapper).not.toBeNull();
+    expect(bodyWrapperOf(confirmEl)).toBe(wrapper);
+    const cls = wrapper!.className;
+    expect(cls).toContain("flex");
+    expect(cls).toContain("flex-col");
+    expect(cls).toContain("lg:flex-row");
+    // Picker lives in the growing content column, not the capped header.
+    const content = wrapper!.querySelector('[class*="lg:flex-1"]');
+    expect(content).not.toBeNull();
+    expect(content!.contains(selectEl)).toBe(true);
+    expect(content!.contains(confirmEl)).toBe(true);
+    const header = wrapper!.querySelector('[class*="lg:max-w-sm"]');
+    expect(header).not.toBeNull();
+    expect(header!.contains(selectEl)).toBe(false);
+
+    // Cards remain stacked siblings: Meta+Google in ConnectionSection's own
+    // space-y-4 stack, itself a direct child of the outer connection area.
+    const cards: Record<string, HTMLElement> = {};
+    for (const platform of ["meta", "google", "tiktok", "linkedin"] as const) {
+      cards[platform] =
+        platform === pendingPlatform
+          ? cardOf(selectEl)
+          : cardOf(screen.getByTestId(connectedNameIds[platform]));
+    }
+    const { meta, google, tiktok, linkedin } = cards;
+    expect(new Set([meta, google, tiktok, linkedin]).size).toBe(4);
+    const area = tiktok.parentElement!;
+    expect(area.className).toContain("space-y-4");
+    expect(linkedin.parentElement).toBe(area);
+    expect(meta.parentElement).toBe(google.parentElement);
+    expect(meta.parentElement?.className).toContain("space-y-4");
+    expect(meta.parentElement?.parentElement).toBe(area);
+    expect(area.querySelector('[class*="grid-cols-2"]')).toBeNull();
+    for (const card of [meta, google, tiktok, linkedin]) {
+      for (let el: HTMLElement | null = card.parentElement; el; el = el.parentElement) {
+        const c = el.className;
+        expect(typeof c === "string" && /\bgrid\b/.test(c)).toBe(false);
+        if (el === area) break;
+      }
+    }
+  }
+
+  it("renders the mid-connection Google account picker inside the Google card's flex-row body while cards stay stacked", () => {
+    assertPendingPickerLayout(
+      "google",
+      "select-google-account",
+      "button-select-google-account",
+    );
+  });
+
+  it("renders the mid-connection TikTok advertiser picker inside the TikTok card's flex-row body while cards stay stacked", () => {
+    assertPendingPickerLayout(
+      "tiktok",
+      "select-tiktok-advertiser",
+      "button-select-tiktok-advertiser",
+    );
+  });
+
+  it("renders the mid-connection LinkedIn account picker inside the LinkedIn card's flex-row body while cards stay stacked", () => {
+    assertPendingPickerLayout(
+      "linkedin",
+      "select-linkedin-ad-account",
+      "button-select-linkedin-ad-account",
+    );
   });
 
   it("keeps the connected cards stacked as full-width siblings, not a grid", () => {
