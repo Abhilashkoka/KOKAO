@@ -786,6 +786,72 @@ describe("tiktok approve → apply → verify", () => {
     }
   });
 
+  it("skips the status write when an ad draft only changes the name", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      // The client echoes the current status back unchanged — only the name differs.
+      const draftRes = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "ad",
+        targetId: "ad_9",
+        name: "Video Ad A v2",
+        status: "ACTIVE",
+        dailyBudget: undefined,
+      });
+      expect(draftRes.status).toBe(201);
+      const draftId = draftRes.body.id as number;
+
+      mockReadAd.mockResolvedValueOnce({ ...AD_STATE }); // drift check
+      mockReadAd.mockResolvedValue({ ...AD_STATE, name: "Video Ad A v2" });
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post(`/api/ads/drafts/${draftId}/approve`);
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("applied");
+      expect(res.body.verifyStatus).toBe("verified");
+      // Rename-only: the adapter gets no status, so it never issues the
+      // separate ad/status/update/ platform write.
+      expect(mockUpdateAd).toHaveBeenCalledTimes(1);
+      expect(mockUpdateAd).toHaveBeenCalledWith("tiktok-token", "adv_123", "ad_9", {
+        name: "Video Ad A v2",
+        status: undefined,
+      });
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("skips the status write when an ad group draft only changes the name", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertTiktokConnection(tenant.tenantId);
+      const draftRes = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        targetType: "adset",
+        targetId: "ag_1",
+        name: "Prospecting AG v3",
+        status: "PAUSED", // same as current
+        dailyBudget: undefined,
+      });
+      expect(draftRes.status).toBe(201);
+      const draftId = draftRes.body.id as number;
+
+      mockReadAdGroup.mockResolvedValueOnce({ ...ADGROUP_STATE }); // drift check
+      mockReadAdGroup.mockResolvedValue({ ...ADGROUP_STATE, name: "Prospecting AG v3" });
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post(`/api/ads/drafts/${draftId}/approve`);
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("applied");
+      expect(mockUpdateAdGroup).toHaveBeenCalledTimes(1);
+      expect(mockUpdateAdGroup).toHaveBeenCalledWith("tiktok-token", "adv_123", "ag_1", {
+        name: "Prospecting AG v3",
+        status: undefined,
+      });
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("applies an ad group budget update end to end and verifies read-back", async () => {
     const tenant = await createTenant();
     try {

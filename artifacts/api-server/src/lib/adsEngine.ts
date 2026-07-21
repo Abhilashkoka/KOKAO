@@ -1193,9 +1193,23 @@ export async function approveAndApplyDraft(
           return { kind: "expired", draft: expired };
         }
 
+        // A drafted status equal to the object's current status is a no-op:
+        // don't re-assert it on the platform. TikTok issues a separate
+        // status write, so skipping it halves rename-only traffic; on every
+        // platform it avoids racing delivery-state changes made elsewhere.
+        // Creatives are excluded — their updates are status-only and the
+        // LinkedIn adapter requires a status.
+        const draftTargetType = asDraftTargetType(claimed.targetType);
+        const statusToApply =
+          draftTargetType !== "creative" &&
+          payload.status != null &&
+          payload.status === current.status
+            ? undefined
+            : payload.status;
+
         await ops.update(conn, claimed.targetId, {
           name: payload.name,
-          status: payload.status,
+          status: statusToApply,
           dailyBudget: payload.dailyBudget ?? undefined,
           lifetimeBudget: payload.lifetimeBudget ?? undefined,
           removeLifetimeBudget: payload.removeLifetimeBudget ?? undefined,
@@ -1207,7 +1221,7 @@ export async function approveAndApplyDraft(
             ? [...new Set(payload.targetingLocations.map((l) => l.urn))].sort()
             : undefined,
           targetingFacets: payload.targetingFacets ?? undefined,
-          targetType: asDraftTargetType(claimed.targetType),
+          targetType: draftTargetType,
         });
 
         // Post-apply verification: read back and confirm the fields we set.
@@ -1216,7 +1230,7 @@ export async function approveAndApplyDraft(
           conn,
           claimed.targetId,
           payload,
-          asDraftTargetType(claimed.targetType),
+          draftTargetType,
         );
         return await finishApplied(claimed, claimed.targetId, verifyStatus, approver);
       }
