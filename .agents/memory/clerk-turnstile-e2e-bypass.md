@@ -16,7 +16,7 @@ Clerk dev instances show an interactive Cloudflare Turnstile CAPTCHA on sign-up 
 - The `/v1/environment` request is a POST with `_method=PATCH` (not GET); the sitekey-rewrite interception must match ANY method or the real Turnstile key slips through and sign-up stalls silently.
 - Playwright's downloaded chromium fails on NixOS (missing libglib); install Nix `chromium` via system deps and pass `executablePath`.
 - Expo web keeps prior screens mounted, so `getByPlaceholder(...)` matches twice — use `.last()`; list-item clicks may need `{ force: true }` (scroll container intercepts pointer events).
-- A working script lives at `.local/mobile-e2e.mjs` (full sign-up → Studio caption → save → Library edit → Accounts flow).
+- Harness scripts under `.local/` do NOT persist across task environments — rewrite from this recipe each time (latest pattern: sign-up bypass, seed via pg from lib/db, client-side nav only; auth screen link text is "Create an account", not "Sign up").
 - Delete test Clerk users + their tenants/content rows after runs.
 
 **Sign-in UX for needs_client_trust:** the mobile sign-in screen now falls back to the email-code first factor (`signIn.emailCode.sendCode()`/`verifyCode`) when password sign-in ends at `needs_client_trust` or `needs_first_factor` — email code IS accepted even while status is needs_client_trust and completes the sign-in. Note @clerk/expo 3.7.5 types omit `needs_client_trust` from `SignInStatus` in the resolved shared version the app sees; compare via `signIn.status as string`. E2E: `.local/mobile-signin-e2e.mjs` (create user via backend API + PATCH email verified:true, sign in from a fresh context, code 424242).

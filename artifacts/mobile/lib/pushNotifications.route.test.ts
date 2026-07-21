@@ -81,14 +81,20 @@ describe("resolveNotificationRoute", () => {
     ).toBe("/(tabs)/accounts");
   });
 
+  it("routes ads alerts to the ads screen", () => {
+    expect(resolveNotificationRoute({ url: "/ads", type: "ads_change_failed" })).toBe(
+      "/ads",
+    );
+    expect(
+      resolveNotificationRoute({ url: "/ads?draft=3", type: "ads_change_applied" }),
+    ).toBe("/ads");
+  });
+
   it("falls back to the notifications screen for web-only or unknown targets", () => {
     expect(
       resolveNotificationRoute({ url: "/settings", type: "team_member_joined" }),
     ).toBe("/notifications");
     expect(resolveNotificationRoute({ url: "/admin", type: "sweep_stalled" })).toBe(
-      "/notifications",
-    );
-    expect(resolveNotificationRoute({ url: "/ads", type: "ads_change_failed" })).toBe(
       "/notifications",
     );
     expect(resolveNotificationRoute({ type: "seat_request_decided" })).toBe(
