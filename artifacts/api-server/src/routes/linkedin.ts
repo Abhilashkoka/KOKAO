@@ -43,7 +43,8 @@ import {
   getLinkedinAppCredentials,
   isLinkedinAppConfigured,
   LINKEDIN_AUTH_BASE,
-  LINKEDIN_TOKEN_URL,
+  linkedinTokenUrl,
+  linkedinUserinfoUrl,
 } from "../lib/linkedinApp";
 
 const router: IRouter = Router();
@@ -61,8 +62,6 @@ const objectStorageService = new ObjectStorageService();
 const LINKEDIN_VERSION = process.env.LINKEDIN_API_VERSION || "202506";
 const OAUTH_SCOPE = "openid profile w_member_social";
 const AUTH_BASE = LINKEDIN_AUTH_BASE;
-const TOKEN_URL = LINKEDIN_TOKEN_URL;
-const USERINFO_URL = "https://api.linkedin.com/v2/userinfo";
 const REST_BASE = "https://api.linkedin.com/rest";
 
 /** Shared app-level LinkedIn OAuth credentials (see lib/linkedinApp). */
@@ -376,7 +375,7 @@ linkedinCallbackRouter.get(
   const tenantId = verified.tenantId;
 
   try {
-    const tokenRes = await platformFetch(TOKEN_URL, {
+    const tokenRes = await platformFetch(linkedinTokenUrl(), {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -429,7 +428,7 @@ linkedinCallbackRouter.get(
       ? encryptJson(storedCredentials)
       : null;
 
-    const userRes = await platformFetch(USERINFO_URL, {
+    const userRes = await platformFetch(linkedinUserinfoUrl(), {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     const userJson = (await userRes.json()) as {
@@ -551,7 +550,7 @@ router.post("/linkedin/retest", async (req: Request, res: Response) => {
   let accountName = existing.accountName;
   let providerUserId = existing.providerUserId;
   try {
-    const userRes = await platformFetch(USERINFO_URL, {
+    const userRes = await platformFetch(linkedinUserinfoUrl(), {
       headers: { Authorization: `Bearer ${existing.accessToken}` },
     });
     const userJson = (await userRes.json()) as { sub?: string; name?: string };

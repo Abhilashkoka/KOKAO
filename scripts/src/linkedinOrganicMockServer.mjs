@@ -9,6 +9,12 @@
 //   - normal mode: 200 with a fresh access token (expires_in 60 days) and a
 //     rotated refresh token (refresh_token_expires_in ~1 year)
 //   - revoked mode: 400 invalid_grant (definitive rejection -> reconnect)
+// POST /oauth/v2/accessToken (grant_type=authorization_code):
+//   - always succeeds with fresh tokens and UN-REVOKES the mock (a user
+//     completing OAuth is exactly the reconnect flow). Used with
+//     LINKEDIN_TOKEN_URL_OVERRIDE to drive the OAuth callback end to end.
+// GET /v2/userinfo: 200 {sub, name} for freshly minted mock tokens, 401 for
+//   anything else (pair with LINKEDIN_USERINFO_URL_OVERRIDE).
 // POST /__control {"revoked": true|false} toggles the mode.
 // GET  /__log returns the persisted request log.
 //
@@ -63,7 +69,23 @@ const server = http.createServer((req, res) => {
 
     if (req.method === "POST" && req.url?.startsWith("/oauth/v2/accessToken")) {
       const params = new URLSearchParams(body);
-      if (params.get("grant_type") !== "refresh_token") {
+      const grantType = params.get("grant_type");
+      if (grantType === "authorization_code") {
+        // A completed OAuth connect un-revokes the grant — this IS the
+        // reconnect flow.
+        state.revoked = false;
+        state.tokenCounter += 1;
+        persist();
+        return json(res, 200, {
+          access_token: `mock-connect-access-${state.tokenCounter}`,
+          expires_in: 60 * 24 * 60 * 60, // 60 days
+          refresh_token: `mock-connect-refresh-${state.tokenCounter}`,
+          refresh_token_expires_in: 360 * 24 * 60 * 60, // ~1 year
+          scope: "openid,profile,w_member_social",
+          token_type: "Bearer",
+        });
+      }
+      if (grantType !== "refresh_token") {
         persist();
         return json(res, 400, { error: "unsupported_grant_type" });
       }
@@ -84,6 +106,18 @@ const server = http.createServer((req, res) => {
         scope: "openid,profile,w_member_social",
         token_type: "Bearer",
       });
+    }
+
+    if (req.method === "GET" && req.url?.startsWith("/v2/userinfo")) {
+      const auth = req.headers.authorization || "";
+      persist();
+      if (/^Bearer mock-(connect|renewed)-access-/.test(auth)) {
+        return json(res, 200, {
+          sub: "mock-linkedin-member-1",
+          name: "Mock LinkedIn Member",
+        });
+      }
+      return json(res, 401, { error: "invalid_token" });
     }
 
     persist();

@@ -28,6 +28,7 @@ import {
   maybeRefreshLinkedinOrganicToken,
   handleLinkedinOrganicAuthFailure,
 } from "./linkedinOrganicRefresh";
+import { linkedinUserinfoUrl } from "./linkedinApp";
 
 /**
  * How long a stored credential's last verification stays "fresh" before an
@@ -237,8 +238,6 @@ export async function reverifyInstagram(
   return loadAccountRow(tenantId, "instagram");
 }
 
-const LINKEDIN_USERINFO_URL = "https://api.linkedin.com/v2/userinfo";
-
 export const LINKEDIN_TOKEN_INVALID_MESSAGE =
   "Your LinkedIn access token is no longer valid. Reconnect LinkedIn to keep publishing.";
 
@@ -312,7 +311,7 @@ export async function reverifyLinkedin(
   if (!opts.force && !isStale(row.verifiedAt)) return row;
 
   try {
-    const userRes = await platformFetch(LINKEDIN_USERINFO_URL, {
+    const userRes = await platformFetch(linkedinUserinfoUrl(), {
       headers: { Authorization: `Bearer ${row.accessToken}` },
     });
     if (userRes.status === 401 || userRes.status === 403) {

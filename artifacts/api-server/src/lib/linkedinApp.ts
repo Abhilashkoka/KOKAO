@@ -53,3 +53,17 @@ export function linkedinTokenUrl(): string {
   if (override && process.env.NODE_ENV !== "production") return override;
   return LINKEDIN_TOKEN_URL;
 }
+
+export const LINKEDIN_USERINFO_URL = "https://api.linkedin.com/v2/userinfo";
+
+/**
+ * Resolve the LinkedIn OIDC userinfo endpoint at call time. In non-production
+ * environments `LINKEDIN_USERINFO_URL_OVERRIDE` points userinfo probes (OAuth
+ * callback, retest, reverify) at a local mock server for end-to-end testing.
+ * Ignored in production.
+ */
+export function linkedinUserinfoUrl(): string {
+  const override = process.env.LINKEDIN_USERINFO_URL_OVERRIDE;
+  if (override && process.env.NODE_ENV !== "production") return override;
+  return LINKEDIN_USERINFO_URL;
+}
