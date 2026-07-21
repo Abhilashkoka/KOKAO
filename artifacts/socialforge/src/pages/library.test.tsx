@@ -384,3 +384,48 @@ describe("Library publish-to-LinkedIn dialog preview", () => {
     expect(within(dialog).queryByText(/will be trimmed before posting/i)).toBeNull();
   });
 });
+
+describe("Library carousel display", () => {
+  const carouselItem = () => ({
+    id: 7,
+    title: "My carousel",
+    caption: "Carousel caption",
+    platform: "linkedin",
+    status: "draft",
+    imagePath: "/objects/t1/uploads/cover",
+    permalink: null,
+    carouselSlides: [
+      { heading: "Slide one", body: "First body", imagePrompt: "p1", imagePath: "/objects/t1/uploads/s1" },
+      { heading: "Slide two", body: "Second body", imagePrompt: "p2", imagePath: null },
+      { heading: "Slide three", body: "Third body", imagePrompt: "p3", imagePath: "/objects/t1/uploads/s3" },
+    ],
+  });
+
+  it("shows a slide-count badge on carousel cards", () => {
+    mockState.content = [carouselItem()];
+    renderPage();
+    const badge = screen.getByTestId("badge-carousel-7");
+    expect(badge.textContent).toContain("3 slides");
+  });
+
+  it("shows no badge for single-image items", () => {
+    mockState.content = [failedItem()];
+    renderPage();
+    expect(screen.queryByTestId("badge-carousel-42")).toBeNull();
+  });
+
+  it("shows all slides (with headings and missing-image placeholder) in the edit dialog", async () => {
+    mockState.content = [carouselItem()];
+    renderPage();
+    await openMenuAndClick(/edit/i);
+    const section = await screen.findByTestId("carousel-slides-section");
+    expect(within(section).getByText(/carousel slides \(3\)/i)).toBeTruthy();
+    expect(within(section).getByText(/slide one/i)).toBeTruthy();
+    expect(within(section).getByText(/slide two/i)).toBeTruthy();
+    expect(within(section).getByText(/slide three/i)).toBeTruthy();
+    // Slide 2 has no image yet: placeholder is shown instead of an <img>.
+    expect(within(section).getByText(/no image yet/i)).toBeTruthy();
+    const imgs = within(section).getAllByRole("img");
+    expect(imgs).toHaveLength(2);
+  });
+});

@@ -25,7 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
-import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, Twitter, ExternalLink, AtSign, AlertCircle, RotateCw, Wand2, Image as ImageIcon, X } from "lucide-react";
+import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, Twitter, ExternalLink, AtSign, AlertCircle, RotateCw, Wand2, Image as ImageIcon, X, Layers } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -685,6 +685,15 @@ export function LibraryPage() {
                 <div className="aspect-square w-full bg-muted relative overflow-hidden border-b">
                   <img src={`/api/storage${item.imagePath}`} alt={item.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                  {(item.carouselSlides?.length ?? 0) >= 2 && (
+                    <span
+                      className="absolute top-2 right-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-xs font-medium text-white backdrop-blur-sm"
+                      data-testid={`badge-carousel-${item.id}`}
+                    >
+                      <Layers className="h-3 w-3" />
+                      {item.carouselSlides!.length} slides
+                    </span>
+                  )}
                 </div>
               ) : (
                 <div className="aspect-video w-full bg-primary/5 flex flex-col items-center justify-center p-6 border-b relative">
@@ -988,6 +997,41 @@ export function LibraryPage() {
                 </p>
               )}
             </div>
+            {(editItem?.carouselSlides?.length ?? 0) >= 2 && (
+              <div className="space-y-2" data-testid="carousel-slides-section">
+                <label className="text-sm font-medium">
+                  Carousel slides ({editItem.carouselSlides.length})
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {editItem.carouselSlides.map((slide: { heading: string; body: string; imagePath: string | null }, idx: number) => (
+                    <div key={idx} className="rounded-md border overflow-hidden bg-muted/30" data-testid={`carousel-slide-${idx}`}>
+                      {slide.imagePath ? (
+                        <img
+                          src={`/api/storage${slide.imagePath}`}
+                          alt={slide.heading || `Slide ${idx + 1}`}
+                          className="w-full aspect-square object-cover"
+                        />
+                      ) : (
+                        <div className="w-full aspect-square flex items-center justify-center text-xs text-muted-foreground bg-primary/5">
+                          No image yet
+                        </div>
+                      )}
+                      <div className="p-2">
+                        <p className="text-xs font-medium line-clamp-1" title={slide.heading}>
+                          {idx + 1}. {slide.heading}
+                        </p>
+                        {slide.body && (
+                          <p className="text-[11px] text-muted-foreground line-clamp-2" title={slide.body}>{slide.body}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  These slides publish together as a carousel. The image above is the cover (slide 1).
+                </p>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditItem(null)}>Cancel</Button>

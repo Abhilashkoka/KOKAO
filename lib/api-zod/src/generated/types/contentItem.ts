@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { CarouselSlide } from './carouselSlide';
 import type { ContentItemPublishedPlatforms } from './contentItemPublishedPlatforms';
 
 export interface ContentItem {
@@ -15,6 +16,8 @@ export interface ContentItem {
   imagePath?: string | null;
   /** @nullable */
   imagePrompt?: string | null;
+  /** @nullable */
+  carouselSlides?: CarouselSlide[] | null;
   platform: string;
   contentType: string;
   status: string;

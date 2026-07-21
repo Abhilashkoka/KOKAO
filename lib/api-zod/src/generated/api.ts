@@ -3921,6 +3921,12 @@ export const ListContentResponseItem = zod.object({
   "caption": zod.string(),
   "imagePath": zod.string().nullish(),
   "imagePrompt": zod.string().nullish(),
+  "carouselSlides": zod.array(zod.object({
+  "heading": zod.string().describe('Short slide headline.'),
+  "body": zod.string().describe('Supporting copy for the slide.'),
+  "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
+  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
+})).nullish(),
   "platform": zod.string(),
   "contentType": zod.string(),
   "status": zod.string(),
@@ -3971,6 +3977,12 @@ export const CreateContentResponse = zod.object({
   "caption": zod.string(),
   "imagePath": zod.string().nullish(),
   "imagePrompt": zod.string().nullish(),
+  "carouselSlides": zod.array(zod.object({
+  "heading": zod.string().describe('Short slide headline.'),
+  "body": zod.string().describe('Supporting copy for the slide.'),
+  "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
+  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
+})).nullish(),
   "platform": zod.string(),
   "contentType": zod.string(),
   "status": zod.string(),
@@ -4004,6 +4016,12 @@ export const GetContentResponse = zod.object({
   "caption": zod.string(),
   "imagePath": zod.string().nullish(),
   "imagePrompt": zod.string().nullish(),
+  "carouselSlides": zod.array(zod.object({
+  "heading": zod.string().describe('Short slide headline.'),
+  "body": zod.string().describe('Supporting copy for the slide.'),
+  "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
+  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
+})).nullish(),
   "platform": zod.string(),
   "contentType": zod.string(),
   "status": zod.string(),
@@ -4057,6 +4075,12 @@ export const UpdateContentResponse = zod.object({
   "caption": zod.string(),
   "imagePath": zod.string().nullish(),
   "imagePrompt": zod.string().nullish(),
+  "carouselSlides": zod.array(zod.object({
+  "heading": zod.string().describe('Short slide headline.'),
+  "body": zod.string().describe('Supporting copy for the slide.'),
+  "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
+  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
+})).nullish(),
   "platform": zod.string(),
   "contentType": zod.string(),
   "status": zod.string(),

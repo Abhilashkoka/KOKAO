@@ -8258,6 +8258,10 @@ components:
           type: ["string", "null"]
         imagePrompt:
           type: ["string", "null"]
+        carouselSlides:
+          type: ["array", "null"]
+          items:
+            $ref: "#/components/schemas/CarouselSlide"
         platform:
           type: string
         contentType:

@@ -2093,6 +2093,20 @@ export type ContentItemPublishedPlatforms = {[key: string]: {
   publishedAt: string;
 }};
 
+export interface CarouselSlide {
+  /** Short slide headline. */
+  heading: string;
+  /** Supporting copy for the slide. */
+  body: string;
+  /** AI image-generation prompt for this slide's visual. */
+  imagePrompt: string;
+  /**
+     * Storage path of the generated slide image; null until generated.
+     * @nullable
+     */
+  imagePath: string | null;
+}
+
 export interface ContentItem {
   id: number;
   title: string;
@@ -2101,6 +2115,8 @@ export interface ContentItem {
   imagePath?: string | null;
   /** @nullable */
   imagePrompt?: string | null;
+  /** @nullable */
+  carouselSlides?: CarouselSlide[] | null;
   platform: string;
   contentType: string;
   status: string;
@@ -2135,20 +2151,6 @@ export const ContentInputStatus = {
   scheduled: 'scheduled',
   published: 'published',
 } as const;
-
-export interface CarouselSlide {
-  /** Short slide headline. */
-  heading: string;
-  /** Supporting copy for the slide. */
-  body: string;
-  /** AI image-generation prompt for this slide's visual. */
-  imagePrompt: string;
-  /**
-     * Storage path of the generated slide image; null until generated.
-     * @nullable
-     */
-  imagePath: string | null;
-}
 
 export interface ContentInput {
   /** @minLength 1 */
