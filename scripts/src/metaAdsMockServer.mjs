@@ -366,6 +366,12 @@ const server = http.createServer(async (req, res) => {
           changed[key] = v;
         }
       }
+      // Mirror real Meta semantics: switching to lowest-cost (no cap) drops
+      // any previously set bid cap / cost cap amount.
+      if (s.bid_strategy === "LOWEST_COST_WITHOUT_CAP" && s.bid_amount != null) {
+        s.bid_amount = null;
+        changed.bid_amount_cleared = true;
+      }
       saveState();
       record({ method: "POST", path, kind: "update_adset", changed });
       return send({ success: true });
