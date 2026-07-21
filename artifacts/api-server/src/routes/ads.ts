@@ -76,7 +76,7 @@ import {
   getLinkedinAppCredentials,
   isLinkedinAppConfigured,
   LINKEDIN_AUTH_BASE,
-  LINKEDIN_TOKEN_URL,
+  linkedinTokenUrl,
 } from "../lib/linkedinApp";
 import { maybeRefreshLinkedinAdsToken } from "../lib/linkedinAdsRefresh";
 import {
@@ -1039,7 +1039,9 @@ adsCallbackRouter.get(
     const tenantId = verified.tenantId;
 
     try {
-      const tokenRes = await platformFetch(LINKEDIN_TOKEN_URL, {
+      // linkedinTokenUrl() honors the dev-only LINKEDIN_TOKEN_URL_OVERRIDE so
+      // browser e2e runs can complete the reconnect flow against a local mock.
+      const tokenRes = await platformFetch(linkedinTokenUrl(), {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({

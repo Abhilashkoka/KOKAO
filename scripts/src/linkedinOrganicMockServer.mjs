@@ -71,8 +71,8 @@ const server = http.createServer((req, res) => {
       const params = new URLSearchParams(body);
       const grantType = params.get("grant_type");
       if (grantType === "authorization_code") {
-        // A completed OAuth connect un-revokes the grant — this IS the
-        // reconnect flow.
+        // A completed OAuth connect (organic or ads) un-revokes the grant —
+        // this IS the reconnect flow.
         state.revoked = false;
         state.tokenCounter += 1;
         persist();
@@ -81,7 +81,7 @@ const server = http.createServer((req, res) => {
           expires_in: 60 * 24 * 60 * 60, // 60 days
           refresh_token: `mock-connect-refresh-${state.tokenCounter}`,
           refresh_token_expires_in: 360 * 24 * 60 * 60, // ~1 year
-          scope: "openid,profile,w_member_social",
+          scope: "openid,profile,w_member_social,r_ads,rw_ads,r_ads_reporting",
           token_type: "Bearer",
         });
       }
