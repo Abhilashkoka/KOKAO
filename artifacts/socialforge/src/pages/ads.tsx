@@ -2619,6 +2619,25 @@ export function DraftDialog({
         }`
       : null;
 
+  // Capped Meta bid strategies require a positive bid amount. The server
+  // rejects the inconsistency at draft creation and again at approval; this
+  // inline check surfaces it before the request is even sent.
+  const bidError = (() => {
+    if (!showBids) return null;
+    const capped =
+      state.bidStrategy === "LOWEST_COST_WITH_BID_CAP" ||
+      state.bidStrategy === "COST_CAP";
+    if (!capped) return null;
+    if (!state.bidAmount.trim()) {
+      return `${BID_STRATEGY_LABELS[state.bidStrategy] ?? state.bidStrategy} requires a bid amount${currency ? ` in ${currency}` : ""}.`;
+    }
+    const n = Number(state.bidAmount);
+    if (!Number.isFinite(n) || n <= 0) {
+      return "The bid amount must be a positive number.";
+    }
+    return null;
+  })();
+
   const scheduleError = (() => {
     if (!showSchedule || !state.startTime || !state.stopTime) return null;
     const start = new Date(state.startTime);
@@ -2986,11 +3005,20 @@ export function DraftDialog({
                   disabled={state.bidStrategy === "LOWEST_COST_WITHOUT_CAP"}
                   data-testid="input-draft-bid-amount"
                 />
-                <p className="text-xs text-muted-foreground">
-                  Required for bid cap and cost cap; leave blank to keep the
-                  current bid. Only applies when the ad set holds its own
-                  budget.
-                </p>
+                {bidError ? (
+                  <p
+                    className="text-xs font-medium text-destructive"
+                    data-testid="text-bid-error"
+                  >
+                    {bidError}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Required for bid cap and cost cap; leave blank to keep the
+                    current bid. Only applies when the ad set holds its own
+                    budget.
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -3030,6 +3058,7 @@ export function DraftDialog({
               (isCreate && !state.name.trim()) ||
               (isCreate && isLinkedin && !isGroupCreate && !campaignGroupId) ||
               tiktokBudgetError != null ||
+              bidError != null ||
               scheduleError != null
             }
             data-testid="button-submit-draft"
