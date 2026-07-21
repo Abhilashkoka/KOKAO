@@ -31,6 +31,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -182,6 +184,8 @@ export function StudioPage() {
   const [campaignImages, setCampaignImages] = useState<Record<string, GeneratedImage>>({});
   const [pendingCampaignImage, setPendingCampaignImage] = useState<{ platform: string; image: GeneratedImage } | null>(null);
   const [carousel, setCarousel] = useState<CarouselUiState | null>(null);
+  const [carouselMode, setCarouselMode] = useState(false);
+  const [carouselSlideCountText, setCarouselSlideCountText] = useState("5");
   const [carouselBusySlide, setCarouselBusySlide] = useState<number | "all" | null>(null);
   const [carouselSaving, setCarouselSaving] = useState(false);
 
@@ -600,12 +604,19 @@ export function StudioPage() {
     );
   };
 
+  // Effective slide count: empty box falls back to 5; clamped to 2-10.
+  // Only applies when the Carousel checkbox is ticked; otherwise 5.
+  const parsedSlideCount = parseInt(carouselSlideCountText, 10);
+  const carouselSlideCount = !carouselMode || Number.isNaN(parsedSlideCount)
+    ? 5
+    : Math.min(10, Math.max(2, parsedSlideCount));
+
   const onGenerateCarousel = (data: z.infer<typeof schema>) => {
     generateCarousel.mutate(
       {
         data: {
           prompt: data.prompt,
-          slideCount: 5,
+          slideCount: carouselSlideCount,
           platform: "linkedin",
           brandKitId: data.brandKitId || undefined,
           tone: data.tone,
@@ -1144,6 +1155,42 @@ export function StudioPage() {
                     )}
                   />
 
+                  {flags.carousel && (
+                    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-3">
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="carousel-mode"
+                          checked={carouselMode}
+                          onCheckedChange={(v) => setCarouselMode(v === true)}
+                          data-testid="checkbox-carousel-mode"
+                        />
+                        <Label htmlFor="carousel-mode" className="text-sm font-medium cursor-pointer">
+                          Carousel
+                        </Label>
+                      </div>
+                      {carouselMode && (
+                        <div className="flex items-center gap-2">
+                          <Label htmlFor="carousel-slide-count" className="text-sm text-muted-foreground">
+                            Slides
+                          </Label>
+                          <Input
+                            id="carousel-slide-count"
+                            type="number"
+                            min={2}
+                            max={10}
+                            placeholder="5"
+                            value={carouselSlideCountText}
+                            onChange={(e) => setCarouselSlideCountText(e.target.value)}
+                            onBlur={() => setCarouselSlideCountText(String(carouselSlideCount))}
+                            className="h-8 w-20"
+                            data-testid="input-carousel-slide-count"
+                          />
+                          <span className="text-xs text-muted-foreground">max 10 (empty = 5)</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 gap-4">
                     <FormField
                       control={form.control}
@@ -1393,7 +1440,7 @@ export function StudioPage() {
                         ) : (
                           <GalleryHorizontalEnd className="mr-2 h-4 w-4" />
                         )}
-                        Generate Carousel (5 slides)
+                        Generate Carousel ({carouselSlideCount} slides)
                       </Button>
                     )}
                     <div className="grid grid-cols-2 gap-3">
