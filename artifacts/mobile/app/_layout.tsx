@@ -5,7 +5,7 @@ import {
   PlusJakartaSans_700Bold,
   useFonts,
 } from "@expo-google-fonts/plus-jakarta-sans";
-import { ClerkProvider, ClerkLoaded } from "@clerk/expo";
+import { ClerkProvider, ClerkLoaded, useAuth } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
@@ -14,7 +14,7 @@ import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { setBaseUrl } from "@workspace/api-client-react";
+import { setBaseUrl, setAuthTokenGetter, ApiError } from "@workspace/api-client-react";
 
 import { AnalyticsTracker } from "@/components/AnalyticsTracker";
 import { PushRegistrar } from "@/lib/pushNotifications";
@@ -32,7 +32,35 @@ const proxyUrl = process.env.EXPO_PUBLIC_CLERK_PROXY_URL || undefined;
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // On a cold open (deep link from a push notification) the very first
+      // request can race Clerk's token hydration and come back 401 even
+      // though the user is signed in. Retry those instead of surfacing an
+      // error card; other 4xx errors are terminal.
+      retry: (failureCount, error) => {
+        if (error instanceof ApiError) {
+          if (error.status === 401) return failureCount < 3;
+          if (error.status >= 400 && error.status < 500) return false;
+        }
+        return failureCount < 2;
+      },
+    },
+  },
+});
+
+/**
+ * Registers the Clerk token getter with the API client synchronously during
+ * render, so it is in place before any child screen mounts and fires its
+ * first query (important for cold opens that deep-link straight into an
+ * authed screen like the notifications inbox).
+ */
+function ApiAuthBridge({ children }: { children: React.ReactNode }) {
+  const { getToken } = useAuth();
+  setAuthTokenGetter(() => getToken());
+  return <>{children}</>;
+}
 
 function RootLayoutNav() {
   return (
@@ -93,7 +121,9 @@ export default function RootLayout() {
               <PushRegistrar />
               <GestureHandlerRootView>
                 <KeyboardProvider>
-                  <RootLayoutNav />
+                  <ApiAuthBridge>
+                    <RootLayoutNav />
+                  </ApiAuthBridge>
                 </KeyboardProvider>
               </GestureHandlerRootView>
             </QueryClientProvider>

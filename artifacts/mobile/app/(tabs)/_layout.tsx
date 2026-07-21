@@ -5,9 +5,8 @@ import { Redirect, Tabs } from "expo-router";
 import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
 import { SymbolView } from "expo-symbols";
 import { Feather } from "@expo/vector-icons";
-import React, { useEffect } from "react";
+import React from "react";
 import { Platform, StyleSheet, View, useColorScheme } from "react-native";
-import { setAuthTokenGetter } from "@workspace/api-client-react";
 
 import { useColors } from "@/hooks/useColors";
 import { fonts } from "@/constants/fonts";
@@ -127,11 +126,10 @@ function ClassicTabLayout() {
 }
 
 export default function TabLayout() {
-  const { isSignedIn, getToken } = useAuth();
-
-  useEffect(() => {
-    setAuthTokenGetter(() => getToken());
-  }, [getToken]);
+  // Note: the API auth token getter is registered at the root layout
+  // (ApiAuthBridge) so it is in place before ANY authed screen mounts,
+  // including deep-linked screens outside the tab navigator.
+  const { isSignedIn } = useAuth();
 
   if (!isSignedIn) return <Redirect href="/(auth)/sign-in" />;
 

@@ -1,3 +1,4 @@
+import { useAuth } from "@clerk/expo";
 import { Feather } from "@expo/vector-icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
@@ -86,8 +87,16 @@ export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const queryClient = useQueryClient();
+  // Wait for Clerk auth to hydrate before firing the list query, so a cold
+  // open (deep link from a push notification) never fires an unauthenticated
+  // request and flashes an error card at a signed-in user.
+  const { isLoaded, isSignedIn } = useAuth();
+  const authReady = isLoaded && isSignedIn === true;
   const list = useListNotifications(INBOX_PARAMS, {
-    query: { queryKey: getListNotificationsQueryKey(INBOX_PARAMS) },
+    query: {
+      queryKey: getListNotificationsQueryKey(INBOX_PARAMS),
+      enabled: authReady,
+    },
   });
   const markRead = useMarkNotificationRead();
   const markAllRead = useMarkAllNotificationsRead();
@@ -188,7 +197,7 @@ export default function NotificationsScreen() {
         </View>
       </View>
 
-      {list.isLoading ? (
+      {!authReady || list.isLoading ? (
         <View style={{ gap: 10 }}>
           <Skeleton height={72} />
           <Skeleton height={72} />
