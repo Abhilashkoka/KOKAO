@@ -54,6 +54,7 @@ import type {
   AdsModuleStatus,
   AdsTiktokAuthUrlResult,
   AdsTiktokSelectInput,
+  AiModelChoicesView,
   AnalyticsIngestInput,
   AnalyticsIngestResult,
   AppBrand,
@@ -187,6 +188,7 @@ import type {
   SendTestEmailResult,
   SetAsrProviderKeyRequest,
   SetImageGenProviderKeyRequest,
+  SetTextGenKeyRequest,
   SocialCredentialStatus,
   SummarizeUrlRequest,
   SummarizeUrlResult,
@@ -197,6 +199,7 @@ import type {
   TeamOverview,
   Tenant,
   TenantSettings,
+  TextGenSettingsView,
   ThreadsAppCredentialInput,
   ThreadsAppCredentialStatus,
   ThreadsAuthUrlResult,
@@ -217,6 +220,7 @@ import type {
   UpdateTenantDesignSkillBody,
   UpdateTenantPlanBody,
   UpdateTenantSuperadminBody,
+  UpdateTextGenSettingsRequest,
   UploadUrlRequest,
   UploadUrlResponse,
   YoutubeAppCredentialInput,
@@ -3220,6 +3224,370 @@ export const useAdminClearImageGenProviderKey = <TError = ErrorType<ErrorEnvelop
       > => {
       return useMutation(getAdminClearImageGenProviderKeyMutationOptions(options));
     }
+
+export const getAdminGetTextGenSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/text-gen-settings`
+}
+
+/**
+ * @summary Get the text generation provider selection (superadmin only)
+ */
+export const adminGetTextGenSettings = async ( options?: RequestInit): Promise<TextGenSettingsView> => {
+
+  return customFetch<TextGenSettingsView>(getAdminGetTextGenSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetTextGenSettingsQueryKey = () => {
+    return [
+    `/api/admin/text-gen-settings`
+    ] as const;
+    }
+
+
+export const getAdminGetTextGenSettingsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetTextGenSettings>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetTextGenSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetTextGenSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetTextGenSettings>>> = ({ signal }) => adminGetTextGenSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetTextGenSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetTextGenSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetTextGenSettings>>>
+export type AdminGetTextGenSettingsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the text generation provider selection (superadmin only)
+ */
+
+export function useAdminGetTextGenSettings<TData = Awaited<ReturnType<typeof adminGetTextGenSettings>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetTextGenSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetTextGenSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateTextGenSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/text-gen-settings`
+}
+
+/**
+ * @summary Select the text generation provider for the whole app (superadmin only)
+ */
+export const adminUpdateTextGenSettings = async (updateTextGenSettingsRequest: UpdateTextGenSettingsRequest, options?: RequestInit): Promise<TextGenSettingsView> => {
+
+  return customFetch<TextGenSettingsView>(getAdminUpdateTextGenSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateTextGenSettingsRequest)
+  }
+);}
+
+
+
+
+export const getAdminUpdateTextGenSettingsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateTextGenSettings>>, TError,{data: BodyType<UpdateTextGenSettingsRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateTextGenSettings>>, TError,{data: BodyType<UpdateTextGenSettingsRequest>}, TContext> => {
+
+const mutationKey = ['adminUpdateTextGenSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateTextGenSettings>>, {data: BodyType<UpdateTextGenSettingsRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateTextGenSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateTextGenSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateTextGenSettings>>>
+    export type AdminUpdateTextGenSettingsMutationBody = BodyType<UpdateTextGenSettingsRequest>
+    export type AdminUpdateTextGenSettingsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Select the text generation provider for the whole app (superadmin only)
+ */
+export const useAdminUpdateTextGenSettings = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateTextGenSettings>>, TError,{data: BodyType<UpdateTextGenSettingsRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateTextGenSettings>>,
+        TError,
+        {data: BodyType<UpdateTextGenSettingsRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateTextGenSettingsMutationOptions(options));
+    }
+
+export const getAdminSetTextGenKeyUrl = () => {
+
+
+
+
+  return `/api/admin/text-gen-key`
+}
+
+/**
+ * @summary Save the OpenRouter API key for text generation (superadmin only)
+ */
+export const adminSetTextGenKey = async (setTextGenKeyRequest: SetTextGenKeyRequest, options?: RequestInit): Promise<TextGenSettingsView> => {
+
+  return customFetch<TextGenSettingsView>(getAdminSetTextGenKeyUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(setTextGenKeyRequest)
+  }
+);}
+
+
+
+
+export const getAdminSetTextGenKeyMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetTextGenKey>>, TError,{data: BodyType<SetTextGenKeyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSetTextGenKey>>, TError,{data: BodyType<SetTextGenKeyRequest>}, TContext> => {
+
+const mutationKey = ['adminSetTextGenKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSetTextGenKey>>, {data: BodyType<SetTextGenKeyRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminSetTextGenKey(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSetTextGenKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminSetTextGenKey>>>
+    export type AdminSetTextGenKeyMutationBody = BodyType<SetTextGenKeyRequest>
+    export type AdminSetTextGenKeyMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save the OpenRouter API key for text generation (superadmin only)
+ */
+export const useAdminSetTextGenKey = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetTextGenKey>>, TError,{data: BodyType<SetTextGenKeyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSetTextGenKey>>,
+        TError,
+        {data: BodyType<SetTextGenKeyRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminSetTextGenKeyMutationOptions(options));
+    }
+
+export const getAdminClearTextGenKeyUrl = () => {
+
+
+
+
+  return `/api/admin/text-gen-key`
+}
+
+/**
+ * @summary Remove the saved OpenRouter API key (superadmin only)
+ */
+export const adminClearTextGenKey = async ( options?: RequestInit): Promise<TextGenSettingsView> => {
+
+  return customFetch<TextGenSettingsView>(getAdminClearTextGenKeyUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getAdminClearTextGenKeyMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearTextGenKey>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminClearTextGenKey>>, TError,void, TContext> => {
+
+const mutationKey = ['adminClearTextGenKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminClearTextGenKey>>, void> = () => {
+
+
+          return  adminClearTextGenKey(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminClearTextGenKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminClearTextGenKey>>>
+
+    export type AdminClearTextGenKeyMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Remove the saved OpenRouter API key (superadmin only)
+ */
+export const useAdminClearTextGenKey = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearTextGenKey>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminClearTextGenKey>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getAdminClearTextGenKeyMutationOptions(options));
+    }
+
+export const getListAiModelsUrl = () => {
+
+
+
+
+  return `/api/ai/models`
+}
+
+/**
+ * @summary The AI text model choices available to this tenant right now
+ */
+export const listAiModels = async ( options?: RequestInit): Promise<AiModelChoicesView> => {
+
+  return customFetch<AiModelChoicesView>(getListAiModelsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAiModelsQueryKey = () => {
+    return [
+    `/api/ai/models`
+    ] as const;
+    }
+
+
+export const getListAiModelsQueryOptions = <TData = Awaited<ReturnType<typeof listAiModels>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiModels>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAiModelsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAiModels>>> = ({ signal }) => listAiModels({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAiModels>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAiModelsQueryResult = NonNullable<Awaited<ReturnType<typeof listAiModels>>>
+export type ListAiModelsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary The AI text model choices available to this tenant right now
+ */
+
+export function useListAiModels<TData = Awaited<ReturnType<typeof listAiModels>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiModels>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAiModelsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getAdminGetStatsUrl = () => {
 

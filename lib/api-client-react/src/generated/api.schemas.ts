@@ -956,6 +956,89 @@ export interface UpdateImageGenSettingsRequest {
   customBaseUrl?: string | null;
 }
 
+/**
+ * Which backend serves caption/topic/campaign text.
+ */
+export type TextGenSettingsViewProvider = typeof TextGenSettingsViewProvider[keyof typeof TextGenSettingsViewProvider];
+
+
+export const TextGenSettingsViewProvider = {
+  builtin: 'builtin',
+  openrouter: 'openrouter',
+} as const;
+
+/**
+ * Where the active OpenRouter key comes from (admin-entered key wins over the env secret).
+ * @nullable
+ */
+export type TextGenSettingsViewKeySource = typeof TextGenSettingsViewKeySource[keyof typeof TextGenSettingsViewKeySource] | null;
+
+
+export const TextGenSettingsViewKeySource = {
+  database: 'database',
+  env: 'env',
+} as const;
+
+export interface TextGenSettingsView {
+  /** Which backend serves caption/topic/campaign text. */
+  provider: TextGenSettingsViewProvider;
+  /** Admin-curated OpenRouter model ids tenants may pick from. */
+  models: string[];
+  /**
+     * Fallback model when a tenant's saved model is not in the list.
+     * @nullable
+     */
+  defaultModel: string | null;
+  /**
+     * Where the active OpenRouter key comes from (admin-entered key wins over the env secret).
+     * @nullable
+     */
+  keySource: TextGenSettingsViewKeySource;
+  /** Env secret name used as the key fallback. */
+  envKey: string;
+}
+
+export type UpdateTextGenSettingsRequestProvider = typeof UpdateTextGenSettingsRequestProvider[keyof typeof UpdateTextGenSettingsRequestProvider];
+
+
+export const UpdateTextGenSettingsRequestProvider = {
+  builtin: 'builtin',
+  openrouter: 'openrouter',
+} as const;
+
+export interface UpdateTextGenSettingsRequest {
+  provider: UpdateTextGenSettingsRequestProvider;
+  /** OpenRouter model ids tenants may pick from (required for openrouter). */
+  models?: string[];
+  /**
+     * Must be one of models (defaults to the first entry).
+     * @nullable
+     */
+  defaultModel?: string | null;
+}
+
+export interface SetTextGenKeyRequest {
+  /**
+     * The OpenRouter API key (stored encrypted, never returned).
+     * @minLength 1
+     */
+  apiKey: string;
+}
+
+export type AiModelChoicesViewProvider = typeof AiModelChoicesViewProvider[keyof typeof AiModelChoicesViewProvider];
+
+
+export const AiModelChoicesViewProvider = {
+  builtin: 'builtin',
+  openrouter: 'openrouter',
+} as const;
+
+export interface AiModelChoicesView {
+  provider: AiModelChoicesViewProvider;
+  models: string[];
+  defaultModel: string;
+}
+
 export interface AudioUploadInput {
   /** Audio file (webm/ogg/mp3/wav/m4a), max 15 MB. */
   audio: Blob;

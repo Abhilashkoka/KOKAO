@@ -1093,6 +1093,77 @@ export const AdminClearImageGenProviderKeyResponse = zod.object({
 
 
 /**
+ * @summary Get the text generation provider selection (superadmin only)
+ */
+export const AdminGetTextGenSettingsResponse = zod.object({
+  "provider": zod.enum(['builtin', 'openrouter']).describe('Which backend serves caption\/topic\/campaign text.'),
+  "models": zod.array(zod.string()).describe('Admin-curated OpenRouter model ids tenants may pick from.'),
+  "defaultModel": zod.string().nullable().describe('Fallback model when a tenant\'s saved model is not in the list.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active OpenRouter key comes from (admin-entered key wins over the env secret).'),
+  "envKey": zod.string().describe('Env secret name used as the key fallback.')
+})
+
+
+/**
+ * @summary Select the text generation provider for the whole app (superadmin only)
+ */
+export const AdminUpdateTextGenSettingsBody = zod.object({
+  "provider": zod.enum(['builtin', 'openrouter']),
+  "models": zod.array(zod.string()).optional().describe('OpenRouter model ids tenants may pick from (required for openrouter).'),
+  "defaultModel": zod.string().nullish().describe('Must be one of models (defaults to the first entry).')
+})
+
+export const AdminUpdateTextGenSettingsResponse = zod.object({
+  "provider": zod.enum(['builtin', 'openrouter']).describe('Which backend serves caption\/topic\/campaign text.'),
+  "models": zod.array(zod.string()).describe('Admin-curated OpenRouter model ids tenants may pick from.'),
+  "defaultModel": zod.string().nullable().describe('Fallback model when a tenant\'s saved model is not in the list.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active OpenRouter key comes from (admin-entered key wins over the env secret).'),
+  "envKey": zod.string().describe('Env secret name used as the key fallback.')
+})
+
+
+/**
+ * @summary Save the OpenRouter API key for text generation (superadmin only)
+ */
+
+
+
+export const AdminSetTextGenKeyBody = zod.object({
+  "apiKey": zod.string().min(1).describe('The OpenRouter API key (stored encrypted, never returned).')
+})
+
+export const AdminSetTextGenKeyResponse = zod.object({
+  "provider": zod.enum(['builtin', 'openrouter']).describe('Which backend serves caption\/topic\/campaign text.'),
+  "models": zod.array(zod.string()).describe('Admin-curated OpenRouter model ids tenants may pick from.'),
+  "defaultModel": zod.string().nullable().describe('Fallback model when a tenant\'s saved model is not in the list.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active OpenRouter key comes from (admin-entered key wins over the env secret).'),
+  "envKey": zod.string().describe('Env secret name used as the key fallback.')
+})
+
+
+/**
+ * @summary Remove the saved OpenRouter API key (superadmin only)
+ */
+export const AdminClearTextGenKeyResponse = zod.object({
+  "provider": zod.enum(['builtin', 'openrouter']).describe('Which backend serves caption\/topic\/campaign text.'),
+  "models": zod.array(zod.string()).describe('Admin-curated OpenRouter model ids tenants may pick from.'),
+  "defaultModel": zod.string().nullable().describe('Fallback model when a tenant\'s saved model is not in the list.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active OpenRouter key comes from (admin-entered key wins over the env secret).'),
+  "envKey": zod.string().describe('Env secret name used as the key fallback.')
+})
+
+
+/**
+ * @summary The AI text model choices available to this tenant right now
+ */
+export const ListAiModelsResponse = zod.object({
+  "provider": zod.enum(['builtin', 'openrouter']),
+  "models": zod.array(zod.string()),
+  "defaultModel": zod.string()
+})
+
+
+/**
  * @summary Platform-wide aggregate stats (superadmin only)
  */
 export const AdminGetStatsResponse = zod.object({

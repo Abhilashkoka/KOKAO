@@ -3,6 +3,7 @@ import {
   useGetMe,
   useListPlans,
   useUpdateSettings,
+  useListAiModels,
   getGetMeQueryKey
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -24,10 +25,18 @@ import { ConsentSettings } from "@/components/consent-settings";
 import { useFeatureFlags } from "@/lib/features";
 import { useSearch } from "wouter";
 
+/** Friendly display names for the built-in provider's models. */
+const BUILTIN_MODEL_LABELS: Record<string, string> = {
+  "gpt-5.6-terra": "GPT-5.6 Terra (Best Quality)",
+  "gpt-5.4": "GPT-5.4 (Balanced)",
+  "gpt-5.6-luna": "GPT-5.6 Luna (Fast)",
+};
+
 export function SettingsPage() {
   const search = useSearch();
   const requestedTab = new URLSearchParams(search).get("tab");
   const { data: me, isLoading: meLoading } = useGetMe();
+  const { data: modelChoices } = useListAiModels();
   const { data: plans, isLoading: plansLoading } = useListPlans();
   const updateSettings = useUpdateSettings();
   const queryClient = useQueryClient();
@@ -127,11 +136,13 @@ export function SettingsPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium">AI Model Preference</label>
                 <Select value={aiModel} onValueChange={setAiModel}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger data-testid="select-ai-model"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="gpt-5.6-terra">GPT-5.6 Terra (Best Quality)</SelectItem>
-                    <SelectItem value="gpt-5.4">GPT-5.4 (Balanced)</SelectItem>
-                    <SelectItem value="gpt-5.6-luna">GPT-5.6 Luna (Fast)</SelectItem>
+                    {(modelChoices?.models ?? []).map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {BUILTIN_MODEL_LABELS[m] ?? m}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

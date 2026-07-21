@@ -8,6 +8,7 @@ import { generateWithReplicate, REPLICATE_MODEL } from "./providers/replicate";
 import { generateWithOpenAICompatible } from "./providers/openaiCompatible";
 import { generateWithBfl, BFL_MODEL } from "./providers/bfl";
 import { generateWithSeedream, SEEDREAM_MODEL } from "./providers/seedream";
+import { generateWithOpenRouter, OPENROUTER_IMAGE_MODEL } from "./providers/openrouter";
 import type { ImageGenInput, ImageGenResult, ImageSize, ReferenceImage } from "./types";
 
 export { ImageGenNotConfiguredError, ImageGenProviderError } from "./types";
@@ -111,6 +112,21 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     requiresBaseUrl: false,
     supportsImageInput: false,
     generate: generateWithReplicate,
+  },
+  {
+    id: "openrouter",
+    label: "OpenRouter (routes to many image models)",
+    defaultModel: OPENROUTER_IMAGE_MODEL,
+    envKey: "OPENROUTER_API_KEY",
+    supportsModelOverride: true,
+    requiresBaseUrl: false,
+    modelOptions: [
+      { value: "google/gemini-2.5-flash-image", label: "Nano Banana (google/gemini-2.5-flash-image)" },
+      { value: "google/gemini-3-pro-image-preview", label: "Nano Banana Pro (google/gemini-3-pro-image-preview)" },
+      { value: "openai/gpt-image-1", label: "OpenAI GPT Image (openai/gpt-image-1)" },
+    ],
+    supportsImageInput: true,
+    generate: generateWithOpenRouter,
   },
   {
     id: "custom",

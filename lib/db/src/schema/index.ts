@@ -11,6 +11,7 @@ export * from "./appCredentials";
 export * from "./appBrandSettings";
 export * from "./asrSettings";
 export * from "./imageGenSettings";
+export * from "./textGenSettings";
 export * from "./emailSettings";
 export * from "./designSkillSettings";
 export * from "./featureFlags";

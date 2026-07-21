@@ -38,6 +38,15 @@ import {
   clearStoredImageGenKey,
 } from "../lib/imageGen";
 import {
+  TEXT_GEN_PROVIDERS,
+  getTextGenSelection,
+  setTextGenSelection,
+  getOpenRouterKeySource,
+  setStoredOpenRouterKey,
+  clearStoredOpenRouterKey,
+  type TextGenProvider,
+} from "../lib/textGen";
+import {
   AdminUpdateTenantPlanBody,
   AdminUpdateTenantSuperadminBody,
   AdminUpdateTenantDesignSkillBody,
@@ -47,6 +56,8 @@ import {
   AdminSetAsrProviderKeyBody,
   AdminUpdateImageGenSettingsBody,
   AdminSetImageGenProviderKeyBody,
+  AdminUpdateTextGenSettingsBody,
+  AdminSetTextGenKeyBody,
   AdminUpdateNotificationPoliciesBody,
   AdminUpdatePlanBody,
   AdminCreatePlanBody,
@@ -845,6 +856,145 @@ router.delete(
     res.json(await serializeImageGenSettings());
   },
 );
+
+/** Serialize the text-gen routing state for admin responses (never the key itself). */
+async function serializeTextGenSettings() {
+  const selection = await getTextGenSelection();
+  return {
+    provider: selection.provider,
+    models: selection.models,
+    defaultModel: selection.defaultModel,
+    keySource: await getOpenRouterKeySource(),
+    envKey: "OPENROUTER_API_KEY",
+  };
+}
+
+/**
+ * GET /admin/text-gen-settings
+ * The platform-wide text generation provider selection.
+ */
+router.get("/admin/text-gen-settings", async (_req: Request, res: Response) => {
+  res.json(await serializeTextGenSettings());
+});
+
+/**
+ * PUT /admin/text-gen-settings
+ * Route caption/topic/campaign text through the built-in provider or
+ * OpenRouter. Switching back to "builtin" is the rollback path.
+ */
+router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
+  const parsed = AdminUpdateTextGenSettingsBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const provider = parsed.data.provider as TextGenProvider;
+  if (!TEXT_GEN_PROVIDERS.includes(provider)) {
+    res.status(400).json({ error: "Unknown text generation provider" });
+    return;
+  }
+  const models = (parsed.data.models ?? [])
+    .map((m) => m.trim())
+    .filter((m, i, all) => m.length > 0 && all.indexOf(m) === i)
+    .slice(0, 20);
+  const defaultModel = parsed.data.defaultModel?.trim() || null;
+  if (provider === "openrouter") {
+    if (models.length === 0) {
+      res.status(400).json({ error: "Add at least one OpenRouter model id" });
+      return;
+    }
+    if (defaultModel && !models.includes(defaultModel)) {
+      res.status(400).json({ error: "The default model must be one of the listed models" });
+      return;
+    }
+    if (!(await getOpenRouterKeySource())) {
+      res.status(400).json({
+        error: "Save an OpenRouter API key before switching text generation to OpenRouter",
+      });
+      return;
+    }
+  }
+
+  const before = await getTextGenSelection();
+  await setTextGenSelection({
+    provider,
+    models: provider === "openrouter" ? models : [],
+    defaultModel: provider === "openrouter" ? (defaultModel ?? models[0] ?? null) : null,
+  });
+
+  const after = await getTextGenSelection();
+  const changed =
+    before.provider !== after.provider ||
+    before.defaultModel !== after.defaultModel ||
+    before.models.join(",") !== after.models.join(",");
+  if (changed) {
+    try {
+      await recordAdminAction({
+        action: "textgen_provider_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: `${before.provider}${before.defaultModel ? `:${before.defaultModel}` : ""}`,
+        newValue: `${after.provider}${after.defaultModel ? `:${after.defaultModel}` : ""}`,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write text-gen settings audit log");
+    }
+  }
+
+  res.json(await serializeTextGenSettings());
+});
+
+/**
+ * PUT /admin/text-gen-key
+ * Save the OpenRouter API key (encrypted at rest). Superadmin only.
+ */
+router.put("/admin/text-gen-key", async (req: Request, res: Response) => {
+  const parsed = AdminSetTextGenKeyBody.safeParse(req.body);
+  const apiKey = parsed.success ? parsed.data.apiKey.trim() : "";
+  if (!apiKey) {
+    res.status(400).json({ error: "API key is required" });
+    return;
+  }
+  await setStoredOpenRouterKey(apiKey);
+  try {
+    await recordAdminAction({
+      action: "textgen_key_change",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: null,
+      newValue: "openrouter:set",
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write text-gen key audit log");
+  }
+  res.json(await serializeTextGenSettings());
+});
+
+/**
+ * DELETE /admin/text-gen-key
+ * Remove the saved key (the env secret, if set, becomes the fallback).
+ */
+router.delete("/admin/text-gen-key", async (req: Request, res: Response) => {
+  await clearStoredOpenRouterKey();
+  try {
+    await recordAdminAction({
+      action: "textgen_key_change",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: null,
+      newValue: "openrouter:cleared",
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write text-gen key audit log");
+  }
+  res.json(await serializeTextGenSettings());
+});
 
 /**
  * GET /admin/features
@@ -1873,6 +2023,8 @@ const AUDIT_ACTIONS = new Set([
   "credit_pack_change",
   "credit_grant",
   "promo_code_change",
+  "textgen_provider_change",
+  "textgen_key_change",
 ]);
 
 function escapeLike(value: string): string {

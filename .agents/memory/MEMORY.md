@@ -52,6 +52,7 @@
 - [Sweep fail-ratio alert e2e](sweep-alert-e2e-verification.md) — force via 1ms timeout env (delete after); notification path breaks on notification_preferences schema drift; verify suppression at DB level not banner presence.
 - [Promo codes](promo-codes.md) — all redemption checks + credit grant in one FOR UPDATE tx; new audit actions need 3 registration spots or filters silently reject them.
 - [E2E tenant seeding](e2e-tenant-seeding.md) — resolve tenant by polling email lookup, never "newest row" fallback; /ads tabs need a seeded connected ad connection.
+- [Text-gen provider switch](textgen-provider-switch.md) — builtin vs OpenRouter routing layer; no silent fallback (503 on misconfig); web-search endpoints stay builtin.
 - [Mobile Razorpay checkout](mobile-razorpay-checkout.md) — WebView-hosted checkout.js posts ids back; the app verifies server-side over its own session; mock the modal in jsdom tests.
 - [LinkedIn carousel publishing](linkedin-carousel-pdf.md) — carousels publish as multi-page PDFs via the Documents API; the kill switch must also gate the publish branch, not just the generate route.
 - [RICE studio prompts](rice-studio-prompts.md) — caption/campaign prompts use RICE sections; soft taste examples must trail hard brand constraints; clarify path must charge nothing.

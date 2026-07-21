@@ -29,7 +29,12 @@ import {
   ReferenceImageError,
 } from "../lib/referenceGuide";
 import { isFeatureEnabled } from "../lib/featureFlags";
-import { resolveAiModel } from "../lib/aiModels";
+import {
+  getTextGenClient,
+  listTenantModelChoices,
+  TextGenNotConfiguredError,
+  type TextGenClient,
+} from "../lib/textGen";
 import { buildTasteGuidance } from "../lib/tasteMemory";
 import multer from "multer";
 import {
@@ -105,9 +110,39 @@ async function loadTenant(tenantId: number) {
   const row = (
     await db.select().from(tenantsTable).where(eq(tenantsTable.id, tenantId)).limit(1)
   )[0];
-  // Legacy rows may store a retired model name; fall back to a supported one.
-  return row ? { ...row, aiModel: resolveAiModel(row.aiModel) } : row;
+  // aiModel is kept raw here: the text-gen routing layer maps it to a model
+  // the ACTIVE provider serves (retired/unknown names fall back safely).
+  return row;
 }
+
+/**
+ * The routed text-gen client for this tenant, or null after responding 503
+ * when OpenRouter is selected but not configured (clear error, no silent
+ * fallback to the built-in provider).
+ */
+async function getTextGenOrRespond(
+  res: Response,
+  tenantModel: string,
+): Promise<TextGenClient | null> {
+  try {
+    return await getTextGenClient(tenantModel);
+  } catch (err) {
+    if (err instanceof TextGenNotConfiguredError) {
+      res.status(503).json({ error: err.message });
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
+ * GET /ai/models
+ * The text-model choices this tenant's Settings dropdown should offer under
+ * the ACTIVE platform-wide text generation provider.
+ */
+router.get("/ai/models", async (_req: Request, res: Response) => {
+  res.json(await listTenantModelChoices());
+});
 
 /** Resolve the active brand payload for an optional brand id, or null. */
 async function loadBrandPayload(
@@ -217,6 +252,8 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+  if (!textGen) return;
 
   const limits = await getPlanLimits(tenant.plan);
   const usage = await getUsage(req.tenantId);
@@ -280,8 +317,8 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
 
   const startedAt = Date.now();
   try {
-    const completion = await openai.chat.completions.create({
-      model: tenant.aiModel,
+    const completion = await textGen.client.chat.completions.create({
+      model: textGen.model,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: parsed.data.prompt },
@@ -319,7 +356,7 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
       requestBytes: Buffer.byteLength(systemPrompt + parsed.data.prompt),
       responseBytes: Buffer.byteLength(raw),
       durationMs: Date.now() - startedAt,
-      model: tenant.aiModel,
+      model: textGen.model,
       platform,
     });
     res.json({ caption, hashtags, ...(title ? { title } : {}) });
@@ -402,12 +439,17 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
   const imageTaste = await buildTasteGuidance(req.tenantId);
   if (imageTaste.imageHint) prompt += imageTaste.imageHint;
 
+  // Text-model passes below fail soft: if the routed text-gen provider is
+  // unconfigured, image generation continues with the base prompt.
+  const softTextGen = await getTextGenClient(tenant.aiModel).catch(() => null);
+
   // Canvas-design skill: when enabled, a text-model pass first writes a design
   // philosophy and compiles it into an art-directed prompt (brand elements are
   // mandatory input when a brand kit applies). Fails soft to the base prompt.
-  if (await isDesignSkillEnabledFor(tenant)) {
+  if (softTextGen && (await isDesignSkillEnabledFor(tenant))) {
     const designed = await buildDesignedImagePrompt({
-      model: tenant.aiModel,
+      client: softTextGen.client,
+      model: softTextGen.model,
       userPrompt: parsed.data.prompt,
       brand,
       fallbackPrompt: prompt,
@@ -426,10 +468,13 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
   // rewriting. Fails soft (null) — the raw image still reaches providers that
   // support image input.
   if (referenceImage) {
-    const guide = await buildReferenceGuide({
-      model: tenant.aiModel,
-      image: referenceImage,
-    });
+    const guide = softTextGen
+      ? await buildReferenceGuide({
+          client: softTextGen.client,
+          model: softTextGen.model,
+          image: referenceImage,
+        })
+      : null;
     if (guide) {
       prompt += ` Match the style of the user's reference image: ${guide}`;
     } else {
@@ -517,6 +562,8 @@ router.post("/ai/suggest-topics", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+  if (!textGen) return;
 
   const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
 
@@ -534,8 +581,8 @@ router.post("/ai/suggest-topics", async (req: Request, res: Response) => {
   guidance.push('Respond ONLY with strict JSON of the form {"ideas": string[]} with exactly 5 items.');
 
   try {
-    const completion = await openai.chat.completions.create({
-      model: tenant.aiModel,
+    const completion = await textGen.client.chat.completions.create({
+      model: textGen.model,
       messages: [
         { role: "system", content: guidance.join(" ") },
         { role: "user", content: `Niche/idea: ${parsed.data.niche}` },
@@ -574,6 +621,8 @@ router.post("/ai/summarize-url", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+  if (!textGen) return;
 
   let parsedUrl: URL;
   try {
@@ -616,8 +665,8 @@ router.post("/ai/summarize-url", async (req: Request, res: Response) => {
   }
 
   try {
-    const completion = await openai.chat.completions.create({
-      model: tenant.aiModel,
+    const completion = await textGen.client.chat.completions.create({
+      model: textGen.model,
       messages: [
         {
           role: "system",
@@ -773,6 +822,8 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+  if (!textGen) return;
 
   const platforms = Array.from(
     new Set(parsed.data.platforms.map((p) => p.toLowerCase().trim()).filter(Boolean)),
@@ -868,8 +919,8 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
   const campaignId = randomUUID();
   const startedAt = Date.now();
   try {
-    const completion = await openai.chat.completions.create({
-      model: tenant.aiModel,
+    const completion = await textGen.client.chat.completions.create({
+      model: textGen.model,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: parsed.data.prompt },
@@ -948,7 +999,7 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
           requestBytes: perPlatformRequest,
           responseBytes: Buffer.byteLength(JSON.stringify(post)),
           durationMs: Date.now() - startedAt,
-          model: tenant.aiModel,
+          model: textGen.model,
           campaignId,
           platform: post.platform,
         }),
@@ -993,6 +1044,8 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+  if (!textGen) return;
 
   const slideCount = parsed.data.slideCount ?? 5;
   const platform = (parsed.data.platform ?? "linkedin").toLowerCase().trim() || "linkedin";
@@ -1057,8 +1110,8 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
   const carouselId = randomUUID();
   const startedAt = Date.now();
   try {
-    const completion = await openai.chat.completions.create({
-      model: tenant.aiModel,
+    const completion = await textGen.client.chat.completions.create({
+      model: textGen.model,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: parsed.data.prompt },
@@ -1121,7 +1174,7 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
       requestBytes: Buffer.byteLength(systemPrompt + parsed.data.prompt),
       responseBytes: Buffer.byteLength(raw),
       durationMs: Date.now() - startedAt,
-      model: tenant.aiModel,
+      model: textGen.model,
       campaignId: carouselId,
       platform,
     });

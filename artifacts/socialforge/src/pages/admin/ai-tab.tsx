@@ -14,6 +14,12 @@ import {
   useAdminSetImageGenProviderKey,
   useAdminClearImageGenProviderKey,
   getAdminGetImageGenSettingsQueryKey,
+  useAdminGetTextGenSettings,
+  useAdminUpdateTextGenSettings,
+  useAdminSetTextGenKey,
+  useAdminClearTextGenKey,
+  getAdminGetTextGenSettingsQueryKey,
+  getListAiModelsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
@@ -561,6 +567,274 @@ function ImageGenProviderCard() {
   );
 }
 
+function TextGenProviderCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: settings, isLoading } = useAdminGetTextGenSettings();
+  const updateSettings = useAdminUpdateTextGenSettings();
+  const setKey = useAdminSetTextGenKey();
+  const clearKey = useAdminClearTextGenKey();
+  const [keyInput, setKeyInput] = useState("");
+  const [modelsInput, setModelsInput] = useState<string | null>(null);
+  const [defaultModelInput, setDefaultModelInput] = useState<string | null>(null);
+  const [draftProvider, setDraftProvider] = useState<string | null>(null);
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: getAdminGetTextGenSettingsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListAiModelsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getAdminListAuditLogsQueryKey() });
+  };
+
+  const effectiveProvider = draftProvider ?? settings?.provider ?? "builtin";
+  const modelsValue = modelsInput ?? (settings?.models ?? []).join("\n");
+  const modelList = modelsValue
+    .split(/[\n,]/)
+    .map((m) => m.trim())
+    .filter(Boolean);
+  const defaultModelValue = defaultModelInput ?? settings?.defaultModel ?? "";
+  const isDraft = draftProvider !== null && draftProvider !== settings?.provider;
+
+  const saveSelection = (provider: string) => {
+    updateSettings.mutate(
+      {
+        data: {
+          provider: provider as "builtin" | "openrouter",
+          models: provider === "openrouter" ? modelList : [],
+          defaultModel:
+            provider === "openrouter" ? defaultModelValue.trim() || null : null,
+        },
+      },
+      {
+        onSuccess: (result) => {
+          invalidate();
+          setDraftProvider(null);
+          setModelsInput(null);
+          setDefaultModelInput(null);
+          toast({
+            title: "Text generation provider updated",
+            description:
+              result.provider === "openrouter"
+                ? "Captions and other text are now generated through OpenRouter."
+                : "Captions and other text now use the built-in provider.",
+          });
+        },
+        onError: (err: unknown) => {
+          const message =
+            err && typeof err === "object" && "error" in err && typeof err.error === "string"
+              ? err.error
+              : "Could not change the text generation provider.";
+          toast({ title: "Update failed", description: message, variant: "destructive" });
+        },
+      },
+    );
+  };
+
+  const handleSelect = (provider: string) => {
+    if (!settings) return;
+    if (provider === settings.provider) {
+      setDraftProvider(null);
+      return;
+    }
+    if (provider === "openrouter") {
+      // OpenRouter needs a key and a model list first; wait for Save settings.
+      setDraftProvider(provider);
+      return;
+    }
+    setDraftProvider(null);
+    saveSelection(provider);
+  };
+
+  const handleSaveKey = () => {
+    const apiKey = keyInput.trim();
+    if (!apiKey) return;
+    setKey.mutate(
+      { data: { apiKey } },
+      {
+        onSuccess: () => {
+          invalidate();
+          setKeyInput("");
+          toast({
+            title: "API key saved",
+            description: "The key is stored encrypted and is now in use.",
+          });
+        },
+        onError: () => {
+          toast({
+            title: "Save failed",
+            description: "Could not save the API key.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handleClearKey = () => {
+    clearKey.mutate(undefined, {
+      onSuccess: () => {
+        invalidate();
+        toast({ title: "API key removed", description: "The saved key was deleted." });
+      },
+      onError: () => {
+        toast({
+          title: "Remove failed",
+          description: "Could not remove the API key.",
+          variant: "destructive",
+        });
+      },
+    });
+  };
+
+  const showOpenRouterConfig = effectiveProvider === "openrouter";
+
+  return (
+    <Card data-testid="card-text-gen-provider">
+      <CardHeader>
+        <CardTitle>Text Generation Provider</CardTitle>
+        <CardDescription>
+          Which service writes captions, topics, and campaign text. The built-in
+          option needs no key. OpenRouter uses your own API key (stored
+          encrypted) and lets you choose which models users can pick. Switching
+          back to Built-in instantly restores the previous behavior.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading || !settings ? (
+          <Skeleton className="h-9 w-64" />
+        ) : (
+          <>
+            <div className="flex items-center gap-3">
+              <Select
+                value={effectiveProvider}
+                onValueChange={handleSelect}
+                disabled={updateSettings.isPending}
+              >
+                <SelectTrigger className="w-72" data-testid="select-text-gen-provider">
+                  <SelectValue placeholder="Select a provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="builtin">Built-in (OpenAI)</SelectItem>
+                  <SelectItem value="openrouter">OpenRouter (your own key)</SelectItem>
+                </SelectContent>
+              </Select>
+              {isDraft ? (
+                <Badge variant="outline">Not saved yet</Badge>
+              ) : effectiveProvider === "builtin" || settings.keySource ? (
+                <Badge variant="secondary">Ready</Badge>
+              ) : (
+                <Badge variant="destructive">Needs key</Badge>
+              )}
+            </div>
+            {showOpenRouterConfig && (
+              <div className="space-y-2 rounded-md border p-3">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Models users can choose</p>
+                  <p className="text-xs text-muted-foreground">
+                    One OpenRouter model id per line (for example
+                    openai/gpt-4o-mini or anthropic/claude-3.5-haiku). Copy ids
+                    from openrouter.ai/models.
+                  </p>
+                  <textarea
+                    className="w-96 min-h-24 rounded-md border bg-background p-2 text-sm font-mono"
+                    placeholder={"openai/gpt-4o-mini\nanthropic/claude-3.5-haiku"}
+                    value={modelsValue}
+                    onChange={(e) => setModelsInput(e.target.value)}
+                    data-testid="input-text-gen-models"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Default model</p>
+                  <Input
+                    placeholder={modelList[0] ?? "openai/gpt-4o-mini"}
+                    value={defaultModelValue}
+                    onChange={(e) => setDefaultModelInput(e.target.value)}
+                    className="w-96"
+                    data-testid="input-text-gen-default-model"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Used when a user's saved model is not in the list. Leave
+                    empty to use the first listed model.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => saveSelection("openrouter")}
+                  disabled={updateSettings.isPending}
+                  data-testid="button-save-text-gen-settings"
+                >
+                  {updateSettings.isPending ? "Saving..." : "Save settings"}
+                </Button>
+              </div>
+            )}
+            {showOpenRouterConfig && (
+              <div className="space-y-2 rounded-md border p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium">OpenRouter API key</p>
+                  <Button variant="outline" size="sm" asChild data-testid="button-get-text-gen-key">
+                    <a
+                      href="https://openrouter.ai/settings/keys"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Get an OpenRouter key
+                      <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+                    </a>
+                  </Button>
+                </div>
+                {settings.keySource === "database" ? (
+                  <div className="flex items-center gap-3">
+                    <p className="text-sm text-muted-foreground">
+                      A key is saved (stored encrypted, never shown). Enter a new
+                      one below to replace it.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleClearKey}
+                      disabled={clearKey.isPending}
+                      data-testid="button-remove-text-gen-key"
+                    >
+                      Remove key
+                    </Button>
+                  </div>
+                ) : settings.keySource === "env" ? (
+                  <p className="text-sm text-muted-foreground">
+                    Currently using the {settings.envKey} secret. A key entered
+                    here takes priority over it.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No key set. Paste your OpenRouter API key to enable it.
+                  </p>
+                )}
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="password"
+                    autoComplete="off"
+                    placeholder="Paste API key"
+                    value={keyInput}
+                    onChange={(e) => setKeyInput(e.target.value)}
+                    className="w-72"
+                    data-testid="input-text-gen-api-key"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={handleSaveKey}
+                    disabled={setKey.isPending || !keyInput.trim()}
+                    data-testid="button-save-text-gen-key"
+                  >
+                    {setKey.isPending ? "Saving..." : "Save key"}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function DesignSkillCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -628,6 +902,7 @@ export function AiTab() {
   return (
     <div className="space-y-8">
       <DesignSkillCard />
+      <TextGenProviderCard />
       <ImageGenProviderCard />
       <AsrProviderCard />
     </div>

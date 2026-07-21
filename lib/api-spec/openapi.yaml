@@ -1168,6 +1168,118 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/text-gen-settings:
+    get:
+      operationId: adminGetTextGenSettings
+      tags: [admin]
+      summary: Get the text generation provider selection (superadmin only)
+      responses:
+        "200":
+          description: Text generation settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TextGenSettingsView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminUpdateTextGenSettings
+      tags: [admin]
+      summary: Select the text generation provider for the whole app (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTextGenSettingsRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TextGenSettingsView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/text-gen-key:
+    put:
+      operationId: adminSetTextGenKey
+      tags: [admin]
+      summary: Save the OpenRouter API key for text generation (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetTextGenKeyRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TextGenSettingsView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: adminClearTextGenKey
+      tags: [admin]
+      summary: Remove the saved OpenRouter API key (superadmin only)
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TextGenSettingsView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/models:
+    get:
+      operationId: listAiModels
+      tags: [ai]
+      summary: The AI text model choices available to this tenant right now
+      responses:
+        "200":
+          description: Model choices under the active text generation provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiModelChoicesView"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/stats:
     get:
       operationId: adminGetStats
@@ -6755,6 +6867,65 @@ components:
         customBaseUrl:
           type: ["string", "null"]
           description: Base URL for the custom provider (https only).
+    TextGenSettingsView:
+      type: object
+      required: [provider, models, defaultModel, keySource, envKey]
+      properties:
+        provider:
+          type: string
+          enum: [builtin, openrouter]
+          description: Which backend serves caption/topic/campaign text.
+        models:
+          type: array
+          description: Admin-curated OpenRouter model ids tenants may pick from.
+          items:
+            type: string
+        defaultModel:
+          type: ["string", "null"]
+          description: Fallback model when a tenant's saved model is not in the list.
+        keySource:
+          type: ["string", "null"]
+          enum: [database, env, null]
+          description: Where the active OpenRouter key comes from (admin-entered key wins over the env secret).
+        envKey:
+          type: string
+          description: Env secret name used as the key fallback.
+    UpdateTextGenSettingsRequest:
+      type: object
+      required: [provider]
+      properties:
+        provider:
+          type: string
+          enum: [builtin, openrouter]
+        models:
+          type: array
+          description: OpenRouter model ids tenants may pick from (required for openrouter).
+          items:
+            type: string
+        defaultModel:
+          type: ["string", "null"]
+          description: Must be one of models (defaults to the first entry).
+    SetTextGenKeyRequest:
+      type: object
+      required: [apiKey]
+      properties:
+        apiKey:
+          type: string
+          minLength: 1
+          description: The OpenRouter API key (stored encrypted, never returned).
+    AiModelChoicesView:
+      type: object
+      required: [provider, models, defaultModel]
+      properties:
+        provider:
+          type: string
+          enum: [builtin, openrouter]
+        models:
+          type: array
+          items:
+            type: string
+        defaultModel:
+          type: string
     AudioUploadInput:
       type: object
       required: [audio]

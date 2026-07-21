@@ -5,6 +5,7 @@ import {
   type BrandKitPayload,
 } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import type OpenAI from "openai";
 import { CANVAS_DESIGN_SKILL } from "../skills/canvasDesign";
 import { logger } from "./logger";
 
@@ -88,8 +89,10 @@ export async function buildDesignedImagePrompt(options: {
   userPrompt: string;
   brand: BrandKitPayload | null;
   fallbackPrompt: string;
+  /** Text-gen client to use (defaults to the built-in OpenAI integration). */
+  client?: OpenAI;
 }): Promise<DesignPromptResult> {
-  const { model, userPrompt, brand, fallbackPrompt } = options;
+  const { model, userPrompt, brand, fallbackPrompt, client = openai } = options;
 
   const userParts: string[] = [`Image brief: ${userPrompt}`];
   if (brand) {
@@ -103,7 +106,7 @@ export async function buildDesignedImagePrompt(options: {
   }
 
   try {
-    const completion = await openai.chat.completions.create({
+    const completion = await client.chat.completions.create({
       model,
       messages: [
         { role: "system", content: CANVAS_DESIGN_SKILL },

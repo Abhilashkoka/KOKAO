@@ -1,6 +1,7 @@
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import type { ReferenceImage } from "./imageGen";
+import type OpenAI from "openai";
 import { logger } from "./logger";
 
 /**
@@ -76,10 +77,13 @@ const REFERENCE_GUIDE_SYSTEM = `You are an art director. You will be shown a ref
 export async function buildReferenceGuide(options: {
   model: string;
   image: ReferenceImage;
+  /** Text-gen client to use (defaults to the built-in OpenAI integration). */
+  client?: OpenAI;
 }): Promise<string | null> {
+  const client = options.client ?? openai;
   try {
     const dataUrl = `data:${options.image.mimeType};base64,${options.image.buffer.toString("base64")}`;
-    const completion = await openai.chat.completions.create({
+    const completion = await client.chat.completions.create({
       model: options.model,
       messages: [
         { role: "system", content: REFERENCE_GUIDE_SYSTEM },

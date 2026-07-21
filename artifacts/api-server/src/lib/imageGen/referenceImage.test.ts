@@ -38,6 +38,7 @@ describe("reference image support", () => {
       openai: true,
       gemini: true,
       seedream: true,
+      openrouter: true,
       bfl: false,
       stability: false,
       replicate: false,
