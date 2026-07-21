@@ -186,7 +186,7 @@ export function StudioPage() {
   const [campaignTitle, setCampaignTitle] = useState<string | null>(null);
   const [captionPlatform, setCaptionPlatform] = useState<string | null>(null);
   const [captionTweak, setCaptionTweak] = useState<string | null>(null);
-  const [imageResult, setImageResult] = useState<{ imagePath: string; b64Json: string } | null>(null);
+  const [imageResult, setImageResult] = useState<{ imagePath: string; b64Json: string | null } | null>(null);
   const [imageTweak, setImageTweak] = useState<string | null>(null);
   const [campaignPosts, setCampaignPosts] = useState<CampaignPost[] | null>(null);
   const [campaignImages, setCampaignImages] = useState<Record<string, GeneratedImage>>({});
@@ -396,6 +396,160 @@ export function StudioPage() {
       tone: "professional",
     },
   });
+
+  // --- Studio session persistence ------------------------------------------
+  // Everything in progress (creative brief, ideas, research, generated
+  // caption/image/campaign/carousel, reference image, draft link) is mirrored
+  // to localStorage per workspace, so navigating away from the Studio never
+  // loses work. Base64 image previews are not stored; images restore from
+  // their saved server paths. The session clears itself when the user saves,
+  // discards, or empties the studio.
+  const sessionKey = me?.tenant?.id ? `kokao-studio-session-v1:${me.tenant.id}` : null;
+  const restoredKeyRef = useRef<string | null>(null);
+  const watchedValues = form.watch();
+
+  const clearStudioSession = () => {
+    if (!sessionKey) return;
+    try {
+      localStorage.removeItem(sessionKey);
+    } catch {
+      // Best-effort.
+    }
+  };
+
+  useEffect(() => {
+    if (!sessionKey || restoredKeyRef.current === sessionKey) return;
+    restoredKeyRef.current = sessionKey;
+    try {
+      const raw = localStorage.getItem(sessionKey);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (!s || s.v !== 1) return;
+      if (s.form) {
+        form.reset({
+          prompt: typeof s.form.prompt === "string" ? s.form.prompt : "",
+          tone: typeof s.form.tone === "string" ? s.form.tone : "professional",
+          brandKitId: typeof s.form.brandKitId === "number" ? s.form.brandKitId : undefined,
+        });
+      }
+      if (s.captionResult) setCaptionResult(s.captionResult);
+      if (typeof s.captionPlatform === "string") setCaptionPlatform(s.captionPlatform);
+      if (Array.isArray(s.briefQuestions) && s.briefQuestions.length > 0) setBriefQuestions(s.briefQuestions);
+      if (typeof s.imagePath === "string" && s.imagePath) setImageResult({ imagePath: s.imagePath, b64Json: null });
+      if (Array.isArray(s.campaignPosts) && s.campaignPosts.length > 0) setCampaignPosts(s.campaignPosts);
+      if (typeof s.campaignTitle === "string") setCampaignTitle(s.campaignTitle);
+      if (s.campaignImages && typeof s.campaignImages === "object") {
+        const imgs: Record<string, GeneratedImage> = {};
+        for (const [platform, path] of Object.entries(s.campaignImages)) {
+          if (typeof path === "string" && path) imgs[platform] = { imagePath: path, b64Json: null };
+        }
+        if (Object.keys(imgs).length > 0) setCampaignImages(imgs);
+      }
+      if (s.carousel && Array.isArray(s.carousel.slides)) setCarousel(s.carousel);
+      if (typeof s.carouselMode === "boolean") setCarouselMode(s.carouselMode);
+      if (typeof s.carouselSlideCountText === "string") setCarouselSlideCountText(s.carouselSlideCountText);
+      if (Array.isArray(s.campaignPlatforms)) setCampaignPlatforms(s.campaignPlatforms);
+      if (typeof s.niche === "string") setNiche(s.niche);
+      if (Array.isArray(s.topicIdeas)) setTopicIdeas(s.topicIdeas);
+      if (typeof s.articleUrl === "string") setArticleUrl(s.articleUrl);
+      if (typeof s.researchQuery === "string") setResearchQuery(s.researchQuery);
+      if (s.researchResult) setResearchResult(s.researchResult);
+      if (typeof s.referenceImagePath === "string" && s.referenceImagePath) {
+        setReferenceImagePath(s.referenceImagePath);
+        setReferencePreview(`/api/storage${s.referenceImagePath}`);
+      }
+      if (typeof s.draftId === "number") setDraft(s.draftId);
+    } catch {
+      // Corrupt or inaccessible storage: start fresh.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionKey]);
+
+  useEffect(() => {
+    if (!sessionKey || restoredKeyRef.current !== sessionKey) return;
+    const timer = setTimeout(() => {
+      const hasWork =
+        watchedValues.prompt.trim() !== "" ||
+        captionResult !== null ||
+        imageResult !== null ||
+        (campaignPosts?.length ?? 0) > 0 ||
+        carousel !== null ||
+        (briefQuestions?.length ?? 0) > 0 ||
+        topicIdeas.length > 0 ||
+        researchResult !== null ||
+        niche.trim() !== "" ||
+        articleUrl.trim() !== "" ||
+        researchQuery.trim() !== "" ||
+        referenceImagePath !== null;
+      try {
+        if (!hasWork) {
+          localStorage.removeItem(sessionKey);
+          return;
+        }
+        const campaignImagePaths: Record<string, string> = {};
+        for (const [platform, img] of Object.entries(campaignImages)) {
+          if (img?.imagePath) campaignImagePaths[platform] = img.imagePath;
+        }
+        localStorage.setItem(
+          sessionKey,
+          JSON.stringify({
+            v: 1,
+            form: {
+              prompt: watchedValues.prompt,
+              tone: watchedValues.tone,
+              brandKitId: watchedValues.brandKitId || undefined,
+            },
+            captionResult,
+            captionPlatform,
+            briefQuestions,
+            imagePath: imageResult?.imagePath ?? null,
+            campaignPosts,
+            campaignTitle,
+            campaignImages: campaignImagePaths,
+            carousel: carousel
+              ? { ...carousel, slides: carousel.slides.map((sl) => ({ ...sl, b64Json: null })) }
+              : null,
+            carouselMode,
+            carouselSlideCountText,
+            campaignPlatforms,
+            niche,
+            topicIdeas,
+            articleUrl,
+            researchQuery,
+            researchResult,
+            referenceImagePath,
+            draftId,
+          }),
+        );
+      } catch {
+        // Storage full or unavailable: persistence is best-effort.
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [
+    sessionKey,
+    watchedValues.prompt,
+    watchedValues.tone,
+    watchedValues.brandKitId,
+    captionResult,
+    captionPlatform,
+    briefQuestions,
+    imageResult,
+    campaignPosts,
+    campaignTitle,
+    campaignImages,
+    carousel,
+    carouselMode,
+    carouselSlideCountText,
+    campaignPlatforms,
+    niche,
+    topicIdeas,
+    articleUrl,
+    researchQuery,
+    researchResult,
+    referenceImagePath,
+    draftId,
+  ]);
 
   // Platform now comes from the Campaign platforms selection (first pick wins);
   // falls back to Instagram when nothing is selected. Image size follows it.
@@ -758,6 +912,7 @@ export function StudioPage() {
           queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
           track("content_saved", { category: "content", outcome: "success" });
           toast({ title: "Carousel saved to library!" });
+          clearStudioSession();
           navigate("/library");
         },
         onError: (err: unknown) => {
@@ -808,6 +963,9 @@ export function StudioPage() {
       setDraft(null);
       track("content_saved", { category: "content", outcome: "success" });
       toast({ title: "Saved to library!" });
+      // The work is now in the library: drop the in-progress session so it
+      // does not restore stale state next time the Studio opens.
+      clearStudioSession();
       navigate("/library");
     };
     const onSaveError = (err: unknown) => {
@@ -817,7 +975,20 @@ export function StudioPage() {
     if (draftId) {
       updateContent.mutate(
         { id: draftId, data },
-        { onSuccess: onSaved, onError: onSaveError },
+        {
+          onSuccess: onSaved,
+          onError: (err: any) => {
+            const status = err?.status ?? err?.response?.status;
+            if (status === 404) {
+              // The auto-saved draft was deleted elsewhere (or a restored
+              // session pointed at a stale id): recreate instead of failing.
+              setDraft(null);
+              createContent.mutate({ data }, { onSuccess: onSaved, onError: onSaveError });
+              return;
+            }
+            onSaveError(err);
+          },
+        },
       );
     } else {
       createContent.mutate({ data }, { onSuccess: onSaved, onError: onSaveError });
@@ -1692,12 +1863,22 @@ export function StudioPage() {
                       <div className="p-6 bg-card space-y-5">
                         <div className="flex items-center justify-center">
                           <img
-                            src={`data:image/png;base64,${imageResult.b64Json}`}
+                            src={
+                              imageResult.b64Json
+                                ? `data:image/png;base64,${imageResult.b64Json}`
+                                : `/api/storage${imageResult.imagePath}`
+                            }
                             alt="Generated"
                             className="max-h-[400px] rounded-lg shadow-lg border border-border object-contain"
                           />
                         </div>
-                        <PlatformFitPreview src={`data:image/png;base64,${imageResult.b64Json}`} />
+                        <PlatformFitPreview
+                          src={
+                            imageResult.b64Json
+                              ? `data:image/png;base64,${imageResult.b64Json}`
+                              : `/api/storage${imageResult.imagePath}`
+                          }
+                        />
                         <div className="flex flex-wrap items-center gap-2">
                           {IMAGE_TWEAKS.map((t) => (
                             <Button
@@ -1859,7 +2040,11 @@ export function StudioPage() {
           </AlertDialogHeader>
           {pendingCampaignImage && (
             <img
-              src={`data:image/png;base64,${pendingCampaignImage.image.b64Json}`}
+              src={
+                pendingCampaignImage.image.b64Json
+                  ? `data:image/png;base64,${pendingCampaignImage.image.b64Json}`
+                  : `/api/storage${pendingCampaignImage.image.imagePath}`
+              }
               alt="New image"
               className="w-full max-h-[220px] rounded-md border object-contain bg-muted/30"
             />

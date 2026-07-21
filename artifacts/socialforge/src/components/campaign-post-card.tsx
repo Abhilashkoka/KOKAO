@@ -44,7 +44,8 @@ const PLATFORM_RATIOS: Record<string, { ratio: string; note: string }> = {
 
 export interface GeneratedImage {
   imagePath: string;
-  b64Json: string;
+  /** Base64 preview from a fresh generation; null when restored from a saved session (render from imagePath instead). */
+  b64Json: string | null;
 }
 
 interface CampaignPostCardProps {
@@ -190,7 +191,11 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
               style={{ aspectRatio: PLATFORM_RATIOS[post.platform]?.ratio ?? "1 / 1" }}
             >
               <img
-                src={`data:image/png;base64,${image.b64Json}`}
+                src={
+                  image.b64Json
+                    ? `data:image/png;base64,${image.b64Json}`
+                    : `/api/storage${image.imagePath}`
+                }
                 alt={`Generated for ${post.platform}`}
                 className="h-full w-full object-cover"
               />

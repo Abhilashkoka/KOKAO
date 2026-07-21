@@ -43,6 +43,7 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 }
 
 const defaultMe = () => ({
+  tenant: { id: 1 },
   usage: { captions: 2, images: 1 },
   limits: { captions: 10, images: 5 },
 });
@@ -174,6 +175,7 @@ beforeEach(() => {
   mockState.campaignError = null;
   mockState.connections = defaultConnections();
   toastSpy.mockClear();
+  localStorage.clear();
   cleanup();
 });
 
@@ -574,5 +576,67 @@ describe("Studio campaign out-of-quota (402) error handling", () => {
     await waitFor(() => expect(toastSpy).toHaveBeenCalled());
     const toastArg = toastSpy.mock.calls[0][0];
     expect(toastArg.title).toBe("Error");
+  });
+});
+
+describe("Studio session persistence", () => {
+  const sessionKey = "kokao-studio-session-v1:1";
+
+  it("saves in-progress work (prompt + generated caption) to localStorage", async () => {
+    mockState.caption = "A persisted caption";
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Prompt"), {
+      target: { value: "A prompt long enough to pass validation" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-caption"));
+    await waitFor(() => expect(screen.getByText("A persisted caption")).toBeTruthy());
+
+    await waitFor(
+      () => {
+        const raw = localStorage.getItem(sessionKey);
+        expect(raw).toBeTruthy();
+        const s = JSON.parse(raw!);
+        expect(s.form.prompt).toBe("A prompt long enough to pass validation");
+        expect(s.captionResult.caption).toBe("A persisted caption");
+      },
+      { timeout: 2000 },
+    );
+  });
+
+  it("restores the prompt, caption, and image from a saved session on mount", async () => {
+    localStorage.setItem(
+      sessionKey,
+      JSON.stringify({
+        v: 1,
+        form: { prompt: "Restored brief text", tone: "professional" },
+        captionResult: { caption: "Restored caption", hashtags: [] },
+        captionPlatform: "instagram",
+        imagePath: "/objects/t1/uploads/restored",
+        draftId: 12,
+      }),
+    );
+    renderPage();
+    await waitFor(() => {
+      expect((screen.getByLabelText("Prompt") as HTMLTextAreaElement).value).toBe(
+        "Restored brief text",
+      );
+      expect(screen.getByText("Restored caption")).toBeTruthy();
+    });
+    // The restored image renders from its stored server path (no base64 kept).
+    const img = screen.getByAltText("Generated") as HTMLImageElement;
+    expect(img.src).toContain("/api/storage/objects/t1/uploads/restored");
+  });
+
+  it("clears the stored session when the studio is emptied", async () => {
+    localStorage.setItem(
+      sessionKey,
+      JSON.stringify({ v: 1, form: { prompt: "Old work", tone: "professional" } }),
+    );
+    renderPage();
+    await waitFor(() =>
+      expect((screen.getByLabelText("Prompt") as HTMLTextAreaElement).value).toBe("Old work"),
+    );
+    fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "" } });
+    await waitFor(() => expect(localStorage.getItem(sessionKey)).toBeNull(), { timeout: 2000 });
   });
 });
