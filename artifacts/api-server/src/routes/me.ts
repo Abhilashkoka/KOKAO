@@ -11,6 +11,7 @@ import { getEffectiveSeatLimit, getMembershipDetails } from "../lib/team";
 import { requireWorkspaceAdmin } from "../middlewares/requireWorkspaceAdmin";
 import { getPendingInviteHint } from "../lib/teamInviteEmail";
 import { isFeatureEnabled } from "../lib/featureFlags";
+import { isSupportedAiModel } from "../lib/aiModels";
 
 const router: IRouter = Router();
 
@@ -74,6 +75,13 @@ router.patch("/me/settings", requireWorkspaceAdmin, async (req: Request, res: Re
   const parsed = UpdateSettingsBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+
+  // Only models the AI provider actually serves may be stored; anything else
+  // would make every AI call fail with an "unsupported model" error.
+  if (parsed.data.aiModel !== undefined && !isSupportedAiModel(parsed.data.aiModel)) {
+    res.status(400).json({ error: "Unsupported AI model" });
     return;
   }
 

@@ -4,13 +4,16 @@ import type {
   ScheduledPost,
   ConnectedAccount,
 } from "@workspace/db";
+import { resolveAiModel } from "./aiModels";
 
 export function serializeTenant(t: Tenant) {
   return {
     id: t.id,
     name: t.name,
     plan: t.plan,
-    aiModel: t.aiModel,
+    // Legacy rows may hold retired model names; surface a supported one so
+    // the Settings page never round-trips an invalid value.
+    aiModel: resolveAiModel(t.aiModel),
     industry: t.industry ?? null,
     createdAt: t.createdAt.toISOString(),
   };

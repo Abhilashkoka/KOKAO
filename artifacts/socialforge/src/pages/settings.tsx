@@ -129,9 +129,9 @@ export function SettingsPage() {
                 <Select value={aiModel} onValueChange={setAiModel}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="gpt-4o">GPT-4o (High Quality)</SelectItem>
-                    <SelectItem value="gpt-4o-mini">GPT-4o Mini (Fast)</SelectItem>
-                    <SelectItem value="claude-3-5-sonnet">Claude 3.5 Sonnet</SelectItem>
+                    <SelectItem value="gpt-5.6-terra">GPT-5.6 Terra (Best Quality)</SelectItem>
+                    <SelectItem value="gpt-5.4">GPT-5.4 (Balanced)</SelectItem>
+                    <SelectItem value="gpt-5.6-luna">GPT-5.6 Luna (Fast)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -33,13 +33,16 @@ import {
 } from "../lib/brandKit/service";
 import { resolveSelection } from "../lib/brandKit/selection";
 import { draftBrandKit } from "../lib/brandKit/draft";
+import { resolveAiModel } from "../lib/aiModels";
 
 const router: IRouter = Router();
 
 async function loadTenant(tenantId: number) {
-  return (
+  const row = (
     await db.select().from(tenantsTable).where(eq(tenantsTable.id, tenantId)).limit(1)
   )[0];
+  // Legacy rows may store a retired model name; fall back to a supported one.
+  return row ? { ...row, aiModel: resolveAiModel(row.aiModel) } : row;
 }
 
 function assetIdParam(req: Request, res: Response): number | null {

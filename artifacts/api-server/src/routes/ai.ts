@@ -28,6 +28,7 @@ import {
   ReferenceImageError,
 } from "../lib/referenceGuide";
 import { isFeatureEnabled } from "../lib/featureFlags";
+import { resolveAiModel } from "../lib/aiModels";
 import { buildTasteGuidance } from "../lib/tasteMemory";
 import multer from "multer";
 import {
@@ -100,9 +101,11 @@ async function releaseFunding(
 }
 
 async function loadTenant(tenantId: number) {
-  return (
+  const row = (
     await db.select().from(tenantsTable).where(eq(tenantsTable.id, tenantId)).limit(1)
   )[0];
+  // Legacy rows may store a retired model name; fall back to a supported one.
+  return row ? { ...row, aiModel: resolveAiModel(row.aiModel) } : row;
 }
 
 /** Resolve the active brand payload for an optional brand id, or null. */
