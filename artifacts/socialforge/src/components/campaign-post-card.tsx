@@ -179,7 +179,7 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
             className="w-full max-w-[420px] rounded-lg border border-border bg-muted/30 flex items-center justify-center py-10"
             data-testid={`campaign-image-loading-${post.platform}`}
           >
-            <LogoLoader variant="trace" size={56} label="Generating image..." />
+            <LogoLoader size={56} label="Generating image..." />
           </div>
         )}
         {image && !generateImage.isPending && (

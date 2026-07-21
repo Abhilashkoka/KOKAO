@@ -7,6 +7,7 @@ type BrandContextValue = {
   appName: string;
   logoUrl: string;
   iconUrl: string | null;
+  loaderAnimationUrl: string | null;
 };
 
 const BRAND_CACHE_KEY = "kokao-app-brand-cache";
@@ -37,6 +38,7 @@ function writeCachedBrand(brand: AppBrand) {
         iconUrl: brand.iconUrl ?? null,
         primaryColor: brand.primaryColor ?? null,
         backgroundColor: brand.backgroundColor ?? null,
+        loaderAnimationUrl: brand.loaderAnimationUrl ?? null,
       }),
     );
   } catch {
@@ -48,6 +50,7 @@ const BrandContext = createContext<BrandContextValue>({
   appName: DEFAULT_APP_NAME,
   logoUrl: "",
   iconUrl: null,
+  loaderAnimationUrl: null,
 });
 
 export function useBrand(): BrandContextValue {
@@ -179,6 +182,7 @@ export function BrandProvider({ children }: { children: React.ReactNode }) {
   // No bundled default logo: if no custom logo is configured, render nothing.
   const logoUrl = brand?.logoUrl || "";
   const iconUrl = brand?.iconUrl ?? null;
+  const loaderAnimationUrl = brand?.loaderAnimationUrl ?? null;
 
   useEffect(() => {
     if (appName) document.title = appName;
@@ -209,7 +213,7 @@ export function BrandProvider({ children }: { children: React.ReactNode }) {
   }, [brand?.primaryColor, brand?.backgroundColor]);
 
   return (
-    <BrandContext.Provider value={{ appName, logoUrl, iconUrl }}>
+    <BrandContext.Provider value={{ appName, logoUrl, iconUrl, loaderAnimationUrl }}>
       {children}
     </BrandContext.Provider>
   );

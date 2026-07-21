@@ -9,7 +9,10 @@ import {
   contentItemsTable,
   appCredentialsTable,
   type LinkedinAppCredentials,
+  type CarouselSlide,
 } from "@workspace/db";
+import { PDFDocument } from "pdf-lib";
+import { isFeatureEnabled } from "../lib/featureFlags";
 import { and, eq } from "drizzle-orm";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { decryptJson, encryptJson } from "../lib/secretCrypto";
@@ -592,8 +595,100 @@ router.post("/linkedin/retest", async (req: Request, res: Response) => {
  * publish route can skip the whole sequence when a duplicate-post probe finds
  * the content already landed. Throws on any failure.
  */
+/**
+ * Build a multi-page PDF from the carousel slides' generated images (one
+ * image per page, page sized to the image). LinkedIn renders an uploaded PDF
+ * document as a swipeable carousel. Only PNG/JPEG slide images are supported
+ * (all generated images are); a slide whose image can't be embedded aborts
+ * the build so a partial carousel is never published.
+ */
+async function buildCarouselPdf(
+  slides: CarouselSlide[],
+  tenantId: number,
+): Promise<Buffer> {
+  const pdf = await PDFDocument.create();
+  for (const slide of slides) {
+    const file = await objectStorageService.getObjectEntityFile(
+      slide.imagePath!,
+      tenantId,
+    );
+    const [buffer] = await file.download();
+    const bytes = new Uint8Array(buffer);
+    // Sniff the real format instead of trusting the extension.
+    const isPng =
+      bytes.length > 8 &&
+      bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47;
+    const image = isPng ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
+    const page = pdf.addPage([image.width, image.height]);
+    page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
+  }
+  return Buffer.from(await pdf.save());
+}
+
+/**
+ * Upload a PDF via the LinkedIn Documents API and return the document URN.
+ * Mirrors the image upload flow: initializeUpload -> PUT binary.
+ */
+async function uploadLinkedinDocument(opts: {
+  pdf: Buffer;
+  author: string;
+  baseHeaders: Record<string, string>;
+  token: string;
+}): Promise<string> {
+  const { pdf, author, baseHeaders, token } = opts;
+  const initRes = await platformFetch(
+    `${REST_BASE}/documents?action=initializeUpload`,
+    {
+      method: "POST",
+      headers: { ...baseHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ initializeUploadRequest: { owner: author } }),
+    },
+  );
+  const initJson = (await initRes.json().catch(() => ({}))) as {
+    value?: { uploadUrl?: string; document?: string };
+  };
+  if (!initRes.ok || !initJson.value?.uploadUrl || !initJson.value.document) {
+    if (initRes.status === 401 || initRes.status === 403) {
+      throw new PublishAuthRevokedError(LINKEDIN_RECONNECT_MESSAGE);
+    }
+    if (isTransientPlatformStatus(initRes.status)) {
+      throw new PublishTransientError(
+        `Document upload could not be initialized (${initRes.status})`,
+      );
+    }
+    throw new Error(`Document upload could not be initialized (${initRes.status})`);
+  }
+  const uploadRes = await platformFetch(initJson.value.uploadUrl, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/pdf",
+    },
+    body: new Uint8Array(pdf),
+  });
+  if (!uploadRes.ok) {
+    if (uploadRes.status === 401 || uploadRes.status === 403) {
+      throw new PublishAuthRevokedError(LINKEDIN_RECONNECT_MESSAGE);
+    }
+    if (isTransientPlatformStatus(uploadRes.status)) {
+      throw new PublishTransientError(
+        `Document binary upload failed (${uploadRes.status})`,
+      );
+    }
+    throw new Error(`Document binary upload failed (${uploadRes.status})`);
+  }
+  return initJson.value.document;
+}
+
 async function createLinkedinPost(opts: {
-  item: { imagePath: string | null; title: string };
+  item: {
+    imagePath: string | null;
+    title: string;
+    carouselSlides?: CarouselSlide[] | null;
+  };
   author: string;
   commentary: string;
   baseHeaders: Record<string, string>;
@@ -602,8 +697,18 @@ async function createLinkedinPost(opts: {
 }): Promise<string> {
   const { item, author, commentary, baseHeaders, token, tenantId } = opts;
   let imageUrn: string | null = null;
+  let documentUrn: string | null = null;
 
-  if (item.imagePath) {
+  // Carousel: when the item has 2+ slides with generated images, publish the
+  // slides as a multi-page PDF document — LinkedIn renders PDF pages as a
+  // swipeable carousel. Falls through to the single-image path otherwise.
+  // Kill switch: when the carousel feature is disabled platform-wide, fall
+  // back to the plain single-image publish instead of the document path.
+  const carouselSlides = (item.carouselSlides ?? []).filter((s) => s.imagePath);
+  if (carouselSlides.length >= 2 && (await isFeatureEnabled("carousel"))) {
+    const pdf = await buildCarouselPdf(carouselSlides, tenantId);
+    documentUrn = await uploadLinkedinDocument({ pdf, author, baseHeaders, token });
+  } else if (item.imagePath) {
     const file = await objectStorageService.getObjectEntityFile(
       item.imagePath,
       tenantId,
@@ -668,7 +773,11 @@ async function createLinkedinPost(opts: {
     lifecycleState: "PUBLISHED",
     isReshareDisabledByAuthor: false,
   };
-  if (imageUrn) {
+  if (documentUrn) {
+    postBody.content = {
+      media: { id: documentUrn, title: item.title.slice(0, 400) },
+    };
+  } else if (imageUrn) {
     postBody.content = {
       media: { id: imageUrn, title: item.title.slice(0, 400) },
     };

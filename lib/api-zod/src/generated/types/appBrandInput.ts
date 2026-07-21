@@ -17,4 +17,6 @@ export interface AppBrandInput {
   primaryColor?: string | null;
   /** @nullable */
   backgroundColor?: string | null;
+  /** @nullable */
+  loaderAnimationUrl?: string | null;
 }

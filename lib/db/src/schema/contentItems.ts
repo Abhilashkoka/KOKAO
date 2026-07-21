@@ -45,6 +45,18 @@ export interface PublishedPlatformInfo {
   publishedAt: string;
 }
 
+/**
+ * One slide of a carousel post: AI-written heading/body copy, the image
+ * prompt used (or to use) for its visual, and the generated image's storage
+ * path once the image exists (null until generated).
+ */
+export interface CarouselSlide {
+  heading: string;
+  body: string;
+  imagePrompt: string;
+  imagePath: string | null;
+}
+
 export const contentItemsTable = pgTable("content_items", {
   id: serial("id").primaryKey(),
   tenantId: integer("tenant_id").notNull(),
@@ -53,6 +65,10 @@ export const contentItemsTable = pgTable("content_items", {
   caption: text("caption").notNull().default(""),
   imagePath: text("image_path"),
   imagePrompt: text("image_prompt"),
+  // Present only for carousel items: ordered slides with copy + per-slide
+  // image. When set (and images exist), LinkedIn publishes render the slides
+  // as a multi-page PDF document instead of a single image.
+  carouselSlides: jsonb("carousel_slides").$type<CarouselSlide[]>(),
   platform: text("platform").notNull().default("instagram"),
   // Brand use-case for selection/preferences: social_post | reel | short |
   // ad_creative | landing_page | email

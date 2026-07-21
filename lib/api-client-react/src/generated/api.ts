@@ -90,6 +90,8 @@ import type {
   CampaignResult,
   CaptionRequest,
   CaptionResult,
+  CarouselRequest,
+  CarouselResult,
   CompleteOnboardingInput,
   ConnectedAccount,
   ConsentAnalytics,
@@ -5851,6 +5853,76 @@ export const useGenerateCampaign = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getGenerateCampaignMutationOptions(options));
+    }
+
+export const getGenerateCarouselUrl = () => {
+
+
+
+
+  return `/api/ai/generate-carousel`
+}
+
+/**
+ * @summary Generate a multi-slide carousel (per-slide copy and image prompts) from one brief
+ */
+export const generateCarousel = async (carouselRequest: CarouselRequest, options?: RequestInit): Promise<CarouselResult> => {
+
+  return customFetch<CarouselResult>(getGenerateCarouselUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(carouselRequest)
+  }
+);}
+
+
+
+
+export const getGenerateCarouselMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateCarousel>>, TError,{data: BodyType<CarouselRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generateCarousel>>, TError,{data: BodyType<CarouselRequest>}, TContext> => {
+
+const mutationKey = ['generateCarousel'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generateCarousel>>, {data: BodyType<CarouselRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  generateCarousel(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GenerateCarouselMutationResult = NonNullable<Awaited<ReturnType<typeof generateCarousel>>>
+    export type GenerateCarouselMutationBody = BodyType<CarouselRequest>
+    export type GenerateCarouselMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Generate a multi-slide carousel (per-slide copy and image prompts) from one brief
+ */
+export const useGenerateCarousel = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateCarousel>>, TError,{data: BodyType<CarouselRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generateCarousel>>,
+        TError,
+        {data: BodyType<CarouselRequest>},
+        TContext
+      > => {
+      return useMutation(getGenerateCarouselMutationOptions(options));
     }
 
 export const getResearchTopicUrl = () => {

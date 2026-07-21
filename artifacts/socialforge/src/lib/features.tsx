@@ -19,6 +19,7 @@ const ALL_ON: FeatureFlags = {
   pushNotifications: true,
   promoCodes: true,
   referenceImages: true,
+  carousel: true,
 };
 
 /**

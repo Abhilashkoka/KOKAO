@@ -2171,6 +2171,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/generate-carousel:
+    post:
+      operationId: generateCarousel
+      tags: [ai]
+      summary: Generate a multi-slide carousel (per-slide copy and image prompts) from one brief
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CarouselRequest"
+      responses:
+        "200":
+          description: Generated carousel slides
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CarouselResult"
+        "402":
+          description: Quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/research:
     post:
       operationId: researchTopic
@@ -5944,7 +5974,7 @@ components:
     AppBrand:
       type: object
       required:
-        [appName, logoUrl, iconUrl, primaryColor, backgroundColor]
+        [appName, logoUrl, iconUrl, primaryColor, backgroundColor, loaderAnimationUrl]
       properties:
         appName:
           type: ["string", "null"]
@@ -5961,6 +5991,9 @@ components:
         backgroundColor:
           type: ["string", "null"]
           description: Hex app background color applied to the theme.
+        loaderAnimationUrl:
+          type: ["string", "null"]
+          description: Public served path of a custom loading animation image (SVG/GIF/APNG/WebP) shown instead of the built-in loader.
     AppBrandInput:
       type: object
       properties:
@@ -5973,6 +6006,8 @@ components:
         primaryColor:
           type: ["string", "null"]
         backgroundColor:
+          type: ["string", "null"]
+        loaderAnimationUrl:
           type: ["string", "null"]
     AppBrandUploadUrlBody:
       type: object
@@ -8126,6 +8161,10 @@ components:
           type: ["string", "null"]
         imagePrompt:
           type: ["string", "null"]
+        carouselSlides:
+          type: ["array", "null"]
+          items:
+            $ref: "#/components/schemas/CarouselSlide"
         platform:
           type: string
         contentType:
@@ -8147,6 +8186,10 @@ components:
           type: ["string", "null"]
         imagePrompt:
           type: ["string", "null"]
+        carouselSlides:
+          type: ["array", "null"]
+          items:
+            $ref: "#/components/schemas/CarouselSlide"
         platform:
           type: string
         contentType:
@@ -8157,6 +8200,70 @@ components:
         brandKitId:
           type: ["integer", "null"]
 
+    CarouselSlide:
+      type: object
+      required: [heading, body, imagePrompt, imagePath]
+      properties:
+        heading:
+          type: string
+          description: Short slide headline.
+        body:
+          type: string
+          description: Supporting copy for the slide.
+        imagePrompt:
+          type: string
+          description: AI image-generation prompt for this slide's visual.
+        imagePath:
+          type: ["string", "null"]
+          description: Storage path of the generated slide image; null until generated.
+    CarouselRequest:
+      type: object
+      required: [prompt]
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          description: Topic, idea, or summary to base the carousel on.
+        slideCount:
+          type: integer
+          minimum: 2
+          maximum: 10
+          default: 5
+        platform:
+          type: string
+          description: Primary target platform (e.g. linkedin, instagram).
+        brandKitId:
+          type: ["integer", "null"]
+        tone:
+          type: string
+    CarouselResult:
+      type: object
+      required: [slides]
+      properties:
+        title:
+          type: string
+          description: Short creative-brief title for the carousel.
+        caption:
+          type: string
+          description: Post caption to accompany the carousel.
+        hashtags:
+          type: array
+          items:
+            type: string
+        slides:
+          type: array
+          items:
+            $ref: "#/components/schemas/CarouselSlide"
+        carouselId:
+          type: string
+          description: Correlates follow-up image generations and data metering
+        clarifyingQuestions:
+          type: array
+          description: >-
+            Present (non-empty) when the brief was too thin. When set, slides
+            is empty and nothing was charged.
+          items:
+            type: string
     CaptionRequest:
       type: object
       required: [prompt]
@@ -9640,6 +9747,7 @@ components:
           pushNotifications,
           promoCodes,
           referenceImages,
+          carousel,
         ]
       properties:
         aiStudio:
@@ -9663,6 +9771,8 @@ components:
         promoCodes:
           type: boolean
         referenceImages:
+          type: boolean
+        carousel:
           type: boolean
     AdminFeatureFlag:
       type: object

@@ -66,6 +66,12 @@ export const FEATURES = [
       "Redeeming promotional codes for free credits on the Billing page.",
   },
   {
+    id: "carousel",
+    label: "Carousel Posts",
+    description:
+      "Multi-slide carousel generation in AI Studio (per-slide images) and LinkedIn document-carousel publishing.",
+  },
+  {
     id: "referenceImages",
     label: "Reference Images",
     description:

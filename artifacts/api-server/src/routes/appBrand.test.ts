@@ -106,8 +106,9 @@ describe("PUT /app-brand audit trail", () => {
         iconUrl: null,
         primaryColor: null,
         backgroundColor: null,
+        loaderAnimationUrl: null,
       });
-      expect(JSON.parse(log.newValue!)).toEqual(BRAND_BODY);
+      expect(JSON.parse(log.newValue!)).toEqual({ ...BRAND_BODY, loaderAnimationUrl: null });
     } finally {
       await deleteTenant(admin.tenantId);
     }

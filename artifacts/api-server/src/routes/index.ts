@@ -77,6 +77,7 @@ router.use("/social-credentials", sensitiveLimiter);
 // is disabled, its routes answer 403 feature_disabled for every tenant. The
 // admin router below is deliberately NOT gated so switches can be re-enabled.
 router.use("/ai", requireFeature("aiStudio"));
+router.use("/ai/generate-carousel", requireFeature("carousel"));
 router.use("/content", requireFeature("contentLibrary"));
 router.use("/schedules", requireFeature("scheduling"));
 router.use("/brand-kits", requireFeature("brandKits"));

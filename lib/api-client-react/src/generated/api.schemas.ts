@@ -302,6 +302,11 @@ export interface AppBrand {
      * @nullable
      */
   backgroundColor: string | null;
+  /**
+     * Public served path of a custom loading animation image (SVG/GIF/APNG/WebP) shown instead of the built-in loader.
+     * @nullable
+     */
+  loaderAnimationUrl: string | null;
 }
 
 export interface AppBrandInput {
@@ -315,6 +320,8 @@ export interface AppBrandInput {
   primaryColor?: string | null;
   /** @nullable */
   backgroundColor?: string | null;
+  /** @nullable */
+  loaderAnimationUrl?: string | null;
 }
 
 export interface AppBrandUploadUrlBody {
@@ -2046,6 +2053,20 @@ export const ContentInputStatus = {
   published: 'published',
 } as const;
 
+export interface CarouselSlide {
+  /** Short slide headline. */
+  heading: string;
+  /** Supporting copy for the slide. */
+  body: string;
+  /** AI image-generation prompt for this slide's visual. */
+  imagePrompt: string;
+  /**
+     * Storage path of the generated slide image; null until generated.
+     * @nullable
+     */
+  imagePath: string | null;
+}
+
 export interface ContentInput {
   /** @minLength 1 */
   title: string;
@@ -2054,6 +2075,8 @@ export interface ContentInput {
   imagePath?: string | null;
   /** @nullable */
   imagePrompt?: string | null;
+  /** @nullable */
+  carouselSlides?: CarouselSlide[] | null;
   platform?: string;
   contentType?: string;
   status?: ContentInputStatus;
@@ -2078,11 +2101,44 @@ export interface ContentUpdate {
   imagePath?: string | null;
   /** @nullable */
   imagePrompt?: string | null;
+  /** @nullable */
+  carouselSlides?: CarouselSlide[] | null;
   platform?: string;
   contentType?: string;
   status?: ContentUpdateStatus;
   /** @nullable */
   brandKitId?: number | null;
+}
+
+export interface CarouselRequest {
+  /**
+     * Topic, idea, or summary to base the carousel on.
+     * @minLength 1
+     */
+  prompt: string;
+  /**
+     * @minimum 2
+     * @maximum 10
+     */
+  slideCount?: number;
+  /** Primary target platform (e.g. linkedin, instagram). */
+  platform?: string;
+  /** @nullable */
+  brandKitId?: number | null;
+  tone?: string;
+}
+
+export interface CarouselResult {
+  /** Short creative-brief title for the carousel. */
+  title?: string;
+  /** Post caption to accompany the carousel. */
+  caption?: string;
+  hashtags?: string[];
+  slides: CarouselSlide[];
+  /** Correlates follow-up image generations and data metering */
+  carouselId?: string;
+  /** Present (non-empty) when the brief was too thin. When set, slides is empty and nothing was charged. */
+  clarifyingQuestions?: string[];
 }
 
 export interface CaptionRequest {
@@ -3198,6 +3254,7 @@ export interface FeatureFlags {
   pushNotifications: boolean;
   promoCodes: boolean;
   referenceImages: boolean;
+  carousel: boolean;
 }
 
 export interface AdminFeatureFlag {

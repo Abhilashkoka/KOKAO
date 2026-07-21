@@ -21,4 +21,5 @@ export interface FeatureFlags {
   pushNotifications: boolean;
   promoCodes: boolean;
   referenceImages: boolean;
+  carousel: boolean;
 }

@@ -16,6 +16,10 @@ export const appBrandSettingsTable = pgTable("app_brand_settings", {
   iconUrl: text("icon_url"),
   primaryColor: text("primary_color"),
   backgroundColor: text("background_color"),
+  // Public served path of a custom loading animation (SVG/GIF/APNG/WebP).
+  // When set, the app's LogoLoader renders this instead of the built-in
+  // ripple animation.
+  loaderAnimationUrl: text("loader_animation_url"),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()

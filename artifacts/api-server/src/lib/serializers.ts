@@ -26,6 +26,7 @@ export function serializeContent(c: ContentItem) {
     caption: c.caption,
     imagePath: c.imagePath ?? null,
     imagePrompt: c.imagePrompt ?? null,
+    carouselSlides: c.carouselSlides ?? null,
     platform: c.platform,
     contentType: c.contentType,
     status: c.status,

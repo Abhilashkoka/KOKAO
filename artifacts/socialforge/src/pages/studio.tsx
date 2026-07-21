@@ -6,6 +6,7 @@ import {
   useGenerateCaption,
   useGenerateImage,
   useGenerateCampaign,
+  useGenerateCarousel,
   useSuggestTopics,
   useSummarizeUrl,
   useResearchTopic,
@@ -36,7 +37,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useToast } from "@/hooks/use-toast";
-import { Wand2, Image as ImageIcon, Save, Loader2, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X } from "lucide-react";
+import { Wand2, Image as ImageIcon, Save, Loader2, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
 import { CampaignPostCard, type GeneratedImage } from "@/components/campaign-post-card";
@@ -107,6 +108,23 @@ function SwatchStrip({ hexes, size = 12 }: { hexes: string[]; size?: number }) {
   );
 }
 
+/** One carousel slide as tracked in the Studio UI (image added after copy). */
+interface CarouselSlideUi {
+  heading: string;
+  body: string;
+  imagePrompt: string;
+  imagePath: string | null;
+  b64Json: string | null;
+}
+
+interface CarouselUiState {
+  title: string;
+  caption: string;
+  hashtags: string[];
+  slides: CarouselSlideUi[];
+  carouselId?: string;
+}
+
 const CAMPAIGN_PLATFORMS = [
   { value: "instagram", label: "Instagram" },
   { value: "facebook", label: "Facebook" },
@@ -163,6 +181,9 @@ export function StudioPage() {
   const [campaignPosts, setCampaignPosts] = useState<CampaignPost[] | null>(null);
   const [campaignImages, setCampaignImages] = useState<Record<string, GeneratedImage>>({});
   const [pendingCampaignImage, setPendingCampaignImage] = useState<{ platform: string; image: GeneratedImage } | null>(null);
+  const [carousel, setCarousel] = useState<CarouselUiState | null>(null);
+  const [carouselBusySlide, setCarouselBusySlide] = useState<number | "all" | null>(null);
+  const [carouselSaving, setCarouselSaving] = useState(false);
 
   const [niche, setNiche] = useState("");
   const [topicIdeas, setTopicIdeas] = useState<string[]>([]);
@@ -266,6 +287,7 @@ export function StudioPage() {
   const generateCaption = useGenerateCaption();
   const generateImage = useGenerateImage();
   const generateCampaign = useGenerateCampaign();
+  const generateCarousel = useGenerateCarousel();
   const suggestTopics = useSuggestTopics();
   const summarizeUrl = useSummarizeUrl();
   const researchTopic = useResearchTopic();
@@ -459,6 +481,7 @@ export function StudioPage() {
       {
         onSuccess: (res) => {
           setCampaignPosts(null);
+          setCarousel(null);
           if (res.clarifyingQuestions && res.clarifyingQuestions.length > 0) {
             setBriefQuestions(res.clarifyingQuestions);
             setCaptionResult(null);
@@ -511,6 +534,7 @@ export function StudioPage() {
       {
         onSuccess: (res) => {
           setCampaignPosts(null);
+          setCarousel(null);
           setBriefQuestions(null);
           setImageResult(res);
           refreshQuota();
@@ -556,6 +580,7 @@ export function StudioPage() {
           setCaptionResult(null);
           setCaptionPlatform(null);
           setImageResult(null);
+          setCarousel(null);
           setCampaignImages({});
           setPendingCampaignImage(null);
           setCampaignPosts(res.posts);
@@ -571,6 +596,152 @@ export function StudioPage() {
           toast({ title: "Campaign generated!", description: `${res.posts.length} platform variants ready.` });
         },
         onError: handleError,
+      },
+    );
+  };
+
+  const onGenerateCarousel = (data: z.infer<typeof schema>) => {
+    generateCarousel.mutate(
+      {
+        data: {
+          prompt: data.prompt,
+          slideCount: 5,
+          platform: "linkedin",
+          brandKitId: data.brandKitId || undefined,
+          tone: data.tone,
+        },
+      },
+      {
+        onSuccess: (res) => {
+          if (res.clarifyingQuestions && res.clarifyingQuestions.length > 0) {
+            setBriefQuestions(res.clarifyingQuestions);
+            setCarousel(null);
+            toast({
+              title: "A bit more detail needed",
+              description: "Answer the questions shown in Results, then generate again. Nothing was charged.",
+            });
+            return;
+          }
+          setBriefQuestions(null);
+          setCaptionResult(null);
+          setCaptionPlatform(null);
+          setImageResult(null);
+          setCampaignPosts(null);
+          setCampaignTitle(null);
+          setDraft(null);
+          setCarousel({
+            title: res.title ?? "",
+            caption: res.caption ?? "",
+            hashtags: res.hashtags ?? [],
+            slides: res.slides.map((s) => ({ ...s, imagePath: s.imagePath ?? null, b64Json: null })),
+            carouselId: res.carouselId,
+          });
+          refreshQuota();
+          track("carousel_generated", { category: "content", outcome: "success", slide_count: res.slides.length });
+          trackFeatureUse("carousel_generator");
+          toast({ title: "Carousel generated!", description: `${res.slides.length} slides ready. Now generate each slide's image.` });
+        },
+        onError: handleError,
+      },
+    );
+  };
+
+  /** Generate the image for one slide (metered like any studio image). */
+  const generateSlideImage = async (index: number) => {
+    const slide = carousel?.slides[index];
+    if (!slide || !slide.imagePrompt) return;
+    const brandKitId = form.getValues().brandKitId || undefined;
+    setCarouselBusySlide(index);
+    try {
+      const res = await generateImage.mutateAsync({
+        data: { prompt: slide.imagePrompt, size: "1024x1024", brandKitId },
+      });
+      setCarousel((prev) => {
+        if (!prev) return prev;
+        const slides = prev.slides.map((s, i) =>
+          i === index ? { ...s, imagePath: res.imagePath, b64Json: res.b64Json } : s,
+        );
+        return { ...prev, slides };
+      });
+      refreshQuota();
+    } catch (err) {
+      handleError(err);
+    } finally {
+      setCarouselBusySlide(null);
+    }
+  };
+
+  /** Generate every missing slide image, one at a time (each is metered). */
+  const generateAllSlideImages = async () => {
+    if (!carousel) return;
+    const brandKitId = form.getValues().brandKitId || undefined;
+    setCarouselBusySlide("all");
+    try {
+      for (let i = 0; i < carousel.slides.length; i++) {
+        const slide = carousel.slides[i];
+        if (!slide || slide.imagePath || !slide.imagePrompt) continue;
+        const res = await generateImage.mutateAsync({
+          data: { prompt: slide.imagePrompt, size: "1024x1024", brandKitId },
+        });
+        setCarousel((prev) => {
+          if (!prev) return prev;
+          const slides = prev.slides.map((s, j) =>
+            j === i ? { ...s, imagePath: res.imagePath, b64Json: res.b64Json } : s,
+          );
+          return { ...prev, slides };
+        });
+        refreshQuota();
+      }
+    } catch (err) {
+      handleError(err);
+    } finally {
+      setCarouselBusySlide(null);
+    }
+  };
+
+  const saveCarousel = () => {
+    if (!carousel) return;
+    const values = form.getValues();
+    const hashtagText = carousel.hashtags.length
+      ? `\n\n${carousel.hashtags.map((h) => `#${h}`).join(" ")}`
+      : "";
+    const firstImage = carousel.slides.find((s) => s.imagePath) ?? null;
+    setCarouselSaving(true);
+    createContent.mutate(
+      {
+        data: {
+          title:
+            carousel.title.trim() ||
+            values.prompt.trim().slice(0, 30) + (values.prompt.trim().length > 30 ? "..." : ""),
+          caption: `${carousel.caption}${hashtagText}`,
+          imagePath: firstImage?.imagePath || undefined,
+          imagePrompt: firstImage?.imagePrompt || undefined,
+          carouselSlides: carousel.slides.map((s) => ({
+            heading: s.heading,
+            body: s.body,
+            imagePrompt: s.imagePrompt,
+            imagePath: s.imagePath,
+          })),
+          platform: "linkedin",
+          status: "draft" as const,
+          brandKitId: values.brandKitId || undefined,
+        },
+      },
+      {
+        onSuccess: (item) => {
+          setCarouselSaving(false);
+          if (item?.id) {
+            recordTasteSignal.mutate({ data: { contentItemId: item.id, kind: "saved" } });
+          }
+          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+          track("content_saved", { category: "content", outcome: "success" });
+          toast({ title: "Carousel saved to library!" });
+          navigate("/library");
+        },
+        onError: (err: unknown) => {
+          setCarouselSaving(false);
+          toast({ title: "Failed to save", description: (err as any).message, variant: "destructive" });
+        },
       },
     );
   };
@@ -658,6 +829,7 @@ export function StudioPage() {
     generateCaption.isPending ||
     generateImage.isPending ||
     generateCampaign.isPending ||
+    generateCarousel.isPending ||
     researchTopic.isPending ||
     createContent.isPending ||
     updateContent.isPending ||
@@ -1207,6 +1379,23 @@ export function StudioPage() {
                       )}
                       Generate Campaign ({campaignPlatforms.length})
                     </Button>
+                    {flags.carousel && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={form.handleSubmit(onGenerateCarousel)}
+                        disabled={isPending || generateCarousel.isPending}
+                        className="w-full"
+                        data-testid="button-generate-carousel"
+                      >
+                        {generateCarousel.isPending ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <GalleryHorizontalEnd className="mr-2 h-4 w-4" />
+                        )}
+                        Generate Carousel (5 slides)
+                      </Button>
+                    )}
                     <div className="grid grid-cols-2 gap-3">
                       <Button
                         type="button"
@@ -1251,7 +1440,132 @@ export function StudioPage() {
         </div>
 
         <div className="lg:col-span-7 flex flex-col gap-6">
-          {campaignPosts ? (
+          {carousel ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-bold" data-testid="text-carousel-title">
+                    {carousel.title || "Carousel"}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    Generate an image for each slide, then save the carousel to your library. On
+                    LinkedIn it publishes as a swipeable document.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCarousel(null)}
+                    disabled={carouselBusySlide !== null || carouselSaving}
+                    data-testid="button-discard-carousel"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" /> Discard
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={saveCarousel}
+                    disabled={carouselBusySlide !== null || carouselSaving}
+                    data-testid="button-save-carousel"
+                  >
+                    {carouselSaving ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="mr-2 h-4 w-4" />
+                    )}
+                    Save to Library
+                  </Button>
+                </div>
+              </div>
+              {carousel.caption && (
+                <Card className="border-border">
+                  <CardContent className="pt-4 space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      Post caption
+                    </p>
+                    <p className="text-sm whitespace-pre-wrap" data-testid="text-carousel-caption">
+                      {carousel.caption}
+                    </p>
+                    {carousel.hashtags.length > 0 && (
+                      <p className="text-sm text-primary">
+                        {carousel.hashtags.map((h) => `#${h}`).join(" ")}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+              {carousel.slides.some((s) => !s.imagePath) && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full"
+                  onClick={generateAllSlideImages}
+                  disabled={carouselBusySlide !== null || imagesExhausted}
+                  title={imageLimitHint}
+                  data-testid="button-generate-all-slide-images"
+                >
+                  {carouselBusySlide === "all" ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <ImageIcon className="mr-2 h-4 w-4" />
+                  )}
+                  Generate all slide images (
+                  {carousel.slides.filter((s) => !s.imagePath).length} left, one image each)
+                </Button>
+              )}
+              {carousel.slides.map((slide, i) => (
+                <Card key={i} className="border-border" data-testid={`card-carousel-slide-${i}`}>
+                  <CardContent className="pt-4 flex flex-col sm:flex-row gap-4">
+                    <div className="sm:w-48 shrink-0">
+                      {slide.b64Json ? (
+                        <img
+                          src={`data:image/png;base64,${slide.b64Json}`}
+                          alt={`Slide ${i + 1}`}
+                          className="w-full rounded-md border border-border object-cover aspect-square"
+                        />
+                      ) : slide.imagePath ? (
+                        <img
+                          src={`/api/storage${slide.imagePath}`}
+                          alt={`Slide ${i + 1}`}
+                          className="w-full rounded-md border border-border object-cover aspect-square"
+                        />
+                      ) : (
+                        <div className="w-full aspect-square rounded-md border border-dashed border-border flex items-center justify-center bg-muted/30">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => void generateSlideImage(i)}
+                            disabled={carouselBusySlide !== null || imagesExhausted}
+                            title={imageLimitHint}
+                            data-testid={`button-generate-slide-image-${i}`}
+                          >
+                            {carouselBusySlide === i ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <ImageIcon className="mr-2 h-4 w-4" />
+                            )}
+                            Image
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 space-y-1.5">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                        Slide {i + 1} of {carousel.slides.length}
+                      </p>
+                      <h3 className="font-bold" data-testid={`text-slide-heading-${i}`}>
+                        {slide.heading}
+                      </h3>
+                      <p className="text-sm whitespace-pre-wrap">{slide.body}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : campaignPosts ? (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -1315,17 +1629,18 @@ export function StudioPage() {
                 </div>
               </CardHeader>
               <CardContent className="p-0 flex-1 bg-muted/10">
-                {(generateCaption.isPending || generateImage.isPending || generateCampaign.isPending) &&
+                {(generateCaption.isPending || generateImage.isPending || generateCampaign.isPending || generateCarousel.isPending) &&
                 !hasSingleResult ? (
                   <div className="h-full min-h-[400px] flex items-center justify-center p-8">
                     <LogoLoader
-                      variant="trace"
                       label={
-                        generateCampaign.isPending
-                          ? "Generating your campaign..."
-                          : generateImage.isPending
-                            ? "Generating your image..."
-                            : "Generating your caption..."
+                        generateCarousel.isPending
+                          ? "Generating your carousel..."
+                          : generateCampaign.isPending
+                            ? "Generating your campaign..."
+                            : generateImage.isPending
+                              ? "Generating your image..."
+                              : "Generating your caption..."
                       }
                     />
                   </div>

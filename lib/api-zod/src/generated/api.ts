@@ -76,7 +76,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "billing": zod.boolean(),
   "pushNotifications": zod.boolean(),
   "promoCodes": zod.boolean(),
-  "referenceImages": zod.boolean()
+  "referenceImages": zod.boolean(),
+  "carousel": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -135,7 +136,8 @@ export const GetAppBrandResponse = zod.object({
   "logoUrl": zod.string().nullable().describe('Public served path of the logo shown in nav and landing.'),
   "iconUrl": zod.string().nullable().describe('Public served path of the favicon \/ app icon.'),
   "primaryColor": zod.string().nullable().describe('Hex primary\/accent color applied to the theme.'),
-  "backgroundColor": zod.string().nullable().describe('Hex app background color applied to the theme.')
+  "backgroundColor": zod.string().nullable().describe('Hex app background color applied to the theme.'),
+  "loaderAnimationUrl": zod.string().nullable().describe('Public served path of a custom loading animation image (SVG\/GIF\/APNG\/WebP) shown instead of the built-in loader.')
 })
 
 
@@ -147,7 +149,8 @@ export const UpdateAppBrandBody = zod.object({
   "logoUrl": zod.string().nullish(),
   "iconUrl": zod.string().nullish(),
   "primaryColor": zod.string().nullish(),
-  "backgroundColor": zod.string().nullish()
+  "backgroundColor": zod.string().nullish(),
+  "loaderAnimationUrl": zod.string().nullish()
 })
 
 export const UpdateAppBrandResponse = zod.object({
@@ -155,7 +158,8 @@ export const UpdateAppBrandResponse = zod.object({
   "logoUrl": zod.string().nullable().describe('Public served path of the logo shown in nav and landing.'),
   "iconUrl": zod.string().nullable().describe('Public served path of the favicon \/ app icon.'),
   "primaryColor": zod.string().nullable().describe('Hex primary\/accent color applied to the theme.'),
-  "backgroundColor": zod.string().nullable().describe('Hex app background color applied to the theme.')
+  "backgroundColor": zod.string().nullable().describe('Hex app background color applied to the theme.'),
+  "loaderAnimationUrl": zod.string().nullable().describe('Public served path of a custom loading animation image (SVG\/GIF\/APNG\/WebP) shown instead of the built-in loader.')
 })
 
 
@@ -3878,6 +3882,12 @@ export const CreateContentBody = zod.object({
   "caption": zod.string().optional(),
   "imagePath": zod.string().nullish(),
   "imagePrompt": zod.string().nullish(),
+  "carouselSlides": zod.array(zod.object({
+  "heading": zod.string().describe('Short slide headline.'),
+  "body": zod.string().describe('Supporting copy for the slide.'),
+  "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
+  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
+})).nullish(),
   "platform": zod.string().optional(),
   "contentType": zod.string().optional(),
   "status": zod.enum(['draft', 'scheduled', 'published']).optional(),
@@ -3958,6 +3968,12 @@ export const UpdateContentBody = zod.object({
   "caption": zod.string().optional(),
   "imagePath": zod.string().nullish(),
   "imagePrompt": zod.string().nullish(),
+  "carouselSlides": zod.array(zod.object({
+  "heading": zod.string().describe('Short slide headline.'),
+  "body": zod.string().describe('Supporting copy for the slide.'),
+  "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
+  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
+})).nullish(),
   "platform": zod.string().optional(),
   "contentType": zod.string().optional(),
   "status": zod.enum(['draft', 'scheduled', 'published']).optional(),
@@ -4112,6 +4128,39 @@ export const GenerateCampaignResponse = zod.object({
   "campaignId": zod.string().optional().describe('Correlates follow-up image generations and data metering'),
   "title": zod.string().optional().describe('Short creative-brief title for the whole campaign.'),
   "clarifyingQuestions": zod.array(zod.string()).optional().describe('Present (non-empty) when the brief was too thin to write an effective campaign. Contains the questions the user should answer; when set, posts is empty and nothing was charged.')
+})
+
+
+/**
+ * @summary Generate a multi-slide carousel (per-slide copy and image prompts) from one brief
+ */
+
+export const generateCarouselBodySlideCountDefault = 5;
+export const generateCarouselBodySlideCountMin = 2;
+export const generateCarouselBodySlideCountMax = 10;
+
+
+
+export const GenerateCarouselBody = zod.object({
+  "prompt": zod.string().min(1).describe('Topic, idea, or summary to base the carousel on.'),
+  "slideCount": zod.number().min(generateCarouselBodySlideCountMin).max(generateCarouselBodySlideCountMax).default(generateCarouselBodySlideCountDefault),
+  "platform": zod.string().optional().describe('Primary target platform (e.g. linkedin, instagram).'),
+  "brandKitId": zod.number().nullish(),
+  "tone": zod.string().optional()
+})
+
+export const GenerateCarouselResponse = zod.object({
+  "title": zod.string().optional().describe('Short creative-brief title for the carousel.'),
+  "caption": zod.string().optional().describe('Post caption to accompany the carousel.'),
+  "hashtags": zod.array(zod.string()).optional(),
+  "slides": zod.array(zod.object({
+  "heading": zod.string().describe('Short slide headline.'),
+  "body": zod.string().describe('Supporting copy for the slide.'),
+  "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
+  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
+})),
+  "carouselId": zod.string().optional().describe('Correlates follow-up image generations and data metering'),
+  "clarifyingQuestions": zod.array(zod.string()).optional().describe('Present (non-empty) when the brief was too thin. When set, slides is empty and nothing was charged.')
 })
 
 

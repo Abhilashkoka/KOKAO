@@ -19,6 +19,7 @@ const EMPTY_BRAND = {
   iconUrl: null,
   primaryColor: null,
   backgroundColor: null,
+  loaderAnimationUrl: null,
 };
 
 async function loadBrand() {
@@ -34,6 +35,7 @@ async function loadBrand() {
     iconUrl: row.iconUrl,
     primaryColor: row.primaryColor,
     backgroundColor: row.backgroundColor,
+    loaderAnimationUrl: row.loaderAnimationUrl,
   };
 }
 

@@ -32,4 +32,9 @@ export interface AppBrand {
      * @nullable
      */
   backgroundColor: string | null;
+  /**
+     * Public served path of a custom loading animation image (SVG/GIF/APNG/WebP) shown instead of the built-in loader.
+     * @nullable
+     */
+  loaderAnimationUrl: string | null;
 }

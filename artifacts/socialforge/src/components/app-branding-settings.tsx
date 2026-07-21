@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 
-type ImageField = "logoUrl" | "iconUrl";
+type ImageField = "logoUrl" | "iconUrl" | "loaderAnimationUrl";
 
 const COLOR_THEMES: {
   name: string;
@@ -73,7 +73,7 @@ function UploadSlot({
           <input
             ref={inputRef}
             type="file"
-            accept="image/png,image/jpeg,image/svg+xml,image/webp,image/x-icon"
+            accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif,image/apng,image/x-icon"
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -132,6 +132,7 @@ export function AppBrandingSettings() {
         iconUrl: brand.iconUrl,
         primaryColor: brand.primaryColor,
         backgroundColor: brand.backgroundColor,
+        loaderAnimationUrl: brand.loaderAnimationUrl,
       });
     }
   }, [brand]);
@@ -249,6 +250,15 @@ export function AppBrandingSettings() {
           onPick={(file) => handleUpload("iconUrl", file)}
           onClear={() => handleClearImage("iconUrl")}
           previewClassName="max-h-12 max-w-12 object-contain"
+        />
+        <UploadSlot
+          label="Loading animation"
+          description="Replaces the built-in ripple loader everywhere the app shows a loading state. Animated SVG, GIF, APNG, or WebP; square, recommended 256x256 px. Remove to go back to the default ripple."
+          value={form.loaderAnimationUrl ?? null}
+          uploading={uploadingField === "loaderAnimationUrl"}
+          onPick={(file) => handleUpload("loaderAnimationUrl", file)}
+          onClear={() => handleClearImage("loaderAnimationUrl")}
+          previewClassName="max-h-14 max-w-14 object-contain"
         />
       </Card>
 

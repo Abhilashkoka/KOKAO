@@ -14,6 +14,7 @@ import {
   SuggestTopicsBody,
   SummarizeUrlBody,
   GenerateCampaignBody,
+  GenerateCarouselBody,
   ResearchTopicBody,
 } from "@workspace/api-zod";
 import { ObjectStorageService } from "../lib/objectStorage";
@@ -969,6 +970,166 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     }
     req.log.error({ err: error }, "Campaign generation failed");
     res.status(500).json({ error: "Failed to generate campaign" });
+  }
+});
+
+/**
+ * POST /ai/generate-carousel
+ * One brief -> a multi-slide carousel: per-slide heading/body copy plus an
+ * image prompt for each slide. Costs ONE caption (quota first, then a
+ * credit); the per-slide images are generated afterwards by the client via
+ * /ai/generate-image (metered per image as usual). Gated by the "carousel"
+ * kill switch at the router level.
+ */
+router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
+  const parsed = GenerateCarouselBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+
+  const tenant = await loadTenant(req.tenantId);
+  if (!tenant) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const slideCount = parsed.data.slideCount ?? 5;
+  const platform = (parsed.data.platform ?? "linkedin").toLowerCase().trim() || "linkedin";
+
+  const limits = await getPlanLimits(tenant.plan);
+  const usage = await getUsage(req.tenantId);
+  const captionFunding = await reserveFunding(
+    req.tenantId,
+    limits.captions,
+    usage.captions,
+    "caption",
+  );
+  if (!captionFunding) {
+    res.status(402).json({
+      error:
+        "You've used your monthly caption quota and have no caption credits left. Upgrade your plan or buy a credit pack to keep generating.",
+    });
+    return;
+  }
+
+  const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
+  const tone = parsed.data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
+
+  const context: string[] = [
+    `The carousel has exactly ${slideCount} slides and is primarily for ${platform}.`,
+    `Overall tone/voice: ${tone}.`,
+    "Slide 1 is the hook: a bold, curiosity-driving opener. The middle slides each carry ONE clear idea that builds on the previous slide. The final slide is the payoff plus a call to action.",
+    "Each slide's image prompt must describe a graphic that VISUALLY COMMUNICATES that slide's specific information (e.g. the key statistic, step, or comparison rendered as part of the image), not a generic decorative background. Include the slide's short headline text inside the image design.",
+    "Keep a consistent visual system across all slide image prompts: same color scheme, same layout style, same typography treatment, so the slides read as one cohesive carousel.",
+  ];
+  const constraints: string[] = [...HUMAN_EXPERT_CONSTRAINTS];
+  if (brand) {
+    context.push(`Brand name: ${brand.identity.brand_name}.`);
+    const palette = colorHint(brand);
+    if (palette) {
+      context.push(`Use the brand palette (${palette}) as the carousel's color scheme in every image prompt.`);
+    }
+    if (brand.brand_controls.restricted_terms.length > 0) {
+      constraints.push(
+        `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
+      );
+    }
+  }
+
+  const systemPrompt = buildRicePrompt({
+    role: "You are a senior social media strategist and carousel designer with deep experience creating high-performing multi-slide posts in this niche.",
+    instruction: [
+      CLARIFY_RULE,
+      `Otherwise: design a ${slideCount}-slide carousel that develops the idea across the slides in a deliberate narrative arc.`,
+      "For every slide write a short punchy heading (max ~8 words), 1-3 sentences of body copy, and a concise, descriptive AI image-generation prompt for that slide's visual.",
+      "Also write the post caption that will accompany the carousel, 5-12 hashtags (no # symbol), and a short creative-brief title (3-8 words).",
+    ],
+    context,
+    examples: [],
+    constraints,
+    outputFormat: [
+      `Respond ONLY with strict JSON of the form {"title": string, "caption": string, "hashtags": string[], "slides": [{"heading": string, "body": string, "imagePrompt": string}]} with exactly ${slideCount} slide objects in order.`,
+      'If (and only if) the brief is too thin, respond instead with {"clarifyingQuestions": string[]}.',
+    ],
+  });
+
+  const carouselId = randomUUID();
+  const startedAt = Date.now();
+  try {
+    const completion = await openai.chat.completions.create({
+      model: tenant.aiModel,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: parsed.data.prompt },
+      ],
+      max_completion_tokens: 8192,
+      response_format: { type: "json_object" },
+    });
+
+    const raw = completion.choices[0]?.message?.content ?? "{}";
+    let slidesRaw: unknown[] = [];
+    let title = "";
+    let caption = "";
+    let hashtags: string[] = [];
+    let clarifyingQuestions: string[] | null = null;
+    try {
+      const obj = JSON.parse(raw) as {
+        slides?: unknown;
+        title?: string;
+        caption?: string;
+        hashtags?: unknown;
+      };
+      clarifyingQuestions = parseClarifyingQuestions(obj);
+      slidesRaw = Array.isArray(obj.slides) ? obj.slides : [];
+      title = typeof obj.title === "string" ? obj.title : "";
+      caption = typeof obj.caption === "string" ? obj.caption : "";
+      hashtags = Array.isArray(obj.hashtags)
+        ? obj.hashtags.map((h) => String(h).replace(/^#/, "")).filter(Boolean)
+        : [];
+    } catch {
+      slidesRaw = [];
+    }
+
+    // The model asked for more input instead of generating: give back the
+    // reserved credit (nothing was made) and return the questions.
+    if (clarifyingQuestions && slidesRaw.length === 0) {
+      await releaseFunding(req, captionFunding, "caption");
+      res.json({ slides: [], clarifyingQuestions });
+      return;
+    }
+
+    const slides = slidesRaw
+      .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
+      .map((s) => ({
+        heading: typeof s.heading === "string" ? s.heading : "",
+        body: typeof s.body === "string" ? s.body : "",
+        imagePrompt: typeof s.imagePrompt === "string" ? s.imagePrompt : "",
+        imagePath: null as string | null,
+      }))
+      .filter((s) => s.heading || s.body)
+      .slice(0, slideCount);
+
+    if (slides.length !== slideCount) {
+      // Charge nothing when the model failed to deliver the full carousel.
+      await releaseFunding(req, captionFunding, "caption");
+      res.status(500).json({ error: "Failed to generate carousel" });
+      return;
+    }
+
+    await settleFunding(req, captionFunding, "caption", {
+      requestBytes: Buffer.byteLength(systemPrompt + parsed.data.prompt),
+      responseBytes: Buffer.byteLength(raw),
+      durationMs: Date.now() - startedAt,
+      model: tenant.aiModel,
+      campaignId: carouselId,
+      platform,
+    });
+    res.json({ title, caption, hashtags, slides, carouselId });
+  } catch (error) {
+    await releaseFunding(req, captionFunding, "caption");
+    req.log.error({ err: error }, "Carousel generation failed");
+    res.status(500).json({ error: "Failed to generate carousel" });
   }
 });
 
