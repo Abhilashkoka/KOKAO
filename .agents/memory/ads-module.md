@@ -14,6 +14,11 @@ description: Draft-and-approve safety engine for ad platform writes; owner-only 
 - TikTok Ads: same engine via a per-platform ops dispatch keyed on the connection's platform; the OAuth token response itself lists the granted advertiser ids (store them; validate any later selection against that list). Campaign schedules (start/stop) live on AD GROUPS, not campaigns — campaign drafts must reject schedule fields. Auth-failed = HTTP 401 or business codes 40101/40102/40104/40105/40001. Budgets in minor units like Meta.
 - **How to apply:** any new ads platform or target type must reuse this engine — add an adapter, not a new pipeline. Tests: mock only the adapter network fns; keep engine + DB real (see `routes/ads.test.ts`).
 
+## Schedule read-back verification granularity
+- Google Ads stores campaign schedules as DATE-ONLY (`startDate`/`endDate`); the adapter writes the first 10 chars of the drafted ISO timestamp and reads back bare `YYYY-MM-DD`.
+- **Why:** the engine's read-back verify compared full instants, so any non-midnight picked time yielded `verify_status='mismatch'` even though the write landed correctly.
+- **How to apply:** `timesEqual` in the ads engine compares at day granularity whenever the platform state value matches `^\d{4}-\d{2}-\d{2}$` (state date === payload's first 10 chars). Any new platform that stores coarser schedule granularity than the picker needs the same treatment. Regression test: ads.google.test.ts "date-only read-back".
+
 ## TikTok ad group schedules
 - TikTok schedules live on ad groups only (campaigns have none; ads have neither schedule nor budget).
 - Adapter normalizes TikTok's "YYYY-MM-DD HH:MM:SS" UTC times to ISO Z (tiktokTimeToIso/isoToTiktokTime); epoch/empty placeholders map to null; SCHEDULE_FROM_NOW means no end time.

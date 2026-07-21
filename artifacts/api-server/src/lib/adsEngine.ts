@@ -1246,12 +1246,19 @@ export async function approveAndApplyDraft(
 }
 
 /**
- * Compare two schedule timestamps as instants; the platform may echo a
- * different textual offset/format than the one we sent.
+ * Compare a platform-echoed schedule value against the drafted one. Full
+ * timestamps compare as instants (the platform may echo a different textual
+ * offset/format); date-only platform values compare at day granularity.
  */
 function timesEqual(a: string | null, b: string): boolean {
   if (a == null) return false;
   if (a === b) return true;
+  // Google Ads schedules are date-only: the adapter writes the first 10
+  // characters of the drafted ISO timestamp (the date as picked, in the
+  // picker's own offset) and reads back a bare "YYYY-MM-DD". Compare at the
+  // same day granularity the platform stores, or every non-midnight pick
+  // would be flagged as a mismatch.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(a)) return a === b.slice(0, 10);
   const ta = Date.parse(a);
   const tb = Date.parse(b);
   return Number.isFinite(ta) && Number.isFinite(tb) && ta === tb;

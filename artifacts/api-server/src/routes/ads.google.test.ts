@@ -473,6 +473,47 @@ describe("google draft creation and apply", () => {
     }
   });
 
+  it("verifies a google campaign schedule change despite date-only read-back", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertGoogleAdConnection(tenant.tenantId);
+      const draftRes = await createUpdateDraft(tenant.clerkUserId, connectionId, {
+        status: undefined,
+        dailyBudget: undefined,
+        // Non-midnight picks: Google stores date-only schedules, so the
+        // read-back returns bare dates that must still verify.
+        startTime: "2026-08-05T09:30:00+0530",
+        stopTime: "2026-09-10T18:00:00+0530",
+      });
+      expect(draftRes.status).toBe(201);
+      const draftId = draftRes.body.id as number;
+
+      mockRead.mockResolvedValueOnce({ ...REMOTE_STATE }); // drift check
+      mockRead.mockResolvedValue({
+        ...REMOTE_STATE,
+        startTime: "2026-08-05",
+        stopTime: "2026-09-10",
+      }); // verify read-back
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post(`/api/ads/drafts/${draftId}/approve`);
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("applied");
+      expect(res.body.verifyStatus).toBe("verified");
+      expect(mockUpdate).toHaveBeenCalledTimes(1);
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.anything(),
+        "camp_g1",
+        expect.objectContaining({
+          startTime: "2026-08-05T09:30:00+0530",
+          stopTime: "2026-09-10T18:00:00+0530",
+        }),
+      );
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("drafts, applies, and verifies a google ad group status + CPC bid change", async () => {
     const tenant = await createTenant();
     try {
