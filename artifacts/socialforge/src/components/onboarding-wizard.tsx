@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useFeatureFlags } from "@/lib/features";
 import {
   Sparkles,
   Loader2,
@@ -53,8 +54,9 @@ const CONSENT_OPTIONS = [
 ];
 
 export function OnboardingWizard() {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const { data: me } = useGetMe();
+  const { flags: featureFlags } = useFeatureFlags();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -142,6 +144,11 @@ export function OnboardingWizard() {
             });
           }
           refresh();
+          // First-time users land in the AI Studio so they can create their
+          // first piece of content right away (unless the feature is off).
+          if (featureFlags.aiStudio) {
+            setLocation("/studio");
+          }
         },
         onError: () =>
           toast({ title: "Could not finish setup", variant: "destructive" }),
