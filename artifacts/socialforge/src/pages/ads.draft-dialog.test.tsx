@@ -1069,6 +1069,17 @@ describe("DraftsSection approve invalidates the group list", () => {
       p({ queryKey: ["/api/ads/linkedin/campaign-groups", { connectionId: 7 }] }),
     );
     expect(matchesGroups).toBe(true);
+    // Per-campaign targeting snapshots must be dropped too, so a reopened
+    // targeting dialog can never preload pre-apply audience facets.
+    const matchesTargeting = predicates.some((p) =>
+      p({
+        queryKey: [
+          "/api/ads/linkedin/campaign-targeting",
+          { connectionId: 7, campaignId: "c1" },
+        ],
+      }),
+    );
+    expect(matchesTargeting).toBe(true);
   });
 });
 

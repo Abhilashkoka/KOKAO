@@ -3556,7 +3556,11 @@ export function DraftsSection({
         typeof q.queryKey[0] === "string" &&
         (q.queryKey[0].includes("/ads/campaigns") ||
           q.queryKey[0].includes("/ads/campaign-detail") ||
-          q.queryKey[0].includes("/ads/linkedin/campaign-groups")),
+          q.queryKey[0].includes("/ads/linkedin/campaign-groups") ||
+          // Per-campaign targeting: TargetingDraftDialog also refetches fresh
+          // on open (gcTime: 0), but drop any cached snapshot here too so no
+          // consumer can ever see pre-apply audience facets after an approve.
+          q.queryKey[0].includes("/ads/linkedin/campaign-targeting")),
     });
   };
 
