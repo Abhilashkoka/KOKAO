@@ -2031,6 +2031,73 @@ describe("LinkedIn facet targeting (industries, job functions, titles)", () => {
     }
   });
 
+  it("rejects a draft whose merged targeting would leave the campaign with no locations", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      // Current remote state has NO target locations (default REMOTE_STATE),
+      // so an industries-only draft would wipe locations after the merge.
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign",
+        action: "update",
+        targetId: "cmp_1",
+        targetingIndustries: [
+          { urn: "urn:li:industry:4", name: "Software Development" },
+        ],
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("no target locations");
+      expect(res.body.error).toContain("at least one location");
+
+      const drafts = await db
+        .select()
+        .from(adChangeRequestsTable)
+        .where(eq(adChangeRequestsTable.tenantId, tenant.tenantId));
+      expect(drafts).toHaveLength(0);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("stores existing locations in the draft payload when only industries change", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertLinkedinAdConnection(tenant.tenantId);
+      mockReadState.mockResolvedValue({
+        ...REMOTE_STATE,
+        targetingLocations: ["urn:li:geo:102713980"],
+      });
+      actAs(tenant.clerkUserId);
+      const res = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "campaign",
+        action: "update",
+        targetId: "cmp_1",
+        targetingIndustries: [
+          { urn: "urn:li:industry:4", name: "Software Development" },
+        ],
+      });
+      expect(res.status).toBe(201);
+
+      const [draft] = await db
+        .select()
+        .from(adChangeRequestsTable)
+        .where(eq(adChangeRequestsTable.id, res.body.id));
+      const payload = draft!.payload as Record<string, unknown>;
+      expect(payload.targetingFacets).toEqual({
+        locations: ["urn:li:geo:102713980"],
+        industries: ["urn:li:industry:4"],
+        jobFunctions: [],
+        titles: [],
+      });
+      expect(payload.targetingLocations).toBeUndefined();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("rejects facet targeting on create drafts and malformed facet URNs", async () => {
     const tenant = await createTenant();
     try {
