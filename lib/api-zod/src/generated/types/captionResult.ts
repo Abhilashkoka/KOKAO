@@ -9,4 +9,8 @@
 export interface CaptionResult {
   caption: string;
   hashtags: string[];
+  /** Short creative-brief title for this piece of content. */
+  title?: string;
+  /** Present (non-empty) when the brief was too thin to write an effective post. Contains the questions the user should answer; when set, caption/hashtags are empty and nothing was charged. */
+  clarifyingQuestions?: string[];
 }

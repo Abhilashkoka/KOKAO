@@ -152,7 +152,9 @@ function PlatformFitPreview({ src }: { src: string }) {
 export function StudioPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [captionResult, setCaptionResult] = useState<{ caption: string; hashtags: string[] } | null>(null);
+  const [captionResult, setCaptionResult] = useState<{ caption: string; hashtags: string[]; title?: string } | null>(null);
+  const [briefQuestions, setBriefQuestions] = useState<string[] | null>(null);
+  const [campaignTitle, setCampaignTitle] = useState<string | null>(null);
   const [captionPlatform, setCaptionPlatform] = useState<string | null>(null);
   const [captionTweak, setCaptionTweak] = useState<string | null>(null);
   const [imageResult, setImageResult] = useState<{ imagePath: string; b64Json: string } | null>(null);
@@ -286,12 +288,14 @@ export function StudioPage() {
   };
 
   const buildDraftData = (
-    caption: { caption: string } | null,
+    caption: { caption: string; title?: string } | null,
     image: { imagePath: string } | null,
   ) => {
     const values = form.getValues();
     return {
-      title: values.prompt.trim().slice(0, 30) + (values.prompt.trim().length > 30 ? "..." : ""),
+      title:
+        caption?.title?.trim() ||
+        values.prompt.trim().slice(0, 30) + (values.prompt.trim().length > 30 ? "..." : ""),
       caption: caption?.caption || undefined,
       imagePath: image?.imagePath || undefined,
       imagePrompt: image ? values.prompt : undefined,
@@ -454,6 +458,16 @@ export function StudioPage() {
       {
         onSuccess: (res) => {
           setCampaignPosts(null);
+          if (res.clarifyingQuestions && res.clarifyingQuestions.length > 0) {
+            setBriefQuestions(res.clarifyingQuestions);
+            setCaptionResult(null);
+            toast({
+              title: "A bit more detail needed",
+              description: "Answer the questions shown in Results, then generate again. Nothing was charged.",
+            });
+            return;
+          }
+          setBriefQuestions(null);
           setCaptionResult(res);
           setCaptionPlatform(data.platform ?? null);
           refreshQuota();
@@ -496,6 +510,7 @@ export function StudioPage() {
       {
         onSuccess: (res) => {
           setCampaignPosts(null);
+          setBriefQuestions(null);
           setImageResult(res);
           refreshQuota();
           upsertDraft(captionResult, res);
@@ -526,12 +541,24 @@ export function StudioPage() {
       },
       {
         onSuccess: (res) => {
+          if (res.clarifyingQuestions && res.clarifyingQuestions.length > 0) {
+            setBriefQuestions(res.clarifyingQuestions);
+            setCampaignPosts(null);
+            setCampaignTitle(null);
+            toast({
+              title: "A bit more detail needed",
+              description: "Answer the questions shown in Results, then generate again. Nothing was charged.",
+            });
+            return;
+          }
+          setBriefQuestions(null);
           setCaptionResult(null);
           setCaptionPlatform(null);
           setImageResult(null);
           setCampaignImages({});
           setPendingCampaignImage(null);
           setCampaignPosts(res.posts);
+          setCampaignTitle(res.title ?? null);
           setDraft(null);
           refreshQuota();
           track("campaign_generated", {
@@ -609,6 +636,7 @@ export function StudioPage() {
       setCaptionResult(null);
       setCaptionPlatform(null);
       setImageResult(null);
+      setBriefQuestions(null);
       queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
       toast({ title: "Discarded", description: "The draft was removed from your library." });
     };
@@ -1226,9 +1254,11 @@ export function StudioPage() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-bold">Campaign variants</h2>
+                  <h2 className="text-xl font-bold" data-testid="text-campaign-title">
+                    {campaignTitle || "Campaign variants"}
+                  </h2>
                   <p className="text-sm text-muted-foreground">
-                    Generate an image and save each platform variant to your library.
+                    Each platform below gets its own tailored version. Generate an image and save each one to your library.
                   </p>
                 </div>
               </div>
@@ -1284,7 +1314,19 @@ export function StudioPage() {
                 </div>
               </CardHeader>
               <CardContent className="p-0 flex-1 bg-muted/10">
-                {!hasSingleResult ? (
+                {briefQuestions && briefQuestions.length > 0 && !hasSingleResult ? (
+                  <div className="p-6 bg-card space-y-3" data-testid="card-brief-questions">
+                    <h3 className="font-bold text-base">Your brief needs a bit more detail</h3>
+                    <p className="text-sm text-muted-foreground">
+                      To write something specific instead of generic filler, answer these in your prompt and generate again. Nothing was charged for this attempt.
+                    </p>
+                    <ul className="list-disc pl-5 space-y-1.5 text-sm">
+                      {briefQuestions.map((q, i) => (
+                        <li key={i} data-testid={`text-brief-question-${i}`}>{q}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : !hasSingleResult ? (
                   <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-muted-foreground p-8 text-center">
                     <Wand2 className="h-12 w-12 text-muted mb-4" />
                     <p>Your generated content will appear here.</p>
@@ -1350,6 +1392,11 @@ export function StudioPage() {
                     )}
                     {captionResult && (
                       <div className="p-6 bg-card flex-1">
+                        {captionResult.title && (
+                          <h3 className="font-bold text-base mb-2" data-testid="text-brief-title">
+                            {captionResult.title}
+                          </h3>
+                        )}
                         <h4 className="font-medium text-sm text-muted-foreground mb-3 uppercase tracking-wider">
                           Caption
                         </h4>

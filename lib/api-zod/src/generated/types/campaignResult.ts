@@ -11,4 +11,8 @@ export interface CampaignResult {
   posts: CampaignPost[];
   /** Correlates follow-up image generations and data metering */
   campaignId?: string;
+  /** Short creative-brief title for the whole campaign. */
+  title?: string;
+  /** Present (non-empty) when the brief was too thin to write an effective campaign. Contains the questions the user should answer; when set, posts is empty and nothing was charged. */
+  clarifyingQuestions?: string[];
 }

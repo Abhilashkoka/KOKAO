@@ -134,6 +134,73 @@ function voiceHint(payload: BrandKitPayload): string {
   return payload.voice.caption_style || "modern";
 }
 
+/**
+ * Practical caption capacity per platform, used to decide which platform
+ * gets the master (longest) draft first. Values mirror lib/social-limits
+ * where a hard limit exists (twitter 280, threads 500, linkedin 3000) plus
+ * well-known platform caps for the rest.
+ */
+const PLATFORM_CAPACITY: Record<string, number> = {
+  facebook: 63206,
+  youtube: 5000,
+  linkedin: 3000,
+  instagram: 2200,
+  threads: 500,
+  twitter: 280,
+};
+
+/**
+ * Assemble a system prompt following the RICE framework: Role, Instruction,
+ * Context, Examples, Constraints, and Output Format — clearly labeled
+ * sections instead of one run-on string.
+ */
+function buildRicePrompt(sections: {
+  role: string;
+  instruction: string[];
+  context: string[];
+  examples: string[];
+  constraints: string[];
+  outputFormat: string[];
+}): string {
+  const parts: string[] = [`ROLE:\n${sections.role}`];
+  const block = (label: string, lines: string[]) => {
+    if (lines.length > 0) parts.push(`${label}:\n${lines.map((l) => `- ${l}`).join("\n")}`);
+  };
+  block("INSTRUCTION", sections.instruction);
+  block("CONTEXT", sections.context);
+  block("CONSTRAINTS", sections.constraints);
+  // Examples (taste-memory style preferences) are soft guidance and must
+  // come AFTER the hard brand constraints so brand rules always win.
+  block("EXAMPLES (soft style preferences; the constraints above always win)", sections.examples);
+  block("OUTPUT FORMAT", sections.outputFormat);
+  return parts.join("\n\n");
+}
+
+/** Shared humanization + expert-voice rules applied to every caption prompt. */
+const HUMAN_EXPERT_CONSTRAINTS: string[] = [
+  "Write like a real human expert in this field, not like an AI. Vary sentence length, use natural rhythm, and sound like someone who has hands-on experience with the subject.",
+  'Never use AI-sounding filler: no "In today\'s fast-paced world", "unlock", "elevate", "game-changer", "delve", "revolutionize", "seamless", or openings like "Imagine...". No exclamation-mark spam.',
+  "No generic content. Every claim must be specific to the topic — concrete details, numbers, or insider observations an expert would actually know. If a sentence could be pasted under any other topic, rewrite it.",
+  "Speak with the authority of a practitioner: give a point of view, not a summary.",
+];
+
+/**
+ * Shared clarify rule: when the brief is too thin to write something
+ * effective, the model must ask for the missing input instead of guessing.
+ */
+const CLARIFY_RULE =
+  "First judge whether the brief gives you enough to write an effective, specific post (a clear topic plus at least some angle, audience, offer, or goal). " +
+  'If it does NOT, do not write generic content — instead respond ONLY with strict JSON {"clarifyingQuestions": string[]} containing 2-4 short, concrete questions (in plain language) about exactly what input you need from the user.';
+
+/** Parse an optional clarifyingQuestions array out of a raw model object. */
+function parseClarifyingQuestions(obj: unknown): string[] | null {
+  if (!obj || typeof obj !== "object") return null;
+  const q = (obj as Record<string, unknown>).clarifyingQuestions;
+  if (!Array.isArray(q)) return null;
+  const questions = q.map((item) => String(item).trim()).filter(Boolean).slice(0, 6);
+  return questions.length > 0 ? questions : null;
+}
+
 router.post("/ai/generate-caption", async (req: Request, res: Response) => {
   const parsed = GenerateCaptionBody.safeParse(req.body);
   if (!parsed.success) {
@@ -169,40 +236,50 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
   const platform = parsed.data.platform ?? "instagram";
   const tone = parsed.data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
 
-  const guidance: string[] = [
-    `You are an expert social media copywriter. Write a ${platform} caption.`,
-    `Tone/voice: ${tone}.`,
-  ];
+  const context: string[] = [`Target platform: ${platform}.`, `Tone/voice: ${tone}.`];
+  const constraints: string[] = [...HUMAN_EXPERT_CONSTRAINTS];
   if (brand) {
-    guidance.push(`Brand name: ${brand.identity.brand_name}.`);
-    if (brand.identity.tagline) guidance.push(`Tagline: ${brand.identity.tagline}.`);
+    context.push(`Brand name: ${brand.identity.brand_name}.`);
+    if (brand.identity.tagline) context.push(`Brand tagline: ${brand.identity.tagline}.`);
     if (brand.voice.dos.length > 0) {
-      guidance.push(`Voice do's: ${brand.voice.dos.slice(0, 5).join("; ")}.`);
+      constraints.push(`Voice do's: ${brand.voice.dos.slice(0, 5).join("; ")}.`);
     }
     if (brand.voice.donts.length > 0) {
-      guidance.push(`Voice don'ts: ${brand.voice.donts.slice(0, 5).join("; ")}.`);
+      constraints.push(`Voice don'ts: ${brand.voice.donts.slice(0, 5).join("; ")}.`);
     }
     if (brand.brand_controls.restricted_terms.length > 0) {
-      guidance.push(
+      constraints.push(
         `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
       );
     }
   }
-  // Taste memory: learned preferences are soft guidance appended AFTER the
-  // brand kit rules, so brand rules and the user's explicit prompt still win.
+  // Taste memory: learned preferences are soft guidance placed under
+  // Examples, AFTER the brand kit rules, so brand rules and the user's
+  // explicit prompt still win.
   const taste = await buildTasteGuidance(req.tenantId);
-  guidance.push(...taste.captionLines);
-  guidance.push(
-    'Respond ONLY with strict JSON of the form {"caption": string, "hashtags": string[]}. ' +
+
+  const systemPrompt = buildRicePrompt({
+    role: `You are a senior ${platform} copywriter with a decade of hands-on experience writing high-performing posts in this exact niche.`,
+    instruction: [
+      CLARIFY_RULE,
+      `Otherwise, write one ${platform} caption based on the user's creative brief, plus a short creative-brief title (3-8 words) naming the idea.`,
+    ],
+    context,
+    examples: taste.captionLines,
+    constraints,
+    outputFormat: [
+      'Respond ONLY with strict JSON of the form {"title": string, "caption": string, "hashtags": string[]}.',
       "Hashtags must not include the # symbol. Provide 5-12 relevant hashtags.",
-  );
+      'If (and only if) the brief is too thin, respond instead with {"clarifyingQuestions": string[]}.',
+    ],
+  });
 
   const startedAt = Date.now();
   try {
     const completion = await openai.chat.completions.create({
       model: tenant.aiModel,
       messages: [
-        { role: "system", content: guidance.join(" ") },
+        { role: "system", content: systemPrompt },
         { role: "user", content: parsed.data.prompt },
       ],
       max_completion_tokens: 8192,
@@ -211,10 +288,14 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
 
     const raw = completion.choices[0]?.message?.content ?? "{}";
     let caption = "";
+    let title = "";
     let hashtags: string[] = [];
+    let clarifyingQuestions: string[] | null = null;
     try {
-      const obj = JSON.parse(raw) as { caption?: string; hashtags?: unknown };
+      const obj = JSON.parse(raw) as { caption?: string; title?: string; hashtags?: unknown };
+      clarifyingQuestions = parseClarifyingQuestions(obj);
       caption = typeof obj.caption === "string" ? obj.caption : "";
+      title = typeof obj.title === "string" ? obj.title : "";
       hashtags = Array.isArray(obj.hashtags)
         ? obj.hashtags.map((h) => String(h).replace(/^#/, "")).filter(Boolean)
         : [];
@@ -222,14 +303,22 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
       caption = raw;
     }
 
+    // The model asked for more input instead of generating content: return
+    // the questions and give back the reserved funding — nothing was made.
+    if (clarifyingQuestions && !caption) {
+      await releaseFunding(req, captionFunding, "caption");
+      res.json({ caption: "", hashtags: [], clarifyingQuestions });
+      return;
+    }
+
     await settleFunding(req, captionFunding, "caption", {
-      requestBytes: Buffer.byteLength(guidance.join(" ") + parsed.data.prompt),
+      requestBytes: Buffer.byteLength(systemPrompt + parsed.data.prompt),
       responseBytes: Buffer.byteLength(raw),
       durationMs: Date.now() - startedAt,
       model: tenant.aiModel,
       platform,
     });
-    res.json({ caption, hashtags });
+    res.json({ caption, hashtags, ...(title ? { title } : {}) });
   } catch (error) {
     await releaseFunding(req, captionFunding, "caption");
     req.log.error({ err: error }, "Caption generation failed");
@@ -718,34 +807,59 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
   const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
   const tone = parsed.data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
 
+  // Draft for the roomiest platform FIRST, then condense down: the master
+  // long-form draft carries the full argument, and constrained platforms get
+  // distilled versions of it rather than independently thin rewrites.
+  const rankedPlatforms = [...platforms].sort(
+    (a, b) => (PLATFORM_CAPACITY[b] ?? 1000) - (PLATFORM_CAPACITY[a] ?? 1000),
+  );
+  const masterPlatform = rankedPlatforms[0];
+
   const styleLines = platforms.map(
-    (p) => `- ${p}: caption style -> ${PLATFORM_STYLES[p] ?? p}; image style -> ${PLATFORM_IMAGE_STYLES[p] ?? "high quality, on-brand"}.`,
+    (p) => `${p}: caption style -> ${PLATFORM_STYLES[p] ?? p}; image style -> ${PLATFORM_IMAGE_STYLES[p] ?? "high quality, on-brand"}.`,
+  );
+  const capacityLines = rankedPlatforms.map(
+    (p) => `${p}: about ${PLATFORM_CAPACITY[p] ?? 1000} characters available.`,
   );
 
-  const guidance: string[] = [
-    "You are a senior social media strategist and expert copywriter.",
-    `Write one tailored post for EACH of these platforms: ${platforms.join(", ")}.`,
+  const context: string[] = [
+    `Requested platforms, ordered from most to least character room: ${rankedPlatforms.join(", ")}.`,
+    ...capacityLines,
     `Overall tone/voice: ${tone}.`,
-    "Tailor each caption to its platform's audience and format. For each platform also write a concise, descriptive AI image-generation prompt that complements the caption.",
-    "Platform guidance:",
-    styleLines.join(" "),
+    ...styleLines,
   ];
+  const constraints: string[] = [...HUMAN_EXPERT_CONSTRAINTS];
   if (brand) {
-    guidance.push(`Brand name: ${brand.identity.brand_name}.`);
+    context.push(`Brand name: ${brand.identity.brand_name}.`);
     const palette = colorHint(brand);
     if (palette) {
-      guidance.push(`Incorporate the brand palette (${palette}) into each image prompt.`);
+      context.push(`Incorporate the brand palette (${palette}) into each image prompt.`);
     }
     if (brand.brand_controls.restricted_terms.length > 0) {
-      guidance.push(
+      constraints.push(
         `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
       );
     }
   }
-  guidance.push(
-    'Respond ONLY with strict JSON of the form {"posts": [{"platform": string, "caption": string, "hashtags": string[], "imagePrompt": string}]}. ' +
+
+  const systemPrompt = buildRicePrompt({
+    role: "You are a senior social media strategist and expert copywriter with deep, hands-on experience running multi-platform campaigns in this niche.",
+    instruction: [
+      CLARIFY_RULE,
+      `Otherwise: FIRST write the full master caption for ${masterPlatform} — the platform with the most character room — developing the idea completely.`,
+      "THEN adapt that master caption down for each remaining platform in decreasing order of character room: condense and reshape it to fit each platform's limit and format while keeping the core message, strongest hook, and expert specifics. Do not write unrelated captions per platform.",
+      "For each platform also write a concise, descriptive AI image-generation prompt that complements its caption.",
+      "Also produce a short creative-brief title (3-8 words) naming the campaign idea.",
+    ],
+    context,
+    examples: [],
+    constraints,
+    outputFormat: [
+      'Respond ONLY with strict JSON of the form {"title": string, "posts": [{"platform": string, "caption": string, "hashtags": string[], "imagePrompt": string}]}.',
       "Include one object per requested platform, using the exact platform identifiers given. Hashtags must not include the # symbol; provide 5-12 per post.",
-  );
+      'If (and only if) the brief is too thin, respond instead with {"clarifyingQuestions": string[]}.',
+    ],
+  });
 
   const campaignId = randomUUID();
   const startedAt = Date.now();
@@ -753,7 +867,7 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     const completion = await openai.chat.completions.create({
       model: tenant.aiModel,
       messages: [
-        { role: "system", content: guidance.join(" ") },
+        { role: "system", content: systemPrompt },
         { role: "user", content: parsed.data.prompt },
       ],
       max_completion_tokens: 8192,
@@ -762,11 +876,34 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
 
     const raw = completion.choices[0]?.message?.content ?? "{}";
     let postsRaw: unknown[] = [];
+    let title = "";
+    let clarifyingQuestions: string[] | null = null;
     try {
-      const obj = JSON.parse(raw) as { posts?: unknown };
+      const obj = JSON.parse(raw) as { posts?: unknown; title?: string };
+      clarifyingQuestions = parseClarifyingQuestions(obj);
       postsRaw = Array.isArray(obj.posts) ? obj.posts : [];
+      title = typeof obj.title === "string" ? obj.title : "";
     } catch {
       postsRaw = [];
+    }
+
+    // The model asked for more input instead of generating: give back any
+    // reserved credits (nothing was made) and return the questions.
+    if (clarifyingQuestions && postsRaw.length === 0) {
+      if (creditFunded > 0) {
+        try {
+          await refundCredits(
+            req.tenantId,
+            "caption",
+            creditFunded,
+            "campaign needs more input",
+          );
+        } catch (refundError) {
+          req.log.error({ err: refundError }, "Failed to refund reserved campaign credits");
+        }
+      }
+      res.json({ posts: [], clarifyingQuestions });
+      return;
     }
 
     const byPlatform = new Map<string, { caption: string; hashtags: string[]; imagePrompt: string }>();
@@ -798,7 +935,7 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     // consumption can be reported per campaign. Credit-funded captions were
     // already debited at reservation time; funding="credit" rows are excluded
     // from quota counting but still metered.
-    const requestBytes = Buffer.byteLength(guidance.join(" ") + parsed.data.prompt);
+    const requestBytes = Buffer.byteLength(systemPrompt + parsed.data.prompt);
     const perPlatformRequest = Math.ceil(requestBytes / platforms.length);
     await Promise.all(
       posts.map((post, i) =>
@@ -813,7 +950,7 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
         }),
       ),
     );
-    res.json({ posts, campaignId });
+    res.json({ posts, campaignId, ...(title ? { title } : {}) });
   } catch (error) {
     if (creditFunded > 0) {
       try {

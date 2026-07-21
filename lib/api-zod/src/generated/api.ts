@@ -4015,7 +4015,9 @@ export const GenerateCaptionBody = zod.object({
 
 export const GenerateCaptionResponse = zod.object({
   "caption": zod.string(),
-  "hashtags": zod.array(zod.string())
+  "hashtags": zod.array(zod.string()),
+  "title": zod.string().optional().describe('Short creative-brief title for this piece of content.'),
+  "clarifyingQuestions": zod.array(zod.string()).optional().describe('Present (non-empty) when the brief was too thin to write an effective post. Contains the questions the user should answer; when set, caption\/hashtags are empty and nothing was charged.')
 })
 
 
@@ -4107,7 +4109,9 @@ export const GenerateCampaignResponse = zod.object({
   "hashtags": zod.array(zod.string()),
   "imagePrompt": zod.string()
 })),
-  "campaignId": zod.string().optional().describe('Correlates follow-up image generations and data metering')
+  "campaignId": zod.string().optional().describe('Correlates follow-up image generations and data metering'),
+  "title": zod.string().optional().describe('Short creative-brief title for the whole campaign.'),
+  "clarifyingQuestions": zod.array(zod.string()).optional().describe('Present (non-empty) when the brief was too thin to write an effective campaign. Contains the questions the user should answer; when set, posts is empty and nothing was charged.')
 })
 
 

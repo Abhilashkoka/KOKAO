@@ -53,3 +53,4 @@
 - [Promo codes](promo-codes.md) — all redemption checks + credit grant in one FOR UPDATE tx; new audit actions need 3 registration spots or filters silently reject them.
 - [E2E tenant seeding](e2e-tenant-seeding.md) — resolve tenant by polling email lookup, never "newest row" fallback; /ads tabs need a seeded connected ad connection.
 - [Mobile Razorpay checkout](mobile-razorpay-checkout.md) — WebView-hosted checkout.js posts ids back; the app verifies server-side over its own session; mock the modal in jsdom tests.
+- [RICE studio prompts](rice-studio-prompts.md) — caption/campaign prompts use RICE sections; soft taste examples must trail hard brand constraints; clarify path must charge nothing.

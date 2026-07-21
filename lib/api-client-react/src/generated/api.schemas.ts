@@ -2100,6 +2100,10 @@ export interface CaptionRequest {
 export interface CaptionResult {
   caption: string;
   hashtags: string[];
+  /** Short creative-brief title for this piece of content. */
+  title?: string;
+  /** Present (non-empty) when the brief was too thin to write an effective post. Contains the questions the user should answer; when set, caption/hashtags are empty and nothing was charged. */
+  clarifyingQuestions?: string[];
 }
 
 export type ImageRequestSize = typeof ImageRequestSize[keyof typeof ImageRequestSize];
@@ -2217,6 +2221,10 @@ export interface CampaignResult {
   posts: CampaignPost[];
   /** Correlates follow-up image generations and data metering */
   campaignId?: string;
+  /** Short creative-brief title for the whole campaign. */
+  title?: string;
+  /** Present (non-empty) when the brief was too thin to write an effective campaign. Contains the questions the user should answer; when set, posts is empty and nothing was charged. */
+  clarifyingQuestions?: string[];
 }
 
 /**
