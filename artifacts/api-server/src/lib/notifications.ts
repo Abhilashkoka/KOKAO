@@ -1707,19 +1707,19 @@ export async function resolveSweepStalledNotifications(): Promise<void> {
 }
 
 /**
- * Running tally of tenant-facing social-connection-failed notices that could
- * NOT be recorded (DB error / schema drift on the insert path). The
- * verified -> failed transition that fires the notice happens exactly once,
- * so a swallowed write means the tenant silently never learns their
- * connection broke. The connection sweep drains this counter after each run
- * and folds it into the persisted outcome, so the loss is surfaced loudly on
- * the admin dashboard instead of living only in a log line.
+ * Running tally of tenant-facing connection-failed notices (social AND ads)
+ * that could NOT be recorded (DB error / schema drift on the insert path).
+ * The connected/verified -> failed transition that fires each notice happens
+ * exactly once, so a swallowed write means the tenant silently never learns
+ * their connection broke. The connection sweep drains this counter after each
+ * run and folds it into the persisted outcome, so the loss is surfaced loudly
+ * on the admin dashboard instead of living only in a log line.
  */
 let failedSocialConnectionNoticeCount = 0;
 
 /**
- * Drain (return and reset) the count of tenant social-connection-failed
- * notices that failed to persist since the last drain. Called by the
+ * Drain (return and reset) the count of tenant connection-failed notices
+ * (social + ads) that failed to persist since the last drain. Called by the
  * connection sweep so lost tenant notices count toward the run's error tally.
  */
 export function takeFailedSocialConnectionNoticeCount(): number {
@@ -1838,13 +1838,16 @@ function adPlatformLabel(platform: string): string {
  * (token expired/revoked or the advertiser grant was removed), so the owner
  * can reconnect from the Ads page BEFORE a scheduled/approved change fails.
  * Deduped: while an unread alert for the same platform exists, re-checks that
- * are still broken stay silent. Never throws.
+ * are still broken stay silent. Never throws — but a failed write is tallied
+ * (see takeFailedSocialConnectionNoticeCount, shared with the social notice)
+ * so the sweep surfaces the lost notice instead of swallowing it as a log line.
  */
 export async function notifyAdsConnectionFailed(
   tenantId: number,
   platform: string,
   message?: string,
 ): Promise<void> {
+  let recorded = false;
   try {
     const existing = await db
       .select({ id: notificationsTable.id })
@@ -1879,6 +1882,7 @@ export async function notifyAdsConnectionFailed(
       linkUrl: "/ads",
       inApp: effective.inApp,
     });
+    recorded = true;
 
     await sendTenantPush(tenantId, ADS_CONNECTION_FAILED, {
       title: `${label} disconnected`,
@@ -1913,9 +1917,24 @@ export async function notifyAdsConnectionFailed(
       }
     }
   } catch (err) {
+    if (!recorded) {
+      // The breakage transition fires exactly once (the connection row is
+      // already flipped to failed), so a failure BEFORE the row landed means
+      // the tenant never learns their ads connection broke until an approved
+      // change fails. Tally it so the sweep folds the loss into its persisted
+      // error count instead of letting it vanish as a log line. Failures
+      // after the insert (push/email side channels are best-effort) do not
+      // count — the notice itself was saved.
+      failedSocialConnectionNoticeCount += 1;
+      logger.error(
+        { err, tenantId, platform },
+        "Failed to record ads connection notification; tenant will not see the breakage notice",
+      );
+      return;
+    }
     logger.error(
       { err, tenantId, platform },
-      "Failed to record ads connection notification",
+      "Ads connection notification saved, but a best-effort side channel (push/email) failed",
     );
   }
 }

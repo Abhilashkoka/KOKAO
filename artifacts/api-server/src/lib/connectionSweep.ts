@@ -379,9 +379,10 @@ export async function sweepDeadConnections(): Promise<SweepResult> {
   }
 
   // Tenant-facing breakage notices must never vanish silently: the
-  // verified -> failed transition fires notifySocialConnectionFailed exactly
-  // once, so a swallowed insert (schema drift, DB error) means the tenant
-  // never learns their connection died until a post fails. Drain the tally of
+  // verified -> failed transition fires notifySocialConnectionFailed (and its
+  // ads twin notifyAdsConnectionFailed) exactly once, so a swallowed insert
+  // (schema drift, DB error) means the tenant never learns their connection
+  // died until a post or approved ad change fails. Drain the shared tally of
   // failed notice writes (from this run AND any request-path reverify since
   // the last run) and fold it into the outcome, mirroring how failed
   // superadmin alert deliveries are surfaced in recordSweepRun.

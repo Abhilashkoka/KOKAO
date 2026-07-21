@@ -711,6 +711,53 @@ describe("sweepDeadConnections", () => {
       await deleteTenant(tenant.tenantId);
     }
   });
+
+  it("surfaces a failed ADS breakage-notice write in the sweep outcome instead of a clean success", async () => {
+    const { db, notificationsTable } = await import("@workspace/db");
+    const { notifyAdsConnectionFailed, takeFailedSocialConnectionNoticeCount } =
+      await import("./notifications");
+    // Drain any residue from earlier tests so this test's tally is its own.
+    takeFailedSocialConnectionNoticeCount();
+
+    const tenant = await createTenant();
+    // Simulate schema drift / DB errors on the notification write path only:
+    // any insert targeting notificationsTable throws, everything else stays
+    // real (the dedupe SELECT and settings lookups use db.select).
+    const realInsert = db.insert.bind(db);
+    const insertSpy = vi
+      .spyOn(db, "insert")
+      .mockImplementation(((table: unknown) => {
+        if (table === notificationsTable) {
+          throw new Error('column "push" does not exist');
+        }
+        return realInsert(table as never);
+      }) as typeof db.insert);
+    try {
+      // The connected -> failed transition in the ads reverifier fires this
+      // exactly once; a swallowed insert means the owner never learns their
+      // ad account grant died until an approved change fails.
+      await notifyAdsConnectionFailed(tenant.tenantId, "meta", "token revoked");
+
+      // The tenant notice never landed...
+      const notifs = (await getNotifications(tenant.tenantId)).filter(
+        (n) => n.type === "ads_connection_failed",
+      );
+      expect(notifs).toHaveLength(0);
+
+      // ...so the next sweep run must NOT look like a clean success: the
+      // lost ads notice drains through the same counter as social notices.
+      const outcome = await sweepDeadConnections();
+      expect(outcome.errorCount).toBeGreaterThanOrEqual(1);
+      expect(outcome.lastError).toContain("tenant connection-failure notice");
+
+      // The tally is drained by the sweep — the same loss is not re-reported.
+      expect(takeFailedSocialConnectionNoticeCount()).toBe(0);
+    } finally {
+      insertSpy.mockRestore();
+      takeFailedSocialConnectionNoticeCount();
+      await deleteTenant(tenant.tenantId);
+    }
+  });
 });
 
 describe("checkSweepStaleness", () => {
