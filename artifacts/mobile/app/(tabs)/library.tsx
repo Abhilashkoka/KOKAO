@@ -9,7 +9,11 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useListContent, type ContentItem } from "@workspace/api-client-react";
+import {
+  useListContent,
+  useListSchedules,
+  type ContentItem,
+} from "@workspace/api-client-react";
 
 import { Feather } from "@expo/vector-icons";
 
@@ -34,8 +38,15 @@ export default function LibraryScreen() {
   const router = useRouter();
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("all");
   const { data, isLoading, isError, error, refetch, isRefetching } = useListContent();
+  const { data: schedules } = useListSchedules();
 
   const items = (data ?? []).filter((i) => filter === "all" || i.status === filter);
+
+  const retryingScheduleIds = new Set(
+    (schedules ?? [])
+      .filter((s) => s.status === "pending" && (s.retryCount ?? 0) > 0)
+      .map((s) => s.contentItemId),
+  );
 
   const renderItem = ({ item }: { item: ContentItem }) => (
     <Pressable
@@ -62,6 +73,14 @@ export default function LibraryScreen() {
           <Badge label={item.status} tone={statusTone(item.status)} />
           <Text style={styles.rowPlatform}>{item.platform}</Text>
         </View>
+        {retryingScheduleIds.has(item.id) ? (
+          <View style={styles.retryRow}>
+            <Feather name="refresh-cw" size={12} color="#2563eb" />
+            <Text style={styles.retryPillText}>
+              Retrying after a temporary outage
+            </Text>
+          </View>
+        ) : null}
         {hasPendingPieces(item) ? (
           <View style={styles.pendingRow}>
             <Feather name="alert-circle" size={12} color={PENDING_TEXT} />
@@ -160,4 +179,18 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   pendingText: { fontFamily: fonts.medium, fontSize: 11, color: PENDING_TEXT },
+  retryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 6,
+    alignSelf: "flex-start",
+    backgroundColor: "#eff6ff",
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  retryPillText: { fontFamily: fonts.medium, fontSize: 11, color: "#2563eb" },
 });

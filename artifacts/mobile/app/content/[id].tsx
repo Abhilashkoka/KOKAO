@@ -814,6 +814,18 @@ export default function ContentDetailScreen() {
               })} on ${existingSchedule.platform}.`}
             </Text>
           </View>
+          {(existingSchedule.retryCount ?? 0) > 0 ? (
+            <View style={styles.retryRow}>
+              <Feather name="refresh-cw" size={14} color="#2563eb" />
+              <Text style={styles.retryText}>
+                {`Retrying after a temporary outage. The last attempt hit a temporary outage${
+                  existingSchedule.failureReason
+                    ? ` (${existingSchedule.failureReason})`
+                    : ""
+                }. We'll automatically try again at the new time.`}
+              </Text>
+            </View>
+          ) : null}
           <Button
             title="Cancel schedule"
             icon="x"
@@ -1212,6 +1224,24 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+  },
+  retryRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: 8,
+    backgroundColor: "#eff6ff",
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    borderRadius: colors.radius,
+    padding: 8,
+  },
+  retryText: {
+    flex: 1,
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: "#2563eb",
+    lineHeight: 17,
   },
   scheduleText: {
     flex: 1,
