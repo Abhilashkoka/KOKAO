@@ -1494,6 +1494,125 @@ describe("ad set and ad drafts", () => {
     }
   });
 
+  it("rejects a non-positive bid amount at draft creation", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      actAs(tenant.clerkUserId);
+      for (const bidAmount of [0, -100]) {
+        const res = await request(app).post("/api/ads/drafts").send({
+          connectionId,
+          targetType: "adset",
+          action: "update",
+          targetId: "adset_1",
+          bidStrategy: "COST_CAP",
+          bidAmount,
+        });
+        expect(res.status).toBe(400);
+        // Zod (spec minimum: 1) rejects standard bodies; the route's explicit
+        // positive-amount check backs it up for any bypassing payload.
+        expect(JSON.stringify(res.body)).toContain("bidAmount");
+      }
+      expect(mockRead).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("blocks approval of a capped-bid draft whose payload is missing the amount", async () => {
+    // The route rejects these at draft creation; this seeds a malformed draft
+    // directly to prove the engine's apply-time guard blocks it before Meta.
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      const before = {
+        name: "Retargeting",
+        status: "ACTIVE",
+        dailyBudget: 2000,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+        bidAmount: null,
+        bidStrategy: "LOWEST_COST_WITHOUT_CAP",
+      };
+      const [draft] = await db
+        .insert(adChangeRequestsTable)
+        .values({
+          tenantId: tenant.tenantId,
+          connectionId,
+          platform: "meta",
+          targetType: "adset",
+          targetId: "adset_1",
+          targetName: "Retargeting",
+          action: "update",
+          changes: [],
+          payload: { bidStrategy: "COST_CAP" },
+          beforeSnapshot: before,
+          status: "draft",
+          idempotencyKey: randomUUID(),
+          createdByClerkUserId: tenant.clerkUserId,
+        })
+        .returning({ id: adChangeRequestsTable.id });
+      mockRead.mockResolvedValue(before);
+      actAs(tenant.clerkUserId);
+      const applied = await request(app).post(
+        `/api/ads/drafts/${draft!.id}/approve`,
+      );
+      expect(applied.status).toBe(200);
+      expect(applied.body.status).toBe("failed");
+      expect(applied.body.failureReason).toContain("requires a bid amount");
+      expect(mockUpdate).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("blocks approval of a no-cap draft whose payload carries a bid amount", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      const before = {
+        name: "Retargeting",
+        status: "ACTIVE",
+        dailyBudget: 2000,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+        bidAmount: 100,
+        bidStrategy: "COST_CAP",
+      };
+      const [draft] = await db
+        .insert(adChangeRequestsTable)
+        .values({
+          tenantId: tenant.tenantId,
+          connectionId,
+          platform: "meta",
+          targetType: "adset",
+          targetId: "adset_1",
+          targetName: "Retargeting",
+          action: "update",
+          changes: [],
+          payload: { bidStrategy: "LOWEST_COST_WITHOUT_CAP", bidAmount: 300 },
+          beforeSnapshot: before,
+          status: "draft",
+          idempotencyKey: randomUUID(),
+          createdByClerkUserId: tenant.clerkUserId,
+        })
+        .returning({ id: adChangeRequestsTable.id });
+      mockRead.mockResolvedValue(before);
+      actAs(tenant.clerkUserId);
+      const applied = await request(app).post(
+        `/api/ads/drafts/${draft!.id}/approve`,
+      );
+      expect(applied.status).toBe(200);
+      expect(applied.body.status).toBe("failed");
+      expect(applied.body.failureReason).toContain("does not take a bid amount");
+      expect(mockUpdate).not.toHaveBeenCalled();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("still rejects schedule fields on a non-Meta ad set draft", async () => {
     const tenant = await createTenant();
     try {

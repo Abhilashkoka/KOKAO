@@ -260,6 +260,40 @@ interface UpdateParams {
 }
 
 /**
+ * Defense in depth: the route validates bid consistency at draft creation,
+ * but approval is the last gate before the platform write — a malformed
+ * payload (from any client or a stale draft) must never reach Meta.
+ */
+function assertBidConsistency(params: UpdateParams): void {
+  if (params.bidAmount == null && params.bidStrategy == null) return;
+  if (
+    params.bidAmount != null &&
+    (!Number.isFinite(params.bidAmount) || params.bidAmount <= 0)
+  ) {
+    throw new MetaAdsApiError(
+      "The bid amount must be a positive number of minor currency units.",
+      400,
+    );
+  }
+  if (params.bidStrategy === "LOWEST_COST_WITHOUT_CAP" && params.bidAmount != null) {
+    throw new MetaAdsApiError(
+      "LOWEST_COST_WITHOUT_CAP does not take a bid amount — remove the bid amount or pick a cap strategy.",
+      400,
+    );
+  }
+  if (
+    (params.bidStrategy === "LOWEST_COST_WITH_BID_CAP" ||
+      params.bidStrategy === "COST_CAP") &&
+    params.bidAmount == null
+  ) {
+    throw new MetaAdsApiError(
+      `${params.bidStrategy} requires a bid amount in minor currency units.`,
+      400,
+    );
+  }
+}
+
+/**
  * Defense in depth: bid tuning is a Meta ad-set knob only. The route rejects
  * bid fields elsewhere; this guards the engine's other adapter paths.
  */
@@ -325,6 +359,7 @@ const metaOps: PlatformOps = {
     readObjectState(metaToken(conn), targetId, asTargetType(targetType)),
   update: (conn, targetId, params) => {
     const targetType = asTargetType(params.targetType ?? "campaign");
+    assertBidConsistency(params);
     // Meta ads can be archived; campaigns and ad sets stay ACTIVE/PAUSED only.
     const status = targetType === "ad" ? params.status : nonArchivedStatus(params);
     return updateObject(metaToken(conn), targetId, { ...params, status, targetType });

@@ -2474,6 +2474,15 @@ router.post(
         });
         return;
       }
+      if (
+        input.bidAmount != null &&
+        (!Number.isFinite(input.bidAmount) || input.bidAmount <= 0)
+      ) {
+        res.status(400).json({
+          error: "The bid amount must be a positive number of minor currency units.",
+        });
+        return;
+      }
       if (input.bidStrategy === "LOWEST_COST_WITHOUT_CAP" && input.bidAmount != null) {
         res.status(400).json({
           error:
