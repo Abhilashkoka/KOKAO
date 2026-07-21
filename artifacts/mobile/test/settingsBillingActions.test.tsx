@@ -198,6 +198,7 @@ describe("Mobile Plan & Billing purchase actions", () => {
     renderScreen();
 
     expect(screen.queryByText("Upgrade plan")).toBeNull();
+    expect(screen.queryByText("Buy")).toBeNull();
     expect(
       screen.getByText("Only the workspace owner can buy credits or change the plan."),
     ).toBeTruthy();

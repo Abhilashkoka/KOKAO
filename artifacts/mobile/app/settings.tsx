@@ -422,18 +422,20 @@ export default function SettingsScreen() {
                       {formatInr(pack.pricePaise)}
                     </Text>
                   </View>
-                  <TouchableOpacity
-                    style={[
-                      styles.buyButton,
-                      (!canPurchase || packBusy || verifying) && styles.buttonDisabled,
-                    ]}
-                    disabled={!canPurchase || packBusy || verifying}
-                    onPress={() => startBuyPack(pack.id, pack.name)}
-                  >
-                    <Text style={styles.buyButtonText}>
-                      {packBusy ? "Opening..." : "Buy"}
-                    </Text>
-                  </TouchableOpacity>
+                  {isOwner ? (
+                    <TouchableOpacity
+                      style={[
+                        styles.buyButton,
+                        (!canPurchase || packBusy || verifying) && styles.buttonDisabled,
+                      ]}
+                      disabled={!canPurchase || packBusy || verifying}
+                      onPress={() => startBuyPack(pack.id, pack.name)}
+                    >
+                      <Text style={styles.buyButtonText}>
+                        {packBusy ? "Opening..." : "Buy"}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               );
             })}
