@@ -45,10 +45,24 @@ export function AdminPage() {
     );
   };
 
+  // Fail closed: until /me resolves we don't know the caller's role, so
+  // never render the admin shell (the server 403s the data anyway).
+  const meResolved = Boolean(me);
   // Deny on the cached hint OR when the admin-guard store flags a live 403 —
   // any admin query from any tab that returns 403 flips the store via the
   // global query/mutation cache handlers, denying the whole page.
-  const accessDenied = adminAccessRevoked || (me && !me.isSuperadmin);
+  const accessDenied = adminAccessRevoked || (meResolved && !me?.isSuperadmin);
+
+  if (!accessDenied && !meResolved) {
+    return (
+      <div
+        className="flex items-center justify-center py-24"
+        data-testid="admin-loading"
+      >
+        <div className="animate-pulse text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
 
   if (accessDenied) {
     return (

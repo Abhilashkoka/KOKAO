@@ -253,7 +253,10 @@ export function HealthPage() {
 
   const role = me?.team?.role;
   const isWorkspaceAdmin = !me?.team || role === "owner" || role === "admin";
-  const accessDenied = me && !me.isSuperadmin && !isWorkspaceAdmin;
+  // Fail closed: until /me resolves we don't know the caller's role, so
+  // never render the health shell (the server enforces access anyway).
+  const meResolved = Boolean(me);
+  const accessDenied = meResolved && !me?.isSuperadmin && !isWorkspaceAdmin;
 
   const { data, isLoading } = useGetHealthReport({
     query: { queryKey: getGetHealthReportQueryKey(), enabled: !accessDenied },
@@ -274,6 +277,17 @@ export function HealthPage() {
       },
     },
   });
+
+  if (!meResolved) {
+    return (
+      <div
+        className="flex items-center justify-center py-24"
+        data-testid="health-loading"
+      >
+        <div className="animate-pulse text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
 
   if (accessDenied) {
     return (

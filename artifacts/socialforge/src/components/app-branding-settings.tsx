@@ -135,7 +135,20 @@ export function AppBrandingSettings() {
     }
   }, [brand]);
 
-  if (me && !me.isSuperadmin) {
+  // Fail closed: until /me resolves we don't know the caller's role, so
+  // never render the branding editor shell.
+  if (!me) {
+    return (
+      <div
+        className="flex items-center justify-center py-24"
+        data-testid="app-branding-loading"
+      >
+        <div className="animate-pulse text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!me.isSuperadmin) {
     return (
       <div className="max-w-md mx-auto mt-20 text-center">
         <ShieldAlert className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
