@@ -71,11 +71,17 @@ import {
 
 const schema = z.object({
   prompt: z.string().min(3, "Prompt must be at least 3 characters"),
-  platform: z.string().optional(),
   brandKitId: z.coerce.number().optional().or(z.literal(0)),
   tone: z.string().optional(),
-  size: z.enum(["1024x1024", "1536x1024", "1024x1536"]).optional(),
 });
+
+// Per-platform default image size: Instagram favors square; the rest landscape.
+const PLATFORM_IMAGE_SIZE: Record<string, "1024x1024" | "1536x1024" | "1024x1536"> = {
+  instagram: "1024x1024",
+  facebook: "1536x1024",
+  linkedin: "1536x1024",
+  twitter: "1536x1024",
+};
 
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
@@ -326,7 +332,7 @@ export function StudioPage() {
       caption: caption?.caption || undefined,
       imagePath: image?.imagePath || undefined,
       imagePrompt: image ? values.prompt : undefined,
-      platform: values.platform,
+      platform: activePlatform,
       status: "draft" as const,
       brandKitId: values.brandKitId || undefined,
     };
@@ -385,11 +391,14 @@ export function StudioPage() {
     resolver: zodResolver(schema),
     defaultValues: {
       prompt: "",
-      platform: "instagram",
       tone: "professional",
-      size: "1024x1024",
     },
   });
+
+  // Platform now comes from the Campaign platforms selection (first pick wins);
+  // falls back to Instagram when nothing is selected. Image size follows it.
+  const activePlatform = campaignPlatforms[0] ?? "instagram";
+  const activeImageSize = PLATFORM_IMAGE_SIZE[activePlatform] ?? "1024x1024";
 
   const handleError = (error: any) => {
     if (error?.status === 402 || error?.response?.status === 402) {
@@ -477,7 +486,7 @@ export function StudioPage() {
       {
         data: {
           prompt: `${data.prompt.trim()}${tweakInstruction}`,
-          platform: data.platform,
+          platform: activePlatform,
           brandKitId: data.brandKitId || undefined,
           tone: data.tone,
         },
@@ -497,7 +506,7 @@ export function StudioPage() {
           }
           setBriefQuestions(null);
           setCaptionResult(res);
-          setCaptionPlatform(data.platform ?? null);
+          setCaptionPlatform(activePlatform);
           refreshQuota();
           upsertDraft(res, imageResult);
           track("caption_generated", { category: "content", outcome: "success" });
@@ -529,7 +538,7 @@ export function StudioPage() {
       {
         data: {
           prompt: `${data.prompt.trim()}${tweakInstruction}`,
-          size: data.size as any,
+          size: activeImageSize,
           brandKitId: data.brandKitId || undefined,
           referenceImagePath:
             flags.referenceImages && referenceImagePath ? referenceImagePath : undefined,
@@ -1194,29 +1203,6 @@ export function StudioPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <FormField
                       control={form.control}
-                      name="platform"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Platform</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Platform" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="instagram">Instagram</SelectItem>
-                              <SelectItem value="twitter">Twitter / X</SelectItem>
-                              <SelectItem value="linkedin">LinkedIn</SelectItem>
-                              <SelectItem value="facebook">Facebook</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
                       name="tone"
                       render={({ field }) => (
                         <FormItem>
@@ -1238,9 +1224,6 @@ export function StudioPage() {
                         </FormItem>
                       )}
                     />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
                     <FormField
                       control={form.control}
                       name="brandKitId"
@@ -1266,28 +1249,6 @@ export function StudioPage() {
                                   </span>
                                 </SelectItem>
                               ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="size"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Image Size</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Size" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="1024x1024">Square (1:1)</SelectItem>
-                              <SelectItem value="1536x1024">Landscape (3:2)</SelectItem>
-                              <SelectItem value="1024x1536">Portrait (2:3)</SelectItem>
                             </SelectContent>
                           </Select>
                           <FormMessage />

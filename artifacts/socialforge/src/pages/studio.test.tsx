@@ -150,9 +150,12 @@ async function generateCaption(caption: string, platform: "twitter" | "instagram
     target: { value: "A prompt long enough to pass validation" },
   });
   if (platform === "twitter") {
+    // Platform now derives from the Campaign platforms selection (first pick
+    // wins), so leave only Twitter toggled on.
     const user = userEvent.setup();
-    await user.click(screen.getByRole("combobox", { name: /platform/i }));
-    await user.click(await screen.findByRole("option", { name: /twitter \/ x/i }));
+    await user.click(screen.getByTestId("toggle-campaign-instagram"));
+    await user.click(screen.getByTestId("toggle-campaign-facebook"));
+    await user.click(screen.getByTestId("toggle-campaign-linkedin"));
   }
   fireEvent.click(screen.getByTestId("button-generate-caption"));
   // react-hook-form submit resolution is async.
