@@ -8920,6 +8920,11 @@ components:
         reviewStatus:
           type: ["string", "null"]
           description: LinkedIn only — the creative's review status (e.g. PENDING, APPROVED, REJECTED).
+        rejectionReasons:
+          type: array
+          items:
+            type: string
+          description: LinkedIn only — rejection reason codes from the creative review, when the creative was rejected.
         metrics:
           $ref: "#/components/schemas/AdsMetrics"
     AdsCampaignDetail:

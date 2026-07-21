@@ -250,7 +250,12 @@ const server = http.createServer(async (req, res) => {
   const creativeShape = (c) => ({
     id: `urn:li:sponsoredCreative:${c.id}`,
     intendedStatus: c.intendedStatus,
-    review: { status: c.reviewStatus ?? "APPROVED" },
+    review: {
+      status: c.reviewStatus ?? "APPROVED",
+      ...(Array.isArray(c.rejectionReasons) && c.rejectionReasons.length
+        ? { rejectionReasons: c.rejectionReasons }
+        : {}),
+    },
     campaign: c.campaign,
     content: c.content,
   });

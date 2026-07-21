@@ -6311,6 +6311,7 @@ export const GetAdCampaignDetailResponse = zod.object({
   "text": zod.string().nullish().describe('Ad copy resolved from the creative\'s backing post, when available.'),
   "imageUrl": zod.string().nullish().describe('Thumbnail URL of the creative\'s image, when available.'),
   "reviewStatus": zod.string().nullish().describe('LinkedIn only — the creative\'s review status (e.g. PENDING, APPROVED, REJECTED).'),
+  "rejectionReasons": zod.array(zod.string()).optional().describe('LinkedIn only — rejection reason codes from the creative review, when the creative was rejected.'),
   "metrics": zod.object({
   "impressions": zod.number(),
   "clicks": zod.number(),

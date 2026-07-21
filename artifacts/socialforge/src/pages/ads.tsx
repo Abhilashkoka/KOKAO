@@ -361,14 +361,32 @@ function linkedinReviewBlocksStatusChange(reviewStatus: string | null | undefine
   return reviewStatus.toUpperCase() !== "APPROVED";
 }
 
-function reviewStatusBadge(reviewStatus: string | null | undefined, adId: string) {
+// LinkedIn rejection reasons arrive as enum codes (e.g. EXCESSIVE_CAPITALIZATION);
+// turn them into readable sentence-case labels.
+function formatRejectionReason(code: string) {
+  const cleaned = code.replace(/[_-]+/g, " ").trim().toLowerCase();
+  return cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) : code;
+}
+
+function reviewStatusBadge(
+  reviewStatus: string | null | undefined,
+  adId: string,
+  rejectionReasons?: string[] | null,
+) {
   if (!reviewStatus) return null;
   const s = reviewStatus.toUpperCase();
   if (s === "APPROVED") return null;
-  return (
+  const reasons =
+    s === "REJECTED" && rejectionReasons?.length ? rejectionReasons : [];
+  const badge = (
     <Badge
       variant={s === "REJECTED" ? "destructive" : "outline"}
       data-testid={`badge-review-${adId}`}
+      title={
+        reasons.length
+          ? `Rejected by LinkedIn: ${reasons.map(formatRejectionReason).join("; ")}`
+          : undefined
+      }
     >
       {s === "PENDING"
         ? "In review"
@@ -376,6 +394,18 @@ function reviewStatusBadge(reviewStatus: string | null | undefined, adId: string
           ? "Rejected"
           : `Review: ${reviewStatus}`}
     </Badge>
+  );
+  if (!reasons.length) return badge;
+  return (
+    <div className="flex flex-col items-start gap-0.5">
+      {badge}
+      <span
+        className="text-xs text-destructive"
+        data-testid={`text-rejection-reasons-${adId}`}
+      >
+        {reasons.map(formatRejectionReason).join("; ")}
+      </span>
+    </div>
   );
 }
 
@@ -2161,7 +2191,7 @@ export function CampaignDetailDialog({
                         <TableCell>
                           <div className="flex flex-wrap items-center gap-1">
                             {statusBadge(a.effectiveStatus)}
-                            {isLinkedin && reviewStatusBadge(a.reviewStatus, a.id)}
+                            {isLinkedin && reviewStatusBadge(a.reviewStatus, a.id, a.rejectionReasons)}
                           </div>
                         </TableCell>
                         <TableCell className="text-right">

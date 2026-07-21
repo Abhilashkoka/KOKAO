@@ -29,5 +29,7 @@ export interface AdsAd {
      * @nullable
      */
   reviewStatus?: string | null;
+  /** LinkedIn only — rejection reason codes from the creative review, when the creative was rejected. */
+  rejectionReasons?: string[];
   metrics: AdsMetrics;
 }

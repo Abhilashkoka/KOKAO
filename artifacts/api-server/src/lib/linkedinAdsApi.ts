@@ -1015,7 +1015,7 @@ interface RawCreative {
   id?: string;
   intendedStatus?: string;
   isServing?: boolean;
-  review?: { status?: string };
+  review?: { status?: string; rejectionReasons?: unknown[] };
   campaign?: string;
   content?: { reference?: string };
 }
@@ -1024,6 +1024,7 @@ export interface LinkedinCreative {
   id: string;
   status: string;
   reviewStatus: string | null;
+  rejectionReasons: string[];
   campaignId: string | null;
   postUrn: string | null;
 }
@@ -1033,6 +1034,10 @@ function mapCreative(c: RawCreative): LinkedinCreative {
     id: idFromUrn(c.id) ?? (c.id != null ? String(c.id) : ""),
     status: c.intendedStatus ?? "UNKNOWN",
     reviewStatus: c.review?.status ?? null,
+    rejectionReasons: Array.isArray(c.review?.rejectionReasons)
+      ? c.review.rejectionReasons
+          .filter((r): r is string => typeof r === "string" && r.length > 0)
+      : [],
     campaignId: idFromUrn(c.campaign),
     postUrn: c.content?.reference ?? null,
   };

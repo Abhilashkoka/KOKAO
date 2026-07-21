@@ -1789,6 +1789,7 @@ router.get("/ads/campaign-detail", async (req: Request, res: Response) => {
             status: c.status,
             effectiveStatus: c.status,
             reviewStatus: c.reviewStatus,
+            rejectionReasons: c.rejectionReasons,
             adSetId: null,
             text: preview?.text ?? null,
             imageUrl: preview?.imageUrl ?? null,

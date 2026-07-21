@@ -1458,12 +1458,21 @@ describe("LinkedIn creative drafts", () => {
           id: "urn:li:sponsoredCreative:777",
           status: "PAUSED",
           reviewStatus: "PENDING",
+          rejectionReasons: [],
           postUrn: "urn:li:ugcPost:111",
         } as never,
         {
           id: "urn:li:sponsoredCreative:888",
           status: "ACTIVE",
           reviewStatus: null,
+          rejectionReasons: [],
+          postUrn: null,
+        } as never,
+        {
+          id: "urn:li:sponsoredCreative:999",
+          status: "PAUSED",
+          reviewStatus: "REJECTED",
+          rejectionReasons: ["EXCESSIVE_CAPITALIZATION", "PROHIBITED_CONTENT"],
           postUrn: null,
         } as never,
       ]);
@@ -1476,11 +1485,17 @@ describe("LinkedIn creative drafts", () => {
         .get("/api/ads/campaign-detail")
         .query({ connectionId, campaignId: "cmp_1" });
       expect(res.status).toBe(200);
-      expect(res.body.ads).toHaveLength(2);
+      expect(res.body.ads).toHaveLength(3);
       expect(res.body.ads[0].id).toBe("urn:li:sponsoredCreative:777");
       expect(res.body.ads[0].status).toBe("PAUSED");
       expect(res.body.ads[0].reviewStatus).toBe("PENDING");
+      expect(res.body.ads[0].rejectionReasons).toEqual([]);
       expect(res.body.ads[1].reviewStatus).toBeNull();
+      expect(res.body.ads[2].reviewStatus).toBe("REJECTED");
+      expect(res.body.ads[2].rejectionReasons).toEqual([
+        "EXCESSIVE_CAPITALIZATION",
+        "PROHIBITED_CONTENT",
+      ]);
       expect(res.body.ads[0].text).toBe("Fresh roasted beans, delivered.");
       expect(res.body.ads[0].imageUrl).toBe("https://media.licdn.example/img.jpg");
       // Creative without a resolvable post falls back to nulls.
