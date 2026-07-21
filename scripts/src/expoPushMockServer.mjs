@@ -64,7 +64,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && url.startsWith("/--/api/v2/push/send")) {
     const body = await readBody(req);
     const messages = Array.isArray(body) ? body : [body];
-    record({ endpoint: "send", count: messages.length });
+    record({ endpoint: "send", count: messages.length, messages });
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(
       JSON.stringify({
