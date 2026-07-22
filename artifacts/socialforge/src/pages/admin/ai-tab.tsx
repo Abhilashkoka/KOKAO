@@ -18,6 +18,8 @@ import {
   useAdminUpdateVideoGenSettings,
   useAdminSetVideoGenProviderKey,
   useAdminClearVideoGenProviderKey,
+  useAdminSetStockSourceKey,
+  useAdminClearStockSourceKey,
   getAdminGetVideoGenSettingsQueryKey,
   useAdminGetTextGenSettings,
   useAdminUpdateTextGenSettings,
@@ -587,6 +589,166 @@ function ImageGenProviderCard() {
 const VIDEO_GEN_KEY_PAGES: Record<string, string> = {
   replicate: "https://replicate.com/account/api-tokens",
 };
+
+const STOCK_SOURCE_KEY_PAGES: Record<string, string> = {
+  pexels: "https://www.pexels.com/api/",
+  pixabay: "https://pixabay.com/api/docs/",
+};
+
+function StockSourcesCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: settings, isLoading } = useAdminGetVideoGenSettings();
+  const setKey = useAdminSetStockSourceKey();
+  const clearKey = useAdminClearStockSourceKey();
+  const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: getAdminGetVideoGenSettingsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getAdminListAuditLogsQueryKey() });
+  };
+
+  const handleSaveKey = (sourceId: string) => {
+    const apiKey = (keyInputs[sourceId] ?? "").trim();
+    if (!apiKey) return;
+    setKey.mutate(
+      { sourceId, data: { apiKey } },
+      {
+        onSuccess: () => {
+          invalidate();
+          setKeyInputs((prev) => ({ ...prev, [sourceId]: "" }));
+          toast({
+            title: "API key saved",
+            description: "The key is stored encrypted and is now in use.",
+          });
+        },
+        onError: () => {
+          toast({
+            title: "Save failed",
+            description: "Could not save the API key.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handleClearKey = (sourceId: string) => {
+    clearKey.mutate(
+      { sourceId },
+      {
+        onSuccess: () => {
+          invalidate();
+          toast({ title: "API key removed", description: "The saved key was deleted." });
+        },
+        onError: () => {
+          toast({
+            title: "Remove failed",
+            description: "Could not remove the API key.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card data-testid="card-stock-sources">
+      <CardHeader>
+        <CardTitle>Stock Footage Sources</CardTitle>
+        <CardDescription>
+          API keys for the stock video libraries used by the Topic to Video
+          engine. Free keys are available from both providers; configuring
+          either one is enough (Pexels is preferred when both are set).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading || !settings ? (
+          <Skeleton className="h-9 w-64" />
+        ) : (
+          settings.stockSources.map((source) => (
+            <div key={source.id} className="space-y-2 rounded-md border p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium">{source.label}</p>
+                  {source.configured ? (
+                    <Badge variant="secondary">Ready</Badge>
+                  ) : (
+                    <Badge variant="destructive">Needs key</Badge>
+                  )}
+                </div>
+                {STOCK_SOURCE_KEY_PAGES[source.id] && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    asChild
+                    data-testid={`button-get-stock-key-${source.id}`}
+                  >
+                    <a
+                      href={STOCK_SOURCE_KEY_PAGES[source.id]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Get a {source.label} key
+                      <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+                    </a>
+                  </Button>
+                )}
+              </div>
+              {source.keySource === "database" ? (
+                <div className="flex items-center gap-3">
+                  <p className="text-sm text-muted-foreground">
+                    A key is saved (stored encrypted, never shown). Enter a new
+                    one below to replace it.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleClearKey(source.id)}
+                    disabled={clearKey.isPending}
+                    data-testid={`button-remove-stock-key-${source.id}`}
+                  >
+                    Remove key
+                  </Button>
+                </div>
+              ) : source.keySource === "env" ? (
+                <p className="text-sm text-muted-foreground">
+                  Currently using the {source.envKey} secret. A key entered here
+                  takes priority over it.
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No key set. Paste the provider's API key to enable it.
+                </p>
+              )}
+              <div className="flex items-center gap-2">
+                <Input
+                  type="password"
+                  autoComplete="off"
+                  placeholder="Paste API key"
+                  value={keyInputs[source.id] ?? ""}
+                  onChange={(e) =>
+                    setKeyInputs((prev) => ({ ...prev, [source.id]: e.target.value }))
+                  }
+                  className="w-72"
+                  data-testid={`input-stock-key-${source.id}`}
+                />
+                <Button
+                  size="sm"
+                  onClick={() => handleSaveKey(source.id)}
+                  disabled={setKey.isPending || !(keyInputs[source.id] ?? "").trim()}
+                  data-testid={`button-save-stock-key-${source.id}`}
+                >
+                  {setKey.isPending ? "Saving..." : "Save key"}
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function VideoGenProviderCard() {
   const { toast } = useToast();
@@ -1976,6 +2138,7 @@ export function AiTab() {
       <TextGenProviderCard />
       <ImageGenProviderCard />
       <VideoGenProviderCard />
+      <StockSourcesCard />
       <AsrProviderCard />
     </div>
   );
