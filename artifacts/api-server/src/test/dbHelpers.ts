@@ -104,7 +104,8 @@ export async function getAuditLogsForActor(actorTenantId: number) {
   return db
     .select()
     .from(adminAuditLogsTable)
-    .where(eq(adminAuditLogsTable.actorTenantId, actorTenantId));
+    .where(eq(adminAuditLogsTable.actorTenantId, actorTenantId))
+    .orderBy(adminAuditLogsTable.id);
 }
 
 export async function getNotifications(tenantId: number) {
