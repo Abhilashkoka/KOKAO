@@ -56,6 +56,7 @@ const mockState: {
   me: any;
   campaignError: any;
   aiSpendRates: any;
+  featureFlags: any;
   connections: {
     facebook: any;
     instagram: any;
@@ -70,6 +71,7 @@ const mockState: {
   me: defaultMe(),
   campaignError: null,
   aiSpendRates: undefined,
+  featureFlags: undefined,
   connections: defaultConnections(),
 };
 
@@ -83,6 +85,7 @@ function defaultConnections() {
 }
 
 const toastSpy = vi.fn();
+const requestUpgradeSpy = vi.fn();
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: toastSpy }),
 }));
@@ -129,7 +132,12 @@ vi.mock("@workspace/api-client-react", async () => {
       },
     }),
     useGetMe: () => ({ data: mockState.me }),
+    useBillingRequestUpgrade: () => ({
+      isPending: false,
+      mutate: requestUpgradeSpy,
+    }),
     useGetAiSpendRates: () => ({ data: mockState.aiSpendRates, isLoading: false }),
+    useListFeatureFlags: () => ({ data: mockState.featureFlags, isLoading: false }),
     useListBrandKits: () => ({ data: [] }),
     useGetFacebookCredentials: () => ({ data: mockState.connections.facebook, isLoading: false }),
     useGetInstagramCredentials: () => ({ data: mockState.connections.instagram, isLoading: false }),
@@ -177,8 +185,10 @@ beforeEach(() => {
   mockState.me = defaultMe();
   mockState.campaignError = null;
   mockState.aiSpendRates = undefined;
+  mockState.featureFlags = undefined;
   mockState.connections = defaultConnections();
   toastSpy.mockClear();
+  requestUpgradeSpy.mockClear();
   localStorage.clear();
   cleanup();
 });
@@ -580,6 +590,52 @@ describe("Studio campaign out-of-quota (402) error handling", () => {
     await waitFor(() => expect(toastSpy).toHaveBeenCalled());
     const toastArg = toastSpy.mock.calls[0][0];
     expect(toastArg.title).toBe("Error");
+  });
+});
+
+describe("Studio 402 member upgrade-request nudge", () => {
+  const trigger402 = async () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Prompt"), {
+      target: { value: "A campaign prompt long enough to pass validation" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-campaign"));
+    await waitFor(() => expect(toastSpy).toHaveBeenCalled());
+    return toastSpy.mock.calls[0][0];
+  };
+
+  it("offers 'Ask the owner for an upgrade' to a non-owner member", async () => {
+    mockState.campaignError = { status: 402, message: "Quota exhausted" };
+    mockState.me = { ...defaultMe(), team: { role: "member" } };
+    const toastArg = await trigger402();
+    expect(toastArg.title).toBe("Quota Reached");
+    expect(toastArg.action).toBeTruthy();
+    // Clicking the action fires the request-upgrade mutation.
+    toastArg.action.props.onClick();
+    expect(requestUpgradeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not offer the request action to the workspace owner", async () => {
+    mockState.campaignError = { status: 402, message: "Quota exhausted" };
+    mockState.me = { ...defaultMe(), team: { role: "owner" } };
+    const toastArg = await trigger402();
+    expect(toastArg.title).toBe("Quota Reached");
+    expect(toastArg.action).toBeUndefined();
+  });
+
+  it("does not offer the request action when the upgradeRequests switch is off", async () => {
+    mockState.campaignError = { status: 402, message: "Quota exhausted" };
+    mockState.me = { ...defaultMe(), team: { role: "member" } };
+    mockState.featureFlags = { upgradeRequests: false };
+    const toastArg = await trigger402();
+    expect(toastArg.title).toBe("Quota Reached");
+    expect(toastArg.action).toBeUndefined();
+  });
+
+  it("does not offer the request action when there is no team context", async () => {
+    mockState.campaignError = { status: 402, message: "Quota exhausted" };
+    const toastArg = await trigger402();
+    expect(toastArg.action).toBeUndefined();
   });
 });
 

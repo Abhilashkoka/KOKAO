@@ -13,14 +13,17 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  useBillingRequestUpgrade,
   useCreateContent,
   useGenerateCaption,
   useGenerateImage,
   useGetMe,
   useListBrandKits,
   useListContent,
+  useListFeatureFlags,
   useSuggestTopics,
   useUpdateContent,
+  getListFeatureFlagsQueryKey,
   getListContentQueryKey,
   getGetContentQueryKey,
   getGetMeQueryKey,
@@ -172,6 +175,13 @@ export default function StudioScreen() {
 
   const brandKits = useListBrandKits();
   const meQuery = useGetMe();
+  const requestUpgrade = useBillingRequestUpgrade();
+  const featureFlags = useListFeatureFlags({
+    query: { queryKey: getListFeatureFlagsQueryKey(), staleTime: 60_000 },
+  });
+  const upgradeRequestsEnabled = featureFlags.data?.upgradeRequests ?? true;
+  const isOwner = meQuery.data?.team ? meQuery.data.team.role === "owner" : true;
+  const [upgradeNotice, setUpgradeNotice] = useState<string | null>(null);
   const genCaption = useGenerateCaption();
   const genImage = useGenerateImage();
   const suggest = useSuggestTopics();
@@ -196,6 +206,7 @@ export default function StudioScreen() {
 
   const setFailure = (err: unknown) => {
     setError(errorMessage(err));
+    setUpgradeNotice(null);
     const isQuota = isQuotaError(err);
     setQuotaHit(isQuota);
     if (isQuota) {
@@ -595,7 +606,48 @@ export default function StudioScreen() {
 
         {error ? (
           quotaHit ? (
-            <QuotaErrorNotice message={error} onPress={() => setQuotaSheetOpen(true)} />
+            <>
+              <QuotaErrorNotice message={error} onPress={() => setQuotaSheetOpen(true)} />
+              {!isOwner && upgradeRequestsEnabled ? (
+                <View style={styles.upgradeRequestBox}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Ask the owner for an upgrade"
+                    disabled={requestUpgrade.isPending}
+                    onPress={() => {
+                      setUpgradeNotice(null);
+                      requestUpgrade.mutate(undefined, {
+                        onSuccess: () =>
+                          setUpgradeNotice(
+                            "Request sent. The workspace owner has been notified that you'd like an upgrade.",
+                          ),
+                        onError: (err) =>
+                          setUpgradeNotice(
+                            errorMessage(err) ||
+                              "Could not send the request. Please try again.",
+                          ),
+                      });
+                    }}
+                    style={({ pressed }) => [
+                      styles.upgradeRequestButton,
+                      {
+                        opacity:
+                          pressed || requestUpgrade.isPending ? 0.7 : 1,
+                      },
+                    ]}
+                  >
+                    <Text style={styles.upgradeRequestButtonText}>
+                      {requestUpgrade.isPending
+                        ? "Sending..."
+                        : "Ask the owner for an upgrade"}
+                    </Text>
+                  </Pressable>
+                  {upgradeNotice ? (
+                    <Text style={styles.upgradeRequestNotice}>{upgradeNotice}</Text>
+                  ) : null}
+                </View>
+              ) : null}
+            </>
           ) : (
             <View style={styles.errorBox}>
               <Feather name="alert-circle" size={16} color={c.destructive} />
@@ -906,6 +958,30 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 12,
     color: c.mutedForeground,
+  },
+  upgradeRequestBox: {
+    marginTop: 8,
+  },
+  upgradeRequestButton: {
+    borderWidth: 1,
+    borderColor: c.border,
+    borderRadius: colors.radius,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    backgroundColor: c.background,
+  },
+  upgradeRequestButtonText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: c.foreground,
+  },
+  upgradeRequestNotice: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: c.mutedForeground,
+    marginTop: 6,
+    lineHeight: 17,
   },
   errorBox: {
     flexDirection: "row",

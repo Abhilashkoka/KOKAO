@@ -15,6 +15,7 @@ import {
   useUpdateContent,
   useRecordTasteSignal,
   useDeleteContent,
+  useBillingRequestUpgrade,
   useListBrandKits,
   useGetMe,
   useGetFacebookCredentials,
@@ -43,6 +44,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { Wand2, Image as ImageIcon, Save, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
@@ -331,6 +333,7 @@ export function StudioPage() {
   const updateContent = useUpdateContent();
   const deleteContent = useDeleteContent();
   const recordTasteSignal = useRecordTasteSignal();
+  const requestUpgrade = useBillingRequestUpgrade();
   const { data: me } = useGetMe();
 
   // Auto-saved draft: every generated caption/image is persisted immediately
@@ -580,12 +583,48 @@ export function StudioPage() {
   const activePlatform = campaignPlatforms[0] ?? "instagram";
   const activeImageSize = PLATFORM_IMAGE_SIZE[activePlatform] ?? "1024x1024";
 
+  const isOwner = me?.team ? me.team.role === "owner" : true;
+
+  const onRequestUpgrade = () => {
+    requestUpgrade.mutate(undefined, {
+      onSuccess: () =>
+        toast({
+          title: "Request sent",
+          description: "The workspace owner has been notified that you'd like an upgrade.",
+        }),
+      onError: (err: any) =>
+        toast({
+          title: "Could not send request",
+          description: err?.message || "Please try again in a moment.",
+          variant: "destructive",
+        }),
+    });
+  };
+
   const handleError = (error: any) => {
     if (error?.status === 402 || error?.response?.status === 402) {
+      const canRequestUpgrade = !isOwner && flags.upgradeRequests;
       toast({
         title: "Quota Reached",
-        description: error?.message || "You've reached your monthly AI limit. Please upgrade your plan.",
+        description:
+          error?.message ||
+          (canRequestUpgrade
+            ? "You've reached your monthly AI limit."
+            : "You've reached your monthly AI limit. Please upgrade your plan."),
         variant: "destructive",
+        ...(canRequestUpgrade
+          ? {
+              action: (
+                <ToastAction
+                  altText="Ask the owner for an upgrade"
+                  onClick={onRequestUpgrade}
+                  data-testid="button-request-upgrade-toast"
+                >
+                  Ask the owner for an upgrade
+                </ToastAction>
+              ),
+            }
+          : {}),
       });
     } else {
       toast({ title: "Error", description: error?.message || "Failed to generate content.", variant: "destructive" });
