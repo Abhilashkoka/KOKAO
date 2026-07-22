@@ -52,6 +52,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   sweep_run: "Manual sweep run",
   promo_code_change: "Promo code changed",
   ai_spend_settings_change: "AI spend rates changed",
+  ai_cost_change: "AI cost pricing changed",
 };
 function formatAuditValue(action: string, value: string | null): string {
   if (value === null || value === "") return "—";

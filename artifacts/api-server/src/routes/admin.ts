@@ -11,7 +11,7 @@ import {
   sweepStatusTable,
   subscriptionsTable,
 } from "@workspace/db";
-import { eq, sql, desc, gte, lte, and, or, ilike, inArray } from "drizzle-orm";
+import { eq, sql, desc, gte, lt, lte, and, or, ilike, inArray } from "drizzle-orm";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import {
   recordAdminAction,
@@ -59,6 +59,8 @@ import {
   AdminUpdateTextGenSettingsBody,
   AdminSetTextGenKeyBody,
   AdminUpdateAiSpendSettingsBody,
+  AdminUpdateAiCostRateBody,
+  AdminUpsertAiModelPriceBody,
   AdminUpdateNotificationPoliciesBody,
   AdminUpdatePlanBody,
   AdminCreatePlanBody,
@@ -103,12 +105,20 @@ import {
   getGlobalDesignSkillEnabled,
   loadDesignSkillRow,
 } from "../lib/designSkill";
-import { getAiSpendConfig, setAiSpendConfig } from "../lib/aiSpend";
+import { getAiSpendConfig, setAiSpendConfig, getAiSpendRates } from "../lib/aiSpend";
+import {
+  getAiCostConfig,
+  setAiCostConfig,
+  listModelPrices,
+  upsertModelPrice,
+  deleteModelPrice,
+} from "../lib/aiCost";
 import {
   FEATURES,
   getFeatureFlags,
   isKnownFeature,
   invalidateFeatureFlagCache,
+  requireFeature,
 } from "../lib/featureFlags";
 import { featureFlagsTable } from "@workspace/db";
 import { designSkillSettingsTable } from "@workspace/db";
@@ -131,6 +141,11 @@ const router: IRouter = Router();
 
 // Every admin route requires superadmin privileges.
 router.use("/admin", requireSuperadmin);
+
+// Actual-cost tracking has its own platform kill switch: when it is off the
+// cost admin endpoints 403 like any other gated module. The feature-flag
+// toggle route itself stays reachable so the switch can be re-enabled.
+router.use("/admin/ai-cost", requireFeature("aiCostTracking"));
 
 router.param("id", (req, res, next, value) => {
   const id = Number(value);
@@ -912,6 +927,256 @@ router.put("/admin/ai-spend-settings", async (req: Request, res: Response) => {
     }
   }
   res.json(after);
+});
+
+/** Serialize the actual-cost configuration (rate + price catalog). */
+async function serializeAiCostConfig() {
+  const [config, prices] = await Promise.all([getAiCostConfig(), listModelPrices()]);
+  return {
+    usdToInrPaise: config.usdToInrPaise,
+    prices: prices.map((p) => ({
+      id: p.id,
+      kind: p.kind,
+      provider: p.provider,
+      model: p.model,
+      inputUsdPerMtok: p.inputUsdPerMtok,
+      outputUsdPerMtok: p.outputUsdPerMtok,
+      usdPerImage: p.usdPerImage,
+    })),
+  };
+}
+
+/** Best-effort audit write for actual-cost pricing changes. */
+async function auditAiCostChange(
+  req: Request,
+  oldValue: string | null,
+  newValue: string | null,
+) {
+  try {
+    await recordAdminAction({
+      action: "ai_cost_change",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue,
+      newValue,
+    });
+  } catch (error) {
+    req.log?.error({ err: error }, "Failed to audit AI cost change");
+  }
+}
+
+/**
+ * GET /admin/ai-cost/config
+ * Actual-cost settings: USD→INR rate + the admin-maintained model price
+ * catalog used to compute real per-generation costs.
+ */
+router.get("/admin/ai-cost/config", async (_req: Request, res: Response) => {
+  res.json(await serializeAiCostConfig());
+});
+
+/**
+ * PUT /admin/ai-cost/rate
+ * Set the USD→INR conversion rate (paise per 1 USD; 0 = unset, costs stay
+ * unknown).
+ */
+router.put("/admin/ai-cost/rate", async (req: Request, res: Response) => {
+  const parsed = AdminUpdateAiCostRateBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const before = await getAiCostConfig();
+  const after = await setAiCostConfig({ usdToInrPaise: parsed.data.usdToInrPaise });
+  if (before.usdToInrPaise !== after.usdToInrPaise) {
+    await auditAiCostChange(
+      req,
+      `rate=${before.usdToInrPaise}`,
+      `rate=${after.usdToInrPaise}`,
+    );
+  }
+  res.json(await serializeAiCostConfig());
+});
+
+/**
+ * PUT /admin/ai-cost/prices
+ * Add or update one model price row (upsert on kind+provider+model).
+ */
+router.put("/admin/ai-cost/prices", async (req: Request, res: Response) => {
+  const parsed = AdminUpsertAiModelPriceBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const data = parsed.data;
+  if (data.kind === "text" && (data.inputUsdPerMtok == null || data.outputUsdPerMtok == null)) {
+    res.status(400).json({ error: "Text model prices need both input and output USD per 1M tokens." });
+    return;
+  }
+  // Image rows may be flat-priced (usdPerImage), token-priced (both token
+  // prices, for OpenAI/Gemini image models that report usage), or both.
+  const hasTokenPair = data.inputUsdPerMtok != null && data.outputUsdPerMtok != null;
+  if (data.kind === "image" && data.usdPerImage == null && !hasTokenPair) {
+    res.status(400).json({
+      error:
+        "Image model prices need a USD per image amount, or both input and output USD per 1M tokens.",
+    });
+    return;
+  }
+  const row = await upsertModelPrice({
+    kind: data.kind,
+    provider: data.provider.trim(),
+    model: data.model.trim(),
+    inputUsdPerMtok: hasTokenPair ? (data.inputUsdPerMtok ?? null) : null,
+    outputUsdPerMtok: hasTokenPair ? (data.outputUsdPerMtok ?? null) : null,
+    usdPerImage: data.kind === "image" ? (data.usdPerImage ?? null) : null,
+  });
+  await auditAiCostChange(
+    req,
+    null,
+    `${row.kind}:${row.provider}/${row.model} in=${row.inputUsdPerMtok ?? "-"} out=${row.outputUsdPerMtok ?? "-"} img=${row.usdPerImage ?? "-"}`,
+  );
+  res.json(await serializeAiCostConfig());
+});
+
+/**
+ * DELETE /admin/ai-cost/prices/:priceId
+ * Remove a price row; the affected model's future costs become unknown.
+ */
+router.delete("/admin/ai-cost/prices/:priceId", async (req: Request, res: Response) => {
+  const priceId = Number(req.params.priceId);
+  if (!Number.isInteger(priceId) || priceId <= 0) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  const removed = await deleteModelPrice(priceId);
+  if (!removed) {
+    res.status(404).json({ error: "Unknown price row" });
+    return;
+  }
+  await auditAiCostChange(req, `price #${priceId}`, "deleted");
+  res.json(await serializeAiCostConfig());
+});
+
+/**
+ * GET /admin/ai-cost/report?month=YYYY-MM
+ * Per-tenant actual AI cost for one month with the tenant-facing display
+ * amount alongside for margin comparison. Costs are sums of the per-event
+ * costPaise values; events with NULL cost are counted separately so unknown
+ * coverage is visible instead of silently under-reporting.
+ */
+router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
+  const monthParam = typeof req.query.month === "string" ? req.query.month : "";
+  const now = new Date();
+  const defaultMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  const month = monthParam || defaultMonth;
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+    res.status(400).json({ error: "Invalid month; use YYYY-MM" });
+    return;
+  }
+  const [yearStr, monthStr] = month.split("-");
+  const start = new Date(Date.UTC(Number(yearStr), Number(monthStr) - 1, 1));
+  const end = new Date(Date.UTC(Number(yearStr), Number(monthStr), 1));
+
+  const [rows, monthRows, displayRates] = await Promise.all([
+    db
+      .select({
+        tenantId: usageEventsTable.tenantId,
+        kind: usageEventsTable.kind,
+        count: sql<number>`count(*)::int`,
+        knownCostPaise: sql<number>`coalesce(sum(${usageEventsTable.costPaise}), 0)::int`,
+        unknownCount: sql<number>`count(*) filter (where ${usageEventsTable.costPaise} is null)::int`,
+      })
+      .from(usageEventsTable)
+      .where(
+        and(
+          gte(usageEventsTable.createdAt, start),
+          lt(usageEventsTable.createdAt, end),
+          inArray(usageEventsTable.kind, ["caption", "image"]),
+        ),
+      )
+      .groupBy(usageEventsTable.tenantId, usageEventsTable.kind),
+    db
+      .select({
+        month: sql<string>`to_char(${usageEventsTable.createdAt} at time zone 'UTC', 'YYYY-MM')`,
+      })
+      .from(usageEventsTable)
+      .groupBy(sql`1`)
+      .orderBy(sql`1 desc`),
+    getAiSpendRates(),
+  ]);
+
+  const byTenant = new Map<
+    number,
+    {
+      captionCount: number;
+      imageCount: number;
+      captionCostPaise: number;
+      imageCostPaise: number;
+      unknownCaptionCount: number;
+      unknownImageCount: number;
+    }
+  >();
+  for (const row of rows) {
+    const agg =
+      byTenant.get(row.tenantId) ??
+      {
+        captionCount: 0,
+        imageCount: 0,
+        captionCostPaise: 0,
+        imageCostPaise: 0,
+        unknownCaptionCount: 0,
+        unknownImageCount: 0,
+      };
+    if (row.kind === "caption") {
+      agg.captionCount = row.count;
+      agg.captionCostPaise = row.knownCostPaise;
+      agg.unknownCaptionCount = row.unknownCount;
+    } else {
+      agg.imageCount = row.count;
+      agg.imageCostPaise = row.knownCostPaise;
+      agg.unknownImageCount = row.unknownCount;
+    }
+    byTenant.set(row.tenantId, agg);
+  }
+
+  const tenantIds = [...byTenant.keys()];
+  const tenantRows = tenantIds.length
+    ? await db
+        .select({
+          id: tenantsTable.id,
+          name: tenantsTable.name,
+          email: tenantsTable.email,
+        })
+        .from(tenantsTable)
+        .where(inArray(tenantsTable.id, tenantIds))
+    : [];
+  const tenantInfo = new Map(tenantRows.map((t) => [t.id, t]));
+
+  const tenants = tenantIds
+    .map((tenantId) => {
+      const agg = byTenant.get(tenantId)!;
+      const info = tenantInfo.get(tenantId);
+      return {
+        tenantId,
+        name: info?.name ?? null,
+        email: info?.email ?? null,
+        ...agg,
+        totalCostPaise: agg.captionCostPaise + agg.imageCostPaise,
+        displaySpendPaise:
+          agg.captionCount * displayRates.captionPaise +
+          agg.imageCount * displayRates.imagePaise,
+      };
+    })
+    .sort((a, b) => b.totalCostPaise - a.totalCostPaise);
+
+  res.json({
+    month,
+    months: monthRows.map((r) => r.month),
+    displayRates,
+    tenants,
+  });
 });
 
 /**
@@ -2071,6 +2336,7 @@ const AUDIT_ACTIONS = new Set([
   "textgen_provider_change",
   "textgen_key_change",
   "ai_spend_settings_change",
+  "ai_cost_change",
 ]);
 
 function escapeLike(value: string): string {

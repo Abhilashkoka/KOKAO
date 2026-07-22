@@ -78,6 +78,12 @@ export const FEATURES = [
       "Showing the 'AI amount spent' figure on generated captions, images, campaigns, and carousels.",
   },
   {
+    id: "aiCostTracking",
+    label: "AI Cost Tracking",
+    description:
+      "Recording the actual provider cost of each AI generation and the superadmin cost report.",
+  },
+  {
     id: "referenceImages",
     label: "Reference Images",
     description:

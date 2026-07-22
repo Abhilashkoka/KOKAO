@@ -19,6 +19,14 @@ export const usageEventsTable = pgTable("usage_events", {
   // "quota" (default, counts against the plan) or "credit" (prepaid credit;
   // excluded from quota counting but still metered for data consumption).
   funding: text("funding"),
+  // Actual-cost tracking (superadmin-only reporting; all nullable and
+  // best-effort — rows predating cost tracking, unknown models, or a
+  // disabled tracking switch leave these unset).
+  provider: text("provider"),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  // Computed real cost in PAISE; NULL = unknown (never a guessed number).
+  costPaise: integer("cost_paise"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

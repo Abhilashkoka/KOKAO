@@ -31,6 +31,7 @@ import type {
   AdminExportAuditLogsParams,
   AdminFeatureFlag,
   AdminFeatureFlagInput,
+  AdminGetAiCostReportParams,
   AdminGrantCredits200,
   AdminListAuditLogsParams,
   AdminSeatRequest,
@@ -54,6 +55,8 @@ import type {
   AdsModuleStatus,
   AdsTiktokAuthUrlResult,
   AdsTiktokSelectInput,
+  AiCostConfigView,
+  AiCostReportView,
   AiModelChoicesView,
   AiSpendRatesView,
   AiSpendSettingsView,
@@ -215,6 +218,7 @@ import type {
   TwitterAppCredentialStatus,
   TwitterAuthUrlResult,
   TwitterStatus,
+  UpdateAiCostRateRequest,
   UpdateAiSpendSettingsRequest,
   UpdateAsrSettingsRequest,
   UpdateDesignSkillBody,
@@ -226,6 +230,7 @@ import type {
   UpdateTextGenSettingsRequest,
   UploadUrlRequest,
   UploadUrlResponse,
+  UpsertAiModelPriceRequest,
   YoutubeAppCredentialInput,
   YoutubeAppCredentialStatus,
   YoutubeAuthUrlResult,
@@ -3451,6 +3456,377 @@ export const useAdminUpdateAiSpendSettings = <TError = ErrorType<ErrorEnvelope>,
       > => {
       return useMutation(getAdminUpdateAiSpendSettingsMutationOptions(options));
     }
+
+export const getAdminGetAiCostConfigUrl = () => {
+
+
+
+
+  return `/api/admin/ai-cost/config`
+}
+
+/**
+ * @summary Actual-cost configuration — USD→INR rate and the model price catalog (superadmin only)
+ */
+export const adminGetAiCostConfig = async ( options?: RequestInit): Promise<AiCostConfigView> => {
+
+  return customFetch<AiCostConfigView>(getAdminGetAiCostConfigUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetAiCostConfigQueryKey = () => {
+    return [
+    `/api/admin/ai-cost/config`
+    ] as const;
+    }
+
+
+export const getAdminGetAiCostConfigQueryOptions = <TData = Awaited<ReturnType<typeof adminGetAiCostConfig>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetAiCostConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetAiCostConfigQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetAiCostConfig>>> = ({ signal }) => adminGetAiCostConfig({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetAiCostConfig>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetAiCostConfigQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetAiCostConfig>>>
+export type AdminGetAiCostConfigQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Actual-cost configuration — USD→INR rate and the model price catalog (superadmin only)
+ */
+
+export function useAdminGetAiCostConfig<TData = Awaited<ReturnType<typeof adminGetAiCostConfig>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetAiCostConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetAiCostConfigQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateAiCostRateUrl = () => {
+
+
+
+
+  return `/api/admin/ai-cost/rate`
+}
+
+/**
+ * @summary Set the USD→INR conversion rate used for actual-cost computation (superadmin only)
+ */
+export const adminUpdateAiCostRate = async (updateAiCostRateRequest: UpdateAiCostRateRequest, options?: RequestInit): Promise<AiCostConfigView> => {
+
+  return customFetch<AiCostConfigView>(getAdminUpdateAiCostRateUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateAiCostRateRequest)
+  }
+);}
+
+
+
+
+export const getAdminUpdateAiCostRateMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAiCostRate>>, TError,{data: BodyType<UpdateAiCostRateRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAiCostRate>>, TError,{data: BodyType<UpdateAiCostRateRequest>}, TContext> => {
+
+const mutationKey = ['adminUpdateAiCostRate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateAiCostRate>>, {data: BodyType<UpdateAiCostRateRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateAiCostRate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateAiCostRateMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateAiCostRate>>>
+    export type AdminUpdateAiCostRateMutationBody = BodyType<UpdateAiCostRateRequest>
+    export type AdminUpdateAiCostRateMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Set the USD→INR conversion rate used for actual-cost computation (superadmin only)
+ */
+export const useAdminUpdateAiCostRate = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAiCostRate>>, TError,{data: BodyType<UpdateAiCostRateRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateAiCostRate>>,
+        TError,
+        {data: BodyType<UpdateAiCostRateRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateAiCostRateMutationOptions(options));
+    }
+
+export const getAdminUpsertAiModelPriceUrl = () => {
+
+
+
+
+  return `/api/admin/ai-cost/prices`
+}
+
+/**
+ * @summary Add or update a model price row (superadmin only)
+ */
+export const adminUpsertAiModelPrice = async (upsertAiModelPriceRequest: UpsertAiModelPriceRequest, options?: RequestInit): Promise<AiCostConfigView> => {
+
+  return customFetch<AiCostConfigView>(getAdminUpsertAiModelPriceUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(upsertAiModelPriceRequest)
+  }
+);}
+
+
+
+
+export const getAdminUpsertAiModelPriceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpsertAiModelPrice>>, TError,{data: BodyType<UpsertAiModelPriceRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpsertAiModelPrice>>, TError,{data: BodyType<UpsertAiModelPriceRequest>}, TContext> => {
+
+const mutationKey = ['adminUpsertAiModelPrice'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpsertAiModelPrice>>, {data: BodyType<UpsertAiModelPriceRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpsertAiModelPrice(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpsertAiModelPriceMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpsertAiModelPrice>>>
+    export type AdminUpsertAiModelPriceMutationBody = BodyType<UpsertAiModelPriceRequest>
+    export type AdminUpsertAiModelPriceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Add or update a model price row (superadmin only)
+ */
+export const useAdminUpsertAiModelPrice = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpsertAiModelPrice>>, TError,{data: BodyType<UpsertAiModelPriceRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpsertAiModelPrice>>,
+        TError,
+        {data: BodyType<UpsertAiModelPriceRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminUpsertAiModelPriceMutationOptions(options));
+    }
+
+export const getAdminDeleteAiModelPriceUrl = (priceId: number,) => {
+
+
+
+
+  return `/api/admin/ai-cost/prices/${priceId}`
+}
+
+/**
+ * @summary Delete a model price row (superadmin only)
+ */
+export const adminDeleteAiModelPrice = async (priceId: number, options?: RequestInit): Promise<AiCostConfigView> => {
+
+  return customFetch<AiCostConfigView>(getAdminDeleteAiModelPriceUrl(priceId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getAdminDeleteAiModelPriceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminDeleteAiModelPrice>>, TError,{priceId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminDeleteAiModelPrice>>, TError,{priceId: number}, TContext> => {
+
+const mutationKey = ['adminDeleteAiModelPrice'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminDeleteAiModelPrice>>, {priceId: number}> = (props) => {
+          const {priceId} = props ?? {};
+
+          return  adminDeleteAiModelPrice(priceId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminDeleteAiModelPriceMutationResult = NonNullable<Awaited<ReturnType<typeof adminDeleteAiModelPrice>>>
+
+    export type AdminDeleteAiModelPriceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Delete a model price row (superadmin only)
+ */
+export const useAdminDeleteAiModelPrice = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminDeleteAiModelPrice>>, TError,{priceId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminDeleteAiModelPrice>>,
+        TError,
+        {priceId: number},
+        TContext
+      > => {
+      return useMutation(getAdminDeleteAiModelPriceMutationOptions(options));
+    }
+
+export const getAdminGetAiCostReportUrl = (params?: AdminGetAiCostReportParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/ai-cost/report?${stringifiedParams}` : `/api/admin/ai-cost/report`
+}
+
+/**
+ * @summary Per-tenant actual AI cost for a month, with margin comparison (superadmin only)
+ */
+export const adminGetAiCostReport = async (params?: AdminGetAiCostReportParams, options?: RequestInit): Promise<AiCostReportView> => {
+
+  return customFetch<AiCostReportView>(getAdminGetAiCostReportUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetAiCostReportQueryKey = (params?: AdminGetAiCostReportParams,) => {
+    return [
+    `/api/admin/ai-cost/report`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getAdminGetAiCostReportQueryOptions = <TData = Awaited<ReturnType<typeof adminGetAiCostReport>>, TError = ErrorType<ErrorEnvelope>>(params?: AdminGetAiCostReportParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetAiCostReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetAiCostReportQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetAiCostReport>>> = ({ signal }) => adminGetAiCostReport(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetAiCostReport>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetAiCostReportQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetAiCostReport>>>
+export type AdminGetAiCostReportQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Per-tenant actual AI cost for a month, with margin comparison (superadmin only)
+ */
+
+export function useAdminGetAiCostReport<TData = Awaited<ReturnType<typeof adminGetAiCostReport>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: AdminGetAiCostReportParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetAiCostReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetAiCostReportQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getAdminGetTextGenSettingsUrl = () => {
 

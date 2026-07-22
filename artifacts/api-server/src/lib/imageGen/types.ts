@@ -26,6 +26,14 @@ export interface ImageGenResult {
   buffer: Buffer;
   provider: string;
   model: string;
+  /**
+   * Token usage when the provider reports it (OpenAI gpt-image-1, Gemini).
+   * Used for token-based cost computation; absent for flat-priced providers.
+   */
+  usage?: {
+    inputTokens: number | null;
+    outputTokens: number | null;
+  };
 }
 
 /** Thrown when the selected provider is missing its API key or base URL. */

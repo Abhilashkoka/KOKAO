@@ -40,6 +40,11 @@ export interface UsageMeta {
   campaignId?: string;
   platform?: string;
   funding?: "quota" | "credit";
+  // Actual-cost tracking (superadmin-only reporting; best-effort).
+  provider?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  costPaise?: number;
 }
 
 export async function recordUsage(
@@ -57,5 +62,9 @@ export async function recordUsage(
     campaignId: meta.campaignId ?? null,
     platform: meta.platform ?? null,
     funding: meta.funding ?? null,
+    provider: meta.provider ?? null,
+    inputTokens: meta.inputTokens ?? null,
+    outputTokens: meta.outputTokens ?? null,
+    costPaise: meta.costPaise ?? null,
   });
 }

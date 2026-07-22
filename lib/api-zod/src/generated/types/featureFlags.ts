@@ -23,4 +23,5 @@ export interface FeatureFlags {
   referenceImages: boolean;
   carousel: boolean;
   aiSpend: boolean;
+  aiCostTracking: boolean;
 }

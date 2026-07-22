@@ -3341,6 +3341,7 @@ export interface FeatureFlags {
   referenceImages: boolean;
   carousel: boolean;
   aiSpend: boolean;
+  aiCostTracking: boolean;
 }
 
 /**
@@ -3375,6 +3376,126 @@ export interface AiSpendRatesView {
   captionPaise: number;
   /** Amount shown per generated image, in paise (fee included). */
   imagePaise: number;
+}
+
+export type AiModelPriceViewKind = typeof AiModelPriceViewKind[keyof typeof AiModelPriceViewKind];
+
+
+export const AiModelPriceViewKind = {
+  text: 'text',
+  image: 'image',
+} as const;
+
+/**
+ * One admin-maintained provider price row (USD) used for actual-cost computation.
+ */
+export interface AiModelPriceView {
+  id: number;
+  kind: AiModelPriceViewKind;
+  /** Provider id as recorded on usage events (e.g. builtin, openrouter, gemini). */
+  provider: string;
+  model: string;
+  /**
+     * Text models — USD per 1M input tokens.
+     * @nullable
+     */
+  inputUsdPerMtok: number | null;
+  /**
+     * Text models — USD per 1M output tokens.
+     * @nullable
+     */
+  outputUsdPerMtok: number | null;
+  /**
+     * Image models — USD per generated image.
+     * @nullable
+     */
+  usdPerImage: number | null;
+}
+
+/**
+ * Actual-cost configuration — USD→INR rate plus the model price catalog.
+ */
+export interface AiCostConfigView {
+  /** Paise per 1 USD (0 = unset; computed costs stay unknown). */
+  usdToInrPaise: number;
+  prices: AiModelPriceView[];
+}
+
+export interface UpdateAiCostRateRequest {
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
+  usdToInrPaise: number;
+}
+
+export type UpsertAiModelPriceRequestKind = typeof UpsertAiModelPriceRequestKind[keyof typeof UpsertAiModelPriceRequestKind];
+
+
+export const UpsertAiModelPriceRequestKind = {
+  text: 'text',
+  image: 'image',
+} as const;
+
+export interface UpsertAiModelPriceRequest {
+  kind: UpsertAiModelPriceRequestKind;
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  provider: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  model: string;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  inputUsdPerMtok?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  outputUsdPerMtok?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  usdPerImage?: number | null;
+}
+
+/**
+ * One tenant's actual AI cost for the reporting month.
+ */
+export interface AiCostReportTenantRow {
+  tenantId: number;
+  /** @nullable */
+  name: string | null;
+  /** @nullable */
+  email: string | null;
+  captionCount: number;
+  imageCount: number;
+  /** Sum of known caption costs, in paise. */
+  captionCostPaise: number;
+  /** Sum of known image costs, in paise. */
+  imageCostPaise: number;
+  totalCostPaise: number;
+  /** Caption events with no computed cost (unknown model or unset rate). */
+  unknownCaptionCount: number;
+  unknownImageCount: number;
+  /** What the tenant-facing "AI amount spent" rates would show for the same volume (fee included), for margin comparison. */
+  displaySpendPaise: number;
+}
+
+export interface AiCostReportView {
+  /** Reporting month, YYYY-MM (UTC). */
+  month: string;
+  /** Months that have any usage, newest first. */
+  months: string[];
+  displayRates: AiSpendRatesView;
+  tenants: AiCostReportTenantRow[];
 }
 
 export interface AdminFeatureFlag {
@@ -3457,6 +3578,14 @@ export const AdsDatePresetParameter = {
   last_90d: 'last_90d',
   maximum: 'maximum',
 } as const;
+
+export type AdminGetAiCostReportParams = {
+/**
+ * Reporting month as YYYY-MM (UTC). Defaults to the current month.
+ * @pattern ^\d{4}-\d{2}$
+ */
+month?: string;
+};
 
 export type AdminListAuditLogsParams = {
 /**

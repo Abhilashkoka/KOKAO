@@ -21,6 +21,7 @@ const ALL_ON: FeatureFlags = {
   referenceImages: true,
   carousel: true,
   aiSpend: true,
+  aiCostTracking: true,
 };
 
 /**

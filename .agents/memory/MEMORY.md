@@ -56,4 +56,5 @@
 - [Mobile Razorpay checkout](mobile-razorpay-checkout.md) — WebView-hosted checkout.js posts ids back; the app verifies server-side over its own session; mock the modal in jsdom tests.
 - [LinkedIn carousel publishing](linkedin-carousel-pdf.md) — carousels publish as multi-page PDFs via the Documents API; the kill switch must also gate the publish branch, not just the generate route.
 - [RICE studio prompts](rice-studio-prompts.md) — caption/campaign prompts use RICE sections; soft taste examples must trail hard brand constraints; clarify path must charge nothing.
+- [Actual AI cost tracking](ai-cost-tracking.md) — per-event cost in paise; unknown = NULL never guessed; model-only price fallback; OpenRouter reported cost wins; capture is best-effort.
 - [Mobile billing e2e](mobile-billing-e2e.md) — Razorpay mock server + dev base-URL env; expo-router web needs full goto (popstate blanks); seed team invites BEFORE first sign-in.

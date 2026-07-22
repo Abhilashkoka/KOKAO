@@ -78,7 +78,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "promoCodes": zod.boolean(),
   "referenceImages": zod.boolean(),
   "carousel": zod.boolean(),
-  "aiSpend": zod.boolean()
+  "aiSpend": zod.boolean(),
+  "aiCostTracking": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -1135,6 +1136,141 @@ export const AdminUpdateAiSpendSettingsResponse = zod.object({
   "imageCostPaise": zod.number().describe('Base AI cost per generated image, in paise (before the platform fee).'),
   "feePercent": zod.number().describe('Whole-number platform fee percentage added on top of the base costs.')
 }).describe('Platform-wide \"AI amount spent\" display configuration (superadmin).')
+
+
+/**
+ * @summary Actual-cost configuration — USD→INR rate and the model price catalog (superadmin only)
+ */
+export const AdminGetAiCostConfigResponse = zod.object({
+  "usdToInrPaise": zod.number().describe('Paise per 1 USD (0 = unset; computed costs stay unknown).'),
+  "prices": zod.array(zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['text', 'image']),
+  "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
+  "model": zod.string(),
+  "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
+  "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
+  "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.')
+}).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
+}).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
+
+
+/**
+ * @summary Set the USD→INR conversion rate used for actual-cost computation (superadmin only)
+ */
+export const adminUpdateAiCostRateBodyUsdToInrPaiseMin = 0;
+export const adminUpdateAiCostRateBodyUsdToInrPaiseMax = 100000;
+
+
+
+export const AdminUpdateAiCostRateBody = zod.object({
+  "usdToInrPaise": zod.number().min(adminUpdateAiCostRateBodyUsdToInrPaiseMin).max(adminUpdateAiCostRateBodyUsdToInrPaiseMax)
+})
+
+export const AdminUpdateAiCostRateResponse = zod.object({
+  "usdToInrPaise": zod.number().describe('Paise per 1 USD (0 = unset; computed costs stay unknown).'),
+  "prices": zod.array(zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['text', 'image']),
+  "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
+  "model": zod.string(),
+  "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
+  "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
+  "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.')
+}).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
+}).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
+
+
+/**
+ * @summary Add or update a model price row (superadmin only)
+ */
+export const adminUpsertAiModelPriceBodyProviderMax = 100;
+
+export const adminUpsertAiModelPriceBodyModelMax = 200;
+
+export const adminUpsertAiModelPriceBodyInputUsdPerMtokMin = 0;
+
+export const adminUpsertAiModelPriceBodyOutputUsdPerMtokMin = 0;
+
+export const adminUpsertAiModelPriceBodyUsdPerImageMin = 0;
+
+
+
+export const AdminUpsertAiModelPriceBody = zod.object({
+  "kind": zod.enum(['text', 'image']),
+  "provider": zod.string().min(1).max(adminUpsertAiModelPriceBodyProviderMax),
+  "model": zod.string().min(1).max(adminUpsertAiModelPriceBodyModelMax),
+  "inputUsdPerMtok": zod.number().min(adminUpsertAiModelPriceBodyInputUsdPerMtokMin).nullish(),
+  "outputUsdPerMtok": zod.number().min(adminUpsertAiModelPriceBodyOutputUsdPerMtokMin).nullish(),
+  "usdPerImage": zod.number().min(adminUpsertAiModelPriceBodyUsdPerImageMin).nullish()
+})
+
+export const AdminUpsertAiModelPriceResponse = zod.object({
+  "usdToInrPaise": zod.number().describe('Paise per 1 USD (0 = unset; computed costs stay unknown).'),
+  "prices": zod.array(zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['text', 'image']),
+  "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
+  "model": zod.string(),
+  "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
+  "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
+  "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.')
+}).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
+}).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
+
+
+/**
+ * @summary Delete a model price row (superadmin only)
+ */
+export const AdminDeleteAiModelPriceParams = zod.object({
+  "priceId": zod.coerce.number()
+})
+
+export const AdminDeleteAiModelPriceResponse = zod.object({
+  "usdToInrPaise": zod.number().describe('Paise per 1 USD (0 = unset; computed costs stay unknown).'),
+  "prices": zod.array(zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['text', 'image']),
+  "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
+  "model": zod.string(),
+  "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
+  "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
+  "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.')
+}).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
+}).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
+
+
+/**
+ * @summary Per-tenant actual AI cost for a month, with margin comparison (superadmin only)
+ */
+export const adminGetAiCostReportQueryMonthRegExp = new RegExp('^\\d{4}-\\d{2}$');
+
+
+export const AdminGetAiCostReportQueryParams = zod.object({
+  "month": zod.coerce.string().regex(adminGetAiCostReportQueryMonthRegExp).optional().describe('Reporting month as YYYY-MM (UTC). Defaults to the current month.')
+})
+
+export const AdminGetAiCostReportResponse = zod.object({
+  "month": zod.string().describe('Reporting month, YYYY-MM (UTC).'),
+  "months": zod.array(zod.string()).describe('Months that have any usage, newest first.'),
+  "displayRates": zod.object({
+  "captionPaise": zod.number().describe('Amount shown per generated caption, in paise (fee included).'),
+  "imagePaise": zod.number().describe('Amount shown per generated image, in paise (fee included).')
+}).describe('Effective per-unit display amounts (base cost + platform fee, combined).'),
+  "tenants": zod.array(zod.object({
+  "tenantId": zod.number(),
+  "name": zod.string().nullable(),
+  "email": zod.string().nullable(),
+  "captionCount": zod.number(),
+  "imageCount": zod.number(),
+  "captionCostPaise": zod.number().describe('Sum of known caption costs, in paise.'),
+  "imageCostPaise": zod.number().describe('Sum of known image costs, in paise.'),
+  "totalCostPaise": zod.number(),
+  "unknownCaptionCount": zod.number().describe('Caption events with no computed cost (unknown model or unset rate).'),
+  "unknownImageCount": zod.number(),
+  "displaySpendPaise": zod.number().describe('What the tenant-facing \"AI amount spent\" rates would show for the same volume (fee included), for margin comparison.')
+}).describe('One tenant\'s actual AI cost for the reporting month.'))
+})
 
 
 /**

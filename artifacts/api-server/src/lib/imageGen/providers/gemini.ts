@@ -13,6 +13,10 @@ interface GeminiResponse {
   candidates?: Array<{
     content?: { parts?: Array<{ inlineData?: { data?: string } }> };
   }>;
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+  };
 }
 
 /** Google Gemini image generation (Generative Language API). */
@@ -69,5 +73,17 @@ export async function generateWithGemini(
   if (!b64) {
     throw new ImageGenProviderError("Gemini returned no image data.");
   }
-  return { buffer: Buffer.from(b64, "base64"), provider: "gemini", model: input.model };
+  const usage = data.usageMetadata
+    ? {
+        inputTokens:
+          typeof data.usageMetadata.promptTokenCount === "number"
+            ? data.usageMetadata.promptTokenCount
+            : null,
+        outputTokens:
+          typeof data.usageMetadata.candidatesTokenCount === "number"
+            ? data.usageMetadata.candidatesTokenCount
+            : null,
+      }
+    : undefined;
+  return { buffer: Buffer.from(b64, "base64"), provider: "gemini", model: input.model, usage };
 }

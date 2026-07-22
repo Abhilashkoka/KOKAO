@@ -24,7 +24,15 @@ import {
   useAdminUpdateAiSpendSettings,
   getAdminGetAiSpendSettingsQueryKey,
   getGetAiSpendRatesQueryKey,
+  useAdminGetAiCostConfig,
+  useAdminUpdateAiCostRate,
+  useAdminUpsertAiModelPrice,
+  useAdminDeleteAiModelPrice,
+  useAdminGetAiCostReport,
+  getAdminGetAiCostConfigQueryKey,
+  getAdminGetAiCostReportQueryKey,
 } from "@workspace/api-client-react";
+import { useFeatureFlags } from "@/lib/features";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -1051,11 +1059,488 @@ function AiSpendCard() {
   );
 }
 
+const paiseToInr = (paise: number) =>
+  `\u20B9${(paise / 100).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
+function AiCostCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: config, isLoading } = useAdminGetAiCostConfig();
+  const updateRate = useAdminUpdateAiCostRate();
+  const upsertPrice = useAdminUpsertAiModelPrice();
+  const deletePrice = useAdminDeleteAiModelPrice();
+
+  const [rateInput, setRateInput] = useState<string | null>(null);
+  const [kind, setKind] = useState<"text" | "image">("text");
+  const [provider, setProvider] = useState("");
+  const [model, setModel] = useState("");
+  const [inputUsd, setInputUsd] = useState("");
+  const [outputUsd, setOutputUsd] = useState("");
+  const [imageUsd, setImageUsd] = useState("");
+
+  const rateValue =
+    rateInput ?? (config ? (config.usdToInrPaise / 100).toString() : "");
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: getAdminGetAiCostConfigQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getAdminGetAiCostReportQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getAdminListAuditLogsQueryKey() });
+  };
+
+  const handleSaveRate = () => {
+    const paise = Math.round(Number(rateValue) * 100);
+    if (!Number.isFinite(paise) || paise < 0 || paise > 100000) {
+      toast({
+        title: "Invalid rate",
+        description: "Enter the rupee value of 1 US dollar (0 to 1000).",
+        variant: "destructive",
+      });
+      return;
+    }
+    updateRate.mutate(
+      { data: { usdToInrPaise: paise } },
+      {
+        onSuccess: () => {
+          invalidate();
+          setRateInput(null);
+          toast({ title: "Conversion rate saved" });
+        },
+        onError: () => {
+          toast({
+            title: "Save failed",
+            description: "Could not save the conversion rate.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handleAddPrice = () => {
+    const trimmedProvider = provider.trim();
+    const trimmedModel = model.trim();
+    if (!trimmedProvider || !trimmedModel) {
+      toast({
+        title: "Missing fields",
+        description: "Provider and model are required.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const validNum = (s: string) => Number.isFinite(Number(s)) && Number(s) >= 0;
+    const hasTokenPair = inputUsd.trim() !== "" && outputUsd.trim() !== "";
+    const hasImagePrice = imageUsd.trim() !== "";
+    const invalid =
+      kind === "text"
+        ? !validNum(inputUsd) || !validNum(outputUsd) || !hasTokenPair
+        : // Image rows: flat $/image, token pair (OpenAI/Gemini image models), or both.
+          (!hasImagePrice && !hasTokenPair) ||
+          (hasImagePrice && !validNum(imageUsd)) ||
+          (hasTokenPair && (!validNum(inputUsd) || !validNum(outputUsd))) ||
+          (inputUsd.trim() !== "") !== (outputUsd.trim() !== "");
+    if (invalid) {
+      toast({
+        title: "Invalid price",
+        description:
+          kind === "text"
+            ? "Enter USD per 1M input and output tokens (0 or more)."
+            : "Enter USD per image, or both token prices for models that report token usage.",
+        variant: "destructive",
+      });
+      return;
+    }
+    upsertPrice.mutate(
+      {
+        data: {
+          kind,
+          provider: trimmedProvider,
+          model: trimmedModel,
+          inputUsdPerMtok: hasTokenPair ? Number(inputUsd) : null,
+          outputUsdPerMtok: hasTokenPair ? Number(outputUsd) : null,
+          usdPerImage: kind === "image" && hasImagePrice ? Number(imageUsd) : null,
+        },
+      },
+      {
+        onSuccess: () => {
+          invalidate();
+          setModel("");
+          setInputUsd("");
+          setOutputUsd("");
+          setImageUsd("");
+          toast({ title: "Model price saved" });
+        },
+        onError: () => {
+          toast({
+            title: "Save failed",
+            description: "Could not save the model price.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handleDelete = (priceId: number) => {
+    deletePrice.mutate(
+      { priceId },
+      {
+        onSuccess: () => {
+          invalidate();
+          toast({ title: "Model price removed" });
+        },
+        onError: () => {
+          toast({
+            title: "Remove failed",
+            description: "Could not remove the model price.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card data-testid="card-ai-cost">
+      <CardHeader>
+        <CardTitle>Actual AI Cost Tracking</CardTitle>
+        <CardDescription>
+          Record the real provider cost of every caption and image in paise. Costs use
+          the USD prices below converted at your rate; generations from unknown models
+          (or with no rate set) are stored with an unknown cost — nothing is guessed.
+          This never changes what tenants see.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {isLoading || !config ? (
+          <Skeleton className="h-24 w-full" />
+        ) : (
+          <>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="ai-cost-rate">
+                  1 US dollar = ({"\u20B9"})
+                </label>
+                <Input
+                  id="ai-cost-rate"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="w-36"
+                  value={rateValue}
+                  onChange={(e) => setRateInput(e.target.value)}
+                  data-testid="input-ai-cost-rate"
+                />
+              </div>
+              <Button
+                onClick={handleSaveRate}
+                disabled={updateRate.isPending}
+                data-testid="button-save-ai-cost-rate"
+              >
+                Save rate
+              </Button>
+              {config.usdToInrPaise === 0 && (
+                <p className="text-sm text-destructive">
+                  Rate unset — all costs are recorded as unknown.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-sm font-medium">Model price catalog (USD)</p>
+              {config.prices.length === 0 ? (
+                <p className="text-sm text-muted-foreground" data-testid="text-no-model-prices">
+                  No model prices yet. Add the models you use below.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {config.prices.map((p) => (
+                    <div
+                      key={p.id}
+                      className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm"
+                      data-testid={`row-model-price-${p.id}`}
+                    >
+                      <Badge variant="secondary">{p.kind}</Badge>
+                      <span className="font-medium">{p.provider}</span>
+                      <span className="text-muted-foreground">{p.model}</span>
+                      <span className="ml-auto text-muted-foreground">
+                        {p.kind === "text"
+                          ? `$${p.inputUsdPerMtok ?? 0} in / $${p.outputUsdPerMtok ?? 0} out per 1M tokens`
+                          : [
+                              p.usdPerImage !== null ? `$${p.usdPerImage} per image` : null,
+                              p.inputUsdPerMtok !== null && p.outputUsdPerMtok !== null
+                                ? `$${p.inputUsdPerMtok} in / $${p.outputUsdPerMtok} out per 1M tokens`
+                                : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(p.id)}
+                        disabled={deletePrice.isPending}
+                        data-testid={`button-delete-price-${p.id}`}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="grid gap-3 sm:grid-cols-6 items-end">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Type</label>
+                  <Select value={kind} onValueChange={(v) => setKind(v as "text" | "image")}>
+                    <SelectTrigger data-testid="select-price-kind">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="text">Text</SelectItem>
+                      <SelectItem value="image">Image</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium" htmlFor="price-provider">
+                    Provider
+                  </label>
+                  <Input
+                    id="price-provider"
+                    placeholder="builtin"
+                    value={provider}
+                    onChange={(e) => setProvider(e.target.value)}
+                    data-testid="input-price-provider"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium" htmlFor="price-model">
+                    Model
+                  </label>
+                  <Input
+                    id="price-model"
+                    placeholder="gpt-4o-mini"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    data-testid="input-price-model"
+                  />
+                </div>
+                {kind === "image" && (
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium" htmlFor="price-image-usd">
+                      $ / image
+                    </label>
+                    <Input
+                      id="price-image-usd"
+                      type="number"
+                      min="0"
+                      step="0.001"
+                      value={imageUsd}
+                      onChange={(e) => setImageUsd(e.target.value)}
+                      data-testid="input-price-image-usd"
+                    />
+                  </div>
+                )}
+                <>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium" htmlFor="price-input-usd">
+                        {kind === "text" ? "$ / 1M input" : "$ / 1M input (optional)"}
+                      </label>
+                      <Input
+                        id="price-input-usd"
+                        type="number"
+                        min="0"
+                        step="0.001"
+                        value={inputUsd}
+                        onChange={(e) => setInputUsd(e.target.value)}
+                        data-testid="input-price-input-usd"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium" htmlFor="price-output-usd">
+                        $ / 1M output
+                      </label>
+                      <Input
+                        id="price-output-usd"
+                        type="number"
+                        min="0"
+                        step="0.001"
+                        value={outputUsd}
+                        onChange={(e) => setOutputUsd(e.target.value)}
+                        data-testid="input-price-output-usd"
+                      />
+                    </div>
+                </>
+                <Button
+                  onClick={handleAddPrice}
+                  disabled={upsertPrice.isPending}
+                  data-testid="button-save-model-price"
+                >
+                  Save price
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Saving a price for an existing type + provider + model combination updates
+                it. When the OpenRouter provider reports a per-request cost, that reported
+                cost is used directly and no catalog entry is needed.
+              </p>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AiCostReportCard() {
+  const [month, setMonth] = useState<string | null>(null);
+  const { data: report, isLoading } = useAdminGetAiCostReport(
+    month ? { month } : undefined,
+  );
+
+  return (
+    <Card data-testid="card-ai-cost-report">
+      <CardHeader>
+        <CardTitle>Actual Cost Report</CardTitle>
+        <CardDescription>
+          Per-tenant real AI cost for the selected month, next to what the tenant-facing
+          "AI amount spent" rates would display for the same volume.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading || !report ? (
+          <Skeleton className="h-24 w-full" />
+        ) : (
+          <>
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-medium">Month</label>
+              <Select
+                value={report.month}
+                onValueChange={(v) => setMonth(v)}
+              >
+                <SelectTrigger className="w-40" data-testid="select-report-month">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(report.months.includes(report.month)
+                    ? report.months
+                    : [report.month, ...report.months]
+                  ).map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {report.tenants.length === 0 ? (
+              <p className="text-sm text-muted-foreground" data-testid="text-no-report-rows">
+                No caption or image usage recorded for this month.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="py-2 pr-3 font-medium">Tenant</th>
+                      <th className="py-2 pr-3 font-medium text-right">Captions</th>
+                      <th className="py-2 pr-3 font-medium text-right">Caption cost (avg)</th>
+                      <th className="py-2 pr-3 font-medium text-right">Images</th>
+                      <th className="py-2 pr-3 font-medium text-right">Image cost (avg)</th>
+                      <th className="py-2 pr-3 font-medium text-right">Actual cost</th>
+                      <th className="py-2 pr-3 font-medium text-right">Displayed spend</th>
+                      <th className="py-2 pr-3 font-medium text-right">Margin</th>
+                      <th className="py-2 font-medium text-right">Unknown</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.tenants.map((t) => {
+                      const unknown = t.unknownCaptionCount + t.unknownImageCount;
+                      const margin = t.displaySpendPaise - t.totalCostPaise;
+                      // Averages cover only events with a known cost.
+                      const knownCaptions = t.captionCount - t.unknownCaptionCount;
+                      const knownImages = t.imageCount - t.unknownImageCount;
+                      const avgCaption =
+                        knownCaptions > 0 ? Math.round(t.captionCostPaise / knownCaptions) : null;
+                      const avgImage =
+                        knownImages > 0 ? Math.round(t.imageCostPaise / knownImages) : null;
+                      return (
+                        <tr
+                          key={t.tenantId}
+                          className="border-b last:border-0"
+                          data-testid={`row-cost-tenant-${t.tenantId}`}
+                        >
+                          <td className="py-2 pr-3">
+                            <div className="font-medium">{t.name ?? `Tenant #${t.tenantId}`}</div>
+                            {t.email && (
+                              <div className="text-xs text-muted-foreground">{t.email}</div>
+                            )}
+                          </td>
+                          <td className="py-2 pr-3 text-right">{t.captionCount}</td>
+                          <td className="py-2 pr-3 text-right">
+                            {paiseToInr(t.captionCostPaise)}
+                            <span className="text-xs text-muted-foreground">
+                              {" "}
+                              ({avgCaption !== null ? paiseToInr(avgCaption) : "—"})
+                            </span>
+                          </td>
+                          <td className="py-2 pr-3 text-right">{t.imageCount}</td>
+                          <td className="py-2 pr-3 text-right">
+                            {paiseToInr(t.imageCostPaise)}
+                            <span className="text-xs text-muted-foreground">
+                              {" "}
+                              ({avgImage !== null ? paiseToInr(avgImage) : "—"})
+                            </span>
+                          </td>
+                          <td className="py-2 pr-3 text-right">{paiseToInr(t.totalCostPaise)}</td>
+                          <td className="py-2 pr-3 text-right">{paiseToInr(t.displaySpendPaise)}</td>
+                          <td
+                            className={`py-2 pr-3 text-right ${margin < 0 ? "text-destructive" : ""}`}
+                          >
+                            {paiseToInr(margin)}
+                          </td>
+                          <td className="py-2 text-right">
+                            {unknown > 0 ? (
+                              <Badge variant="outline">{unknown} events</Badge>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Caption and image cost columns show the month's known-cost total with the
+              per-generation average in parentheses (averages cover only events with a
+              computed cost). "Unknown" counts events where no price or conversion rate
+              applied. Displayed spend uses the current tenant-facing rates for comparison.
+            </p>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function AiTab() {
+  const { flags } = useFeatureFlags();
   return (
     <div className="space-y-8">
       <DesignSkillCard />
       <AiSpendCard />
+      {flags.aiCostTracking && (
+        <>
+          <AiCostCard />
+          <AiCostReportCard />
+        </>
+      )}
       <TextGenProviderCard />
       <ImageGenProviderCard />
       <AsrProviderCard />

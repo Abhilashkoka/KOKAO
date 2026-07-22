@@ -36,6 +36,11 @@ import {
   type TextGenClient,
 } from "../lib/textGen";
 import { buildTasteGuidance } from "../lib/tasteMemory";
+import {
+  buildTextCostMeta,
+  buildImageCostMeta,
+  usageAccountingParams,
+} from "../lib/aiCost";
 import multer from "multer";
 import {
   transcribeAudio,
@@ -325,6 +330,7 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
       ],
       max_completion_tokens: 8192,
       response_format: { type: "json_object" },
+      ...usageAccountingParams(textGen.provider),
     });
 
     const raw = completion.choices[0]?.message?.content ?? "{}";
@@ -358,6 +364,7 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
       durationMs: Date.now() - startedAt,
       model: textGen.model,
       platform,
+      ...(await buildTextCostMeta(completion, textGen)),
     });
     res.json({ caption, hashtags, ...(title ? { title } : {}) });
   } catch (error) {
@@ -484,11 +491,12 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
 
   const startedAt = Date.now();
   try {
-    const { buffer, model: imageModel } = await generateImage(
-      prompt,
-      size,
-      referenceImage ?? undefined,
-    );
+    const {
+      buffer,
+      model: imageModel,
+      provider: imageProvider,
+      usage: imageUsage,
+    } = await generateImage(prompt, size, referenceImage ?? undefined);
 
     const uploadURL = await objectStorageService.getObjectEntityUploadURL(req.tenantId);
     const putRes = await fetch(uploadURL, {
@@ -511,6 +519,11 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
       model: imageModel,
       campaignId: parsed.data.campaignId ?? undefined,
       platform: parsed.data.platform ?? undefined,
+      ...(await buildImageCostMeta({
+        provider: imageProvider,
+        model: imageModel,
+        usage: imageUsage,
+      })),
     });
     res.json({ imagePath, b64Json });
   } catch (error) {
@@ -927,6 +940,7 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
       ],
       max_completion_tokens: 8192,
       response_format: { type: "json_object" },
+      ...usageAccountingParams(textGen.provider),
     });
 
     const raw = completion.choices[0]?.message?.content ?? "{}";
@@ -992,6 +1006,15 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     // from quota counting but still metered.
     const requestBytes = Buffer.byteLength(systemPrompt + parsed.data.prompt);
     const perPlatformRequest = Math.ceil(requestBytes / platforms.length);
+    // One completion produced all platforms: split its tokens/cost across
+    // the per-platform rows (remainder lands on the first row) so the sum
+    // over rows equals the real total.
+    const costMeta = await buildTextCostMeta(completion, textGen);
+    const splitAcross = (total: number | undefined, i: number): number | undefined => {
+      if (total === undefined) return undefined;
+      const base = Math.floor(total / posts.length);
+      return i === 0 ? total - base * (posts.length - 1) : base;
+    };
     await Promise.all(
       posts.map((post, i) =>
         recordUsage(req.tenantId, "caption", {
@@ -1002,6 +1025,10 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
           model: textGen.model,
           campaignId,
           platform: post.platform,
+          provider: costMeta.provider,
+          inputTokens: splitAcross(costMeta.inputTokens ?? undefined, i),
+          outputTokens: splitAcross(costMeta.outputTokens ?? undefined, i),
+          costPaise: splitAcross(costMeta.costPaise ?? undefined, i),
         }),
       ),
     );
@@ -1118,6 +1145,7 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
       ],
       max_completion_tokens: 8192,
       response_format: { type: "json_object" },
+      ...usageAccountingParams(textGen.provider),
     });
 
     const raw = completion.choices[0]?.message?.content ?? "{}";
@@ -1177,6 +1205,7 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
       model: textGen.model,
       campaignId: carouselId,
       platform,
+      ...(await buildTextCostMeta(completion, textGen)),
     });
     res.json({ title, caption, hashtags, slides, carouselId });
   } catch (error) {

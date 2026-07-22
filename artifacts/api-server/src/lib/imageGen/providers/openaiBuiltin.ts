@@ -1,7 +1,19 @@
-import { openai, toFile, generateImageBuffer } from "@workspace/integrations-openai-ai-server";
+import { openai, toFile } from "@workspace/integrations-openai-ai-server";
 import { ImageGenProviderError, type ImageGenInput, type ImageGenResult } from "../types";
 
 export const OPENAI_BUILTIN_MODEL = "gpt-image-1";
+
+/** Extract token usage from an OpenAI images response (gpt-image-1 reports it). */
+function usageFrom(response: {
+  usage?: { input_tokens?: number; output_tokens?: number };
+}): ImageGenResult["usage"] {
+  const u = response.usage;
+  if (!u) return undefined;
+  return {
+    inputTokens: typeof u.input_tokens === "number" ? u.input_tokens : null,
+    outputTokens: typeof u.output_tokens === "number" ? u.output_tokens : null,
+  };
+}
 
 /** Built-in OpenAI via the Replit integration proxy (no API key needed). */
 export async function generateWithOpenAIBuiltin(
@@ -26,8 +38,20 @@ export async function generateWithOpenAIBuiltin(
       buffer: Buffer.from(b64, "base64"),
       provider: "openai",
       model: OPENAI_BUILTIN_MODEL,
+      usage: usageFrom(response),
     };
   }
-  const buffer = await generateImageBuffer(input.prompt, input.size);
-  return { buffer, provider: "openai", model: OPENAI_BUILTIN_MODEL };
+  const response = await openai.images.generate({
+    model: OPENAI_BUILTIN_MODEL,
+    prompt: input.prompt,
+    size: input.size,
+  });
+  const b64 = response.data?.[0]?.b64_json ?? "";
+  if (!b64) throw new ImageGenProviderError("OpenAI returned no image data.");
+  return {
+    buffer: Buffer.from(b64, "base64"),
+    provider: "openai",
+    model: OPENAI_BUILTIN_MODEL,
+    usage: usageFrom(response),
+  };
 }

@@ -28,7 +28,8 @@ export type AdminAuditAction =
   | "credit_pack_change"
   | "credit_grant"
   | "promo_code_change"
-  | "ai_spend_settings_change";
+  | "ai_spend_settings_change"
+  | "ai_cost_change";
 
 export interface RecordAdminActionInput {
   action: AdminAuditAction;

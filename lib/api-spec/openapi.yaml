@@ -1233,6 +1233,146 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ai-cost/config:
+    get:
+      operationId: adminGetAiCostConfig
+      tags: [admin]
+      summary: Actual-cost configuration — USD→INR rate and the model price catalog (superadmin only)
+      responses:
+        "200":
+          description: Config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiCostConfigView"
+        "403":
+          description: Forbidden or feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ai-cost/rate:
+    put:
+      operationId: adminUpdateAiCostRate
+      tags: [admin]
+      summary: Set the USD→INR conversion rate used for actual-cost computation (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAiCostRateRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiCostConfigView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden or feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ai-cost/prices:
+    put:
+      operationId: adminUpsertAiModelPrice
+      tags: [admin]
+      summary: Add or update a model price row (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertAiModelPriceRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiCostConfigView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden or feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ai-cost/prices/{priceId}:
+    delete:
+      operationId: adminDeleteAiModelPrice
+      tags: [admin]
+      summary: Delete a model price row (superadmin only)
+      parameters:
+        - name: priceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiCostConfigView"
+        "403":
+          description: Forbidden or feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Unknown price row
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ai-cost/report:
+    get:
+      operationId: adminGetAiCostReport
+      tags: [admin]
+      summary: Per-tenant actual AI cost for a month, with margin comparison (superadmin only)
+      parameters:
+        - name: month
+          in: query
+          required: false
+          description: Reporting month as YYYY-MM (UTC). Defaults to the current month.
+          schema:
+            type: string
+            pattern: "^\\d{4}-\\d{2}$"
+      responses:
+        "200":
+          description: Report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiCostReportView"
+        "400":
+          description: Invalid month
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden or feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/text-gen-settings:
     get:
       operationId: adminGetTextGenSettings
@@ -9989,6 +10129,7 @@ components:
           referenceImages,
           carousel,
           aiSpend,
+          aiCostTracking,
         ]
       properties:
         aiStudio:
@@ -10016,6 +10157,8 @@ components:
         carousel:
           type: boolean
         aiSpend:
+          type: boolean
+        aiCostTracking:
           type: boolean
     AiSpendSettingsView:
       type: object
@@ -10056,6 +10199,136 @@ components:
         imagePaise:
           type: integer
           description: Amount shown per generated image, in paise (fee included).
+    AiModelPriceView:
+      type: object
+      description: One admin-maintained provider price row (USD) used for actual-cost computation.
+      required: [id, kind, provider, model, inputUsdPerMtok, outputUsdPerMtok, usdPerImage]
+      properties:
+        id:
+          type: integer
+        kind:
+          type: string
+          enum: [text, image]
+        provider:
+          type: string
+          description: Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).
+        model:
+          type: string
+        inputUsdPerMtok:
+          type: ["number", "null"]
+          description: Text models — USD per 1M input tokens.
+        outputUsdPerMtok:
+          type: ["number", "null"]
+          description: Text models — USD per 1M output tokens.
+        usdPerImage:
+          type: ["number", "null"]
+          description: Image models — USD per generated image.
+    AiCostConfigView:
+      type: object
+      description: Actual-cost configuration — USD→INR rate plus the model price catalog.
+      required: [usdToInrPaise, prices]
+      properties:
+        usdToInrPaise:
+          type: integer
+          description: Paise per 1 USD (0 = unset; computed costs stay unknown).
+        prices:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiModelPriceView"
+    UpdateAiCostRateRequest:
+      type: object
+      required: [usdToInrPaise]
+      properties:
+        usdToInrPaise:
+          type: integer
+          minimum: 0
+          maximum: 100000
+    UpsertAiModelPriceRequest:
+      type: object
+      required: [kind, provider, model]
+      properties:
+        kind:
+          type: string
+          enum: [text, image]
+        provider:
+          type: string
+          minLength: 1
+          maxLength: 100
+        model:
+          type: string
+          minLength: 1
+          maxLength: 200
+        inputUsdPerMtok:
+          type: ["number", "null"]
+          minimum: 0
+        outputUsdPerMtok:
+          type: ["number", "null"]
+          minimum: 0
+        usdPerImage:
+          type: ["number", "null"]
+          minimum: 0
+    AiCostReportTenantRow:
+      type: object
+      description: One tenant's actual AI cost for the reporting month.
+      required:
+        [
+          tenantId,
+          name,
+          email,
+          captionCount,
+          imageCount,
+          captionCostPaise,
+          imageCostPaise,
+          totalCostPaise,
+          unknownCaptionCount,
+          unknownImageCount,
+          displaySpendPaise,
+        ]
+      properties:
+        tenantId:
+          type: integer
+        name:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+        captionCount:
+          type: integer
+        imageCount:
+          type: integer
+        captionCostPaise:
+          type: integer
+          description: Sum of known caption costs, in paise.
+        imageCostPaise:
+          type: integer
+          description: Sum of known image costs, in paise.
+        totalCostPaise:
+          type: integer
+        unknownCaptionCount:
+          type: integer
+          description: Caption events with no computed cost (unknown model or unset rate).
+        unknownImageCount:
+          type: integer
+        displaySpendPaise:
+          type: integer
+          description: What the tenant-facing "AI amount spent" rates would show for the same volume (fee included), for margin comparison.
+    AiCostReportView:
+      type: object
+      required: [month, months, displayRates, tenants]
+      properties:
+        month:
+          type: string
+          description: Reporting month, YYYY-MM (UTC).
+        months:
+          type: array
+          description: Months that have any usage, newest first.
+          items:
+            type: string
+        displayRates:
+          $ref: "#/components/schemas/AiSpendRatesView"
+        tenants:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiCostReportTenantRow"
     AdminFeatureFlag:
       type: object
       required: [feature, label, description, enabled]

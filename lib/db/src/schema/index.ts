@@ -15,6 +15,7 @@ export * from "./textGenSettings";
 export * from "./emailSettings";
 export * from "./designSkillSettings";
 export * from "./aiSpendSettings";
+export * from "./aiCost";
 export * from "./featureFlags";
 export * from "./usageEvents";
 export * from "./notifications";
