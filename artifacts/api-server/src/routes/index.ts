@@ -97,6 +97,13 @@ router.use("/billing", requireFeature("billing"));
 // Promo redemption gets its own switch on top of billing's, plus the tight
 // rate-limit bucket so codes can't be brute-forced.
 router.use("/billing/promo", sensitiveLimiter, requireFeature("promoCodes"));
+// Upgrade requests get their own switch on top of billing's, plus the tight
+// rate-limit bucket since it triggers owner emails.
+router.use(
+  "/billing/request-upgrade",
+  sensitiveLimiter,
+  requireFeature("upgradeRequests"),
+);
 router.use("/push-tokens", requireFeature("pushNotifications"));
 router.use("/ai-spend", requireFeature("aiSpend"));
 

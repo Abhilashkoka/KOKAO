@@ -3325,6 +3325,15 @@ export interface AdminAdsPlatformSlot {
 }
 
 /**
+ * Outcome of a member's plan-upgrade request to the workspace owner.
+ */
+export interface UpgradeRequestResult {
+  ok: boolean;
+  /** True when an existing unread alert was refreshed instead of creating a new one. */
+  deduped: boolean;
+}
+
+/**
  * Platform-wide feature switches. false = the module is disabled for all tenants.
  */
 export interface FeatureFlags {
@@ -3337,6 +3346,7 @@ export interface FeatureFlags {
   team: boolean;
   billing: boolean;
   pushNotifications: boolean;
+  upgradeRequests: boolean;
   promoCodes: boolean;
   referenceImages: boolean;
   carousel: boolean;

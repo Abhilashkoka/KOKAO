@@ -6,7 +6,7 @@ import {
   tenantMembersTable,
   tenantsTable,
 } from "@workspace/db";
-import { and, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import { logger } from "./logger";
 import { fetchVerifiedEmail } from "./clerkUser";
 import { sendEmail } from "./email";
@@ -211,6 +211,135 @@ export async function notifySeatRequestDecided(
     );
   }
 }
+export const UPGRADE_REQUESTED = "upgrade_requested";
+
+/** Minimum gap between fresh upgrade-request notifications per workspace. */
+const UPGRADE_REQUEST_COOLDOWN_MS = 60 * 60 * 1000;
+
+/**
+ * A team member asked the workspace owner to upgrade the plan (or add
+ * credits). Deduped and rate-limited per workspace:
+ * - If an UNREAD `upgrade_requested` row already exists, its title/message
+ *   and timestamp are refreshed in place — no new banner, push, or email —
+ *   and the caller gets "updated". The dedupe re-arms once the owner reads
+ *   or dismisses the alert.
+ * - Otherwise, if the most recent request (read or not) is younger than the
+ *   cooldown, nothing is written and the caller gets "cooldown" so the route
+ *   can answer 429.
+ * - Otherwise a fresh in-app row is inserted, a push is sent, and — when the
+ *   tenant's effective settings allow email — the OWNER's verified address is
+ *   emailed (billing is owner-only, so admins are deliberately not fanned
+ *   out). Returns "created".
+ *
+ * Unlike most notify helpers this THROWS on DB failure: the request endpoint
+ * exists solely to deliver this notification, so the caller must know it
+ * failed instead of silently telling the member "sent".
+ */
+export async function notifyUpgradeRequested(
+  tenantId: number,
+  requester: { email: string | null; clerkUserId: string },
+): Promise<"created" | "updated" | "cooldown"> {
+  const who = requester.email ?? "A teammate";
+  const title = "A teammate requested a plan upgrade";
+  const message =
+    `${who} asked you to upgrade this workspace's plan or add credits ` +
+    `so the team can keep generating content. Review your options in ` +
+    `Settings > Billing.`;
+
+  // Only dedupe on rows the owner can actually SEE (inApp=true). An unread
+  // inApp=false row is invisible in the notification UI and might never be
+  // marked read, which would suppress fresh alerts forever; those rows fall
+  // through to the time-based cooldown instead.
+  const existingUnread = await db
+    .select({ id: notificationsTable.id })
+    .from(notificationsTable)
+    .where(
+      and(
+        eq(notificationsTable.tenantId, tenantId),
+        eq(notificationsTable.type, UPGRADE_REQUESTED),
+        eq(notificationsTable.inApp, true),
+        isNull(notificationsTable.readAt),
+      ),
+    )
+    .limit(1);
+  if (existingUnread.length > 0) {
+    await db
+      .update(notificationsTable)
+      .set({ title, message, createdAt: new Date() })
+      .where(eq(notificationsTable.id, existingUnread[0].id));
+    return "updated";
+  }
+
+  const latest = (
+    await db
+      .select({ createdAt: notificationsTable.createdAt })
+      .from(notificationsTable)
+      .where(
+        and(
+          eq(notificationsTable.tenantId, tenantId),
+          eq(notificationsTable.type, UPGRADE_REQUESTED),
+        ),
+      )
+      .orderBy(desc(notificationsTable.createdAt))
+      .limit(1)
+  )[0];
+  if (
+    latest &&
+    Date.now() - latest.createdAt.getTime() < UPGRADE_REQUEST_COOLDOWN_MS
+  ) {
+    return "cooldown";
+  }
+
+  const effective = await getEffectiveSetting(tenantId, UPGRADE_REQUESTED);
+  if (!effective.enabled) return "created";
+
+  await db.insert(notificationsTable).values({
+    tenantId,
+    type: UPGRADE_REQUESTED,
+    platform: null,
+    title,
+    message,
+    linkUrl: "/settings",
+    inApp: effective.inApp,
+  });
+
+  await sendTenantPush(tenantId, UPGRADE_REQUESTED, {
+    title,
+    message,
+    linkUrl: "/settings",
+  });
+
+  if (effective.email) {
+    // OWNER only: billing decisions belong to the owner, so no admin fan-out.
+    try {
+      const tenant = (
+        await db
+          .select({ clerkUserId: tenantsTable.clerkUserId })
+          .from(tenantsTable)
+          .where(eq(tenantsTable.id, tenantId))
+          .limit(1)
+      )[0];
+      const ownerEmail = tenant
+        ? await fetchVerifiedEmail(tenant.clerkUserId)
+        : null;
+      if (ownerEmail) {
+        await sendEmail({
+          to: ownerEmail,
+          subject: title,
+          text: message,
+          html: `<p>${escapeHtml(message)}</p>`,
+        });
+      }
+    } catch (err) {
+      logger.error(
+        { err, tenantId },
+        "Failed to email the owner about an upgrade request",
+      );
+    }
+  }
+  return "created";
+}
+
 export const SWEEP_STALLED = "sweep_stalled";
 export const TEAM_MEMBER_JOINED = "team_member_joined";
 export const TEAM_MEMBER_LEFT = "team_member_left";

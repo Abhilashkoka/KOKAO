@@ -354,6 +354,7 @@ export * from './updateTenantPlanBody';
 export * from './updateTenantSuperadminBody';
 export * from './updateTextGenSettingsRequest';
 export * from './updateTextGenSettingsRequestProvider';
+export * from './upgradeRequestResult';
 export * from './uploadUrlRequest';
 export * from './uploadUrlResponse';
 export * from './upsertAiModelPriceRequest';

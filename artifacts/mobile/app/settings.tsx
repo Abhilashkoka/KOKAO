@@ -25,6 +25,9 @@ import {
   useBillingVerifyPurchase,
   useBillingCancelSubscription,
   useBillingSwitchPayg,
+  useBillingRequestUpgrade,
+  useListFeatureFlags,
+  getListFeatureFlagsQueryKey,
 } from "@workspace/api-client-react";
 import type { Plan } from "@workspace/api-client-react";
 
@@ -125,6 +128,11 @@ export default function SettingsScreen() {
   const verifyPurchase = useBillingVerifyPurchase();
   const cancelSubscription = useBillingCancelSubscription();
   const switchPayg = useBillingSwitchPayg();
+  const requestUpgrade = useBillingRequestUpgrade();
+  const featureFlags = useListFeatureFlags({
+    query: { queryKey: getListFeatureFlagsQueryKey(), staleTime: 60_000 },
+  });
+  const upgradeRequestsEnabled = featureFlags.data?.upgradeRequests ?? true;
 
   const [cycle, setCycle] = useState<"monthly" | "yearly">("monthly");
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -442,9 +450,42 @@ export default function SettingsScreen() {
           </View>
         ) : null}
         {!isOwner ? (
-          <Text style={styles.hint}>
-            Only the workspace owner can buy credits or change the plan.
-          </Text>
+          <>
+            <Text style={styles.hint}>
+              Only the workspace owner can buy credits or change the plan.
+            </Text>
+            {upgradeRequestsEnabled ? (
+              <TouchableOpacity
+                style={[
+                  styles.outlineButton,
+                  requestUpgrade.isPending && styles.buttonDisabled,
+                ]}
+                disabled={requestUpgrade.isPending}
+                onPress={() => {
+                  setNotice(null);
+                  requestUpgrade.mutate(undefined, {
+                    onSuccess: () =>
+                      setNotice({
+                        kind: "success",
+                        text: "Request sent. The workspace owner has been notified that you'd like an upgrade.",
+                      }),
+                    onError: (error) =>
+                      setNotice({
+                        kind: "error",
+                        text: errorMessage(
+                          error,
+                          "Could not send the request. Please try again.",
+                        ),
+                      }),
+                  });
+                }}
+              >
+                <Text style={styles.outlineButtonText}>
+                  {requestUpgrade.isPending ? "Sending..." : "Request upgrade"}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </>
         ) : !configured && !billing.isLoading && overview ? (
           <Text style={styles.hint}>
             Online payments are not set up yet. Purchases will be available once the

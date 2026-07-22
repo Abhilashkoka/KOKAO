@@ -10,6 +10,7 @@ import {
   useBillingPurchaseCredits,
   useBillingVerifyPurchase,
   useBillingRedeemPromo,
+  useBillingRequestUpgrade,
   getBillingGetOverviewQueryKey,
   getGetMeQueryKey,
 } from "@workspace/api-client-react";
@@ -29,6 +30,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useFeatureFlags } from "@/lib/features";
+import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { CreditCard, Coins, ReceiptText, TicketPercent } from "lucide-react";
 
 declare global {
@@ -80,6 +82,7 @@ export function BillingSettings() {
   const purchaseCredits = useBillingPurchaseCredits();
   const verifyPurchase = useBillingVerifyPurchase();
   const redeemPromo = useBillingRedeemPromo();
+  const requestUpgrade = useBillingRequestUpgrade();
   const { flags } = useFeatureFlags();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -268,9 +271,45 @@ export function BillingSettings() {
 
       {!isOwner && (
         <Card className="border-border shadow-sm">
-          <CardContent className="pt-6 text-sm text-muted-foreground">
-            Only the workspace owner can change billing. You can view the current plan
-            and credit balance below.
+          <CardContent className="pt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              Only the workspace owner can change billing. You can view the current
+              plan and credit balance below.
+            </p>
+            {flags.upgradeRequests && (
+              <Button
+                variant="outline"
+                className="shrink-0"
+                disabled={requestUpgrade.isPending}
+                onClick={() =>
+                  requestUpgrade.mutate(undefined, {
+                    onSuccess: () =>
+                      toast({
+                        title: "Request sent",
+                        description:
+                          "The workspace owner has been notified that you'd like an upgrade.",
+                      }),
+                    onError: (error) =>
+                      toast({
+                        title: "Could not send the request",
+                        description: errorMessage(
+                          error,
+                          "Please try again in a moment.",
+                        ),
+                        variant: "destructive",
+                      }),
+                  })
+                }
+              >
+                {requestUpgrade.isPending ? (
+                  <>
+                    <RippleSpinner className="mr-2" /> Sending...
+                  </>
+                ) : (
+                  "Request upgrade"
+                )}
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}

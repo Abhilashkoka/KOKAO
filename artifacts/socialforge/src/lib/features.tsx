@@ -17,6 +17,7 @@ const ALL_ON: FeatureFlags = {
   team: true,
   billing: true,
   pushNotifications: true,
+  upgradeRequests: true,
   promoCodes: true,
   referenceImages: true,
   carousel: true,

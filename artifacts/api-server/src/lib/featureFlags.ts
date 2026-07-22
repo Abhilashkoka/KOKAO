@@ -60,6 +60,12 @@ export const FEATURES = [
       "Mobile push notification delivery and device push-token registration.",
   },
   {
+    id: "upgradeRequests",
+    label: "Upgrade Requests",
+    description:
+      "Letting team members ask the workspace owner for a plan upgrade from the Billing page.",
+  },
+  {
     id: "promoCodes",
     label: "Promo Codes",
     description:

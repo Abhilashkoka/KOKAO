@@ -75,6 +75,7 @@ export const ListFeatureFlagsResponse = zod.object({
   "team": zod.boolean(),
   "billing": zod.boolean(),
   "pushNotifications": zod.boolean(),
+  "upgradeRequests": zod.boolean(),
   "promoCodes": zod.boolean(),
   "referenceImages": zod.boolean(),
   "carousel": zod.boolean(),
@@ -5667,6 +5668,15 @@ export const AdminListPromoFailuresResponseItem = zod.object({
   "tenantEmail": zod.string().nullable()
 })
 export const AdminListPromoFailuresResponse = zod.array(AdminListPromoFailuresResponseItem)
+
+
+/**
+ * @summary Ask the workspace owner for a plan upgrade (team members only)
+ */
+export const BillingRequestUpgradeResponse = zod.object({
+  "ok": zod.boolean(),
+  "deduped": zod.boolean().describe('True when an existing unread alert was refreshed instead of creating a new one.')
+}).describe('Outcome of a member\'s plan-upgrade request to the workspace owner.')
 
 
 /**

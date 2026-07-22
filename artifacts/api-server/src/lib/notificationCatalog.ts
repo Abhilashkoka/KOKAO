@@ -43,6 +43,12 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     adminOnly: true,
   },
   {
+    type: "upgrade_requested",
+    label: "Upgrade requests",
+    description:
+      "A teammate asked the workspace owner to upgrade the plan or add credits because the workspace is running low on quota.",
+  },
+  {
     type: "team_member_joined",
     label: "Team joins",
     description:

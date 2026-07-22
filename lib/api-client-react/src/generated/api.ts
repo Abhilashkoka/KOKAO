@@ -228,6 +228,7 @@ import type {
   UpdateTenantPlanBody,
   UpdateTenantSuperadminBody,
   UpdateTextGenSettingsRequest,
+  UpgradeRequestResult,
   UploadUrlRequest,
   UploadUrlResponse,
   UpsertAiModelPriceRequest,
@@ -11615,6 +11616,76 @@ export function useAdminListPromoFailures<TData = Awaited<ReturnType<typeof admi
 
 
 
+
+export const getBillingRequestUpgradeUrl = () => {
+
+
+
+
+  return `/api/billing/request-upgrade`
+}
+
+/**
+ * @summary Ask the workspace owner for a plan upgrade (team members only)
+ */
+export const billingRequestUpgrade = async ( options?: RequestInit): Promise<UpgradeRequestResult> => {
+
+  return customFetch<UpgradeRequestResult>(getBillingRequestUpgradeUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getBillingRequestUpgradeMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof billingRequestUpgrade>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof billingRequestUpgrade>>, TError,void, TContext> => {
+
+const mutationKey = ['billingRequestUpgrade'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof billingRequestUpgrade>>, void> = () => {
+
+
+          return  billingRequestUpgrade(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BillingRequestUpgradeMutationResult = NonNullable<Awaited<ReturnType<typeof billingRequestUpgrade>>>
+
+    export type BillingRequestUpgradeMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Ask the workspace owner for a plan upgrade (team members only)
+ */
+export const useBillingRequestUpgrade = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof billingRequestUpgrade>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof billingRequestUpgrade>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getBillingRequestUpgradeMutationOptions(options));
+    }
 
 export const getBillingRedeemPromoUrl = () => {
 

@@ -4169,6 +4169,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /billing/request-upgrade:
+    post:
+      operationId: billingRequestUpgrade
+      tags: [billing]
+      summary: Ask the workspace owner for a plan upgrade (team members only)
+      responses:
+        "200":
+          description: Request delivered to the owner
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpgradeRequestResult"
+        "400":
+          description: Owners cannot request an upgrade from themselves
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: A request was already sent recently
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /billing/promo/redeem:
     post:
       operationId: billingRedeemPromo
@@ -10111,6 +10136,16 @@ components:
         note:
           type: ["string", "null"]
           description: Where this platform's credentials come from (e.g. reuses the Meta app credentials).
+    UpgradeRequestResult:
+      type: object
+      description: Outcome of a member's plan-upgrade request to the workspace owner.
+      required: [ok, deduped]
+      properties:
+        ok:
+          type: boolean
+        deduped:
+          type: boolean
+          description: True when an existing unread alert was refreshed instead of creating a new one.
     FeatureFlags:
       type: object
       description: Platform-wide feature switches. false = the module is disabled for all tenants.
@@ -10125,6 +10160,7 @@ components:
           team,
           billing,
           pushNotifications,
+          upgradeRequests,
           promoCodes,
           referenceImages,
           carousel,
@@ -10149,6 +10185,8 @@ components:
         billing:
           type: boolean
         pushNotifications:
+          type: boolean
+        upgradeRequests:
           type: boolean
         promoCodes:
           type: boolean

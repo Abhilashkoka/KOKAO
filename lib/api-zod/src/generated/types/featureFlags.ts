@@ -19,6 +19,7 @@ export interface FeatureFlags {
   team: boolean;
   billing: boolean;
   pushNotifications: boolean;
+  upgradeRequests: boolean;
   promoCodes: boolean;
   referenceImages: boolean;
   carousel: boolean;

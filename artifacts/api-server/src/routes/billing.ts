@@ -30,6 +30,8 @@ import {
 import { getPlan, listPlans } from "../lib/plans";
 import { recordServerEvent } from "../lib/analytics";
 import { getCreditBalances, grantCredits, listCreditHistory } from "../lib/credits";
+import { notifyUpgradeRequested } from "../lib/notifications";
+import { fetchVerifiedEmail } from "../lib/clerkUser";
 
 /**
  * Tenant billing: Razorpay plan subscriptions + prepaid credit packs.
@@ -485,6 +487,45 @@ router.post("/billing/verify-purchase", async (req: Request, res: Response) => {
     res.json({ ok: true, credits: await getCreditBalances(req.tenantId) });
   } catch (error) {
     handleRazorpayError(req, res, error, "Failed to verify purchase");
+  }
+});
+
+/**
+ * POST /billing/request-upgrade
+ * A team member (or admin) asks the workspace OWNER to upgrade the plan or
+ * add credits. Owners cannot call it — they can just upgrade directly. The
+ * notification helper dedupes on an existing unread alert (updated in place,
+ * no re-email) and enforces a per-workspace cooldown between fresh alerts.
+ */
+router.post("/billing/request-upgrade", async (req: Request, res: Response) => {
+  if (req.memberRole === "owner") {
+    res.status(400).json({
+      error: "You are the workspace owner — you can upgrade the plan directly.",
+    });
+    return;
+  }
+  try {
+    let email: string | null = null;
+    try {
+      email = await fetchVerifiedEmail(req.clerkUserId);
+    } catch {
+      // Best-effort: the notification falls back to "A teammate".
+    }
+    const outcome = await notifyUpgradeRequested(req.tenantId, {
+      email,
+      clerkUserId: req.clerkUserId,
+    });
+    if (outcome === "cooldown") {
+      res.status(429).json({
+        error:
+          "You already asked for an upgrade recently. Give the owner a little time to respond.",
+      });
+      return;
+    }
+    res.json({ ok: true, deduped: outcome === "updated" });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to submit upgrade request");
+    res.status(500).json({ error: "Could not send the request. Please try again." });
   }
 });
 
