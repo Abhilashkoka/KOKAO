@@ -183,6 +183,78 @@ function PlatformFitPreview({ src }: { src: string }) {
   );
 }
 
+function StudioHeader() {
+  const { data: me } = useGetMe();
+  const captionsLeft =
+    me && me.limits.captions !== -1 ? Math.max(0, me.limits.captions - me.usage.captions) : null;
+  const imagesLeft =
+    me && me.limits.images !== -1 ? Math.max(0, me.limits.images - me.usage.images) : null;
+  const captionCredits = me?.credits?.captionCredits ?? 0;
+  const imageCredits = me?.credits?.imageCredits ?? 0;
+
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <h1 className="text-3xl font-extrabold tracking-tight">AI Content Studio</h1>
+        <p className="text-muted-foreground text-lg mt-1">
+          Brainstorm, research, and generate on-brand content across every platform.
+        </p>
+      </div>
+      {me && (
+        <div
+          className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-sm"
+          data-testid="quota-countdown"
+        >
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider mr-1">
+            This month
+          </span>
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${
+              captionsLeft === 0 && captionCredits === 0 ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+            }`}
+            data-testid="quota-captions"
+          >
+            <Wand2 className="h-3.5 w-3.5" />
+            {captionsLeft === null ? (
+              <>
+                <InfinityIcon className="h-3.5 w-3.5" /> captions
+              </>
+            ) : (
+              `${captionsLeft} caption${captionsLeft === 1 ? "" : "s"} left${
+                captionCredits > 0 ? ` +${captionCredits} credits` : ""
+              }`
+            )}
+          </span>
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${
+              imagesLeft === 0 && imageCredits === 0 ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+            }`}
+            data-testid="quota-images"
+          >
+            <ImageIcon className="h-3.5 w-3.5" />
+            {imagesLeft === null ? (
+              <>
+                <InfinityIcon className="h-3.5 w-3.5" /> images
+              </>
+            ) : (
+              `${imagesLeft} image${imagesLeft === 1 ? "" : "s"} left${
+                imageCredits > 0 ? ` +${imageCredits} credits` : ""
+              }`
+            )}
+          </span>
+          <span
+            className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground"
+            data-testid="quota-helpers"
+          >
+            <Lightbulb className="h-3.5 w-3.5" />
+            Ideas, research &amp; briefs: unlimited
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function StudioPage() {
   const { flags } = useFeatureFlags();
   const [mode, setMode] = useState<string>(() => {
@@ -190,10 +262,18 @@ export function StudioPage() {
     return params.get("tab") === "video" || params.has("drive") ? "video" : "image";
   });
 
-  if (!flags.videoGen) return <ImageStudio />;
+  if (!flags.videoGen) {
+    return (
+      <div className="space-y-8 max-w-6xl mx-auto">
+        <StudioHeader />
+        <ImageStudio />
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-6xl mx-auto">
+      <StudioHeader />
       <Tabs value={mode} onValueChange={setMode}>
         <TabsList data-testid="studio-mode-tabs">
           <TabsTrigger value="image" data-testid="tab-studio-image">
@@ -1146,66 +1226,6 @@ function ImageStudio() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-6xl mx-auto">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight">AI Content Studio</h1>
-          <p className="text-muted-foreground text-lg mt-1">
-            Brainstorm, research, and generate on-brand content across every platform.
-          </p>
-        </div>
-        {me && (
-          <div
-            className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-sm"
-            data-testid="quota-countdown"
-          >
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider mr-1">
-              This month
-            </span>
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${
-                captionsLeft === 0 && captionCredits === 0 ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
-              }`}
-              data-testid="quota-captions"
-            >
-              <Wand2 className="h-3.5 w-3.5" />
-              {captionsLeft === null ? (
-                <>
-                  <InfinityIcon className="h-3.5 w-3.5" /> captions
-                </>
-              ) : (
-                `${captionsLeft} caption${captionsLeft === 1 ? "" : "s"} left${
-                  captionCredits > 0 ? ` +${captionCredits} credits` : ""
-                }`
-              )}
-            </span>
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${
-                imagesLeft === 0 && imageCredits === 0 ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
-              }`}
-              data-testid="quota-images"
-            >
-              <ImageIcon className="h-3.5 w-3.5" />
-              {imagesLeft === null ? (
-                <>
-                  <InfinityIcon className="h-3.5 w-3.5" /> images
-                </>
-              ) : (
-                `${imagesLeft} image${imagesLeft === 1 ? "" : "s"} left${
-                  imageCredits > 0 ? ` +${imageCredits} credits` : ""
-                }`
-              )}
-            </span>
-            <span
-              className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground"
-              data-testid="quota-helpers"
-            >
-              <Lightbulb className="h-3.5 w-3.5" />
-              Ideas, research &amp; briefs: unlimited
-            </span>
-          </div>
-        )}
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-5 space-y-6">
           <Card className="border-border shadow-md">
