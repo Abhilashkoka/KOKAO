@@ -1,5 +1,6 @@
 import { db, usageEventsTable } from "@workspace/db";
 import { and, eq, gte, sql } from "drizzle-orm";
+import { getAiSpendRates } from "./aiSpend";
 
 export function currentPeriodStart(now: Date = new Date()): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -52,6 +53,17 @@ export async function recordUsage(
   kind: "caption" | "image",
   meta: UsageMeta = {},
 ): Promise<void> {
+  // Snapshot the tenant-facing per-unit display amount at the rates in effect
+  // RIGHT NOW, so later rate changes never rewrite historical spend figures.
+  // Best-effort: a failed lookup stores NULL (reports fall back to current
+  // rates for such rows) and must never block the metered action itself.
+  let displayPaise: number | null = null;
+  try {
+    const rates = await getAiSpendRates();
+    displayPaise = kind === "caption" ? rates.captionPaise : rates.imagePaise;
+  } catch {
+    displayPaise = null;
+  }
   await db.insert(usageEventsTable).values({
     tenantId,
     kind,
@@ -66,5 +78,6 @@ export async function recordUsage(
     inputTokens: meta.inputTokens ?? null,
     outputTokens: meta.outputTokens ?? null,
     costPaise: meta.costPaise ?? null,
+    displayPaise,
   });
 }

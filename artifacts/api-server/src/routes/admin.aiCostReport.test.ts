@@ -98,10 +98,11 @@ async function seedEvent(
   kind: string,
   costPaise: number | null,
   createdAt: Date,
+  displayPaise: number | null = null,
 ): Promise<void> {
   const [row] = await db
     .insert(usageEventsTable)
-    .values({ tenantId, kind, costPaise, createdAt })
+    .values({ tenantId, kind, costPaise, createdAt, displayPaise })
     .returning({ id: usageEventsTable.id });
   createdEventIds.push(row.id);
 }
@@ -231,6 +232,79 @@ describe("GET /admin/ai-cost/report", () => {
     expect(trendA!.unknownCount - beforeA.unknownCount).toBe(2);
     expect(trendB!.totalCostPaise - beforeB.totalCostPaise).toBe(500);
     expect(trendB!.unknownCount - beforeB.unknownCount).toBe(1);
+  });
+
+  it("uses per-event display snapshots for historical spend, falling back to current rates only for rows without one", async () => {
+    const tenant = await createTenant();
+    try {
+      const inA = (day: number) => new Date(Date.UTC(PREV_YEAR, PREV_MONTH0, day, 12));
+      const beforeA = (await fetchReport(MONTH_A)).summary;
+      // Two snapshotted events at OLD rates (700/1300) plus one legacy caption
+      // without a snapshot — only the legacy row should use current rates.
+      await seedEvent(tenant.tenantId, "caption", 10, inA(2), 700);
+      await seedEvent(tenant.tenantId, "image", 20, inA(4), 1300);
+      await seedEvent(tenant.tenantId, "caption", null, inA(6), null);
+
+      const report = await fetchReport(MONTH_A);
+      const { captionPaise } = report.displayRates;
+
+      const mine = report.tenants.find((t) => t.tenantId === tenant.tenantId);
+      expect(mine).toBeDefined();
+      expect(mine!.displaySpendPaise).toBe(700 + 1300 + captionPaise);
+
+      // Summary/trend for the month also reflect the snapshots, not current rates.
+      expect(report.summary.displaySpendPaise - beforeA.displaySpendPaise).toBe(
+        700 + 1300 + captionPaise,
+      );
+      const trendA = report.trend.find((t) => t.month === MONTH_A);
+      expect(trendA!.displaySpendPaise).toBe(report.summary.displaySpendPaise);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("keeps historical months stable when display rates change (legacy rows frozen at old rates)", async () => {
+    const tenant = await createTenant();
+    // Ensure a settings row exists, and capture the original config to restore.
+    const originalRes = await request(app).get("/api/admin/ai-spend-settings");
+    expect(originalRes.status).toBe(200);
+    const original = originalRes.body as {
+      captionCostPaise: number;
+      imageCostPaise: number;
+      feePercent: number;
+    };
+    try {
+      // Writing the current config back guarantees the row exists (first-time
+      // creation skips the legacy freeze by design).
+      await request(app).put("/api/admin/ai-spend-settings").send(original);
+
+      const inA = (day: number) => new Date(Date.UTC(PREV_YEAR, PREV_MONTH0, day, 12));
+      // Legacy rows: no display snapshot (predate snapshotting).
+      await seedEvent(tenant.tenantId, "caption", null, inA(8), null);
+      await seedEvent(tenant.tenantId, "image", null, inA(9), null);
+
+      const before = await fetchReport(MONTH_A);
+      const oldRates = before.displayRates;
+      const mineBefore = before.tenants.find((t) => t.tenantId === tenant.tenantId)!;
+      expect(mineBefore.displaySpendPaise).toBe(oldRates.captionPaise + oldRates.imagePaise);
+
+      // Change the rates. The legacy rows must be frozen at the OLD rates.
+      const changed = await request(app).put("/api/admin/ai-spend-settings").send({
+        captionCostPaise: original.captionCostPaise + 111,
+        imageCostPaise: original.imageCostPaise + 222,
+        feePercent: original.feePercent,
+      });
+      expect(changed.status).toBe(200);
+
+      const after = await fetchReport(MONTH_A);
+      expect(after.displayRates).not.toEqual(oldRates);
+      const mineAfter = after.tenants.find((t) => t.tenantId === tenant.tenantId)!;
+      // Historical spend is unchanged despite the rate change.
+      expect(mineAfter.displaySpendPaise).toBe(mineBefore.displaySpendPaise);
+    } finally {
+      await request(app).put("/api/admin/ai-spend-settings").send(original);
+      await deleteTenant(tenant.tenantId);
+    }
   });
 
   it("returns a zeroed fallback summary for a month with no events", async () => {

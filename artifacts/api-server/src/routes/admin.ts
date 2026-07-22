@@ -1087,6 +1087,10 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
         count: sql<number>`count(*)::int`,
         knownCostPaise: sql<number>`coalesce(sum(${usageEventsTable.costPaise}), 0)::int`,
         unknownCount: sql<number>`count(*) filter (where ${usageEventsTable.costPaise} is null)::int`,
+        // Snapshotted tenant-facing display spend (rates in effect at event
+        // time). Rows predating snapshotting fall back to current rates.
+        snapshotDisplayPaise: sql<number>`coalesce(sum(${usageEventsTable.displayPaise}), 0)::int`,
+        noSnapshotCount: sql<number>`count(*) filter (where ${usageEventsTable.displayPaise} is null)::int`,
       })
       .from(usageEventsTable)
       .where(
@@ -1104,6 +1108,9 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
         imageCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} = 'image')::int`,
         knownCostPaise: sql<number>`coalesce(sum(${usageEventsTable.costPaise}) filter (where ${usageEventsTable.kind} in ('caption', 'image')), 0)::int`,
         unknownCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} in ('caption', 'image') and ${usageEventsTable.costPaise} is null)::int`,
+        snapshotDisplayPaise: sql<number>`coalesce(sum(${usageEventsTable.displayPaise}) filter (where ${usageEventsTable.kind} in ('caption', 'image')), 0)::int`,
+        noSnapshotCaptionCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} = 'caption' and ${usageEventsTable.displayPaise} is null)::int`,
+        noSnapshotImageCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} = 'image' and ${usageEventsTable.displayPaise} is null)::int`,
       })
       .from(usageEventsTable)
       .groupBy(sql`1`)
@@ -1120,6 +1127,9 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
       imageCostPaise: number;
       unknownCaptionCount: number;
       unknownImageCount: number;
+      snapshotDisplayPaise: number;
+      noSnapshotCaptionCount: number;
+      noSnapshotImageCount: number;
     }
   >();
   for (const row of rows) {
@@ -1132,16 +1142,22 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
         imageCostPaise: 0,
         unknownCaptionCount: 0,
         unknownImageCount: 0,
+        snapshotDisplayPaise: 0,
+        noSnapshotCaptionCount: 0,
+        noSnapshotImageCount: 0,
       };
     if (row.kind === "caption") {
       agg.captionCount = row.count;
       agg.captionCostPaise = row.knownCostPaise;
       agg.unknownCaptionCount = row.unknownCount;
+      agg.noSnapshotCaptionCount = row.noSnapshotCount;
     } else {
       agg.imageCount = row.count;
       agg.imageCostPaise = row.knownCostPaise;
       agg.unknownImageCount = row.unknownCount;
+      agg.noSnapshotImageCount = row.noSnapshotCount;
     }
+    agg.snapshotDisplayPaise += row.snapshotDisplayPaise;
     byTenant.set(row.tenantId, agg);
   }
 
@@ -1160,7 +1176,12 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
 
   const tenants = tenantIds
     .map((tenantId) => {
-      const agg = byTenant.get(tenantId)!;
+      const {
+        snapshotDisplayPaise,
+        noSnapshotCaptionCount,
+        noSnapshotImageCount,
+        ...agg
+      } = byTenant.get(tenantId)!;
       const info = tenantInfo.get(tenantId);
       return {
         tenantId,
@@ -1168,9 +1189,12 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
         email: info?.email ?? null,
         ...agg,
         totalCostPaise: agg.captionCostPaise + agg.imageCostPaise,
+        // Snapshotted amounts (rates in effect at event time) plus a
+        // current-rate fallback for rows that predate snapshotting.
         displaySpendPaise:
-          agg.captionCount * displayRates.captionPaise +
-          agg.imageCount * displayRates.imagePaise,
+          snapshotDisplayPaise +
+          noSnapshotCaptionCount * displayRates.captionPaise +
+          noSnapshotImageCount * displayRates.imagePaise,
       };
     })
     .sort((a, b) => b.totalCostPaise - a.totalCostPaise);
@@ -1181,13 +1205,20 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
     imageCount: number;
     knownCostPaise: number;
     unknownCount: number;
+    snapshotDisplayPaise: number;
+    noSnapshotCaptionCount: number;
+    noSnapshotImageCount: number;
   }) => ({
     month: r.month,
     captionCount: r.captionCount,
     imageCount: r.imageCount,
     totalCostPaise: r.knownCostPaise,
+    // Historical months keep the rates in effect at the time (per-event
+    // snapshots); only pre-snapshot rows fall back to current rates.
     displaySpendPaise:
-      r.captionCount * displayRates.captionPaise + r.imageCount * displayRates.imagePaise,
+      r.snapshotDisplayPaise +
+      r.noSnapshotCaptionCount * displayRates.captionPaise +
+      r.noSnapshotImageCount * displayRates.imagePaise,
     unknownCount: r.unknownCount,
   });
   const trend = monthRows.slice(0, 12).map(toMonthTotal);

@@ -27,6 +27,10 @@ export const usageEventsTable = pgTable("usage_events", {
   outputTokens: integer("output_tokens"),
   // Computed real cost in PAISE; NULL = unknown (never a guessed number).
   costPaise: integer("cost_paise"),
+  // Tenant-facing display amount in PAISE snapshotted at record time (per-unit
+  // rate with fee folded in, at the rates in effect when the event happened).
+  // NULL = row predates snapshotting; reports fall back to current rates.
+  displayPaise: integer("display_paise"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

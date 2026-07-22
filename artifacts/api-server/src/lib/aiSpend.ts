@@ -1,4 +1,5 @@
-import { db, aiSpendSettingsTable } from "@workspace/db";
+import { db, aiSpendSettingsTable, usageEventsTable } from "@workspace/db";
+import { and, eq, isNull } from "drizzle-orm";
 
 /**
  * Platform-wide "AI amount spent" display settings.
@@ -27,12 +28,34 @@ export async function getAiSpendConfig(): Promise<AiSpendConfig> {
 }
 
 export async function setAiSpendConfig(config: AiSpendConfig): Promise<AiSpendConfig> {
-  const [existing] = await db.select().from(aiSpendSettingsTable).limit(1);
-  if (existing) {
-    await db.update(aiSpendSettingsTable).set(config);
-  } else {
-    await db.insert(aiSpendSettingsTable).values(config);
-  }
+  await db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(aiSpendSettingsTable).limit(1);
+    if (existing) {
+      // Freeze legacy usage rows (predating per-event display snapshots) at
+      // the OUTGOING rates before they change, so historical spend figures
+      // never silently shift when a superadmin edits the display rates.
+      // Rows written after snapshotting was introduced already carry their
+      // own display_paise and are untouched.
+      const oldRates = {
+        caption: withFee(existing.captionCostPaise, existing.feePercent),
+        image: withFee(existing.imageCostPaise, existing.feePercent),
+      };
+      for (const kind of ["caption", "image"] as const) {
+        await tx
+          .update(usageEventsTable)
+          .set({ displayPaise: oldRates[kind] })
+          .where(
+            and(eq(usageEventsTable.kind, kind), isNull(usageEventsTable.displayPaise)),
+          );
+      }
+      await tx.update(aiSpendSettingsTable).set(config);
+    } else {
+      // First-time configuration: leave legacy rows unsnapshotted so the
+      // newly set rates apply retroactively (there were no prior rates to
+      // preserve — the zero defaults were just "not configured yet").
+      await tx.insert(aiSpendSettingsTable).values(config);
+    }
+  });
   return getAiSpendConfig();
 }
 
