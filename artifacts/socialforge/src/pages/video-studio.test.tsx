@@ -27,11 +27,13 @@ const mockState: {
   generateError: any;
   jobs: any[];
   activeJob: any;
+  characters: any[];
 } = {
   lastGenerateVars: null,
   generateError: null,
   jobs: [],
   activeJob: undefined,
+  characters: [],
 };
 
 const toastSpy = vi.fn();
@@ -64,6 +66,7 @@ vi.mock("@workspace/api-client-react", async () => {
       isLoading: false,
     }),
     useListContent: () => ({ data: [], isLoading: false }),
+    useListCharacters: () => ({ data: mockState.characters }),
   });
 });
 
@@ -85,6 +88,7 @@ beforeEach(() => {
   mockState.generateError = null;
   mockState.jobs = [];
   mockState.activeJob = undefined;
+  mockState.characters = [];
   toastSpy.mockClear();
   cleanup();
 });
@@ -173,6 +177,52 @@ describe("Video Studio", () => {
       stockSource: "auto",
       subtitles: true,
       paragraphCount: 1,
+    });
+  });
+
+  it("blocks character-mode topic videos until a character is picked", async () => {
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "a day in the life of a founder" },
+    });
+    expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(false);
+    await user.click(screen.getByTestId("toggle-visuals-character"));
+    // No characters exist: generation is blocked and creation is offered.
+    expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("button-manage-characters")).toBeTruthy();
+    // The character manager opens from the empty state.
+    await user.click(screen.getByTestId("button-manage-characters"));
+    expect(screen.getByTestId("button-create-character")).toBeTruthy();
+  });
+
+  it("offers the character picker on Text to Video when characters exist", async () => {
+    mockState.characters = [
+      {
+        id: 3,
+        name: "Maya",
+        description: "cheerful founder",
+        referenceImagePath: "/objects/1/uploads/maya.png",
+        outfits: [
+          { id: 10, name: "Default", description: "casual", referenceImagePath: "/objects/1/uploads/maya.png", isDefault: true },
+        ],
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+    ];
+    renderPage();
+    expect(screen.getByTestId("select-character")).toBeTruthy();
+    // Without a character picked, the submitted body carries no character lock.
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "A calm ocean at dusk" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-video"));
+    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+    expect(mockState.lastGenerateVars.data).toMatchObject({
+      engine: "text_to_video",
+      characterId: null,
+      outfitId: null,
     });
   });
 

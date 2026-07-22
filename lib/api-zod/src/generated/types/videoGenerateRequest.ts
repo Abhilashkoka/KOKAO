@@ -8,6 +8,7 @@
 import type { VideoGenerateRequestAspectRatio } from './videoGenerateRequestAspectRatio';
 import type { VideoGenerateRequestEngine } from './videoGenerateRequestEngine';
 import type { VideoGenerateRequestStockSource } from './videoGenerateRequestStockSource';
+import type { VideoGenerateRequestVisualsSource } from './videoGenerateRequestVisualsSource';
 import type { VideoGenerateRequestVoice } from './videoGenerateRequestVoice';
 
 export interface VideoGenerateRequest {
@@ -60,4 +61,22 @@ export interface VideoGenerateRequest {
      * @maximum 3
      */
   paragraphCount?: number;
+  /** topic_to_video only; "character" generates every scene with the locked character instead of stock footage. Costs one video unit per scene (4 per paragraph). */
+  visualsSource?: VideoGenerateRequestVisualsSource;
+  /**
+     * Character lock: the character featured in the video (text_to_video and topic_to_video character mode).
+     * @nullable
+     */
+  characterId?: number | null;
+  /**
+     * Costume lock: the outfit the character wears. Defaults to the character's default outfit.
+     * @nullable
+     */
+  outfitId?: number | null;
+  /**
+     * topic_to_video character mode; costume-change instructions (e.g. "switch to gym wear for the workout scenes").
+     * @maxLength 500
+     * @nullable
+     */
+  wardrobeNotes?: string | null;
 }

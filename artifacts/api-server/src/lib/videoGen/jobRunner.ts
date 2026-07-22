@@ -12,6 +12,8 @@ import {
   type NarrationVoice,
   type StockSourceChoice,
 } from "./topicVideo";
+import { generateCharacterClip } from "./characterClip";
+import { videoJobUnits } from "./units";
 import type { SourceImage } from "./types";
 
 /**
@@ -117,6 +119,19 @@ async function produceVideo(
   const aspectRatio = options.aspectRatio ?? "9:16";
 
   if (job.engine === "text_to_video") {
+    // With a character picked, the clip is identity-anchored: keyframe edit
+    // of the locked outfit's reference, then image-to-video.
+    if (options.characterId) {
+      const result = await generateCharacterClip({
+        tenantId: job.tenantId,
+        characterId: options.characterId,
+        outfitId: options.outfitId ?? null,
+        prompt: job.prompt ?? "",
+        aspectRatio,
+        durationSec: options.durationSec ?? 5,
+      });
+      return { buffer: result.buffer, provider: result.provider, model: result.model };
+    }
     const result = await generateVideo({
       mode: "text",
       prompt: job.prompt ?? "",
@@ -187,6 +202,10 @@ async function produceVideo(
       subtitles: options.subtitles ?? true,
       paragraphCount: options.paragraphCount ?? 1,
       music,
+      visualsSource: options.visualsSource === "character" ? "character" : "stock",
+      characterId: options.characterId ?? null,
+      outfitId: options.outfitId ?? null,
+      wardrobeNotes: options.wardrobeNotes ?? null,
     });
     return { buffer: result.buffer, provider: result.provider, model: result.model };
   }
@@ -245,6 +264,9 @@ export async function runVideoGenerationJob(
       durationMs,
       error: null,
     });
+    // Multi-unit jobs (character story videos: one unit per scene) meter one
+    // usage row per unit so quota accounting matches what was reserved.
+    const units = videoJobUnits(job.engine, job.options);
     await recordUsage(job.tenantId, "video", {
       funding,
       durationMs,
@@ -253,6 +275,13 @@ export async function runVideoGenerationJob(
       provider: provider ?? "ffmpeg",
       requestBytes: job.prompt ? Buffer.byteLength(job.prompt) : 0,
     });
+    for (let i = 1; i < units; i++) {
+      await recordUsage(job.tenantId, "video", {
+        funding,
+        model: model ?? undefined,
+        provider: provider ?? undefined,
+      });
+    }
   } catch (error) {
     logger.error({ err: error, jobId }, "Video generation job failed");
     const message =
@@ -267,8 +296,9 @@ export async function runVideoGenerationJob(
       durationMs: Date.now() - startedAt,
     }).catch(() => {});
     if (funding === "credit") {
-      await refundCredits(job.tenantId, "video", 1, "video generation failed").catch(
-        (err) => logger.error({ err, jobId }, "Failed to refund video credit"),
+      const units = videoJobUnits(job.engine, job.options);
+      await refundCredits(job.tenantId, "video", units, "video generation failed").catch(
+        (err) => logger.error({ err, jobId }, "Failed to refund video credits"),
       );
     }
   }

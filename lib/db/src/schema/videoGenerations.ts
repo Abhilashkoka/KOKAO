@@ -38,6 +38,14 @@ export interface VideoJobOptions {
   subtitles?: boolean;
   /** topic_to_video: script length in paragraphs (~30s each, 1-3). */
   paragraphCount?: number;
+  /** topic_to_video: "stock" footage (default) or AI "character" scenes. */
+  visualsSource?: string;
+  /** Character lock: the tenant character featured in the video. */
+  characterId?: number | null;
+  /** Costume lock: the outfit the character wears (default outfit if null). */
+  outfitId?: number | null;
+  /** topic_to_video character mode: costume-change instructions. */
+  wardrobeNotes?: string | null;
 }
 
 export const videoGenerationsTable = pgTable("video_generations", {

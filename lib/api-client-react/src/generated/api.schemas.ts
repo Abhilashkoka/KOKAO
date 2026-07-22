@@ -2363,6 +2363,17 @@ export const VideoGenerateRequestStockSource = {
   pixabay: 'pixabay',
 } as const;
 
+/**
+ * topic_to_video only; "character" generates every scene with the locked character instead of stock footage. Costs one video unit per scene (4 per paragraph).
+ */
+export type VideoGenerateRequestVisualsSource = typeof VideoGenerateRequestVisualsSource[keyof typeof VideoGenerateRequestVisualsSource];
+
+
+export const VideoGenerateRequestVisualsSource = {
+  stock: 'stock',
+  character: 'character',
+} as const;
+
 export interface VideoGenerateRequest {
   engine: VideoGenerateRequestEngine;
   /**
@@ -2413,6 +2424,24 @@ export interface VideoGenerateRequest {
      * @maximum 3
      */
   paragraphCount?: number;
+  /** topic_to_video only; "character" generates every scene with the locked character instead of stock footage. Costs one video unit per scene (4 per paragraph). */
+  visualsSource?: VideoGenerateRequestVisualsSource;
+  /**
+     * Character lock: the character featured in the video (text_to_video and topic_to_video character mode).
+     * @nullable
+     */
+  characterId?: number | null;
+  /**
+     * Costume lock: the outfit the character wears. Defaults to the character's default outfit.
+     * @nullable
+     */
+  outfitId?: number | null;
+  /**
+     * topic_to_video character mode; costume-change instructions (e.g. "switch to gym wear for the workout scenes").
+     * @maxLength 500
+     * @nullable
+     */
+  wardrobeNotes?: string | null;
 }
 
 export type VideoJobEngine = typeof VideoJobEngine[keyof typeof VideoJobEngine];
@@ -2615,6 +2644,60 @@ export interface VideoGenSettingsView {
   providers: VideoGenProviderInfo[];
   /** Stock footage sources available to the Topic to Video engine. */
   stockSources: StockSourceInfo[];
+}
+
+export interface CharacterOutfit {
+  id: number;
+  name: string;
+  description: string;
+  /** The character wearing this outfit; serve via /api/storage{path}. */
+  referenceImagePath: string;
+  isDefault: boolean;
+}
+
+export interface Character {
+  id: number;
+  name: string;
+  /** Appearance description used in generation prompts. */
+  description: string;
+  /** Canonical reference image; serve via /api/storage{path}. */
+  referenceImagePath: string;
+  outfits: CharacterOutfit[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateCharacterRequest {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name: string;
+  /**
+     * Appearance description. Required unless sourceImagePath is given; when there is no upload, the reference image is AI-generated from it (funds like an image generation).
+     * @maxLength 1000
+     * @nullable
+     */
+  description?: string | null;
+  /**
+     * Optional uploaded reference photo (/objects/... path). Used as the character's canonical reference; no AI cost.
+     * @nullable
+     */
+  sourceImagePath?: string | null;
+}
+
+export interface CreateCharacterOutfitRequest {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name: string;
+  /**
+     * The costume. An identity-preserving variant of the character's reference is generated wearing it (funds like an image generation).
+     * @minLength 1
+     * @maxLength 500
+     */
+  description: string;
 }
 
 export interface UpdateVideoGenSettingsRequest {

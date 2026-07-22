@@ -276,6 +276,48 @@ describe("composeTopicVideo (real ffmpeg)", () => {
     120_000,
   );
 
+  it(
+    "follows an explicit scene map (one clip spanning several cues)",
+    async () => {
+      const clipA = await makeTestClip(1);
+      const clipB = await makeTestClip(1);
+      const out = await composeTopicVideo({
+        clips: [clipA, clipB],
+        narrationWav: makeTestWav(4.5),
+        cues: [
+          { text: "First cue of scene one.", startSec: 0, endSec: 1.4 },
+          { text: "Second cue, same scene.", startSec: 1.65, endSec: 2.4 },
+          { text: "Scene two wraps it up.", startSec: 2.65, endSec: 4.05 },
+        ],
+        totalDurationSec: 4.65,
+        aspectRatio: "9:16",
+        subtitles: true,
+        music: null,
+        sceneMap: [
+          { clipIndex: 0, durationSec: 2.65 },
+          { clipIndex: 1, durationSec: 2.0 },
+        ],
+      });
+      expect(out.toString("ascii", 4, 8)).toBe("ftyp");
+    },
+    120_000,
+  );
+
+  it("rejects a scene map that points at a missing clip", async () => {
+    await expect(
+      composeTopicVideo({
+        clips: [Buffer.from("x")],
+        narrationWav: makeTestWav(1),
+        cues: [{ text: "x", startSec: 0, endSec: 1 }],
+        totalDurationSec: 1,
+        aspectRatio: "9:16",
+        subtitles: false,
+        music: null,
+        sceneMap: [{ clipIndex: 3, durationSec: 1 }],
+      }),
+    ).rejects.toThrow(/missing clip/i);
+  });
+
   it("rejects an empty clip list", async () => {
     await expect(
       composeTopicVideo({

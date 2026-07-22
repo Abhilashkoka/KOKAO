@@ -23,8 +23,15 @@ const FPS = 30;
 const MUSIC_VOLUME = 0.2;
 const MUSIC_FADE_SEC = 1.5;
 
+/** An explicit visual scene: which clip plays, for how long. */
+export interface SceneSegment {
+  /** Index into `clips`. */
+  clipIndex: number;
+  durationSec: number;
+}
+
 export interface ComposeInput {
-  /** Downloaded stock clips, cycled across scenes. At least one. */
+  /** Source clips. Cycled per sentence, unless `sceneMap` dictates scenes. */
   clips: Buffer[];
   /** Complete narration track (WAV). */
   narrationWav: Buffer;
@@ -37,6 +44,12 @@ export interface ComposeInput {
   subtitles: boolean;
   /** Optional background music bytes. */
   music?: Buffer | null;
+  /**
+   * Optional explicit scene layout (character videos: one AI clip per scene,
+   * spanning several sentences). When omitted, one scene per cue cycling
+   * through `clips` — the stock-footage behavior.
+   */
+  sceneMap?: SceneSegment[] | null;
 }
 
 /**
@@ -88,7 +101,18 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
     throw new VideoGenProviderError("No narration to compose the video around.");
   }
   const { width, height } = ASPECT_DIMENSIONS[input.aspectRatio];
-  const durations = sceneDurations(input.cues, input.totalDurationSec);
+  const scenes: SceneSegment[] =
+    input.sceneMap && input.sceneMap.length > 0
+      ? input.sceneMap
+      : sceneDurations(input.cues, input.totalDurationSec).map((durationSec, i) => ({
+          clipIndex: i % input.clips.length,
+          durationSec,
+        }));
+  for (const scene of scenes) {
+    if (scene.clipIndex < 0 || scene.clipIndex >= input.clips.length) {
+      throw new VideoGenProviderError("Scene map references a missing clip.");
+    }
+  }
 
   const dir = await mkdtemp(join(tmpdir(), "kokao-topic-video-"));
   try {
@@ -105,17 +129,16 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
     const frame =
       `scale=${width}:${height}:force_original_aspect_ratio=increase,` +
       `crop=${width}:${height},setsar=1,fps=${FPS},format=yuv420p`;
-    for (let i = 0; i < durations.length; i++) {
-      const clipIndex = i % input.clips.length;
+    for (let i = 0; i < scenes.length; i++) {
       await runFfmpeg(
         [
           "-y",
           "-stream_loop",
           "-1",
           "-i",
-          `clip_${clipIndex}.mp4`,
+          `clip_${scenes[i]!.clipIndex}.mp4`,
           "-t",
-          durations[i]!.toFixed(3),
+          scenes[i]!.durationSec.toFixed(3),
           "-vf",
           frame,
           "-an",
@@ -130,7 +153,7 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
         dir,
       );
     }
-    const concatList = durations
+    const concatList = scenes
       .map((_, i) => `file 'seg_${String(i).padStart(3, "0")}.mp4'`)
       .join("\n");
     await writeFile(join(dir, "list.txt"), concatList);

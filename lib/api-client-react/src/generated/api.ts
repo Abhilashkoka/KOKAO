@@ -100,6 +100,7 @@ import type {
   CaptionResult,
   CarouselRequest,
   CarouselResult,
+  Character,
   ClaimGamificationRewardRequest,
   ClaimGamificationRewardResult,
   CompleteOnboardingInput,
@@ -110,6 +111,8 @@ import type {
   ContentInput,
   ContentItem,
   ContentUpdate,
+  CreateCharacterOutfitRequest,
+  CreateCharacterRequest,
   CreditPack,
   CreditPackInput,
   DataConsumptionAnalytics,
@@ -3897,6 +3900,366 @@ export const useAdminClearStockSourceKey = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAdminClearStockSourceKeyMutationOptions(options));
+    }
+
+export const getListCharactersUrl = () => {
+
+
+
+
+  return `/api/characters`
+}
+
+/**
+ * @summary List the workspace's characters with their outfits
+ */
+export const listCharacters = async ( options?: RequestInit): Promise<Character[]> => {
+
+  return customFetch<Character[]>(getListCharactersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListCharactersQueryKey = () => {
+    return [
+    `/api/characters`
+    ] as const;
+    }
+
+
+export const getListCharactersQueryOptions = <TData = Awaited<ReturnType<typeof listCharacters>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCharacters>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListCharactersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listCharacters>>> = ({ signal }) => listCharacters({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listCharacters>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListCharactersQueryResult = NonNullable<Awaited<ReturnType<typeof listCharacters>>>
+export type ListCharactersQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List the workspace's characters with their outfits
+ */
+
+export function useListCharacters<TData = Awaited<ReturnType<typeof listCharacters>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCharacters>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListCharactersQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateCharacterUrl = () => {
+
+
+
+
+  return `/api/characters`
+}
+
+/**
+ * @summary Create a character (from a description or an uploaded photo)
+ */
+export const createCharacter = async (createCharacterRequest: CreateCharacterRequest, options?: RequestInit): Promise<Character> => {
+
+  return customFetch<Character>(getCreateCharacterUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(createCharacterRequest)
+  }
+);}
+
+
+
+
+export const getCreateCharacterMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCharacter>>, TError,{data: BodyType<CreateCharacterRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createCharacter>>, TError,{data: BodyType<CreateCharacterRequest>}, TContext> => {
+
+const mutationKey = ['createCharacter'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createCharacter>>, {data: BodyType<CreateCharacterRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createCharacter(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateCharacterMutationResult = NonNullable<Awaited<ReturnType<typeof createCharacter>>>
+    export type CreateCharacterMutationBody = BodyType<CreateCharacterRequest>
+    export type CreateCharacterMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create a character (from a description or an uploaded photo)
+ */
+export const useCreateCharacter = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCharacter>>, TError,{data: BodyType<CreateCharacterRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createCharacter>>,
+        TError,
+        {data: BodyType<CreateCharacterRequest>},
+        TContext
+      > => {
+      return useMutation(getCreateCharacterMutationOptions(options));
+    }
+
+export const getDeleteCharacterUrl = (characterId: number,) => {
+
+
+
+
+  return `/api/characters/${characterId}`
+}
+
+/**
+ * @summary Delete a character and all its outfits
+ */
+export const deleteCharacter = async (characterId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteCharacterUrl(characterId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteCharacterMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCharacter>>, TError,{characterId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteCharacter>>, TError,{characterId: number}, TContext> => {
+
+const mutationKey = ['deleteCharacter'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteCharacter>>, {characterId: number}> = (props) => {
+          const {characterId} = props ?? {};
+
+          return  deleteCharacter(characterId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteCharacterMutationResult = NonNullable<Awaited<ReturnType<typeof deleteCharacter>>>
+
+    export type DeleteCharacterMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Delete a character and all its outfits
+ */
+export const useDeleteCharacter = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCharacter>>, TError,{characterId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteCharacter>>,
+        TError,
+        {characterId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteCharacterMutationOptions(options));
+    }
+
+export const getCreateCharacterOutfitUrl = (characterId: number,) => {
+
+
+
+
+  return `/api/characters/${characterId}/outfits`
+}
+
+/**
+ * @summary Add a costume variant (identity-preserving AI edit)
+ */
+export const createCharacterOutfit = async (characterId: number,
+    createCharacterOutfitRequest: CreateCharacterOutfitRequest, options?: RequestInit): Promise<Character> => {
+
+  return customFetch<Character>(getCreateCharacterOutfitUrl(characterId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(createCharacterOutfitRequest)
+  }
+);}
+
+
+
+
+export const getCreateCharacterOutfitMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCharacterOutfit>>, TError,{characterId: number;data: BodyType<CreateCharacterOutfitRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createCharacterOutfit>>, TError,{characterId: number;data: BodyType<CreateCharacterOutfitRequest>}, TContext> => {
+
+const mutationKey = ['createCharacterOutfit'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createCharacterOutfit>>, {characterId: number;data: BodyType<CreateCharacterOutfitRequest>}> = (props) => {
+          const {characterId,data} = props ?? {};
+
+          return  createCharacterOutfit(characterId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateCharacterOutfitMutationResult = NonNullable<Awaited<ReturnType<typeof createCharacterOutfit>>>
+    export type CreateCharacterOutfitMutationBody = BodyType<CreateCharacterOutfitRequest>
+    export type CreateCharacterOutfitMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Add a costume variant (identity-preserving AI edit)
+ */
+export const useCreateCharacterOutfit = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCharacterOutfit>>, TError,{characterId: number;data: BodyType<CreateCharacterOutfitRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createCharacterOutfit>>,
+        TError,
+        {characterId: number;data: BodyType<CreateCharacterOutfitRequest>},
+        TContext
+      > => {
+      return useMutation(getCreateCharacterOutfitMutationOptions(options));
+    }
+
+export const getDeleteCharacterOutfitUrl = (characterId: number,
+    outfitId: number,) => {
+
+
+
+
+  return `/api/characters/${characterId}/outfits/${outfitId}`
+}
+
+/**
+ * @summary Remove an outfit (the default outfit cannot be removed)
+ */
+export const deleteCharacterOutfit = async (characterId: number,
+    outfitId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteCharacterOutfitUrl(characterId,outfitId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteCharacterOutfitMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCharacterOutfit>>, TError,{characterId: number;outfitId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteCharacterOutfit>>, TError,{characterId: number;outfitId: number}, TContext> => {
+
+const mutationKey = ['deleteCharacterOutfit'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteCharacterOutfit>>, {characterId: number;outfitId: number}> = (props) => {
+          const {characterId,outfitId} = props ?? {};
+
+          return  deleteCharacterOutfit(characterId,outfitId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteCharacterOutfitMutationResult = NonNullable<Awaited<ReturnType<typeof deleteCharacterOutfit>>>
+
+    export type DeleteCharacterOutfitMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Remove an outfit (the default outfit cannot be removed)
+ */
+export const useDeleteCharacterOutfit = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCharacterOutfit>>, TError,{characterId: number;outfitId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteCharacterOutfit>>,
+        TError,
+        {characterId: number;outfitId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteCharacterOutfitMutationOptions(options));
     }
 
 export const getGetAiSpendRatesUrl = () => {

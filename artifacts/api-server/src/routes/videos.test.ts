@@ -45,6 +45,8 @@ import {
   tenantsTable,
   creditBalancesTable,
   creditLedgerTable,
+  charactersTable,
+  characterOutfitsTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
@@ -88,9 +90,54 @@ beforeEach(() => {
   runnerState.calls.length = 0;
 });
 
+async function seedCharacter(tenantId: number): Promise<{ characterId: number; outfitId: number; gymOutfitId: number }> {
+  const character = (
+    await db
+      .insert(charactersTable)
+      .values({
+        tenantId,
+        name: "Maya",
+        description: "cheerful founder",
+        referenceImagePath: `/objects/${tenantId}/uploads/maya.png`,
+      })
+      .returning()
+  )[0]!;
+  const defaultOutfit = (
+    await db
+      .insert(characterOutfitsTable)
+      .values({
+        tenantId,
+        characterId: character.id,
+        name: "Default",
+        description: "casual",
+        referenceImagePath: `/objects/${tenantId}/uploads/maya.png`,
+        isDefault: true,
+      })
+      .returning()
+  )[0]!;
+  const gym = (
+    await db
+      .insert(characterOutfitsTable)
+      .values({
+        tenantId,
+        characterId: character.id,
+        name: "Gym wear",
+        description: "leggings and top",
+        referenceImagePath: `/objects/${tenantId}/uploads/maya-gym.png`,
+        isDefault: false,
+      })
+      .returning()
+  )[0]!;
+  return { characterId: character.id, outfitId: defaultOutfit.id, gymOutfitId: gym.id };
+}
+
 afterAll(async () => {
   await waitForPendingJobs();
   for (const tenant of createdTenants) {
+    await db
+      .delete(characterOutfitsTable)
+      .where(eq(characterOutfitsTable.tenantId, tenant.tenantId));
+    await db.delete(charactersTable).where(eq(charactersTable.tenantId, tenant.tenantId));
     await db
       .delete(videoGenerationsTable)
       .where(eq(videoGenerationsTable.tenantId, tenant.tenantId));
@@ -219,6 +266,126 @@ describe("POST /api/ai/generate-video", () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/music path/i);
     expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("requires a character for a character-mode topic video", async () => {
+    await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "topic_to_video",
+        prompt: "a day in the life of a founder",
+        visualsSource: "character",
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/character/i);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("rejects a character that does not belong to the caller", async () => {
+    const other = await newTenant();
+    const seeded = await seedCharacter(other.tenantId);
+    await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "topic_to_video",
+        prompt: "a day in the life",
+        visualsSource: "character",
+        characterId: seeded.characterId,
+      });
+    expect(res.status).toBe(400);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("reserves one video unit per scene for character story videos", async () => {
+    const tenant = await newTenant("payg"); // 0 videos/month
+    const seeded = await seedCharacter(tenant.tenantId);
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 8,
+      kind: "admin_grant",
+      note: "test",
+    });
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "topic_to_video",
+        prompt: "a day in the life of a founder",
+        visualsSource: "character",
+        characterId: seeded.characterId,
+        outfitId: seeded.gymOutfitId,
+        wardrobeNotes: "gym wear for the workout scenes",
+        paragraphCount: 2, // Medium = 8 scenes = 8 units
+      });
+    expect(res.status).toBe(201);
+
+    await waitForPendingJobs();
+    expect(runnerState.calls).toEqual([{ jobId: res.body.id, funding: "credit" }]);
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(0);
+
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+    expect(row?.options).toMatchObject({
+      visualsSource: "character",
+      characterId: seeded.characterId,
+      outfitId: seeded.gymOutfitId,
+      wardrobeNotes: "gym wear for the workout scenes",
+    });
+  });
+
+  it("402s a character video the plan and credits cannot cover", async () => {
+    const tenant = await newTenant("payg");
+    const seeded = await seedCharacter(tenant.tenantId);
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 3, // Short character video needs 4
+      kind: "admin_grant",
+      note: "test",
+    });
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "topic_to_video",
+        prompt: "a day in the life",
+        visualsSource: "character",
+        characterId: seeded.characterId,
+      });
+    expect(res.status).toBe(402);
+    expect(res.body.error).toMatch(/4 video units/);
+    // The all-or-nothing reserve left the partial balance untouched.
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(3);
+  });
+
+  it("resolves the default outfit for a character text-to-video clip", async () => {
+    const tenant = await newTenant();
+    const seeded = await seedCharacter(tenant.tenantId);
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "text_to_video",
+        prompt: "sipping chai on a balcony at sunrise",
+        characterId: seeded.characterId,
+      });
+    expect(res.status).toBe(201);
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+    expect(row?.options).toMatchObject({
+      characterId: seeded.characterId,
+      outfitId: seeded.outfitId, // default outfit resolved server-side
+    });
   });
 
   it("402s when the plan has no video quota and no credits", async () => {

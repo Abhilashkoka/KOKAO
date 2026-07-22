@@ -1465,6 +1465,115 @@ export const AdminClearStockSourceKeyResponse = zod.object({
 
 
 /**
+ * @summary List the workspace's characters with their outfits
+ */
+export const ListCharactersResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string().describe('Appearance description used in generation prompts.'),
+  "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
+  "outfits": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().describe('The character wearing this outfit; serve via \/api\/storage{path}.'),
+  "isDefault": zod.boolean()
+})),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+export const ListCharactersResponse = zod.array(ListCharactersResponseItem)
+
+
+/**
+ * @summary Create a character (from a description or an uploaded photo)
+ */
+export const createCharacterBodyNameMax = 80;
+
+export const createCharacterBodyDescriptionMax = 1000;
+
+
+
+export const CreateCharacterBody = zod.object({
+  "name": zod.string().min(1).max(createCharacterBodyNameMax),
+  "description": zod.string().max(createCharacterBodyDescriptionMax).nullish().describe('Appearance description. Required unless sourceImagePath is given; when there is no upload, the reference image is AI-generated from it (funds like an image generation).'),
+  "sourceImagePath": zod.string().nullish().describe('Optional uploaded reference photo (\/objects\/... path). Used as the character\'s canonical reference; no AI cost.')
+})
+
+export const CreateCharacterResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string().describe('Appearance description used in generation prompts.'),
+  "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
+  "outfits": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().describe('The character wearing this outfit; serve via \/api\/storage{path}.'),
+  "isDefault": zod.boolean()
+})),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Delete a character and all its outfits
+ */
+export const DeleteCharacterParams = zod.object({
+  "characterId": zod.coerce.number()
+})
+
+export const DeleteCharacterResponse = zod.void()
+
+
+/**
+ * @summary Add a costume variant (identity-preserving AI edit)
+ */
+export const CreateCharacterOutfitParams = zod.object({
+  "characterId": zod.coerce.number()
+})
+
+export const createCharacterOutfitBodyNameMax = 80;
+
+export const createCharacterOutfitBodyDescriptionMax = 500;
+
+
+
+export const CreateCharacterOutfitBody = zod.object({
+  "name": zod.string().min(1).max(createCharacterOutfitBodyNameMax),
+  "description": zod.string().min(1).max(createCharacterOutfitBodyDescriptionMax).describe('The costume. An identity-preserving variant of the character\'s reference is generated wearing it (funds like an image generation).')
+})
+
+export const CreateCharacterOutfitResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string().describe('Appearance description used in generation prompts.'),
+  "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
+  "outfits": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().describe('The character wearing this outfit; serve via \/api\/storage{path}.'),
+  "isDefault": zod.boolean()
+})),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Remove an outfit (the default outfit cannot be removed)
+ */
+export const DeleteCharacterOutfitParams = zod.object({
+  "characterId": zod.coerce.number(),
+  "outfitId": zod.coerce.number()
+})
+
+export const DeleteCharacterOutfitResponse = zod.void()
+
+
+/**
  * @summary Effective per-caption/per-image display amounts (fee included)
  */
 export const GetAiSpendRatesResponse = zod.object({
@@ -4756,6 +4865,9 @@ export const generateVideoBodySubtitlesDefault = true;
 export const generateVideoBodyParagraphCountDefault = 1;
 export const generateVideoBodyParagraphCountMax = 3;
 
+export const generateVideoBodyVisualsSourceDefault = `stock`;
+export const generateVideoBodyWardrobeNotesMax = 500;
+
 
 
 export const GenerateVideoBody = zod.object({
@@ -4770,7 +4882,11 @@ export const GenerateVideoBody = zod.object({
   "voice": zod.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']).default(generateVideoBodyVoiceDefault).describe('topic_to_video only; the narration voice.'),
   "stockSource": zod.enum(['auto', 'pexels', 'pixabay']).default(generateVideoBodyStockSourceDefault).describe('topic_to_video only; where stock footage comes from (auto = first configured source).'),
   "subtitles": zod.boolean().default(generateVideoBodySubtitlesDefault).describe('topic_to_video only; burn per-sentence subtitles.'),
-  "paragraphCount": zod.number().min(1).max(generateVideoBodyParagraphCountMax).default(generateVideoBodyParagraphCountDefault).describe('topic_to_video only; script length in paragraphs (roughly 30 seconds of narration each).')
+  "paragraphCount": zod.number().min(1).max(generateVideoBodyParagraphCountMax).default(generateVideoBodyParagraphCountDefault).describe('topic_to_video only; script length in paragraphs (roughly 30 seconds of narration each).'),
+  "visualsSource": zod.enum(['stock', 'character']).default(generateVideoBodyVisualsSourceDefault).describe('topic_to_video only; \"character\" generates every scene with the locked character instead of stock footage. Costs one video unit per scene (4 per paragraph).'),
+  "characterId": zod.number().nullish().describe('Character lock: the character featured in the video (text_to_video and topic_to_video character mode).'),
+  "outfitId": zod.number().nullish().describe('Costume lock: the outfit the character wears. Defaults to the character\'s default outfit.'),
+  "wardrobeNotes": zod.string().max(generateVideoBodyWardrobeNotesMax).nullish().describe('topic_to_video character mode; costume-change instructions (e.g. \"switch to gym wear for the workout scenes\").')
 })
 
 export const GenerateVideoResponse = zod.object({

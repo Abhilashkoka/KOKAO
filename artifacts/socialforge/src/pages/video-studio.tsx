@@ -10,14 +10,21 @@ import {
   useImportGoogleDriveFiles,
   useRequestUploadUrl,
   useListContent,
+  useListCharacters,
+  useCreateCharacter,
+  useDeleteCharacter,
+  useCreateCharacterOutfit,
+  useDeleteCharacterOutfit,
   getGoogleDriveAuthUrl,
   getListVideoJobsQueryKey,
   getGetVideoJobQueryKey,
   getGetGoogleDriveStatusQueryKey,
   getListGoogleDriveFilesQueryKey,
   getListContentQueryKey,
+  getListCharactersQueryKey,
   type VideoJob,
   type GoogleDriveFile,
+  type Character,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -64,6 +71,9 @@ import {
   XCircle,
   Sparkles,
   Lightbulb,
+  UserRound,
+  Shirt,
+  Trash2,
 } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 
@@ -127,6 +137,11 @@ export function VideoStudioPage() {
   const [voice, setVoice] = useState<Voice>("alloy");
   const [paragraphCount, setParagraphCount] = useState(1);
   const [subtitles, setSubtitles] = useState(true);
+  const [visuals, setVisuals] = useState<"stock" | "character">("stock");
+  const [characterId, setCharacterId] = useState<number | null>(null);
+  const [outfitId, setOutfitId] = useState<number | null>(null);
+  const [wardrobeNotes, setWardrobeNotes] = useState("");
+  const [charactersOpen, setCharactersOpen] = useState(false);
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [music, setMusic] = useState<{ objectPath: string; name: string } | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -149,6 +164,10 @@ export function VideoStudioPage() {
   const { data: jobs } = useListVideoJobs({
     query: { queryKey: getListVideoJobsQueryKey() },
   });
+  const { data: characters } = useListCharacters({
+    query: { queryKey: getListCharactersQueryKey() },
+  });
+  const activeCharacter = characters?.find((c) => c.id === characterId) ?? null;
 
   // Poll the active job until it settles; the server does the heavy lifting.
   const { data: activeJob } = useGetVideoJob(activeJobId ?? 0, {
@@ -280,11 +299,14 @@ export function VideoStudioPage() {
 
   const canGenerate = useMemo(() => {
     if (generateVideo.isPending || uploading) return false;
-    if (engine === "text_to_video" || engine === "topic_to_video")
+    if (engine === "topic_to_video") {
+      if (visuals === "character" && characterId === null) return false;
       return prompt.trim().length >= 3;
+    }
+    if (engine === "text_to_video") return prompt.trim().length >= 3;
     if (engine === "image_to_video") return photos.length >= 1;
     return photos.length >= 1;
-  }, [engine, prompt, photos, generateVideo.isPending, uploading]);
+  }, [engine, prompt, photos, generateVideo.isPending, uploading, visuals, characterId]);
 
   const busy =
     activeJob != null &&
@@ -315,6 +337,21 @@ export function VideoStudioPage() {
           stockSource: "auto",
           subtitles,
           paragraphCount,
+          visualsSource: engine === "topic_to_video" ? visuals : "stock",
+          characterId:
+            (engine === "topic_to_video" && visuals === "character") ||
+            engine === "text_to_video"
+              ? characterId
+              : null,
+          outfitId:
+            (engine === "topic_to_video" && visuals === "character") ||
+            engine === "text_to_video"
+              ? outfitId
+              : null,
+          wardrobeNotes:
+            engine === "topic_to_video" && visuals === "character" && wardrobeNotes.trim()
+              ? wardrobeNotes.trim()
+              : null,
         },
       },
       {
@@ -427,6 +464,70 @@ export function VideoStudioPage() {
                 rows={3}
               />
             </div>
+          )}
+
+          {engine === "topic_to_video" && (
+            <div className="space-y-3">
+              <Label>Visuals</Label>
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                value={visuals}
+                onValueChange={(v) => v && setVisuals(v as "stock" | "character")}
+              >
+                <ToggleGroupItem value="stock" data-testid="toggle-visuals-stock">
+                  Stock footage
+                </ToggleGroupItem>
+                <ToggleGroupItem value="character" data-testid="toggle-visuals-character">
+                  Your character
+                </ToggleGroupItem>
+              </ToggleGroup>
+              {visuals === "character" && (
+                <div className="space-y-3">
+                  <CharacterPicker
+                    characters={characters}
+                    characterId={characterId}
+                    outfitId={outfitId}
+                    onCharacterChange={(id) => {
+                      setCharacterId(id);
+                      setOutfitId(null);
+                    }}
+                    onOutfitChange={setOutfitId}
+                    onManage={() => setCharactersOpen(true)}
+                  />
+                  <div className="space-y-2">
+                    <Label htmlFor="wardrobe-notes">Costume changes (optional)</Label>
+                    <Input
+                      id="wardrobe-notes"
+                      data-testid="input-wardrobe-notes"
+                      maxLength={500}
+                      placeholder="Switch to gym wear for the workout scenes..."
+                      value={wardrobeNotes}
+                      onChange={(e) => setWardrobeNotes(e.target.value)}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Every scene is generated with your character — this video uses{" "}
+                    {4 * paragraphCount} video units (one per scene).
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {engine === "text_to_video" && (
+            <CharacterPicker
+              characters={characters}
+              characterId={characterId}
+              outfitId={outfitId}
+              allowNone
+              onCharacterChange={(id) => {
+                setCharacterId(id);
+                setOutfitId(null);
+              }}
+              onOutfitChange={setOutfitId}
+              onManage={() => setCharactersOpen(true)}
+            />
           )}
 
           {needsPhotos && (
@@ -860,7 +961,447 @@ export function VideoStudioPage() {
           setDriveOpen(false);
         }}
       />
+
+      <CharacterManagerDialog open={charactersOpen} onOpenChange={setCharactersOpen} />
     </div>
+  );
+}
+
+/** Pick a locked character (and outfit) for identity-consistent videos. */
+function CharacterPicker({
+  characters,
+  characterId,
+  outfitId,
+  allowNone = false,
+  onCharacterChange,
+  onOutfitChange,
+  onManage,
+}: {
+  characters: Character[] | undefined;
+  characterId: number | null;
+  outfitId: number | null;
+  allowNone?: boolean;
+  onCharacterChange: (id: number | null) => void;
+  onOutfitChange: (id: number | null) => void;
+  onManage: () => void;
+}) {
+  const selected = characters?.find((c) => c.id === characterId) ?? null;
+  if (!characters || characters.length === 0) {
+    return (
+      <div className="space-y-2">
+        <Label>{allowNone ? "Character (optional)" : "Character"}</Label>
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <span>No characters yet — create one to lock the same face across videos.</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onManage}
+            data-testid="button-manage-characters"
+          >
+            <UserRound className="h-4 w-4 mr-1.5" /> Create a character
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-end gap-4">
+      <div className="space-y-2">
+        <Label>{allowNone ? "Character (optional)" : "Character"}</Label>
+        <Select
+          value={characterId === null ? "none" : String(characterId)}
+          onValueChange={(v) => onCharacterChange(v === "none" ? null : Number(v))}
+        >
+          <SelectTrigger className="w-44" data-testid="select-character">
+            <SelectValue placeholder={allowNone ? "None" : "Pick a character"} />
+          </SelectTrigger>
+          <SelectContent>
+            {allowNone && <SelectItem value="none">None</SelectItem>}
+            {characters.map((c) => (
+              <SelectItem key={c.id} value={String(c.id)}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {selected && selected.outfits.length > 0 && (
+        <div className="space-y-2">
+          <Label>Outfit</Label>
+          <Select
+            value={outfitId === null ? "default" : String(outfitId)}
+            onValueChange={(v) => onOutfitChange(v === "default" ? null : Number(v))}
+          >
+            <SelectTrigger className="w-44" data-testid="select-outfit">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="default">
+                {selected.outfits.find((o) => o.isDefault)?.name ?? "Default"} (default)
+              </SelectItem>
+              {selected.outfits
+                .filter((o) => !o.isDefault)
+                .map((o) => (
+                  <SelectItem key={o.id} value={String(o.id)}>
+                    {o.name}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={onManage}
+        data-testid="button-manage-characters"
+      >
+        <UserRound className="h-4 w-4 mr-1.5" /> Manage
+      </Button>
+    </div>
+  );
+}
+
+/** Create and curate characters: references, outfits, deletions. */
+function CharacterManagerDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const requestUploadUrl = useRequestUploadUrl();
+  const { data: characters } = useListCharacters({
+    query: { queryKey: getListCharactersQueryKey(), enabled: open },
+  });
+  const createCharacter = useCreateCharacter();
+  const deleteCharacter = useDeleteCharacter();
+  const createOutfit = useCreateCharacterOutfit();
+  const deleteOutfit = useDeleteCharacterOutfit();
+
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [photoPath, setPhotoPath] = useState<string | null>(null);
+  const [photoName, setPhotoName] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [outfitFor, setOutfitFor] = useState<number | null>(null);
+  const [outfitName, setOutfitName] = useState("");
+  const [outfitDescription, setOutfitDescription] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const photoRef = useRef<HTMLInputElement>(null);
+
+  const invalidate = () =>
+    void queryClient.invalidateQueries({ queryKey: getListCharactersQueryKey() });
+
+  const onApiError = (error: any, fallbackTitle: string) => {
+    if (error?.status === 402) {
+      toast({
+        title: "Image quota reached",
+        description: error?.message || "Character images fund like image generations.",
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: fallbackTitle,
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handlePhoto = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    if (!IMAGE_TYPES.includes(file.type)) {
+      toast({
+        title: "Not a supported image",
+        description: "Use a PNG, JPEG, or WebP photo.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: "Photo too large", description: "Photos must be under 10 MB.", variant: "destructive" });
+      return;
+    }
+    setUploading(true);
+    try {
+      const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
+        data: { name: file.name, size: file.size, contentType: file.type },
+      });
+      const put = await fetch(uploadURL, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type },
+      });
+      if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+      setPhotoPath(objectPath);
+      setPhotoName(file.name);
+    } catch {
+      toast({ title: "Upload failed", description: "Please try again.", variant: "destructive" });
+    } finally {
+      setUploading(false);
+      if (photoRef.current) photoRef.current.value = "";
+    }
+  };
+
+  const onCreate = () => {
+    createCharacter.mutate(
+      {
+        data: {
+          name: name.trim(),
+          description: description.trim() || null,
+          sourceImagePath: photoPath,
+        },
+      },
+      {
+        onSuccess: () => {
+          setName("");
+          setDescription("");
+          setPhotoPath(null);
+          setPhotoName("");
+          invalidate();
+          toast({
+            title: "Character created",
+            description: "Pick them in Text to Video or Topic to Video to lock their identity.",
+          });
+        },
+        onError: (error: any) => onApiError(error, "Could not create the character"),
+      },
+    );
+  };
+
+  const onAddOutfit = (characterId: number) => {
+    createOutfit.mutate(
+      {
+        characterId,
+        data: { name: outfitName.trim(), description: outfitDescription.trim() },
+      },
+      {
+        onSuccess: () => {
+          setOutfitFor(null);
+          setOutfitName("");
+          setOutfitDescription("");
+          invalidate();
+          toast({ title: "Outfit added", description: "Same character, new costume — ready to lock." });
+        },
+        onError: (error: any) => onApiError(error, "Could not add the outfit"),
+      },
+    );
+  };
+
+  const canCreate =
+    name.trim().length >= 1 &&
+    (description.trim().length >= 3 || photoPath !== null) &&
+    !createCharacter.isPending &&
+    !uploading;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Characters</DialogTitle>
+          <DialogDescription>
+            The same character, locked across every scene and video. Describe one and AI creates
+            the reference, or upload a photo.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 border border-border rounded-lg p-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="character-name">Name</Label>
+              <Input
+                id="character-name"
+                data-testid="input-character-name"
+                maxLength={80}
+                placeholder="Maya"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Reference photo (optional)</Label>
+              {photoPath ? (
+                <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
+                  <ImageIcon className="h-4 w-4 text-primary shrink-0" />
+                  <span className="truncate">{photoName}</span>
+                  <button type="button" aria-label="Remove photo" onClick={() => setPhotoPath(null)} className="ml-auto">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={uploading}
+                  onClick={() => photoRef.current?.click()}
+                  data-testid="button-upload-character-photo"
+                >
+                  <Upload className="h-4 w-4 mr-1.5" /> Upload
+                </Button>
+              )}
+              <input
+                ref={photoRef}
+                type="file"
+                accept={IMAGE_TYPES.join(",")}
+                className="hidden"
+                onChange={(e) => void handlePhoto(e.target.files)}
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="character-description">Appearance</Label>
+            <Textarea
+              id="character-description"
+              data-testid="input-character-description"
+              rows={2}
+              maxLength={1000}
+              placeholder="A cheerful woman in her late 20s, shoulder-length black hair, warm brown eyes..."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
+          <Button
+            onClick={onCreate}
+            disabled={!canCreate}
+            data-testid="button-create-character"
+          >
+            {createCharacter.isPending ? (
+              <>
+                <RippleSpinner className="mr-2 h-4 w-4" /> Creating…
+              </>
+            ) : (
+              <>
+                <UserRound className="h-4 w-4 mr-2" /> Create character
+              </>
+            )}
+          </Button>
+        </div>
+
+        {characters && characters.length > 0 && (
+          <div className="space-y-3">
+            {characters.map((c) => (
+              <div
+                key={c.id}
+                className="border border-border rounded-lg p-3 flex gap-3"
+                data-testid={`character-card-${c.id}`}
+              >
+                <img
+                  src={`/api/storage${c.referenceImagePath}`}
+                  alt={c.name}
+                  className="h-20 w-14 object-cover rounded-md border border-border shrink-0"
+                />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium truncate">{c.name}</p>
+                    <button
+                      type="button"
+                      aria-label={`Delete ${c.name}`}
+                      data-testid={`button-delete-character-${c.id}`}
+                      className="ml-auto text-muted-foreground hover:text-destructive"
+                      onClick={() => {
+                        if (confirmDeleteId === c.id) {
+                          deleteCharacter.mutate(
+                            { characterId: c.id },
+                            { onSuccess: invalidate },
+                          );
+                          setConfirmDeleteId(null);
+                        } else {
+                          setConfirmDeleteId(c.id);
+                        }
+                      }}
+                    >
+                      {confirmDeleteId === c.id ? (
+                        <span className="text-xs text-destructive">Tap again to delete</span>
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {c.outfits.map((o) => (
+                      <Badge key={o.id} variant={o.isDefault ? "secondary" : "outline"}>
+                        <Shirt className="h-3 w-3 mr-1" />
+                        {o.name}
+                        {!o.isDefault && (
+                          <button
+                            type="button"
+                            aria-label={`Remove outfit ${o.name}`}
+                            className="ml-1"
+                            onClick={() =>
+                              deleteOutfit.mutate(
+                                { characterId: c.id, outfitId: o.id },
+                                { onSuccess: invalidate },
+                              )
+                            }
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </Badge>
+                    ))}
+                  </div>
+                  {outfitFor === c.id ? (
+                    <div className="space-y-2">
+                      <Input
+                        data-testid="input-outfit-name"
+                        maxLength={80}
+                        placeholder="Outfit name (Gym wear)"
+                        value={outfitName}
+                        onChange={(e) => setOutfitName(e.target.value)}
+                      />
+                      <Input
+                        data-testid="input-outfit-description"
+                        maxLength={500}
+                        placeholder="Describe it: black leggings, teal sports top, white sneakers"
+                        value={outfitDescription}
+                        onChange={(e) => setOutfitDescription(e.target.value)}
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          disabled={
+                            !outfitName.trim() ||
+                            !outfitDescription.trim() ||
+                            createOutfit.isPending
+                          }
+                          onClick={() => onAddOutfit(c.id)}
+                          data-testid="button-save-outfit"
+                        >
+                          {createOutfit.isPending ? "Adding…" : "Add outfit"}
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setOutfitFor(null)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setOutfitFor(c.id);
+                        setOutfitName("");
+                        setOutfitDescription("");
+                      }}
+                      data-testid={`button-add-outfit-${c.id}`}
+                    >
+                      <Shirt className="h-4 w-4 mr-1.5" /> Add outfit
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

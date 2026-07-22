@@ -8,6 +8,8 @@ import { spendCredit, refundCredits } from "../lib/credits";
 import { enqueueBackgroundJob } from "../lib/backgroundJobs";
 import { runVideoGenerationJob } from "../lib/videoGen/jobRunner";
 import { MAX_SLIDESHOW_IMAGES } from "../lib/videoGen/slideshow";
+import { videoJobUnits } from "../lib/videoGen/units";
+import { getCharacterDetail, resolveOutfit } from "../lib/characters";
 import { serializeContent } from "../lib/serializers";
 import type { VideoGeneration } from "@workspace/db";
 
@@ -87,6 +89,37 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     return;
   }
 
+  // Character lock: validate the character (and outfit) belong to the caller
+  // BEFORE funding, and resolve the effective outfit so the job is
+  // self-describing even if the default outfit changes later.
+  const visualsSource =
+    body.engine === "topic_to_video" && body.visualsSource === "character"
+      ? "character"
+      : "stock";
+  const wantsCharacter =
+    visualsSource === "character" ||
+    (body.engine === "text_to_video" && body.characterId != null);
+  let characterId: number | null = null;
+  let outfitId: number | null = null;
+  if (wantsCharacter) {
+    if (body.characterId == null) {
+      res.status(400).json({ error: "Pick a character for a character video." });
+      return;
+    }
+    const detail = await getCharacterDetail(req.tenantId, body.characterId);
+    if (!detail) {
+      res.status(400).json({ error: "That character does not exist." });
+      return;
+    }
+    const outfit = resolveOutfit(detail, body.outfitId ?? null);
+    if (!outfit) {
+      res.status(400).json({ error: "That outfit does not exist." });
+      return;
+    }
+    characterId = detail.character.id;
+    outfitId = outfit.id;
+  }
+
   const tenant = (
     await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId)).limit(1)
   )[0];
@@ -95,19 +128,40 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     return;
   }
 
-  // Fund like every metered generation: monthly plan quota first, then an
-  // atomically reserved credit (refunded by the job runner on failure).
+  const options = {
+    aspectRatio: body.aspectRatio ?? "9:16",
+    durationSec: body.durationSec ?? 5,
+    slideDurationSec: body.slideDurationSec ?? 3,
+    overlayText: body.overlayText ?? null,
+    musicPath: body.musicPath ?? null,
+    voice: body.voice ?? "alloy",
+    stockSource: body.stockSource ?? "auto",
+    subtitles: body.subtitles ?? true,
+    paragraphCount: body.paragraphCount ?? 1,
+    visualsSource,
+    characterId,
+    outfitId,
+    wardrobeNotes: body.wardrobeNotes?.trim() || null,
+  };
+
+  // Fund like every metered generation: monthly plan quota first, then
+  // atomically reserved credits (refunded by the job runner on failure).
+  // Character story videos cost one unit PER SCENE — every scene is a real
+  // keyframe + image-to-video generation.
+  const units = videoJobUnits(body.engine, options);
   const limits = await getPlanLimits(tenant.plan);
   const usage = await getUsage(req.tenantId);
   let funding: "quota" | "credit";
-  if (limits.videos === -1 || usage.videos < limits.videos) {
+  if (limits.videos === -1 || usage.videos + units <= limits.videos) {
     funding = "quota";
-  } else if (await spendCredit(req.tenantId, "video")) {
+  } else if (await spendCredit(req.tenantId, "video", units)) {
     funding = "credit";
   } else {
     res.status(402).json({
       error:
-        "Monthly video quota reached and no video credits left. Upgrade your plan or buy a credit pack.",
+        units > 1
+          ? `This character video needs ${units} video units (one per scene) and your plan does not have enough left. Upgrade your plan or buy a credit pack.`
+          : "Monthly video quota reached and no video credits left. Upgrade your plan or buy a credit pack.",
     });
     return;
   }
@@ -121,17 +175,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
         status: "queued",
         prompt: body.prompt?.trim() || null,
         sourceImagePaths,
-        options: {
-          aspectRatio: body.aspectRatio ?? "9:16",
-          durationSec: body.durationSec ?? 5,
-          slideDurationSec: body.slideDurationSec ?? 3,
-          overlayText: body.overlayText ?? null,
-          musicPath: body.musicPath ?? null,
-          voice: body.voice ?? "alloy",
-          stockSource: body.stockSource ?? "auto",
-          subtitles: body.subtitles ?? true,
-          paragraphCount: body.paragraphCount ?? 1,
-        },
+        options,
       })
       .returning()
   )[0]!;
@@ -144,7 +188,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       .set({ status: "failed", error: "Server restarting; please retry." })
       .where(eq(videoGenerationsTable.id, job.id));
     if (funding === "credit") {
-      await refundCredits(req.tenantId, "video", 1, "video enqueue rejected");
+      await refundCredits(req.tenantId, "video", units, "video enqueue rejected");
     }
     res.status(503).json({ error: "Server is restarting. Please retry in a moment." });
     return;

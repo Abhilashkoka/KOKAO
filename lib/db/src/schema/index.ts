@@ -1,4 +1,5 @@
 export * from "./tenants";
+export * from "./characters";
 export * from "./brandKits";
 export * from "./brandKitPayload";
 export * from "./brandKitVersions";

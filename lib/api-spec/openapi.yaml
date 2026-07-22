@@ -1432,6 +1432,142 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /characters:
+    get:
+      operationId: listCharacters
+      tags: [characters]
+      summary: List the workspace's characters with their outfits
+      responses:
+        "200":
+          description: Characters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Character"
+    post:
+      operationId: createCharacter
+      tags: [characters]
+      summary: Create a character (from a description or an uploaded photo)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCharacterRequest"
+      responses:
+        "201":
+          description: Created (includes the auto-created Default outfit)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Character"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Image quota exceeded (AI-generated reference)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /characters/{characterId}:
+    parameters:
+      - name: characterId
+        in: path
+        required: true
+        schema:
+          type: integer
+    delete:
+      operationId: deleteCharacter
+      tags: [characters]
+      summary: Delete a character and all its outfits
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /characters/{characterId}/outfits:
+    parameters:
+      - name: characterId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: createCharacterOutfit
+      tags: [characters]
+      summary: Add a costume variant (identity-preserving AI edit)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCharacterOutfitRequest"
+      responses:
+        "201":
+          description: The character with its updated outfits
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Character"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Image quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /characters/{characterId}/outfits/{outfitId}:
+    parameters:
+      - name: characterId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: outfitId
+        in: path
+        required: true
+        schema:
+          type: integer
+    delete:
+      operationId: deleteCharacterOutfit
+      tags: [characters]
+      summary: Remove an outfit (the default outfit cannot be removed)
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          description: Cannot remove the default outfit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai-spend/rates:
     get:
       operationId: getAiSpendRates
@@ -9387,6 +9523,30 @@ components:
           description: >-
             topic_to_video only; script length in paragraphs (roughly 30
             seconds of narration each).
+        visualsSource:
+          type: string
+          enum: [stock, character]
+          default: stock
+          description: >-
+            topic_to_video only; "character" generates every scene with the
+            locked character instead of stock footage. Costs one video unit
+            per scene (4 per paragraph).
+        characterId:
+          type: ["integer", "null"]
+          description: >-
+            Character lock: the character featured in the video
+            (text_to_video and topic_to_video character mode).
+        outfitId:
+          type: ["integer", "null"]
+          description: >-
+            Costume lock: the outfit the character wears. Defaults to the
+            character's default outfit.
+        wardrobeNotes:
+          type: ["string", "null"]
+          maxLength: 500
+          description: >-
+            topic_to_video character mode; costume-change instructions
+            (e.g. "switch to gym wear for the workout scenes").
     VideoJob:
       type: object
       required:
@@ -9613,6 +9773,82 @@ components:
           type: ["string", "null"]
           enum: [database, env, null]
           description: Where the active key comes from (admin-entered key wins over the env secret).
+    Character:
+      type: object
+      required:
+        [id, name, description, referenceImagePath, outfits, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+          description: Appearance description used in generation prompts.
+        referenceImagePath:
+          type: string
+          description: Canonical reference image; serve via /api/storage{path}.
+        outfits:
+          type: array
+          items:
+            $ref: "#/components/schemas/CharacterOutfit"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CharacterOutfit:
+      type: object
+      required: [id, name, description, referenceImagePath, isDefault]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        referenceImagePath:
+          type: string
+          description: The character wearing this outfit; serve via /api/storage{path}.
+        isDefault:
+          type: boolean
+    CreateCharacterRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        description:
+          type: ["string", "null"]
+          maxLength: 1000
+          description: >-
+            Appearance description. Required unless sourceImagePath is given;
+            when there is no upload, the reference image is AI-generated from
+            it (funds like an image generation).
+        sourceImagePath:
+          type: ["string", "null"]
+          description: >-
+            Optional uploaded reference photo (/objects/... path). Used as the
+            character's canonical reference; no AI cost.
+    CreateCharacterOutfitRequest:
+      type: object
+      required: [name, description]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: >-
+            The costume. An identity-preserving variant of the character's
+            reference is generated wearing it (funds like an image
+            generation).
     UpdateVideoGenSettingsRequest:
       type: object
       required: [provider]

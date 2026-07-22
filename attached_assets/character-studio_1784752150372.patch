@@ -1,0 +1,4234 @@
+From e971d6f45417fb15782b63f60f726c12e339f1c1 Mon Sep 17 00:00:00 2001
+From: Abhilash Koka <abhilash.koka1@gmail.com>
+Date: Wed, 22 Jul 2026 20:26:05 +0000
+Subject: [PATCH] Add character lock and costume lock/change to the Video
+ Studio
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Reference-anchored character consistency: a tenant creates a character
+(described → AI-generated full-body reference, or an uploaded photo) and
+every costume is an identity-preserving gpt-image-1 edit of that same
+reference. Video engines then anchor generation to the locked outfit's
+image, so the same character — in the same costume, unless the wardrobe
+plan changes it — appears across scenes and videos.
+
+Two surfaces:
+- Text to Video: pick a character (+ outfit) and the clip becomes
+  keyframe-edit → image-to-video instead of raw text-to-video.
+- Topic to Video: a new 'Your character' visuals mode replaces stock
+  footage with AI scenes. Narration cues are partitioned into balanced
+  scenes (4 per paragraph); one LLM call plans each scene's visual and
+  outfit, honoring the locked default and the user's wardrobe notes
+  (costume changes at story moments); scenes generate concurrently
+  (keyframe + i2v, one retry) and compose through the existing
+  narration/subtitle/music pipeline via an explicit scene map.
+
+Billing: character story videos reserve one video unit per scene
+(Short 4 / Medium 8 / Long 12), all-or-nothing, refunded on failure;
+usage meters one row per unit so quota accounting matches. Character
+reference and outfit generations fund exactly like image generations.
+
+CRUD: /characters endpoints (list/create/delete, outfit add/remove,
+default outfit protected), tenant-scoped, gated by the videoGen kill
+switch, with a Characters manager dialog + pickers in the studio.
+
+Verified: full typecheck clean; api-server 1072/1072 (26 new), web
+306/306 (2 new), mobile 149/149; spec lint + codegen drift clean;
+db push applies the two new tables cleanly.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MvH1dk9GX2coYLzGELYs9V
+---
+ artifacts/api-server/src/lib/characters.ts    | 179 ++++++
+ artifacts/api-server/src/lib/storageUpload.ts |  27 +
+ .../src/lib/videoGen/characterClip.ts         |  49 ++
+ .../api-server/src/lib/videoGen/jobRunner.ts  |  34 +-
+ .../topicVideo/characterScenes.test.ts        | 249 ++++++++
+ .../videoGen/topicVideo/characterScenes.ts    | 258 +++++++++
+ .../src/lib/videoGen/topicVideo/compose.ts    |  37 +-
+ .../src/lib/videoGen/topicVideo/index.ts      | 119 +++-
+ .../videoGen/topicVideo/topicVideo.test.ts    |  42 ++
+ .../api-server/src/lib/videoGen/units.ts      |  19 +
+ .../api-server/src/routes/characters.test.ts  | 312 ++++++++++
+ artifacts/api-server/src/routes/characters.ts | 368 ++++++++++++
+ artifacts/api-server/src/routes/index.ts      |   4 +
+ .../api-server/src/routes/videos.test.ts      | 167 ++++++
+ artifacts/api-server/src/routes/videos.ts     |  78 ++-
+ .../src/pages/video-studio.test.tsx           |  50 ++
+ .../socialforge/src/pages/video-studio.tsx    | 545 +++++++++++++++++-
+ .../src/generated/api.schemas.ts              |  83 +++
+ lib/api-client-react/src/generated/api.ts     | 363 ++++++++++++
+ lib/api-spec/openapi.yaml                     | 236 ++++++++
+ lib/api-zod/src/generated/api.ts              | 118 +++-
+ lib/api-zod/src/generated/types/character.ts  |  20 +
+ .../src/generated/types/characterOutfit.ts    |  16 +
+ .../types/createCharacterOutfitRequest.ts     |  21 +
+ .../generated/types/createCharacterRequest.ts |  26 +
+ lib/api-zod/src/generated/types/index.ts      |   5 +
+ .../generated/types/videoGenerateRequest.ts   |  19 +
+ .../videoGenerateRequestVisualsSource.ts      |  18 +
+ lib/db/src/schema/characters.ts               |  49 ++
+ lib/db/src/schema/index.ts                    |   1 +
+ lib/db/src/schema/videoGenerations.ts         |   8 +
+ 31 files changed, 3477 insertions(+), 43 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/characters.ts
+ create mode 100644 artifacts/api-server/src/lib/storageUpload.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/characterClip.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/units.ts
+ create mode 100644 artifacts/api-server/src/routes/characters.test.ts
+ create mode 100644 artifacts/api-server/src/routes/characters.ts
+ create mode 100644 lib/api-zod/src/generated/types/character.ts
+ create mode 100644 lib/api-zod/src/generated/types/characterOutfit.ts
+ create mode 100644 lib/api-zod/src/generated/types/createCharacterOutfitRequest.ts
+ create mode 100644 lib/api-zod/src/generated/types/createCharacterRequest.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoGenerateRequestVisualsSource.ts
+ create mode 100644 lib/db/src/schema/characters.ts
+
+diff --git a/artifacts/api-server/src/lib/characters.ts b/artifacts/api-server/src/lib/characters.ts
+new file mode 100644
+index 0000000..d8f0aac
+--- /dev/null
++++ b/artifacts/api-server/src/lib/characters.ts
+@@ -0,0 +1,179 @@
++import { db, charactersTable, characterOutfitsTable } from "@workspace/db";
++import type { Character, CharacterOutfit } from "@workspace/db";
++import { and, eq, asc } from "drizzle-orm";
++import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
++import { generateImage } from "./imageGen";
++import type { ImageSize, ReferenceImage, ImageGenResult } from "./imageGen/types";
++
++/**
++ * Character lock for the Video Studio.
++ *
++ * The only reliable way to keep the same character (and costume) across
++ * AI-generated scenes today is reference anchoring: every generation starts
++ * from the same canonical image. This module owns those anchors —
++ * identity-preserving prompts, reference loading, and the image-edit calls
++ * that create costume variants and per-scene keyframes — so the CRUD routes
++ * and the video pipeline stay in lockstep about how identity is preserved.
++ */
++
++const objectStorageService = new ObjectStorageService();
++
++/** Reference images must fit provider payloads (same cap as source images). */
++export const MAX_CHARACTER_IMAGE_BYTES = 10 * 1024 * 1024;
++const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
++
++export class CharacterInputError extends Error {}
++
++/** The image size that best matches a video aspect ratio (gpt-image-1 set). */
++export function imageSizeForAspect(aspect: "16:9" | "9:16" | "1:1"): ImageSize {
++  if (aspect === "9:16") return "1024x1536";
++  if (aspect === "16:9") return "1536x1024";
++  return "1024x1024";
++}
++
++/** Prompt for a brand-new character reference from a text description. */
++export function characterReferencePrompt(description: string): string {
++  return (
++    `Full-body character reference portrait: ${description}. ` +
++    "Standing, facing the camera, full body visible from head to toe, " +
++    "neutral light-grey studio background, soft even lighting, " +
++    "photorealistic, high detail. No text, no watermark."
++  );
++}
++
++/** Prompt for an identity-preserving costume variant of the reference. */
++export function outfitVariantPrompt(character: Character, outfitDescription: string): string {
++  return (
++    "Show the exact same character from the image — identical face, hair, " +
++    "body, and identity — now wearing: " +
++    `${outfitDescription}. ` +
++    "Keep the same standing full-body pose, the same neutral studio " +
++    "background, and the same lighting. Only the clothing changes. " +
++    "No text, no watermark."
++  );
++}
++
++/** Prompt that places the locked character (in the locked outfit) into a scene. */
++export function sceneKeyframePrompt(
++  character: Character,
++  outfit: CharacterOutfit,
++  sceneVisual: string,
++): string {
++  const identity = character.description ? ` (${character.description})` : "";
++  return (
++    `Place the exact character from the image${identity} into this scene: ` +
++    `${sceneVisual}. ` +
++    "Keep the identical face, hair, and identity, and keep the exact same " +
++    `outfit they are wearing (${outfit.description}). ` +
++    "Cinematic composition, photorealistic, natural lighting. " +
++    "No text, no watermark."
++  );
++}
++
++/** A tenant's character with its outfits, ordered default-first. */
++export interface CharacterDetail {
++  character: Character;
++  outfits: CharacterOutfit[];
++}
++
++export async function getCharacterDetail(
++  tenantId: number,
++  characterId: number,
++): Promise<CharacterDetail | null> {
++  const character = (
++    await db
++      .select()
++      .from(charactersTable)
++      .where(and(eq(charactersTable.id, characterId), eq(charactersTable.tenantId, tenantId)))
++      .limit(1)
++  )[0];
++  if (!character) return null;
++  const outfits = await db
++    .select()
++    .from(characterOutfitsTable)
++    .where(
++      and(
++        eq(characterOutfitsTable.characterId, characterId),
++        eq(characterOutfitsTable.tenantId, tenantId),
++      ),
++    )
++    .orderBy(asc(characterOutfitsTable.id));
++  outfits.sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.id - b.id);
++  return { character, outfits };
++}
++
++/**
++ * Resolve the outfit a video should lock to: the requested one when given,
++ * otherwise the character's default (or first) outfit.
++ */
++export function resolveOutfit(
++  detail: CharacterDetail,
++  outfitId: number | null | undefined,
++): CharacterOutfit | null {
++  if (outfitId != null) {
++    return detail.outfits.find((o) => o.id === outfitId) ?? null;
++  }
++  return detail.outfits.find((o) => o.isDefault) ?? detail.outfits[0] ?? null;
++}
++
++/** Load a tenant-scoped reference image from workspace storage. */
++export async function loadReferenceImage(
++  objectPath: string,
++  tenantId: number,
++): Promise<ReferenceImage> {
++  let file;
++  try {
++    file = await objectStorageService.getObjectEntityFile(objectPath, tenantId);
++  } catch (err) {
++    if (err instanceof ObjectNotFoundError) {
++      throw new CharacterInputError("Character reference image not found.");
++    }
++    throw err;
++  }
++  const [metadata] = await file.getMetadata();
++  const size = Number(metadata.size ?? 0);
++  if (size > MAX_CHARACTER_IMAGE_BYTES) {
++    throw new CharacterInputError("Character reference image is too large (max 10 MB).");
++  }
++  const rawType = String(metadata.contentType ?? "")
++    .toLowerCase()
++    .split(";")[0]!
++    .trim();
++  const mimeType = rawType === "image/jpg" ? "image/jpeg" : rawType;
++  if (!ALLOWED_IMAGE_TYPES.has(mimeType)) {
++    throw new CharacterInputError(
++      "Unsupported reference image type. Please use PNG, JPEG, or WebP.",
++    );
++  }
++  const [buffer] = await file.download();
++  return { buffer, mimeType };
++}
++
++/** Generate a fresh character reference image from a description. */
++export async function generateCharacterReference(description: string): Promise<ImageGenResult> {
++  return generateImage(characterReferencePrompt(description), "1024x1536");
++}
++
++/** Generate an identity-preserving costume variant from the base reference. */
++export async function generateOutfitVariant(
++  character: Character,
++  outfitDescription: string,
++  baseReference: ReferenceImage,
++): Promise<ImageGenResult> {
++  return generateImage(outfitVariantPrompt(character, outfitDescription), "1024x1536", baseReference);
++}
++
++/** Generate a per-scene keyframe with the locked character and outfit. */
++export async function generateSceneKeyframe(
++  character: Character,
++  outfit: CharacterOutfit,
++  sceneVisual: string,
++  aspect: "16:9" | "9:16" | "1:1",
++  outfitReference: ReferenceImage,
++): Promise<ImageGenResult> {
++  return generateImage(
++    sceneKeyframePrompt(character, outfit, sceneVisual),
++    imageSizeForAspect(aspect),
++    outfitReference,
++  );
++}
+diff --git a/artifacts/api-server/src/lib/storageUpload.ts b/artifacts/api-server/src/lib/storageUpload.ts
+new file mode 100644
+index 0000000..1ba2950
+--- /dev/null
++++ b/artifacts/api-server/src/lib/storageUpload.ts
+@@ -0,0 +1,27 @@
++import { ObjectStorageService } from "./objectStorage";
++
++const objectStorageService = new ObjectStorageService();
++
++/**
++ * PUT a server-generated buffer into the tenant's workspace storage and
++ * return its /objects/<tenantId>/uploads/<uuid> path. Same shape as the
++ * inline helpers in routes/ai.ts and videoGen/jobRunner.ts, shared so new
++ * server-side producers (characters, keyframes) don't grow more copies.
++ */
++export async function uploadBufferToStorage(
++  tenantId: number,
++  bytes: Buffer,
++  contentType: string,
++): Promise<string> {
++  const uploadURL = await objectStorageService.getObjectEntityUploadURL(tenantId);
++  const putRes = await fetch(uploadURL, {
++    method: "PUT",
++    headers: { "Content-Type": contentType },
++    body: new Uint8Array(bytes),
++    signal: AbortSignal.timeout(60_000),
++  });
++  if (!putRes.ok) {
++    throw new Error(`Storage upload failed with status ${putRes.status}`);
++  }
++  return objectStorageService.normalizeObjectEntityPath(uploadURL);
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/characterClip.ts b/artifacts/api-server/src/lib/videoGen/characterClip.ts
+new file mode 100644
+index 0000000..6f10b84
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/characterClip.ts
+@@ -0,0 +1,49 @@
++import {
++  getCharacterDetail,
++  resolveOutfit,
++  loadReferenceImage,
++  generateSceneKeyframe,
++} from "../characters";
++import { generateVideo } from "./index";
++import { VideoGenProviderError, type VideoAspect } from "./types";
++
++/**
++ * A single character-locked AI clip (Text to Video with a character picked):
++ * the prompt becomes an identity-anchored keyframe — an image edit of the
++ * locked outfit's reference — which the image-to-video engine then animates.
++ * The character in frame one is the tenant's character, not a model's guess.
++ */
++export async function generateCharacterClip(params: {
++  tenantId: number;
++  characterId: number;
++  outfitId: number | null;
++  prompt: string;
++  aspectRatio: VideoAspect;
++  durationSec: number;
++}): Promise<{ buffer: Buffer; provider: string; model: string }> {
++  const detail = await getCharacterDetail(params.tenantId, params.characterId);
++  if (!detail) {
++    throw new VideoGenProviderError("The selected character no longer exists.");
++  }
++  const outfit = resolveOutfit(detail, params.outfitId);
++  if (!outfit) {
++    throw new VideoGenProviderError("The selected outfit no longer exists.");
++  }
++  const reference = await loadReferenceImage(outfit.referenceImagePath, params.tenantId);
++  const scene = params.prompt.trim() || "a cinematic portrait moment";
++  const keyframe = await generateSceneKeyframe(
++    detail.character,
++    outfit,
++    scene,
++    params.aspectRatio,
++    reference,
++  );
++  const clip = await generateVideo({
++    mode: "image",
++    prompt: `${scene}. Subtle natural motion, cinematic.`,
++    aspectRatio: params.aspectRatio,
++    durationSec: params.durationSec,
++    image: { buffer: keyframe.buffer, mimeType: "image/png" },
++  });
++  return { buffer: clip.buffer, provider: clip.provider, model: clip.model };
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index 2de065a..f28dfa5 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -12,6 +12,8 @@ import {
+   type NarrationVoice,
+   type StockSourceChoice,
+ } from "./topicVideo";
++import { generateCharacterClip } from "./characterClip";
++import { videoJobUnits } from "./units";
+ import type { SourceImage } from "./types";
+ 
+ /**
+@@ -117,6 +119,19 @@ async function produceVideo(
+   const aspectRatio = options.aspectRatio ?? "9:16";
+ 
+   if (job.engine === "text_to_video") {
++    // With a character picked, the clip is identity-anchored: keyframe edit
++    // of the locked outfit's reference, then image-to-video.
++    if (options.characterId) {
++      const result = await generateCharacterClip({
++        tenantId: job.tenantId,
++        characterId: options.characterId,
++        outfitId: options.outfitId ?? null,
++        prompt: job.prompt ?? "",
++        aspectRatio,
++        durationSec: options.durationSec ?? 5,
++      });
++      return { buffer: result.buffer, provider: result.provider, model: result.model };
++    }
+     const result = await generateVideo({
+       mode: "text",
+       prompt: job.prompt ?? "",
+@@ -187,6 +202,10 @@ async function produceVideo(
+       subtitles: options.subtitles ?? true,
+       paragraphCount: options.paragraphCount ?? 1,
+       music,
++      visualsSource: options.visualsSource === "character" ? "character" : "stock",
++      characterId: options.characterId ?? null,
++      outfitId: options.outfitId ?? null,
++      wardrobeNotes: options.wardrobeNotes ?? null,
+     });
+     return { buffer: result.buffer, provider: result.provider, model: result.model };
+   }
+@@ -245,6 +264,9 @@ export async function runVideoGenerationJob(
+       durationMs,
+       error: null,
+     });
++    // Multi-unit jobs (character story videos: one unit per scene) meter one
++    // usage row per unit so quota accounting matches what was reserved.
++    const units = videoJobUnits(job.engine, job.options);
+     await recordUsage(job.tenantId, "video", {
+       funding,
+       durationMs,
+@@ -253,6 +275,13 @@ export async function runVideoGenerationJob(
+       provider: provider ?? "ffmpeg",
+       requestBytes: job.prompt ? Buffer.byteLength(job.prompt) : 0,
+     });
++    for (let i = 1; i < units; i++) {
++      await recordUsage(job.tenantId, "video", {
++        funding,
++        model: model ?? undefined,
++        provider: provider ?? undefined,
++      });
++    }
+   } catch (error) {
+     logger.error({ err: error, jobId }, "Video generation job failed");
+     const message =
+@@ -267,8 +296,9 @@ export async function runVideoGenerationJob(
+       durationMs: Date.now() - startedAt,
+     }).catch(() => {});
+     if (funding === "credit") {
+-      await refundCredits(job.tenantId, "video", 1, "video generation failed").catch(
+-        (err) => logger.error({ err, jobId }, "Failed to refund video credit"),
++      const units = videoJobUnits(job.engine, job.options);
++      await refundCredits(job.tenantId, "video", units, "video generation failed").catch(
++        (err) => logger.error({ err, jobId }, "Failed to refund video credits"),
+       );
+     }
+   }
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.test.ts
+new file mode 100644
+index 0000000..e9b9c9c
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.test.ts
+@@ -0,0 +1,249 @@
++import { describe, it, expect, vi, beforeEach } from "vitest";
++import type { Character, CharacterOutfit } from "@workspace/db";
++import {
++  groupCuesIntoScenes,
++  clipDurationForScene,
++  planSceneVisuals,
++  generateCharacterSceneClips,
++  CHARACTER_SCENES_PER_PARAGRAPH,
++} from "./characterScenes";
++import { videoJobUnits } from "../units";
++
++// ---------------------------------------------------------------------------
++// Scene grouping (pure)
++
++function cue(text: string, startSec: number, endSec: number) {
++  return { text, startSec, endSec };
++}
++
++describe("groupCuesIntoScenes", () => {
++  it("partitions cues into contiguous scenes of roughly equal duration", () => {
++    const cues = [
++      cue("a", 0, 2),
++      cue("b", 2.25, 4.25),
++      cue("c", 4.5, 6.5),
++      cue("d", 6.75, 8.75),
++    ];
++    const scenes = groupCuesIntoScenes(cues, 9, 2);
++    expect(scenes).toHaveLength(2);
++    expect(scenes[0]).toMatchObject({ firstCue: 0, lastCue: 1 });
++    expect(scenes[1]).toMatchObject({ firstCue: 2, lastCue: 3 });
++    // Scenes tile the full track with no gaps.
++    expect(scenes[0]!.durationSec + scenes[1]!.durationSec).toBeCloseTo(9, 3);
++    expect(scenes[0]!.text).toBe("a b");
++  });
++
++  it("never returns more scenes than cues", () => {
++    const cues = [cue("only", 0, 3)];
++    const scenes = groupCuesIntoScenes(cues, 3.5, 8);
++    expect(scenes).toHaveLength(1);
++    expect(scenes[0]!.durationSec).toBeCloseTo(3.5, 3);
++  });
++
++  it("gives every scene at least one cue even with lopsided timing", () => {
++    const cues = [cue("a", 0, 8), cue("b", 8.25, 8.9), cue("c", 9.1, 9.8)];
++    const scenes = groupCuesIntoScenes(cues, 10, 3);
++    expect(scenes).toHaveLength(3);
++    expect(scenes.map((s) => s.firstCue)).toEqual([0, 1, 2]);
++  });
++});
++
++describe("clipDurationForScene", () => {
++  it("picks the provider length that covers the scene with least excess", () => {
++    expect(clipDurationForScene(3.2)).toBe(5);
++    expect(clipDurationForScene(6.5)).toBe(8);
++    expect(clipDurationForScene(9.1)).toBe(10);
++    expect(clipDurationForScene(14)).toBe(10); // compositor loops the tail
++  });
++});
++
++describe("videoJobUnits", () => {
++  it("bills one unit per scene for character story videos only", () => {
++    expect(videoJobUnits("text_to_video", { aspectRatio: "9:16", characterId: 3 })).toBe(1);
++    expect(videoJobUnits("topic_to_video", { aspectRatio: "9:16", visualsSource: "stock" })).toBe(1);
++    expect(
++      videoJobUnits("topic_to_video", {
++        aspectRatio: "9:16",
++        visualsSource: "character",
++        paragraphCount: 2,
++      }),
++    ).toBe(2 * CHARACTER_SCENES_PER_PARAGRAPH);
++    expect(
++      videoJobUnits("topic_to_video", {
++        aspectRatio: "9:16",
++        visualsSource: "character",
++        paragraphCount: 99,
++      }),
++    ).toBe(3 * CHARACTER_SCENES_PER_PARAGRAPH);
++  });
++});
++
++// ---------------------------------------------------------------------------
++// Scene planning (LLM mocked)
++
++const planState = vi.hoisted(() => ({
++  response: "" as string,
++  lastPrompt: "" as string,
++}));
++vi.mock("../../textGen", () => ({
++  getTextGenClient: vi.fn(async () => ({
++    provider: "builtin",
++    model: "gpt-test",
++    client: {
++      chat: {
++        completions: {
++          create: vi.fn(async (args: { messages: { content: string }[] }) => {
++            planState.lastPrompt = args.messages[1]!.content;
++            return { choices: [{ message: { content: planState.response } }] };
++          }),
++        },
++      },
++    },
++  })),
++}));
++
++const sceneGenState = vi.hoisted(() => ({
++  keyframes: [] as { visual: string; outfitId: number }[],
++  animated: [] as string[],
++  loadedRefs: [] as string[],
++}));
++vi.mock("../../characters", async (importOriginal) => {
++  const actual = await importOriginal<typeof import("../../characters")>();
++  return {
++    ...actual,
++    loadReferenceImage: vi.fn(async (path: string) => {
++      sceneGenState.loadedRefs.push(path);
++      return { buffer: Buffer.from("ref"), mimeType: "image/png" };
++    }),
++    generateSceneKeyframe: vi.fn(
++      async (_c: Character, outfit: CharacterOutfit, visual: string) => {
++        sceneGenState.keyframes.push({ visual, outfitId: outfit.id });
++        return { buffer: Buffer.from(`kf-${visual}`), provider: "openai", model: "gpt-image-1" };
++      },
++    ),
++  };
++});
++vi.mock("../index", () => ({
++  generateVideo: vi.fn(async (input: { prompt: string }) => {
++    sceneGenState.animated.push(input.prompt);
++    return { buffer: Buffer.from("clip"), provider: "replicate", model: "wan-i2v" };
++  }),
++}));
++
++const character = {
++  id: 1,
++  tenantId: 1,
++  name: "Maya",
++  description: "cheerful founder",
++  referenceImagePath: "/objects/1/uploads/maya.png",
++} as Character;
++const outfits = [
++  {
++    id: 10,
++    tenantId: 1,
++    characterId: 1,
++    name: "Default",
++    description: "casual",
++    referenceImagePath: "/objects/1/uploads/maya.png",
++    isDefault: true,
++  },
++  {
++    id: 11,
++    tenantId: 1,
++    characterId: 1,
++    name: "Gym wear",
++    description: "leggings",
++    referenceImagePath: "/objects/1/uploads/maya-gym.png",
++    isDefault: false,
++  },
++] as CharacterOutfit[];
++
++beforeEach(() => {
++  planState.response = "";
++  planState.lastPrompt = "";
++  sceneGenState.keyframes.length = 0;
++  sceneGenState.animated.length = 0;
++  sceneGenState.loadedRefs.length = 0;
++});
++
++describe("planSceneVisuals", () => {
++  const scenes = [
++    { firstCue: 0, lastCue: 0, durationSec: 4, text: "Morning starts early." },
++    { firstCue: 1, lastCue: 1, durationSec: 4, text: "Then a hard workout." },
++  ];
++
++  it("keeps valid outfit assignments and passes wardrobe notes to the model", async () => {
++    planState.response = JSON.stringify({
++      scenes: [
++        { visual: "waking up by a window", outfitId: 10 },
++        { visual: "lifting weights", outfitId: 11 },
++      ],
++    });
++    const plan = await planSceneVisuals({
++      tenantAiModel: "gpt-test",
++      topic: "founder life",
++      character,
++      outfits,
++      lockedOutfitId: 10,
++      wardrobeNotes: "gym wear for the workout",
++      scenes,
++    });
++    expect(plan).toEqual([
++      { visual: "waking up by a window", outfitId: 10 },
++      { visual: "lifting weights", outfitId: 11 },
++    ]);
++    expect(planState.lastPrompt).toContain("gym wear for the workout");
++    expect(planState.lastPrompt).toContain("Maya");
++  });
++
++  it("falls back to the locked outfit and scene text on a bad response", async () => {
++    planState.response = JSON.stringify({
++      scenes: [{ visual: "", outfitId: 999 }],
++    });
++    const plan = await planSceneVisuals({
++      tenantAiModel: "gpt-test",
++      topic: "founder life",
++      character,
++      outfits,
++      lockedOutfitId: 10,
++      wardrobeNotes: "",
++      scenes,
++    });
++    expect(plan).toHaveLength(2);
++    expect(plan[0]).toEqual({ visual: "Morning starts early.", outfitId: 10 });
++    expect(plan[1]).toEqual({ visual: "Then a hard workout.", outfitId: 10 });
++  });
++});
++
++describe("generateCharacterSceneClips", () => {
++  it("anchors every scene to its outfit reference and animates the keyframe", async () => {
++    const scenes = [
++      { firstCue: 0, lastCue: 1, durationSec: 6.2, text: "one" },
++      { firstCue: 2, lastCue: 3, durationSec: 7.1, text: "two" },
++    ];
++    const result = await generateCharacterSceneClips({
++      tenantId: 1,
++      character,
++      outfits,
++      plan: [
++        { visual: "waking up", outfitId: 10 },
++        { visual: "lifting weights", outfitId: 11 },
++      ],
++      scenes,
++      aspectRatio: "9:16",
++    });
++    expect(result.clips).toHaveLength(2);
++    expect(result.sceneMap).toEqual([
++      { clipIndex: 0, durationSec: 6.2 },
++      { clipIndex: 1, durationSec: 7.1 },
++    ]);
++    expect(result.provider).toBe("replicate");
++    // Each worn outfit's reference is loaded exactly once.
++    expect(sceneGenState.loadedRefs.sort()).toEqual([
++      "/objects/1/uploads/maya-gym.png",
++      "/objects/1/uploads/maya.png",
++    ]);
++    // The keyframes carry the planned outfits.
++    expect(sceneGenState.keyframes.map((k) => k.outfitId).sort()).toEqual([10, 11]);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+new file mode 100644
+index 0000000..2e91dfc
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+@@ -0,0 +1,258 @@
++import type { Character, CharacterOutfit } from "@workspace/db";
++import { getTextGenClient } from "../../textGen";
++import { usageAccountingParams } from "../../aiCost";
++import { generateSceneKeyframe, loadReferenceImage } from "../../characters";
++import { generateVideo } from "../index";
++import { VideoGenProviderError, type VideoAspect } from "../types";
++import { logger } from "../../logger";
++import type { NarrationCue } from "./narration";
++import type { SceneSegment } from "./compose";
++
++/**
++ * Character story scenes: instead of stock footage, every scene of a topic
++ * video is generated with the tenant's locked character. Identity is anchored
++ * per scene — outfit reference image → keyframe edit → image-to-video — so
++ * the same character (and the same costume, unless the wardrobe plan changes
++ * it) appears throughout.
++ */
++
++/** Scenes per script paragraph — also the billing rate for character videos. */
++export const CHARACTER_SCENES_PER_PARAGRAPH = 4;
++/** How many keyframe+animate pipelines run at once. */
++const SCENE_CONCURRENCY = 3;
++/** Providers accept short clips; scenes are trimmed/looped by the compositor. */
++const SCENE_CLIP_CHOICES = [5, 8, 10] as const;
++
++export interface ScriptScene {
++  /** Cue index range (inclusive) this scene spans. */
++  firstCue: number;
++  lastCue: number;
++  durationSec: number;
++  text: string;
++}
++
++/**
++ * Partition the narration cues into exactly `sceneCount` contiguous scenes
++ * of roughly equal duration (fewer when there aren't enough cues).
++ */
++export function groupCuesIntoScenes(
++  cues: NarrationCue[],
++  totalDurationSec: number,
++  sceneCount: number,
++): ScriptScene[] {
++  const count = Math.max(1, Math.min(sceneCount, cues.length));
++  const cueEnds = cues.map((cue, i) =>
++    i + 1 < cues.length ? cues[i + 1]!.startSec : totalDurationSec,
++  );
++  const scenes: ScriptScene[] = [];
++  let firstCue = 0;
++  for (let scene = 0; scene < count; scene++) {
++    const idealBoundary = (totalDurationSec * (scene + 1)) / count;
++    let lastCue = firstCue;
++    // Extend while the next cue still ends before the ideal boundary, keeping
++    // enough cues in reserve so every remaining scene gets at least one.
++    while (
++      lastCue + 1 < cues.length &&
++      cues.length - (lastCue + 1) > count - scene - 1 &&
++      cueEnds[lastCue]! < idealBoundary
++    ) {
++      lastCue++;
++    }
++    if (scene === count - 1) lastCue = cues.length - 1;
++    const startSec = cues[firstCue]!.startSec;
++    const endSec = cueEnds[lastCue]!;
++    scenes.push({
++      firstCue,
++      lastCue,
++      durationSec: Math.max(endSec - startSec, 0.2),
++      text: cues
++        .slice(firstCue, lastCue + 1)
++        .map((c) => c.text)
++        .join(" "),
++    });
++    firstCue = lastCue + 1;
++  }
++  return scenes;
++}
++
++export interface ScenePlanEntry {
++  /** What the scene should show, written for image generation. */
++  visual: string;
++  /** The outfit worn in this scene (from the character's wardrobe). */
++  outfitId: number;
++}
++
++/**
++ * One LLM call plans every scene: a concrete visual description featuring the
++ * character, plus which outfit they wear — honoring the locked default and
++ * the user's wardrobe notes (costume changes at story moments).
++ */
++export async function planSceneVisuals(params: {
++  tenantAiModel: string;
++  topic: string;
++  character: Character;
++  outfits: CharacterOutfit[];
++  lockedOutfitId: number;
++  wardrobeNotes: string;
++  scenes: ScriptScene[];
++}): Promise<ScenePlanEntry[]> {
++  const textGen = await getTextGenClient(params.tenantAiModel);
++  const wardrobe = params.outfits
++    .map((o) => `- id ${o.id}: "${o.name}" — ${o.description}`)
++    .join("\n");
++  const sceneList = params.scenes
++    .map((s, i) => `${i + 1}. ${s.text}`)
++    .join("\n");
++  const prompt = `# Role: Video Scene Director
++
++A short video features one recurring character. For every scene below, describe the single visual moment to generate, always featuring the character.
++
++## Character:
++${params.character.name}${params.character.description ? ` — ${params.character.description}` : ""}
++
++## Wardrobe (outfit ids the character owns):
++${wardrobe}
++
++## Rules:
++1. Return a JSON object: {"scenes": [{"visual": "...", "outfitId": <id>}, ...]} with exactly ${params.scenes.length} entries, in scene order.
++2. "visual" is one vivid sentence describing what the character is doing and where, matching that scene's narration. Do not mention the character's name or clothing in it.
++3. "outfitId" must be one of the wardrobe ids. Default to ${params.lockedOutfitId} unless the story or the wardrobe instructions call for a change at that moment.
++4. Keep outfit changes rare and motivated; never alternate every scene.
++${params.wardrobeNotes ? `\n## Wardrobe instructions from the user:\n${params.wardrobeNotes}\n` : ""}
++## Scenes (narration):
++${sceneList}`;
++
++  const completion = await textGen.client.chat.completions.create({
++    model: textGen.model,
++    messages: [
++      {
++        role: "system",
++        content: "You plan video scenes and reply with strict JSON only.",
++      },
++      { role: "user", content: prompt },
++    ],
++    max_completion_tokens: 8192,
++    response_format: { type: "json_object" },
++    ...usageAccountingParams(textGen.provider),
++  });
++
++  const validIds = new Set(params.outfits.map((o) => o.id));
++  let planned: { visual?: unknown; outfitId?: unknown }[] = [];
++  try {
++    const parsed = JSON.parse(completion.choices[0]?.message?.content ?? "");
++    if (Array.isArray(parsed?.scenes)) planned = parsed.scenes;
++  } catch {
++    // fall through to defaults below
++  }
++  return params.scenes.map((scene, i) => {
++    const entry = planned[i];
++    const visual =
++      typeof entry?.visual === "string" && entry.visual.trim()
++        ? entry.visual.trim()
++        : scene.text.slice(0, 300);
++    const outfitId =
++      typeof entry?.outfitId === "number" && validIds.has(entry.outfitId)
++        ? entry.outfitId
++        : params.lockedOutfitId;
++    return { visual, outfitId };
++  });
++}
++
++/** The provider clip length that covers a scene with the least excess. */
++export function clipDurationForScene(sceneDurationSec: number): number {
++  for (const choice of SCENE_CLIP_CHOICES) {
++    if (sceneDurationSec <= choice) return choice;
++  }
++  return SCENE_CLIP_CHOICES[SCENE_CLIP_CHOICES.length - 1]!;
++}
++
++async function mapWithConcurrency<T, R>(
++  items: T[],
++  limit: number,
++  fn: (item: T, index: number) => Promise<R>,
++): Promise<R[]> {
++  const results = new Array<R>(items.length);
++  let next = 0;
++  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
++    for (;;) {
++      const index = next++;
++      if (index >= items.length) return;
++      results[index] = await fn(items[index]!, index);
++    }
++  });
++  await Promise.all(workers);
++  return results;
++}
++
++export interface CharacterSceneClips {
++  clips: Buffer[];
++  sceneMap: SceneSegment[];
++  provider: string;
++  model: string;
++}
++
++/**
++ * Generate one AI clip per scene: outfit reference → identity-locked keyframe
++ * → image-to-video. Each scene retries once; a scene that fails twice fails
++ * the job (the runner refunds the reserved credits).
++ */
++export async function generateCharacterSceneClips(params: {
++  tenantId: number;
++  character: Character;
++  outfits: CharacterOutfit[];
++  plan: ScenePlanEntry[];
++  scenes: ScriptScene[];
++  aspectRatio: VideoAspect;
++}): Promise<CharacterSceneClips> {
++  const outfitsById = new Map(params.outfits.map((o) => [o.id, o]));
++  // Load each worn outfit's reference once, not per scene.
++  const references = new Map<number, Awaited<ReturnType<typeof loadReferenceImage>>>();
++  for (const outfitId of new Set(params.plan.map((p) => p.outfitId))) {
++    const outfit = outfitsById.get(outfitId);
++    if (!outfit) throw new VideoGenProviderError("Scene plan references a missing outfit.");
++    references.set(outfitId, await loadReferenceImage(outfit.referenceImagePath, params.tenantId));
++  }
++
++  let provider = "";
++  let model = "";
++  const clips = await mapWithConcurrency(params.plan, SCENE_CONCURRENCY, async (entry, i) => {
++    const outfit = outfitsById.get(entry.outfitId)!;
++    const reference = references.get(entry.outfitId)!;
++    const durationSec = clipDurationForScene(params.scenes[i]!.durationSec);
++    const attempt = async (): Promise<Buffer> => {
++      const keyframe = await generateSceneKeyframe(
++        params.character,
++        outfit,
++        entry.visual,
++        params.aspectRatio,
++        reference,
++      );
++      const clip = await generateVideo({
++        mode: "image",
++        prompt: `${entry.visual}. Subtle natural motion, cinematic.`,
++        aspectRatio: params.aspectRatio,
++        durationSec,
++        image: { buffer: keyframe.buffer, mimeType: "image/png" },
++      });
++      provider = clip.provider;
++      model = clip.model;
++      return clip.buffer;
++    };
++    try {
++      return await attempt();
++    } catch (err) {
++      logger.warn({ err, scene: i }, "character scene generation failed; retrying once");
++      return await attempt();
++    }
++  });
++
++  return {
++    clips,
++    sceneMap: params.scenes.map((scene, i) => ({
++      clipIndex: i,
++      durationSec: scene.durationSec,
++    })),
++    provider: provider || "replicate",
++    model: model || "image-to-video",
++  };
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts
+index 7a72575..b76b535 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts
+@@ -23,8 +23,15 @@ const FPS = 30;
+ const MUSIC_VOLUME = 0.2;
+ const MUSIC_FADE_SEC = 1.5;
+ 
++/** An explicit visual scene: which clip plays, for how long. */
++export interface SceneSegment {
++  /** Index into `clips`. */
++  clipIndex: number;
++  durationSec: number;
++}
++
+ export interface ComposeInput {
+-  /** Downloaded stock clips, cycled across scenes. At least one. */
++  /** Source clips. Cycled per sentence, unless `sceneMap` dictates scenes. */
+   clips: Buffer[];
+   /** Complete narration track (WAV). */
+   narrationWav: Buffer;
+@@ -37,6 +44,12 @@ export interface ComposeInput {
+   subtitles: boolean;
+   /** Optional background music bytes. */
+   music?: Buffer | null;
++  /**
++   * Optional explicit scene layout (character videos: one AI clip per scene,
++   * spanning several sentences). When omitted, one scene per cue cycling
++   * through `clips` — the stock-footage behavior.
++   */
++  sceneMap?: SceneSegment[] | null;
+ }
+ 
+ /**
+@@ -88,7 +101,18 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
+     throw new VideoGenProviderError("No narration to compose the video around.");
+   }
+   const { width, height } = ASPECT_DIMENSIONS[input.aspectRatio];
+-  const durations = sceneDurations(input.cues, input.totalDurationSec);
++  const scenes: SceneSegment[] =
++    input.sceneMap && input.sceneMap.length > 0
++      ? input.sceneMap
++      : sceneDurations(input.cues, input.totalDurationSec).map((durationSec, i) => ({
++          clipIndex: i % input.clips.length,
++          durationSec,
++        }));
++  for (const scene of scenes) {
++    if (scene.clipIndex < 0 || scene.clipIndex >= input.clips.length) {
++      throw new VideoGenProviderError("Scene map references a missing clip.");
++    }
++  }
+ 
+   const dir = await mkdtemp(join(tmpdir(), "kokao-topic-video-"));
+   try {
+@@ -105,17 +129,16 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
+     const frame =
+       `scale=${width}:${height}:force_original_aspect_ratio=increase,` +
+       `crop=${width}:${height},setsar=1,fps=${FPS},format=yuv420p`;
+-    for (let i = 0; i < durations.length; i++) {
+-      const clipIndex = i % input.clips.length;
++    for (let i = 0; i < scenes.length; i++) {
+       await runFfmpeg(
+         [
+           "-y",
+           "-stream_loop",
+           "-1",
+           "-i",
+-          `clip_${clipIndex}.mp4`,
++          `clip_${scenes[i]!.clipIndex}.mp4`,
+           "-t",
+-          durations[i]!.toFixed(3),
++          scenes[i]!.durationSec.toFixed(3),
+           "-vf",
+           frame,
+           "-an",
+@@ -130,7 +153,7 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
+         dir,
+       );
+     }
+-    const concatList = durations
++    const concatList = scenes
+       .map((_, i) => `file 'seg_${String(i).padStart(3, "0")}.mp4'`)
+       .join("\n");
+     await writeFile(join(dir, "list.txt"), concatList);
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+index 200adfb..b157739 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+@@ -12,6 +12,13 @@ import {
+   type StockClip,
+ } from "./stockSources";
+ import { composeTopicVideo } from "./compose";
++import {
++  CHARACTER_SCENES_PER_PARAGRAPH,
++  groupCuesIntoScenes,
++  planSceneVisuals,
++  generateCharacterSceneClips,
++} from "./characterScenes";
++import { getCharacterDetail, resolveOutfit } from "../../characters";
+ 
+ export { NARRATION_VOICES, type NarrationVoice } from "./narration";
+ export {
+@@ -36,6 +43,8 @@ export {
+ 
+ /** Overall wall-clock budget for one topic video (LLM + TTS + downloads + encode). */
+ export const TOPIC_VIDEO_TOTAL_DEADLINE_MS = 10 * 60 * 1000;
++/** Character videos generate every scene with AI, so they get a longer leash. */
++export const CHARACTER_VIDEO_TOTAL_DEADLINE_MS = 25 * 60 * 1000;
+ 
+ /** Distinct stock clips to download; scenes cycle through them. */
+ const MAX_STOCK_CLIPS = 6;
+@@ -49,6 +58,11 @@ export interface TopicVideoParams {
+   subtitles: boolean;
+   paragraphCount: number;
+   music?: Buffer | null;
++  /** "stock" (default) or "character" — AI scenes with a locked character. */
++  visualsSource?: "stock" | "character";
++  characterId?: number | null;
++  outfitId?: number | null;
++  wardrobeNotes?: string | null;
+ }
+ 
+ export interface TopicVideoResult {
+@@ -59,8 +73,8 @@ export interface TopicVideoResult {
+   model: string;
+ }
+ 
+-function checkDeadline(startedAt: number): void {
+-  if (Date.now() - startedAt > TOPIC_VIDEO_TOTAL_DEADLINE_MS) {
++function checkDeadline(startedAt: number, deadlineMs = TOPIC_VIDEO_TOTAL_DEADLINE_MS): void {
++  if (Date.now() - startedAt > deadlineMs) {
+     throw new VideoGenProviderError(
+       "Topic video generation timed out. Try a shorter length, or try again.",
+     );
+@@ -132,6 +146,10 @@ async function gatherStockClips(
+ 
+ export async function generateTopicVideo(params: TopicVideoParams): Promise<TopicVideoResult> {
+   const startedAt = Date.now();
++  const characterMode = params.visualsSource === "character";
++  const deadlineMs = characterMode
++    ? CHARACTER_VIDEO_TOTAL_DEADLINE_MS
++    : TOPIC_VIDEO_TOTAL_DEADLINE_MS;
+   const topic = params.topic.trim();
+   if (!topic) {
+     throw new VideoGenProviderError("A topic is required.");
+@@ -150,7 +168,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+     topic,
+     paragraphCount: params.paragraphCount,
+   });
+-  checkDeadline(startedAt);
++  checkDeadline(startedAt, deadlineMs);
+ 
+   // 2) Sentence-level narration with exact timings.
+   const sentences = splitIntoSentences(script);
+@@ -158,17 +176,40 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+     throw new VideoGenProviderError("The AI returned an empty script. Please try again.");
+   }
+   const narration = await synthesizeNarration(sentences, params.voice);
+-  checkDeadline(startedAt);
+-
+-  // 3) Stock footage to cover every scene.
+-  const { clips, provider } = await gatherStockClips(
+-    params.stockSource,
+-    searchTerms,
+-    params.aspectRatio,
+-    narration.cues.length,
+-    startedAt,
+-  );
+-  checkDeadline(startedAt);
++  checkDeadline(startedAt, deadlineMs);
++
++  // 3) Visuals: locked-character AI scenes, or stock footage.
++  let clips: Buffer[];
++  let sceneMap = null;
++  let provider: string;
++  if (characterMode) {
++    const generated = await generateCharacterStoryClips({
++      tenantId: params.tenantId,
++      tenantAiModel: tenant.aiModel,
++      topic,
++      characterId: params.characterId ?? 0,
++      outfitId: params.outfitId ?? null,
++      wardrobeNotes: params.wardrobeNotes ?? "",
++      paragraphCount: params.paragraphCount,
++      aspectRatio: params.aspectRatio,
++      cues: narration.cues,
++      totalDurationSec: narration.totalDurationSec,
++    });
++    clips = generated.clips;
++    sceneMap = generated.sceneMap;
++    provider = generated.provider;
++  } else {
++    const stock = await gatherStockClips(
++      params.stockSource,
++      searchTerms,
++      params.aspectRatio,
++      narration.cues.length,
++      startedAt,
++    );
++    clips = stock.clips;
++    provider = stock.provider;
++  }
++  checkDeadline(startedAt, deadlineMs);
+ 
+   // 4) Compose.
+   const buffer = await composeTopicVideo({
+@@ -179,6 +220,56 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+     aspectRatio: params.aspectRatio,
+     subtitles: params.subtitles,
+     music: params.music ?? null,
++    sceneMap,
+   });
+   return { buffer, provider, model };
+ }
++
++/** Script scenes → wardrobe plan → identity-locked clips, for character mode. */
++async function generateCharacterStoryClips(params: {
++  tenantId: number;
++  tenantAiModel: string;
++  topic: string;
++  characterId: number;
++  outfitId: number | null;
++  wardrobeNotes: string;
++  paragraphCount: number;
++  aspectRatio: VideoAspect;
++  cues: import("./narration").NarrationCue[];
++  totalDurationSec: number;
++}): Promise<{
++  clips: Buffer[];
++  sceneMap: import("./compose").SceneSegment[];
++  provider: string;
++}> {
++  const detail = await getCharacterDetail(params.tenantId, params.characterId);
++  if (!detail) {
++    throw new VideoGenProviderError("The selected character no longer exists.");
++  }
++  const lockedOutfit = resolveOutfit(detail, params.outfitId);
++  if (!lockedOutfit) {
++    throw new VideoGenProviderError("The selected outfit no longer exists.");
++  }
++  const sceneCount =
++    CHARACTER_SCENES_PER_PARAGRAPH *
++    Math.min(Math.max(Math.trunc(params.paragraphCount) || 1, 1), 3);
++  const scenes = groupCuesIntoScenes(params.cues, params.totalDurationSec, sceneCount);
++  const plan = await planSceneVisuals({
++    tenantAiModel: params.tenantAiModel,
++    topic: params.topic,
++    character: detail.character,
++    outfits: detail.outfits,
++    lockedOutfitId: lockedOutfit.id,
++    wardrobeNotes: params.wardrobeNotes,
++    scenes,
++  });
++  const generated = await generateCharacterSceneClips({
++    tenantId: params.tenantId,
++    character: detail.character,
++    outfits: detail.outfits,
++    plan,
++    scenes,
++    aspectRatio: params.aspectRatio,
++  });
++  return { clips: generated.clips, sceneMap: generated.sceneMap, provider: generated.provider };
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts
+index 9729a98..7835697 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts
+@@ -276,6 +276,48 @@ describe("composeTopicVideo (real ffmpeg)", () => {
+     120_000,
+   );
+ 
++  it(
++    "follows an explicit scene map (one clip spanning several cues)",
++    async () => {
++      const clipA = await makeTestClip(1);
++      const clipB = await makeTestClip(1);
++      const out = await composeTopicVideo({
++        clips: [clipA, clipB],
++        narrationWav: makeTestWav(4.5),
++        cues: [
++          { text: "First cue of scene one.", startSec: 0, endSec: 1.4 },
++          { text: "Second cue, same scene.", startSec: 1.65, endSec: 2.4 },
++          { text: "Scene two wraps it up.", startSec: 2.65, endSec: 4.05 },
++        ],
++        totalDurationSec: 4.65,
++        aspectRatio: "9:16",
++        subtitles: true,
++        music: null,
++        sceneMap: [
++          { clipIndex: 0, durationSec: 2.65 },
++          { clipIndex: 1, durationSec: 2.0 },
++        ],
++      });
++      expect(out.toString("ascii", 4, 8)).toBe("ftyp");
++    },
++    120_000,
++  );
++
++  it("rejects a scene map that points at a missing clip", async () => {
++    await expect(
++      composeTopicVideo({
++        clips: [Buffer.from("x")],
++        narrationWav: makeTestWav(1),
++        cues: [{ text: "x", startSec: 0, endSec: 1 }],
++        totalDurationSec: 1,
++        aspectRatio: "9:16",
++        subtitles: false,
++        music: null,
++        sceneMap: [{ clipIndex: 3, durationSec: 1 }],
++      }),
++    ).rejects.toThrow(/missing clip/i);
++  });
++
+   it("rejects an empty clip list", async () => {
+     await expect(
+       composeTopicVideo({
+diff --git a/artifacts/api-server/src/lib/videoGen/units.ts b/artifacts/api-server/src/lib/videoGen/units.ts
+new file mode 100644
+index 0000000..05cfcb9
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/units.ts
+@@ -0,0 +1,19 @@
++import type { VideoJobOptions } from "@workspace/db";
++import { CHARACTER_SCENES_PER_PARAGRAPH } from "./topicVideo/characterScenes";
++
++/**
++ * How many video quota units / credits one generation job costs.
++ *
++ * Every engine is a single generation — one unit — except character story
++ * videos, where every scene is its own real AI generation (keyframe +
++ * image-to-video), so a job costs one unit per scene: Short (1 paragraph)
++ * = 4, Medium = 8, Long = 12. The route reserves this amount up front and
++ * the job runner refunds the same amount if the job fails.
++ */
++export function videoJobUnits(engine: string, options: VideoJobOptions | null): number {
++  if (engine === "topic_to_video" && options?.visualsSource === "character") {
++    const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
++    return CHARACTER_SCENES_PER_PARAGRAPH * paragraphs;
++  }
++  return 1;
++}
+diff --git a/artifacts/api-server/src/routes/characters.test.ts b/artifacts/api-server/src/routes/characters.test.ts
+new file mode 100644
+index 0000000..cf06a6e
+--- /dev/null
++++ b/artifacts/api-server/src/routes/characters.test.ts
+@@ -0,0 +1,312 @@
++import { describe, it, expect, afterAll, beforeEach, vi } from "vitest";
++import request from "supertest";
++import express, { type Express } from "express";
++
++vi.mock("@clerk/express", async () => {
++  const { authState } = await import("../test/authState");
++  return {
++    getAuth: () =>
++      authState.userId
++        ? {
++            userId: authState.userId,
++            sessionClaims: { userId: authState.userId },
++          }
++        : {},
++    clerkClient: {
++      users: {
++        getUser: async (id: string) => {
++          const u = authState.users[id];
++          if (!u) throw new Error("user not found");
++          return u;
++        },
++      },
++    },
++    clerkMiddleware: () => (_req: unknown, _res: unknown, next: () => void) =>
++      next(),
++  };
++});
++
++// AI image generation and storage I/O are exercised by their own layers; here
++// they are captured so route behavior (validation, funding, tenancy) is
++// deterministic.
++const genState = vi.hoisted(() => ({
++  referenceCalls: [] as string[],
++  variantCalls: [] as string[],
++  loadedPaths: [] as string[],
++  failNext: null as null | { kind: "notConfigured" | "provider" },
++}));
++vi.mock("../lib/characters", async (importOriginal) => {
++  const actual = await importOriginal<typeof import("../lib/characters")>();
++  const { ImageGenNotConfiguredError, ImageGenProviderError } = await import(
++    "../lib/imageGen/types"
++  );
++  const maybeFail = () => {
++    if (genState.failNext?.kind === "notConfigured") {
++      genState.failNext = null;
++      throw new ImageGenNotConfiguredError("no provider");
++    }
++    if (genState.failNext?.kind === "provider") {
++      genState.failNext = null;
++      throw new ImageGenProviderError("upstream rejected");
++    }
++  };
++  return {
++    ...actual,
++    loadReferenceImage: vi.fn(async (path: string) => {
++      genState.loadedPaths.push(path);
++      return { buffer: Buffer.from("img"), mimeType: "image/png" };
++    }),
++    generateCharacterReference: vi.fn(async (description: string) => {
++      maybeFail();
++      genState.referenceCalls.push(description);
++      return { buffer: Buffer.from("ref-png"), provider: "openai", model: "gpt-image-1" };
++    }),
++    generateOutfitVariant: vi.fn(async (_c: unknown, description: string) => {
++      maybeFail();
++      genState.variantCalls.push(description);
++      return { buffer: Buffer.from("outfit-png"), provider: "openai", model: "gpt-image-1" };
++    }),
++  };
++});
++vi.mock("../lib/storageUpload", () => ({
++  uploadBufferToStorage: vi.fn(
++    async (tenantId: number) => `/objects/${tenantId}/uploads/generated-${Math.random()}`,
++  ),
++}));
++
++import {
++  db,
++  charactersTable,
++  characterOutfitsTable,
++  tenantsTable,
++  creditBalancesTable,
++  creditLedgerTable,
++} from "@workspace/db";
++import { eq } from "drizzle-orm";
++import { requireTenant } from "../middlewares/requireTenant";
++import charactersRouter from "./characters";
++import { actAs, resetAuthState } from "../test/authState";
++import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
++import { grantCredits, getCreditBalances } from "../lib/credits";
++
++function createCharactersTestApp(): Express {
++  const app = express();
++  app.use(express.json());
++  app.use((req, _res, next) => {
++    (req as unknown as { log: Record<string, () => void> }).log = {
++      info() {},
++      error() {},
++      warn() {},
++      debug() {},
++    };
++    next();
++  });
++  app.use("/api", requireTenant, charactersRouter);
++  return app;
++}
++
++const app = createCharactersTestApp();
++const createdTenants: TestTenant[] = [];
++
++async function newTenant(plan = "free"): Promise<TestTenant> {
++  const tenant = await createTenant();
++  if (plan !== "free") {
++    await db.update(tenantsTable).set({ plan }).where(eq(tenantsTable.id, tenant.tenantId));
++  }
++  createdTenants.push(tenant);
++  actAs(tenant.clerkUserId);
++  return tenant;
++}
++
++beforeEach(() => {
++  resetAuthState();
++  genState.referenceCalls.length = 0;
++  genState.variantCalls.length = 0;
++  genState.loadedPaths.length = 0;
++  genState.failNext = null;
++});
++
++afterAll(async () => {
++  for (const tenant of createdTenants) {
++    await db
++      .delete(characterOutfitsTable)
++      .where(eq(characterOutfitsTable.tenantId, tenant.tenantId));
++    await db.delete(charactersTable).where(eq(charactersTable.tenantId, tenant.tenantId));
++    await db
++      .delete(creditBalancesTable)
++      .where(eq(creditBalancesTable.tenantId, tenant.tenantId));
++    await db
++      .delete(creditLedgerTable)
++      .where(eq(creditLedgerTable.tenantId, tenant.tenantId));
++    await deleteTenant(tenant.tenantId);
++  }
++});
++
++describe("POST /api/characters", () => {
++  it("requires a description or an uploaded photo", async () => {
++    await newTenant();
++    const res = await request(app).post("/api/characters").send({ name: "Maya" });
++    expect(res.status).toBe(400);
++    expect(genState.referenceCalls).toHaveLength(0);
++  });
++
++  it("rejects an uploaded reference outside the caller's workspace", async () => {
++    const tenant = await newTenant();
++    const res = await request(app)
++      .post("/api/characters")
++      .send({
++        name: "Maya",
++        sourceImagePath: `/objects/${tenant.tenantId + 1}/uploads/stolen.png`,
++      });
++    expect(res.status).toBe(400);
++  });
++
++  it("creates a character from an uploaded photo with no AI cost", async () => {
++    const tenant = await newTenant();
++    const sourceImagePath = `/objects/${tenant.tenantId}/uploads/me.png`;
++    const res = await request(app)
++      .post("/api/characters")
++      .send({ name: "Maya", description: "cheerful founder", sourceImagePath });
++    expect(res.status).toBe(201);
++    expect(res.body.referenceImagePath).toBe(sourceImagePath);
++    expect(res.body.outfits).toHaveLength(1);
++    expect(res.body.outfits[0].isDefault).toBe(true);
++    expect(genState.referenceCalls).toHaveLength(0);
++    expect(genState.loadedPaths).toContain(sourceImagePath);
++  });
++
++  it("generates the reference from a description, funded like an image", async () => {
++    await newTenant(); // free plan has image quota
++    const res = await request(app)
++      .post("/api/characters")
++      .send({ name: "Maya", description: "a cheerful woman, black hair" });
++    expect(res.status).toBe(201);
++    expect(genState.referenceCalls).toEqual(["a cheerful woman, black hair"]);
++    expect(res.body.referenceImagePath).toMatch(/^\/objects\/\d+\/uploads\//);
++    expect(res.body.outfits).toHaveLength(1);
++  });
++
++  it("402s when there is no image quota and no image credits", async () => {
++    await newTenant("payg"); // 0 images/month, credit-funded only
++    const res = await request(app)
++      .post("/api/characters")
++      .send({ name: "Maya", description: "a cheerful woman" });
++    expect(res.status).toBe(402);
++    expect(genState.referenceCalls).toHaveLength(0);
++  });
++
++  it("refunds the reserved image credit when generation fails", async () => {
++    const tenant = await newTenant("payg");
++    await grantCredits({
++      tenantId: tenant.tenantId,
++      captionCredits: 0,
++      imageCredits: 1,
++      videoCredits: 0,
++      kind: "admin_grant",
++      note: "test",
++    });
++    genState.failNext = { kind: "provider" };
++    const res = await request(app)
++      .post("/api/characters")
++      .send({ name: "Maya", description: "a cheerful woman" });
++    expect(res.status).toBe(502);
++    expect((await getCreditBalances(tenant.tenantId)).imageCredits).toBe(1);
++  });
++});
++
++describe("outfits", () => {
++  it("adds a costume variant and returns the updated character", async () => {
++    const tenant = await newTenant();
++    const created = await request(app)
++      .post("/api/characters")
++      .send({
++        name: "Maya",
++        sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
++      });
++    const res = await request(app)
++      .post(`/api/characters/${created.body.id}/outfits`)
++      .send({ name: "Gym wear", description: "black leggings, teal top" });
++    expect(res.status).toBe(201);
++    expect(genState.variantCalls).toEqual(["black leggings, teal top"]);
++    expect(res.body.outfits).toHaveLength(2);
++    const gym = res.body.outfits.find((o: { name: string }) => o.name === "Gym wear");
++    expect(gym.isDefault).toBe(false);
++  });
++
++  it("never removes the default outfit", async () => {
++    const tenant = await newTenant();
++    const created = await request(app)
++      .post("/api/characters")
++      .send({
++        name: "Maya",
++        sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
++      });
++    const defaultOutfit = created.body.outfits[0];
++    const res = await request(app).delete(
++      `/api/characters/${created.body.id}/outfits/${defaultOutfit.id}`,
++    );
++    expect(res.status).toBe(400);
++  });
++
++  it("removes a non-default outfit", async () => {
++    const tenant = await newTenant();
++    const created = await request(app)
++      .post("/api/characters")
++      .send({
++        name: "Maya",
++        sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
++      });
++    const withOutfit = await request(app)
++      .post(`/api/characters/${created.body.id}/outfits`)
++      .send({ name: "Gym wear", description: "black leggings" });
++    const gym = withOutfit.body.outfits.find((o: { name: string }) => o.name === "Gym wear");
++    const res = await request(app).delete(
++      `/api/characters/${created.body.id}/outfits/${gym.id}`,
++    );
++    expect(res.status).toBe(204);
++  });
++});
++
++describe("list + delete", () => {
++  it("lists only the caller's characters and 404s cross-tenant deletes", async () => {
++    const other = await newTenant();
++    const otherChar = await request(app)
++      .post("/api/characters")
++      .send({
++        name: "Other",
++        sourceImagePath: `/objects/${other.tenantId}/uploads/o.png`,
++      });
++
++    const mine = await newTenant();
++    await request(app)
++      .post("/api/characters")
++      .send({
++        name: "Mine",
++        sourceImagePath: `/objects/${mine.tenantId}/uploads/m.png`,
++      });
++
++    const list = await request(app).get("/api/characters");
++    expect(list.status).toBe(200);
++    expect(list.body.map((c: { name: string }) => c.name)).toEqual(["Mine"]);
++
++    const crossDelete = await request(app).delete(`/api/characters/${otherChar.body.id}`);
++    expect(crossDelete.status).toBe(404);
++  });
++
++  it("deletes a character together with its outfits", async () => {
++    const tenant = await newTenant();
++    const created = await request(app)
++      .post("/api/characters")
++      .send({
++        name: "Maya",
++        sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
++      });
++    const res = await request(app).delete(`/api/characters/${created.body.id}`);
++    expect(res.status).toBe(204);
++    const outfits = await db
++      .select()
++      .from(characterOutfitsTable)
++      .where(eq(characterOutfitsTable.characterId, created.body.id));
++    expect(outfits).toHaveLength(0);
++  });
++});
+diff --git a/artifacts/api-server/src/routes/characters.ts b/artifacts/api-server/src/routes/characters.ts
+new file mode 100644
+index 0000000..93842e2
+--- /dev/null
++++ b/artifacts/api-server/src/routes/characters.ts
+@@ -0,0 +1,368 @@
++import { Router, type IRouter, type Request, type Response } from "express";
++import { db, tenantsTable, charactersTable, characterOutfitsTable } from "@workspace/db";
++import type { Character, CharacterOutfit } from "@workspace/db";
++import { and, eq, asc, inArray } from "drizzle-orm";
++import { CreateCharacterBody, CreateCharacterOutfitBody } from "@workspace/api-zod";
++import { getPlanLimits } from "../lib/plans";
++import { getUsage } from "../lib/usage";
++import { spendCredit, refundCredits } from "../lib/credits";
++import { recordUsage } from "../lib/usage";
++import { uploadBufferToStorage } from "../lib/storageUpload";
++import {
++  CharacterInputError,
++  loadReferenceImage,
++  generateCharacterReference,
++  generateOutfitVariant,
++} from "../lib/characters";
++import { ImageGenNotConfiguredError, ImageGenProviderError } from "../lib/imageGen/types";
++
++const router: IRouter = Router();
++
++/**
++ * Characters: reusable, tenant-scoped identities for the Video Studio.
++ * Creating a character from a description — and every costume variant — is
++ * an AI image generation, so those calls fund exactly like /ai/generate-image
++ * (image quota first, then an atomically reserved image credit).
++ */
++
++function serializeOutfit(outfit: CharacterOutfit) {
++  return {
++    id: outfit.id,
++    name: outfit.name,
++    description: outfit.description,
++    referenceImagePath: outfit.referenceImagePath,
++    isDefault: outfit.isDefault,
++  };
++}
++
++function serializeCharacter(character: Character, outfits: CharacterOutfit[]) {
++  const ordered = [...outfits].sort(
++    (a, b) => Number(b.isDefault) - Number(a.isDefault) || a.id - b.id,
++  );
++  return {
++    id: character.id,
++    name: character.name,
++    description: character.description,
++    referenceImagePath: character.referenceImagePath,
++    outfits: ordered.map(serializeOutfit),
++    createdAt: character.createdAt.toISOString(),
++    updatedAt: character.updatedAt.toISOString(),
++  };
++}
++
++type Funding = "quota" | "credit";
++
++/** Reserve image funding (quota first, then a credit). Null → caller 402s. */
++async function reserveImageFunding(req: Request): Promise<Funding | null> {
++  const tenant = (
++    await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId)).limit(1)
++  )[0];
++  if (!tenant) return null;
++  const limits = await getPlanLimits(tenant.plan);
++  const usage = await getUsage(req.tenantId);
++  if (limits.images === -1 || usage.images < limits.images) return "quota";
++  if (await spendCredit(req.tenantId, "image")) return "credit";
++  return null;
++}
++
++async function settleImageFunding(
++  req: Request,
++  funding: Funding,
++  meta: { durationMs: number; responseBytes: number; model: string; provider: string },
++): Promise<void> {
++  await recordUsage(req.tenantId, "image", { ...meta, funding });
++}
++
++async function releaseImageFunding(req: Request, funding: Funding): Promise<void> {
++  if (funding !== "credit") return;
++  await refundCredits(req.tenantId, "image", 1, "character image generation failed").catch(
++    (err) => req.log.error({ err }, "Failed to refund character image credit"),
++  );
++}
++
++function imageErrorStatus(err: unknown): { status: number; error: string } {
++  if (err instanceof CharacterInputError) return { status: 400, error: err.message };
++  if (err instanceof ImageGenNotConfiguredError) {
++    return { status: 503, error: "Image generation is not configured. Contact your admin." };
++  }
++  if (err instanceof ImageGenProviderError) {
++    return { status: 502, error: "The image provider rejected the request. Please try again." };
++  }
++  return { status: 500, error: "Something went wrong. Please try again." };
++}
++
++router.get("/characters", async (req: Request, res: Response) => {
++  const characters = await db
++    .select()
++    .from(charactersTable)
++    .where(eq(charactersTable.tenantId, req.tenantId))
++    .orderBy(asc(charactersTable.id));
++  if (characters.length === 0) {
++    res.json([]);
++    return;
++  }
++  const outfits = await db
++    .select()
++    .from(characterOutfitsTable)
++    .where(
++      and(
++        eq(characterOutfitsTable.tenantId, req.tenantId),
++        inArray(
++          characterOutfitsTable.characterId,
++          characters.map((c) => c.id),
++        ),
++      ),
++    );
++  res.json(
++    characters.map((c) =>
++      serializeCharacter(
++        c,
++        outfits.filter((o) => o.characterId === c.id),
++      ),
++    ),
++  );
++});
++
++router.post("/characters", async (req: Request, res: Response) => {
++  const parsed = CreateCharacterBody.safeParse(req.body);
++  if (!parsed.success) {
++    res.status(400).json({ error: "Invalid input" });
++    return;
++  }
++  const name = parsed.data.name.trim();
++  const description = parsed.data.description?.trim() ?? "";
++  const sourceImagePath = parsed.data.sourceImagePath ?? null;
++  if (!name) {
++    res.status(400).json({ error: "A character name is required." });
++    return;
++  }
++  if (!sourceImagePath && !description) {
++    res.status(400).json({
++      error: "Describe the character, or upload a reference photo.",
++    });
++    return;
++  }
++  if (sourceImagePath && !sourceImagePath.startsWith(`/objects/${req.tenantId}/`)) {
++    res.status(400).json({ error: "Invalid reference image path." });
++    return;
++  }
++
++  let referenceImagePath: string;
++  let funding: Funding | null = null;
++  const startedAt = Date.now();
++  try {
++    if (sourceImagePath) {
++      // Uploaded photo: validate it exists, is an image, and fits; no AI cost.
++      await loadReferenceImage(sourceImagePath, req.tenantId);
++      referenceImagePath = sourceImagePath;
++    } else {
++      // Generated reference: funds like any image generation.
++      funding = await reserveImageFunding(req);
++      if (!funding) {
++        res.status(402).json({
++          error:
++            "Monthly image quota reached and no image credits left. Upgrade your plan or buy a credit pack.",
++        });
++        return;
++      }
++      const result = await generateCharacterReference(description);
++      referenceImagePath = await uploadBufferToStorage(req.tenantId, result.buffer, "image/png");
++      await settleImageFunding(req, funding, {
++        durationMs: Date.now() - startedAt,
++        responseBytes: result.buffer.length,
++        model: result.model,
++        provider: result.provider,
++      });
++    }
++  } catch (err) {
++    if (funding) await releaseImageFunding(req, funding);
++    const { status, error } = imageErrorStatus(err);
++    res.status(status).json({ error });
++    return;
++  }
++
++  const character = (
++    await db
++      .insert(charactersTable)
++      .values({ tenantId: req.tenantId, name, description, referenceImagePath })
++      .returning()
++  )[0]!;
++  const defaultOutfit = (
++    await db
++      .insert(characterOutfitsTable)
++      .values({
++        tenantId: req.tenantId,
++        characterId: character.id,
++        name: "Default",
++        description: description || "as shown in the reference image",
++        referenceImagePath,
++        isDefault: true,
++      })
++      .returning()
++  )[0]!;
++  res.status(201).json(serializeCharacter(character, [defaultOutfit]));
++});
++
++router.param("characterId", (req, res, next, value) => {
++  const id = Number(value);
++  if (!Number.isInteger(id) || id <= 0) {
++    res.status(400).json({ error: "Invalid id" });
++    return;
++  }
++  next();
++});
++
++async function loadCharacter(req: Request): Promise<Character | undefined> {
++  return (
++    await db
++      .select()
++      .from(charactersTable)
++      .where(
++        and(
++          eq(charactersTable.id, Number(req.params.characterId)),
++          eq(charactersTable.tenantId, req.tenantId),
++        ),
++      )
++      .limit(1)
++  )[0];
++}
++
++router.delete("/characters/:characterId", async (req: Request, res: Response) => {
++  const character = await loadCharacter(req);
++  if (!character) {
++    res.status(404).json({ error: "Not found" });
++    return;
++  }
++  await db
++    .delete(characterOutfitsTable)
++    .where(
++      and(
++        eq(characterOutfitsTable.characterId, character.id),
++        eq(characterOutfitsTable.tenantId, req.tenantId),
++      ),
++    );
++  await db
++    .delete(charactersTable)
++    .where(and(eq(charactersTable.id, character.id), eq(charactersTable.tenantId, req.tenantId)));
++  res.status(204).end();
++});
++
++/** Add a costume: an identity-preserving edit of the character's reference. */
++router.post(
++  "/characters/:characterId/outfits",
++  async (req: Request, res: Response) => {
++    const character = await loadCharacter(req);
++    if (!character) {
++      res.status(404).json({ error: "Not found" });
++      return;
++    }
++    const parsed = CreateCharacterOutfitBody.safeParse(req.body);
++    if (!parsed.success) {
++      res.status(400).json({ error: "Invalid input" });
++      return;
++    }
++    const name = parsed.data.name.trim();
++    const description = parsed.data.description.trim();
++    if (!name || !description) {
++      res.status(400).json({ error: "An outfit needs a name and a description." });
++      return;
++    }
++
++    let funding: Funding | null = null;
++    const startedAt = Date.now();
++    try {
++      funding = await reserveImageFunding(req);
++      if (!funding) {
++        res.status(402).json({
++          error:
++            "Monthly image quota reached and no image credits left. Upgrade your plan or buy a credit pack.",
++        });
++        return;
++      }
++      const baseReference = await loadReferenceImage(
++        character.referenceImagePath,
++        req.tenantId,
++      );
++      const result = await generateOutfitVariant(character, description, baseReference);
++      const referenceImagePath = await uploadBufferToStorage(
++        req.tenantId,
++        result.buffer,
++        "image/png",
++      );
++      await settleImageFunding(req, funding, {
++        durationMs: Date.now() - startedAt,
++        responseBytes: result.buffer.length,
++        model: result.model,
++        provider: result.provider,
++      });
++
++      await db
++        .insert(characterOutfitsTable)
++        .values({
++          tenantId: req.tenantId,
++          characterId: character.id,
++          name,
++          description,
++          referenceImagePath,
++          isDefault: false,
++        });
++      const outfits = await db
++        .select()
++        .from(characterOutfitsTable)
++        .where(
++          and(
++            eq(characterOutfitsTable.characterId, character.id),
++            eq(characterOutfitsTable.tenantId, req.tenantId),
++          ),
++        );
++      res.status(201).json(serializeCharacter(character, outfits));
++    } catch (err) {
++      if (funding) await releaseImageFunding(req, funding);
++      const { status, error } = imageErrorStatus(err);
++      res.status(status).json({ error });
++    }
++  },
++);
++
++router.delete(
++  "/characters/:characterId/outfits/:outfitId",
++  async (req: Request, res: Response) => {
++    const outfitId = Number(req.params.outfitId);
++    if (!Number.isInteger(outfitId) || outfitId <= 0) {
++      res.status(400).json({ error: "Invalid id" });
++      return;
++    }
++    const character = await loadCharacter(req);
++    if (!character) {
++      res.status(404).json({ error: "Not found" });
++      return;
++    }
++    const outfit = (
++      await db
++        .select()
++        .from(characterOutfitsTable)
++        .where(
++          and(
++            eq(characterOutfitsTable.id, outfitId),
++            eq(characterOutfitsTable.characterId, character.id),
++            eq(characterOutfitsTable.tenantId, req.tenantId),
++          ),
++        )
++        .limit(1)
++    )[0];
++    if (!outfit) {
++      res.status(404).json({ error: "Not found" });
++      return;
++    }
++    if (outfit.isDefault) {
++      res.status(400).json({ error: "The default outfit cannot be removed." });
++      return;
++    }
++    await db
++      .delete(characterOutfitsTable)
++      .where(eq(characterOutfitsTable.id, outfit.id));
++    res.status(204).end();
++  },
++);
++
++export default router;
+diff --git a/artifacts/api-server/src/routes/index.ts b/artifacts/api-server/src/routes/index.ts
+index 0d35d9b..1ae9bb2 100644
+--- a/artifacts/api-server/src/routes/index.ts
++++ b/artifacts/api-server/src/routes/index.ts
+@@ -10,6 +10,7 @@ import onboardingRouter from "./onboarding";
+ import contentRouter from "./content";
+ import aiRouter from "./ai";
+ import videosRouter from "./videos";
++import charactersRouter from "./characters";
+ import googleDriveRouter, { googleDriveCallbackRouter } from "./googleDrive";
+ import schedulesRouter from "./schedules";
+ import accountsRouter from "./accounts";
+@@ -88,6 +89,8 @@ router.use("/ai/generate-carousel", requireFeature("carousel"));
+ router.use("/ai/generate-video", requireFeature("videoGen"));
+ router.use("/ai/video-jobs", requireFeature("videoGen"));
+ router.use("/google-drive", requireFeature("videoGen"));
++// Characters exist for the Video Studio, so they share its kill switch.
++router.use("/characters", requireFeature("videoGen"));
+ router.use("/content", requireFeature("contentLibrary"));
+ router.use("/schedules", requireFeature("scheduling"));
+ router.use("/brand-kits", requireFeature("brandKits"));
+@@ -126,6 +129,7 @@ router.use(onboardingRouter);
+ router.use(contentRouter);
+ router.use(aiRouter);
+ router.use(videosRouter);
++router.use(charactersRouter);
+ router.use(googleDriveRouter);
+ router.use(schedulesRouter);
+ router.use(accountsRouter);
+diff --git a/artifacts/api-server/src/routes/videos.test.ts b/artifacts/api-server/src/routes/videos.test.ts
+index d8ee0e1..7fa69b2 100644
+--- a/artifacts/api-server/src/routes/videos.test.ts
++++ b/artifacts/api-server/src/routes/videos.test.ts
+@@ -45,6 +45,8 @@ import {
+   tenantsTable,
+   creditBalancesTable,
+   creditLedgerTable,
++  charactersTable,
++  characterOutfitsTable,
+ } from "@workspace/db";
+ import { eq } from "drizzle-orm";
+ import { requireTenant } from "../middlewares/requireTenant";
+@@ -88,9 +90,54 @@ beforeEach(() => {
+   runnerState.calls.length = 0;
+ });
+ 
++async function seedCharacter(tenantId: number): Promise<{ characterId: number; outfitId: number; gymOutfitId: number }> {
++  const character = (
++    await db
++      .insert(charactersTable)
++      .values({
++        tenantId,
++        name: "Maya",
++        description: "cheerful founder",
++        referenceImagePath: `/objects/${tenantId}/uploads/maya.png`,
++      })
++      .returning()
++  )[0]!;
++  const defaultOutfit = (
++    await db
++      .insert(characterOutfitsTable)
++      .values({
++        tenantId,
++        characterId: character.id,
++        name: "Default",
++        description: "casual",
++        referenceImagePath: `/objects/${tenantId}/uploads/maya.png`,
++        isDefault: true,
++      })
++      .returning()
++  )[0]!;
++  const gym = (
++    await db
++      .insert(characterOutfitsTable)
++      .values({
++        tenantId,
++        characterId: character.id,
++        name: "Gym wear",
++        description: "leggings and top",
++        referenceImagePath: `/objects/${tenantId}/uploads/maya-gym.png`,
++        isDefault: false,
++      })
++      .returning()
++  )[0]!;
++  return { characterId: character.id, outfitId: defaultOutfit.id, gymOutfitId: gym.id };
++}
++
+ afterAll(async () => {
+   await waitForPendingJobs();
+   for (const tenant of createdTenants) {
++    await db
++      .delete(characterOutfitsTable)
++      .where(eq(characterOutfitsTable.tenantId, tenant.tenantId));
++    await db.delete(charactersTable).where(eq(charactersTable.tenantId, tenant.tenantId));
+     await db
+       .delete(videoGenerationsTable)
+       .where(eq(videoGenerationsTable.tenantId, tenant.tenantId));
+@@ -221,6 +268,126 @@ describe("POST /api/ai/generate-video", () => {
+     expect(runnerState.calls).toHaveLength(0);
+   });
+ 
++  it("requires a character for a character-mode topic video", async () => {
++    await newTenant();
++    const res = await request(app)
++      .post("/api/ai/generate-video")
++      .send({
++        engine: "topic_to_video",
++        prompt: "a day in the life of a founder",
++        visualsSource: "character",
++      });
++    expect(res.status).toBe(400);
++    expect(res.body.error).toMatch(/character/i);
++    expect(runnerState.calls).toHaveLength(0);
++  });
++
++  it("rejects a character that does not belong to the caller", async () => {
++    const other = await newTenant();
++    const seeded = await seedCharacter(other.tenantId);
++    await newTenant();
++    const res = await request(app)
++      .post("/api/ai/generate-video")
++      .send({
++        engine: "topic_to_video",
++        prompt: "a day in the life",
++        visualsSource: "character",
++        characterId: seeded.characterId,
++      });
++    expect(res.status).toBe(400);
++    expect(runnerState.calls).toHaveLength(0);
++  });
++
++  it("reserves one video unit per scene for character story videos", async () => {
++    const tenant = await newTenant("payg"); // 0 videos/month
++    const seeded = await seedCharacter(tenant.tenantId);
++    await grantCredits({
++      tenantId: tenant.tenantId,
++      captionCredits: 0,
++      imageCredits: 0,
++      videoCredits: 8,
++      kind: "admin_grant",
++      note: "test",
++    });
++    const res = await request(app)
++      .post("/api/ai/generate-video")
++      .send({
++        engine: "topic_to_video",
++        prompt: "a day in the life of a founder",
++        visualsSource: "character",
++        characterId: seeded.characterId,
++        outfitId: seeded.gymOutfitId,
++        wardrobeNotes: "gym wear for the workout scenes",
++        paragraphCount: 2, // Medium = 8 scenes = 8 units
++      });
++    expect(res.status).toBe(201);
++
++    await waitForPendingJobs();
++    expect(runnerState.calls).toEqual([{ jobId: res.body.id, funding: "credit" }]);
++    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(0);
++
++    const row = (
++      await db
++        .select()
++        .from(videoGenerationsTable)
++        .where(eq(videoGenerationsTable.id, res.body.id))
++    )[0];
++    expect(row?.options).toMatchObject({
++      visualsSource: "character",
++      characterId: seeded.characterId,
++      outfitId: seeded.gymOutfitId,
++      wardrobeNotes: "gym wear for the workout scenes",
++    });
++  });
++
++  it("402s a character video the plan and credits cannot cover", async () => {
++    const tenant = await newTenant("payg");
++    const seeded = await seedCharacter(tenant.tenantId);
++    await grantCredits({
++      tenantId: tenant.tenantId,
++      captionCredits: 0,
++      imageCredits: 0,
++      videoCredits: 3, // Short character video needs 4
++      kind: "admin_grant",
++      note: "test",
++    });
++    const res = await request(app)
++      .post("/api/ai/generate-video")
++      .send({
++        engine: "topic_to_video",
++        prompt: "a day in the life",
++        visualsSource: "character",
++        characterId: seeded.characterId,
++      });
++    expect(res.status).toBe(402);
++    expect(res.body.error).toMatch(/4 video units/);
++    // The all-or-nothing reserve left the partial balance untouched.
++    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(3);
++  });
++
++  it("resolves the default outfit for a character text-to-video clip", async () => {
++    const tenant = await newTenant();
++    const seeded = await seedCharacter(tenant.tenantId);
++    const res = await request(app)
++      .post("/api/ai/generate-video")
++      .send({
++        engine: "text_to_video",
++        prompt: "sipping chai on a balcony at sunrise",
++        characterId: seeded.characterId,
++      });
++    expect(res.status).toBe(201);
++    const row = (
++      await db
++        .select()
++        .from(videoGenerationsTable)
++        .where(eq(videoGenerationsTable.id, res.body.id))
++    )[0];
++    expect(row?.options).toMatchObject({
++      characterId: seeded.characterId,
++      outfitId: seeded.outfitId, // default outfit resolved server-side
++    });
++  });
++
+   it("402s when the plan has no video quota and no credits", async () => {
+     await newTenant("payg"); // 0 videos/month, credit-funded only
+     const res = await request(app)
+diff --git a/artifacts/api-server/src/routes/videos.ts b/artifacts/api-server/src/routes/videos.ts
+index 9c4e74f..12c6dd7 100644
+--- a/artifacts/api-server/src/routes/videos.ts
++++ b/artifacts/api-server/src/routes/videos.ts
+@@ -8,6 +8,8 @@ import { spendCredit, refundCredits } from "../lib/credits";
+ import { enqueueBackgroundJob } from "../lib/backgroundJobs";
+ import { runVideoGenerationJob } from "../lib/videoGen/jobRunner";
+ import { MAX_SLIDESHOW_IMAGES } from "../lib/videoGen/slideshow";
++import { videoJobUnits } from "../lib/videoGen/units";
++import { getCharacterDetail, resolveOutfit } from "../lib/characters";
+ import { serializeContent } from "../lib/serializers";
+ import type { VideoGeneration } from "@workspace/db";
+ 
+@@ -87,6 +89,37 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+     return;
+   }
+ 
++  // Character lock: validate the character (and outfit) belong to the caller
++  // BEFORE funding, and resolve the effective outfit so the job is
++  // self-describing even if the default outfit changes later.
++  const visualsSource =
++    body.engine === "topic_to_video" && body.visualsSource === "character"
++      ? "character"
++      : "stock";
++  const wantsCharacter =
++    visualsSource === "character" ||
++    (body.engine === "text_to_video" && body.characterId != null);
++  let characterId: number | null = null;
++  let outfitId: number | null = null;
++  if (wantsCharacter) {
++    if (body.characterId == null) {
++      res.status(400).json({ error: "Pick a character for a character video." });
++      return;
++    }
++    const detail = await getCharacterDetail(req.tenantId, body.characterId);
++    if (!detail) {
++      res.status(400).json({ error: "That character does not exist." });
++      return;
++    }
++    const outfit = resolveOutfit(detail, body.outfitId ?? null);
++    if (!outfit) {
++      res.status(400).json({ error: "That outfit does not exist." });
++      return;
++    }
++    characterId = detail.character.id;
++    outfitId = outfit.id;
++  }
++
+   const tenant = (
+     await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId)).limit(1)
+   )[0];
+@@ -95,19 +128,40 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+     return;
+   }
+ 
+-  // Fund like every metered generation: monthly plan quota first, then an
+-  // atomically reserved credit (refunded by the job runner on failure).
++  const options = {
++    aspectRatio: body.aspectRatio ?? "9:16",
++    durationSec: body.durationSec ?? 5,
++    slideDurationSec: body.slideDurationSec ?? 3,
++    overlayText: body.overlayText ?? null,
++    musicPath: body.musicPath ?? null,
++    voice: body.voice ?? "alloy",
++    stockSource: body.stockSource ?? "auto",
++    subtitles: body.subtitles ?? true,
++    paragraphCount: body.paragraphCount ?? 1,
++    visualsSource,
++    characterId,
++    outfitId,
++    wardrobeNotes: body.wardrobeNotes?.trim() || null,
++  };
++
++  // Fund like every metered generation: monthly plan quota first, then
++  // atomically reserved credits (refunded by the job runner on failure).
++  // Character story videos cost one unit PER SCENE — every scene is a real
++  // keyframe + image-to-video generation.
++  const units = videoJobUnits(body.engine, options);
+   const limits = await getPlanLimits(tenant.plan);
+   const usage = await getUsage(req.tenantId);
+   let funding: "quota" | "credit";
+-  if (limits.videos === -1 || usage.videos < limits.videos) {
++  if (limits.videos === -1 || usage.videos + units <= limits.videos) {
+     funding = "quota";
+-  } else if (await spendCredit(req.tenantId, "video")) {
++  } else if (await spendCredit(req.tenantId, "video", units)) {
+     funding = "credit";
+   } else {
+     res.status(402).json({
+       error:
+-        "Monthly video quota reached and no video credits left. Upgrade your plan or buy a credit pack.",
++        units > 1
++          ? `This character video needs ${units} video units (one per scene) and your plan does not have enough left. Upgrade your plan or buy a credit pack.`
++          : "Monthly video quota reached and no video credits left. Upgrade your plan or buy a credit pack.",
+     });
+     return;
+   }
+@@ -121,17 +175,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+         status: "queued",
+         prompt: body.prompt?.trim() || null,
+         sourceImagePaths,
+-        options: {
+-          aspectRatio: body.aspectRatio ?? "9:16",
+-          durationSec: body.durationSec ?? 5,
+-          slideDurationSec: body.slideDurationSec ?? 3,
+-          overlayText: body.overlayText ?? null,
+-          musicPath: body.musicPath ?? null,
+-          voice: body.voice ?? "alloy",
+-          stockSource: body.stockSource ?? "auto",
+-          subtitles: body.subtitles ?? true,
+-          paragraphCount: body.paragraphCount ?? 1,
+-        },
++        options,
+       })
+       .returning()
+   )[0]!;
+@@ -144,7 +188,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+       .set({ status: "failed", error: "Server restarting; please retry." })
+       .where(eq(videoGenerationsTable.id, job.id));
+     if (funding === "credit") {
+-      await refundCredits(req.tenantId, "video", 1, "video enqueue rejected");
++      await refundCredits(req.tenantId, "video", units, "video enqueue rejected");
+     }
+     res.status(503).json({ error: "Server is restarting. Please retry in a moment." });
+     return;
+diff --git a/artifacts/socialforge/src/pages/video-studio.test.tsx b/artifacts/socialforge/src/pages/video-studio.test.tsx
+index f0ce580..a024e07 100644
+--- a/artifacts/socialforge/src/pages/video-studio.test.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.test.tsx
+@@ -27,11 +27,13 @@ const mockState: {
+   generateError: any;
+   jobs: any[];
+   activeJob: any;
++  characters: any[];
+ } = {
+   lastGenerateVars: null,
+   generateError: null,
+   jobs: [],
+   activeJob: undefined,
++  characters: [],
+ };
+ 
+ const toastSpy = vi.fn();
+@@ -64,6 +66,7 @@ vi.mock("@workspace/api-client-react", async () => {
+       isLoading: false,
+     }),
+     useListContent: () => ({ data: [], isLoading: false }),
++    useListCharacters: () => ({ data: mockState.characters }),
+   });
+ });
+ 
+@@ -85,6 +88,7 @@ beforeEach(() => {
+   mockState.generateError = null;
+   mockState.jobs = [];
+   mockState.activeJob = undefined;
++  mockState.characters = [];
+   toastSpy.mockClear();
+   cleanup();
+ });
+@@ -176,6 +180,52 @@ describe("Video Studio", () => {
+     });
+   });
+ 
++  it("blocks character-mode topic videos until a character is picked", async () => {
++    renderPage();
++    const user = userEvent.setup();
++    await user.click(screen.getByTestId("tab-topic-to-video"));
++    fireEvent.change(screen.getByTestId("input-video-prompt"), {
++      target: { value: "a day in the life of a founder" },
++    });
++    expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(false);
++    await user.click(screen.getByTestId("toggle-visuals-character"));
++    // No characters exist: generation is blocked and creation is offered.
++    expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(true);
++    expect(screen.getByTestId("button-manage-characters")).toBeTruthy();
++    // The character manager opens from the empty state.
++    await user.click(screen.getByTestId("button-manage-characters"));
++    expect(screen.getByTestId("button-create-character")).toBeTruthy();
++  });
++
++  it("offers the character picker on Text to Video when characters exist", async () => {
++    mockState.characters = [
++      {
++        id: 3,
++        name: "Maya",
++        description: "cheerful founder",
++        referenceImagePath: "/objects/1/uploads/maya.png",
++        outfits: [
++          { id: 10, name: "Default", description: "casual", referenceImagePath: "/objects/1/uploads/maya.png", isDefault: true },
++        ],
++        createdAt: "2026-01-01T00:00:00Z",
++        updatedAt: "2026-01-01T00:00:00Z",
++      },
++    ];
++    renderPage();
++    expect(screen.getByTestId("select-character")).toBeTruthy();
++    // Without a character picked, the submitted body carries no character lock.
++    fireEvent.change(screen.getByTestId("input-video-prompt"), {
++      target: { value: "A calm ocean at dusk" },
++    });
++    fireEvent.click(screen.getByTestId("button-generate-video"));
++    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
++    expect(mockState.lastGenerateVars.data).toMatchObject({
++      engine: "text_to_video",
++      characterId: null,
++      outfitId: null,
++    });
++  });
++
+   it("shows the finished video with save and download actions", () => {
+     mockState.activeJob = {
+       id: 7,
+diff --git a/artifacts/socialforge/src/pages/video-studio.tsx b/artifacts/socialforge/src/pages/video-studio.tsx
+index 1fe6837..c3a9645 100644
+--- a/artifacts/socialforge/src/pages/video-studio.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.tsx
+@@ -10,14 +10,21 @@ import {
+   useImportGoogleDriveFiles,
+   useRequestUploadUrl,
+   useListContent,
++  useListCharacters,
++  useCreateCharacter,
++  useDeleteCharacter,
++  useCreateCharacterOutfit,
++  useDeleteCharacterOutfit,
+   getGoogleDriveAuthUrl,
+   getListVideoJobsQueryKey,
+   getGetVideoJobQueryKey,
+   getGetGoogleDriveStatusQueryKey,
+   getListGoogleDriveFilesQueryKey,
+   getListContentQueryKey,
++  getListCharactersQueryKey,
+   type VideoJob,
+   type GoogleDriveFile,
++  type Character,
+ } from "@workspace/api-client-react";
+ import { useQueryClient } from "@tanstack/react-query";
+ import { Button } from "@/components/ui/button";
+@@ -64,6 +71,9 @@ import {
+   XCircle,
+   Sparkles,
+   Lightbulb,
++  UserRound,
++  Shirt,
++  Trash2,
+ } from "lucide-react";
+ import { navigate } from "wouter/use-browser-location";
+ 
+@@ -127,6 +137,11 @@ export function VideoStudioPage() {
+   const [voice, setVoice] = useState<Voice>("alloy");
+   const [paragraphCount, setParagraphCount] = useState(1);
+   const [subtitles, setSubtitles] = useState(true);
++  const [visuals, setVisuals] = useState<"stock" | "character">("stock");
++  const [characterId, setCharacterId] = useState<number | null>(null);
++  const [outfitId, setOutfitId] = useState<number | null>(null);
++  const [wardrobeNotes, setWardrobeNotes] = useState("");
++  const [charactersOpen, setCharactersOpen] = useState(false);
+   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
+   const [music, setMusic] = useState<{ objectPath: string; name: string } | null>(null);
+   const [uploading, setUploading] = useState(false);
+@@ -149,6 +164,10 @@ export function VideoStudioPage() {
+   const { data: jobs } = useListVideoJobs({
+     query: { queryKey: getListVideoJobsQueryKey() },
+   });
++  const { data: characters } = useListCharacters({
++    query: { queryKey: getListCharactersQueryKey() },
++  });
++  const activeCharacter = characters?.find((c) => c.id === characterId) ?? null;
+ 
+   // Poll the active job until it settles; the server does the heavy lifting.
+   const { data: activeJob } = useGetVideoJob(activeJobId ?? 0, {
+@@ -280,11 +299,14 @@ export function VideoStudioPage() {
+ 
+   const canGenerate = useMemo(() => {
+     if (generateVideo.isPending || uploading) return false;
+-    if (engine === "text_to_video" || engine === "topic_to_video")
++    if (engine === "topic_to_video") {
++      if (visuals === "character" && characterId === null) return false;
+       return prompt.trim().length >= 3;
++    }
++    if (engine === "text_to_video") return prompt.trim().length >= 3;
+     if (engine === "image_to_video") return photos.length >= 1;
+     return photos.length >= 1;
+-  }, [engine, prompt, photos, generateVideo.isPending, uploading]);
++  }, [engine, prompt, photos, generateVideo.isPending, uploading, visuals, characterId]);
+ 
+   const busy =
+     activeJob != null &&
+@@ -315,6 +337,21 @@ export function VideoStudioPage() {
+           stockSource: "auto",
+           subtitles,
+           paragraphCount,
++          visualsSource: engine === "topic_to_video" ? visuals : "stock",
++          characterId:
++            (engine === "topic_to_video" && visuals === "character") ||
++            engine === "text_to_video"
++              ? characterId
++              : null,
++          outfitId:
++            (engine === "topic_to_video" && visuals === "character") ||
++            engine === "text_to_video"
++              ? outfitId
++              : null,
++          wardrobeNotes:
++            engine === "topic_to_video" && visuals === "character" && wardrobeNotes.trim()
++              ? wardrobeNotes.trim()
++              : null,
+         },
+       },
+       {
+@@ -429,6 +466,70 @@ export function VideoStudioPage() {
+             </div>
+           )}
+ 
++          {engine === "topic_to_video" && (
++            <div className="space-y-3">
++              <Label>Visuals</Label>
++              <ToggleGroup
++                type="single"
++                variant="outline"
++                value={visuals}
++                onValueChange={(v) => v && setVisuals(v as "stock" | "character")}
++              >
++                <ToggleGroupItem value="stock" data-testid="toggle-visuals-stock">
++                  Stock footage
++                </ToggleGroupItem>
++                <ToggleGroupItem value="character" data-testid="toggle-visuals-character">
++                  Your character
++                </ToggleGroupItem>
++              </ToggleGroup>
++              {visuals === "character" && (
++                <div className="space-y-3">
++                  <CharacterPicker
++                    characters={characters}
++                    characterId={characterId}
++                    outfitId={outfitId}
++                    onCharacterChange={(id) => {
++                      setCharacterId(id);
++                      setOutfitId(null);
++                    }}
++                    onOutfitChange={setOutfitId}
++                    onManage={() => setCharactersOpen(true)}
++                  />
++                  <div className="space-y-2">
++                    <Label htmlFor="wardrobe-notes">Costume changes (optional)</Label>
++                    <Input
++                      id="wardrobe-notes"
++                      data-testid="input-wardrobe-notes"
++                      maxLength={500}
++                      placeholder="Switch to gym wear for the workout scenes..."
++                      value={wardrobeNotes}
++                      onChange={(e) => setWardrobeNotes(e.target.value)}
++                    />
++                  </div>
++                  <p className="text-xs text-muted-foreground">
++                    Every scene is generated with your character — this video uses{" "}
++                    {4 * paragraphCount} video units (one per scene).
++                  </p>
++                </div>
++              )}
++            </div>
++          )}
++
++          {engine === "text_to_video" && (
++            <CharacterPicker
++              characters={characters}
++              characterId={characterId}
++              outfitId={outfitId}
++              allowNone
++              onCharacterChange={(id) => {
++                setCharacterId(id);
++                setOutfitId(null);
++              }}
++              onOutfitChange={setOutfitId}
++              onManage={() => setCharactersOpen(true)}
++            />
++          )}
++
+           {needsPhotos && (
+             <div className="space-y-3">
+               <Label>
+@@ -860,10 +961,450 @@ export function VideoStudioPage() {
+           setDriveOpen(false);
+         }}
+       />
++
++      <CharacterManagerDialog open={charactersOpen} onOpenChange={setCharactersOpen} />
++    </div>
++  );
++}
++
++/** Pick a locked character (and outfit) for identity-consistent videos. */
++function CharacterPicker({
++  characters,
++  characterId,
++  outfitId,
++  allowNone = false,
++  onCharacterChange,
++  onOutfitChange,
++  onManage,
++}: {
++  characters: Character[] | undefined;
++  characterId: number | null;
++  outfitId: number | null;
++  allowNone?: boolean;
++  onCharacterChange: (id: number | null) => void;
++  onOutfitChange: (id: number | null) => void;
++  onManage: () => void;
++}) {
++  const selected = characters?.find((c) => c.id === characterId) ?? null;
++  if (!characters || characters.length === 0) {
++    return (
++      <div className="space-y-2">
++        <Label>{allowNone ? "Character (optional)" : "Character"}</Label>
++        <div className="flex items-center gap-3 text-sm text-muted-foreground">
++          <span>No characters yet — create one to lock the same face across videos.</span>
++          <Button
++            type="button"
++            variant="outline"
++            size="sm"
++            onClick={onManage}
++            data-testid="button-manage-characters"
++          >
++            <UserRound className="h-4 w-4 mr-1.5" /> Create a character
++          </Button>
++        </div>
++      </div>
++    );
++  }
++  return (
++    <div className="flex flex-wrap items-end gap-4">
++      <div className="space-y-2">
++        <Label>{allowNone ? "Character (optional)" : "Character"}</Label>
++        <Select
++          value={characterId === null ? "none" : String(characterId)}
++          onValueChange={(v) => onCharacterChange(v === "none" ? null : Number(v))}
++        >
++          <SelectTrigger className="w-44" data-testid="select-character">
++            <SelectValue placeholder={allowNone ? "None" : "Pick a character"} />
++          </SelectTrigger>
++          <SelectContent>
++            {allowNone && <SelectItem value="none">None</SelectItem>}
++            {characters.map((c) => (
++              <SelectItem key={c.id} value={String(c.id)}>
++                {c.name}
++              </SelectItem>
++            ))}
++          </SelectContent>
++        </Select>
++      </div>
++      {selected && selected.outfits.length > 0 && (
++        <div className="space-y-2">
++          <Label>Outfit</Label>
++          <Select
++            value={outfitId === null ? "default" : String(outfitId)}
++            onValueChange={(v) => onOutfitChange(v === "default" ? null : Number(v))}
++          >
++            <SelectTrigger className="w-44" data-testid="select-outfit">
++              <SelectValue />
++            </SelectTrigger>
++            <SelectContent>
++              <SelectItem value="default">
++                {selected.outfits.find((o) => o.isDefault)?.name ?? "Default"} (default)
++              </SelectItem>
++              {selected.outfits
++                .filter((o) => !o.isDefault)
++                .map((o) => (
++                  <SelectItem key={o.id} value={String(o.id)}>
++                    {o.name}
++                  </SelectItem>
++                ))}
++            </SelectContent>
++          </Select>
++        </div>
++      )}
++      <Button
++        type="button"
++        variant="outline"
++        size="sm"
++        onClick={onManage}
++        data-testid="button-manage-characters"
++      >
++        <UserRound className="h-4 w-4 mr-1.5" /> Manage
++      </Button>
+     </div>
+   );
+ }
+ 
++/** Create and curate characters: references, outfits, deletions. */
++function CharacterManagerDialog({
++  open,
++  onOpenChange,
++}: {
++  open: boolean;
++  onOpenChange: (open: boolean) => void;
++}) {
++  const { toast } = useToast();
++  const queryClient = useQueryClient();
++  const requestUploadUrl = useRequestUploadUrl();
++  const { data: characters } = useListCharacters({
++    query: { queryKey: getListCharactersQueryKey(), enabled: open },
++  });
++  const createCharacter = useCreateCharacter();
++  const deleteCharacter = useDeleteCharacter();
++  const createOutfit = useCreateCharacterOutfit();
++  const deleteOutfit = useDeleteCharacterOutfit();
++
++  const [name, setName] = useState("");
++  const [description, setDescription] = useState("");
++  const [photoPath, setPhotoPath] = useState<string | null>(null);
++  const [photoName, setPhotoName] = useState("");
++  const [uploading, setUploading] = useState(false);
++  const [outfitFor, setOutfitFor] = useState<number | null>(null);
++  const [outfitName, setOutfitName] = useState("");
++  const [outfitDescription, setOutfitDescription] = useState("");
++  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
++  const photoRef = useRef<HTMLInputElement>(null);
++
++  const invalidate = () =>
++    void queryClient.invalidateQueries({ queryKey: getListCharactersQueryKey() });
++
++  const onApiError = (error: any, fallbackTitle: string) => {
++    if (error?.status === 402) {
++      toast({
++        title: "Image quota reached",
++        description: error?.message || "Character images fund like image generations.",
++        variant: "destructive",
++      });
++    } else {
++      toast({
++        title: fallbackTitle,
++        description: error?.message || "Please try again.",
++        variant: "destructive",
++      });
++    }
++  };
++
++  const handlePhoto = async (files: FileList | null) => {
++    const file = files?.[0];
++    if (!file) return;
++    if (!IMAGE_TYPES.includes(file.type)) {
++      toast({
++        title: "Not a supported image",
++        description: "Use a PNG, JPEG, or WebP photo.",
++        variant: "destructive",
++      });
++      return;
++    }
++    if (file.size > 10 * 1024 * 1024) {
++      toast({ title: "Photo too large", description: "Photos must be under 10 MB.", variant: "destructive" });
++      return;
++    }
++    setUploading(true);
++    try {
++      const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
++        data: { name: file.name, size: file.size, contentType: file.type },
++      });
++      const put = await fetch(uploadURL, {
++        method: "PUT",
++        body: file,
++        headers: { "Content-Type": file.type },
++      });
++      if (!put.ok) throw new Error(`Upload failed (${put.status})`);
++      setPhotoPath(objectPath);
++      setPhotoName(file.name);
++    } catch {
++      toast({ title: "Upload failed", description: "Please try again.", variant: "destructive" });
++    } finally {
++      setUploading(false);
++      if (photoRef.current) photoRef.current.value = "";
++    }
++  };
++
++  const onCreate = () => {
++    createCharacter.mutate(
++      {
++        data: {
++          name: name.trim(),
++          description: description.trim() || null,
++          sourceImagePath: photoPath,
++        },
++      },
++      {
++        onSuccess: () => {
++          setName("");
++          setDescription("");
++          setPhotoPath(null);
++          setPhotoName("");
++          invalidate();
++          toast({
++            title: "Character created",
++            description: "Pick them in Text to Video or Topic to Video to lock their identity.",
++          });
++        },
++        onError: (error: any) => onApiError(error, "Could not create the character"),
++      },
++    );
++  };
++
++  const onAddOutfit = (characterId: number) => {
++    createOutfit.mutate(
++      {
++        characterId,
++        data: { name: outfitName.trim(), description: outfitDescription.trim() },
++      },
++      {
++        onSuccess: () => {
++          setOutfitFor(null);
++          setOutfitName("");
++          setOutfitDescription("");
++          invalidate();
++          toast({ title: "Outfit added", description: "Same character, new costume — ready to lock." });
++        },
++        onError: (error: any) => onApiError(error, "Could not add the outfit"),
++      },
++    );
++  };
++
++  const canCreate =
++    name.trim().length >= 1 &&
++    (description.trim().length >= 3 || photoPath !== null) &&
++    !createCharacter.isPending &&
++    !uploading;
++
++  return (
++    <Dialog open={open} onOpenChange={onOpenChange}>
++      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
++        <DialogHeader>
++          <DialogTitle>Characters</DialogTitle>
++          <DialogDescription>
++            The same character, locked across every scene and video. Describe one and AI creates
++            the reference, or upload a photo.
++          </DialogDescription>
++        </DialogHeader>
++
++        <div className="space-y-3 border border-border rounded-lg p-4">
++          <div className="grid gap-3 sm:grid-cols-2">
++            <div className="space-y-2">
++              <Label htmlFor="character-name">Name</Label>
++              <Input
++                id="character-name"
++                data-testid="input-character-name"
++                maxLength={80}
++                placeholder="Maya"
++                value={name}
++                onChange={(e) => setName(e.target.value)}
++              />
++            </div>
++            <div className="space-y-2">
++              <Label>Reference photo (optional)</Label>
++              {photoPath ? (
++                <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
++                  <ImageIcon className="h-4 w-4 text-primary shrink-0" />
++                  <span className="truncate">{photoName}</span>
++                  <button type="button" aria-label="Remove photo" onClick={() => setPhotoPath(null)} className="ml-auto">
++                    <X className="h-4 w-4" />
++                  </button>
++                </div>
++              ) : (
++                <Button
++                  type="button"
++                  variant="outline"
++                  size="sm"
++                  disabled={uploading}
++                  onClick={() => photoRef.current?.click()}
++                  data-testid="button-upload-character-photo"
++                >
++                  <Upload className="h-4 w-4 mr-1.5" /> Upload
++                </Button>
++              )}
++              <input
++                ref={photoRef}
++                type="file"
++                accept={IMAGE_TYPES.join(",")}
++                className="hidden"
++                onChange={(e) => void handlePhoto(e.target.files)}
++              />
++            </div>
++          </div>
++          <div className="space-y-2">
++            <Label htmlFor="character-description">Appearance</Label>
++            <Textarea
++              id="character-description"
++              data-testid="input-character-description"
++              rows={2}
++              maxLength={1000}
++              placeholder="A cheerful woman in her late 20s, shoulder-length black hair, warm brown eyes..."
++              value={description}
++              onChange={(e) => setDescription(e.target.value)}
++            />
++          </div>
++          <Button
++            onClick={onCreate}
++            disabled={!canCreate}
++            data-testid="button-create-character"
++          >
++            {createCharacter.isPending ? (
++              <>
++                <RippleSpinner className="mr-2 h-4 w-4" /> Creating…
++              </>
++            ) : (
++              <>
++                <UserRound className="h-4 w-4 mr-2" /> Create character
++              </>
++            )}
++          </Button>
++        </div>
++
++        {characters && characters.length > 0 && (
++          <div className="space-y-3">
++            {characters.map((c) => (
++              <div
++                key={c.id}
++                className="border border-border rounded-lg p-3 flex gap-3"
++                data-testid={`character-card-${c.id}`}
++              >
++                <img
++                  src={`/api/storage${c.referenceImagePath}`}
++                  alt={c.name}
++                  className="h-20 w-14 object-cover rounded-md border border-border shrink-0"
++                />
++                <div className="min-w-0 flex-1 space-y-2">
++                  <div className="flex items-center gap-2">
++                    <p className="font-medium truncate">{c.name}</p>
++                    <button
++                      type="button"
++                      aria-label={`Delete ${c.name}`}
++                      data-testid={`button-delete-character-${c.id}`}
++                      className="ml-auto text-muted-foreground hover:text-destructive"
++                      onClick={() => {
++                        if (confirmDeleteId === c.id) {
++                          deleteCharacter.mutate(
++                            { characterId: c.id },
++                            { onSuccess: invalidate },
++                          );
++                          setConfirmDeleteId(null);
++                        } else {
++                          setConfirmDeleteId(c.id);
++                        }
++                      }}
++                    >
++                      {confirmDeleteId === c.id ? (
++                        <span className="text-xs text-destructive">Tap again to delete</span>
++                      ) : (
++                        <Trash2 className="h-4 w-4" />
++                      )}
++                    </button>
++                  </div>
++                  <div className="flex flex-wrap gap-1.5">
++                    {c.outfits.map((o) => (
++                      <Badge key={o.id} variant={o.isDefault ? "secondary" : "outline"}>
++                        <Shirt className="h-3 w-3 mr-1" />
++                        {o.name}
++                        {!o.isDefault && (
++                          <button
++                            type="button"
++                            aria-label={`Remove outfit ${o.name}`}
++                            className="ml-1"
++                            onClick={() =>
++                              deleteOutfit.mutate(
++                                { characterId: c.id, outfitId: o.id },
++                                { onSuccess: invalidate },
++                              )
++                            }
++                          >
++                            <X className="h-3 w-3" />
++                          </button>
++                        )}
++                      </Badge>
++                    ))}
++                  </div>
++                  {outfitFor === c.id ? (
++                    <div className="space-y-2">
++                      <Input
++                        data-testid="input-outfit-name"
++                        maxLength={80}
++                        placeholder="Outfit name (Gym wear)"
++                        value={outfitName}
++                        onChange={(e) => setOutfitName(e.target.value)}
++                      />
++                      <Input
++                        data-testid="input-outfit-description"
++                        maxLength={500}
++                        placeholder="Describe it: black leggings, teal sports top, white sneakers"
++                        value={outfitDescription}
++                        onChange={(e) => setOutfitDescription(e.target.value)}
++                      />
++                      <div className="flex gap-2">
++                        <Button
++                          size="sm"
++                          disabled={
++                            !outfitName.trim() ||
++                            !outfitDescription.trim() ||
++                            createOutfit.isPending
++                          }
++                          onClick={() => onAddOutfit(c.id)}
++                          data-testid="button-save-outfit"
++                        >
++                          {createOutfit.isPending ? "Adding…" : "Add outfit"}
++                        </Button>
++                        <Button size="sm" variant="ghost" onClick={() => setOutfitFor(null)}>
++                          Cancel
++                        </Button>
++                      </div>
++                    </div>
++                  ) : (
++                    <Button
++                      size="sm"
++                      variant="outline"
++                      onClick={() => {
++                        setOutfitFor(c.id);
++                        setOutfitName("");
++                        setOutfitDescription("");
++                      }}
++                      data-testid={`button-add-outfit-${c.id}`}
++                    >
++                      <Shirt className="h-4 w-4 mr-1.5" /> Add outfit
++                    </Button>
++                  )}
++                </div>
++              </div>
++            ))}
++          </div>
++        )}
++      </DialogContent>
++    </Dialog>
++  );
++}
++
+ /** Pick previously generated/saved images from the content library. */
+ function LibraryPickerDialog({
+   open,
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index 9f4f776..5f8fdd5 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -2363,6 +2363,17 @@ export const VideoGenerateRequestStockSource = {
+   pixabay: 'pixabay',
+ } as const;
+ 
++/**
++ * topic_to_video only; "character" generates every scene with the locked character instead of stock footage. Costs one video unit per scene (4 per paragraph).
++ */
++export type VideoGenerateRequestVisualsSource = typeof VideoGenerateRequestVisualsSource[keyof typeof VideoGenerateRequestVisualsSource];
++
++
++export const VideoGenerateRequestVisualsSource = {
++  stock: 'stock',
++  character: 'character',
++} as const;
++
+ export interface VideoGenerateRequest {
+   engine: VideoGenerateRequestEngine;
+   /**
+@@ -2413,6 +2424,24 @@ export interface VideoGenerateRequest {
+      * @maximum 3
+      */
+   paragraphCount?: number;
++  /** topic_to_video only; "character" generates every scene with the locked character instead of stock footage. Costs one video unit per scene (4 per paragraph). */
++  visualsSource?: VideoGenerateRequestVisualsSource;
++  /**
++     * Character lock: the character featured in the video (text_to_video and topic_to_video character mode).
++     * @nullable
++     */
++  characterId?: number | null;
++  /**
++     * Costume lock: the outfit the character wears. Defaults to the character's default outfit.
++     * @nullable
++     */
++  outfitId?: number | null;
++  /**
++     * topic_to_video character mode; costume-change instructions (e.g. "switch to gym wear for the workout scenes").
++     * @maxLength 500
++     * @nullable
++     */
++  wardrobeNotes?: string | null;
+ }
+ 
+ export type VideoJobEngine = typeof VideoJobEngine[keyof typeof VideoJobEngine];
+@@ -2617,6 +2646,60 @@ export interface VideoGenSettingsView {
+   stockSources: StockSourceInfo[];
+ }
+ 
++export interface CharacterOutfit {
++  id: number;
++  name: string;
++  description: string;
++  /** The character wearing this outfit; serve via /api/storage{path}. */
++  referenceImagePath: string;
++  isDefault: boolean;
++}
++
++export interface Character {
++  id: number;
++  name: string;
++  /** Appearance description used in generation prompts. */
++  description: string;
++  /** Canonical reference image; serve via /api/storage{path}. */
++  referenceImagePath: string;
++  outfits: CharacterOutfit[];
++  createdAt: string;
++  updatedAt: string;
++}
++
++export interface CreateCharacterRequest {
++  /**
++     * @minLength 1
++     * @maxLength 80
++     */
++  name: string;
++  /**
++     * Appearance description. Required unless sourceImagePath is given; when there is no upload, the reference image is AI-generated from it (funds like an image generation).
++     * @maxLength 1000
++     * @nullable
++     */
++  description?: string | null;
++  /**
++     * Optional uploaded reference photo (/objects/... path). Used as the character's canonical reference; no AI cost.
++     * @nullable
++     */
++  sourceImagePath?: string | null;
++}
++
++export interface CreateCharacterOutfitRequest {
++  /**
++     * @minLength 1
++     * @maxLength 80
++     */
++  name: string;
++  /**
++     * The costume. An identity-preserving variant of the character's reference is generated wearing it (funds like an image generation).
++     * @minLength 1
++     * @maxLength 500
++     */
++  description: string;
++}
++
+ export interface UpdateVideoGenSettingsRequest {
+   /** Provider id from the catalog. */
+   provider: string;
+diff --git a/lib/api-client-react/src/generated/api.ts b/lib/api-client-react/src/generated/api.ts
+index e206f92..e3ae0a0 100644
+--- a/lib/api-client-react/src/generated/api.ts
++++ b/lib/api-client-react/src/generated/api.ts
+@@ -98,6 +98,7 @@ import type {
+   CaptionResult,
+   CarouselRequest,
+   CarouselResult,
++  Character,
+   CompleteOnboardingInput,
+   ConnectedAccount,
+   ConsentAnalytics,
+@@ -106,6 +107,8 @@ import type {
+   ContentInput,
+   ContentItem,
+   ContentUpdate,
++  CreateCharacterOutfitRequest,
++  CreateCharacterRequest,
+   CreditPack,
+   CreditPackInput,
+   DataConsumptionAnalytics,
+@@ -3675,6 +3678,366 @@ export const useAdminClearStockSourceKey = <TError = ErrorType<ErrorEnvelope>,
+       return useMutation(getAdminClearStockSourceKeyMutationOptions(options));
+     }
+ 
++export const getListCharactersUrl = () => {
++
++
++
++
++  return `/api/characters`
++}
++
++/**
++ * @summary List the workspace's characters with their outfits
++ */
++export const listCharacters = async ( options?: RequestInit): Promise<Character[]> => {
++
++  return customFetch<Character[]>(getListCharactersUrl(),
++  {
++    ...options,
++    method: 'GET'
++
++
++  }
++);}
++
++
++
++
++
++export const getListCharactersQueryKey = () => {
++    return [
++    `/api/characters`
++    ] as const;
++    }
++
++
++export const getListCharactersQueryOptions = <TData = Awaited<ReturnType<typeof listCharacters>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCharacters>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++) => {
++
++const {query: queryOptions, request: requestOptions} = options ?? {};
++
++  const queryKey =  queryOptions?.queryKey ?? getListCharactersQueryKey();
++
++
++
++    const queryFn: QueryFunction<Awaited<ReturnType<typeof listCharacters>>> = ({ signal }) => listCharacters({ signal, ...requestOptions });
++
++
++
++
++
++   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listCharacters>>, TError, TData> & { queryKey: QueryKey }
++}
++
++export type ListCharactersQueryResult = NonNullable<Awaited<ReturnType<typeof listCharacters>>>
++export type ListCharactersQueryError = ErrorType<unknown>
++
++
++/**
++ * @summary List the workspace's characters with their outfits
++ */
++
++export function useListCharacters<TData = Awaited<ReturnType<typeof listCharacters>>, TError = ErrorType<unknown>>(
++  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCharacters>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++
++ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
++
++  const queryOptions = getListCharactersQueryOptions(options)
++
++  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
++
++  return withQueryKey(query, queryOptions.queryKey);
++}
++
++
++
++
++
++
++
++export const getCreateCharacterUrl = () => {
++
++
++
++
++  return `/api/characters`
++}
++
++/**
++ * @summary Create a character (from a description or an uploaded photo)
++ */
++export const createCharacter = async (createCharacterRequest: CreateCharacterRequest, options?: RequestInit): Promise<Character> => {
++
++  return customFetch<Character>(getCreateCharacterUrl(),
++  {
++    ...options,
++    method: 'POST',
++    headers: { 'Content-Type': 'application/json', ...options?.headers },
++    body: JSON.stringify(createCharacterRequest)
++  }
++);}
++
++
++
++
++export const getCreateCharacterMutationOptions = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCharacter>>, TError,{data: BodyType<CreateCharacterRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof createCharacter>>, TError,{data: BodyType<CreateCharacterRequest>}, TContext> => {
++
++const mutationKey = ['createCharacter'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createCharacter>>, {data: BodyType<CreateCharacterRequest>}> = (props) => {
++          const {data} = props ?? {};
++
++          return  createCharacter(data,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type CreateCharacterMutationResult = NonNullable<Awaited<ReturnType<typeof createCharacter>>>
++    export type CreateCharacterMutationBody = BodyType<CreateCharacterRequest>
++    export type CreateCharacterMutationError = ErrorType<ErrorEnvelope>
++
++    /**
++ * @summary Create a character (from a description or an uploaded photo)
++ */
++export const useCreateCharacter = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCharacter>>, TError,{data: BodyType<CreateCharacterRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof createCharacter>>,
++        TError,
++        {data: BodyType<CreateCharacterRequest>},
++        TContext
++      > => {
++      return useMutation(getCreateCharacterMutationOptions(options));
++    }
++
++export const getDeleteCharacterUrl = (characterId: number,) => {
++
++
++
++
++  return `/api/characters/${characterId}`
++}
++
++/**
++ * @summary Delete a character and all its outfits
++ */
++export const deleteCharacter = async (characterId: number, options?: RequestInit): Promise<void> => {
++
++  return customFetch<void>(getDeleteCharacterUrl(characterId),
++  {
++    ...options,
++    method: 'DELETE'
++
++
++  }
++);}
++
++
++
++
++export const getDeleteCharacterMutationOptions = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCharacter>>, TError,{characterId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof deleteCharacter>>, TError,{characterId: number}, TContext> => {
++
++const mutationKey = ['deleteCharacter'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteCharacter>>, {characterId: number}> = (props) => {
++          const {characterId} = props ?? {};
++
++          return  deleteCharacter(characterId,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type DeleteCharacterMutationResult = NonNullable<Awaited<ReturnType<typeof deleteCharacter>>>
++
++    export type DeleteCharacterMutationError = ErrorType<ErrorEnvelope>
++
++    /**
++ * @summary Delete a character and all its outfits
++ */
++export const useDeleteCharacter = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCharacter>>, TError,{characterId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof deleteCharacter>>,
++        TError,
++        {characterId: number},
++        TContext
++      > => {
++      return useMutation(getDeleteCharacterMutationOptions(options));
++    }
++
++export const getCreateCharacterOutfitUrl = (characterId: number,) => {
++
++
++
++
++  return `/api/characters/${characterId}/outfits`
++}
++
++/**
++ * @summary Add a costume variant (identity-preserving AI edit)
++ */
++export const createCharacterOutfit = async (characterId: number,
++    createCharacterOutfitRequest: CreateCharacterOutfitRequest, options?: RequestInit): Promise<Character> => {
++
++  return customFetch<Character>(getCreateCharacterOutfitUrl(characterId),
++  {
++    ...options,
++    method: 'POST',
++    headers: { 'Content-Type': 'application/json', ...options?.headers },
++    body: JSON.stringify(createCharacterOutfitRequest)
++  }
++);}
++
++
++
++
++export const getCreateCharacterOutfitMutationOptions = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCharacterOutfit>>, TError,{characterId: number;data: BodyType<CreateCharacterOutfitRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof createCharacterOutfit>>, TError,{characterId: number;data: BodyType<CreateCharacterOutfitRequest>}, TContext> => {
++
++const mutationKey = ['createCharacterOutfit'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createCharacterOutfit>>, {characterId: number;data: BodyType<CreateCharacterOutfitRequest>}> = (props) => {
++          const {characterId,data} = props ?? {};
++
++          return  createCharacterOutfit(characterId,data,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type CreateCharacterOutfitMutationResult = NonNullable<Awaited<ReturnType<typeof createCharacterOutfit>>>
++    export type CreateCharacterOutfitMutationBody = BodyType<CreateCharacterOutfitRequest>
++    export type CreateCharacterOutfitMutationError = ErrorType<ErrorEnvelope>
++
++    /**
++ * @summary Add a costume variant (identity-preserving AI edit)
++ */
++export const useCreateCharacterOutfit = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCharacterOutfit>>, TError,{characterId: number;data: BodyType<CreateCharacterOutfitRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof createCharacterOutfit>>,
++        TError,
++        {characterId: number;data: BodyType<CreateCharacterOutfitRequest>},
++        TContext
++      > => {
++      return useMutation(getCreateCharacterOutfitMutationOptions(options));
++    }
++
++export const getDeleteCharacterOutfitUrl = (characterId: number,
++    outfitId: number,) => {
++
++
++
++
++  return `/api/characters/${characterId}/outfits/${outfitId}`
++}
++
++/**
++ * @summary Remove an outfit (the default outfit cannot be removed)
++ */
++export const deleteCharacterOutfit = async (characterId: number,
++    outfitId: number, options?: RequestInit): Promise<void> => {
++
++  return customFetch<void>(getDeleteCharacterOutfitUrl(characterId,outfitId),
++  {
++    ...options,
++    method: 'DELETE'
++
++
++  }
++);}
++
++
++
++
++export const getDeleteCharacterOutfitMutationOptions = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCharacterOutfit>>, TError,{characterId: number;outfitId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof deleteCharacterOutfit>>, TError,{characterId: number;outfitId: number}, TContext> => {
++
++const mutationKey = ['deleteCharacterOutfit'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteCharacterOutfit>>, {characterId: number;outfitId: number}> = (props) => {
++          const {characterId,outfitId} = props ?? {};
++
++          return  deleteCharacterOutfit(characterId,outfitId,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type DeleteCharacterOutfitMutationResult = NonNullable<Awaited<ReturnType<typeof deleteCharacterOutfit>>>
++
++    export type DeleteCharacterOutfitMutationError = ErrorType<ErrorEnvelope>
++
++    /**
++ * @summary Remove an outfit (the default outfit cannot be removed)
++ */
++export const useDeleteCharacterOutfit = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCharacterOutfit>>, TError,{characterId: number;outfitId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof deleteCharacterOutfit>>,
++        TError,
++        {characterId: number;outfitId: number},
++        TContext
++      > => {
++      return useMutation(getDeleteCharacterOutfitMutationOptions(options));
++    }
++
+ export const getGetAiSpendRatesUrl = () => {
+ 
+ 
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index 8f80e07..77efad6 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -1347,6 +1347,142 @@ paths:
+             application/json:
+               schema:
+                 $ref: "#/components/schemas/ErrorEnvelope"
++  /characters:
++    get:
++      operationId: listCharacters
++      tags: [characters]
++      summary: List the workspace's characters with their outfits
++      responses:
++        "200":
++          description: Characters
++          content:
++            application/json:
++              schema:
++                type: array
++                items:
++                  $ref: "#/components/schemas/Character"
++    post:
++      operationId: createCharacter
++      tags: [characters]
++      summary: Create a character (from a description or an uploaded photo)
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              $ref: "#/components/schemas/CreateCharacterRequest"
++      responses:
++        "201":
++          description: Created (includes the auto-created Default outfit)
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/Character"
++        "400":
++          description: Invalid input
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++        "402":
++          description: Image quota exceeded (AI-generated reference)
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++  /characters/{characterId}:
++    parameters:
++      - name: characterId
++        in: path
++        required: true
++        schema:
++          type: integer
++    delete:
++      operationId: deleteCharacter
++      tags: [characters]
++      summary: Delete a character and all its outfits
++      responses:
++        "204":
++          description: Deleted
++        "404":
++          description: Not found
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++  /characters/{characterId}/outfits:
++    parameters:
++      - name: characterId
++        in: path
++        required: true
++        schema:
++          type: integer
++    post:
++      operationId: createCharacterOutfit
++      tags: [characters]
++      summary: Add a costume variant (identity-preserving AI edit)
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              $ref: "#/components/schemas/CreateCharacterOutfitRequest"
++      responses:
++        "201":
++          description: The character with its updated outfits
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/Character"
++        "400":
++          description: Invalid input
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++        "402":
++          description: Image quota exceeded
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++        "404":
++          description: Not found
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++  /characters/{characterId}/outfits/{outfitId}:
++    parameters:
++      - name: characterId
++        in: path
++        required: true
++        schema:
++          type: integer
++      - name: outfitId
++        in: path
++        required: true
++        schema:
++          type: integer
++    delete:
++      operationId: deleteCharacterOutfit
++      tags: [characters]
++      summary: Remove an outfit (the default outfit cannot be removed)
++      responses:
++        "204":
++          description: Deleted
++        "400":
++          description: Cannot remove the default outfit
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++        "404":
++          description: Not found
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
+   /ai-spend/rates:
+     get:
+       operationId: getAiSpendRates
+@@ -9236,6 +9372,30 @@ components:
+           description: >-
+             topic_to_video only; script length in paragraphs (roughly 30
+             seconds of narration each).
++        visualsSource:
++          type: string
++          enum: [stock, character]
++          default: stock
++          description: >-
++            topic_to_video only; "character" generates every scene with the
++            locked character instead of stock footage. Costs one video unit
++            per scene (4 per paragraph).
++        characterId:
++          type: ["integer", "null"]
++          description: >-
++            Character lock: the character featured in the video
++            (text_to_video and topic_to_video character mode).
++        outfitId:
++          type: ["integer", "null"]
++          description: >-
++            Costume lock: the outfit the character wears. Defaults to the
++            character's default outfit.
++        wardrobeNotes:
++          type: ["string", "null"]
++          maxLength: 500
++          description: >-
++            topic_to_video character mode; costume-change instructions
++            (e.g. "switch to gym wear for the workout scenes").
+     VideoJob:
+       type: object
+       required:
+@@ -9462,6 +9622,82 @@ components:
+           type: ["string", "null"]
+           enum: [database, env, null]
+           description: Where the active key comes from (admin-entered key wins over the env secret).
++    Character:
++      type: object
++      required:
++        [id, name, description, referenceImagePath, outfits, createdAt, updatedAt]
++      properties:
++        id:
++          type: integer
++        name:
++          type: string
++        description:
++          type: string
++          description: Appearance description used in generation prompts.
++        referenceImagePath:
++          type: string
++          description: Canonical reference image; serve via /api/storage{path}.
++        outfits:
++          type: array
++          items:
++            $ref: "#/components/schemas/CharacterOutfit"
++        createdAt:
++          type: string
++          format: date-time
++        updatedAt:
++          type: string
++          format: date-time
++    CharacterOutfit:
++      type: object
++      required: [id, name, description, referenceImagePath, isDefault]
++      properties:
++        id:
++          type: integer
++        name:
++          type: string
++        description:
++          type: string
++        referenceImagePath:
++          type: string
++          description: The character wearing this outfit; serve via /api/storage{path}.
++        isDefault:
++          type: boolean
++    CreateCharacterRequest:
++      type: object
++      required: [name]
++      properties:
++        name:
++          type: string
++          minLength: 1
++          maxLength: 80
++        description:
++          type: ["string", "null"]
++          maxLength: 1000
++          description: >-
++            Appearance description. Required unless sourceImagePath is given;
++            when there is no upload, the reference image is AI-generated from
++            it (funds like an image generation).
++        sourceImagePath:
++          type: ["string", "null"]
++          description: >-
++            Optional uploaded reference photo (/objects/... path). Used as the
++            character's canonical reference; no AI cost.
++    CreateCharacterOutfitRequest:
++      type: object
++      required: [name, description]
++      properties:
++        name:
++          type: string
++          minLength: 1
++          maxLength: 80
++        description:
++          type: string
++          minLength: 1
++          maxLength: 500
++          description: >-
++            The costume. An identity-preserving variant of the character's
++            reference is generated wearing it (funds like an image
++            generation).
+     UpdateVideoGenSettingsRequest:
+       type: object
+       required: [provider]
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index 5c83d6f..7e51ad6 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -1355,6 +1355,115 @@ export const AdminClearStockSourceKeyResponse = zod.object({
+ })
+ 
+ 
++/**
++ * @summary List the workspace's characters with their outfits
++ */
++export const ListCharactersResponseItem = zod.object({
++  "id": zod.number(),
++  "name": zod.string(),
++  "description": zod.string().describe('Appearance description used in generation prompts.'),
++  "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
++  "outfits": zod.array(zod.object({
++  "id": zod.number(),
++  "name": zod.string(),
++  "description": zod.string(),
++  "referenceImagePath": zod.string().describe('The character wearing this outfit; serve via \/api\/storage{path}.'),
++  "isDefault": zod.boolean()
++})),
++  "createdAt": zod.coerce.date(),
++  "updatedAt": zod.coerce.date()
++})
++export const ListCharactersResponse = zod.array(ListCharactersResponseItem)
++
++
++/**
++ * @summary Create a character (from a description or an uploaded photo)
++ */
++export const createCharacterBodyNameMax = 80;
++
++export const createCharacterBodyDescriptionMax = 1000;
++
++
++
++export const CreateCharacterBody = zod.object({
++  "name": zod.string().min(1).max(createCharacterBodyNameMax),
++  "description": zod.string().max(createCharacterBodyDescriptionMax).nullish().describe('Appearance description. Required unless sourceImagePath is given; when there is no upload, the reference image is AI-generated from it (funds like an image generation).'),
++  "sourceImagePath": zod.string().nullish().describe('Optional uploaded reference photo (\/objects\/... path). Used as the character\'s canonical reference; no AI cost.')
++})
++
++export const CreateCharacterResponse = zod.object({
++  "id": zod.number(),
++  "name": zod.string(),
++  "description": zod.string().describe('Appearance description used in generation prompts.'),
++  "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
++  "outfits": zod.array(zod.object({
++  "id": zod.number(),
++  "name": zod.string(),
++  "description": zod.string(),
++  "referenceImagePath": zod.string().describe('The character wearing this outfit; serve via \/api\/storage{path}.'),
++  "isDefault": zod.boolean()
++})),
++  "createdAt": zod.coerce.date(),
++  "updatedAt": zod.coerce.date()
++})
++
++
++/**
++ * @summary Delete a character and all its outfits
++ */
++export const DeleteCharacterParams = zod.object({
++  "characterId": zod.coerce.number()
++})
++
++export const DeleteCharacterResponse = zod.void()
++
++
++/**
++ * @summary Add a costume variant (identity-preserving AI edit)
++ */
++export const CreateCharacterOutfitParams = zod.object({
++  "characterId": zod.coerce.number()
++})
++
++export const createCharacterOutfitBodyNameMax = 80;
++
++export const createCharacterOutfitBodyDescriptionMax = 500;
++
++
++
++export const CreateCharacterOutfitBody = zod.object({
++  "name": zod.string().min(1).max(createCharacterOutfitBodyNameMax),
++  "description": zod.string().min(1).max(createCharacterOutfitBodyDescriptionMax).describe('The costume. An identity-preserving variant of the character\'s reference is generated wearing it (funds like an image generation).')
++})
++
++export const CreateCharacterOutfitResponse = zod.object({
++  "id": zod.number(),
++  "name": zod.string(),
++  "description": zod.string().describe('Appearance description used in generation prompts.'),
++  "referenceImagePath": zod.string().describe('Canonical reference image; serve via \/api\/storage{path}.'),
++  "outfits": zod.array(zod.object({
++  "id": zod.number(),
++  "name": zod.string(),
++  "description": zod.string(),
++  "referenceImagePath": zod.string().describe('The character wearing this outfit; serve via \/api\/storage{path}.'),
++  "isDefault": zod.boolean()
++})),
++  "createdAt": zod.coerce.date(),
++  "updatedAt": zod.coerce.date()
++})
++
++
++/**
++ * @summary Remove an outfit (the default outfit cannot be removed)
++ */
++export const DeleteCharacterOutfitParams = zod.object({
++  "characterId": zod.coerce.number(),
++  "outfitId": zod.coerce.number()
++})
++
++export const DeleteCharacterOutfitResponse = zod.void()
++
++
+ /**
+  * @summary Effective per-caption/per-image display amounts (fee included)
+  */
+@@ -4647,6 +4756,9 @@ export const generateVideoBodySubtitlesDefault = true;
+ export const generateVideoBodyParagraphCountDefault = 1;
+ export const generateVideoBodyParagraphCountMax = 3;
+ 
++export const generateVideoBodyVisualsSourceDefault = `stock`;
++export const generateVideoBodyWardrobeNotesMax = 500;
++
+ 
+ 
+ export const GenerateVideoBody = zod.object({
+@@ -4661,7 +4773,11 @@ export const GenerateVideoBody = zod.object({
+   "voice": zod.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']).default(generateVideoBodyVoiceDefault).describe('topic_to_video only; the narration voice.'),
+   "stockSource": zod.enum(['auto', 'pexels', 'pixabay']).default(generateVideoBodyStockSourceDefault).describe('topic_to_video only; where stock footage comes from (auto = first configured source).'),
+   "subtitles": zod.boolean().default(generateVideoBodySubtitlesDefault).describe('topic_to_video only; burn per-sentence subtitles.'),
+-  "paragraphCount": zod.number().min(1).max(generateVideoBodyParagraphCountMax).default(generateVideoBodyParagraphCountDefault).describe('topic_to_video only; script length in paragraphs (roughly 30 seconds of narration each).')
++  "paragraphCount": zod.number().min(1).max(generateVideoBodyParagraphCountMax).default(generateVideoBodyParagraphCountDefault).describe('topic_to_video only; script length in paragraphs (roughly 30 seconds of narration each).'),
++  "visualsSource": zod.enum(['stock', 'character']).default(generateVideoBodyVisualsSourceDefault).describe('topic_to_video only; \"character\" generates every scene with the locked character instead of stock footage. Costs one video unit per scene (4 per paragraph).'),
++  "characterId": zod.number().nullish().describe('Character lock: the character featured in the video (text_to_video and topic_to_video character mode).'),
++  "outfitId": zod.number().nullish().describe('Costume lock: the outfit the character wears. Defaults to the character\'s default outfit.'),
++  "wardrobeNotes": zod.string().max(generateVideoBodyWardrobeNotesMax).nullish().describe('topic_to_video character mode; costume-change instructions (e.g. \"switch to gym wear for the workout scenes\").')
+ })
+ 
+ export const GenerateVideoResponse = zod.object({
+diff --git a/lib/api-zod/src/generated/types/character.ts b/lib/api-zod/src/generated/types/character.ts
+new file mode 100644
+index 0000000..745888b
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/character.ts
+@@ -0,0 +1,20 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { CharacterOutfit } from './characterOutfit';
++
++export interface Character {
++  id: number;
++  name: string;
++  /** Appearance description used in generation prompts. */
++  description: string;
++  /** Canonical reference image; serve via /api/storage{path}. */
++  referenceImagePath: string;
++  outfits: CharacterOutfit[];
++  createdAt: Date;
++  updatedAt: Date;
++}
+diff --git a/lib/api-zod/src/generated/types/characterOutfit.ts b/lib/api-zod/src/generated/types/characterOutfit.ts
+new file mode 100644
+index 0000000..a30b7b0
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/characterOutfit.ts
+@@ -0,0 +1,16 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface CharacterOutfit {
++  id: number;
++  name: string;
++  description: string;
++  /** The character wearing this outfit; serve via /api/storage{path}. */
++  referenceImagePath: string;
++  isDefault: boolean;
++}
+diff --git a/lib/api-zod/src/generated/types/createCharacterOutfitRequest.ts b/lib/api-zod/src/generated/types/createCharacterOutfitRequest.ts
+new file mode 100644
+index 0000000..8068d94
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/createCharacterOutfitRequest.ts
+@@ -0,0 +1,21 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface CreateCharacterOutfitRequest {
++  /**
++     * @minLength 1
++     * @maxLength 80
++     */
++  name: string;
++  /**
++     * The costume. An identity-preserving variant of the character's reference is generated wearing it (funds like an image generation).
++     * @minLength 1
++     * @maxLength 500
++     */
++  description: string;
++}
+diff --git a/lib/api-zod/src/generated/types/createCharacterRequest.ts b/lib/api-zod/src/generated/types/createCharacterRequest.ts
+new file mode 100644
+index 0000000..4910eb9
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/createCharacterRequest.ts
+@@ -0,0 +1,26 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface CreateCharacterRequest {
++  /**
++     * @minLength 1
++     * @maxLength 80
++     */
++  name: string;
++  /**
++     * Appearance description. Required unless sourceImagePath is given; when there is no upload, the reference image is AI-generated from it (funds like an image generation).
++     * @maxLength 1000
++     * @nullable
++     */
++  description?: string | null;
++  /**
++     * Optional uploaded reference photo (/objects/... path). Used as the character's canonical reference; no AI cost.
++     * @nullable
++     */
++  sourceImagePath?: string | null;
++}
+diff --git a/lib/api-zod/src/generated/types/index.ts b/lib/api-zod/src/generated/types/index.ts
+index df5de85..3d558f6 100644
+--- a/lib/api-zod/src/generated/types/index.ts
++++ b/lib/api-zod/src/generated/types/index.ts
+@@ -153,6 +153,8 @@ export * from './captionResult';
+ export * from './carouselRequest';
+ export * from './carouselResult';
+ export * from './carouselSlide';
++export * from './character';
++export * from './characterOutfit';
+ export * from './completeOnboardingInput';
+ export * from './connectedAccount';
+ export * from './consentAnalytics';
+@@ -166,6 +168,8 @@ export * from './contentItem';
+ export * from './contentItemPublishedPlatforms';
+ export * from './contentUpdate';
+ export * from './contentUpdateStatus';
++export * from './createCharacterOutfitRequest';
++export * from './createCharacterRequest';
+ export * from './creditBalances';
+ export * from './creditLedgerEntry';
+ export * from './creditPack';
+@@ -378,6 +382,7 @@ export * from './videoGenerateRequest';
+ export * from './videoGenerateRequestAspectRatio';
+ export * from './videoGenerateRequestEngine';
+ export * from './videoGenerateRequestStockSource';
++export * from './videoGenerateRequestVisualsSource';
+ export * from './videoGenerateRequestVoice';
+ export * from './videoGenProviderInfo';
+ export * from './videoGenProviderInfoKeySource';
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequest.ts b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+index e934df1..8c0087a 100644
+--- a/lib/api-zod/src/generated/types/videoGenerateRequest.ts
++++ b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+@@ -8,6 +8,7 @@
+ import type { VideoGenerateRequestAspectRatio } from './videoGenerateRequestAspectRatio';
+ import type { VideoGenerateRequestEngine } from './videoGenerateRequestEngine';
+ import type { VideoGenerateRequestStockSource } from './videoGenerateRequestStockSource';
++import type { VideoGenerateRequestVisualsSource } from './videoGenerateRequestVisualsSource';
+ import type { VideoGenerateRequestVoice } from './videoGenerateRequestVoice';
+ 
+ export interface VideoGenerateRequest {
+@@ -60,4 +61,22 @@ export interface VideoGenerateRequest {
+      * @maximum 3
+      */
+   paragraphCount?: number;
++  /** topic_to_video only; "character" generates every scene with the locked character instead of stock footage. Costs one video unit per scene (4 per paragraph). */
++  visualsSource?: VideoGenerateRequestVisualsSource;
++  /**
++     * Character lock: the character featured in the video (text_to_video and topic_to_video character mode).
++     * @nullable
++     */
++  characterId?: number | null;
++  /**
++     * Costume lock: the outfit the character wears. Defaults to the character's default outfit.
++     * @nullable
++     */
++  outfitId?: number | null;
++  /**
++     * topic_to_video character mode; costume-change instructions (e.g. "switch to gym wear for the workout scenes").
++     * @maxLength 500
++     * @nullable
++     */
++  wardrobeNotes?: string | null;
+ }
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequestVisualsSource.ts b/lib/api-zod/src/generated/types/videoGenerateRequestVisualsSource.ts
+new file mode 100644
+index 0000000..9404e1e
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoGenerateRequestVisualsSource.ts
+@@ -0,0 +1,18 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++/**
++ * topic_to_video only; "character" generates every scene with the locked character instead of stock footage. Costs one video unit per scene (4 per paragraph).
++ */
++export type VideoGenerateRequestVisualsSource = typeof VideoGenerateRequestVisualsSource[keyof typeof VideoGenerateRequestVisualsSource];
++
++
++export const VideoGenerateRequestVisualsSource = {
++  stock: 'stock',
++  character: 'character',
++} as const;
+diff --git a/lib/db/src/schema/characters.ts b/lib/db/src/schema/characters.ts
+new file mode 100644
+index 0000000..bc3dc02
+--- /dev/null
++++ b/lib/db/src/schema/characters.ts
+@@ -0,0 +1,49 @@
++import { pgTable, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
++
++/**
++ * Reusable AI characters for the Video Studio. A character is an identity —
++ * a name, an appearance description, and a canonical full-body reference
++ * image — that video engines anchor generation to so the same person appears
++ * across scenes and videos ("character lock").
++ *
++ * Costumes are modeled as outfits: each outfit is an identity-preserving
++ * image edit of the character's reference wearing different clothes. Locking
++ * an outfit pins the wardrobe for a whole video; story videos may switch
++ * outfits between scenes ("costume change").
++ */
++
++export const charactersTable = pgTable("characters", {
++  id: serial("id").primaryKey(),
++  tenantId: integer("tenant_id").notNull(),
++  name: text("name").notNull(),
++  /** Appearance description used in generation prompts. */
++  description: text("description").notNull().default(""),
++  /** Canonical full-body reference image (/objects/<tenantId>/uploads/...). */
++  referenceImagePath: text("reference_image_path").notNull(),
++  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
++  updatedAt: timestamp("updated_at", { withTimezone: true })
++    .notNull()
++    .defaultNow()
++    .$onUpdate(() => new Date()),
++});
++
++export const characterOutfitsTable = pgTable("character_outfits", {
++  id: serial("id").primaryKey(),
++  tenantId: integer("tenant_id").notNull(),
++  characterId: integer("character_id").notNull(),
++  name: text("name").notNull(),
++  /** Costume description used in generation prompts. */
++  description: text("description").notNull(),
++  /** The character wearing this outfit (/objects/<tenantId>/uploads/...). */
++  referenceImagePath: text("reference_image_path").notNull(),
++  /** The outfit used when a video doesn't pick one explicitly. */
++  isDefault: boolean("is_default").notNull().default(false),
++  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
++  updatedAt: timestamp("updated_at", { withTimezone: true })
++    .notNull()
++    .defaultNow()
++    .$onUpdate(() => new Date()),
++});
++
++export type Character = typeof charactersTable.$inferSelect;
++export type CharacterOutfit = typeof characterOutfitsTable.$inferSelect;
+diff --git a/lib/db/src/schema/index.ts b/lib/db/src/schema/index.ts
+index c09f030..d45614d 100644
+--- a/lib/db/src/schema/index.ts
++++ b/lib/db/src/schema/index.ts
+@@ -1,4 +1,5 @@
+ export * from "./tenants";
++export * from "./characters";
+ export * from "./brandKits";
+ export * from "./brandKitPayload";
+ export * from "./brandKitVersions";
+diff --git a/lib/db/src/schema/videoGenerations.ts b/lib/db/src/schema/videoGenerations.ts
+index 050ffe7..806caf4 100644
+--- a/lib/db/src/schema/videoGenerations.ts
++++ b/lib/db/src/schema/videoGenerations.ts
+@@ -38,6 +38,14 @@ export interface VideoJobOptions {
+   subtitles?: boolean;
+   /** topic_to_video: script length in paragraphs (~30s each, 1-3). */
+   paragraphCount?: number;
++  /** topic_to_video: "stock" footage (default) or AI "character" scenes. */
++  visualsSource?: string;
++  /** Character lock: the tenant character featured in the video. */
++  characterId?: number | null;
++  /** Costume lock: the outfit the character wears (default outfit if null). */
++  outfitId?: number | null;
++  /** topic_to_video character mode: costume-change instructions. */
++  wardrobeNotes?: string | null;
+ }
+ 
+ export const videoGenerationsTable = pgTable("video_generations", {
+-- 
+2.43.0
+

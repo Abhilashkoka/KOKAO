@@ -12,6 +12,13 @@ import {
   type StockClip,
 } from "./stockSources";
 import { composeTopicVideo } from "./compose";
+import {
+  CHARACTER_SCENES_PER_PARAGRAPH,
+  groupCuesIntoScenes,
+  planSceneVisuals,
+  generateCharacterSceneClips,
+} from "./characterScenes";
+import { getCharacterDetail, resolveOutfit } from "../../characters";
 
 export { NARRATION_VOICES, type NarrationVoice } from "./narration";
 export {
@@ -36,6 +43,8 @@ export {
 
 /** Overall wall-clock budget for one topic video (LLM + TTS + downloads + encode). */
 export const TOPIC_VIDEO_TOTAL_DEADLINE_MS = 10 * 60 * 1000;
+/** Character videos generate every scene with AI, so they get a longer leash. */
+export const CHARACTER_VIDEO_TOTAL_DEADLINE_MS = 25 * 60 * 1000;
 
 /** Distinct stock clips to download; scenes cycle through them. */
 const MAX_STOCK_CLIPS = 6;
@@ -49,6 +58,11 @@ export interface TopicVideoParams {
   subtitles: boolean;
   paragraphCount: number;
   music?: Buffer | null;
+  /** "stock" (default) or "character" — AI scenes with a locked character. */
+  visualsSource?: "stock" | "character";
+  characterId?: number | null;
+  outfitId?: number | null;
+  wardrobeNotes?: string | null;
 }
 
 export interface TopicVideoResult {
@@ -59,8 +73,8 @@ export interface TopicVideoResult {
   model: string;
 }
 
-function checkDeadline(startedAt: number): void {
-  if (Date.now() - startedAt > TOPIC_VIDEO_TOTAL_DEADLINE_MS) {
+function checkDeadline(startedAt: number, deadlineMs = TOPIC_VIDEO_TOTAL_DEADLINE_MS): void {
+  if (Date.now() - startedAt > deadlineMs) {
     throw new VideoGenProviderError(
       "Topic video generation timed out. Try a shorter length, or try again.",
     );
@@ -132,6 +146,10 @@ async function gatherStockClips(
 
 export async function generateTopicVideo(params: TopicVideoParams): Promise<TopicVideoResult> {
   const startedAt = Date.now();
+  const characterMode = params.visualsSource === "character";
+  const deadlineMs = characterMode
+    ? CHARACTER_VIDEO_TOTAL_DEADLINE_MS
+    : TOPIC_VIDEO_TOTAL_DEADLINE_MS;
   const topic = params.topic.trim();
   if (!topic) {
     throw new VideoGenProviderError("A topic is required.");
@@ -150,7 +168,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     topic,
     paragraphCount: params.paragraphCount,
   });
-  checkDeadline(startedAt);
+  checkDeadline(startedAt, deadlineMs);
 
   // 2) Sentence-level narration with exact timings.
   const sentences = splitIntoSentences(script);
@@ -158,17 +176,40 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     throw new VideoGenProviderError("The AI returned an empty script. Please try again.");
   }
   const narration = await synthesizeNarration(sentences, params.voice);
-  checkDeadline(startedAt);
+  checkDeadline(startedAt, deadlineMs);
 
-  // 3) Stock footage to cover every scene.
-  const { clips, provider } = await gatherStockClips(
-    params.stockSource,
-    searchTerms,
-    params.aspectRatio,
-    narration.cues.length,
-    startedAt,
-  );
-  checkDeadline(startedAt);
+  // 3) Visuals: locked-character AI scenes, or stock footage.
+  let clips: Buffer[];
+  let sceneMap = null;
+  let provider: string;
+  if (characterMode) {
+    const generated = await generateCharacterStoryClips({
+      tenantId: params.tenantId,
+      tenantAiModel: tenant.aiModel,
+      topic,
+      characterId: params.characterId ?? 0,
+      outfitId: params.outfitId ?? null,
+      wardrobeNotes: params.wardrobeNotes ?? "",
+      paragraphCount: params.paragraphCount,
+      aspectRatio: params.aspectRatio,
+      cues: narration.cues,
+      totalDurationSec: narration.totalDurationSec,
+    });
+    clips = generated.clips;
+    sceneMap = generated.sceneMap;
+    provider = generated.provider;
+  } else {
+    const stock = await gatherStockClips(
+      params.stockSource,
+      searchTerms,
+      params.aspectRatio,
+      narration.cues.length,
+      startedAt,
+    );
+    clips = stock.clips;
+    provider = stock.provider;
+  }
+  checkDeadline(startedAt, deadlineMs);
 
   // 4) Compose.
   const buffer = await composeTopicVideo({
@@ -179,6 +220,56 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     aspectRatio: params.aspectRatio,
     subtitles: params.subtitles,
     music: params.music ?? null,
+    sceneMap,
   });
   return { buffer, provider, model };
+}
+
+/** Script scenes → wardrobe plan → identity-locked clips, for character mode. */
+async function generateCharacterStoryClips(params: {
+  tenantId: number;
+  tenantAiModel: string;
+  topic: string;
+  characterId: number;
+  outfitId: number | null;
+  wardrobeNotes: string;
+  paragraphCount: number;
+  aspectRatio: VideoAspect;
+  cues: import("./narration").NarrationCue[];
+  totalDurationSec: number;
+}): Promise<{
+  clips: Buffer[];
+  sceneMap: import("./compose").SceneSegment[];
+  provider: string;
+}> {
+  const detail = await getCharacterDetail(params.tenantId, params.characterId);
+  if (!detail) {
+    throw new VideoGenProviderError("The selected character no longer exists.");
+  }
+  const lockedOutfit = resolveOutfit(detail, params.outfitId);
+  if (!lockedOutfit) {
+    throw new VideoGenProviderError("The selected outfit no longer exists.");
+  }
+  const sceneCount =
+    CHARACTER_SCENES_PER_PARAGRAPH *
+    Math.min(Math.max(Math.trunc(params.paragraphCount) || 1, 1), 3);
+  const scenes = groupCuesIntoScenes(params.cues, params.totalDurationSec, sceneCount);
+  const plan = await planSceneVisuals({
+    tenantAiModel: params.tenantAiModel,
+    topic: params.topic,
+    character: detail.character,
+    outfits: detail.outfits,
+    lockedOutfitId: lockedOutfit.id,
+    wardrobeNotes: params.wardrobeNotes,
+    scenes,
+  });
+  const generated = await generateCharacterSceneClips({
+    tenantId: params.tenantId,
+    character: detail.character,
+    outfits: detail.outfits,
+    plan,
+    scenes,
+    aspectRatio: params.aspectRatio,
+  });
+  return { clips: generated.clips, sceneMap: generated.sceneMap, provider: generated.provider };
 }
