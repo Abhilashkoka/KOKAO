@@ -87,6 +87,7 @@ describe("redeemPromoCode", () => {
     expect(await getCreditBalances(tenantId)).toEqual({
       captionCredits: 3,
       imageCredits: 2,
+      videoCredits: 0,
     });
     const history = await listCreditHistory(tenantId);
     const entry = history.find((h) => h.kind === "promo");
@@ -99,6 +100,7 @@ describe("redeemPromoCode", () => {
     expect(await getCreditBalances(tenantId)).toEqual({
       captionCredits: 3,
       imageCredits: 2,
+      videoCredits: 0,
     });
 
     const [updated] = await db

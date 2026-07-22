@@ -26,9 +26,11 @@ describe("credits lib", () => {
     expect(await getCreditBalances(tenantId)).toEqual({
       captionCredits: 0,
       imageCredits: 0,
+      videoCredits: 0,
     });
     expect(await spendCredit(tenantId, "caption")).toBe(false);
     expect(await spendCredit(tenantId, "image")).toBe(false);
+    expect(await spendCredit(tenantId, "video")).toBe(false);
   });
 
   it("grants, spends, and records ledger entries", async () => {
@@ -44,6 +46,7 @@ describe("credits lib", () => {
     expect(await getCreditBalances(tenantId)).toEqual({
       captionCredits: 2,
       imageCredits: 1,
+      videoCredits: 0,
     });
 
     expect(await spendCredit(tenantId, "caption")).toBe(true);
@@ -52,6 +55,7 @@ describe("credits lib", () => {
     expect(await getCreditBalances(tenantId)).toEqual({
       captionCredits: 1,
       imageCredits: 0,
+      videoCredits: 0,
     });
 
     const history = await listCreditHistory(tenantId);
@@ -100,6 +104,7 @@ describe("credits lib", () => {
     expect(await getCreditBalances(tenantId)).toEqual({
       captionCredits: 0,
       imageCredits: 3,
+      videoCredits: 0,
     });
     // The ledger records the APPLIED delta, so summing all deltas
     // reproduces the stored balance exactly.
@@ -130,5 +135,34 @@ describe("credits lib", () => {
     // Ledger still reconciles with the stored balance.
     const imageSum = history.reduce((s, h) => s + h.imageDelta, 0);
     expect(imageSum).toBe(3);
+  });
+
+  it("video credits are a separate spendable kind with their own ledger column", async () => {
+    expect(
+      await grantCredits({
+        tenantId,
+        captionCredits: 0,
+        imageCredits: 0,
+        videoCredits: 2,
+        kind: "admin_grant",
+        note: "video grant",
+      }),
+    ).toBe(true);
+    expect((await getCreditBalances(tenantId)).videoCredits).toBe(2);
+
+    // Spending video credits never touches the other balances.
+    const before = await getCreditBalances(tenantId);
+    expect(await spendCredit(tenantId, "video")).toBe(true);
+    const after = await getCreditBalances(tenantId);
+    expect(after.videoCredits).toBe(1);
+    expect(after.captionCredits).toBe(before.captionCredits);
+    expect(after.imageCredits).toBe(before.imageCredits);
+
+    await refundCredits(tenantId, "video", 1, "video generation failed");
+    expect((await getCreditBalances(tenantId)).videoCredits).toBe(2);
+
+    const history = await listCreditHistory(tenantId, 100);
+    const videoSum = history.reduce((s, h) => s + h.videoDelta, 0);
+    expect(videoSum).toBe(2);
   });
 });

@@ -25,4 +25,5 @@ export interface FeatureFlags {
   carousel: boolean;
   aiSpend: boolean;
   aiCostTracking: boolean;
+  videoGen: boolean;
 }

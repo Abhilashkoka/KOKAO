@@ -38,6 +38,16 @@ import {
   clearStoredImageGenKey,
 } from "../lib/imageGen";
 import {
+  VIDEO_GEN_PROVIDERS,
+  getVideoGenProviderDef,
+  isVideoGenProviderConfigured,
+  getVideoGenSelection,
+  setVideoGenSelection,
+  getVideoGenKeySource,
+  setStoredVideoGenKey,
+  clearStoredVideoGenKey,
+} from "../lib/videoGen";
+import {
   TEXT_GEN_PROVIDERS,
   getTextGenSelection,
   setTextGenSelection,
@@ -56,6 +66,8 @@ import {
   AdminSetAsrProviderKeyBody,
   AdminUpdateImageGenSettingsBody,
   AdminSetImageGenProviderKeyBody,
+  AdminUpdateVideoGenSettingsBody,
+  AdminSetVideoGenProviderKeyBody,
   AdminUpdateTextGenSettingsBody,
   AdminSetTextGenKeyBody,
   AdminUpdateAiSpendSettingsBody,
@@ -874,6 +886,153 @@ router.delete(
   },
 );
 
+/** Serialize the video generation settings view (selection + catalog). */
+async function serializeVideoGenSettings() {
+  const selection = await getVideoGenSelection();
+  return {
+    provider: selection.provider,
+    textToVideoModel: selection.textToVideoModel,
+    imageToVideoModel: selection.imageToVideoModel,
+    providers: await Promise.all(
+      VIDEO_GEN_PROVIDERS.map(async (p) => ({
+        id: p.id,
+        label: p.label,
+        defaultTextToVideoModel: p.defaultTextToVideoModel,
+        defaultImageToVideoModel: p.defaultImageToVideoModel,
+        configured: await isVideoGenProviderConfigured(p),
+        supportsModelOverride: p.supportsModelOverride,
+        textModelOptions: p.textModelOptions ? [...p.textModelOptions] : [],
+        imageModelOptions: p.imageModelOptions ? [...p.imageModelOptions] : [],
+        envKey: p.envKey,
+        keySource: await getVideoGenKeySource(p),
+      })),
+    ),
+  };
+}
+
+/**
+ * GET /admin/video-gen-settings
+ * The platform-wide video generation provider selection.
+ */
+router.get("/admin/video-gen-settings", async (_req: Request, res: Response) => {
+  res.json(await serializeVideoGenSettings());
+});
+
+/**
+ * PUT /admin/video-gen-settings
+ * Select which provider (and optional per-engine model overrides) the AI
+ * video engines use.
+ */
+router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
+  const parsed = AdminUpdateVideoGenSettingsBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const def = getVideoGenProviderDef(parsed.data.provider);
+  if (!def) {
+    res.status(400).json({ error: "Unknown video generation provider" });
+    return;
+  }
+  const textToVideoModel = parsed.data.textToVideoModel?.trim() || null;
+  const imageToVideoModel = parsed.data.imageToVideoModel?.trim() || null;
+
+  const before = await getVideoGenSelection();
+  await setVideoGenSelection({
+    provider: def.id,
+    textToVideoModel: def.supportsModelOverride ? textToVideoModel : null,
+    imageToVideoModel: def.supportsModelOverride ? imageToVideoModel : null,
+  });
+
+  const changed =
+    before.provider !== def.id ||
+    before.textToVideoModel !== textToVideoModel ||
+    before.imageToVideoModel !== imageToVideoModel;
+  if (changed) {
+    try {
+      await recordAdminAction({
+        action: "videogen_provider_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: `${before.provider}${before.textToVideoModel ? `:${before.textToVideoModel}` : ""}`,
+        newValue: `${def.id}${textToVideoModel ? `:${textToVideoModel}` : ""}`,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write video-gen settings audit log");
+    }
+  }
+
+  res.json(await serializeVideoGenSettings());
+});
+
+/**
+ * PUT /admin/video-gen-providers/:providerId/key
+ * Save a provider's API key (encrypted at rest). Superadmin only.
+ */
+router.put(
+  "/admin/video-gen-providers/:providerId/key",
+  async (req: Request, res: Response) => {
+    const def = getVideoGenProviderDef(req.params.providerId as string);
+    if (!def) {
+      res.status(404).json({ error: "Unknown video generation provider" });
+      return;
+    }
+    const parsed = AdminSetVideoGenProviderKeyBody.safeParse(req.body);
+    const apiKey = parsed.success ? parsed.data.apiKey.trim() : "";
+    if (!apiKey) {
+      res.status(400).json({ error: "API key is required" });
+      return;
+    }
+    await setStoredVideoGenKey(def.id, apiKey);
+    try {
+      await recordAdminAction({
+        action: "videogen_key_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: `${def.id}:set`,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write video-gen key audit log");
+    }
+    res.json(await serializeVideoGenSettings());
+  },
+);
+
+/**
+ * DELETE /admin/video-gen-providers/:providerId/key
+ * Remove the saved API key (the env secret, if set, becomes the fallback).
+ */
+router.delete(
+  "/admin/video-gen-providers/:providerId/key",
+  async (req: Request, res: Response) => {
+    const def = getVideoGenProviderDef(req.params.providerId as string);
+    if (!def) {
+      res.status(404).json({ error: "Unknown video generation provider" });
+      return;
+    }
+    await clearStoredVideoGenKey(def.id);
+    try {
+      await recordAdminAction({
+        action: "videogen_key_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: `${def.id}:cleared`,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write video-gen key audit log");
+    }
+    res.json(await serializeVideoGenSettings());
+  },
+);
+
 /** Serialize the text-gen routing state for admin responses (never the key itself). */
 async function serializeTextGenSettings() {
   const selection = await getTextGenSelection();
@@ -1496,12 +1655,15 @@ const invalidLimit = (n: number) =>
 function invalidLimits(limits: {
   captions: number;
   images: number;
+  /** Optional so pre-video admin clients keep working. */
+  videos?: number;
   brandKits: number;
   scheduledPosts: number;
 }): boolean {
   return (
     invalidLimit(limits.captions) ||
     invalidLimit(limits.images) ||
+    (limits.videos !== undefined && invalidLimit(limits.videos)) ||
     invalidLimit(limits.brandKits) ||
     invalidLimit(limits.scheduledPosts)
   );
@@ -1621,6 +1783,8 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
     teamSeats: teamSeats ?? previous.teamSeats,
     captions: limits.captions,
     images: limits.images,
+    // Omitted by older admin clients: keep the plan's current video limit.
+    videos: limits.videos ?? previous.limits.videos,
     brandKits: limits.brandKits,
     scheduledPosts: limits.scheduledPosts,
     features: features.map((f) => f.trim()).filter(Boolean),
@@ -1774,6 +1938,7 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
     teamSeats: teamSeats ?? 0,
     captions: limits.captions,
     images: limits.images,
+    videos: limits.videos ?? 0,
     brandKits: limits.brandKits,
     scheduledPosts: limits.scheduledPosts,
     features: features.map((f) => f.trim()).filter(Boolean),
@@ -1891,6 +2056,7 @@ function serializeCreditPack(p: typeof creditPacksTable.$inferSelect) {
     pricePaise: p.pricePaise,
     captionCredits: p.captionCredits,
     imageCredits: p.imageCredits,
+    videoCredits: p.videoCredits,
     active: p.active,
     sortOrder: p.sortOrder,
   };
@@ -1909,6 +2075,7 @@ const invalidPack = (b: {
   pricePaise: number;
   captionCredits: number;
   imageCredits: number;
+  videoCredits?: number;
 }) =>
   !b.name.trim() ||
   !Number.isInteger(b.pricePaise) ||
@@ -1917,7 +2084,9 @@ const invalidPack = (b: {
   b.captionCredits < 0 ||
   !Number.isInteger(b.imageCredits) ||
   b.imageCredits < 0 ||
-  (b.captionCredits === 0 && b.imageCredits === 0);
+  (b.videoCredits !== undefined &&
+    (!Number.isInteger(b.videoCredits) || b.videoCredits < 0)) ||
+  (b.captionCredits === 0 && b.imageCredits === 0 && (b.videoCredits ?? 0) === 0);
 
 /** GET /admin/credit-packs — all packs, including inactive. */
 router.get("/admin/credit-packs", async (_req: Request, res: Response) => {
@@ -1945,6 +2114,7 @@ router.post("/admin/credit-packs", async (req: Request, res: Response) => {
         pricePaise: parsed.data.pricePaise,
         captionCredits: parsed.data.captionCredits,
         imageCredits: parsed.data.imageCredits,
+        videoCredits: parsed.data.videoCredits ?? 0,
         active: parsed.data.active ?? true,
         sortOrder: count?.count ?? 0,
       })
@@ -1992,6 +2162,7 @@ router.put("/admin/credit-packs/:id", async (req: Request, res: Response) => {
         pricePaise: parsed.data.pricePaise,
         captionCredits: parsed.data.captionCredits,
         imageCredits: parsed.data.imageCredits,
+        videoCredits: parsed.data.videoCredits ?? previous.videoCredits,
         active: parsed.data.active ?? previous.active,
         updatedAt: new Date(),
       })

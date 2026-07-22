@@ -19,6 +19,8 @@ export type AdminAuditAction =
   | "ads_module_toggled"
   | "imagegen_provider_change"
   | "imagegen_key_change"
+  | "videogen_provider_change"
+  | "videogen_key_change"
   | "textgen_provider_change"
   | "textgen_key_change"
   | "email_test_send"

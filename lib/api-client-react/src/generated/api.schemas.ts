@@ -38,6 +38,8 @@ export interface TenantSettings {
 export interface Usage {
   captions: number;
   images: number;
+  /** AI videos generated this month against the plan quota. */
+  videos?: number;
   periodStart: string;
 }
 
@@ -46,6 +48,8 @@ export interface PlanLimits {
   captions: number;
   /** Monthly image generation limit. -1 means unlimited. */
   images: number;
+  /** Monthly AI video generation limit. -1 means unlimited, 0 means credit-funded only. Optional so pre-video clients keep working. */
+  videos?: number;
   /** Max brand kits. -1 means unlimited. */
   brandKits: number;
   /** Max scheduled posts. -1 means unlimited. */
@@ -55,6 +59,8 @@ export interface PlanLimits {
 export interface CreditBalances {
   captionCredits: number;
   imageCredits: number;
+  /** Prepaid AI video generation credits. */
+  videoCredits?: number;
 }
 
 /**
@@ -481,6 +487,8 @@ export interface CreditPack {
   pricePaise: number;
   captionCredits: number;
   imageCredits: number;
+  /** AI video credits included in this pack. */
+  videoCredits?: number;
   active: boolean;
   sortOrder: number;
 }
@@ -497,6 +505,11 @@ export interface CreditPackInput {
   captionCredits: number;
   /** @minimum 0 */
   imageCredits: number;
+  /**
+     * AI video credits included in this pack (default 0).
+     * @minimum 0
+     */
+  videoCredits?: number;
   active?: boolean;
 }
 
@@ -690,6 +703,8 @@ export interface CreditLedgerEntry {
   kind: string;
   captionDelta: number;
   imageDelta: number;
+  /** Change in AI video credits (negative on spend). */
+  videoDelta?: number;
   /** @nullable */
   note: string | null;
   createdAt: string;
@@ -2115,6 +2130,16 @@ export interface ContentItem {
   imagePath?: string | null;
   /** @nullable */
   imagePrompt?: string | null;
+  /**
+     * Storage path of the video attached to this item (from the Video Studio). When set, clients render a video player instead of an image.
+     * @nullable
+     */
+  videoPath?: string | null;
+  /**
+     * Poster-frame image path used by grids and previews.
+     * @nullable
+     */
+  videoThumbnailPath?: string | null;
   /** @nullable */
   carouselSlides?: CarouselSlide[] | null;
   platform: string;
@@ -2161,6 +2186,10 @@ export interface ContentInput {
   /** @nullable */
   imagePrompt?: string | null;
   /** @nullable */
+  videoPath?: string | null;
+  /** @nullable */
+  videoThumbnailPath?: string | null;
+  /** @nullable */
   carouselSlides?: CarouselSlide[] | null;
   platform?: string;
   contentType?: string;
@@ -2186,6 +2215,10 @@ export interface ContentUpdate {
   imagePath?: string | null;
   /** @nullable */
   imagePrompt?: string | null;
+  /** @nullable */
+  videoPath?: string | null;
+  /** @nullable */
+  videoThumbnailPath?: string | null;
   /** @nullable */
   carouselSlides?: CarouselSlide[] | null;
   platform?: string;
@@ -2282,6 +2315,260 @@ export interface ImageRequest {
 export interface ImageResult {
   imagePath: string;
   b64Json: string;
+}
+
+export type VideoGenerateRequestEngine = typeof VideoGenerateRequestEngine[keyof typeof VideoGenerateRequestEngine];
+
+
+export const VideoGenerateRequestEngine = {
+  text_to_video: 'text_to_video',
+  image_to_video: 'image_to_video',
+  slideshow: 'slideshow',
+} as const;
+
+export type VideoGenerateRequestAspectRatio = typeof VideoGenerateRequestAspectRatio[keyof typeof VideoGenerateRequestAspectRatio];
+
+
+export const VideoGenerateRequestAspectRatio = {
+  '16:9': '16:9',
+  '9:16': '9:16',
+  '1:1': '1:1',
+} as const;
+
+export interface VideoGenerateRequest {
+  engine: VideoGenerateRequestEngine;
+  /**
+     * The brief. Required for text_to_video; an optional motion hint for image_to_video; unused by slideshow.
+     * @maxLength 2000
+     * @nullable
+     */
+  prompt?: string | null;
+  /**
+     * Ordered /objects/... photo paths. image_to_video animates the first; slideshow uses all of them in order.
+     * @maxItems 20
+     * @nullable
+     */
+  sourceImagePaths?: string[] | null;
+  aspectRatio?: VideoGenerateRequestAspectRatio;
+  /**
+     * AI engines only; providers clamp to what they support.
+     * @minimum 3
+     * @maximum 10
+     */
+  durationSec?: number;
+  /**
+     * Slideshow only; seconds each photo is on screen.
+     * @minimum 1
+     * @maximum 10
+     */
+  slideDurationSec?: number;
+  /**
+     * Slideshow only; caption burned into the video.
+     * @maxLength 120
+     * @nullable
+     */
+  overlayText?: string | null;
+  /**
+     * Slideshow only; /objects/... path of an uploaded music track, faded out at the end of the video.
+     * @nullable
+     */
+  musicPath?: string | null;
+}
+
+export type VideoJobEngine = typeof VideoJobEngine[keyof typeof VideoJobEngine];
+
+
+export const VideoJobEngine = {
+  text_to_video: 'text_to_video',
+  image_to_video: 'image_to_video',
+  slideshow: 'slideshow',
+} as const;
+
+export type VideoJobStatus = typeof VideoJobStatus[keyof typeof VideoJobStatus];
+
+
+export const VideoJobStatus = {
+  queued: 'queued',
+  processing: 'processing',
+  succeeded: 'succeeded',
+  failed: 'failed',
+} as const;
+
+export interface VideoJob {
+  id: number;
+  engine: VideoJobEngine;
+  status: VideoJobStatus;
+  /** @nullable */
+  prompt?: string | null;
+  sourceImagePaths: string[];
+  aspectRatio: string;
+  /**
+     * Set when status is succeeded; serve via /api/storage{videoPath}.
+     * @nullable
+     */
+  videoPath?: string | null;
+  /**
+     * Poster-frame PNG path (best effort; may be null).
+     * @nullable
+     */
+  thumbnailPath?: string | null;
+  /** @nullable */
+  provider?: string | null;
+  /** @nullable */
+  model?: string | null;
+  /**
+     * Human-readable failure reason when status is failed.
+     * @nullable
+     */
+  error?: string | null;
+  /** @nullable */
+  durationMs?: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SaveVideoToLibraryRequest {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title: string;
+  caption?: string;
+  /** Primary target platform (defaults to instagram). */
+  platform?: string;
+  /** @nullable */
+  brandKitId?: number | null;
+}
+
+export interface GoogleDriveStatus {
+  connected: boolean;
+  /** @nullable */
+  accountName?: string | null;
+  /** Whether the platform-level Google OAuth credentials are set by the admin. */
+  configured: boolean;
+  /** The exact OAuth redirect URL to register in the Google Cloud OAuth client. */
+  redirectUri: string;
+  /** True when Drive was previously connected but its access has since been revoked, so the user should reconnect. */
+  expired?: boolean;
+}
+
+export interface GoogleDriveAuthUrlResult {
+  url: string;
+}
+
+export interface GoogleDriveFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  isFolder: boolean;
+  /** @nullable */
+  sizeBytes?: number | null;
+  /**
+     * Short-lived Google-hosted thumbnail; may be null.
+     * @nullable
+     */
+  thumbnailUrl?: string | null;
+}
+
+export interface GoogleDriveFileList {
+  files: GoogleDriveFile[];
+  /** @nullable */
+  nextPageToken?: string | null;
+}
+
+export interface ImportDriveFilesRequest {
+  /**
+     * @minItems 1
+     * @maxItems 20
+     * @items.minLength 1
+     */
+  fileIds: string[];
+}
+
+export type ImportDriveFilesResultImportedItem = {
+  fileId: string;
+  name: string;
+  objectPath: string;
+};
+
+export type ImportDriveFilesResultFailedItem = {
+  fileId: string;
+  reason: string;
+};
+
+export interface ImportDriveFilesResult {
+  imported: ImportDriveFilesResultImportedItem[];
+  failed: ImportDriveFilesResultFailedItem[];
+}
+
+/**
+ * Where the active key comes from (admin-entered key wins over the env secret).
+ * @nullable
+ */
+export type VideoGenProviderInfoKeySource = typeof VideoGenProviderInfoKeySource[keyof typeof VideoGenProviderInfoKeySource] | null;
+
+
+export const VideoGenProviderInfoKeySource = {
+  database: 'database',
+  env: 'env',
+} as const;
+
+export interface VideoGenProviderInfo {
+  id: string;
+  label: string;
+  defaultTextToVideoModel: string;
+  defaultImageToVideoModel: string;
+  /** Whether the API key needed by this provider is set. */
+  configured: boolean;
+  supportsModelOverride: boolean;
+  textModelOptions?: ImageGenModelOption[];
+  imageModelOptions?: ImageGenModelOption[];
+  /** Secret name required by this provider. */
+  envKey?: string;
+  /**
+     * Where the active key comes from (admin-entered key wins over the env secret).
+     * @nullable
+     */
+  keySource?: VideoGenProviderInfoKeySource;
+}
+
+export interface VideoGenSettingsView {
+  /** Currently selected video generation provider id. */
+  provider: string;
+  /**
+     * Admin model override for text-to-video (null = provider default).
+     * @nullable
+     */
+  textToVideoModel: string | null;
+  /**
+     * Admin model override for image-to-video (null = provider default).
+     * @nullable
+     */
+  imageToVideoModel: string | null;
+  providers: VideoGenProviderInfo[];
+}
+
+export interface UpdateVideoGenSettingsRequest {
+  /** Provider id from the catalog. */
+  provider: string;
+  /**
+     * Optional model override (empty/null = provider default).
+     * @nullable
+     */
+  textToVideoModel?: string | null;
+  /**
+     * Optional model override (empty/null = provider default).
+     * @nullable
+     */
+  imageToVideoModel?: string | null;
+}
+
+export interface SetVideoGenProviderKeyRequest {
+  /**
+     * The provider API key (stored encrypted, never returned).
+     * @minLength 1
+     */
+  apiKey: string;
 }
 
 export interface TopicIdeasRequest {
@@ -3352,6 +3639,7 @@ export interface FeatureFlags {
   carousel: boolean;
   aiSpend: boolean;
   aiCostTracking: boolean;
+  videoGen: boolean;
 }
 
 /**
@@ -3720,6 +4008,14 @@ export type ListNotificationsParams = {
  * When true, include recently read notifications too.
  */
 all?: boolean;
+};
+
+export type ListGoogleDriveFilesParams = {
+/**
+ * Drive folder to list; the root folder when omitted.
+ */
+folderId?: string;
+pageToken?: string;
 };
 
 export type AdminGrantCredits200 = {

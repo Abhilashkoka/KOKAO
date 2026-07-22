@@ -32,17 +32,20 @@ export const GetMeResponse = zod.object({
   "usage": zod.object({
   "captions": zod.number(),
   "images": zod.number(),
+  "videos": zod.number().optional().describe('AI videos generated this month against the plan quota.'),
   "periodStart": zod.coerce.date()
 }),
   "limits": zod.object({
   "captions": zod.number().describe('Monthly caption generation limit. -1 means unlimited.'),
   "images": zod.number().describe('Monthly image generation limit. -1 means unlimited.'),
+  "videos": zod.number().optional().describe('Monthly AI video generation limit. -1 means unlimited, 0 means credit-funded only. Optional so pre-video clients keep working.'),
   "brandKits": zod.number().describe('Max brand kits. -1 means unlimited.'),
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
   "credits": zod.object({
   "captionCredits": zod.number(),
-  "imageCredits": zod.number()
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number().optional().describe('Prepaid AI video generation credits.')
 }).optional().describe('Prepaid credit balances. Credits are consumed automatically when the monthly plan quota is exhausted.'),
   "isSuperadmin": zod.boolean().describe('Whether the current user has cross-tenant superadmin access.'),
   "isOwner": zod.boolean().describe('Whether the current user is an allowlisted (root) owner. Only owners may grant or revoke the superadmin role for other tenants.'),
@@ -80,7 +83,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "referenceImages": zod.boolean(),
   "carousel": zod.boolean(),
   "aiSpend": zod.boolean(),
-  "aiCostTracking": zod.boolean()
+  "aiCostTracking": zod.boolean(),
+  "videoGen": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -118,6 +122,7 @@ export const ListPlansResponseItem = zod.object({
   "limits": zod.object({
   "captions": zod.number().describe('Monthly caption generation limit. -1 means unlimited.'),
   "images": zod.number().describe('Monthly image generation limit. -1 means unlimited.'),
+  "videos": zod.number().optional().describe('Monthly AI video generation limit. -1 means unlimited, 0 means credit-funded only. Optional so pre-video clients keep working.'),
   "brandKits": zod.number().describe('Max brand kits. -1 means unlimited.'),
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
@@ -619,6 +624,7 @@ export const AdminListTenantsResponseItem = zod.object({
   "usage": zod.object({
   "captions": zod.number(),
   "images": zod.number(),
+  "videos": zod.number().optional().describe('AI videos generated this month against the plan quota.'),
   "periodStart": zod.coerce.date()
 }).optional()
 })
@@ -660,6 +666,7 @@ export const AdminUpdateTenantPlanResponse = zod.object({
   "usage": zod.object({
   "captions": zod.number(),
   "images": zod.number(),
+  "videos": zod.number().optional().describe('AI videos generated this month against the plan quota.'),
   "periodStart": zod.coerce.date()
 }).optional()
 })
@@ -693,6 +700,7 @@ export const AdminCreatePlanBody = zod.object({
   "limits": zod.object({
   "captions": zod.number().describe('Monthly caption generation limit. -1 means unlimited.'),
   "images": zod.number().describe('Monthly image generation limit. -1 means unlimited.'),
+  "videos": zod.number().optional().describe('Monthly AI video generation limit. -1 means unlimited, 0 means credit-funded only. Optional so pre-video clients keep working.'),
   "brandKits": zod.number().describe('Max brand kits. -1 means unlimited.'),
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
@@ -709,6 +717,7 @@ export const AdminCreatePlanResponseItem = zod.object({
   "limits": zod.object({
   "captions": zod.number().describe('Monthly caption generation limit. -1 means unlimited.'),
   "images": zod.number().describe('Monthly image generation limit. -1 means unlimited.'),
+  "videos": zod.number().optional().describe('Monthly AI video generation limit. -1 means unlimited, 0 means credit-funded only. Optional so pre-video clients keep working.'),
   "brandKits": zod.number().describe('Max brand kits. -1 means unlimited.'),
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
@@ -736,6 +745,7 @@ export const AdminDeletePlanResponseItem = zod.object({
   "limits": zod.object({
   "captions": zod.number().describe('Monthly caption generation limit. -1 means unlimited.'),
   "images": zod.number().describe('Monthly image generation limit. -1 means unlimited.'),
+  "videos": zod.number().optional().describe('Monthly AI video generation limit. -1 means unlimited, 0 means credit-funded only. Optional so pre-video clients keep working.'),
   "brandKits": zod.number().describe('Max brand kits. -1 means unlimited.'),
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
@@ -776,6 +786,7 @@ export const AdminUpdatePlanBody = zod.object({
   "limits": zod.object({
   "captions": zod.number().describe('Monthly caption generation limit. -1 means unlimited.'),
   "images": zod.number().describe('Monthly image generation limit. -1 means unlimited.'),
+  "videos": zod.number().optional().describe('Monthly AI video generation limit. -1 means unlimited, 0 means credit-funded only. Optional so pre-video clients keep working.'),
   "brandKits": zod.number().describe('Max brand kits. -1 means unlimited.'),
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
@@ -792,6 +803,7 @@ export const AdminUpdatePlanResponseItem = zod.object({
   "limits": zod.object({
   "captions": zod.number().describe('Monthly caption generation limit. -1 means unlimited.'),
   "images": zod.number().describe('Monthly image generation limit. -1 means unlimited.'),
+  "videos": zod.number().optional().describe('Monthly AI video generation limit. -1 means unlimited, 0 means credit-funded only. Optional so pre-video clients keep working.'),
   "brandKits": zod.number().describe('Max brand kits. -1 means unlimited.'),
   "scheduledPosts": zod.number().describe('Max scheduled posts. -1 means unlimited.')
 }),
@@ -835,6 +847,7 @@ export const AdminUpdateTenantSuperadminResponse = zod.object({
   "usage": zod.object({
   "captions": zod.number(),
   "images": zod.number(),
+  "videos": zod.number().optional().describe('AI videos generated this month against the plan quota.'),
   "periodStart": zod.coerce.date()
 }).optional()
 })
@@ -870,6 +883,7 @@ export const AdminUpdateTenantDesignSkillResponse = zod.object({
   "usage": zod.object({
   "captions": zod.number(),
   "images": zod.number(),
+  "videos": zod.number().optional().describe('AI videos generated this month against the plan quota.'),
   "periodStart": zod.coerce.date()
 }).optional()
 })
@@ -1090,6 +1104,139 @@ export const AdminClearImageGenProviderKeyResponse = zod.object({
   "label": zod.string()
 })).optional().describe('Suggested model choices for this provider (free text still allowed).'),
   "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+}))
+})
+
+
+/**
+ * @summary Get the video generation provider selection (superadmin only)
+ */
+export const AdminGetVideoGenSettingsResponse = zod.object({
+  "provider": zod.string().describe('Currently selected video generation provider id.'),
+  "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
+  "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
+  "providers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "defaultTextToVideoModel": zod.string(),
+  "defaultImageToVideoModel": zod.string(),
+  "configured": zod.boolean().describe('Whether the API key needed by this provider is set.'),
+  "supportsModelOverride": zod.boolean(),
+  "textModelOptions": zod.array(zod.object({
+  "value": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "imageModelOptions": zod.array(zod.object({
+  "value": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "envKey": zod.string().optional().describe('Secret name required by this provider.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+}))
+})
+
+
+/**
+ * @summary Select the video generation provider for the whole app (superadmin only)
+ */
+export const AdminUpdateVideoGenSettingsBody = zod.object({
+  "provider": zod.string().describe('Provider id from the catalog.'),
+  "textToVideoModel": zod.string().nullish().describe('Optional model override (empty\/null = provider default).'),
+  "imageToVideoModel": zod.string().nullish().describe('Optional model override (empty\/null = provider default).')
+})
+
+export const AdminUpdateVideoGenSettingsResponse = zod.object({
+  "provider": zod.string().describe('Currently selected video generation provider id.'),
+  "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
+  "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
+  "providers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "defaultTextToVideoModel": zod.string(),
+  "defaultImageToVideoModel": zod.string(),
+  "configured": zod.boolean().describe('Whether the API key needed by this provider is set.'),
+  "supportsModelOverride": zod.boolean(),
+  "textModelOptions": zod.array(zod.object({
+  "value": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "imageModelOptions": zod.array(zod.object({
+  "value": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "envKey": zod.string().optional().describe('Secret name required by this provider.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+}))
+})
+
+
+/**
+ * @summary Save a video generation provider API key (superadmin only)
+ */
+export const AdminSetVideoGenProviderKeyParams = zod.object({
+  "providerId": zod.coerce.string()
+})
+
+
+
+
+export const AdminSetVideoGenProviderKeyBody = zod.object({
+  "apiKey": zod.string().min(1).describe('The provider API key (stored encrypted, never returned).')
+})
+
+export const AdminSetVideoGenProviderKeyResponse = zod.object({
+  "provider": zod.string().describe('Currently selected video generation provider id.'),
+  "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
+  "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
+  "providers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "defaultTextToVideoModel": zod.string(),
+  "defaultImageToVideoModel": zod.string(),
+  "configured": zod.boolean().describe('Whether the API key needed by this provider is set.'),
+  "supportsModelOverride": zod.boolean(),
+  "textModelOptions": zod.array(zod.object({
+  "value": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "imageModelOptions": zod.array(zod.object({
+  "value": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "envKey": zod.string().optional().describe('Secret name required by this provider.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+}))
+})
+
+
+/**
+ * @summary Remove a saved video generation provider API key (superadmin only)
+ */
+export const AdminClearVideoGenProviderKeyParams = zod.object({
+  "providerId": zod.coerce.string()
+})
+
+export const AdminClearVideoGenProviderKeyResponse = zod.object({
+  "provider": zod.string().describe('Currently selected video generation provider id.'),
+  "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
+  "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
+  "providers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "defaultTextToVideoModel": zod.string(),
+  "defaultImageToVideoModel": zod.string(),
+  "configured": zod.boolean().describe('Whether the API key needed by this provider is set.'),
+  "supportsModelOverride": zod.boolean(),
+  "textModelOptions": zod.array(zod.object({
+  "value": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "imageModelOptions": zod.array(zod.object({
+  "value": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "envKey": zod.string().optional().describe('Secret name required by this provider.'),
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
 }))
 })
@@ -4119,6 +4266,8 @@ export const ListContentResponseItem = zod.object({
   "caption": zod.string(),
   "imagePath": zod.string().nullish(),
   "imagePrompt": zod.string().nullish(),
+  "videoPath": zod.string().nullish().describe('Storage path of the video attached to this item (from the Video Studio). When set, clients render a video player instead of an image.'),
+  "videoThumbnailPath": zod.string().nullish().describe('Poster-frame image path used by grids and previews.'),
   "carouselSlides": zod.array(zod.object({
   "heading": zod.string().describe('Short slide headline.'),
   "body": zod.string().describe('Supporting copy for the slide.'),
@@ -4157,6 +4306,8 @@ export const CreateContentBody = zod.object({
   "caption": zod.string().optional(),
   "imagePath": zod.string().nullish(),
   "imagePrompt": zod.string().nullish(),
+  "videoPath": zod.string().nullish(),
+  "videoThumbnailPath": zod.string().nullish(),
   "carouselSlides": zod.array(zod.object({
   "heading": zod.string().describe('Short slide headline.'),
   "body": zod.string().describe('Supporting copy for the slide.'),
@@ -4175,6 +4326,8 @@ export const CreateContentResponse = zod.object({
   "caption": zod.string(),
   "imagePath": zod.string().nullish(),
   "imagePrompt": zod.string().nullish(),
+  "videoPath": zod.string().nullish().describe('Storage path of the video attached to this item (from the Video Studio). When set, clients render a video player instead of an image.'),
+  "videoThumbnailPath": zod.string().nullish().describe('Poster-frame image path used by grids and previews.'),
   "carouselSlides": zod.array(zod.object({
   "heading": zod.string().describe('Short slide headline.'),
   "body": zod.string().describe('Supporting copy for the slide.'),
@@ -4214,6 +4367,8 @@ export const GetContentResponse = zod.object({
   "caption": zod.string(),
   "imagePath": zod.string().nullish(),
   "imagePrompt": zod.string().nullish(),
+  "videoPath": zod.string().nullish().describe('Storage path of the video attached to this item (from the Video Studio). When set, clients render a video player instead of an image.'),
+  "videoThumbnailPath": zod.string().nullish().describe('Poster-frame image path used by grids and previews.'),
   "carouselSlides": zod.array(zod.object({
   "heading": zod.string().describe('Short slide headline.'),
   "body": zod.string().describe('Supporting copy for the slide.'),
@@ -4255,6 +4410,8 @@ export const UpdateContentBody = zod.object({
   "caption": zod.string().optional(),
   "imagePath": zod.string().nullish(),
   "imagePrompt": zod.string().nullish(),
+  "videoPath": zod.string().nullish(),
+  "videoThumbnailPath": zod.string().nullish(),
   "carouselSlides": zod.array(zod.object({
   "heading": zod.string().describe('Short slide headline.'),
   "body": zod.string().describe('Supporting copy for the slide.'),
@@ -4273,6 +4430,8 @@ export const UpdateContentResponse = zod.object({
   "caption": zod.string(),
   "imagePath": zod.string().nullish(),
   "imagePrompt": zod.string().nullish(),
+  "videoPath": zod.string().nullish().describe('Storage path of the video attached to this item (from the Video Studio). When set, clients render a video player instead of an image.'),
+  "videoThumbnailPath": zod.string().nullish().describe('Poster-frame image path used by grids and previews.'),
   "carouselSlides": zod.array(zod.object({
   "heading": zod.string().describe('Short slide headline.'),
   "body": zod.string().describe('Supporting copy for the slide.'),
@@ -4348,6 +4507,154 @@ export const GenerateImageBody = zod.object({
 export const GenerateImageResponse = zod.object({
   "imagePath": zod.string(),
   "b64Json": zod.string()
+})
+
+
+/**
+ * Video generation is long-running, so this endpoint validates the request, reserves funding (monthly quota first, then a video credit), creates the job, and returns immediately. Poll GET /ai/video-jobs/{jobId} until status is succeeded or failed.
+ * @summary Start a video generation job (AI or photo slideshow)
+ */
+export const generateVideoBodyPromptMax = 2000;
+
+export const generateVideoBodySourceImagePathsMax = 20;
+
+export const generateVideoBodyAspectRatioDefault = `9:16`;
+export const generateVideoBodyDurationSecDefault = 5;
+export const generateVideoBodyDurationSecMin = 3;
+export const generateVideoBodyDurationSecMax = 10;
+
+export const generateVideoBodySlideDurationSecDefault = 3;
+export const generateVideoBodySlideDurationSecMax = 10;
+
+export const generateVideoBodyOverlayTextMax = 120;
+
+
+
+export const GenerateVideoBody = zod.object({
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow']),
+  "prompt": zod.string().max(generateVideoBodyPromptMax).nullish().describe('The brief. Required for text_to_video; an optional motion hint for image_to_video; unused by slideshow.'),
+  "sourceImagePaths": zod.array(zod.string()).max(generateVideoBodySourceImagePathsMax).nullish().describe('Ordered \/objects\/... photo paths. image_to_video animates the first; slideshow uses all of them in order.'),
+  "aspectRatio": zod.enum(['16:9', '9:16', '1:1']).default(generateVideoBodyAspectRatioDefault),
+  "durationSec": zod.number().min(generateVideoBodyDurationSecMin).max(generateVideoBodyDurationSecMax).default(generateVideoBodyDurationSecDefault).describe('AI engines only; providers clamp to what they support.'),
+  "slideDurationSec": zod.number().min(1).max(generateVideoBodySlideDurationSecMax).default(generateVideoBodySlideDurationSecDefault).describe('Slideshow only; seconds each photo is on screen.'),
+  "overlayText": zod.string().max(generateVideoBodyOverlayTextMax).nullish().describe('Slideshow only; caption burned into the video.'),
+  "musicPath": zod.string().nullish().describe('Slideshow only; \/objects\/... path of an uploaded music track, faded out at the end of the video.')
+})
+
+export const GenerateVideoResponse = zod.object({
+  "id": zod.number(),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow']),
+  "status": zod.enum(['queued', 'processing', 'succeeded', 'failed']),
+  "prompt": zod.string().nullish(),
+  "sourceImagePaths": zod.array(zod.string()),
+  "aspectRatio": zod.string(),
+  "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+  "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+  "provider": zod.string().nullish(),
+  "model": zod.string().nullish(),
+  "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "durationMs": zod.number().nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List this workspace's recent video generation jobs (newest first)
+ */
+export const ListVideoJobsResponseItem = zod.object({
+  "id": zod.number(),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow']),
+  "status": zod.enum(['queued', 'processing', 'succeeded', 'failed']),
+  "prompt": zod.string().nullish(),
+  "sourceImagePaths": zod.array(zod.string()),
+  "aspectRatio": zod.string(),
+  "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+  "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+  "provider": zod.string().nullish(),
+  "model": zod.string().nullish(),
+  "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "durationMs": zod.number().nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+export const ListVideoJobsResponse = zod.array(ListVideoJobsResponseItem)
+
+
+/**
+ * @summary Get one video generation job (poll until succeeded/failed)
+ */
+export const GetVideoJobParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const GetVideoJobResponse = zod.object({
+  "id": zod.number(),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow']),
+  "status": zod.enum(['queued', 'processing', 'succeeded', 'failed']),
+  "prompt": zod.string().nullish(),
+  "sourceImagePaths": zod.array(zod.string()),
+  "aspectRatio": zod.string(),
+  "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+  "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+  "provider": zod.string().nullish(),
+  "model": zod.string().nullish(),
+  "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "durationMs": zod.number().nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Save a finished video into the content library as a draft item
+ */
+export const SaveVideoToLibraryParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const saveVideoToLibraryBodyTitleMax = 200;
+
+
+
+export const SaveVideoToLibraryBody = zod.object({
+  "title": zod.string().min(1).max(saveVideoToLibraryBodyTitleMax),
+  "caption": zod.string().optional(),
+  "platform": zod.string().optional().describe('Primary target platform (defaults to instagram).'),
+  "brandKitId": zod.number().nullish()
+})
+
+export const SaveVideoToLibraryResponse = zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "caption": zod.string(),
+  "imagePath": zod.string().nullish(),
+  "imagePrompt": zod.string().nullish(),
+  "videoPath": zod.string().nullish().describe('Storage path of the video attached to this item (from the Video Studio). When set, clients render a video player instead of an image.'),
+  "videoThumbnailPath": zod.string().nullish().describe('Poster-frame image path used by grids and previews.'),
+  "carouselSlides": zod.array(zod.object({
+  "heading": zod.string().describe('Short slide headline.'),
+  "body": zod.string().describe('Supporting copy for the slide.'),
+  "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
+  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
+})).nullish(),
+  "platform": zod.string(),
+  "contentType": zod.string(),
+  "status": zod.string(),
+  "failureReason": zod.string().nullish().describe('Why the last publish attempt failed. Set to a canonical restart-interruption message when the server auto-failed an orphaned \"publishing\" item, or a platform rejection message on a real publish failure. Null when not failed.'),
+  "postId": zod.string().nullish(),
+  "permalink": zod.string().nullish(),
+  "publishedPlatforms": zod.record(zod.string(), zod.object({
+  "postId": zod.string().nullish(),
+  "permalink": zod.string().nullish(),
+  "publishedAt": zod.coerce.date()
+})).optional().describe('Map of platform name -> publish record for every platform this item has been successfully published to. postId\/permalink above only reflect the latest publish; this map is the cumulative list the UI shows.'),
+  "linkedinCommentsPending": zod.number().optional().describe('How many LinkedIn follow-up comments from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend remaining comments\" action.'),
+  "threadsPostsPending": zod.number().optional().describe('How many Threads reply-chain posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
+  "twitterPostsPending": zod.number().optional().describe('How many X thread posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
+  "brandKitId": zod.number().nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
 })
 
 
@@ -5114,6 +5421,84 @@ export const AdminSaveLinkedinCredentialsResponse = zod.object({
 
 
 /**
+ * @summary Whether a Google Drive account is connected for photo import
+ */
+export const GetGoogleDriveStatusResponse = zod.object({
+  "connected": zod.boolean(),
+  "accountName": zod.string().nullish(),
+  "configured": zod.boolean().describe('Whether the platform-level Google OAuth credentials are set by the admin.'),
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the Google Cloud OAuth client.'),
+  "expired": zod.boolean().optional().describe('True when Drive was previously connected but its access has since been revoked, so the user should reconnect.')
+})
+
+
+/**
+ * @summary Get the Google OAuth authorization URL to begin connecting Drive
+ */
+export const GetGoogleDriveAuthUrlResponse = zod.object({
+  "url": zod.string()
+})
+
+
+/**
+ * @summary Disconnect Google Drive, clearing the stored OAuth tokens
+ */
+export const DisconnectGoogleDriveResponse = zod.object({
+  "connected": zod.boolean(),
+  "accountName": zod.string().nullish(),
+  "configured": zod.boolean().describe('Whether the platform-level Google OAuth credentials are set by the admin.'),
+  "redirectUri": zod.string().describe('The exact OAuth redirect URL to register in the Google Cloud OAuth client.'),
+  "expired": zod.boolean().optional().describe('True when Drive was previously connected but its access has since been revoked, so the user should reconnect.')
+})
+
+
+/**
+ * @summary List photos and folders in the connected Google Drive
+ */
+export const ListGoogleDriveFilesQueryParams = zod.object({
+  "folderId": zod.coerce.string().optional().describe('Drive folder to list; the root folder when omitted.'),
+  "pageToken": zod.coerce.string().optional()
+})
+
+export const ListGoogleDriveFilesResponse = zod.object({
+  "files": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "mimeType": zod.string(),
+  "isFolder": zod.boolean(),
+  "sizeBytes": zod.number().nullish(),
+  "thumbnailUrl": zod.string().nullish().describe('Short-lived Google-hosted thumbnail; may be null.')
+})),
+  "nextPageToken": zod.string().nullish()
+})
+
+
+/**
+ * @summary Import selected Drive photos into workspace storage
+ */
+
+export const importGoogleDriveFilesBodyFileIdsMax = 20;
+
+
+
+export const ImportGoogleDriveFilesBody = zod.object({
+  "fileIds": zod.array(zod.string().min(1)).min(1).max(importGoogleDriveFilesBodyFileIdsMax)
+})
+
+export const ImportGoogleDriveFilesResponse = zod.object({
+  "imported": zod.array(zod.object({
+  "fileId": zod.string(),
+  "name": zod.string(),
+  "objectPath": zod.string()
+})),
+  "failed": zod.array(zod.object({
+  "fileId": zod.string(),
+  "reason": zod.string()
+}))
+})
+
+
+/**
  * @summary Get the Google OAuth authorization URL to begin connecting YouTube
  */
 export const GetYoutubeAuthUrlResponse = zod.object({
@@ -5343,6 +5728,7 @@ export const AdminListCreditPacksResponseItem = zod.object({
   "pricePaise": zod.number(),
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
+  "videoCredits": zod.number().optional().describe('AI video credits included in this pack.'),
   "active": zod.boolean(),
   "sortOrder": zod.number()
 })
@@ -5359,6 +5745,8 @@ export const adminCreateCreditPackBodyCaptionCreditsMin = 0;
 
 export const adminCreateCreditPackBodyImageCreditsMin = 0;
 
+export const adminCreateCreditPackBodyVideoCreditsMin = 0;
+
 
 
 export const AdminCreateCreditPackBody = zod.object({
@@ -5366,6 +5754,7 @@ export const AdminCreateCreditPackBody = zod.object({
   "pricePaise": zod.number().min(1),
   "captionCredits": zod.number().min(adminCreateCreditPackBodyCaptionCreditsMin),
   "imageCredits": zod.number().min(adminCreateCreditPackBodyImageCreditsMin),
+  "videoCredits": zod.number().min(adminCreateCreditPackBodyVideoCreditsMin).optional().describe('AI video credits included in this pack (default 0).'),
   "active": zod.boolean().optional()
 })
 
@@ -5375,6 +5764,7 @@ export const AdminCreateCreditPackResponseItem = zod.object({
   "pricePaise": zod.number(),
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
+  "videoCredits": zod.number().optional().describe('AI video credits included in this pack.'),
   "active": zod.boolean(),
   "sortOrder": zod.number()
 })
@@ -5395,6 +5785,8 @@ export const adminUpdateCreditPackBodyCaptionCreditsMin = 0;
 
 export const adminUpdateCreditPackBodyImageCreditsMin = 0;
 
+export const adminUpdateCreditPackBodyVideoCreditsMin = 0;
+
 
 
 export const AdminUpdateCreditPackBody = zod.object({
@@ -5402,6 +5794,7 @@ export const AdminUpdateCreditPackBody = zod.object({
   "pricePaise": zod.number().min(1),
   "captionCredits": zod.number().min(adminUpdateCreditPackBodyCaptionCreditsMin),
   "imageCredits": zod.number().min(adminUpdateCreditPackBodyImageCreditsMin),
+  "videoCredits": zod.number().min(adminUpdateCreditPackBodyVideoCreditsMin).optional().describe('AI video credits included in this pack (default 0).'),
   "active": zod.boolean().optional()
 })
 
@@ -5411,6 +5804,7 @@ export const AdminUpdateCreditPackResponseItem = zod.object({
   "pricePaise": zod.number(),
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
+  "videoCredits": zod.number().optional().describe('AI video credits included in this pack.'),
   "active": zod.boolean(),
   "sortOrder": zod.number()
 })
@@ -5430,6 +5824,7 @@ export const AdminDeleteCreditPackResponseItem = zod.object({
   "pricePaise": zod.number(),
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
+  "videoCredits": zod.number().optional().describe('AI video credits included in this pack.'),
   "active": zod.boolean(),
   "sortOrder": zod.number()
 })
@@ -5457,7 +5852,8 @@ export const AdminGrantCreditsResponse = zod.object({
   "ok": zod.boolean(),
   "credits": zod.object({
   "captionCredits": zod.number(),
-  "imageCredits": zod.number()
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number().optional().describe('Prepaid AI video generation credits.')
 })
 })
 
@@ -5716,7 +6112,8 @@ export const BillingGetOverviewResponse = zod.object({
 }),zod.null()]),
   "credits": zod.object({
   "captionCredits": zod.number(),
-  "imageCredits": zod.number()
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number().optional().describe('Prepaid AI video generation credits.')
 }),
   "creditPacks": zod.array(zod.object({
   "id": zod.number(),
@@ -5724,6 +6121,7 @@ export const BillingGetOverviewResponse = zod.object({
   "pricePaise": zod.number(),
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
+  "videoCredits": zod.number().optional().describe('AI video credits included in this pack.'),
   "active": zod.boolean(),
   "sortOrder": zod.number()
 })),
@@ -5732,6 +6130,7 @@ export const BillingGetOverviewResponse = zod.object({
   "kind": zod.string(),
   "captionDelta": zod.number(),
   "imageDelta": zod.number(),
+  "videoDelta": zod.number().optional().describe('Change in AI video credits (negative on spend).'),
   "note": zod.string().nullable(),
   "createdAt": zod.string()
 }))
@@ -5831,7 +6230,8 @@ export const BillingVerifyPurchaseResponse = zod.object({
   "ok": zod.boolean(),
   "credits": zod.object({
   "captionCredits": zod.number(),
-  "imageCredits": zod.number()
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number().optional().describe('Prepaid AI video generation credits.')
 })
 })
 

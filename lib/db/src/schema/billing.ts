@@ -49,6 +49,7 @@ export const creditPacksTable = pgTable("credit_packs", {
   pricePaise: integer("price_paise").notNull(),
   captionCredits: integer("caption_credits").notNull().default(0),
   imageCredits: integer("image_credits").notNull().default(0),
+  videoCredits: integer("video_credits").notNull().default(0),
   active: boolean("active").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -69,6 +70,7 @@ export const creditBalancesTable = pgTable("credit_balances", {
   tenantId: integer("tenant_id").primaryKey(),
   captionCredits: integer("caption_credits").notNull().default(0),
   imageCredits: integer("image_credits").notNull().default(0),
+  videoCredits: integer("video_credits").notNull().default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()
@@ -91,6 +93,7 @@ export const creditLedgerTable = pgTable(
     kind: text("kind").notNull(),
     captionDelta: integer("caption_delta").notNull().default(0),
     imageDelta: integer("image_delta").notNull().default(0),
+    videoDelta: integer("video_delta").notNull().default(0),
     /** Set for purchases; unique to make crediting idempotent per order. */
     razorpayOrderId: text("razorpay_order_id"),
     creditPackId: integer("credit_pack_id"),

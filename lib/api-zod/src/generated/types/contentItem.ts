@@ -16,6 +16,16 @@ export interface ContentItem {
   imagePath?: string | null;
   /** @nullable */
   imagePrompt?: string | null;
+  /**
+     * Storage path of the video attached to this item (from the Video Studio). When set, clients render a video player instead of an image.
+     * @nullable
+     */
+  videoPath?: string | null;
+  /**
+     * Poster-frame image path used by grids and previews.
+     * @nullable
+     */
+  videoThumbnailPath?: string | null;
   /** @nullable */
   carouselSlides?: CarouselSlide[] | null;
   platform: string;

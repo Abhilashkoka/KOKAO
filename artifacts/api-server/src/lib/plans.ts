@@ -4,6 +4,8 @@ import { logger } from "./logger";
 export interface PlanLimits {
   captions: number;
   images: number;
+  /** Monthly AI video generations (-1 = unlimited, 0 = credit-funded only). */
+  videos: number;
   brandKits: number;
   scheduledPosts: number;
 }
@@ -41,7 +43,7 @@ export const DEFAULT_PLANS: Plan[] = [
     id: "free",
     name: "Free",
     priceLabel: "$0 / mo",
-    limits: { captions: 20, images: 10, brandKits: 1, scheduledPosts: 10 },
+    limits: { captions: 20, images: 10, videos: 3, brandKits: 1, scheduledPosts: 10 },
     teamSeats: 0,
     priceInr: null,
     razorpayPlanId: null,
@@ -61,7 +63,7 @@ export const DEFAULT_PLANS: Plan[] = [
     // Zero monthly allowances: all metered usage draws from purchased
     // credits (see lib/credits.ts). -1 would mean unlimited; 0 means "plan
     // quota exhausted immediately", which routes then satisfy from credits.
-    limits: { captions: 0, images: 0, brandKits: 3, scheduledPosts: 50 },
+    limits: { captions: 0, images: 0, videos: 0, brandKits: 3, scheduledPosts: 50 },
     teamSeats: 0,
     priceInr: null,
     razorpayPlanId: null,
@@ -78,7 +80,7 @@ export const DEFAULT_PLANS: Plan[] = [
     id: "pro",
     name: "Pro",
     priceLabel: "$29 / mo",
-    limits: { captions: 500, images: 200, brandKits: 10, scheduledPosts: 200 },
+    limits: { captions: 500, images: 200, videos: 50, brandKits: 10, scheduledPosts: 200 },
     teamSeats: 0,
     priceInr: null,
     razorpayPlanId: null,
@@ -96,7 +98,7 @@ export const DEFAULT_PLANS: Plan[] = [
     id: "business",
     name: "Business",
     priceLabel: "$99 / mo",
-    limits: { captions: -1, images: -1, brandKits: -1, scheduledPosts: -1 },
+    limits: { captions: -1, images: -1, videos: -1, brandKits: -1, scheduledPosts: -1 },
     teamSeats: 5,
     priceInr: null,
     razorpayPlanId: null,
@@ -183,6 +185,7 @@ function rowToPlan(r: typeof planSettingsTable.$inferSelect): Plan {
     limits: {
       captions: r.captions,
       images: r.images,
+      videos: r.videos,
       brandKits: r.brandKits,
       scheduledPosts: r.scheduledPosts,
     },

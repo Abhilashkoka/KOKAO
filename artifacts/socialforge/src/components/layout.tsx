@@ -1,9 +1,10 @@
 import { Link, useLocation } from "wouter";
 import { UserButton, useAuth } from "@clerk/react";
 import { 
-  LayoutDashboard, 
-  Wand2, 
-  Library, 
+  LayoutDashboard,
+  Wand2,
+  Clapperboard,
+  Library,
   Calendar, 
   Palette, 
   Share2, 
@@ -35,6 +36,7 @@ const NAV_ITEMS: {
 }[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/studio", label: "AI Studio", icon: Wand2, feature: "aiStudio" },
+  { href: "/video-studio", label: "Video Studio", icon: Clapperboard, feature: "videoGen" },
   { href: "/library", label: "Content Library", icon: Library, feature: "contentLibrary" },
   { href: "/schedule", label: "Schedule", icon: Calendar, feature: "scheduling" },
   { href: "/brand-kits", label: "Brand Kits", icon: Palette, feature: "brandKits" },

@@ -11,6 +11,8 @@ export interface CreditLedgerEntry {
   kind: string;
   captionDelta: number;
   imageDelta: number;
+  /** Change in AI video credits (negative on spend). */
+  videoDelta?: number;
   /** @nullable */
   note: string | null;
   createdAt: string;

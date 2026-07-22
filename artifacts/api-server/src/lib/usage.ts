@@ -8,7 +8,7 @@ export function currentPeriodStart(now: Date = new Date()): Date {
 
 export async function getUsage(
   tenantId: number,
-): Promise<{ captions: number; images: number; periodStart: Date }> {
+): Promise<{ captions: number; images: number; videos: number; periodStart: Date }> {
   const periodStart = currentPeriodStart();
   const rows = await db
     .select({
@@ -29,7 +29,8 @@ export async function getUsage(
 
   const captions = rows.find((r) => r.kind === "caption")?.count ?? 0;
   const images = rows.find((r) => r.kind === "image")?.count ?? 0;
-  return { captions, images, periodStart };
+  const videos = rows.find((r) => r.kind === "video")?.count ?? 0;
+  return { captions, images, videos, periodStart };
 }
 
 /** Optional AI data-consumption metrics attached to a usage row. */
@@ -50,7 +51,7 @@ export interface UsageMeta {
 
 export async function recordUsage(
   tenantId: number,
-  kind: "caption" | "image",
+  kind: "caption" | "image" | "video",
   meta: UsageMeta = {},
 ): Promise<void> {
   // Snapshot the tenant-facing per-unit display amount at the rates in effect
@@ -60,7 +61,14 @@ export async function recordUsage(
   let displayPaise: number | null = null;
   try {
     const rates = await getAiSpendRates();
-    displayPaise = kind === "caption" ? rates.captionPaise : rates.imagePaise;
+    // No tenant-facing display rate exists for video yet; stored as NULL so
+    // spend reports simply omit it rather than showing a wrong figure.
+    displayPaise =
+      kind === "caption"
+        ? rates.captionPaise
+        : kind === "image"
+          ? rates.imagePaise
+          : null;
   } catch {
     displayPaise = null;
   }

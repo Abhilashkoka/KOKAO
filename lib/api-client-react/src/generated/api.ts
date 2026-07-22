@@ -130,12 +130,17 @@ import type {
   GoogleAdCustomerChoice,
   GoogleAdsAppCredentialInput,
   GoogleAdsAppCredentialStatus,
+  GoogleDriveAuthUrlResult,
+  GoogleDriveFileList,
+  GoogleDriveStatus,
   GrantCreditsInput,
   HealthReportOverview,
   HealthStatus,
   ImageGenSettingsView,
   ImageRequest,
   ImageResult,
+  ImportDriveFilesRequest,
+  ImportDriveFilesResult,
   InstagramCredentialInput,
   LeaveTeamResult,
   LinkedInAuthUrlResult,
@@ -144,6 +149,7 @@ import type {
   LinkedinAppCredentialStatus,
   ListAdCampaignsParams,
   ListBrandKitsParams,
+  ListGoogleDriveFilesParams,
   ListLinkedinCampaignGroupsParams,
   ListNotificationsParams,
   MeProfile,
@@ -182,6 +188,7 @@ import type {
   ResolveSelectionInput,
   ResolveSelectionResult,
   RevenueAnalytics,
+  SaveVideoToLibraryRequest,
   ScheduleInput,
   ScheduleUpdate,
   ScheduledPost,
@@ -194,6 +201,7 @@ import type {
   SetAsrProviderKeyRequest,
   SetImageGenProviderKeyRequest,
   SetTextGenKeyRequest,
+  SetVideoGenProviderKeyRequest,
   SocialCredentialStatus,
   SummarizeUrlRequest,
   SummarizeUrlResult,
@@ -228,10 +236,14 @@ import type {
   UpdateTenantPlanBody,
   UpdateTenantSuperadminBody,
   UpdateTextGenSettingsRequest,
+  UpdateVideoGenSettingsRequest,
   UpgradeRequestResult,
   UploadUrlRequest,
   UploadUrlResponse,
   UpsertAiModelPriceRequest,
+  VideoGenSettingsView,
+  VideoGenerateRequest,
+  VideoJob,
   YoutubeAppCredentialInput,
   YoutubeAppCredentialStatus,
   YoutubeAuthUrlResult,
@@ -3232,6 +3244,294 @@ export const useAdminClearImageGenProviderKey = <TError = ErrorType<ErrorEnvelop
         TContext
       > => {
       return useMutation(getAdminClearImageGenProviderKeyMutationOptions(options));
+    }
+
+export const getAdminGetVideoGenSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/video-gen-settings`
+}
+
+/**
+ * @summary Get the video generation provider selection (superadmin only)
+ */
+export const adminGetVideoGenSettings = async ( options?: RequestInit): Promise<VideoGenSettingsView> => {
+
+  return customFetch<VideoGenSettingsView>(getAdminGetVideoGenSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetVideoGenSettingsQueryKey = () => {
+    return [
+    `/api/admin/video-gen-settings`
+    ] as const;
+    }
+
+
+export const getAdminGetVideoGenSettingsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetVideoGenSettings>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetVideoGenSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetVideoGenSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetVideoGenSettings>>> = ({ signal }) => adminGetVideoGenSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetVideoGenSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetVideoGenSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetVideoGenSettings>>>
+export type AdminGetVideoGenSettingsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the video generation provider selection (superadmin only)
+ */
+
+export function useAdminGetVideoGenSettings<TData = Awaited<ReturnType<typeof adminGetVideoGenSettings>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetVideoGenSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetVideoGenSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateVideoGenSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/video-gen-settings`
+}
+
+/**
+ * @summary Select the video generation provider for the whole app (superadmin only)
+ */
+export const adminUpdateVideoGenSettings = async (updateVideoGenSettingsRequest: UpdateVideoGenSettingsRequest, options?: RequestInit): Promise<VideoGenSettingsView> => {
+
+  return customFetch<VideoGenSettingsView>(getAdminUpdateVideoGenSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateVideoGenSettingsRequest)
+  }
+);}
+
+
+
+
+export const getAdminUpdateVideoGenSettingsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateVideoGenSettings>>, TError,{data: BodyType<UpdateVideoGenSettingsRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateVideoGenSettings>>, TError,{data: BodyType<UpdateVideoGenSettingsRequest>}, TContext> => {
+
+const mutationKey = ['adminUpdateVideoGenSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateVideoGenSettings>>, {data: BodyType<UpdateVideoGenSettingsRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateVideoGenSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateVideoGenSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateVideoGenSettings>>>
+    export type AdminUpdateVideoGenSettingsMutationBody = BodyType<UpdateVideoGenSettingsRequest>
+    export type AdminUpdateVideoGenSettingsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Select the video generation provider for the whole app (superadmin only)
+ */
+export const useAdminUpdateVideoGenSettings = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateVideoGenSettings>>, TError,{data: BodyType<UpdateVideoGenSettingsRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateVideoGenSettings>>,
+        TError,
+        {data: BodyType<UpdateVideoGenSettingsRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateVideoGenSettingsMutationOptions(options));
+    }
+
+export const getAdminSetVideoGenProviderKeyUrl = (providerId: string,) => {
+
+
+
+
+  return `/api/admin/video-gen-providers/${providerId}/key`
+}
+
+/**
+ * @summary Save a video generation provider API key (superadmin only)
+ */
+export const adminSetVideoGenProviderKey = async (providerId: string,
+    setVideoGenProviderKeyRequest: SetVideoGenProviderKeyRequest, options?: RequestInit): Promise<VideoGenSettingsView> => {
+
+  return customFetch<VideoGenSettingsView>(getAdminSetVideoGenProviderKeyUrl(providerId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(setVideoGenProviderKeyRequest)
+  }
+);}
+
+
+
+
+export const getAdminSetVideoGenProviderKeyMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetVideoGenProviderKey>>, TError,{providerId: string;data: BodyType<SetVideoGenProviderKeyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSetVideoGenProviderKey>>, TError,{providerId: string;data: BodyType<SetVideoGenProviderKeyRequest>}, TContext> => {
+
+const mutationKey = ['adminSetVideoGenProviderKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSetVideoGenProviderKey>>, {providerId: string;data: BodyType<SetVideoGenProviderKeyRequest>}> = (props) => {
+          const {providerId,data} = props ?? {};
+
+          return  adminSetVideoGenProviderKey(providerId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSetVideoGenProviderKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminSetVideoGenProviderKey>>>
+    export type AdminSetVideoGenProviderKeyMutationBody = BodyType<SetVideoGenProviderKeyRequest>
+    export type AdminSetVideoGenProviderKeyMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save a video generation provider API key (superadmin only)
+ */
+export const useAdminSetVideoGenProviderKey = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetVideoGenProviderKey>>, TError,{providerId: string;data: BodyType<SetVideoGenProviderKeyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSetVideoGenProviderKey>>,
+        TError,
+        {providerId: string;data: BodyType<SetVideoGenProviderKeyRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminSetVideoGenProviderKeyMutationOptions(options));
+    }
+
+export const getAdminClearVideoGenProviderKeyUrl = (providerId: string,) => {
+
+
+
+
+  return `/api/admin/video-gen-providers/${providerId}/key`
+}
+
+/**
+ * @summary Remove a saved video generation provider API key (superadmin only)
+ */
+export const adminClearVideoGenProviderKey = async (providerId: string, options?: RequestInit): Promise<VideoGenSettingsView> => {
+
+  return customFetch<VideoGenSettingsView>(getAdminClearVideoGenProviderKeyUrl(providerId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getAdminClearVideoGenProviderKeyMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearVideoGenProviderKey>>, TError,{providerId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminClearVideoGenProviderKey>>, TError,{providerId: string}, TContext> => {
+
+const mutationKey = ['adminClearVideoGenProviderKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminClearVideoGenProviderKey>>, {providerId: string}> = (props) => {
+          const {providerId} = props ?? {};
+
+          return  adminClearVideoGenProviderKey(providerId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminClearVideoGenProviderKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminClearVideoGenProviderKey>>>
+
+    export type AdminClearVideoGenProviderKeyMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Remove a saved video generation provider API key (superadmin only)
+ */
+export const useAdminClearVideoGenProviderKey = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearVideoGenProviderKey>>, TError,{providerId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminClearVideoGenProviderKey>>,
+        TError,
+        {providerId: string},
+        TContext
+      > => {
+      return useMutation(getAdminClearVideoGenProviderKeyMutationOptions(options));
     }
 
 export const getGetAiSpendRatesUrl = () => {
@@ -6545,6 +6845,302 @@ export const useGenerateImage = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getGenerateImageMutationOptions(options));
     }
 
+export const getGenerateVideoUrl = () => {
+
+
+
+
+  return `/api/ai/generate-video`
+}
+
+/**
+ * Video generation is long-running, so this endpoint validates the request, reserves funding (monthly quota first, then a video credit), creates the job, and returns immediately. Poll GET /ai/video-jobs/{jobId} until status is succeeded or failed.
+ * @summary Start a video generation job (AI or photo slideshow)
+ */
+export const generateVideo = async (videoGenerateRequest: VideoGenerateRequest, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getGenerateVideoUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(videoGenerateRequest)
+  }
+);}
+
+
+
+
+export const getGenerateVideoMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateVideo>>, TError,{data: BodyType<VideoGenerateRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generateVideo>>, TError,{data: BodyType<VideoGenerateRequest>}, TContext> => {
+
+const mutationKey = ['generateVideo'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generateVideo>>, {data: BodyType<VideoGenerateRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  generateVideo(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GenerateVideoMutationResult = NonNullable<Awaited<ReturnType<typeof generateVideo>>>
+    export type GenerateVideoMutationBody = BodyType<VideoGenerateRequest>
+    export type GenerateVideoMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Start a video generation job (AI or photo slideshow)
+ */
+export const useGenerateVideo = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateVideo>>, TError,{data: BodyType<VideoGenerateRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generateVideo>>,
+        TError,
+        {data: BodyType<VideoGenerateRequest>},
+        TContext
+      > => {
+      return useMutation(getGenerateVideoMutationOptions(options));
+    }
+
+export const getListVideoJobsUrl = () => {
+
+
+
+
+  return `/api/ai/video-jobs`
+}
+
+/**
+ * @summary List this workspace's recent video generation jobs (newest first)
+ */
+export const listVideoJobs = async ( options?: RequestInit): Promise<VideoJob[]> => {
+
+  return customFetch<VideoJob[]>(getListVideoJobsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListVideoJobsQueryKey = () => {
+    return [
+    `/api/ai/video-jobs`
+    ] as const;
+    }
+
+
+export const getListVideoJobsQueryOptions = <TData = Awaited<ReturnType<typeof listVideoJobs>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoJobs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListVideoJobsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listVideoJobs>>> = ({ signal }) => listVideoJobs({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listVideoJobs>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListVideoJobsQueryResult = NonNullable<Awaited<ReturnType<typeof listVideoJobs>>>
+export type ListVideoJobsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List this workspace's recent video generation jobs (newest first)
+ */
+
+export function useListVideoJobs<TData = Awaited<ReturnType<typeof listVideoJobs>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoJobs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListVideoJobsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetVideoJobUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}`
+}
+
+/**
+ * @summary Get one video generation job (poll until succeeded/failed)
+ */
+export const getVideoJob = async (jobId: number, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getGetVideoJobUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetVideoJobQueryKey = (jobId: number,) => {
+    return [
+    `/api/ai/video-jobs/${jobId}`
+    ] as const;
+    }
+
+
+export const getGetVideoJobQueryOptions = <TData = Awaited<ReturnType<typeof getVideoJob>>, TError = ErrorType<ErrorEnvelope>>(jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVideoJob>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetVideoJobQueryKey(jobId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getVideoJob>>> = ({ signal }) => getVideoJob(jobId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: jobId !== null && jobId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getVideoJob>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetVideoJobQueryResult = NonNullable<Awaited<ReturnType<typeof getVideoJob>>>
+export type GetVideoJobQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get one video generation job (poll until succeeded/failed)
+ */
+
+export function useGetVideoJob<TData = Awaited<ReturnType<typeof getVideoJob>>, TError = ErrorType<ErrorEnvelope>>(
+ jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVideoJob>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetVideoJobQueryOptions(jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSaveVideoToLibraryUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/save-to-library`
+}
+
+/**
+ * @summary Save a finished video into the content library as a draft item
+ */
+export const saveVideoToLibrary = async (jobId: number,
+    saveVideoToLibraryRequest: SaveVideoToLibraryRequest, options?: RequestInit): Promise<ContentItem> => {
+
+  return customFetch<ContentItem>(getSaveVideoToLibraryUrl(jobId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(saveVideoToLibraryRequest)
+  }
+);}
+
+
+
+
+export const getSaveVideoToLibraryMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveVideoToLibrary>>, TError,{jobId: number;data: BodyType<SaveVideoToLibraryRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveVideoToLibrary>>, TError,{jobId: number;data: BodyType<SaveVideoToLibraryRequest>}, TContext> => {
+
+const mutationKey = ['saveVideoToLibrary'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveVideoToLibrary>>, {jobId: number;data: BodyType<SaveVideoToLibraryRequest>}> = (props) => {
+          const {jobId,data} = props ?? {};
+
+          return  saveVideoToLibrary(jobId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveVideoToLibraryMutationResult = NonNullable<Awaited<ReturnType<typeof saveVideoToLibrary>>>
+    export type SaveVideoToLibraryMutationBody = BodyType<SaveVideoToLibraryRequest>
+    export type SaveVideoToLibraryMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save a finished video into the content library as a draft item
+ */
+export const useSaveVideoToLibrary = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveVideoToLibrary>>, TError,{jobId: number;data: BodyType<SaveVideoToLibraryRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof saveVideoToLibrary>>,
+        TError,
+        {jobId: number;data: BodyType<SaveVideoToLibraryRequest>},
+        TContext
+      > => {
+      return useMutation(getSaveVideoToLibraryMutationOptions(options));
+    }
+
 export const getTranscribeAudioUrl = () => {
 
 
@@ -9715,6 +10311,384 @@ export const useAdminSaveLinkedinCredentials = <TError = ErrorType<ErrorEnvelope
         TContext
       > => {
       return useMutation(getAdminSaveLinkedinCredentialsMutationOptions(options));
+    }
+
+export const getGetGoogleDriveStatusUrl = () => {
+
+
+
+
+  return `/api/google-drive/status`
+}
+
+/**
+ * @summary Whether a Google Drive account is connected for photo import
+ */
+export const getGoogleDriveStatus = async ( options?: RequestInit): Promise<GoogleDriveStatus> => {
+
+  return customFetch<GoogleDriveStatus>(getGetGoogleDriveStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetGoogleDriveStatusQueryKey = () => {
+    return [
+    `/api/google-drive/status`
+    ] as const;
+    }
+
+
+export const getGetGoogleDriveStatusQueryOptions = <TData = Awaited<ReturnType<typeof getGoogleDriveStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGoogleDriveStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetGoogleDriveStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGoogleDriveStatus>>> = ({ signal }) => getGoogleDriveStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGoogleDriveStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetGoogleDriveStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getGoogleDriveStatus>>>
+export type GetGoogleDriveStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Whether a Google Drive account is connected for photo import
+ */
+
+export function useGetGoogleDriveStatus<TData = Awaited<ReturnType<typeof getGoogleDriveStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGoogleDriveStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetGoogleDriveStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetGoogleDriveAuthUrlUrl = () => {
+
+
+
+
+  return `/api/google-drive/auth/url`
+}
+
+/**
+ * @summary Get the Google OAuth authorization URL to begin connecting Drive
+ */
+export const getGoogleDriveAuthUrl = async ( options?: RequestInit): Promise<GoogleDriveAuthUrlResult> => {
+
+  return customFetch<GoogleDriveAuthUrlResult>(getGetGoogleDriveAuthUrlUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetGoogleDriveAuthUrlQueryKey = () => {
+    return [
+    `/api/google-drive/auth/url`
+    ] as const;
+    }
+
+
+export const getGetGoogleDriveAuthUrlQueryOptions = <TData = Awaited<ReturnType<typeof getGoogleDriveAuthUrl>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGoogleDriveAuthUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetGoogleDriveAuthUrlQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGoogleDriveAuthUrl>>> = ({ signal }) => getGoogleDriveAuthUrl({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGoogleDriveAuthUrl>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetGoogleDriveAuthUrlQueryResult = NonNullable<Awaited<ReturnType<typeof getGoogleDriveAuthUrl>>>
+export type GetGoogleDriveAuthUrlQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the Google OAuth authorization URL to begin connecting Drive
+ */
+
+export function useGetGoogleDriveAuthUrl<TData = Awaited<ReturnType<typeof getGoogleDriveAuthUrl>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGoogleDriveAuthUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetGoogleDriveAuthUrlQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDisconnectGoogleDriveUrl = () => {
+
+
+
+
+  return `/api/google-drive`
+}
+
+/**
+ * @summary Disconnect Google Drive, clearing the stored OAuth tokens
+ */
+export const disconnectGoogleDrive = async ( options?: RequestInit): Promise<GoogleDriveStatus> => {
+
+  return customFetch<GoogleDriveStatus>(getDisconnectGoogleDriveUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDisconnectGoogleDriveMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectGoogleDrive>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof disconnectGoogleDrive>>, TError,void, TContext> => {
+
+const mutationKey = ['disconnectGoogleDrive'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof disconnectGoogleDrive>>, void> = () => {
+
+
+          return  disconnectGoogleDrive(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DisconnectGoogleDriveMutationResult = NonNullable<Awaited<ReturnType<typeof disconnectGoogleDrive>>>
+
+    export type DisconnectGoogleDriveMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Disconnect Google Drive, clearing the stored OAuth tokens
+ */
+export const useDisconnectGoogleDrive = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectGoogleDrive>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof disconnectGoogleDrive>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDisconnectGoogleDriveMutationOptions(options));
+    }
+
+export const getListGoogleDriveFilesUrl = (params?: ListGoogleDriveFilesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/google-drive/files?${stringifiedParams}` : `/api/google-drive/files`
+}
+
+/**
+ * @summary List photos and folders in the connected Google Drive
+ */
+export const listGoogleDriveFiles = async (params?: ListGoogleDriveFilesParams, options?: RequestInit): Promise<GoogleDriveFileList> => {
+
+  return customFetch<GoogleDriveFileList>(getListGoogleDriveFilesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListGoogleDriveFilesQueryKey = (params?: ListGoogleDriveFilesParams,) => {
+    return [
+    `/api/google-drive/files`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListGoogleDriveFilesQueryOptions = <TData = Awaited<ReturnType<typeof listGoogleDriveFiles>>, TError = ErrorType<ErrorEnvelope>>(params?: ListGoogleDriveFilesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGoogleDriveFiles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListGoogleDriveFilesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listGoogleDriveFiles>>> = ({ signal }) => listGoogleDriveFiles(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listGoogleDriveFiles>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListGoogleDriveFilesQueryResult = NonNullable<Awaited<ReturnType<typeof listGoogleDriveFiles>>>
+export type ListGoogleDriveFilesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List photos and folders in the connected Google Drive
+ */
+
+export function useListGoogleDriveFiles<TData = Awaited<ReturnType<typeof listGoogleDriveFiles>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: ListGoogleDriveFilesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGoogleDriveFiles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListGoogleDriveFilesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getImportGoogleDriveFilesUrl = () => {
+
+
+
+
+  return `/api/google-drive/import`
+}
+
+/**
+ * @summary Import selected Drive photos into workspace storage
+ */
+export const importGoogleDriveFiles = async (importDriveFilesRequest: ImportDriveFilesRequest, options?: RequestInit): Promise<ImportDriveFilesResult> => {
+
+  return customFetch<ImportDriveFilesResult>(getImportGoogleDriveFilesUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(importDriveFilesRequest)
+  }
+);}
+
+
+
+
+export const getImportGoogleDriveFilesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importGoogleDriveFiles>>, TError,{data: BodyType<ImportDriveFilesRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importGoogleDriveFiles>>, TError,{data: BodyType<ImportDriveFilesRequest>}, TContext> => {
+
+const mutationKey = ['importGoogleDriveFiles'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importGoogleDriveFiles>>, {data: BodyType<ImportDriveFilesRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  importGoogleDriveFiles(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ImportGoogleDriveFilesMutationResult = NonNullable<Awaited<ReturnType<typeof importGoogleDriveFiles>>>
+    export type ImportGoogleDriveFilesMutationBody = BodyType<ImportDriveFilesRequest>
+    export type ImportGoogleDriveFilesMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Import selected Drive photos into workspace storage
+ */
+export const useImportGoogleDriveFiles = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importGoogleDriveFiles>>, TError,{data: BodyType<ImportDriveFilesRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof importGoogleDriveFiles>>,
+        TError,
+        {data: BodyType<ImportDriveFilesRequest>},
+        TContext
+      > => {
+      return useMutation(getImportGoogleDriveFilesMutationOptions(options));
     }
 
 export const getGetYoutubeAuthUrlUrl = () => {

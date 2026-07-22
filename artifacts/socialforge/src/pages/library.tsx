@@ -682,7 +682,22 @@ export function LibraryPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {items.map((item, i) => (
             <Card key={item.id} className="overflow-hidden flex flex-col group hover:shadow-lg transition-all duration-300 border-border animate-in fade-in" style={{ animationDelay: `${i * 50}ms` }}>
-              {item.imagePath ? (
+              {item.videoPath ? (
+                <div className="aspect-square w-full bg-black relative overflow-hidden border-b">
+                  <video
+                    src={`/api/storage${item.videoPath}`}
+                    poster={item.videoThumbnailPath ? `/api/storage${item.videoThumbnailPath}` : undefined}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="w-full h-full object-contain"
+                    data-testid={`video-content-${item.id}`}
+                  />
+                  <span className="absolute top-2 right-2 pointer-events-none rounded-full bg-black/60 px-2 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
+                    Video
+                  </span>
+                </div>
+              ) : item.imagePath ? (
                 <div className="aspect-square w-full bg-muted relative overflow-hidden border-b">
                   <img src={`/api/storage${item.imagePath}`} alt={item.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />

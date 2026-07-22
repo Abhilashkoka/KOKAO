@@ -18,5 +18,10 @@ export interface CreditPackInput {
   captionCredits: number;
   /** @minimum 0 */
   imageCredits: number;
+  /**
+     * AI video credits included in this pack (default 0).
+     * @minimum 0
+     */
+  videoCredits?: number;
   active?: boolean;
 }

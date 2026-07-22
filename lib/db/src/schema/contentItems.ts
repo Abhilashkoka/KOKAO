@@ -65,6 +65,11 @@ export const contentItemsTable = pgTable("content_items", {
   caption: text("caption").notNull().default(""),
   imagePath: text("image_path"),
   imagePrompt: text("image_prompt"),
+  // Generated (or uploaded) video attached to this item. When set the library
+  // renders a video player and publishing must use a video-capable path;
+  // videoThumbnailPath is the poster frame used by grids and previews.
+  videoPath: text("video_path"),
+  videoThumbnailPath: text("video_thumbnail_path"),
   // Present only for carousel items: ordered slides with copy + per-slide
   // image. When set (and images exist), LinkedIn publishes render the slides
   // as a multi-page PDF document instead of a single image.

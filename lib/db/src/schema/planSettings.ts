@@ -25,6 +25,9 @@ export const planSettingsTable = pgTable("plan_settings", {
   priceLabel: text("price_label").notNull(),
   captions: integer("captions").notNull(),
   images: integer("images").notNull(),
+  // Monthly AI video quota. Default 0 (credit-funded only) so pre-existing
+  // custom plan rows keep working after the column is added.
+  videos: integer("videos").notNull().default(0),
   brandKits: integer("brand_kits").notNull(),
   scheduledPosts: integer("scheduled_posts").notNull(),
   features: jsonb("features").$type<string[]>().notNull(),

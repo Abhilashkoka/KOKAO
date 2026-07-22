@@ -17,6 +17,10 @@ export interface ContentInput {
   /** @nullable */
   imagePrompt?: string | null;
   /** @nullable */
+  videoPath?: string | null;
+  /** @nullable */
+  videoThumbnailPath?: string | null;
+  /** @nullable */
   carouselSlides?: CarouselSlide[] | null;
   platform?: string;
   contentType?: string;

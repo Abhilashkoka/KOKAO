@@ -48,6 +48,7 @@ router.get("/me", async (req: Request, res: Response) => {
     usage: {
       captions: usage.captions,
       images: usage.images,
+      videos: usage.videos,
       periodStart: usage.periodStart.toISOString(),
     },
     limits: await getPlanLimits(tenant.plan),

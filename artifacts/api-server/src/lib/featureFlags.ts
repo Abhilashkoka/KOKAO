@@ -95,6 +95,12 @@ export const FEATURES = [
     description:
       "Uploading a reference image in AI Studio to guide image generation.",
   },
+  {
+    id: "videoGen",
+    label: "Video Studio",
+    description:
+      "AI video generation (text-to-video, image-to-video), photo slideshows, and Google Drive photo import.",
+  },
 ] as const;
 
 export type FeatureId = (typeof FEATURES)[number]["id"];

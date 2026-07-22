@@ -11,6 +11,8 @@ export interface PlanLimits {
   captions: number;
   /** Monthly image generation limit. -1 means unlimited. */
   images: number;
+  /** Monthly AI video generation limit. -1 means unlimited, 0 means credit-funded only. Optional so pre-video clients keep working. */
+  videos?: number;
   /** Max brand kits. -1 means unlimited. */
   brandKits: number;
   /** Max scheduled posts. -1 means unlimited. */

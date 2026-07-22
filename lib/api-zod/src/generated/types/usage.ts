@@ -9,5 +9,7 @@
 export interface Usage {
   captions: number;
   images: number;
+  /** AI videos generated this month against the plan quota. */
+  videos?: number;
   periodStart: Date;
 }

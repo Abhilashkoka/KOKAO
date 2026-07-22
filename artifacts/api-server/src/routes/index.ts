@@ -9,6 +9,8 @@ import brandPreferencesRouter from "./brandPreferences";
 import onboardingRouter from "./onboarding";
 import contentRouter from "./content";
 import aiRouter from "./ai";
+import videosRouter from "./videos";
+import googleDriveRouter, { googleDriveCallbackRouter } from "./googleDrive";
 import schedulesRouter from "./schedules";
 import accountsRouter from "./accounts";
 import metaRouter from "./meta";
@@ -58,10 +60,12 @@ router.use("/twitter", sensitiveLimiter);
 router.use("/linkedin", sensitiveLimiter);
 router.use("/youtube", sensitiveLimiter);
 router.use("/threads", sensitiveLimiter);
+router.use("/google-drive", sensitiveLimiter);
 router.use("/ads/meta/auth", sensitiveLimiter);
 router.use(twitterCallbackRouter);
 router.use(linkedinCallbackRouter);
 router.use(youtubeCallbackRouter);
+router.use(googleDriveCallbackRouter);
 router.use(threadsCallbackRouter);
 router.use(adsCallbackRouter);
 
@@ -79,6 +83,11 @@ router.use("/social-credentials", sensitiveLimiter);
 // admin router below is deliberately NOT gated so switches can be re-enabled.
 router.use("/ai", requireFeature("aiStudio"));
 router.use("/ai/generate-carousel", requireFeature("carousel"));
+// Video Studio: its own kill switch on top of the /ai gate; the Google Drive
+// import exists solely for it, so it shares the switch.
+router.use("/ai/generate-video", requireFeature("videoGen"));
+router.use("/ai/video-jobs", requireFeature("videoGen"));
+router.use("/google-drive", requireFeature("videoGen"));
 router.use("/content", requireFeature("contentLibrary"));
 router.use("/schedules", requireFeature("scheduling"));
 router.use("/brand-kits", requireFeature("brandKits"));
@@ -116,6 +125,8 @@ router.use(brandPreferencesRouter);
 router.use(onboardingRouter);
 router.use(contentRouter);
 router.use(aiRouter);
+router.use(videosRouter);
+router.use(googleDriveRouter);
 router.use(schedulesRouter);
 router.use(accountsRouter);
 router.use(metaRouter);

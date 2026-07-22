@@ -9,4 +9,6 @@
 export interface CreditBalances {
   captionCredits: number;
   imageCredits: number;
+  /** Prepaid AI video generation credits. */
+  videoCredits?: number;
 }

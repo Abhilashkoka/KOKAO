@@ -19,7 +19,9 @@ tags:
   - name: content
     description: Content library items.
   - name: ai
-    description: AI caption and image generation.
+    description: AI caption, image, and video generation.
+  - name: google-drive
+    description: Google Drive photo import for the Video Studio.
   - name: schedules
     description: Scheduled posts queue.
   - name: accounts
@@ -1156,6 +1158,118 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ImageGenSettingsView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Unknown provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/video-gen-settings:
+    get:
+      operationId: adminGetVideoGenSettings
+      tags: [admin]
+      summary: Get the video generation provider selection (superadmin only)
+      responses:
+        "200":
+          description: Video generation settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoGenSettingsView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminUpdateVideoGenSettings
+      tags: [admin]
+      summary: Select the video generation provider for the whole app (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateVideoGenSettingsRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoGenSettingsView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/video-gen-providers/{providerId}/key:
+    parameters:
+      - name: providerId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: adminSetVideoGenProviderKey
+      tags: [admin]
+      summary: Save a video generation provider API key (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetVideoGenProviderKeyRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoGenSettingsView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Unknown provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: adminClearVideoGenProviderKey
+      tags: [admin]
+      summary: Remove a saved video generation provider API key (superadmin only)
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoGenSettingsView"
         "403":
           description: Forbidden
           content:
@@ -2374,6 +2488,115 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/generate-video:
+    post:
+      operationId: generateVideo
+      tags: [ai]
+      summary: Start a video generation job (AI or photo slideshow)
+      description: >-
+        Video generation is long-running, so this endpoint validates the
+        request, reserves funding (monthly quota first, then a video credit),
+        creates the job, and returns immediately. Poll GET
+        /ai/video-jobs/{jobId} until status is succeeded or failed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VideoGenerateRequest"
+      responses:
+        "201":
+          description: Job created and queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "402":
+          description: Quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs:
+    get:
+      operationId: listVideoJobs
+      tags: [ai]
+      summary: List this workspace's recent video generation jobs (newest first)
+      responses:
+        "200":
+          description: Recent video jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VideoJob"
+  /ai/video-jobs/{jobId}:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      operationId: getVideoJob
+      tags: [ai]
+      summary: Get one video generation job (poll until succeeded/failed)
+      responses:
+        "200":
+          description: The job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/save-to-library:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: saveVideoToLibrary
+      tags: [ai]
+      summary: Save a finished video into the content library as a draft item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveVideoToLibraryRequest"
+      responses:
+        "201":
+          description: The created content item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentItem"
+        "400":
+          description: Invalid input or video not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/transcribe:
     post:
       operationId: transcribeAudio
@@ -3507,6 +3730,108 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /google-drive/status:
+    get:
+      operationId: getGoogleDriveStatus
+      tags: [google-drive]
+      summary: Whether a Google Drive account is connected for photo import
+      responses:
+        "200":
+          description: Google Drive connection status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleDriveStatus"
+  /google-drive/auth/url:
+    get:
+      operationId: getGoogleDriveAuthUrl
+      tags: [google-drive]
+      summary: Get the Google OAuth authorization URL to begin connecting Drive
+      responses:
+        "200":
+          description: Authorization URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleDriveAuthUrlResult"
+        "503":
+          description: Google Drive is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /google-drive:
+    delete:
+      operationId: disconnectGoogleDrive
+      tags: [google-drive]
+      summary: Disconnect Google Drive, clearing the stored OAuth tokens
+      responses:
+        "200":
+          description: Updated connection status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleDriveStatus"
+  /google-drive/files:
+    get:
+      operationId: listGoogleDriveFiles
+      tags: [google-drive]
+      summary: List photos and folders in the connected Google Drive
+      parameters:
+        - name: folderId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Drive folder to list; the root folder when omitted.
+        - name: pageToken
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Photos and folders in the requested folder
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleDriveFileList"
+        "400":
+          description: Google Drive is not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Drive access expired; reconnect
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /google-drive/import:
+    post:
+      operationId: importGoogleDriveFiles
+      tags: [google-drive]
+      summary: Import selected Drive photos into workspace storage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportDriveFilesRequest"
+      responses:
+        "200":
+          description: Per-file import results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportDriveFilesResult"
+        "400":
+          description: Invalid input or Drive not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /youtube/auth/url:
     get:
       operationId: getYoutubeAuthUrl
@@ -6046,6 +6371,9 @@ components:
           type: integer
         images:
           type: integer
+        videos:
+          type: integer
+          description: AI videos generated this month against the plan quota.
         periodStart:
           type: string
           format: date-time
@@ -6059,6 +6387,11 @@ components:
         images:
           type: integer
           description: Monthly image generation limit. -1 means unlimited.
+        videos:
+          type: integer
+          description: >-
+            Monthly AI video generation limit. -1 means unlimited, 0 means
+            credit-funded only. Optional so pre-video clients keep working.
         brandKits:
           type: integer
           description: Max brand kits. -1 means unlimited.
@@ -6527,6 +6860,9 @@ components:
           type: integer
         imageCredits:
           type: integer
+        videoCredits:
+          type: integer
+          description: Prepaid AI video generation credits.
     CreditPack:
       type: object
       required: [id, name, pricePaise, captionCredits, imageCredits, active, sortOrder]
@@ -6541,6 +6877,9 @@ components:
           type: integer
         imageCredits:
           type: integer
+        videoCredits:
+          type: integer
+          description: AI video credits included in this pack.
         active:
           type: boolean
         sortOrder:
@@ -6562,6 +6901,10 @@ components:
         imageCredits:
           type: integer
           minimum: 0
+        videoCredits:
+          type: integer
+          minimum: 0
+          description: AI video credits included in this pack (default 0).
         active:
           type: boolean
     GrantCreditsInput:
@@ -6806,6 +7149,9 @@ components:
           type: integer
         imageDelta:
           type: integer
+        videoDelta:
+          type: integer
+          description: Change in AI video credits (negative on spend).
         note:
           type: ["string", "null"]
         createdAt:
@@ -8488,6 +8834,15 @@ components:
           type: ["string", "null"]
         imagePrompt:
           type: ["string", "null"]
+        videoPath:
+          type: ["string", "null"]
+          description: >-
+            Storage path of the video attached to this item (from the Video
+            Studio). When set, clients render a video player instead of an
+            image.
+        videoThumbnailPath:
+          type: ["string", "null"]
+          description: Poster-frame image path used by grids and previews.
         carouselSlides:
           type: ["array", "null"]
           items:
@@ -8566,6 +8921,10 @@ components:
           type: ["string", "null"]
         imagePrompt:
           type: ["string", "null"]
+        videoPath:
+          type: ["string", "null"]
+        videoThumbnailPath:
+          type: ["string", "null"]
         carouselSlides:
           type: ["array", "null"]
           items:
@@ -8590,6 +8949,10 @@ components:
         imagePath:
           type: ["string", "null"]
         imagePrompt:
+          type: ["string", "null"]
+        videoPath:
+          type: ["string", "null"]
+        videoThumbnailPath:
           type: ["string", "null"]
         carouselSlides:
           type: ["array", "null"]
@@ -8737,6 +9100,276 @@ components:
           type: string
         b64Json:
           type: string
+    VideoGenerateRequest:
+      type: object
+      required: [engine]
+      properties:
+        engine:
+          type: string
+          enum: [text_to_video, image_to_video, slideshow]
+        prompt:
+          type: ["string", "null"]
+          maxLength: 2000
+          description: >-
+            The brief. Required for text_to_video; an optional motion hint for
+            image_to_video; unused by slideshow.
+        sourceImagePaths:
+          type: ["array", "null"]
+          maxItems: 20
+          items:
+            type: string
+          description: >-
+            Ordered /objects/... photo paths. image_to_video animates the
+            first; slideshow uses all of them in order.
+        aspectRatio:
+          type: string
+          enum: ["16:9", "9:16", "1:1"]
+          default: "9:16"
+        durationSec:
+          type: integer
+          minimum: 3
+          maximum: 10
+          default: 5
+          description: AI engines only; providers clamp to what they support.
+        slideDurationSec:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 3
+          description: Slideshow only; seconds each photo is on screen.
+        overlayText:
+          type: ["string", "null"]
+          maxLength: 120
+          description: Slideshow only; caption burned into the video.
+        musicPath:
+          type: ["string", "null"]
+          description: >-
+            Slideshow only; /objects/... path of an uploaded music track,
+            faded out at the end of the video.
+    VideoJob:
+      type: object
+      required:
+        [id, engine, status, sourceImagePaths, aspectRatio, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        engine:
+          type: string
+          enum: [text_to_video, image_to_video, slideshow]
+        status:
+          type: string
+          enum: [queued, processing, succeeded, failed]
+        prompt:
+          type: ["string", "null"]
+        sourceImagePaths:
+          type: array
+          items:
+            type: string
+        aspectRatio:
+          type: string
+        videoPath:
+          type: ["string", "null"]
+          description: Set when status is succeeded; serve via /api/storage{videoPath}.
+        thumbnailPath:
+          type: ["string", "null"]
+          description: Poster-frame PNG path (best effort; may be null).
+        provider:
+          type: ["string", "null"]
+        model:
+          type: ["string", "null"]
+        error:
+          type: ["string", "null"]
+          description: Human-readable failure reason when status is failed.
+        durationMs:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    SaveVideoToLibraryRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        caption:
+          type: string
+        platform:
+          type: string
+          description: Primary target platform (defaults to instagram).
+        brandKitId:
+          type: ["integer", "null"]
+    GoogleDriveStatus:
+      type: object
+      required: [connected, configured, redirectUri]
+      properties:
+        connected:
+          type: boolean
+        accountName:
+          type: ["string", "null"]
+        configured:
+          type: boolean
+          description: Whether the platform-level Google OAuth credentials are set by the admin.
+        redirectUri:
+          type: string
+          description: The exact OAuth redirect URL to register in the Google Cloud OAuth client.
+        expired:
+          type: boolean
+          description: >-
+            True when Drive was previously connected but its access has since
+            been revoked, so the user should reconnect.
+    GoogleDriveAuthUrlResult:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+    GoogleDriveFile:
+      type: object
+      required: [id, name, mimeType, isFolder]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        mimeType:
+          type: string
+        isFolder:
+          type: boolean
+        sizeBytes:
+          type: ["integer", "null"]
+        thumbnailUrl:
+          type: ["string", "null"]
+          description: Short-lived Google-hosted thumbnail; may be null.
+    GoogleDriveFileList:
+      type: object
+      required: [files]
+      properties:
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoogleDriveFile"
+        nextPageToken:
+          type: ["string", "null"]
+    ImportDriveFilesRequest:
+      type: object
+      required: [fileIds]
+      properties:
+        fileIds:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: string
+            minLength: 1
+    ImportDriveFilesResult:
+      type: object
+      required: [imported, failed]
+      properties:
+        imported:
+          type: array
+          items:
+            type: object
+            required: [fileId, name, objectPath]
+            properties:
+              fileId:
+                type: string
+              name:
+                type: string
+              objectPath:
+                type: string
+        failed:
+          type: array
+          items:
+            type: object
+            required: [fileId, reason]
+            properties:
+              fileId:
+                type: string
+              reason:
+                type: string
+    VideoGenSettingsView:
+      type: object
+      required: [provider, textToVideoModel, imageToVideoModel, providers]
+      properties:
+        provider:
+          type: string
+          description: Currently selected video generation provider id.
+        textToVideoModel:
+          type: ["string", "null"]
+          description: Admin model override for text-to-video (null = provider default).
+        imageToVideoModel:
+          type: ["string", "null"]
+          description: Admin model override for image-to-video (null = provider default).
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/VideoGenProviderInfo"
+    VideoGenProviderInfo:
+      type: object
+      required:
+        [
+          id,
+          label,
+          defaultTextToVideoModel,
+          defaultImageToVideoModel,
+          configured,
+          supportsModelOverride,
+        ]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        defaultTextToVideoModel:
+          type: string
+        defaultImageToVideoModel:
+          type: string
+        configured:
+          type: boolean
+          description: Whether the API key needed by this provider is set.
+        supportsModelOverride:
+          type: boolean
+        textModelOptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImageGenModelOption"
+        imageModelOptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImageGenModelOption"
+        envKey:
+          type: string
+          description: Secret name required by this provider.
+        keySource:
+          type: ["string", "null"]
+          enum: [database, env, null]
+          description: Where the active key comes from (admin-entered key wins over the env secret).
+    UpdateVideoGenSettingsRequest:
+      type: object
+      required: [provider]
+      properties:
+        provider:
+          type: string
+          description: Provider id from the catalog.
+        textToVideoModel:
+          type: ["string", "null"]
+          description: Optional model override (empty/null = provider default).
+        imageToVideoModel:
+          type: ["string", "null"]
+          description: Optional model override (empty/null = provider default).
+    SetVideoGenProviderKeyRequest:
+      type: object
+      required: [apiKey]
+      properties:
+        apiKey:
+          type: string
+          minLength: 1
+          description: The provider API key (stored encrypted, never returned).
 
     TopicIdeasRequest:
       type: object
@@ -10166,6 +10799,7 @@ components:
           carousel,
           aiSpend,
           aiCostTracking,
+          videoGen,
         ]
       properties:
         aiStudio:
@@ -10197,6 +10831,8 @@ components:
         aiSpend:
           type: boolean
         aiCostTracking:
+          type: boolean
+        videoGen:
           type: boolean
     AiSpendSettingsView:
       type: object

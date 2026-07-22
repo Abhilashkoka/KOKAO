@@ -12,6 +12,8 @@ export interface CreditPack {
   pricePaise: number;
   captionCredits: number;
   imageCredits: number;
+  /** AI video credits included in this pack. */
+  videoCredits?: number;
   active: boolean;
   sortOrder: number;
 }

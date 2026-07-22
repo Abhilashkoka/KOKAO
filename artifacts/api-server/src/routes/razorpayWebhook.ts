@@ -197,6 +197,7 @@ async function handlePaymentCaptured(
     tenantId,
     captionCredits: pack.captionCredits,
     imageCredits: pack.imageCredits,
+    videoCredits: pack.videoCredits,
     kind: "purchase",
     razorpayOrderId: orderId,
     creditPackId: pack.id,

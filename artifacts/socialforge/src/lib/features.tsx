@@ -23,6 +23,7 @@ const ALL_ON: FeatureFlags = {
   carousel: true,
   aiSpend: true,
   aiCostTracking: true,
+  videoGen: true,
 };
 
 /**

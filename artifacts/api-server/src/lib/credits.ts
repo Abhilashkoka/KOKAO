@@ -10,12 +10,20 @@ import { eq, desc } from "drizzle-orm";
  * balance row and append a credit_ledger entry, so concurrent spends can
  * never double-consume and the balance is always auditable.
  */
-export type CreditKind = "caption" | "image";
+export type CreditKind = "caption" | "image" | "video";
 
 export interface CreditBalances {
   captionCredits: number;
   imageCredits: number;
+  videoCredits: number;
 }
+
+/** The credit_balances column backing each spendable kind. */
+const BALANCE_COLUMN = {
+  caption: "captionCredits",
+  image: "imageCredits",
+  video: "videoCredits",
+} as const satisfies Record<CreditKind, keyof CreditBalances>;
 
 export async function getCreditBalances(tenantId: number): Promise<CreditBalances> {
   const row = (
@@ -28,6 +36,7 @@ export async function getCreditBalances(tenantId: number): Promise<CreditBalance
   return {
     captionCredits: row?.captionCredits ?? 0,
     imageCredits: row?.imageCredits ?? 0,
+    videoCredits: row?.videoCredits ?? 0,
   };
 }
 
@@ -52,22 +61,20 @@ export async function spendCredit(
         .where(eq(creditBalancesTable.tenantId, tenantId))
         .for("update")
     )[0];
-    const balance = kind === "caption" ? (row?.captionCredits ?? 0) : (row?.imageCredits ?? 0);
+    const column = BALANCE_COLUMN[kind];
+    const balance = row?.[column] ?? 0;
     if (balance < count) return false;
 
     await tx
       .update(creditBalancesTable)
-      .set(
-        kind === "caption"
-          ? { captionCredits: balance - count }
-          : { imageCredits: balance - count },
-      )
+      .set({ [column]: balance - count })
       .where(eq(creditBalancesTable.tenantId, tenantId));
     await tx.insert(creditLedgerTable).values({
       tenantId,
       kind: "spend",
       captionDelta: kind === "caption" ? -count : 0,
       imageDelta: kind === "image" ? -count : 0,
+      videoDelta: kind === "video" ? -count : 0,
     });
     return true;
   });
@@ -94,26 +101,34 @@ export async function refundCredits(
     )[0];
     const oldCaptions = row?.captionCredits ?? 0;
     const oldImages = row?.imageCredits ?? 0;
+    const oldVideos = row?.videoCredits ?? 0;
     const newCaptions = kind === "caption" ? oldCaptions + count : oldCaptions;
     const newImages = kind === "image" ? oldImages + count : oldImages;
+    const newVideos = kind === "video" ? oldVideos + count : oldVideos;
 
     await tx.insert(creditLedgerTable).values({
       tenantId,
       kind: "refund",
       captionDelta: newCaptions - oldCaptions,
       imageDelta: newImages - oldImages,
+      videoDelta: newVideos - oldVideos,
       note: note ?? null,
     });
     if (row) {
       await tx
         .update(creditBalancesTable)
-        .set({ captionCredits: newCaptions, imageCredits: newImages })
+        .set({
+          captionCredits: newCaptions,
+          imageCredits: newImages,
+          videoCredits: newVideos,
+        })
         .where(eq(creditBalancesTable.tenantId, tenantId));
     } else {
       await tx.insert(creditBalancesTable).values({
         tenantId,
         captionCredits: newCaptions,
         imageCredits: newImages,
+        videoCredits: newVideos,
       });
     }
   });
@@ -128,6 +143,8 @@ export async function grantCredits(params: {
   tenantId: number;
   captionCredits: number;
   imageCredits: number;
+  /** Optional so pre-video callers (and their tests) stay source-compatible. */
+  videoCredits?: number;
   kind: "purchase" | "admin_grant";
   razorpayOrderId?: string | null;
   creditPackId?: number | null;
@@ -145,11 +162,13 @@ export async function grantCredits(params: {
       )[0];
       const oldCaptions = row?.captionCredits ?? 0;
       const oldImages = row?.imageCredits ?? 0;
+      const oldVideos = row?.videoCredits ?? 0;
       // Balances never go below zero; the ledger records the APPLIED delta
       // (not the requested one) so ledger totals always reconcile with the
       // stored balance.
       const newCaptions = Math.max(0, oldCaptions + params.captionCredits);
       const newImages = Math.max(0, oldImages + params.imageCredits);
+      const newVideos = Math.max(0, oldVideos + (params.videoCredits ?? 0));
 
       // A duplicate razorpay_order_id aborts here and rolls the whole
       // transaction back, so the balance is never touched twice per order.
@@ -158,6 +177,7 @@ export async function grantCredits(params: {
         kind: params.kind,
         captionDelta: newCaptions - oldCaptions,
         imageDelta: newImages - oldImages,
+        videoDelta: newVideos - oldVideos,
         razorpayOrderId: params.razorpayOrderId ?? null,
         creditPackId: params.creditPackId ?? null,
         note: params.note ?? null,
@@ -166,13 +186,18 @@ export async function grantCredits(params: {
       if (row) {
         await tx
           .update(creditBalancesTable)
-          .set({ captionCredits: newCaptions, imageCredits: newImages })
+          .set({
+            captionCredits: newCaptions,
+            imageCredits: newImages,
+            videoCredits: newVideos,
+          })
           .where(eq(creditBalancesTable.tenantId, tenantId));
       } else {
         await tx.insert(creditBalancesTable).values({
           tenantId,
           captionCredits: newCaptions,
           imageCredits: newImages,
+          videoCredits: newVideos,
         });
       }
       return true;
