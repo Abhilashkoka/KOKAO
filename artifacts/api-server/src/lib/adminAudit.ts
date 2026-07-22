@@ -21,6 +21,7 @@ export type AdminAuditAction =
   | "imagegen_key_change"
   | "videogen_provider_change"
   | "videogen_key_change"
+  | "gamification_plan_change"
   | "textgen_provider_change"
   | "textgen_key_change"
   | "email_test_send"

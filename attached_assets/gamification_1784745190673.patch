@@ -1,0 +1,4215 @@
+From 83cdf12443e5f5005668c9c7e87ab75ea6e1f199 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 22 Jul 2026 18:22:20 +0000
+Subject: [PATCH] Add gamification: quests, streaks, upgrade meter, referral
+ credits
+
+- gamification_claims (idempotent unique tenant+key) + per-plan
+  gamification_plan_settings (defaults when no row; covers future plans)
+- Quest catalog + UTC-day streak engine derived entirely from existing data
+  (usage_events, brand_kits, connected_accounts, scheduled_posts, videos)
+- Rewards flow through grantCredits with per-plan multiplier; claims are
+  server-verified and replay-proof
+- Referrals ride the promo engine: personal REF- codes (ownerTenantId),
+  self-redeem blocked, referrer paid in the same redemption transaction,
+  in-app notification, per-redemption referrer amounts recorded
+- 4 new feature kill switches (quests/streaks/referrals/progressMeter) +
+  per-plan toggles, reward multiplier, referral amounts on the admin Plans
+  tab (dynamic across current and future plans)
+- AI Studio strip: quest checklist, streak flame + milestone claims,
+  usage progress meter with upgrade CTA, invite-and-earn dialog
+- Contract-first: openapi.yaml + regenerated clients (drift-clean)
+- Tests: quests/streak/multiplier/claims, referral mint/self-redeem/payout/
+  plan-disable, web card rendering + claims
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EJdoZ8bk1pWTrmbMVQJZ7G
+---
+ artifacts/api-server/src/lib/adminAudit.ts    |   1 +
+ artifacts/api-server/src/lib/featureFlags.ts  |  24 +
+ .../api-server/src/lib/gamification.test.ts   | 170 ++++++
+ artifacts/api-server/src/lib/gamification.ts  | 524 ++++++++++++++++++
+ artifacts/api-server/src/lib/promoCodes.ts    | 106 +++-
+ .../api-server/src/lib/referrals.test.ts      | 137 +++++
+ artifacts/api-server/src/lib/referrals.ts     | 107 ++++
+ artifacts/api-server/src/routes/admin.ts      | 142 ++++-
+ .../api-server/src/routes/gamification.ts     |  90 +++
+ artifacts/api-server/src/routes/index.ts      |   5 +
+ .../src/components/gamification-card.test.tsx | 173 ++++++
+ .../src/components/gamification-card.tsx      | 346 ++++++++++++
+ artifacts/socialforge/src/lib/features.tsx    |   4 +
+ .../pages/admin/gamification-plans-card.tsx   | 287 ++++++++++
+ .../socialforge/src/pages/admin/plans-tab.tsx |   2 +
+ artifacts/socialforge/src/pages/studio.tsx    |   3 +
+ .../src/generated/api.schemas.ts              | 128 +++++
+ lib/api-client-react/src/generated/api.ts     | 448 +++++++++++++++
+ lib/api-spec/openapi.yaml                     | 394 +++++++++++++
+ lib/api-zod/src/generated/api.ts              | 192 ++++++-
+ .../generated/types/adminGamificationPlan.ts  |  16 +
+ .../adminUpdateGamificationPlanRequest.ts     |  32 ++
+ .../types/claimGamificationRewardRequest.ts   |  16 +
+ .../types/claimGamificationRewardResult.ts    |  15 +
+ .../src/generated/types/featureFlags.ts       |   4 +
+ .../types/gamificationPlanSettingsView.ts     |  21 +
+ .../src/generated/types/gamificationQuest.ts  |  20 +
+ .../src/generated/types/gamificationState.ts  |  18 +
+ .../types/gamificationStateStreak.ts          |  15 +
+ .../types/gamificationStreakMilestone.ts      |  20 +
+ lib/api-zod/src/generated/types/index.ts      |  11 +
+ .../src/generated/types/referralInfo.ts       |  23 +
+ .../src/generated/types/rewardAmounts.ts      |  13 +
+ lib/db/src/schema/gamification.ts             |  76 +++
+ lib/db/src/schema/index.ts                    |   1 +
+ lib/db/src/schema/promoCodes.ts               |   9 +
+ 36 files changed, 3590 insertions(+), 3 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/gamification.test.ts
+ create mode 100644 artifacts/api-server/src/lib/gamification.ts
+ create mode 100644 artifacts/api-server/src/lib/referrals.test.ts
+ create mode 100644 artifacts/api-server/src/lib/referrals.ts
+ create mode 100644 artifacts/api-server/src/routes/gamification.ts
+ create mode 100644 artifacts/socialforge/src/components/gamification-card.test.tsx
+ create mode 100644 artifacts/socialforge/src/components/gamification-card.tsx
+ create mode 100644 artifacts/socialforge/src/pages/admin/gamification-plans-card.tsx
+ create mode 100644 lib/api-zod/src/generated/types/adminGamificationPlan.ts
+ create mode 100644 lib/api-zod/src/generated/types/adminUpdateGamificationPlanRequest.ts
+ create mode 100644 lib/api-zod/src/generated/types/claimGamificationRewardRequest.ts
+ create mode 100644 lib/api-zod/src/generated/types/claimGamificationRewardResult.ts
+ create mode 100644 lib/api-zod/src/generated/types/gamificationPlanSettingsView.ts
+ create mode 100644 lib/api-zod/src/generated/types/gamificationQuest.ts
+ create mode 100644 lib/api-zod/src/generated/types/gamificationState.ts
+ create mode 100644 lib/api-zod/src/generated/types/gamificationStateStreak.ts
+ create mode 100644 lib/api-zod/src/generated/types/gamificationStreakMilestone.ts
+ create mode 100644 lib/api-zod/src/generated/types/referralInfo.ts
+ create mode 100644 lib/api-zod/src/generated/types/rewardAmounts.ts
+ create mode 100644 lib/db/src/schema/gamification.ts
+
+diff --git a/artifacts/api-server/src/lib/adminAudit.ts b/artifacts/api-server/src/lib/adminAudit.ts
+index 3e62473..387a333 100644
+--- a/artifacts/api-server/src/lib/adminAudit.ts
++++ b/artifacts/api-server/src/lib/adminAudit.ts
+@@ -21,6 +21,7 @@ export type AdminAuditAction =
+   | "imagegen_key_change"
+   | "videogen_provider_change"
+   | "videogen_key_change"
++  | "gamification_plan_change"
+   | "textgen_provider_change"
+   | "textgen_key_change"
+   | "email_test_send"
+diff --git a/artifacts/api-server/src/lib/featureFlags.ts b/artifacts/api-server/src/lib/featureFlags.ts
+index 9df9b11..7a17f06 100644
+--- a/artifacts/api-server/src/lib/featureFlags.ts
++++ b/artifacts/api-server/src/lib/featureFlags.ts
+@@ -101,6 +101,30 @@ export const FEATURES = [
+     description:
+       "AI video generation (text-to-video, image-to-video), photo slideshows, and Google Drive photo import.",
+   },
++  {
++    id: "quests",
++    label: "Quests",
++    description:
++      "Getting-started quests in AI Studio that reward small credit bonuses (per-plan tuning on the Plans tab).",
++  },
++  {
++    id: "streaks",
++    label: "Streaks",
++    description:
++      "Daily creation streaks with milestone credit rewards (per-plan tuning on the Plans tab).",
++  },
++  {
++    id: "referrals",
++    label: "Referral Credits",
++    description:
++      "Personal invite codes: new users get bonus credits, referrers earn credits per signup (per-plan tuning on the Plans tab).",
++  },
++  {
++    id: "progressMeter",
++    label: "Upgrade Progress Meter",
++    description:
++      "The usage progress meter in AI Studio that nudges tenants on limited plans toward an upgrade.",
++  },
+ ] as const;
+ 
+ export type FeatureId = (typeof FEATURES)[number]["id"];
+diff --git a/artifacts/api-server/src/lib/gamification.test.ts b/artifacts/api-server/src/lib/gamification.test.ts
+new file mode 100644
+index 0000000..46871d2
+--- /dev/null
++++ b/artifacts/api-server/src/lib/gamification.test.ts
+@@ -0,0 +1,170 @@
++import { describe, it, expect, beforeAll, afterAll } from "vitest";
++import {
++  db,
++  pool,
++  brandKitsTable,
++  usageEventsTable,
++  gamificationClaimsTable,
++  gamificationPlanSettingsTable,
++  tenantsTable,
++} from "@workspace/db";
++import { eq } from "drizzle-orm";
++import {
++  getGamificationState,
++  getStreak,
++  claimReward,
++  ClaimError,
++  questClaimKey,
++  streakClaimKey,
++} from "./gamification";
++import { getCreditBalances } from "./credits";
++import { createTenant, deleteTenant, getTenant } from "../test/dbHelpers";
++
++/** Unique per-run plan id so settings rows can never collide with real plans. */
++const TEST_PLAN = `gami-test-${Date.now()}`;
++
++let tenantId: number;
++
++async function tenant() {
++  return (await getTenant(tenantId))!;
++}
++
++async function backdatedUsage(daysAgo: number): Promise<void> {
++  const at = new Date();
++  at.setUTCDate(at.getUTCDate() - daysAgo);
++  await db.insert(usageEventsTable).values({
++    tenantId,
++    kind: "caption",
++    createdAt: at,
++  });
++}
++
++beforeAll(async () => {
++  const t = await createTenant();
++  tenantId = t.tenantId;
++  await db
++    .update(tenantsTable)
++    .set({ plan: TEST_PLAN })
++    .where(eq(tenantsTable.id, tenantId));
++});
++
++afterAll(async () => {
++  await db
++    .delete(gamificationClaimsTable)
++    .where(eq(gamificationClaimsTable.tenantId, tenantId));
++  await db
++    .delete(gamificationPlanSettingsTable)
++    .where(eq(gamificationPlanSettingsTable.planId, TEST_PLAN));
++  await db.delete(usageEventsTable).where(eq(usageEventsTable.tenantId, tenantId));
++  await db.delete(brandKitsTable).where(eq(brandKitsTable.tenantId, tenantId));
++  await deleteTenant(tenantId);
++  await pool.end();
++});
++
++describe("quests", () => {
++  it("starts incomplete, completes from real data, and pays out once", async () => {
++    let state = await getGamificationState(await tenant());
++    expect(state.questsEnabled).toBe(true);
++    const quest = state.quests.find((q) => q.id === "create_brand_kit")!;
++    expect(quest.completed).toBe(false);
++
++    // The claim must be rejected while the underlying action hasn't happened.
++    await expect(
++      claimReward(await tenant(), questClaimKey("create_brand_kit")),
++    ).rejects.toMatchObject({ code: "not_completed" });
++
++    await db.insert(brandKitsTable).values({
++      tenantId,
++      name: "Test kit",
++      slug: `test-kit-${tenantId}`,
++    });
++    state = await getGamificationState(await tenant());
++    expect(state.quests.find((q) => q.id === "create_brand_kit")!.completed).toBe(true);
++
++    const before = await getCreditBalances(tenantId);
++    const { granted } = await claimReward(await tenant(), questClaimKey("create_brand_kit"));
++    expect(granted.captionCredits).toBe(2); // catalog amount at 100%
++    const after = await getCreditBalances(tenantId);
++    expect(after.captionCredits).toBe(before.captionCredits + 2);
++
++    // Replay is rejected and grants nothing.
++    await expect(
++      claimReward(await tenant(), questClaimKey("create_brand_kit")),
++    ).rejects.toMatchObject({ code: "already_claimed" });
++    expect((await getCreditBalances(tenantId)).captionCredits).toBe(
++      after.captionCredits,
++    );
++
++    state = await getGamificationState(await tenant());
++    expect(state.quests.find((q) => q.id === "create_brand_kit")!.claimed).toBe(true);
++  });
++
++  it("rejects unknown claim keys", async () => {
++    await expect(claimReward(await tenant(), "quest:no_such_quest")).rejects.toMatchObject(
++      { code: "unknown_key" },
++    );
++    await expect(claimReward(await tenant(), "totally-invalid")).rejects.toMatchObject({
++      code: "unknown_key",
++    });
++  });
++});
++
++describe("streaks", () => {
++  it("counts consecutive UTC days and pays milestones bound to the run", async () => {
++    // Three consecutive days ending today.
++    await backdatedUsage(2);
++    await backdatedUsage(1);
++    await backdatedUsage(0);
++
++    const streak = await getStreak(tenantId);
++    expect(streak.currentDays).toBeGreaterThanOrEqual(3);
++    expect(streak.activeToday).toBe(true);
++    expect(streak.startDate).not.toBeNull();
++
++    // A key from a different (fake) streak run can never be claimed.
++    await expect(
++      claimReward(await tenant(), streakClaimKey(3, "2000-01-01")),
++    ).rejects.toMatchObject({ code: "not_completed" });
++
++    const before = await getCreditBalances(tenantId);
++    const { granted } = await claimReward(
++      await tenant(),
++      streakClaimKey(3, streak.startDate!),
++    );
++    expect(granted.captionCredits).toBe(1);
++    expect(granted.imageCredits).toBe(1);
++    const after = await getCreditBalances(tenantId);
++    expect(after.imageCredits).toBe(before.imageCredits + 1);
++
++    // Milestones above the current run stay unclaimable.
++    await expect(
++      claimReward(await tenant(), streakClaimKey(30, streak.startDate!)),
++    ).rejects.toMatchObject({ code: "not_completed" });
++  });
++});
++
++describe("per-plan settings", () => {
++  it("applies the reward multiplier and per-plan disable switches", async () => {
++    await db.insert(gamificationPlanSettingsTable).values({
++      planId: TEST_PLAN,
++      rewardMultiplierPercent: 200,
++    });
++
++    // 2x multiplier doubles the first_caption quest reward (usage exists from
++    // the streak test above, so the quest is completed).
++    const { granted } = await claimReward(await tenant(), questClaimKey("first_caption"));
++    expect(granted.captionCredits).toBe(4);
++
++    // Turning quests off for the plan hides them and blocks further claims.
++    await db
++      .update(gamificationPlanSettingsTable)
++      .set({ questsEnabled: false })
++      .where(eq(gamificationPlanSettingsTable.planId, TEST_PLAN));
++    const state = await getGamificationState(await tenant());
++    expect(state.questsEnabled).toBe(false);
++    expect(state.quests).toHaveLength(0);
++    await expect(
++      claimReward(await tenant(), questClaimKey("first_image")),
++    ).rejects.toBeInstanceOf(ClaimError);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/gamification.ts b/artifacts/api-server/src/lib/gamification.ts
+new file mode 100644
+index 0000000..3a7b605
+--- /dev/null
++++ b/artifacts/api-server/src/lib/gamification.ts
+@@ -0,0 +1,524 @@
++import {
++  db,
++  gamificationClaimsTable,
++  gamificationPlanSettingsTable,
++  usageEventsTable,
++  brandKitsTable,
++  connectedAccountsTable,
++  scheduledPostsTable,
++  videoGenerationsTable,
++  type GamificationPlanSettings,
++  type Tenant,
++} from "@workspace/db";
++import { and, eq, gte, sql, desc } from "drizzle-orm";
++import { grantCredits, getCreditBalances, type CreditBalances } from "./credits";
++import { getFeatureFlags } from "./featureFlags";
++import { logger } from "./logger";
++
++/**
++ * Gamification engine: getting-started quests and daily creation streaks.
++ *
++ * Everything is derived from data the app already writes (usage_events,
++ * brand_kits, connected_accounts, scheduled_posts, video_generations) — no
++ * new tracking calls anywhere in the product code. Rewards flow through the
++ * ordinary credits ledger via grantCredits, and every claim is idempotent
++ * behind the unique (tenantId, key) index on gamification_claims.
++ *
++ * Feature layering: the global `quests`/`streaks`/`referrals`/`progressMeter`
++ * kill switches gate each mechanic platform-wide; per-plan rows in
++ * gamification_plan_settings refine which PLANS see it and how big the
++ * rewards are. No row = defaults (everything on, 100% rewards).
++ */
++
++export interface RewardAmounts {
++  captionCredits: number;
++  imageCredits: number;
++  videoCredits: number;
++}
++
++export interface PlanGamification {
++  questsEnabled: boolean;
++  streaksEnabled: boolean;
++  referralsEnabled: boolean;
++  progressMeterEnabled: boolean;
++  rewardMultiplierPercent: number;
++  referrerCaptionCredits: number;
++  referrerImageCredits: number;
++  refereeCaptionCredits: number;
++  refereeImageCredits: number;
++  referralMaxRedemptions: number;
++}
++
++export const DEFAULT_PLAN_GAMIFICATION: PlanGamification = {
++  questsEnabled: true,
++  streaksEnabled: true,
++  referralsEnabled: true,
++  progressMeterEnabled: true,
++  rewardMultiplierPercent: 100,
++  referrerCaptionCredits: 5,
++  referrerImageCredits: 3,
++  refereeCaptionCredits: 5,
++  refereeImageCredits: 3,
++  referralMaxRedemptions: 25,
++};
++
++/** Effective per-plan settings: the stored row, else the defaults. */
++export async function getPlanGamification(planId: string): Promise<PlanGamification> {
++  const row = (
++    await db
++      .select()
++      .from(gamificationPlanSettingsTable)
++      .where(eq(gamificationPlanSettingsTable.planId, planId))
++      .limit(1)
++  )[0];
++  return row ? rowToPlanGamification(row) : { ...DEFAULT_PLAN_GAMIFICATION };
++}
++
++export function rowToPlanGamification(row: GamificationPlanSettings): PlanGamification {
++  return {
++    questsEnabled: row.questsEnabled,
++    streaksEnabled: row.streaksEnabled,
++    referralsEnabled: row.referralsEnabled,
++    progressMeterEnabled: row.progressMeterEnabled,
++    rewardMultiplierPercent: row.rewardMultiplierPercent,
++    referrerCaptionCredits: row.referrerCaptionCredits,
++    referrerImageCredits: row.referrerImageCredits,
++    refereeCaptionCredits: row.refereeCaptionCredits,
++    refereeImageCredits: row.refereeImageCredits,
++    referralMaxRedemptions: row.referralMaxRedemptions,
++  };
++}
++
++/** Scale a base reward by the plan's multiplier percent (floors, never negative). */
++export function applyMultiplier(base: RewardAmounts, percent: number): RewardAmounts {
++  const p = Math.max(0, percent) / 100;
++  return {
++    captionCredits: Math.floor(base.captionCredits * p),
++    imageCredits: Math.floor(base.imageCredits * p),
++    videoCredits: Math.floor(base.videoCredits * p),
++  };
++}
++
++// ---------------------------------------------------------------------------
++// Quests
++// ---------------------------------------------------------------------------
++
++export interface QuestDef {
++  id: string;
++  title: string;
++  description: string;
++  reward: RewardAmounts;
++  /** Whether the tenant has done the underlying action. */
++  check: (tenantId: number) => Promise<boolean>;
++}
++
++async function hasUsage(tenantId: number, kind: string): Promise<boolean> {
++  const row = (
++    await db
++      .select({ one: sql<number>`1` })
++      .from(usageEventsTable)
++      .where(and(eq(usageEventsTable.tenantId, tenantId), eq(usageEventsTable.kind, kind)))
++      .limit(1)
++  )[0];
++  return !!row;
++}
++
++/** The getting-started quest catalog. Ids are stable — they live in claim keys. */
++export const QUESTS: readonly QuestDef[] = [
++  {
++    id: "create_brand_kit",
++    title: "Create a brand kit",
++    description: "Teach KOKAO your colors, voice, and style.",
++    reward: { captionCredits: 2, imageCredits: 0, videoCredits: 0 },
++    check: async (tenantId) =>
++      !!(
++        await db
++          .select({ one: sql<number>`1` })
++          .from(brandKitsTable)
++          .where(eq(brandKitsTable.tenantId, tenantId))
++          .limit(1)
++      )[0],
++  },
++  {
++    id: "first_caption",
++    title: "Generate your first caption",
++    description: "Let AI write an on-brand post for you.",
++    reward: { captionCredits: 2, imageCredits: 0, videoCredits: 0 },
++    check: (tenantId) => hasUsage(tenantId, "caption"),
++  },
++  {
++    id: "first_image",
++    title: "Generate your first image",
++    description: "Create a visual to go with your words.",
++    reward: { captionCredits: 0, imageCredits: 2, videoCredits: 0 },
++    check: (tenantId) => hasUsage(tenantId, "image"),
++  },
++  {
++    id: "first_video",
++    title: "Make your first video",
++    description: "Try the Video Studio — even a photo slideshow counts.",
++    reward: { captionCredits: 0, imageCredits: 0, videoCredits: 1 },
++    check: async (tenantId) =>
++      (await hasUsage(tenantId, "video")) ||
++      !!(
++        await db
++          .select({ one: sql<number>`1` })
++          .from(videoGenerationsTable)
++          .where(
++            and(
++              eq(videoGenerationsTable.tenantId, tenantId),
++              eq(videoGenerationsTable.status, "succeeded"),
++            ),
++          )
++          .limit(1)
++      )[0],
++  },
++  {
++    id: "connect_account",
++    title: "Connect a social account",
++    description: "Link Instagram, LinkedIn, X, or any platform.",
++    reward: { captionCredits: 2, imageCredits: 1, videoCredits: 0 },
++    check: async (tenantId) =>
++      !!(
++        await db
++          .select({ one: sql<number>`1` })
++          .from(connectedAccountsTable)
++          .where(
++            and(
++              eq(connectedAccountsTable.tenantId, tenantId),
++              eq(connectedAccountsTable.status, "connected"),
++            ),
++          )
++          .limit(1)
++      )[0],
++  },
++  {
++    id: "schedule_post",
++    title: "Schedule a post",
++    description: "Queue content to publish itself.",
++    reward: { captionCredits: 1, imageCredits: 1, videoCredits: 0 },
++    check: async (tenantId) =>
++      !!(
++        await db
++          .select({ one: sql<number>`1` })
++          .from(scheduledPostsTable)
++          .where(eq(scheduledPostsTable.tenantId, tenantId))
++          .limit(1)
++      )[0],
++  },
++] as const;
++
++export function getQuestDef(id: string): QuestDef | undefined {
++  return QUESTS.find((q) => q.id === id);
++}
++
++// ---------------------------------------------------------------------------
++// Streaks
++// ---------------------------------------------------------------------------
++
++export interface StreakMilestoneDef {
++  days: number;
++  reward: RewardAmounts;
++}
++
++/** Milestone ladder. Days are stable — they live in claim keys. */
++export const STREAK_MILESTONES: readonly StreakMilestoneDef[] = [
++  { days: 3, reward: { captionCredits: 1, imageCredits: 1, videoCredits: 0 } },
++  { days: 7, reward: { captionCredits: 2, imageCredits: 2, videoCredits: 0 } },
++  { days: 14, reward: { captionCredits: 3, imageCredits: 3, videoCredits: 0 } },
++  { days: 30, reward: { captionCredits: 5, imageCredits: 5, videoCredits: 1 } },
++] as const;
++
++/** How far back activity is scanned; comfortably covers the longest milestone. */
++const STREAK_LOOKBACK_DAYS = 62;
++
++function utcDayString(date: Date): string {
++  return date.toISOString().slice(0, 10);
++}
++
++export interface StreakInfo {
++  /** Consecutive UTC days with at least one generation, ending today or yesterday. */
++  currentDays: number;
++  /** Whether the tenant has generated something today (UTC). */
++  activeToday: boolean;
++  /** UTC date the current streak started (claim keys bind to it). */
++  startDate: string | null;
++}
++
++/**
++ * Compute the current streak from usage_events day coverage. Days are UTC —
++ * one shared clock for everyone, matching how monthly quotas already reset.
++ */
++export async function getStreak(tenantId: number): Promise<StreakInfo> {
++  const since = new Date(Date.now() - STREAK_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
++  const rows = await db
++    .select({
++      day: sql<string>`to_char(${usageEventsTable.createdAt} at time zone 'UTC', 'YYYY-MM-DD')`,
++    })
++    .from(usageEventsTable)
++    .where(
++      and(eq(usageEventsTable.tenantId, tenantId), gte(usageEventsTable.createdAt, since)),
++    )
++    .groupBy(sql`1`)
++    .orderBy(desc(sql`1`));
++
++  const days = new Set(rows.map((r) => r.day));
++  const today = new Date();
++  const activeToday = days.has(utcDayString(today));
++
++  // A streak is alive if it includes today or ended yesterday (grace: today
++  // isn't over yet). Walk backwards from the anchor day.
++  const anchor = new Date(today);
++  if (!activeToday) anchor.setUTCDate(anchor.getUTCDate() - 1);
++  let currentDays = 0;
++  const cursor = new Date(anchor);
++  while (currentDays < STREAK_LOOKBACK_DAYS && days.has(utcDayString(cursor))) {
++    currentDays += 1;
++    cursor.setUTCDate(cursor.getUTCDate() - 1);
++  }
++  if (currentDays === 0) return { currentDays: 0, activeToday, startDate: null };
++
++  const start = new Date(anchor);
++  start.setUTCDate(start.getUTCDate() - (currentDays - 1));
++  return { currentDays, activeToday, startDate: utcDayString(start) };
++}
++
++// ---------------------------------------------------------------------------
++// Claims
++// ---------------------------------------------------------------------------
++
++export class ClaimError extends Error {
++  constructor(
++    message: string,
++    public readonly code:
++      | "unknown_key"
++      | "not_completed"
++      | "already_claimed"
++      | "disabled",
++  ) {
++    super(message);
++    this.name = "ClaimError";
++  }
++}
++
++async function getClaimedKeys(tenantId: number): Promise<Set<string>> {
++  const rows = await db
++    .select({ key: gamificationClaimsTable.key })
++    .from(gamificationClaimsTable)
++    .where(eq(gamificationClaimsTable.tenantId, tenantId));
++  return new Set(rows.map((r) => r.key));
++}
++
++export function questClaimKey(questId: string): string {
++  return `quest:${questId}`;
++}
++
++export function streakClaimKey(days: number, startDate: string): string {
++  return `streak:${days}:${startDate}`;
++}
++
++function isUniqueViolation(error: unknown): boolean {
++  let current: unknown = error;
++  for (let depth = 0; depth < 5 && current; depth++) {
++    const e = current as { code?: string; message?: string; cause?: unknown };
++    if (e.code === "23505" || /duplicate key/i.test(e.message ?? "")) return true;
++    current = e.cause;
++  }
++  return false;
++}
++
++/**
++ * Claim a quest or streak reward. Validates the underlying achievement
++ * server-side (never trusts the client), inserts the claim row (the unique
++ * index rejects replays), then grants the credits. If the grant fails the
++ * claim row is removed so the reward stays claimable.
++ */
++export async function claimReward(
++  tenant: Tenant,
++  key: string,
++): Promise<{ granted: RewardAmounts; credits: CreditBalances }> {
++  const flags = await getFeatureFlags();
++  const settings = await getPlanGamification(tenant.plan);
++
++  let kind: "quest" | "streak";
++  let baseReward: RewardAmounts;
++
++  const questMatch = /^quest:([a-z0-9_]+)$/.exec(key);
++  const streakMatch = /^streak:(\d+):(\d{4}-\d{2}-\d{2})$/.exec(key);
++
++  if (questMatch) {
++    if (!flags.quests || !settings.questsEnabled) {
++      throw new ClaimError("Quests are not enabled for your plan.", "disabled");
++    }
++    const quest = getQuestDef(questMatch[1]!);
++    if (!quest) throw new ClaimError("Unknown reward.", "unknown_key");
++    if (!(await quest.check(tenant.id))) {
++      throw new ClaimError("Finish the quest first, then claim it.", "not_completed");
++    }
++    kind = "quest";
++    baseReward = quest.reward;
++  } else if (streakMatch) {
++    if (!flags.streaks || !settings.streaksEnabled) {
++      throw new ClaimError("Streaks are not enabled for your plan.", "disabled");
++    }
++    const days = Number(streakMatch[1]);
++    const milestone = STREAK_MILESTONES.find((m) => m.days === days);
++    if (!milestone) throw new ClaimError("Unknown reward.", "unknown_key");
++    const streak = await getStreak(tenant.id);
++    // The key must name the CURRENT streak run and the run must have reached
++    // the milestone — a stale key from a broken streak can never be claimed.
++    if (
++      streak.startDate === null ||
++      streak.startDate !== streakMatch[2] ||
++      streak.currentDays < days
++    ) {
++      throw new ClaimError(
++        `Reach a ${days}-day streak first, then claim it.`,
++        "not_completed",
++      );
++    }
++    kind = "streak";
++    baseReward = milestone.reward;
++  } else {
++    throw new ClaimError("Unknown reward.", "unknown_key");
++  }
++
++  const granted = applyMultiplier(baseReward, settings.rewardMultiplierPercent);
++
++  try {
++    await db.insert(gamificationClaimsTable).values({
++      tenantId: tenant.id,
++      key,
++      kind,
++      captionCredits: granted.captionCredits,
++      imageCredits: granted.imageCredits,
++      videoCredits: granted.videoCredits,
++    });
++  } catch (error) {
++    if (isUniqueViolation(error)) {
++      throw new ClaimError("You already claimed this reward.", "already_claimed");
++    }
++    throw error;
++  }
++
++  try {
++    await grantCredits({
++      tenantId: tenant.id,
++      captionCredits: granted.captionCredits,
++      imageCredits: granted.imageCredits,
++      videoCredits: granted.videoCredits,
++      kind: "admin_grant",
++      note: `gamification:${key}`,
++    });
++  } catch (error) {
++    // Compensate so the reward stays claimable; surfacing the error tells the
++    // user to retry.
++    await db
++      .delete(gamificationClaimsTable)
++      .where(
++        and(
++          eq(gamificationClaimsTable.tenantId, tenant.id),
++          eq(gamificationClaimsTable.key, key),
++        ),
++      )
++      .catch((cleanupError) =>
++        logger.error({ err: cleanupError }, "Failed to roll back gamification claim"),
++      );
++    throw error;
++  }
++
++  return { granted, credits: await getCreditBalances(tenant.id) };
++}
++
++// ---------------------------------------------------------------------------
++// State for the UI
++// ---------------------------------------------------------------------------
++
++export interface GamificationState {
++  questsEnabled: boolean;
++  streaksEnabled: boolean;
++  referralsEnabled: boolean;
++  progressMeterEnabled: boolean;
++  quests: {
++    id: string;
++    title: string;
++    description: string;
++    completed: boolean;
++    claimed: boolean;
++    claimKey: string;
++    reward: RewardAmounts;
++  }[];
++  streak: {
++    currentDays: number;
++    activeToday: boolean;
++    milestones: {
++      days: number;
++      reward: RewardAmounts;
++      reached: boolean;
++      claimed: boolean;
++      claimKey: string | null;
++    }[];
++  };
++}
++
++/** Everything the AI Studio gamification card needs, in one read. */
++export async function getGamificationState(tenant: Tenant): Promise<GamificationState> {
++  const [flags, settings] = await Promise.all([
++    getFeatureFlags(),
++    getPlanGamification(tenant.plan),
++  ]);
++  const questsEnabled = flags.quests && settings.questsEnabled;
++  const streaksEnabled = flags.streaks && settings.streaksEnabled;
++  const referralsEnabled = flags.referrals && settings.referralsEnabled;
++  const progressMeterEnabled = flags.progressMeter && settings.progressMeterEnabled;
++
++  const claimed =
++    questsEnabled || streaksEnabled ? await getClaimedKeys(tenant.id) : new Set<string>();
++
++  const quests = questsEnabled
++    ? await Promise.all(
++        QUESTS.map(async (quest) => {
++          const key = questClaimKey(quest.id);
++          const isClaimed = claimed.has(key);
++          return {
++            id: quest.id,
++            title: quest.title,
++            description: quest.description,
++            // A claimed quest was necessarily completed; skip the re-check.
++            completed: isClaimed || (await quest.check(tenant.id)),
++            claimed: isClaimed,
++            claimKey: key,
++            reward: applyMultiplier(quest.reward, settings.rewardMultiplierPercent),
++          };
++        }),
++      )
++    : [];
++
++  const streak = streaksEnabled
++    ? await getStreak(tenant.id)
++    : { currentDays: 0, activeToday: false, startDate: null };
++
++  return {
++    questsEnabled,
++    streaksEnabled,
++    referralsEnabled,
++    progressMeterEnabled,
++    quests,
++    streak: {
++      currentDays: streak.currentDays,
++      activeToday: streak.activeToday,
++      milestones: streaksEnabled
++        ? STREAK_MILESTONES.map((m) => {
++            const key = streak.startDate ? streakClaimKey(m.days, streak.startDate) : null;
++            return {
++              days: m.days,
++              reward: applyMultiplier(m.reward, settings.rewardMultiplierPercent),
++              reached: streak.currentDays >= m.days,
++              claimed: key !== null && claimed.has(key),
++              claimKey: key,
++            };
++          })
++        : [],
++    },
++  };
++}
+diff --git a/artifacts/api-server/src/lib/promoCodes.ts b/artifacts/api-server/src/lib/promoCodes.ts
+index b5c5585..ab38464 100644
+--- a/artifacts/api-server/src/lib/promoCodes.ts
++++ b/artifacts/api-server/src/lib/promoCodes.ts
+@@ -7,10 +7,13 @@ import {
+   creditBalancesTable,
+   creditLedgerTable,
+   tenantsTable,
++  notificationsTable,
+   type PromoCode,
+ } from "@workspace/db";
+ import { eq, and, sql, desc } from "drizzle-orm";
+ import { logger } from "./logger";
++import { getFeatureFlags } from "./featureFlags";
++import { getPlanGamification } from "./gamification";
+ 
+ /**
+  * Promo code redemption engine.
+@@ -31,13 +34,18 @@ export type RedeemFailureReason =
+   | "audience_new_only"
+   | "audience_existing_only"
+   | "global_limit_reached"
+-  | "per_tenant_limit_reached";
++  | "per_tenant_limit_reached"
++  | "own_code";
+ 
+ export type RedeemResult =
+   | {
+       ok: true;
+       captionCredits: number;
+       imageCredits: number;
++      /** Referral codes only: who earned the referrer reward, and how much. */
++      referrerTenantId: number | null;
++      referrerCaptionCredits: number;
++      referrerImageCredits: number;
+       message: string;
+     }
+   | { ok: false; reason: RedeemFailureReason; message: string };
+@@ -84,6 +92,8 @@ function failureMessage(reason: RedeemFailureReason, promo?: PromoCode): string
+       return "This code has reached its maximum number of redemptions.";
+     case "per_tenant_limit_reached":
+       return "You have already redeemed this code.";
++    case "own_code":
++      return "You can't redeem your own referral code — share it with a friend instead.";
+   }
+ }
+ 
+@@ -147,6 +157,11 @@ export async function redeemPromoCode(
+       return { ok: false, reason: "invalid_code", message: failureMessage("invalid_code") };
+     }
+ 
++    // Referral codes cannot be self-redeemed.
++    if (promo.ownerTenantId !== null && promo.ownerTenantId === tenantId) {
++      return { ok: false, reason: "own_code", message: failureMessage("own_code") };
++    }
++
+     const allowed = promo.allowedPlans?.filter(Boolean) ?? [];
+     if (allowed.length > 0 && !allowed.includes(tenant.plan)) {
+       return {
+@@ -194,6 +209,31 @@ export async function redeemPromoCode(
+       };
+     }
+ 
++    // Referral codes: the code owner earns a referrer reward, sized by the
++    // OWNER's current plan settings (so upgrades improve future referrals).
++    // Zeroed when the referrals switch is off globally or for the owner's
++    // plan — the redeemer still gets the code's own credits.
++    let referrerCaptionCredits = 0;
++    let referrerImageCredits = 0;
++    let ownerTenant: typeof tenant | undefined;
++    if (promo.ownerTenantId !== null) {
++      ownerTenant = (
++        await tx
++          .select()
++          .from(tenantsTable)
++          .where(eq(tenantsTable.id, promo.ownerTenantId))
++          .limit(1)
++      )[0];
++      if (ownerTenant) {
++        const flags = await getFeatureFlags();
++        const ownerSettings = await getPlanGamification(ownerTenant.plan);
++        if (flags.referrals && ownerSettings.referralsEnabled) {
++          referrerCaptionCredits = ownerSettings.referrerCaptionCredits;
++          referrerImageCredits = ownerSettings.referrerImageCredits;
++        }
++      }
++    }
++
+     // All checks passed — record the redemption and grant the credits, all
+     // inside this same transaction.
+     await tx.insert(promoRedemptionsTable).values({
+@@ -202,6 +242,8 @@ export async function redeemPromoCode(
+       planAtRedemption: tenant.plan,
+       captionCredits: promo.captionCredits,
+       imageCredits: promo.imageCredits,
++      referrerCaptionCredits,
++      referrerImageCredits,
+     });
+     await tx
+       .update(promoCodesTable)
+@@ -237,6 +279,39 @@ export async function redeemPromoCode(
+       });
+     }
+ 
++    // Referrer reward: same transaction, so the redemption and the owner's
++    // credits can never disagree.
++    if (ownerTenant && (referrerCaptionCredits > 0 || referrerImageCredits > 0)) {
++      const ownerBalance = (
++        await tx
++          .select()
++          .from(creditBalancesTable)
++          .where(eq(creditBalancesTable.tenantId, ownerTenant.id))
++          .for("update")
++      )[0];
++      const ownerCaptions = (ownerBalance?.captionCredits ?? 0) + referrerCaptionCredits;
++      const ownerImages = (ownerBalance?.imageCredits ?? 0) + referrerImageCredits;
++      await tx.insert(creditLedgerTable).values({
++        tenantId: ownerTenant.id,
++        kind: "referral_reward",
++        captionDelta: referrerCaptionCredits,
++        imageDelta: referrerImageCredits,
++        note: `Referral: ${promo.code} redeemed`,
++      });
++      if (ownerBalance) {
++        await tx
++          .update(creditBalancesTable)
++          .set({ captionCredits: ownerCaptions, imageCredits: ownerImages })
++          .where(eq(creditBalancesTable.tenantId, ownerTenant.id));
++      } else {
++        await tx.insert(creditBalancesTable).values({
++          tenantId: ownerTenant.id,
++          captionCredits: ownerCaptions,
++          imageCredits: ownerImages,
++        });
++      }
++    }
++
+     const parts: string[] = [];
+     if (promo.captionCredits > 0) parts.push(`${promo.captionCredits} caption credits`);
+     if (promo.imageCredits > 0) parts.push(`${promo.imageCredits} image credits`);
+@@ -244,12 +319,41 @@ export async function redeemPromoCode(
+       ok: true,
+       captionCredits: promo.captionCredits,
+       imageCredits: promo.imageCredits,
++      referrerTenantId: ownerTenant?.id ?? null,
++      referrerCaptionCredits,
++      referrerImageCredits,
+       message: `Success! ${parts.join(" and ")} added to your account.`,
+     };
+   });
+ 
+   if (!result.ok) {
+     await recordFailure(tenantId, code, result.reason);
++    return result;
++  }
++
++  // Tell the referrer their invite landed. Best-effort — a notification
++  // failure never affects the redemption itself.
++  if (
++    result.referrerTenantId !== null &&
++    (result.referrerCaptionCredits > 0 || result.referrerImageCredits > 0)
++  ) {
++    try {
++      const parts: string[] = [];
++      if (result.referrerCaptionCredits > 0)
++        parts.push(`${result.referrerCaptionCredits} caption credits`);
++      if (result.referrerImageCredits > 0)
++        parts.push(`${result.referrerImageCredits} image credits`);
++      await db.insert(notificationsTable).values({
++        tenantId: result.referrerTenantId,
++        type: "referral_redeemed",
++        title: "Your invite was redeemed!",
++        message: `Someone joined with your referral code — ${parts.join(" and ")} added to your balance.`,
++        linkUrl: "/studio",
++        inApp: true,
++      });
++    } catch (error) {
++      logger.error({ err: error }, "Failed to record referral notification");
++    }
+   }
+   return result;
+ }
+diff --git a/artifacts/api-server/src/lib/referrals.test.ts b/artifacts/api-server/src/lib/referrals.test.ts
+new file mode 100644
+index 0000000..a4684e3
+--- /dev/null
++++ b/artifacts/api-server/src/lib/referrals.test.ts
+@@ -0,0 +1,137 @@
++import { describe, it, expect, beforeAll, afterAll } from "vitest";
++import {
++  db,
++  pool,
++  tenantsTable,
++  promoCodesTable,
++  promoRedemptionsTable,
++  notificationsTable,
++  gamificationPlanSettingsTable,
++} from "@workspace/db";
++import { eq, inArray } from "drizzle-orm";
++import { getOrCreateReferralCode, getReferralCode, getReferralStats } from "./referrals";
++import { redeemPromoCode } from "./promoCodes";
++import { getCreditBalances } from "./credits";
++import { createTenant, deleteTenant, getTenant } from "../test/dbHelpers";
++
++/** Unique per-run plan id so settings rows can never collide with real plans. */
++const TEST_PLAN = `ref-test-${Date.now()}`;
++
++let referrerId: number;
++let refereeId: number;
++
++beforeAll(async () => {
++  referrerId = (await createTenant()).tenantId;
++  refereeId = (await createTenant()).tenantId;
++  await db
++    .update(tenantsTable)
++    .set({ plan: TEST_PLAN })
++    .where(inArray(tenantsTable.id, [referrerId, refereeId]));
++});
++
++afterAll(async () => {
++  const codes = await db
++    .select({ id: promoCodesTable.id })
++    .from(promoCodesTable)
++    .where(eq(promoCodesTable.ownerTenantId, referrerId));
++  if (codes.length) {
++    await db.delete(promoRedemptionsTable).where(
++      inArray(
++        promoRedemptionsTable.promoCodeId,
++        codes.map((c) => c.id),
++      ),
++    );
++  }
++  await db.delete(promoCodesTable).where(eq(promoCodesTable.ownerTenantId, referrerId));
++  await db
++    .delete(gamificationPlanSettingsTable)
++    .where(eq(gamificationPlanSettingsTable.planId, TEST_PLAN));
++  await deleteTenant(referrerId);
++  await deleteTenant(refereeId);
++  await pool.end();
++});
++
++describe("referral codes", () => {
++  it("mints one personal code per workspace, idempotently", async () => {
++    const referrer = (await getTenant(referrerId))!;
++    const first = await getOrCreateReferralCode(referrer);
++    expect(first.code.startsWith("REF-")).toBe(true);
++    expect(first.ownerTenantId).toBe(referrerId);
++    expect(first.campaign).toBe("referral");
++    // Default referee amounts from the plan defaults.
++    expect(first.captionCredits).toBe(5);
++    expect(first.imageCredits).toBe(3);
++
++    const second = await getOrCreateReferralCode(referrer);
++    expect(second.id).toBe(first.id);
++  });
++
++  it("blocks self-redemption", async () => {
++    const code = (await getReferralCode(referrerId))!;
++    const result = await redeemPromoCode(referrerId, code.code);
++    expect(result.ok).toBe(false);
++    if (!result.ok) expect(result.reason).toBe("own_code");
++  });
++
++  it("pays the referee from the code and the referrer from their plan settings", async () => {
++    const code = (await getReferralCode(referrerId))!;
++    const refereeBefore = await getCreditBalances(refereeId);
++    const referrerBefore = await getCreditBalances(referrerId);
++
++    const result = await redeemPromoCode(refereeId, code.code);
++    expect(result.ok).toBe(true);
++    if (!result.ok) return;
++    expect(result.referrerTenantId).toBe(referrerId);
++    expect(result.referrerCaptionCredits).toBe(5);
++    expect(result.referrerImageCredits).toBe(3);
++
++    const refereeAfter = await getCreditBalances(refereeId);
++    expect(refereeAfter.captionCredits).toBe(refereeBefore.captionCredits + 5);
++    expect(refereeAfter.imageCredits).toBe(refereeBefore.imageCredits + 3);
++
++    const referrerAfter = await getCreditBalances(referrerId);
++    expect(referrerAfter.captionCredits).toBe(referrerBefore.captionCredits + 5);
++    expect(referrerAfter.imageCredits).toBe(referrerBefore.imageCredits + 3);
++
++    const stats = await getReferralStats(referrerId);
++    expect(stats.redemptions).toBe(1);
++    expect(stats.captionCreditsEarned).toBe(5);
++    expect(stats.imageCreditsEarned).toBe(3);
++
++    // The referrer got an in-app heads-up.
++    const notes = await db
++      .select()
++      .from(notificationsTable)
++      .where(eq(notificationsTable.tenantId, referrerId));
++    expect(notes.some((n) => n.type === "referral_redeemed")).toBe(true);
++
++    // One redemption per workspace: a second attempt is rejected.
++    const again = await redeemPromoCode(refereeId, code.code);
++    expect(again.ok).toBe(false);
++  });
++
++  it("zeroes the referrer reward when referrals are disabled for the owner's plan", async () => {
++    await db.insert(gamificationPlanSettingsTable).values({
++      planId: TEST_PLAN,
++      referralsEnabled: false,
++    });
++    const extraRedeemer = await createTenant();
++    try {
++      const code = (await getReferralCode(referrerId))!;
++      const referrerBefore = await getCreditBalances(referrerId);
++      const result = await redeemPromoCode(extraRedeemer.tenantId, code.code);
++      expect(result.ok).toBe(true);
++      if (!result.ok) return;
++      // Referee still gets the code's snapshotted credits...
++      expect(result.captionCredits).toBe(5);
++      // ...but no referrer reward is granted while the switch is off.
++      expect(result.referrerCaptionCredits).toBe(0);
++      expect(result.referrerImageCredits).toBe(0);
++      expect((await getCreditBalances(referrerId)).captionCredits).toBe(
++        referrerBefore.captionCredits,
++      );
++    } finally {
++      await deleteTenant(extraRedeemer.tenantId);
++    }
++  });
++});
+diff --git a/artifacts/api-server/src/lib/referrals.ts b/artifacts/api-server/src/lib/referrals.ts
+new file mode 100644
+index 0000000..6f0a30a
+--- /dev/null
++++ b/artifacts/api-server/src/lib/referrals.ts
+@@ -0,0 +1,107 @@
++import {
++  db,
++  promoCodesTable,
++  promoRedemptionsTable,
++  type PromoCode,
++  type Tenant,
++} from "@workspace/db";
++import { and, eq, sql } from "drizzle-orm";
++import { generatePromoCode } from "./promoCodes";
++import { getPlanGamification } from "./gamification";
++
++/**
++ * Referral credits, built ON TOP of the promo-code engine rather than beside
++ * it: a tenant's personal invite code IS a promo code (campaign "referral",
++ * ownerTenantId set), so every existing guarantee — atomic redemption,
++ * per-tenant limits, global caps, audience targeting, failure logging, admin
++ * metrics — applies to referrals for free. The referrer's reward is granted
++ * inside the same redemption transaction (see lib/promoCodes.ts).
++ */
++
++export const REFERRAL_CAMPAIGN = "referral";
++
++/** New-account window for redeeming an invite (days since signup). */
++const REFERRAL_NEW_TENANT_DAYS = 30;
++
++export async function getReferralCode(tenantId: number): Promise<PromoCode | undefined> {
++  return (
++    await db
++      .select()
++      .from(promoCodesTable)
++      .where(
++        and(
++          eq(promoCodesTable.ownerTenantId, tenantId),
++          eq(promoCodesTable.campaign, REFERRAL_CAMPAIGN),
++          eq(promoCodesTable.active, true),
++        ),
++      )
++      .limit(1)
++  )[0];
++}
++
++/**
++ * The tenant's personal invite code, minted on first ask. Referee amounts are
++ * snapshotted onto the code from the owner's CURRENT plan settings (that is
++ * how the promo engine grants), so later admin changes affect new codes, not
++ * codes already in circulation.
++ */
++export async function getOrCreateReferralCode(tenant: Tenant): Promise<PromoCode> {
++  const existing = await getReferralCode(tenant.id);
++  if (existing) return existing;
++
++  const settings = await getPlanGamification(tenant.plan);
++  // The unique code index makes collisions loud; a fresh 8-char code from a
++  // 31-letter alphabet virtually never collides, but retry a few times anyway.
++  for (let attempt = 0; attempt < 3; attempt++) {
++    try {
++      const created = (
++        await db
++          .insert(promoCodesTable)
++          .values({
++            code: generatePromoCode("REF", 8),
++            campaign: REFERRAL_CAMPAIGN,
++            captionCredits: settings.refereeCaptionCredits,
++            imageCredits: settings.refereeImageCredits,
++            audience: "new",
++            newTenantDays: REFERRAL_NEW_TENANT_DAYS,
++            maxRedemptions: settings.referralMaxRedemptions,
++            perTenantLimit: 1,
++            active: true,
++            ownerTenantId: tenant.id,
++            note: `Personal referral code (workspace ${tenant.id})`,
++          })
++          .returning()
++      )[0];
++      if (created) return created;
++    } catch (error) {
++      if (attempt === 2) throw error;
++    }
++  }
++  throw new Error("Could not mint a referral code");
++}
++
++export interface ReferralStats {
++  redemptions: number;
++  captionCreditsEarned: number;
++  imageCreditsEarned: number;
++}
++
++/** How the tenant's invite code has performed (what THEY earned as referrer). */
++export async function getReferralStats(tenantId: number): Promise<ReferralStats> {
++  const row = (
++    await db
++      .select({
++        redemptions: sql<number>`count(*)::int`,
++        captionCreditsEarned: sql<number>`coalesce(sum(${promoRedemptionsTable.referrerCaptionCredits}), 0)::int`,
++        imageCreditsEarned: sql<number>`coalesce(sum(${promoRedemptionsTable.referrerImageCredits}), 0)::int`,
++      })
++      .from(promoRedemptionsTable)
++      .innerJoin(promoCodesTable, eq(promoRedemptionsTable.promoCodeId, promoCodesTable.id))
++      .where(eq(promoCodesTable.ownerTenantId, tenantId))
++  )[0];
++  return {
++    redemptions: row?.redemptions ?? 0,
++    captionCreditsEarned: row?.captionCreditsEarned ?? 0,
++    imageCreditsEarned: row?.imageCreditsEarned ?? 0,
++  };
++}
+diff --git a/artifacts/api-server/src/routes/admin.ts b/artifacts/api-server/src/routes/admin.ts
+index bd6c3cf..56db897 100644
+--- a/artifacts/api-server/src/routes/admin.ts
++++ b/artifacts/api-server/src/routes/admin.ts
+@@ -68,6 +68,7 @@ import {
+   AdminSetImageGenProviderKeyBody,
+   AdminUpdateVideoGenSettingsBody,
+   AdminSetVideoGenProviderKeyBody,
++  AdminUpdateGamificationPlanBody,
+   AdminUpdateTextGenSettingsBody,
+   AdminSetTextGenKeyBody,
+   AdminUpdateAiSpendSettingsBody,
+@@ -97,7 +98,16 @@ import {
+   getEffectiveSeatLimit,
+   getSeatsUsed,
+ } from "../lib/team";
+-import { creditPacksTable, promoCodesTable, type PromoCode } from "@workspace/db";
++import {
++  creditPacksTable,
++  promoCodesTable,
++  gamificationPlanSettingsTable,
++  type PromoCode,
++} from "@workspace/db";
++import {
++  DEFAULT_PLAN_GAMIFICATION,
++  rowToPlanGamification,
++} from "../lib/gamification";
+ import { grantCredits, getCreditBalances } from "../lib/credits";
+ import {
+   normalizePromoCode,
+@@ -2045,6 +2055,136 @@ router.delete("/admin/plans/:planId", async (req: Request, res: Response) => {
+   res.json(await listPlans());
+ });
+ 
++// ---------------------------------------------------------------------------
++// Gamification: per-plan quest/streak/referral configuration
++// ---------------------------------------------------------------------------
++
++/** One list shape shared by GET and both mutations: every catalog plan with
++ * its effective settings (stored row or the defaults) and whether a row
++ * exists. Custom plans created later appear here automatically. */
++async function listGamificationPlans() {
++  const plans = await listPlans();
++  const rows = await db.select().from(gamificationPlanSettingsTable);
++  const byId = new Map(rows.map((r) => [r.planId, r]));
++  return plans.map((p) => {
++    const row = byId.get(p.id);
++    return {
++      planId: p.id,
++      planName: p.name,
++      customized: !!row,
++      settings: row ? rowToPlanGamification(row) : { ...DEFAULT_PLAN_GAMIFICATION },
++    };
++  });
++}
++
++router.get("/admin/gamification-plans", async (_req: Request, res: Response) => {
++  res.json(await listGamificationPlans());
++});
++
++/**
++ * PUT /admin/gamification-plans/:planId
++ * Upsert one plan's gamification settings (toggles, reward multiplier,
++ * referral amounts). The plan id is validated against the live catalog.
++ */
++router.put("/admin/gamification-plans/:planId", async (req: Request, res: Response) => {
++  const planId = String(req.params.planId);
++  const catalog = await listPlans();
++  if (!catalog.some((p) => p.id === planId)) {
++    res.status(404).json({ error: "Unknown plan" });
++    return;
++  }
++  const parsed = AdminUpdateGamificationPlanBody.safeParse(req.body);
++  if (!parsed.success) {
++    res.status(400).json({ error: "Invalid input" });
++    return;
++  }
++  const s = parsed.data;
++  const nonNegative = [
++    s.referrerCaptionCredits,
++    s.referrerImageCredits,
++    s.refereeCaptionCredits,
++    s.refereeImageCredits,
++  ];
++  if (
++    nonNegative.some((n) => !Number.isInteger(n) || n < 0) ||
++    !Number.isInteger(s.rewardMultiplierPercent) ||
++    s.rewardMultiplierPercent < 0 ||
++    s.rewardMultiplierPercent > 1000 ||
++    !Number.isInteger(s.referralMaxRedemptions) ||
++    s.referralMaxRedemptions < 1 ||
++    s.referralMaxRedemptions > 10000
++  ) {
++    res.status(400).json({
++      error:
++        "Credits must be whole numbers >= 0, the multiplier 0-1000%, and the referral cap 1-10000.",
++    });
++    return;
++  }
++
++  const values = {
++    planId,
++    questsEnabled: s.questsEnabled,
++    streaksEnabled: s.streaksEnabled,
++    referralsEnabled: s.referralsEnabled,
++    progressMeterEnabled: s.progressMeterEnabled,
++    rewardMultiplierPercent: s.rewardMultiplierPercent,
++    referrerCaptionCredits: s.referrerCaptionCredits,
++    referrerImageCredits: s.referrerImageCredits,
++    refereeCaptionCredits: s.refereeCaptionCredits,
++    refereeImageCredits: s.refereeImageCredits,
++    referralMaxRedemptions: s.referralMaxRedemptions,
++    updatedAt: new Date(),
++  };
++  await db
++    .insert(gamificationPlanSettingsTable)
++    .values(values)
++    .onConflictDoUpdate({ target: gamificationPlanSettingsTable.planId, set: values });
++
++  try {
++    await recordAdminAction({
++      action: "gamification_plan_change",
++      actorTenantId: req.tenantId,
++      actorEmail: req.tenantEmail,
++      targetTenantId: null,
++      targetEmail: null,
++      oldValue: null,
++      newValue: JSON.stringify({ planId, ...s }),
++    });
++  } catch (error) {
++    req.log.error({ err: error }, "Failed to write gamification audit log");
++  }
++
++  res.json(await listGamificationPlans());
++});
++
++/**
++ * DELETE /admin/gamification-plans/:planId
++ * Remove the plan's custom row so the built-in defaults apply again.
++ */
++router.delete(
++  "/admin/gamification-plans/:planId",
++  async (req: Request, res: Response) => {
++    const planId = String(req.params.planId);
++    await db
++      .delete(gamificationPlanSettingsTable)
++      .where(eq(gamificationPlanSettingsTable.planId, planId));
++    try {
++      await recordAdminAction({
++        action: "gamification_plan_change",
++        actorTenantId: req.tenantId,
++        actorEmail: req.tenantEmail,
++        targetTenantId: null,
++        targetEmail: null,
++        oldValue: planId,
++        newValue: "reset_to_defaults",
++      });
++    } catch (error) {
++      req.log.error({ err: error }, "Failed to write gamification audit log");
++    }
++    res.json(await listGamificationPlans());
++  },
++);
++
+ // ---------------------------------------------------------------------------
+ // Billing: credit packs (superadmin-defined) + manual credit grants
+ // ---------------------------------------------------------------------------
+diff --git a/artifacts/api-server/src/routes/gamification.ts b/artifacts/api-server/src/routes/gamification.ts
+new file mode 100644
+index 0000000..5e96681
+--- /dev/null
++++ b/artifacts/api-server/src/routes/gamification.ts
+@@ -0,0 +1,90 @@
++import { Router, type IRouter, type Request, type Response } from "express";
++import { db, tenantsTable } from "@workspace/db";
++import { eq } from "drizzle-orm";
++import { ClaimGamificationRewardBody } from "@workspace/api-zod";
++import {
++  getGamificationState,
++  claimReward,
++  ClaimError,
++  getPlanGamification,
++} from "../lib/gamification";
++import { getFeatureFlags } from "../lib/featureFlags";
++import { getOrCreateReferralCode, getReferralStats } from "../lib/referrals";
++
++const router: IRouter = Router();
++
++async function loadTenant(tenantId: number) {
++  return (
++    await db.select().from(tenantsTable).where(eq(tenantsTable.id, tenantId)).limit(1)
++  )[0];
++}
++
++/** Quests, streak, and per-feature enablement for the AI Studio card. */
++router.get("/gamification", async (req: Request, res: Response) => {
++  const tenant = await loadTenant(req.tenantId);
++  if (!tenant) {
++    res.status(401).json({ error: "Unauthorized" });
++    return;
++  }
++  res.json(await getGamificationState(tenant));
++});
++
++/** Claim a completed quest or reached streak milestone. */
++router.post("/gamification/claim", async (req: Request, res: Response) => {
++  const parsed = ClaimGamificationRewardBody.safeParse(req.body);
++  if (!parsed.success) {
++    res.status(400).json({ error: "Invalid input" });
++    return;
++  }
++  const tenant = await loadTenant(req.tenantId);
++  if (!tenant) {
++    res.status(401).json({ error: "Unauthorized" });
++    return;
++  }
++  try {
++    const { granted, credits } = await claimReward(tenant, parsed.data.key);
++    res.json({ ok: true, granted, credits });
++  } catch (error) {
++    if (error instanceof ClaimError) {
++      const status =
++        error.code === "already_claimed" ? 409 : error.code === "disabled" ? 403 : 400;
++      res.status(status).json({ error: error.message });
++      return;
++    }
++    req.log.error({ err: error }, "Gamification claim failed");
++    res.status(500).json({ error: "Could not claim the reward. Please try again." });
++  }
++});
++
++/** The tenant's personal invite code and how it has performed. */
++router.get("/gamification/referral", async (req: Request, res: Response) => {
++  const tenant = await loadTenant(req.tenantId);
++  if (!tenant) {
++    res.status(401).json({ error: "Unauthorized" });
++    return;
++  }
++  const flags = await getFeatureFlags();
++  const settings = await getPlanGamification(tenant.plan);
++  if (!flags.referrals || !settings.referralsEnabled) {
++    res.status(403).json({
++      error: "Referrals are currently disabled.",
++      code: "feature_disabled",
++    });
++    return;
++  }
++  const code = await getOrCreateReferralCode(tenant);
++  const stats = await getReferralStats(req.tenantId);
++  res.json({
++    code: code.code,
++    refereeCaptionCredits: code.captionCredits,
++    refereeImageCredits: code.imageCredits,
++    referrerCaptionCredits: settings.referrerCaptionCredits,
++    referrerImageCredits: settings.referrerImageCredits,
++    maxRedemptions: code.maxRedemptions,
++    redemptions: stats.redemptions,
++    captionCreditsEarned: stats.captionCreditsEarned,
++    imageCreditsEarned: stats.imageCreditsEarned,
++  });
++});
++
++export default router;
+diff --git a/artifacts/api-server/src/routes/index.ts b/artifacts/api-server/src/routes/index.ts
+index 0d35d9b..cc64bed 100644
+--- a/artifacts/api-server/src/routes/index.ts
++++ b/artifacts/api-server/src/routes/index.ts
+@@ -11,6 +11,7 @@ import contentRouter from "./content";
+ import aiRouter from "./ai";
+ import videosRouter from "./videos";
+ import googleDriveRouter, { googleDriveCallbackRouter } from "./googleDrive";
++import gamificationRouter from "./gamification";
+ import schedulesRouter from "./schedules";
+ import accountsRouter from "./accounts";
+ import metaRouter from "./meta";
+@@ -123,10 +124,14 @@ router.use(teamRouter);
+ router.use(brandKitsRouter);
+ router.use(brandPreferencesRouter);
+ router.use(onboardingRouter);
++// Claims grant credits: give them the tight rate-limit bucket.
++router.use("/gamification/claim", sensitiveLimiter);
++
+ router.use(contentRouter);
+ router.use(aiRouter);
+ router.use(videosRouter);
+ router.use(googleDriveRouter);
++router.use(gamificationRouter);
+ router.use(schedulesRouter);
+ router.use(accountsRouter);
+ router.use(metaRouter);
+diff --git a/artifacts/socialforge/src/components/gamification-card.test.tsx b/artifacts/socialforge/src/components/gamification-card.test.tsx
+new file mode 100644
+index 0000000..5a8786e
+--- /dev/null
++++ b/artifacts/socialforge/src/components/gamification-card.test.tsx
+@@ -0,0 +1,173 @@
++import { describe, it, expect, beforeEach, vi } from "vitest";
++import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
++import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
++import { TooltipProvider } from "@/components/ui/tooltip";
++
++if (typeof globalThis.ResizeObserver === "undefined") {
++  (globalThis as any).ResizeObserver = class {
++    observe() {}
++    unobserve() {}
++    disconnect() {}
++  };
++}
++
++const mockState: {
++  gamification: any;
++  me: any;
++  lastClaimVars: any;
++} = {
++  gamification: undefined,
++  me: undefined,
++  lastClaimVars: null,
++};
++
++const toastSpy = vi.fn();
++vi.mock("@/hooks/use-toast", () => ({
++  useToast: () => ({ toast: toastSpy }),
++}));
++
++vi.mock("wouter/use-browser-location", () => ({
++  navigate: vi.fn(),
++}));
++
++vi.mock("@workspace/api-client-react", async () => {
++  const { createApiClientMock } = await import("../test/apiClientMock");
++  return createApiClientMock({
++    useGetGamification: () => ({ data: mockState.gamification }),
++    useGetMe: () => ({ data: mockState.me }),
++    useClaimGamificationReward: () => ({
++      isPending: false,
++      mutate: (vars: unknown, opts: any) => {
++        mockState.lastClaimVars = vars;
++        opts?.onSuccess?.({
++          ok: true,
++          granted: { captionCredits: 2, imageCredits: 0, videoCredits: 0 },
++          credits: { captionCredits: 2, imageCredits: 0, videoCredits: 0 },
++        });
++      },
++    }),
++  });
++});
++
++import { GamificationCard } from "./gamification-card";
++
++function renderCard() {
++  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
++  return render(
++    <QueryClientProvider client={client}>
++      <TooltipProvider>
++        <GamificationCard />
++      </TooltipProvider>
++    </QueryClientProvider>,
++  );
++}
++
++const baseState = () => ({
++  questsEnabled: true,
++  streaksEnabled: true,
++  referralsEnabled: true,
++  progressMeterEnabled: true,
++  quests: [
++    {
++      id: "create_brand_kit",
++      title: "Create a brand kit",
++      description: "Teach KOKAO your style.",
++      completed: true,
++      claimed: false,
++      claimKey: "quest:create_brand_kit",
++      reward: { captionCredits: 2, imageCredits: 0, videoCredits: 0 },
++    },
++    {
++      id: "first_image",
++      title: "Generate your first image",
++      description: "Create a visual.",
++      completed: false,
++      claimed: false,
++      claimKey: "quest:first_image",
++      reward: { captionCredits: 0, imageCredits: 2, videoCredits: 0 },
++    },
++  ],
++  streak: {
++    currentDays: 3,
++    activeToday: true,
++    milestones: [
++      {
++        days: 3,
++        reward: { captionCredits: 1, imageCredits: 1, videoCredits: 0 },
++        reached: true,
++        claimed: false,
++        claimKey: "streak:3:2026-07-20",
++      },
++      {
++        days: 7,
++        reward: { captionCredits: 2, imageCredits: 2, videoCredits: 0 },
++        reached: false,
++        claimed: false,
++        claimKey: "streak:7:2026-07-20",
++      },
++    ],
++  },
++});
++
++beforeEach(() => {
++  mockState.gamification = baseState();
++  mockState.me = {
++    usage: { captions: 8, images: 4, videos: 1 },
++    limits: { captions: 10, images: 5, videos: 3 },
++  };
++  mockState.lastClaimVars = null;
++  toastSpy.mockClear();
++  cleanup();
++});
++
++describe("GamificationCard", () => {
++  it("renders nothing when every mechanic is disabled", () => {
++    mockState.gamification = {
++      ...baseState(),
++      questsEnabled: false,
++      streaksEnabled: false,
++      referralsEnabled: false,
++      progressMeterEnabled: false,
++    };
++    const { container } = renderCard();
++    expect(container.innerHTML).toBe("");
++  });
++
++  it("shows the streak, claimable count, and claims a completed quest", async () => {
++    renderCard();
++    expect(screen.getByTestId("streak-days").textContent).toContain("3-day streak");
++    // 1 claimable quest + 1 reached streak milestone.
++    expect(screen.getByTestId("claimable-count").textContent).toContain("2 rewards");
++
++    fireEvent.click(screen.getByTestId("claim-quest-create_brand_kit"));
++    await waitFor(() => expect(mockState.lastClaimVars).toBeTruthy());
++    expect(mockState.lastClaimVars.data.key).toBe("quest:create_brand_kit");
++    expect(toastSpy).toHaveBeenCalledWith(
++      expect.objectContaining({ title: "Reward claimed!" }),
++    );
++
++    // The incomplete quest shows no claim button.
++    expect(screen.queryByTestId("claim-quest-first_image")).toBeNull();
++  });
++
++  it("claims a reached streak milestone", async () => {
++    renderCard();
++    fireEvent.click(screen.getByTestId("claim-streak-3"));
++    await waitFor(() => expect(mockState.lastClaimVars).toBeTruthy());
++    expect(mockState.lastClaimVars.data.key).toBe("streak:3:2026-07-20");
++  });
++
++  it("shows the upgrade meter only for finite limits", () => {
++    renderCard();
++    expect(screen.getByTestId("button-upgrade-meter")).toBeTruthy();
++
++    cleanup();
++    // Unlimited plan: no finite rows, meter hidden.
++    mockState.me = {
++      usage: { captions: 50, images: 20, videos: 5 },
++      limits: { captions: -1, images: -1, videos: -1 },
++    };
++    renderCard();
++    expect(screen.queryByTestId("button-upgrade-meter")).toBeNull();
++  });
++});
+diff --git a/artifacts/socialforge/src/components/gamification-card.tsx b/artifacts/socialforge/src/components/gamification-card.tsx
+new file mode 100644
+index 0000000..b3bf63c
+--- /dev/null
++++ b/artifacts/socialforge/src/components/gamification-card.tsx
+@@ -0,0 +1,346 @@
++import { useState } from "react";
++import {
++  useGetGamification,
++  useClaimGamificationReward,
++  useGetReferralInfo,
++  useGetMe,
++  getGetGamificationQueryKey,
++  getGetMeQueryKey,
++  getGetReferralInfoQueryKey,
++  type RewardAmounts,
++} from "@workspace/api-client-react";
++import { useQueryClient } from "@tanstack/react-query";
++import { Button } from "@/components/ui/button";
++import { Card, CardContent } from "@/components/ui/card";
++import { Progress } from "@/components/ui/progress";
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogHeader,
++  DialogTitle,
++} from "@/components/ui/dialog";
++import { useToast } from "@/hooks/use-toast";
++import {
++  Flame,
++  Gift,
++  CheckCircle2,
++  Circle,
++  Copy,
++  Sparkles,
++  TrendingUp,
++  Users,
++} from "lucide-react";
++import { navigate } from "wouter/use-browser-location";
++
++/**
++ * The AI Studio gamification strip: getting-started quests, the daily
++ * creation streak, an upgrade progress meter, and the referral dialog.
++ * Renders nothing while loading or when every mechanic is switched off
++ * (globally or for this tenant's plan) — the page looks exactly as before.
++ */
++
++function fmtReward(reward: RewardAmounts): string {
++  const parts: string[] = [];
++  if (reward.captionCredits > 0) parts.push(`+${reward.captionCredits} caption`);
++  if (reward.imageCredits > 0) parts.push(`+${reward.imageCredits} image`);
++  if (reward.videoCredits > 0) parts.push(`+${reward.videoCredits} video`);
++  return parts.length ? `${parts.join(" · ")} credits` : "";
++}
++
++export function GamificationCard() {
++  const { toast } = useToast();
++  const queryClient = useQueryClient();
++  const { data: state } = useGetGamification({
++    query: { queryKey: getGetGamificationQueryKey(), staleTime: 30_000 },
++  });
++  const { data: me } = useGetMe();
++  const claim = useClaimGamificationReward();
++  const [referralOpen, setReferralOpen] = useState(false);
++
++  if (
++    !state ||
++    (!state.questsEnabled &&
++      !state.streaksEnabled &&
++      !state.referralsEnabled &&
++      !state.progressMeterEnabled)
++  ) {
++    return null;
++  }
++
++  const onClaim = (key: string) => {
++    claim.mutate(
++      { data: { key } },
++      {
++        onSuccess: (result) => {
++          void queryClient.invalidateQueries({ queryKey: getGetGamificationQueryKey() });
++          void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
++          toast({
++            title: "Reward claimed!",
++            description: `${fmtReward(result.granted)} added to your balance.`,
++          });
++        },
++        onError: (error: any) =>
++          toast({
++            title: "Could not claim",
++            description: error?.message || "Please try again.",
++            variant: "destructive",
++          }),
++      },
++    );
++  };
++
++  const unclaimedQuests = state.quests.filter((q) => !q.claimed);
++  const claimableCount =
++    state.quests.filter((q) => q.completed && !q.claimed).length +
++    state.streak.milestones.filter((m) => m.reached && !m.claimed && m.claimKey).length;
++
++  // Progress meter only makes sense on finite plans; -1 means unlimited.
++  const limits = me?.limits;
++  const usage = me?.usage;
++  const meterRows =
++    state.progressMeterEnabled && limits && usage
++      ? (
++          [
++            { label: "Captions", used: usage.captions, limit: limits.captions },
++            { label: "Images", used: usage.images, limit: limits.images },
++            { label: "Videos", used: usage.videos ?? 0, limit: limits.videos ?? 0 },
++          ] as const
++        ).filter((row) => row.limit > 0)
++      : [];
++  const meterMax = meterRows.length
++    ? Math.max(...meterRows.map((r) => Math.min(1, r.used / r.limit)))
++    : 0;
++
++  return (
++    <Card className="border-primary/20 bg-gradient-to-r from-primary/5 via-card to-card shadow-sm">
++      <CardContent className="py-4 space-y-4">
++        <div className="flex flex-wrap items-center justify-between gap-3">
++          <div className="flex items-center gap-2">
++            <Sparkles className="h-4 w-4 text-primary" />
++            <span className="font-semibold">Level up</span>
++            {claimableCount > 0 && (
++              <span
++                className="rounded-full bg-primary/15 text-primary text-xs font-medium px-2 py-0.5"
++                data-testid="claimable-count"
++              >
++                {claimableCount} reward{claimableCount === 1 ? "" : "s"} to claim
++              </span>
++            )}
++          </div>
++          <div className="flex items-center gap-3">
++            {state.streaksEnabled && (
++              <span
++                className={`inline-flex items-center gap-1.5 text-sm font-medium ${
++                  state.streak.currentDays > 0 ? "text-orange-500" : "text-muted-foreground"
++                }`}
++                data-testid="streak-days"
++              >
++                <Flame className="h-4 w-4" />
++                {state.streak.currentDays}-day streak
++                {state.streaksEnabled && state.streak.currentDays > 0 && !state.streak.activeToday && (
++                  <span className="text-xs text-muted-foreground font-normal">
++                    · create today to keep it
++                  </span>
++                )}
++              </span>
++            )}
++            {state.referralsEnabled && (
++              <Button
++                variant="outline"
++                size="sm"
++                onClick={() => setReferralOpen(true)}
++                data-testid="button-open-referral"
++              >
++                <Users className="h-4 w-4 mr-1.5" /> Invite &amp; earn
++              </Button>
++            )}
++          </div>
++        </div>
++
++        {state.streaksEnabled && state.streak.milestones.length > 0 && (
++          <div className="flex flex-wrap gap-2">
++            {state.streak.milestones.map((m) => (
++              <div
++                key={m.days}
++                className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${
++                  m.claimed
++                    ? "border-primary/30 bg-primary/10 text-primary"
++                    : m.reached
++                      ? "border-orange-300 bg-orange-50 dark:bg-orange-950/30 text-orange-600"
++                      : "border-border text-muted-foreground"
++                }`}
++              >
++                <Flame className="h-3 w-3" />
++                {m.days}d
++                {m.claimed ? (
++                  <CheckCircle2 className="h-3 w-3" />
++                ) : m.reached && m.claimKey ? (
++                  <button
++                    type="button"
++                    className="font-semibold underline underline-offset-2"
++                    disabled={claim.isPending}
++                    onClick={() => onClaim(m.claimKey!)}
++                    data-testid={`claim-streak-${m.days}`}
++                  >
++                    Claim {fmtReward(m.reward)}
++                  </button>
++                ) : (
++                  <span>{fmtReward(m.reward)}</span>
++                )}
++              </div>
++            ))}
++          </div>
++        )}
++
++        {state.questsEnabled && unclaimedQuests.length > 0 && (
++          <div className="grid gap-1.5 sm:grid-cols-2">
++            {unclaimedQuests.map((quest) => (
++              <div
++                key={quest.id}
++                className="flex items-center gap-2.5 rounded-lg border border-border/60 bg-background/60 px-3 py-2"
++                data-testid={`quest-${quest.id}`}
++              >
++                {quest.completed ? (
++                  <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
++                ) : (
++                  <Circle className="h-4 w-4 text-muted-foreground/50 shrink-0" />
++                )}
++                <div className="min-w-0 flex-1">
++                  <p className="text-sm font-medium truncate">{quest.title}</p>
++                  <p className="text-xs text-muted-foreground truncate">
++                    {quest.completed ? fmtReward(quest.reward) : quest.description}
++                  </p>
++                </div>
++                {quest.completed && (
++                  <Button
++                    size="sm"
++                    variant="secondary"
++                    className="shrink-0"
++                    disabled={claim.isPending}
++                    onClick={() => onClaim(quest.claimKey)}
++                    data-testid={`claim-quest-${quest.id}`}
++                  >
++                    <Gift className="h-3.5 w-3.5 mr-1" /> Claim
++                  </Button>
++                )}
++              </div>
++            ))}
++          </div>
++        )}
++
++        {meterRows.length > 0 && (
++          <div className="rounded-lg border border-border/60 bg-background/60 px-3 py-2.5 space-y-2">
++            <div className="flex items-center justify-between gap-2">
++              <span className="text-sm font-medium inline-flex items-center gap-1.5">
++                <TrendingUp className="h-4 w-4 text-primary" />
++                {meterMax >= 1
++                  ? "You've hit this month's limit — you're clearly on a roll"
++                  : meterMax >= 0.7
++                    ? "You're creating faster than your plan"
++                    : "Your plan this month"}
++              </span>
++              <Button
++                size="sm"
++                variant={meterMax >= 0.7 ? "default" : "outline"}
++                onClick={() => navigate("/settings")}
++                data-testid="button-upgrade-meter"
++              >
++                Upgrade
++              </Button>
++            </div>
++            <div className="grid gap-1.5 sm:grid-cols-3">
++              {meterRows.map((row) => (
++                <div key={row.label} className="space-y-1">
++                  <div className="flex justify-between text-xs text-muted-foreground">
++                    <span>{row.label}</span>
++                    <span>
++                      {Math.min(row.used, row.limit)}/{row.limit}
++                    </span>
++                  </div>
++                  <Progress value={Math.min(100, (row.used / row.limit) * 100)} />
++                </div>
++              ))}
++            </div>
++          </div>
++        )}
++
++        <ReferralDialog open={referralOpen} onOpenChange={setReferralOpen} />
++      </CardContent>
++    </Card>
++  );
++}
++
++function ReferralDialog({
++  open,
++  onOpenChange,
++}: {
++  open: boolean;
++  onOpenChange: (open: boolean) => void;
++}) {
++  const { toast } = useToast();
++  const { data: referral, isLoading } = useGetReferralInfo({
++    query: { queryKey: getGetReferralInfoQueryKey(), enabled: open },
++  });
++
++  const copy = async () => {
++    if (!referral) return;
++    try {
++      await navigator.clipboard.writeText(referral.code);
++      toast({ title: "Copied!", description: "Share the code with a friend." });
++    } catch {
++      toast({ title: "Copy failed", description: referral.code });
++    }
++  };
++
++  return (
++    <Dialog open={open} onOpenChange={onOpenChange}>
++      <DialogContent className="sm:max-w-md">
++        <DialogHeader>
++          <DialogTitle className="flex items-center gap-2">
++            <Users className="h-5 w-5" /> Invite friends, earn credits
++          </DialogTitle>
++          <DialogDescription>
++            {referral
++              ? `Friends redeem your code on their Billing page within 30 days of signing up. They get ${referral.refereeCaptionCredits} caption + ${referral.refereeImageCredits} image credits — you earn ${referral.referrerCaptionCredits} caption + ${referral.referrerImageCredits} image credits per signup.`
++              : "Loading your personal code…"}
++          </DialogDescription>
++        </DialogHeader>
++        {!isLoading && referral && (
++          <div className="space-y-4">
++            <div className="flex items-center gap-2">
++              <code
++                className="flex-1 rounded-lg border border-border bg-muted px-3 py-2 text-center text-lg font-semibold tracking-widest"
++                data-testid="referral-code"
++              >
++                {referral.code}
++              </code>
++              <Button variant="outline" size="icon" onClick={copy} aria-label="Copy code">
++                <Copy className="h-4 w-4" />
++              </Button>
++            </div>
++            <div className="grid grid-cols-3 gap-2 text-center">
++              <div className="rounded-lg bg-muted/60 py-2">
++                <p className="text-lg font-semibold">{referral.redemptions}</p>
++                <p className="text-xs text-muted-foreground">signups</p>
++              </div>
++              <div className="rounded-lg bg-muted/60 py-2">
++                <p className="text-lg font-semibold">{referral.captionCreditsEarned}</p>
++                <p className="text-xs text-muted-foreground">captions earned</p>
++              </div>
++              <div className="rounded-lg bg-muted/60 py-2">
++                <p className="text-lg font-semibold">{referral.imageCreditsEarned}</p>
++                <p className="text-xs text-muted-foreground">images earned</p>
++              </div>
++            </div>
++            {referral.maxRedemptions !== null && (
++              <p className="text-xs text-muted-foreground text-center">
++                Up to {referral.maxRedemptions} redemptions on this code.
++              </p>
++            )}
++          </div>
++        )}
++      </DialogContent>
++    </Dialog>
++  );
++}
+diff --git a/artifacts/socialforge/src/lib/features.tsx b/artifacts/socialforge/src/lib/features.tsx
+index 14b78b3..ae4374b 100644
+--- a/artifacts/socialforge/src/lib/features.tsx
++++ b/artifacts/socialforge/src/lib/features.tsx
+@@ -24,6 +24,10 @@ const ALL_ON: FeatureFlags = {
+   aiSpend: true,
+   aiCostTracking: true,
+   videoGen: true,
++  quests: true,
++  streaks: true,
++  referrals: true,
++  progressMeter: true,
+ };
+ 
+ /**
+diff --git a/artifacts/socialforge/src/pages/admin/gamification-plans-card.tsx b/artifacts/socialforge/src/pages/admin/gamification-plans-card.tsx
+new file mode 100644
+index 0000000..76f07d2
+--- /dev/null
++++ b/artifacts/socialforge/src/pages/admin/gamification-plans-card.tsx
+@@ -0,0 +1,287 @@
++import { useEffect, useState } from "react";
++import {
++  useAdminListGamificationPlans,
++  useAdminUpdateGamificationPlan,
++  useAdminResetGamificationPlan,
++  getAdminListGamificationPlansQueryKey,
++  type GamificationPlanSettingsView,
++} from "@workspace/api-client-react";
++import { useQueryClient } from "@tanstack/react-query";
++import {
++  Card,
++  CardContent,
++  CardDescription,
++  CardHeader,
++  CardTitle,
++} from "@/components/ui/card";
++import { Button } from "@/components/ui/button";
++import { Input } from "@/components/ui/input";
++import { Label } from "@/components/ui/label";
++import { Switch } from "@/components/ui/switch";
++import { Badge } from "@/components/ui/badge";
++import { Skeleton } from "@/components/ui/skeleton";
++import { useToast } from "@/hooks/use-toast";
++
++/**
++ * Per-plan gamification tuning (superadmin). Every plan in the catalog is
++ * listed — including custom plans created later — with the quest/streak/
++ * referral/progress-meter toggles, the reward multiplier, and the referral
++ * credit amounts. The four global switches on the Overview tab remain the
++ * platform-wide kill switches; these rows refine per plan.
++ */
++
++type Draft = GamificationPlanSettingsView;
++
++function NumberField({
++  id,
++  label,
++  value,
++  min,
++  max,
++  onChange,
++}: {
++  id: string;
++  label: string;
++  value: number;
++  min: number;
++  max: number;
++  onChange: (value: number) => void;
++}) {
++  return (
++    <div className="space-y-1">
++      <Label htmlFor={id} className="text-xs text-muted-foreground">
++        {label}
++      </Label>
++      <Input
++        id={id}
++        type="number"
++        min={min}
++        max={max}
++        value={value}
++        onChange={(e) => onChange(Number(e.target.value))}
++        className="h-8"
++      />
++    </div>
++  );
++}
++
++function ToggleRow({
++  label,
++  checked,
++  onChange,
++  testId,
++}: {
++  label: string;
++  checked: boolean;
++  onChange: (checked: boolean) => void;
++  testId: string;
++}) {
++  return (
++    <label className="flex items-center justify-between gap-2 rounded-md border border-border/60 px-2.5 py-1.5 text-sm">
++      {label}
++      <Switch checked={checked} onCheckedChange={onChange} data-testid={testId} />
++    </label>
++  );
++}
++
++export function GamificationPlansCard() {
++  const { toast } = useToast();
++  const queryClient = useQueryClient();
++  const { data: plans, isLoading } = useAdminListGamificationPlans();
++  const update = useAdminUpdateGamificationPlan();
++  const reset = useAdminResetGamificationPlan();
++
++  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
++  useEffect(() => {
++    if (!plans) return;
++    setDrafts(Object.fromEntries(plans.map((p) => [p.planId, { ...p.settings }])));
++  }, [plans]);
++
++  const refresh = () =>
++    void queryClient.invalidateQueries({
++      queryKey: getAdminListGamificationPlansQueryKey(),
++    });
++
++  const setDraft = (planId: string, patch: Partial<Draft>) =>
++    setDrafts((prev) => ({ ...prev, [planId]: { ...prev[planId]!, ...patch } }));
++
++  const onSave = (planId: string) => {
++    const draft = drafts[planId];
++    if (!draft) return;
++    update.mutate(
++      { planId, data: draft },
++      {
++        onSuccess: () => {
++          refresh();
++          toast({ title: "Saved", description: `Gamification settings updated for "${planId}".` });
++        },
++        onError: (error: any) =>
++          toast({
++            title: "Could not save",
++            description: error?.message || "Please check the values and try again.",
++            variant: "destructive",
++          }),
++      },
++    );
++  };
++
++  const onReset = (planId: string) => {
++    reset.mutate(
++      { planId },
++      {
++        onSuccess: () => {
++          refresh();
++          toast({ title: "Reset", description: `"${planId}" is back on the defaults.` });
++        },
++        onError: () =>
++          toast({ title: "Could not reset", description: "Please try again.", variant: "destructive" }),
++      },
++    );
++  };
++
++  return (
++    <Card>
++      <CardHeader>
++        <CardTitle>Gamification per plan</CardTitle>
++        <CardDescription>
++          Tune quests, streaks, referral credits, and the upgrade meter for each
++          plan — new plans automatically appear here with the defaults. The
++          platform-wide switches live under Feature controls; a mechanic only
++          shows for a tenant when both its global switch and its plan toggle are
++          on.
++        </CardDescription>
++      </CardHeader>
++      <CardContent className="space-y-6">
++        {isLoading || !plans ? (
++          <div className="space-y-3">
++            <Skeleton className="h-24 w-full" />
++            <Skeleton className="h-24 w-full" />
++          </div>
++        ) : (
++          plans.map((plan) => {
++            const draft = drafts[plan.planId];
++            if (!draft) return null;
++            return (
++              <div
++                key={plan.planId}
++                className="rounded-lg border border-border p-4 space-y-4"
++                data-testid={`gamification-plan-${plan.planId}`}
++              >
++                <div className="flex items-center justify-between gap-2">
++                  <div className="flex items-center gap-2">
++                    <span className="font-semibold">{plan.planName}</span>
++                    <span className="text-xs text-muted-foreground">({plan.planId})</span>
++                    {plan.customized ? (
++                      <Badge variant="secondary">customized</Badge>
++                    ) : (
++                      <Badge variant="outline">defaults</Badge>
++                    )}
++                  </div>
++                  <div className="flex gap-2">
++                    {plan.customized && (
++                      <Button
++                        variant="ghost"
++                        size="sm"
++                        disabled={reset.isPending}
++                        onClick={() => onReset(plan.planId)}
++                        data-testid={`reset-gamification-${plan.planId}`}
++                      >
++                        Reset to defaults
++                      </Button>
++                    )}
++                    <Button
++                      size="sm"
++                      disabled={update.isPending}
++                      onClick={() => onSave(plan.planId)}
++                      data-testid={`save-gamification-${plan.planId}`}
++                    >
++                      Save
++                    </Button>
++                  </div>
++                </div>
++
++                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
++                  <ToggleRow
++                    label="Quests"
++                    checked={draft.questsEnabled}
++                    onChange={(v) => setDraft(plan.planId, { questsEnabled: v })}
++                    testId={`toggle-quests-${plan.planId}`}
++                  />
++                  <ToggleRow
++                    label="Streaks"
++                    checked={draft.streaksEnabled}
++                    onChange={(v) => setDraft(plan.planId, { streaksEnabled: v })}
++                    testId={`toggle-streaks-${plan.planId}`}
++                  />
++                  <ToggleRow
++                    label="Referrals"
++                    checked={draft.referralsEnabled}
++                    onChange={(v) => setDraft(plan.planId, { referralsEnabled: v })}
++                    testId={`toggle-referrals-${plan.planId}`}
++                  />
++                  <ToggleRow
++                    label="Upgrade meter"
++                    checked={draft.progressMeterEnabled}
++                    onChange={(v) => setDraft(plan.planId, { progressMeterEnabled: v })}
++                    testId={`toggle-progress-${plan.planId}`}
++                  />
++                </div>
++
++                <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
++                  <NumberField
++                    id={`mult-${plan.planId}`}
++                    label="Reward multiplier %"
++                    value={draft.rewardMultiplierPercent}
++                    min={0}
++                    max={1000}
++                    onChange={(v) => setDraft(plan.planId, { rewardMultiplierPercent: v })}
++                  />
++                  <NumberField
++                    id={`referrer-cap-${plan.planId}`}
++                    label="Referrer: captions"
++                    value={draft.referrerCaptionCredits}
++                    min={0}
++                    max={1000}
++                    onChange={(v) => setDraft(plan.planId, { referrerCaptionCredits: v })}
++                  />
++                  <NumberField
++                    id={`referrer-img-${plan.planId}`}
++                    label="Referrer: images"
++                    value={draft.referrerImageCredits}
++                    min={0}
++                    max={1000}
++                    onChange={(v) => setDraft(plan.planId, { referrerImageCredits: v })}
++                  />
++                  <NumberField
++                    id={`referee-cap-${plan.planId}`}
++                    label="Friend: captions"
++                    value={draft.refereeCaptionCredits}
++                    min={0}
++                    max={1000}
++                    onChange={(v) => setDraft(plan.planId, { refereeCaptionCredits: v })}
++                  />
++                  <NumberField
++                    id={`referee-img-${plan.planId}`}
++                    label="Friend: images"
++                    value={draft.refereeImageCredits}
++                    min={0}
++                    max={1000}
++                    onChange={(v) => setDraft(plan.planId, { refereeImageCredits: v })}
++                  />
++                  <NumberField
++                    id={`cap-${plan.planId}`}
++                    label="Referral cap / code"
++                    value={draft.referralMaxRedemptions}
++                    min={1}
++                    max={10000}
++                    onChange={(v) => setDraft(plan.planId, { referralMaxRedemptions: v })}
++                  />
++                </div>
++              </div>
++            );
++          })
++        )}
++      </CardContent>
++    </Card>
++  );
++}
+diff --git a/artifacts/socialforge/src/pages/admin/plans-tab.tsx b/artifacts/socialforge/src/pages/admin/plans-tab.tsx
+index 549e28f..f294792 100644
+--- a/artifacts/socialforge/src/pages/admin/plans-tab.tsx
++++ b/artifacts/socialforge/src/pages/admin/plans-tab.tsx
+@@ -1,5 +1,6 @@
+ import { useState, useEffect } from "react";
+ import { RippleSpinner } from "@/components/ui/ripple-spinner";
++import { GamificationPlansCard } from "./gamification-plans-card";
+ import {
+   useListPlans,
+   useAdminUpdatePlan,
+@@ -942,6 +943,7 @@ export function PlansTab() {
+     <div className="space-y-8">
+       <PlansCard />
+       <CreditPacksCard />
++      <GamificationPlansCard />
+     </div>
+   );
+ }
+diff --git a/artifacts/socialforge/src/pages/studio.tsx b/artifacts/socialforge/src/pages/studio.tsx
+index fbc98e0..5cade99 100644
+--- a/artifacts/socialforge/src/pages/studio.tsx
++++ b/artifacts/socialforge/src/pages/studio.tsx
+@@ -49,6 +49,7 @@ import { Wand2, Image as ImageIcon, Save, Lightbulb, Link2, Layers, Globe, Exter
+ import { navigate } from "wouter/use-browser-location";
+ import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
+ import { CampaignPostCard, type GeneratedImage } from "@/components/campaign-post-card";
++import { GamificationCard } from "@/components/gamification-card";
+ import { VoiceNoteButton } from "@/components/voice-note-button";
+ import { LogoLoader } from "@/components/logo-loader";
+ import { track, trackFeatureUse } from "@/lib/analytics";
+@@ -1172,6 +1173,8 @@ export function StudioPage() {
+         )}
+       </div>
+ 
++      <GamificationCard />
++
+       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+         <div className="lg:col-span-5 space-y-6">
+           <Card className="border-border shadow-md">
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index 2caa851..9789a13 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -2571,6 +2571,130 @@ export interface SetVideoGenProviderKeyRequest {
+   apiKey: string;
+ }
+ 
++export interface RewardAmounts {
++  captionCredits: number;
++  imageCredits: number;
++  videoCredits: number;
++}
++
++export interface GamificationQuest {
++  id: string;
++  title: string;
++  description: string;
++  /** The underlying action has been done (server-verified). */
++  completed: boolean;
++  claimed: boolean;
++  /** Pass to POST /gamification/claim once completed. */
++  claimKey: string;
++  reward: RewardAmounts;
++}
++
++export interface GamificationStreakMilestone {
++  days: number;
++  reward: RewardAmounts;
++  reached: boolean;
++  claimed: boolean;
++  /**
++     * Null while no streak is running.
++     * @nullable
++     */
++  claimKey: string | null;
++}
++
++export type GamificationStateStreak = {
++  /** Consecutive days (UTC) with at least one generation. */
++  currentDays: number;
++  activeToday: boolean;
++  milestones: GamificationStreakMilestone[];
++};
++
++export interface GamificationState {
++  questsEnabled: boolean;
++  streaksEnabled: boolean;
++  referralsEnabled: boolean;
++  progressMeterEnabled: boolean;
++  quests: GamificationQuest[];
++  streak: GamificationStateStreak;
++}
++
++export interface ClaimGamificationRewardRequest {
++  /**
++     * A claimKey from GET /gamification.
++     * @minLength 1
++     * @maxLength 80
++     */
++  key: string;
++}
++
++export interface ClaimGamificationRewardResult {
++  ok: boolean;
++  granted: RewardAmounts;
++  credits: CreditBalances;
++}
++
++export interface ReferralInfo {
++  /** The personal invite code (share this). */
++  code: string;
++  /** What a new user gets for redeeming this code. */
++  refereeCaptionCredits: number;
++  refereeImageCredits: number;
++  /** What the owner currently earns per redemption. */
++  referrerCaptionCredits: number;
++  referrerImageCredits: number;
++  /** @nullable */
++  maxRedemptions: number | null;
++  redemptions: number;
++  captionCreditsEarned: number;
++  imageCreditsEarned: number;
++}
++
++export interface GamificationPlanSettingsView {
++  questsEnabled: boolean;
++  streaksEnabled: boolean;
++  referralsEnabled: boolean;
++  progressMeterEnabled: boolean;
++  /** Scales quest/streak rewards for this plan (100 = catalog amounts). */
++  rewardMultiplierPercent: number;
++  referrerCaptionCredits: number;
++  referrerImageCredits: number;
++  refereeCaptionCredits: number;
++  refereeImageCredits: number;
++  referralMaxRedemptions: number;
++}
++
++export interface AdminGamificationPlan {
++  planId: string;
++  planName: string;
++  /** False while the built-in defaults apply (no stored row). */
++  customized: boolean;
++  settings: GamificationPlanSettingsView;
++}
++
++export interface AdminUpdateGamificationPlanRequest {
++  questsEnabled: boolean;
++  streaksEnabled: boolean;
++  referralsEnabled: boolean;
++  progressMeterEnabled: boolean;
++  /**
++     * @minimum 0
++     * @maximum 1000
++     */
++  rewardMultiplierPercent: number;
++  /** @minimum 0 */
++  referrerCaptionCredits: number;
++  /** @minimum 0 */
++  referrerImageCredits: number;
++  /** @minimum 0 */
++  refereeCaptionCredits: number;
++  /** @minimum 0 */
++  refereeImageCredits: number;
++  /**
++     * @minimum 1
++     * @maximum 10000
++     */
++  referralMaxRedemptions: number;
++}
++
+ export interface TopicIdeasRequest {
+   /**
+      * The niche or topic area to brainstorm ideas for.
+@@ -3640,6 +3764,10 @@ export interface FeatureFlags {
+   aiSpend: boolean;
+   aiCostTracking: boolean;
+   videoGen: boolean;
++  quests: boolean;
++  streaks: boolean;
++  referrals: boolean;
++  progressMeter: boolean;
+ }
+ 
+ /**
+diff --git a/lib/api-client-react/src/generated/api.ts b/lib/api-client-react/src/generated/api.ts
+index be99d54..5fc28da 100644
+--- a/lib/api-client-react/src/generated/api.ts
++++ b/lib/api-client-react/src/generated/api.ts
+@@ -31,6 +31,7 @@ import type {
+   AdminExportAuditLogsParams,
+   AdminFeatureFlag,
+   AdminFeatureFlagInput,
++  AdminGamificationPlan,
+   AdminGetAiCostReportParams,
+   AdminGrantCredits200,
+   AdminListAuditLogsParams,
+@@ -38,6 +39,7 @@ import type {
+   AdminStats,
+   AdminSweepRunResult,
+   AdminTenant,
++  AdminUpdateGamificationPlanRequest,
+   AdsBudgetCaps,
+   AdsBudgetCapsInput,
+   AdsCampaignDetail,
+@@ -98,6 +100,8 @@ import type {
+   CaptionResult,
+   CarouselRequest,
+   CarouselResult,
++  ClaimGamificationRewardRequest,
++  ClaimGamificationRewardResult,
+   CompleteOnboardingInput,
+   ConnectedAccount,
+   ConsentAnalytics,
+@@ -117,6 +121,7 @@ import type {
+   FacebookCredentialInput,
+   FeatureFlags,
+   FunnelAnalytics,
++  GamificationState,
+   GetAcquisitionAnalyticsParams,
+   GetAdCampaignDetailParams,
+   GetAudienceAnalyticsParams,
+@@ -180,6 +185,7 @@ import type {
+   RazorpayAppCredentialInput,
+   RazorpayAppCredentialStatus,
+   RedeemPromoInput,
++  ReferralInfo,
+   ReliabilityAnalytics,
+   ResearchRequest,
+   ResearchResult,
+@@ -3534,6 +3540,224 @@ export const useAdminClearVideoGenProviderKey = <TError = ErrorType<ErrorEnvelop
+       return useMutation(getAdminClearVideoGenProviderKeyMutationOptions(options));
+     }
+ 
++export const getAdminListGamificationPlansUrl = () => {
++
++
++
++
++  return `/api/admin/gamification-plans`
++}
++
++/**
++ * @summary Gamification settings for every plan in the catalog (superadmin only)
++ */
++export const adminListGamificationPlans = async ( options?: RequestInit): Promise<AdminGamificationPlan[]> => {
++
++  return customFetch<AdminGamificationPlan[]>(getAdminListGamificationPlansUrl(),
++  {
++    ...options,
++    method: 'GET'
++
++
++  }
++);}
++
++
++
++
++
++export const getAdminListGamificationPlansQueryKey = () => {
++    return [
++    `/api/admin/gamification-plans`
++    ] as const;
++    }
++
++
++export const getAdminListGamificationPlansQueryOptions = <TData = Awaited<ReturnType<typeof adminListGamificationPlans>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListGamificationPlans>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++) => {
++
++const {query: queryOptions, request: requestOptions} = options ?? {};
++
++  const queryKey =  queryOptions?.queryKey ?? getAdminListGamificationPlansQueryKey();
++
++
++
++    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListGamificationPlans>>> = ({ signal }) => adminListGamificationPlans({ signal, ...requestOptions });
++
++
++
++
++
++   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListGamificationPlans>>, TError, TData> & { queryKey: QueryKey }
++}
++
++export type AdminListGamificationPlansQueryResult = NonNullable<Awaited<ReturnType<typeof adminListGamificationPlans>>>
++export type AdminListGamificationPlansQueryError = ErrorType<ErrorEnvelope>
++
++
++/**
++ * @summary Gamification settings for every plan in the catalog (superadmin only)
++ */
++
++export function useAdminListGamificationPlans<TData = Awaited<ReturnType<typeof adminListGamificationPlans>>, TError = ErrorType<ErrorEnvelope>>(
++  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListGamificationPlans>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++
++ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
++
++  const queryOptions = getAdminListGamificationPlansQueryOptions(options)
++
++  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
++
++  return withQueryKey(query, queryOptions.queryKey);
++}
++
++
++
++
++
++
++
++export const getAdminUpdateGamificationPlanUrl = (planId: string,) => {
++
++
++
++
++  return `/api/admin/gamification-plans/${planId}`
++}
++
++/**
++ * @summary Set one plan's gamification toggles and reward amounts (superadmin only)
++ */
++export const adminUpdateGamificationPlan = async (planId: string,
++    adminUpdateGamificationPlanRequest: AdminUpdateGamificationPlanRequest, options?: RequestInit): Promise<AdminGamificationPlan[]> => {
++
++  return customFetch<AdminGamificationPlan[]>(getAdminUpdateGamificationPlanUrl(planId),
++  {
++    ...options,
++    method: 'PUT',
++    headers: { 'Content-Type': 'application/json', ...options?.headers },
++    body: JSON.stringify(adminUpdateGamificationPlanRequest)
++  }
++);}
++
++
++
++
++export const getAdminUpdateGamificationPlanMutationOptions = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateGamificationPlan>>, TError,{planId: string;data: BodyType<AdminUpdateGamificationPlanRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateGamificationPlan>>, TError,{planId: string;data: BodyType<AdminUpdateGamificationPlanRequest>}, TContext> => {
++
++const mutationKey = ['adminUpdateGamificationPlan'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateGamificationPlan>>, {planId: string;data: BodyType<AdminUpdateGamificationPlanRequest>}> = (props) => {
++          const {planId,data} = props ?? {};
++
++          return  adminUpdateGamificationPlan(planId,data,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type AdminUpdateGamificationPlanMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateGamificationPlan>>>
++    export type AdminUpdateGamificationPlanMutationBody = BodyType<AdminUpdateGamificationPlanRequest>
++    export type AdminUpdateGamificationPlanMutationError = ErrorType<ErrorEnvelope>
++
++    /**
++ * @summary Set one plan's gamification toggles and reward amounts (superadmin only)
++ */
++export const useAdminUpdateGamificationPlan = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateGamificationPlan>>, TError,{planId: string;data: BodyType<AdminUpdateGamificationPlanRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof adminUpdateGamificationPlan>>,
++        TError,
++        {planId: string;data: BodyType<AdminUpdateGamificationPlanRequest>},
++        TContext
++      > => {
++      return useMutation(getAdminUpdateGamificationPlanMutationOptions(options));
++    }
++
++export const getAdminResetGamificationPlanUrl = (planId: string,) => {
++
++
++
++
++  return `/api/admin/gamification-plans/${planId}`
++}
++
++/**
++ * @summary Reset one plan's gamification settings to the defaults (superadmin only)
++ */
++export const adminResetGamificationPlan = async (planId: string, options?: RequestInit): Promise<AdminGamificationPlan[]> => {
++
++  return customFetch<AdminGamificationPlan[]>(getAdminResetGamificationPlanUrl(planId),
++  {
++    ...options,
++    method: 'DELETE'
++
++
++  }
++);}
++
++
++
++
++export const getAdminResetGamificationPlanMutationOptions = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminResetGamificationPlan>>, TError,{planId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof adminResetGamificationPlan>>, TError,{planId: string}, TContext> => {
++
++const mutationKey = ['adminResetGamificationPlan'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminResetGamificationPlan>>, {planId: string}> = (props) => {
++          const {planId} = props ?? {};
++
++          return  adminResetGamificationPlan(planId,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type AdminResetGamificationPlanMutationResult = NonNullable<Awaited<ReturnType<typeof adminResetGamificationPlan>>>
++
++    export type AdminResetGamificationPlanMutationError = ErrorType<ErrorEnvelope>
++
++    /**
++ * @summary Reset one plan's gamification settings to the defaults (superadmin only)
++ */
++export const useAdminResetGamificationPlan = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminResetGamificationPlan>>, TError,{planId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof adminResetGamificationPlan>>,
++        TError,
++        {planId: string},
++        TContext
++      > => {
++      return useMutation(getAdminResetGamificationPlanMutationOptions(options));
++    }
++
+ export const getGetAiSpendRatesUrl = () => {
+ 
+ 
+@@ -10691,6 +10915,230 @@ export const useImportGoogleDriveFiles = <TError = ErrorType<ErrorEnvelope>,
+       return useMutation(getImportGoogleDriveFilesMutationOptions(options));
+     }
+ 
++export const getGetGamificationUrl = () => {
++
++
++
++
++  return `/api/gamification`
++}
++
++/**
++ * @summary Quests, streak state, and gamification enablement for this workspace
++ */
++export const getGamification = async ( options?: RequestInit): Promise<GamificationState> => {
++
++  return customFetch<GamificationState>(getGetGamificationUrl(),
++  {
++    ...options,
++    method: 'GET'
++
++
++  }
++);}
++
++
++
++
++
++export const getGetGamificationQueryKey = () => {
++    return [
++    `/api/gamification`
++    ] as const;
++    }
++
++
++export const getGetGamificationQueryOptions = <TData = Awaited<ReturnType<typeof getGamification>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGamification>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++) => {
++
++const {query: queryOptions, request: requestOptions} = options ?? {};
++
++  const queryKey =  queryOptions?.queryKey ?? getGetGamificationQueryKey();
++
++
++
++    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGamification>>> = ({ signal }) => getGamification({ signal, ...requestOptions });
++
++
++
++
++
++   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGamification>>, TError, TData> & { queryKey: QueryKey }
++}
++
++export type GetGamificationQueryResult = NonNullable<Awaited<ReturnType<typeof getGamification>>>
++export type GetGamificationQueryError = ErrorType<unknown>
++
++
++/**
++ * @summary Quests, streak state, and gamification enablement for this workspace
++ */
++
++export function useGetGamification<TData = Awaited<ReturnType<typeof getGamification>>, TError = ErrorType<unknown>>(
++  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGamification>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++
++ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
++
++  const queryOptions = getGetGamificationQueryOptions(options)
++
++  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
++
++  return withQueryKey(query, queryOptions.queryKey);
++}
++
++
++
++
++
++
++
++export const getClaimGamificationRewardUrl = () => {
++
++
++
++
++  return `/api/gamification/claim`
++}
++
++/**
++ * @summary Claim a completed quest or reached streak milestone reward
++ */
++export const claimGamificationReward = async (claimGamificationRewardRequest: ClaimGamificationRewardRequest, options?: RequestInit): Promise<ClaimGamificationRewardResult> => {
++
++  return customFetch<ClaimGamificationRewardResult>(getClaimGamificationRewardUrl(),
++  {
++    ...options,
++    method: 'POST',
++    headers: { 'Content-Type': 'application/json', ...options?.headers },
++    body: JSON.stringify(claimGamificationRewardRequest)
++  }
++);}
++
++
++
++
++export const getClaimGamificationRewardMutationOptions = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof claimGamificationReward>>, TError,{data: BodyType<ClaimGamificationRewardRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof claimGamificationReward>>, TError,{data: BodyType<ClaimGamificationRewardRequest>}, TContext> => {
++
++const mutationKey = ['claimGamificationReward'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof claimGamificationReward>>, {data: BodyType<ClaimGamificationRewardRequest>}> = (props) => {
++          const {data} = props ?? {};
++
++          return  claimGamificationReward(data,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type ClaimGamificationRewardMutationResult = NonNullable<Awaited<ReturnType<typeof claimGamificationReward>>>
++    export type ClaimGamificationRewardMutationBody = BodyType<ClaimGamificationRewardRequest>
++    export type ClaimGamificationRewardMutationError = ErrorType<ErrorEnvelope>
++
++    /**
++ * @summary Claim a completed quest or reached streak milestone reward
++ */
++export const useClaimGamificationReward = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof claimGamificationReward>>, TError,{data: BodyType<ClaimGamificationRewardRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof claimGamificationReward>>,
++        TError,
++        {data: BodyType<ClaimGamificationRewardRequest>},
++        TContext
++      > => {
++      return useMutation(getClaimGamificationRewardMutationOptions(options));
++    }
++
++export const getGetReferralInfoUrl = () => {
++
++
++
++
++  return `/api/gamification/referral`
++}
++
++/**
++ * @summary This workspace's personal invite code and its performance
++ */
++export const getReferralInfo = async ( options?: RequestInit): Promise<ReferralInfo> => {
++
++  return customFetch<ReferralInfo>(getGetReferralInfoUrl(),
++  {
++    ...options,
++    method: 'GET'
++
++
++  }
++);}
++
++
++
++
++
++export const getGetReferralInfoQueryKey = () => {
++    return [
++    `/api/gamification/referral`
++    ] as const;
++    }
++
++
++export const getGetReferralInfoQueryOptions = <TData = Awaited<ReturnType<typeof getReferralInfo>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getReferralInfo>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++) => {
++
++const {query: queryOptions, request: requestOptions} = options ?? {};
++
++  const queryKey =  queryOptions?.queryKey ?? getGetReferralInfoQueryKey();
++
++
++
++    const queryFn: QueryFunction<Awaited<ReturnType<typeof getReferralInfo>>> = ({ signal }) => getReferralInfo({ signal, ...requestOptions });
++
++
++
++
++
++   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getReferralInfo>>, TError, TData> & { queryKey: QueryKey }
++}
++
++export type GetReferralInfoQueryResult = NonNullable<Awaited<ReturnType<typeof getReferralInfo>>>
++export type GetReferralInfoQueryError = ErrorType<ErrorEnvelope>
++
++
++/**
++ * @summary This workspace's personal invite code and its performance
++ */
++
++export function useGetReferralInfo<TData = Awaited<ReturnType<typeof getReferralInfo>>, TError = ErrorType<ErrorEnvelope>>(
++  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getReferralInfo>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++
++ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
++
++  const queryOptions = getGetReferralInfoQueryOptions(options)
++
++  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
++
++  return withQueryKey(query, queryOptions.queryKey);
++}
++
++
++
++
++
++
++
+ export const getGetYoutubeAuthUrlUrl = () => {
+ 
+ 
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index 55cc773..63253a1 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -22,6 +22,8 @@ tags:
+     description: AI caption, image, and video generation.
+   - name: google-drive
+     description: Google Drive photo import for the Video Studio.
++  - name: gamification
++    description: Quests, streaks, and referral credits.
+   - name: schedules
+     description: Scheduled posts queue.
+   - name: accounts
+@@ -1282,6 +1284,89 @@ paths:
+             application/json:
+               schema:
+                 $ref: "#/components/schemas/ErrorEnvelope"
++  /admin/gamification-plans:
++    get:
++      operationId: adminListGamificationPlans
++      tags: [admin]
++      summary: Gamification settings for every plan in the catalog (superadmin only)
++      responses:
++        "200":
++          description: Per-plan gamification settings (defaults when not customized)
++          content:
++            application/json:
++              schema:
++                type: array
++                items:
++                  $ref: "#/components/schemas/AdminGamificationPlan"
++        "403":
++          description: Forbidden
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++  /admin/gamification-plans/{planId}:
++    parameters:
++      - name: planId
++        in: path
++        required: true
++        schema:
++          type: string
++    put:
++      operationId: adminUpdateGamificationPlan
++      tags: [admin]
++      summary: Set one plan's gamification toggles and reward amounts (superadmin only)
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              $ref: "#/components/schemas/AdminUpdateGamificationPlanRequest"
++      responses:
++        "200":
++          description: The full per-plan list after the update
++          content:
++            application/json:
++              schema:
++                type: array
++                items:
++                  $ref: "#/components/schemas/AdminGamificationPlan"
++        "400":
++          description: Invalid input
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++        "403":
++          description: Forbidden
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++        "404":
++          description: Unknown plan
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++    delete:
++      operationId: adminResetGamificationPlan
++      tags: [admin]
++      summary: Reset one plan's gamification settings to the defaults (superadmin only)
++      responses:
++        "200":
++          description: The full per-plan list after the reset
++          content:
++            application/json:
++              schema:
++                type: array
++                items:
++                  $ref: "#/components/schemas/AdminGamificationPlan"
++        "403":
++          description: Forbidden
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
+   /ai-spend/rates:
+     get:
+       operationId: getAiSpendRates
+@@ -3832,6 +3917,72 @@ paths:
+             application/json:
+               schema:
+                 $ref: "#/components/schemas/ErrorEnvelope"
++  /gamification:
++    get:
++      operationId: getGamification
++      tags: [gamification]
++      summary: Quests, streak state, and gamification enablement for this workspace
++      responses:
++        "200":
++          description: Gamification state
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/GamificationState"
++  /gamification/claim:
++    post:
++      operationId: claimGamificationReward
++      tags: [gamification]
++      summary: Claim a completed quest or reached streak milestone reward
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              $ref: "#/components/schemas/ClaimGamificationRewardRequest"
++      responses:
++        "200":
++          description: Reward granted
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ClaimGamificationRewardResult"
++        "400":
++          description: Unknown key or achievement not completed
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++        "403":
++          description: Feature disabled
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++        "409":
++          description: Already claimed
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++  /gamification/referral:
++    get:
++      operationId: getReferralInfo
++      tags: [gamification]
++      summary: This workspace's personal invite code and its performance
++      responses:
++        "200":
++          description: Referral info (the code is minted on first ask)
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ReferralInfo"
++        "403":
++          description: Referrals disabled
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
+   /youtube/auth/url:
+     get:
+       operationId: getYoutubeAuthUrl
+@@ -9370,6 +9521,237 @@ components:
+           type: string
+           minLength: 1
+           description: The provider API key (stored encrypted, never returned).
++    RewardAmounts:
++      type: object
++      required: [captionCredits, imageCredits, videoCredits]
++      properties:
++        captionCredits:
++          type: integer
++        imageCredits:
++          type: integer
++        videoCredits:
++          type: integer
++    GamificationQuest:
++      type: object
++      required: [id, title, description, completed, claimed, claimKey, reward]
++      properties:
++        id:
++          type: string
++        title:
++          type: string
++        description:
++          type: string
++        completed:
++          type: boolean
++          description: The underlying action has been done (server-verified).
++        claimed:
++          type: boolean
++        claimKey:
++          type: string
++          description: Pass to POST /gamification/claim once completed.
++        reward:
++          $ref: "#/components/schemas/RewardAmounts"
++    GamificationStreakMilestone:
++      type: object
++      required: [days, reward, reached, claimed, claimKey]
++      properties:
++        days:
++          type: integer
++        reward:
++          $ref: "#/components/schemas/RewardAmounts"
++        reached:
++          type: boolean
++        claimed:
++          type: boolean
++        claimKey:
++          type: ["string", "null"]
++          description: Null while no streak is running.
++    GamificationState:
++      type: object
++      required:
++        [
++          questsEnabled,
++          streaksEnabled,
++          referralsEnabled,
++          progressMeterEnabled,
++          quests,
++          streak,
++        ]
++      properties:
++        questsEnabled:
++          type: boolean
++        streaksEnabled:
++          type: boolean
++        referralsEnabled:
++          type: boolean
++        progressMeterEnabled:
++          type: boolean
++        quests:
++          type: array
++          items:
++            $ref: "#/components/schemas/GamificationQuest"
++        streak:
++          type: object
++          required: [currentDays, activeToday, milestones]
++          properties:
++            currentDays:
++              type: integer
++              description: Consecutive days (UTC) with at least one generation.
++            activeToday:
++              type: boolean
++            milestones:
++              type: array
++              items:
++                $ref: "#/components/schemas/GamificationStreakMilestone"
++    ClaimGamificationRewardRequest:
++      type: object
++      required: [key]
++      properties:
++        key:
++          type: string
++          minLength: 1
++          maxLength: 80
++          description: A claimKey from GET /gamification.
++    ClaimGamificationRewardResult:
++      type: object
++      required: [ok, granted, credits]
++      properties:
++        ok:
++          type: boolean
++        granted:
++          $ref: "#/components/schemas/RewardAmounts"
++        credits:
++          $ref: "#/components/schemas/CreditBalances"
++    ReferralInfo:
++      type: object
++      required:
++        [
++          code,
++          refereeCaptionCredits,
++          refereeImageCredits,
++          referrerCaptionCredits,
++          referrerImageCredits,
++          maxRedemptions,
++          redemptions,
++          captionCreditsEarned,
++          imageCreditsEarned,
++        ]
++      properties:
++        code:
++          type: string
++          description: The personal invite code (share this).
++        refereeCaptionCredits:
++          type: integer
++          description: What a new user gets for redeeming this code.
++        refereeImageCredits:
++          type: integer
++        referrerCaptionCredits:
++          type: integer
++          description: What the owner currently earns per redemption.
++        referrerImageCredits:
++          type: integer
++        maxRedemptions:
++          type: ["integer", "null"]
++        redemptions:
++          type: integer
++        captionCreditsEarned:
++          type: integer
++        imageCreditsEarned:
++          type: integer
++    GamificationPlanSettingsView:
++      type: object
++      required:
++        [
++          questsEnabled,
++          streaksEnabled,
++          referralsEnabled,
++          progressMeterEnabled,
++          rewardMultiplierPercent,
++          referrerCaptionCredits,
++          referrerImageCredits,
++          refereeCaptionCredits,
++          refereeImageCredits,
++          referralMaxRedemptions,
++        ]
++      properties:
++        questsEnabled:
++          type: boolean
++        streaksEnabled:
++          type: boolean
++        referralsEnabled:
++          type: boolean
++        progressMeterEnabled:
++          type: boolean
++        rewardMultiplierPercent:
++          type: integer
++          description: Scales quest/streak rewards for this plan (100 = catalog amounts).
++        referrerCaptionCredits:
++          type: integer
++        referrerImageCredits:
++          type: integer
++        refereeCaptionCredits:
++          type: integer
++        refereeImageCredits:
++          type: integer
++        referralMaxRedemptions:
++          type: integer
++    AdminGamificationPlan:
++      type: object
++      required: [planId, planName, customized, settings]
++      properties:
++        planId:
++          type: string
++        planName:
++          type: string
++        customized:
++          type: boolean
++          description: False while the built-in defaults apply (no stored row).
++        settings:
++          $ref: "#/components/schemas/GamificationPlanSettingsView"
++    AdminUpdateGamificationPlanRequest:
++      type: object
++      required:
++        [
++          questsEnabled,
++          streaksEnabled,
++          referralsEnabled,
++          progressMeterEnabled,
++          rewardMultiplierPercent,
++          referrerCaptionCredits,
++          referrerImageCredits,
++          refereeCaptionCredits,
++          refereeImageCredits,
++          referralMaxRedemptions,
++        ]
++      properties:
++        questsEnabled:
++          type: boolean
++        streaksEnabled:
++          type: boolean
++        referralsEnabled:
++          type: boolean
++        progressMeterEnabled:
++          type: boolean
++        rewardMultiplierPercent:
++          type: integer
++          minimum: 0
++          maximum: 1000
++        referrerCaptionCredits:
++          type: integer
++          minimum: 0
++        referrerImageCredits:
++          type: integer
++          minimum: 0
++        refereeCaptionCredits:
++          type: integer
++          minimum: 0
++        refereeImageCredits:
++          type: integer
++          minimum: 0
++        referralMaxRedemptions:
++          type: integer
++          minimum: 1
++          maximum: 10000
+ 
+     TopicIdeasRequest:
+       type: object
+@@ -10800,6 +11182,10 @@ components:
+           aiSpend,
+           aiCostTracking,
+           videoGen,
++          quests,
++          streaks,
++          referrals,
++          progressMeter,
+         ]
+       properties:
+         aiStudio:
+@@ -10834,6 +11220,14 @@ components:
+           type: boolean
+         videoGen:
+           type: boolean
++        quests:
++          type: boolean
++        streaks:
++          type: boolean
++        referrals:
++          type: boolean
++        progressMeter:
++          type: boolean
+     AiSpendSettingsView:
+       type: object
+       description: Platform-wide "AI amount spent" display configuration (superadmin).
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index 00d6e79..1f36b56 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -84,7 +84,11 @@ export const ListFeatureFlagsResponse = zod.object({
+   "carousel": zod.boolean(),
+   "aiSpend": zod.boolean(),
+   "aiCostTracking": zod.boolean(),
+-  "videoGen": zod.boolean()
++  "videoGen": zod.boolean(),
++  "quests": zod.boolean(),
++  "streaks": zod.boolean(),
++  "referrals": zod.boolean(),
++  "progressMeter": zod.boolean()
+ }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
+ 
+ 
+@@ -1242,6 +1246,111 @@ export const AdminClearVideoGenProviderKeyResponse = zod.object({
+ })
+ 
+ 
++/**
++ * @summary Gamification settings for every plan in the catalog (superadmin only)
++ */
++export const AdminListGamificationPlansResponseItem = zod.object({
++  "planId": zod.string(),
++  "planName": zod.string(),
++  "customized": zod.boolean().describe('False while the built-in defaults apply (no stored row).'),
++  "settings": zod.object({
++  "questsEnabled": zod.boolean(),
++  "streaksEnabled": zod.boolean(),
++  "referralsEnabled": zod.boolean(),
++  "progressMeterEnabled": zod.boolean(),
++  "rewardMultiplierPercent": zod.number().describe('Scales quest\/streak rewards for this plan (100 = catalog amounts).'),
++  "referrerCaptionCredits": zod.number(),
++  "referrerImageCredits": zod.number(),
++  "refereeCaptionCredits": zod.number(),
++  "refereeImageCredits": zod.number(),
++  "referralMaxRedemptions": zod.number()
++})
++})
++export const AdminListGamificationPlansResponse = zod.array(AdminListGamificationPlansResponseItem)
++
++
++/**
++ * @summary Set one plan's gamification toggles and reward amounts (superadmin only)
++ */
++export const AdminUpdateGamificationPlanParams = zod.object({
++  "planId": zod.coerce.string()
++})
++
++export const adminUpdateGamificationPlanBodyRewardMultiplierPercentMin = 0;
++export const adminUpdateGamificationPlanBodyRewardMultiplierPercentMax = 1000;
++
++export const adminUpdateGamificationPlanBodyReferrerCaptionCreditsMin = 0;
++
++export const adminUpdateGamificationPlanBodyReferrerImageCreditsMin = 0;
++
++export const adminUpdateGamificationPlanBodyRefereeCaptionCreditsMin = 0;
++
++export const adminUpdateGamificationPlanBodyRefereeImageCreditsMin = 0;
++
++export const adminUpdateGamificationPlanBodyReferralMaxRedemptionsMax = 10000;
++
++
++
++export const AdminUpdateGamificationPlanBody = zod.object({
++  "questsEnabled": zod.boolean(),
++  "streaksEnabled": zod.boolean(),
++  "referralsEnabled": zod.boolean(),
++  "progressMeterEnabled": zod.boolean(),
++  "rewardMultiplierPercent": zod.number().min(adminUpdateGamificationPlanBodyRewardMultiplierPercentMin).max(adminUpdateGamificationPlanBodyRewardMultiplierPercentMax),
++  "referrerCaptionCredits": zod.number().min(adminUpdateGamificationPlanBodyReferrerCaptionCreditsMin),
++  "referrerImageCredits": zod.number().min(adminUpdateGamificationPlanBodyReferrerImageCreditsMin),
++  "refereeCaptionCredits": zod.number().min(adminUpdateGamificationPlanBodyRefereeCaptionCreditsMin),
++  "refereeImageCredits": zod.number().min(adminUpdateGamificationPlanBodyRefereeImageCreditsMin),
++  "referralMaxRedemptions": zod.number().min(1).max(adminUpdateGamificationPlanBodyReferralMaxRedemptionsMax)
++})
++
++export const AdminUpdateGamificationPlanResponseItem = zod.object({
++  "planId": zod.string(),
++  "planName": zod.string(),
++  "customized": zod.boolean().describe('False while the built-in defaults apply (no stored row).'),
++  "settings": zod.object({
++  "questsEnabled": zod.boolean(),
++  "streaksEnabled": zod.boolean(),
++  "referralsEnabled": zod.boolean(),
++  "progressMeterEnabled": zod.boolean(),
++  "rewardMultiplierPercent": zod.number().describe('Scales quest\/streak rewards for this plan (100 = catalog amounts).'),
++  "referrerCaptionCredits": zod.number(),
++  "referrerImageCredits": zod.number(),
++  "refereeCaptionCredits": zod.number(),
++  "refereeImageCredits": zod.number(),
++  "referralMaxRedemptions": zod.number()
++})
++})
++export const AdminUpdateGamificationPlanResponse = zod.array(AdminUpdateGamificationPlanResponseItem)
++
++
++/**
++ * @summary Reset one plan's gamification settings to the defaults (superadmin only)
++ */
++export const AdminResetGamificationPlanParams = zod.object({
++  "planId": zod.coerce.string()
++})
++
++export const AdminResetGamificationPlanResponseItem = zod.object({
++  "planId": zod.string(),
++  "planName": zod.string(),
++  "customized": zod.boolean().describe('False while the built-in defaults apply (no stored row).'),
++  "settings": zod.object({
++  "questsEnabled": zod.boolean(),
++  "streaksEnabled": zod.boolean(),
++  "referralsEnabled": zod.boolean(),
++  "progressMeterEnabled": zod.boolean(),
++  "rewardMultiplierPercent": zod.number().describe('Scales quest\/streak rewards for this plan (100 = catalog amounts).'),
++  "referrerCaptionCredits": zod.number(),
++  "referrerImageCredits": zod.number(),
++  "refereeCaptionCredits": zod.number(),
++  "refereeImageCredits": zod.number(),
++  "referralMaxRedemptions": zod.number()
++})
++})
++export const AdminResetGamificationPlanResponse = zod.array(AdminResetGamificationPlanResponseItem)
++
++
+ /**
+  * @summary Effective per-caption/per-image display amounts (fee included)
+  */
+@@ -5498,6 +5607,87 @@ export const ImportGoogleDriveFilesResponse = zod.object({
+ })
+ 
+ 
++/**
++ * @summary Quests, streak state, and gamification enablement for this workspace
++ */
++export const GetGamificationResponse = zod.object({
++  "questsEnabled": zod.boolean(),
++  "streaksEnabled": zod.boolean(),
++  "referralsEnabled": zod.boolean(),
++  "progressMeterEnabled": zod.boolean(),
++  "quests": zod.array(zod.object({
++  "id": zod.string(),
++  "title": zod.string(),
++  "description": zod.string(),
++  "completed": zod.boolean().describe('The underlying action has been done (server-verified).'),
++  "claimed": zod.boolean(),
++  "claimKey": zod.string().describe('Pass to POST \/gamification\/claim once completed.'),
++  "reward": zod.object({
++  "captionCredits": zod.number(),
++  "imageCredits": zod.number(),
++  "videoCredits": zod.number()
++})
++})),
++  "streak": zod.object({
++  "currentDays": zod.number().describe('Consecutive days (UTC) with at least one generation.'),
++  "activeToday": zod.boolean(),
++  "milestones": zod.array(zod.object({
++  "days": zod.number(),
++  "reward": zod.object({
++  "captionCredits": zod.number(),
++  "imageCredits": zod.number(),
++  "videoCredits": zod.number()
++}),
++  "reached": zod.boolean(),
++  "claimed": zod.boolean(),
++  "claimKey": zod.string().nullable().describe('Null while no streak is running.')
++}))
++})
++})
++
++
++/**
++ * @summary Claim a completed quest or reached streak milestone reward
++ */
++export const claimGamificationRewardBodyKeyMax = 80;
++
++
++
++export const ClaimGamificationRewardBody = zod.object({
++  "key": zod.string().min(1).max(claimGamificationRewardBodyKeyMax).describe('A claimKey from GET \/gamification.')
++})
++
++export const ClaimGamificationRewardResponse = zod.object({
++  "ok": zod.boolean(),
++  "granted": zod.object({
++  "captionCredits": zod.number(),
++  "imageCredits": zod.number(),
++  "videoCredits": zod.number()
++}),
++  "credits": zod.object({
++  "captionCredits": zod.number(),
++  "imageCredits": zod.number(),
++  "videoCredits": zod.number().optional().describe('Prepaid AI video generation credits.')
++})
++})
++
++
++/**
++ * @summary This workspace's personal invite code and its performance
++ */
++export const GetReferralInfoResponse = zod.object({
++  "code": zod.string().describe('The personal invite code (share this).'),
++  "refereeCaptionCredits": zod.number().describe('What a new user gets for redeeming this code.'),
++  "refereeImageCredits": zod.number(),
++  "referrerCaptionCredits": zod.number().describe('What the owner currently earns per redemption.'),
++  "referrerImageCredits": zod.number(),
++  "maxRedemptions": zod.number().nullable(),
++  "redemptions": zod.number(),
++  "captionCreditsEarned": zod.number(),
++  "imageCreditsEarned": zod.number()
++})
++
++
+ /**
+  * @summary Get the Google OAuth authorization URL to begin connecting YouTube
+  */
+diff --git a/lib/api-zod/src/generated/types/adminGamificationPlan.ts b/lib/api-zod/src/generated/types/adminGamificationPlan.ts
+new file mode 100644
+index 0000000..84c824c
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/adminGamificationPlan.ts
+@@ -0,0 +1,16 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { GamificationPlanSettingsView } from './gamificationPlanSettingsView';
++
++export interface AdminGamificationPlan {
++  planId: string;
++  planName: string;
++  /** False while the built-in defaults apply (no stored row). */
++  customized: boolean;
++  settings: GamificationPlanSettingsView;
++}
+diff --git a/lib/api-zod/src/generated/types/adminUpdateGamificationPlanRequest.ts b/lib/api-zod/src/generated/types/adminUpdateGamificationPlanRequest.ts
+new file mode 100644
+index 0000000..859a8cb
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/adminUpdateGamificationPlanRequest.ts
+@@ -0,0 +1,32 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface AdminUpdateGamificationPlanRequest {
++  questsEnabled: boolean;
++  streaksEnabled: boolean;
++  referralsEnabled: boolean;
++  progressMeterEnabled: boolean;
++  /**
++     * @minimum 0
++     * @maximum 1000
++     */
++  rewardMultiplierPercent: number;
++  /** @minimum 0 */
++  referrerCaptionCredits: number;
++  /** @minimum 0 */
++  referrerImageCredits: number;
++  /** @minimum 0 */
++  refereeCaptionCredits: number;
++  /** @minimum 0 */
++  refereeImageCredits: number;
++  /**
++     * @minimum 1
++     * @maximum 10000
++     */
++  referralMaxRedemptions: number;
++}
+diff --git a/lib/api-zod/src/generated/types/claimGamificationRewardRequest.ts b/lib/api-zod/src/generated/types/claimGamificationRewardRequest.ts
+new file mode 100644
+index 0000000..226eeb7
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/claimGamificationRewardRequest.ts
+@@ -0,0 +1,16 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface ClaimGamificationRewardRequest {
++  /**
++     * A claimKey from GET /gamification.
++     * @minLength 1
++     * @maxLength 80
++     */
++  key: string;
++}
+diff --git a/lib/api-zod/src/generated/types/claimGamificationRewardResult.ts b/lib/api-zod/src/generated/types/claimGamificationRewardResult.ts
+new file mode 100644
+index 0000000..d4a8d7f
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/claimGamificationRewardResult.ts
+@@ -0,0 +1,15 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { CreditBalances } from './creditBalances';
++import type { RewardAmounts } from './rewardAmounts';
++
++export interface ClaimGamificationRewardResult {
++  ok: boolean;
++  granted: RewardAmounts;
++  credits: CreditBalances;
++}
+diff --git a/lib/api-zod/src/generated/types/featureFlags.ts b/lib/api-zod/src/generated/types/featureFlags.ts
+index 440ee6b..7771cf4 100644
+--- a/lib/api-zod/src/generated/types/featureFlags.ts
++++ b/lib/api-zod/src/generated/types/featureFlags.ts
+@@ -26,4 +26,8 @@ export interface FeatureFlags {
+   aiSpend: boolean;
+   aiCostTracking: boolean;
+   videoGen: boolean;
++  quests: boolean;
++  streaks: boolean;
++  referrals: boolean;
++  progressMeter: boolean;
+ }
+diff --git a/lib/api-zod/src/generated/types/gamificationPlanSettingsView.ts b/lib/api-zod/src/generated/types/gamificationPlanSettingsView.ts
+new file mode 100644
+index 0000000..7a082f6
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/gamificationPlanSettingsView.ts
+@@ -0,0 +1,21 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface GamificationPlanSettingsView {
++  questsEnabled: boolean;
++  streaksEnabled: boolean;
++  referralsEnabled: boolean;
++  progressMeterEnabled: boolean;
++  /** Scales quest/streak rewards for this plan (100 = catalog amounts). */
++  rewardMultiplierPercent: number;
++  referrerCaptionCredits: number;
++  referrerImageCredits: number;
++  refereeCaptionCredits: number;
++  refereeImageCredits: number;
++  referralMaxRedemptions: number;
++}
+diff --git a/lib/api-zod/src/generated/types/gamificationQuest.ts b/lib/api-zod/src/generated/types/gamificationQuest.ts
+new file mode 100644
+index 0000000..09be317
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/gamificationQuest.ts
+@@ -0,0 +1,20 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { RewardAmounts } from './rewardAmounts';
++
++export interface GamificationQuest {
++  id: string;
++  title: string;
++  description: string;
++  /** The underlying action has been done (server-verified). */
++  completed: boolean;
++  claimed: boolean;
++  /** Pass to POST /gamification/claim once completed. */
++  claimKey: string;
++  reward: RewardAmounts;
++}
+diff --git a/lib/api-zod/src/generated/types/gamificationState.ts b/lib/api-zod/src/generated/types/gamificationState.ts
+new file mode 100644
+index 0000000..4b258b8
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/gamificationState.ts
+@@ -0,0 +1,18 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { GamificationQuest } from './gamificationQuest';
++import type { GamificationStateStreak } from './gamificationStateStreak';
++
++export interface GamificationState {
++  questsEnabled: boolean;
++  streaksEnabled: boolean;
++  referralsEnabled: boolean;
++  progressMeterEnabled: boolean;
++  quests: GamificationQuest[];
++  streak: GamificationStateStreak;
++}
+diff --git a/lib/api-zod/src/generated/types/gamificationStateStreak.ts b/lib/api-zod/src/generated/types/gamificationStateStreak.ts
+new file mode 100644
+index 0000000..e7c55b8
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/gamificationStateStreak.ts
+@@ -0,0 +1,15 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { GamificationStreakMilestone } from './gamificationStreakMilestone';
++
++export type GamificationStateStreak = {
++  /** Consecutive days (UTC) with at least one generation. */
++  currentDays: number;
++  activeToday: boolean;
++  milestones: GamificationStreakMilestone[];
++};
+diff --git a/lib/api-zod/src/generated/types/gamificationStreakMilestone.ts b/lib/api-zod/src/generated/types/gamificationStreakMilestone.ts
+new file mode 100644
+index 0000000..6690dd4
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/gamificationStreakMilestone.ts
+@@ -0,0 +1,20 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { RewardAmounts } from './rewardAmounts';
++
++export interface GamificationStreakMilestone {
++  days: number;
++  reward: RewardAmounts;
++  reached: boolean;
++  claimed: boolean;
++  /**
++     * Null while no streak is running.
++     * @nullable
++     */
++  claimKey: string | null;
++}
+diff --git a/lib/api-zod/src/generated/types/index.ts b/lib/api-zod/src/generated/types/index.ts
+index 99b221d..cfb5a7e 100644
+--- a/lib/api-zod/src/generated/types/index.ts
++++ b/lib/api-zod/src/generated/types/index.ts
+@@ -23,6 +23,7 @@ export * from './adminExportAuditLogsAction';
+ export * from './adminExportAuditLogsParams';
+ export * from './adminFeatureFlag';
+ export * from './adminFeatureFlagInput';
++export * from './adminGamificationPlan';
+ export * from './adminGetAiCostReportParams';
+ export * from './adminGrantCredits200';
+ export * from './adminListAuditLogsAction';
+@@ -36,6 +37,7 @@ export * from './adminStatsTenantsByPlan';
+ export * from './adminSweepRunResult';
+ export * from './adminTenant';
+ export * from './adminTenantCounts';
++export * from './adminUpdateGamificationPlanRequest';
+ export * from './adsAd';
+ export * from './adsAdSet';
+ export * from './adsBudgetCaps';
+@@ -153,6 +155,8 @@ export * from './captionResult';
+ export * from './carouselRequest';
+ export * from './carouselResult';
+ export * from './carouselSlide';
++export * from './claimGamificationRewardRequest';
++export * from './claimGamificationRewardResult';
+ export * from './completeOnboardingInput';
+ export * from './connectedAccount';
+ export * from './consentAnalytics';
+@@ -190,6 +194,11 @@ export * from './featureFlags';
+ export * from './funnelAnalytics';
+ export * from './funnelAnalyticsFunnelItem';
+ export * from './funnelAnalyticsOnboarding';
++export * from './gamificationPlanSettingsView';
++export * from './gamificationQuest';
++export * from './gamificationState';
++export * from './gamificationStateStreak';
++export * from './gamificationStreakMilestone';
+ export * from './getAcquisitionAnalyticsParams';
+ export * from './getAdCampaignDetailParams';
+ export * from './getAudienceAnalyticsParams';
+@@ -280,6 +289,7 @@ export * from './pushTokenUnregisterInput';
+ export * from './razorpayAppCredentialInput';
+ export * from './razorpayAppCredentialStatus';
+ export * from './redeemPromoInput';
++export * from './referralInfo';
+ export * from './reliabilityAnalytics';
+ export * from './reliabilityAnalyticsApiLatencyItem';
+ export * from './reliabilityAnalyticsStartupItem';
+@@ -294,6 +304,7 @@ export * from './resolveSelectionResultStatus';
+ export * from './revenueAnalytics';
+ export * from './revenueAnalyticsByCreditPackItem';
+ export * from './revenueAnalyticsByPlanItem';
++export * from './rewardAmounts';
+ export * from './saveVideoToLibraryRequest';
+ export * from './scheduledPost';
+ export * from './scheduledPostStatus';
+diff --git a/lib/api-zod/src/generated/types/referralInfo.ts b/lib/api-zod/src/generated/types/referralInfo.ts
+new file mode 100644
+index 0000000..be480b1
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/referralInfo.ts
+@@ -0,0 +1,23 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface ReferralInfo {
++  /** The personal invite code (share this). */
++  code: string;
++  /** What a new user gets for redeeming this code. */
++  refereeCaptionCredits: number;
++  refereeImageCredits: number;
++  /** What the owner currently earns per redemption. */
++  referrerCaptionCredits: number;
++  referrerImageCredits: number;
++  /** @nullable */
++  maxRedemptions: number | null;
++  redemptions: number;
++  captionCreditsEarned: number;
++  imageCreditsEarned: number;
++}
+diff --git a/lib/api-zod/src/generated/types/rewardAmounts.ts b/lib/api-zod/src/generated/types/rewardAmounts.ts
+new file mode 100644
+index 0000000..40c51e3
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/rewardAmounts.ts
+@@ -0,0 +1,13 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface RewardAmounts {
++  captionCredits: number;
++  imageCredits: number;
++  videoCredits: number;
++}
+diff --git a/lib/db/src/schema/gamification.ts b/lib/db/src/schema/gamification.ts
+new file mode 100644
+index 0000000..5ee0fdf
+--- /dev/null
++++ b/lib/db/src/schema/gamification.ts
+@@ -0,0 +1,76 @@
++import {
++  pgTable,
++  text,
++  serial,
++  integer,
++  boolean,
++  timestamp,
++  uniqueIndex,
++} from "drizzle-orm/pg-core";
++
++/**
++ * Gamification: quest and streak reward claims.
++ *
++ * One row per claimed reward per workspace. `key` is the stable claim id —
++ * "quest:<questId>" for quests, "streak:<days>:<streakStartDate>" for streak
++ * milestones (bound to the start date of the streak run, so a broken streak
++ * naturally re-arms the milestone). The unique (tenantId, key) index is the
++ * idempotency guarantee: double-clicks and replays can never double-grant.
++ */
++export const gamificationClaimsTable = pgTable(
++  "gamification_claims",
++  {
++    id: serial("id").primaryKey(),
++    tenantId: integer("tenant_id").notNull(),
++    key: text("key").notNull(),
++    /** "quest" | "streak" */
++    kind: text("kind").notNull(),
++    /** Credits granted at claim time (after the plan's reward multiplier). */
++    captionCredits: integer("caption_credits").notNull().default(0),
++    imageCredits: integer("image_credits").notNull().default(0),
++    videoCredits: integer("video_credits").notNull().default(0),
++    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
++  },
++  (t) => [
++    uniqueIndex("gamification_claims_tenant_key_unique").on(t.tenantId, t.key),
++  ],
++);
++
++export type GamificationClaim = typeof gamificationClaimsTable.$inferSelect;
++
++/**
++ * Per-plan gamification configuration, superadmin managed. Keyed by plan id
++ * so it covers every plan in the catalog — including custom plans created
++ * later (the admin UI lists plans dynamically; a missing row means the
++ * built-in defaults apply, same pattern as plan_settings/feature_flags).
++ *
++ * The four global feature flags (quests/streaks/referrals/progressMeter) are
++ * the platform-wide kill switches; these per-plan toggles refine WHICH plans
++ * see each mechanic when its global switch is on.
++ */
++export const gamificationPlanSettingsTable = pgTable("gamification_plan_settings", {
++  planId: text("plan_id").primaryKey(),
++  questsEnabled: boolean("quests_enabled").notNull().default(true),
++  streaksEnabled: boolean("streaks_enabled").notNull().default(true),
++  referralsEnabled: boolean("referrals_enabled").notNull().default(true),
++  progressMeterEnabled: boolean("progress_meter_enabled").notNull().default(true),
++  /**
++   * Scales every quest/streak reward for this plan (100 = the catalog
++   * amounts, 0 = rewards disabled while quests stay visible, 200 = double).
++   */
++  rewardMultiplierPercent: integer("reward_multiplier_percent").notNull().default(100),
++  /** Referral: what the code OWNER earns per successful redemption. */
++  referrerCaptionCredits: integer("referrer_caption_credits").notNull().default(5),
++  referrerImageCredits: integer("referrer_image_credits").notNull().default(3),
++  /** Referral: what a NEW user gets for redeeming this plan-holder's code. */
++  refereeCaptionCredits: integer("referee_caption_credits").notNull().default(5),
++  refereeImageCredits: integer("referee_image_credits").notNull().default(3),
++  /** Cap on successful redemptions of one personal referral code. */
++  referralMaxRedemptions: integer("referral_max_redemptions").notNull().default(25),
++  updatedAt: timestamp("updated_at", { withTimezone: true })
++    .notNull()
++    .defaultNow()
++    .$onUpdate(() => new Date()),
++});
++
++export type GamificationPlanSettings = typeof gamificationPlanSettingsTable.$inferSelect;
+diff --git a/lib/db/src/schema/index.ts b/lib/db/src/schema/index.ts
+index c09f030..bc4cc85 100644
+--- a/lib/db/src/schema/index.ts
++++ b/lib/db/src/schema/index.ts
+@@ -35,3 +35,4 @@ export * from "./healthReports";
+ export * from "./ads";
+ export * from "./pushTokens";
+ export * from "./promoCodes";
++export * from "./gamification";
+diff --git a/lib/db/src/schema/promoCodes.ts b/lib/db/src/schema/promoCodes.ts
+index 513b584..418e022 100644
+--- a/lib/db/src/schema/promoCodes.ts
++++ b/lib/db/src/schema/promoCodes.ts
+@@ -54,6 +54,12 @@ export const promoCodesTable = pgTable(
+     active: boolean("active").notNull().default(true),
+     /** Set for bulk-generated batches so they can be listed/exported together. */
+     batchId: text("batch_id"),
++    /**
++     * Referral codes only: the workspace that owns this personal code. On a
++     * successful redemption the owner earns a referrer reward (their plan's
++     * gamification settings decide how much). Null for ordinary promos.
++     */
++    ownerTenantId: integer("owner_tenant_id"),
+     note: text("note"),
+     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+     updatedAt: timestamp("updated_at", { withTimezone: true })
+@@ -79,6 +85,9 @@ export const promoRedemptionsTable = pgTable(
+     planAtRedemption: text("plan_at_redemption").notNull(),
+     captionCredits: integer("caption_credits").notNull().default(0),
+     imageCredits: integer("image_credits").notNull().default(0),
++    /** Referral codes only: what the code owner earned for this redemption. */
++    referrerCaptionCredits: integer("referrer_caption_credits").notNull().default(0),
++    referrerImageCredits: integer("referrer_image_credits").notNull().default(0),
+     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+   },
+   (t) => [
+-- 
+2.43.0
+

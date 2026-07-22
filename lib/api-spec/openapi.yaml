@@ -22,6 +22,8 @@ tags:
     description: AI caption, image, and video generation.
   - name: google-drive
     description: Google Drive photo import for the Video Studio.
+  - name: gamification
+    description: Quests, streaks, and referral credits.
   - name: schedules
     description: Scheduled posts queue.
   - name: accounts
@@ -1278,6 +1280,89 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Unknown provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/gamification-plans:
+    get:
+      operationId: adminListGamificationPlans
+      tags: [admin]
+      summary: Gamification settings for every plan in the catalog (superadmin only)
+      responses:
+        "200":
+          description: Per-plan gamification settings (defaults when not customized)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminGamificationPlan"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/gamification-plans/{planId}:
+    parameters:
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: adminUpdateGamificationPlan
+      tags: [admin]
+      summary: Set one plan's gamification toggles and reward amounts (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUpdateGamificationPlanRequest"
+      responses:
+        "200":
+          description: The full per-plan list after the update
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminGamificationPlan"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Unknown plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: adminResetGamificationPlan
+      tags: [admin]
+      summary: Reset one plan's gamification settings to the defaults (superadmin only)
+      responses:
+        "200":
+          description: The full per-plan list after the reset
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminGamificationPlan"
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -3828,6 +3913,72 @@ paths:
                 $ref: "#/components/schemas/ImportDriveFilesResult"
         "400":
           description: Invalid input or Drive not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /gamification:
+    get:
+      operationId: getGamification
+      tags: [gamification]
+      summary: Quests, streak state, and gamification enablement for this workspace
+      responses:
+        "200":
+          description: Gamification state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GamificationState"
+  /gamification/claim:
+    post:
+      operationId: claimGamificationReward
+      tags: [gamification]
+      summary: Claim a completed quest or reached streak milestone reward
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClaimGamificationRewardRequest"
+      responses:
+        "200":
+          description: Reward granted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaimGamificationRewardResult"
+        "400":
+          description: Unknown key or achievement not completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Already claimed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /gamification/referral:
+    get:
+      operationId: getReferralInfo
+      tags: [gamification]
+      summary: This workspace's personal invite code and its performance
+      responses:
+        "200":
+          description: Referral info (the code is minted on first ask)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferralInfo"
+        "403":
+          description: Referrals disabled
           content:
             application/json:
               schema:
@@ -9370,6 +9521,237 @@ components:
           type: string
           minLength: 1
           description: The provider API key (stored encrypted, never returned).
+    RewardAmounts:
+      type: object
+      required: [captionCredits, imageCredits, videoCredits]
+      properties:
+        captionCredits:
+          type: integer
+        imageCredits:
+          type: integer
+        videoCredits:
+          type: integer
+    GamificationQuest:
+      type: object
+      required: [id, title, description, completed, claimed, claimKey, reward]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        completed:
+          type: boolean
+          description: The underlying action has been done (server-verified).
+        claimed:
+          type: boolean
+        claimKey:
+          type: string
+          description: Pass to POST /gamification/claim once completed.
+        reward:
+          $ref: "#/components/schemas/RewardAmounts"
+    GamificationStreakMilestone:
+      type: object
+      required: [days, reward, reached, claimed, claimKey]
+      properties:
+        days:
+          type: integer
+        reward:
+          $ref: "#/components/schemas/RewardAmounts"
+        reached:
+          type: boolean
+        claimed:
+          type: boolean
+        claimKey:
+          type: ["string", "null"]
+          description: Null while no streak is running.
+    GamificationState:
+      type: object
+      required:
+        [
+          questsEnabled,
+          streaksEnabled,
+          referralsEnabled,
+          progressMeterEnabled,
+          quests,
+          streak,
+        ]
+      properties:
+        questsEnabled:
+          type: boolean
+        streaksEnabled:
+          type: boolean
+        referralsEnabled:
+          type: boolean
+        progressMeterEnabled:
+          type: boolean
+        quests:
+          type: array
+          items:
+            $ref: "#/components/schemas/GamificationQuest"
+        streak:
+          type: object
+          required: [currentDays, activeToday, milestones]
+          properties:
+            currentDays:
+              type: integer
+              description: Consecutive days (UTC) with at least one generation.
+            activeToday:
+              type: boolean
+            milestones:
+              type: array
+              items:
+                $ref: "#/components/schemas/GamificationStreakMilestone"
+    ClaimGamificationRewardRequest:
+      type: object
+      required: [key]
+      properties:
+        key:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: A claimKey from GET /gamification.
+    ClaimGamificationRewardResult:
+      type: object
+      required: [ok, granted, credits]
+      properties:
+        ok:
+          type: boolean
+        granted:
+          $ref: "#/components/schemas/RewardAmounts"
+        credits:
+          $ref: "#/components/schemas/CreditBalances"
+    ReferralInfo:
+      type: object
+      required:
+        [
+          code,
+          refereeCaptionCredits,
+          refereeImageCredits,
+          referrerCaptionCredits,
+          referrerImageCredits,
+          maxRedemptions,
+          redemptions,
+          captionCreditsEarned,
+          imageCreditsEarned,
+        ]
+      properties:
+        code:
+          type: string
+          description: The personal invite code (share this).
+        refereeCaptionCredits:
+          type: integer
+          description: What a new user gets for redeeming this code.
+        refereeImageCredits:
+          type: integer
+        referrerCaptionCredits:
+          type: integer
+          description: What the owner currently earns per redemption.
+        referrerImageCredits:
+          type: integer
+        maxRedemptions:
+          type: ["integer", "null"]
+        redemptions:
+          type: integer
+        captionCreditsEarned:
+          type: integer
+        imageCreditsEarned:
+          type: integer
+    GamificationPlanSettingsView:
+      type: object
+      required:
+        [
+          questsEnabled,
+          streaksEnabled,
+          referralsEnabled,
+          progressMeterEnabled,
+          rewardMultiplierPercent,
+          referrerCaptionCredits,
+          referrerImageCredits,
+          refereeCaptionCredits,
+          refereeImageCredits,
+          referralMaxRedemptions,
+        ]
+      properties:
+        questsEnabled:
+          type: boolean
+        streaksEnabled:
+          type: boolean
+        referralsEnabled:
+          type: boolean
+        progressMeterEnabled:
+          type: boolean
+        rewardMultiplierPercent:
+          type: integer
+          description: Scales quest/streak rewards for this plan (100 = catalog amounts).
+        referrerCaptionCredits:
+          type: integer
+        referrerImageCredits:
+          type: integer
+        refereeCaptionCredits:
+          type: integer
+        refereeImageCredits:
+          type: integer
+        referralMaxRedemptions:
+          type: integer
+    AdminGamificationPlan:
+      type: object
+      required: [planId, planName, customized, settings]
+      properties:
+        planId:
+          type: string
+        planName:
+          type: string
+        customized:
+          type: boolean
+          description: False while the built-in defaults apply (no stored row).
+        settings:
+          $ref: "#/components/schemas/GamificationPlanSettingsView"
+    AdminUpdateGamificationPlanRequest:
+      type: object
+      required:
+        [
+          questsEnabled,
+          streaksEnabled,
+          referralsEnabled,
+          progressMeterEnabled,
+          rewardMultiplierPercent,
+          referrerCaptionCredits,
+          referrerImageCredits,
+          refereeCaptionCredits,
+          refereeImageCredits,
+          referralMaxRedemptions,
+        ]
+      properties:
+        questsEnabled:
+          type: boolean
+        streaksEnabled:
+          type: boolean
+        referralsEnabled:
+          type: boolean
+        progressMeterEnabled:
+          type: boolean
+        rewardMultiplierPercent:
+          type: integer
+          minimum: 0
+          maximum: 1000
+        referrerCaptionCredits:
+          type: integer
+          minimum: 0
+        referrerImageCredits:
+          type: integer
+          minimum: 0
+        refereeCaptionCredits:
+          type: integer
+          minimum: 0
+        refereeImageCredits:
+          type: integer
+          minimum: 0
+        referralMaxRedemptions:
+          type: integer
+          minimum: 1
+          maximum: 10000
 
     TopicIdeasRequest:
       type: object
@@ -10800,6 +11182,10 @@ components:
           aiSpend,
           aiCostTracking,
           videoGen,
+          quests,
+          streaks,
+          referrals,
+          progressMeter,
         ]
       properties:
         aiStudio:
@@ -10833,6 +11219,14 @@ components:
         aiCostTracking:
           type: boolean
         videoGen:
+          type: boolean
+        quests:
+          type: boolean
+        streaks:
+          type: boolean
+        referrals:
+          type: boolean
+        progressMeter:
           type: boolean
     AiSpendSettingsView:
       type: object

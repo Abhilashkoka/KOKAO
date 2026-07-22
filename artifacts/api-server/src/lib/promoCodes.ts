@@ -7,10 +7,13 @@ import {
   creditBalancesTable,
   creditLedgerTable,
   tenantsTable,
+  notificationsTable,
   type PromoCode,
 } from "@workspace/db";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { logger } from "./logger";
+import { getFeatureFlags } from "./featureFlags";
+import { getPlanGamification } from "./gamification";
 
 /**
  * Promo code redemption engine.
@@ -31,13 +34,19 @@ export type RedeemFailureReason =
   | "audience_new_only"
   | "audience_existing_only"
   | "global_limit_reached"
-  | "per_tenant_limit_reached";
+  | "per_tenant_limit_reached"
+  | "own_code"
+  | "referrals_disabled";
 
 export type RedeemResult =
   | {
       ok: true;
       captionCredits: number;
       imageCredits: number;
+      /** Referral codes only: who earned the referrer reward, and how much. */
+      referrerTenantId: number | null;
+      referrerCaptionCredits: number;
+      referrerImageCredits: number;
       message: string;
     }
   | { ok: false; reason: RedeemFailureReason; message: string };
@@ -84,6 +93,10 @@ function failureMessage(reason: RedeemFailureReason, promo?: PromoCode): string 
       return "This code has reached its maximum number of redemptions.";
     case "per_tenant_limit_reached":
       return "You have already redeemed this code.";
+    case "own_code":
+      return "You can't redeem your own referral code — share it with a friend instead.";
+    case "referrals_disabled":
+      return "Referral codes are currently disabled.";
   }
 }
 
@@ -147,6 +160,11 @@ export async function redeemPromoCode(
       return { ok: false, reason: "invalid_code", message: failureMessage("invalid_code") };
     }
 
+    // Referral codes cannot be self-redeemed.
+    if (promo.ownerTenantId !== null && promo.ownerTenantId === tenantId) {
+      return { ok: false, reason: "own_code", message: failureMessage("own_code") };
+    }
+
     const allowed = promo.allowedPlans?.filter(Boolean) ?? [];
     if (allowed.length > 0 && !allowed.includes(tenant.plan)) {
       return {
@@ -194,6 +212,37 @@ export async function redeemPromoCode(
       };
     }
 
+    // Referral codes: the code owner earns a referrer reward, sized by the
+    // OWNER's current plan settings (so upgrades improve future referrals).
+    // When the referrals switch is off — globally or for the owner's plan —
+    // the whole redemption is REJECTED (not just the referrer's cut), so the
+    // platform kill switch actually stops referral codes from minting credits.
+    let referrerCaptionCredits = 0;
+    let referrerImageCredits = 0;
+    let ownerTenant: typeof tenant | undefined;
+    if (promo.ownerTenantId !== null) {
+      ownerTenant = (
+        await tx
+          .select()
+          .from(tenantsTable)
+          .where(eq(tenantsTable.id, promo.ownerTenantId))
+          .limit(1)
+      )[0];
+      const flags = await getFeatureFlags();
+      const ownerSettings = ownerTenant
+        ? await getPlanGamification(ownerTenant.plan)
+        : null;
+      if (!flags.referrals || !ownerSettings || !ownerSettings.referralsEnabled) {
+        return {
+          ok: false,
+          reason: "referrals_disabled",
+          message: failureMessage("referrals_disabled"),
+        };
+      }
+      referrerCaptionCredits = ownerSettings.referrerCaptionCredits;
+      referrerImageCredits = ownerSettings.referrerImageCredits;
+    }
+
     // All checks passed — record the redemption and grant the credits, all
     // inside this same transaction.
     await tx.insert(promoRedemptionsTable).values({
@@ -202,6 +251,8 @@ export async function redeemPromoCode(
       planAtRedemption: tenant.plan,
       captionCredits: promo.captionCredits,
       imageCredits: promo.imageCredits,
+      referrerCaptionCredits,
+      referrerImageCredits,
     });
     await tx
       .update(promoCodesTable)
@@ -237,6 +288,39 @@ export async function redeemPromoCode(
       });
     }
 
+    // Referrer reward: same transaction, so the redemption and the owner's
+    // credits can never disagree.
+    if (ownerTenant && (referrerCaptionCredits > 0 || referrerImageCredits > 0)) {
+      const ownerBalance = (
+        await tx
+          .select()
+          .from(creditBalancesTable)
+          .where(eq(creditBalancesTable.tenantId, ownerTenant.id))
+          .for("update")
+      )[0];
+      const ownerCaptions = (ownerBalance?.captionCredits ?? 0) + referrerCaptionCredits;
+      const ownerImages = (ownerBalance?.imageCredits ?? 0) + referrerImageCredits;
+      await tx.insert(creditLedgerTable).values({
+        tenantId: ownerTenant.id,
+        kind: "referral_reward",
+        captionDelta: referrerCaptionCredits,
+        imageDelta: referrerImageCredits,
+        note: `Referral: ${promo.code} redeemed`,
+      });
+      if (ownerBalance) {
+        await tx
+          .update(creditBalancesTable)
+          .set({ captionCredits: ownerCaptions, imageCredits: ownerImages })
+          .where(eq(creditBalancesTable.tenantId, ownerTenant.id));
+      } else {
+        await tx.insert(creditBalancesTable).values({
+          tenantId: ownerTenant.id,
+          captionCredits: ownerCaptions,
+          imageCredits: ownerImages,
+        });
+      }
+    }
+
     const parts: string[] = [];
     if (promo.captionCredits > 0) parts.push(`${promo.captionCredits} caption credits`);
     if (promo.imageCredits > 0) parts.push(`${promo.imageCredits} image credits`);
@@ -244,12 +328,41 @@ export async function redeemPromoCode(
       ok: true,
       captionCredits: promo.captionCredits,
       imageCredits: promo.imageCredits,
+      referrerTenantId: ownerTenant?.id ?? null,
+      referrerCaptionCredits,
+      referrerImageCredits,
       message: `Success! ${parts.join(" and ")} added to your account.`,
     };
   });
 
   if (!result.ok) {
     await recordFailure(tenantId, code, result.reason);
+    return result;
+  }
+
+  // Tell the referrer their invite landed. Best-effort — a notification
+  // failure never affects the redemption itself.
+  if (
+    result.referrerTenantId !== null &&
+    (result.referrerCaptionCredits > 0 || result.referrerImageCredits > 0)
+  ) {
+    try {
+      const parts: string[] = [];
+      if (result.referrerCaptionCredits > 0)
+        parts.push(`${result.referrerCaptionCredits} caption credits`);
+      if (result.referrerImageCredits > 0)
+        parts.push(`${result.referrerImageCredits} image credits`);
+      await db.insert(notificationsTable).values({
+        tenantId: result.referrerTenantId,
+        type: "referral_redeemed",
+        title: "Your invite was redeemed!",
+        message: `Someone joined with your referral code — ${parts.join(" and ")} added to your balance.`,
+        linkUrl: "/studio",
+        inApp: true,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to record referral notification");
+    }
   }
   return result;
 }

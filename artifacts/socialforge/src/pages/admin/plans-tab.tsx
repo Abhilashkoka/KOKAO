@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
+import { GamificationPlansCard } from "./gamification-plans-card";
 import {
   useListPlans,
   useAdminUpdatePlan,
@@ -942,6 +943,7 @@ export function PlansTab() {
     <div className="space-y-8">
       <PlansCard />
       <CreditPacksCard />
+      <GamificationPlansCard />
     </div>
   );
 }

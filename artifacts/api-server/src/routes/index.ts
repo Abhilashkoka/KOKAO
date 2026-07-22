@@ -11,6 +11,7 @@ import contentRouter from "./content";
 import aiRouter from "./ai";
 import videosRouter from "./videos";
 import googleDriveRouter, { googleDriveCallbackRouter } from "./googleDrive";
+import gamificationRouter from "./gamification";
 import schedulesRouter from "./schedules";
 import accountsRouter from "./accounts";
 import metaRouter from "./meta";
@@ -37,7 +38,7 @@ import { publicAppBrandRouter, protectedAppBrandRouter } from "./appBrand";
 import featuresRouter from "./features";
 import { requireTenant } from "../middlewares/requireTenant";
 import { aiLimiter, sensitiveLimiter } from "../middlewares/rateLimit";
-import { requireFeature } from "../lib/featureFlags";
+import { requireFeature, requireAnyFeature } from "../lib/featureFlags";
 
 const router: IRouter = Router();
 
@@ -123,10 +124,19 @@ router.use(teamRouter);
 router.use(brandKitsRouter);
 router.use(brandPreferencesRouter);
 router.use(onboardingRouter);
+router.use("/gamification/referral", requireFeature("referrals"));
+router.use(
+  "/gamification",
+  requireAnyFeature("quests", "streaks", "referrals", "progressMeter"),
+);
+// Claims grant credits: give them the tight rate-limit bucket.
+router.use("/gamification/claim", sensitiveLimiter);
+
 router.use(contentRouter);
 router.use(aiRouter);
 router.use(videosRouter);
 router.use(googleDriveRouter);
+router.use(gamificationRouter);
 router.use(schedulesRouter);
 router.use(accountsRouter);
 router.use(metaRouter);

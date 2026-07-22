@@ -84,7 +84,11 @@ export const ListFeatureFlagsResponse = zod.object({
   "carousel": zod.boolean(),
   "aiSpend": zod.boolean(),
   "aiCostTracking": zod.boolean(),
-  "videoGen": zod.boolean()
+  "videoGen": zod.boolean(),
+  "quests": zod.boolean(),
+  "streaks": zod.boolean(),
+  "referrals": zod.boolean(),
+  "progressMeter": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -1240,6 +1244,111 @@ export const AdminClearVideoGenProviderKeyResponse = zod.object({
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
 }))
 })
+
+
+/**
+ * @summary Gamification settings for every plan in the catalog (superadmin only)
+ */
+export const AdminListGamificationPlansResponseItem = zod.object({
+  "planId": zod.string(),
+  "planName": zod.string(),
+  "customized": zod.boolean().describe('False while the built-in defaults apply (no stored row).'),
+  "settings": zod.object({
+  "questsEnabled": zod.boolean(),
+  "streaksEnabled": zod.boolean(),
+  "referralsEnabled": zod.boolean(),
+  "progressMeterEnabled": zod.boolean(),
+  "rewardMultiplierPercent": zod.number().describe('Scales quest\/streak rewards for this plan (100 = catalog amounts).'),
+  "referrerCaptionCredits": zod.number(),
+  "referrerImageCredits": zod.number(),
+  "refereeCaptionCredits": zod.number(),
+  "refereeImageCredits": zod.number(),
+  "referralMaxRedemptions": zod.number()
+})
+})
+export const AdminListGamificationPlansResponse = zod.array(AdminListGamificationPlansResponseItem)
+
+
+/**
+ * @summary Set one plan's gamification toggles and reward amounts (superadmin only)
+ */
+export const AdminUpdateGamificationPlanParams = zod.object({
+  "planId": zod.coerce.string()
+})
+
+export const adminUpdateGamificationPlanBodyRewardMultiplierPercentMin = 0;
+export const adminUpdateGamificationPlanBodyRewardMultiplierPercentMax = 1000;
+
+export const adminUpdateGamificationPlanBodyReferrerCaptionCreditsMin = 0;
+
+export const adminUpdateGamificationPlanBodyReferrerImageCreditsMin = 0;
+
+export const adminUpdateGamificationPlanBodyRefereeCaptionCreditsMin = 0;
+
+export const adminUpdateGamificationPlanBodyRefereeImageCreditsMin = 0;
+
+export const adminUpdateGamificationPlanBodyReferralMaxRedemptionsMax = 10000;
+
+
+
+export const AdminUpdateGamificationPlanBody = zod.object({
+  "questsEnabled": zod.boolean(),
+  "streaksEnabled": zod.boolean(),
+  "referralsEnabled": zod.boolean(),
+  "progressMeterEnabled": zod.boolean(),
+  "rewardMultiplierPercent": zod.number().min(adminUpdateGamificationPlanBodyRewardMultiplierPercentMin).max(adminUpdateGamificationPlanBodyRewardMultiplierPercentMax),
+  "referrerCaptionCredits": zod.number().min(adminUpdateGamificationPlanBodyReferrerCaptionCreditsMin),
+  "referrerImageCredits": zod.number().min(adminUpdateGamificationPlanBodyReferrerImageCreditsMin),
+  "refereeCaptionCredits": zod.number().min(adminUpdateGamificationPlanBodyRefereeCaptionCreditsMin),
+  "refereeImageCredits": zod.number().min(adminUpdateGamificationPlanBodyRefereeImageCreditsMin),
+  "referralMaxRedemptions": zod.number().min(1).max(adminUpdateGamificationPlanBodyReferralMaxRedemptionsMax)
+})
+
+export const AdminUpdateGamificationPlanResponseItem = zod.object({
+  "planId": zod.string(),
+  "planName": zod.string(),
+  "customized": zod.boolean().describe('False while the built-in defaults apply (no stored row).'),
+  "settings": zod.object({
+  "questsEnabled": zod.boolean(),
+  "streaksEnabled": zod.boolean(),
+  "referralsEnabled": zod.boolean(),
+  "progressMeterEnabled": zod.boolean(),
+  "rewardMultiplierPercent": zod.number().describe('Scales quest\/streak rewards for this plan (100 = catalog amounts).'),
+  "referrerCaptionCredits": zod.number(),
+  "referrerImageCredits": zod.number(),
+  "refereeCaptionCredits": zod.number(),
+  "refereeImageCredits": zod.number(),
+  "referralMaxRedemptions": zod.number()
+})
+})
+export const AdminUpdateGamificationPlanResponse = zod.array(AdminUpdateGamificationPlanResponseItem)
+
+
+/**
+ * @summary Reset one plan's gamification settings to the defaults (superadmin only)
+ */
+export const AdminResetGamificationPlanParams = zod.object({
+  "planId": zod.coerce.string()
+})
+
+export const AdminResetGamificationPlanResponseItem = zod.object({
+  "planId": zod.string(),
+  "planName": zod.string(),
+  "customized": zod.boolean().describe('False while the built-in defaults apply (no stored row).'),
+  "settings": zod.object({
+  "questsEnabled": zod.boolean(),
+  "streaksEnabled": zod.boolean(),
+  "referralsEnabled": zod.boolean(),
+  "progressMeterEnabled": zod.boolean(),
+  "rewardMultiplierPercent": zod.number().describe('Scales quest\/streak rewards for this plan (100 = catalog amounts).'),
+  "referrerCaptionCredits": zod.number(),
+  "referrerImageCredits": zod.number(),
+  "refereeCaptionCredits": zod.number(),
+  "refereeImageCredits": zod.number(),
+  "referralMaxRedemptions": zod.number()
+})
+})
+export const AdminResetGamificationPlanResponse = zod.array(AdminResetGamificationPlanResponseItem)
 
 
 /**
@@ -5495,6 +5604,87 @@ export const ImportGoogleDriveFilesResponse = zod.object({
   "fileId": zod.string(),
   "reason": zod.string()
 }))
+})
+
+
+/**
+ * @summary Quests, streak state, and gamification enablement for this workspace
+ */
+export const GetGamificationResponse = zod.object({
+  "questsEnabled": zod.boolean(),
+  "streaksEnabled": zod.boolean(),
+  "referralsEnabled": zod.boolean(),
+  "progressMeterEnabled": zod.boolean(),
+  "quests": zod.array(zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "description": zod.string(),
+  "completed": zod.boolean().describe('The underlying action has been done (server-verified).'),
+  "claimed": zod.boolean(),
+  "claimKey": zod.string().describe('Pass to POST \/gamification\/claim once completed.'),
+  "reward": zod.object({
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number()
+})
+})),
+  "streak": zod.object({
+  "currentDays": zod.number().describe('Consecutive days (UTC) with at least one generation.'),
+  "activeToday": zod.boolean(),
+  "milestones": zod.array(zod.object({
+  "days": zod.number(),
+  "reward": zod.object({
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number()
+}),
+  "reached": zod.boolean(),
+  "claimed": zod.boolean(),
+  "claimKey": zod.string().nullable().describe('Null while no streak is running.')
+}))
+})
+})
+
+
+/**
+ * @summary Claim a completed quest or reached streak milestone reward
+ */
+export const claimGamificationRewardBodyKeyMax = 80;
+
+
+
+export const ClaimGamificationRewardBody = zod.object({
+  "key": zod.string().min(1).max(claimGamificationRewardBodyKeyMax).describe('A claimKey from GET \/gamification.')
+})
+
+export const ClaimGamificationRewardResponse = zod.object({
+  "ok": zod.boolean(),
+  "granted": zod.object({
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number()
+}),
+  "credits": zod.object({
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number().optional().describe('Prepaid AI video generation credits.')
+})
+})
+
+
+/**
+ * @summary This workspace's personal invite code and its performance
+ */
+export const GetReferralInfoResponse = zod.object({
+  "code": zod.string().describe('The personal invite code (share this).'),
+  "refereeCaptionCredits": zod.number().describe('What a new user gets for redeeming this code.'),
+  "refereeImageCredits": zod.number(),
+  "referrerCaptionCredits": zod.number().describe('What the owner currently earns per redemption.'),
+  "referrerImageCredits": zod.number(),
+  "maxRedemptions": zod.number().nullable(),
+  "redemptions": zod.number(),
+  "captionCreditsEarned": zod.number(),
+  "imageCreditsEarned": zod.number()
 })
 
 

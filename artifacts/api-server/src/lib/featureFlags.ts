@@ -101,6 +101,30 @@ export const FEATURES = [
     description:
       "AI video generation (text-to-video, image-to-video), photo slideshows, and Google Drive photo import.",
   },
+  {
+    id: "quests",
+    label: "Quests",
+    description:
+      "Getting-started quests in AI Studio that reward small credit bonuses (per-plan tuning on the Plans tab).",
+  },
+  {
+    id: "streaks",
+    label: "Streaks",
+    description:
+      "Daily creation streaks with milestone credit rewards (per-plan tuning on the Plans tab).",
+  },
+  {
+    id: "referrals",
+    label: "Referral Credits",
+    description:
+      "Personal invite codes: new users get bonus credits, referrers earn credits per signup (per-plan tuning on the Plans tab).",
+  },
+  {
+    id: "progressMeter",
+    label: "Upgrade Progress Meter",
+    description:
+      "The usage progress meter in AI Studio that nudges tenants on limited plans toward an upgrade.",
+  },
 ] as const;
 
 export type FeatureId = (typeof FEATURES)[number]["id"];
@@ -134,6 +158,30 @@ export async function getFeatureFlags(): Promise<Record<FeatureId, boolean>> {
 export async function isFeatureEnabled(id: FeatureId): Promise<boolean> {
   const flags = await getFeatureFlags();
   return flags[id];
+}
+
+/**
+ * Like requireFeature, but passes when ANY of the given switches is on.
+ * Used for endpoints that serve several mechanics at once (e.g. the
+ * gamification state endpoint covers quests, streaks, referrals, and the
+ * progress meter). Fails OPEN on DB errors, same as requireFeature.
+ */
+export function requireAnyFeature(...ids: FeatureId[]) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const flags = await getFeatureFlags();
+      if (!ids.some((id) => flags[id])) {
+        res.status(403).json({
+          error: "This feature is currently disabled by the administrator.",
+          code: "feature_disabled",
+        });
+        return;
+      }
+    } catch (error) {
+      req.log?.error({ err: error }, "Feature flag check failed; allowing request");
+    }
+    next();
+  };
 }
 
 /**

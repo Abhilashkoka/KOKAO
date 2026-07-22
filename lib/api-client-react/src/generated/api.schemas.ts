@@ -2571,6 +2571,130 @@ export interface SetVideoGenProviderKeyRequest {
   apiKey: string;
 }
 
+export interface RewardAmounts {
+  captionCredits: number;
+  imageCredits: number;
+  videoCredits: number;
+}
+
+export interface GamificationQuest {
+  id: string;
+  title: string;
+  description: string;
+  /** The underlying action has been done (server-verified). */
+  completed: boolean;
+  claimed: boolean;
+  /** Pass to POST /gamification/claim once completed. */
+  claimKey: string;
+  reward: RewardAmounts;
+}
+
+export interface GamificationStreakMilestone {
+  days: number;
+  reward: RewardAmounts;
+  reached: boolean;
+  claimed: boolean;
+  /**
+     * Null while no streak is running.
+     * @nullable
+     */
+  claimKey: string | null;
+}
+
+export type GamificationStateStreak = {
+  /** Consecutive days (UTC) with at least one generation. */
+  currentDays: number;
+  activeToday: boolean;
+  milestones: GamificationStreakMilestone[];
+};
+
+export interface GamificationState {
+  questsEnabled: boolean;
+  streaksEnabled: boolean;
+  referralsEnabled: boolean;
+  progressMeterEnabled: boolean;
+  quests: GamificationQuest[];
+  streak: GamificationStateStreak;
+}
+
+export interface ClaimGamificationRewardRequest {
+  /**
+     * A claimKey from GET /gamification.
+     * @minLength 1
+     * @maxLength 80
+     */
+  key: string;
+}
+
+export interface ClaimGamificationRewardResult {
+  ok: boolean;
+  granted: RewardAmounts;
+  credits: CreditBalances;
+}
+
+export interface ReferralInfo {
+  /** The personal invite code (share this). */
+  code: string;
+  /** What a new user gets for redeeming this code. */
+  refereeCaptionCredits: number;
+  refereeImageCredits: number;
+  /** What the owner currently earns per redemption. */
+  referrerCaptionCredits: number;
+  referrerImageCredits: number;
+  /** @nullable */
+  maxRedemptions: number | null;
+  redemptions: number;
+  captionCreditsEarned: number;
+  imageCreditsEarned: number;
+}
+
+export interface GamificationPlanSettingsView {
+  questsEnabled: boolean;
+  streaksEnabled: boolean;
+  referralsEnabled: boolean;
+  progressMeterEnabled: boolean;
+  /** Scales quest/streak rewards for this plan (100 = catalog amounts). */
+  rewardMultiplierPercent: number;
+  referrerCaptionCredits: number;
+  referrerImageCredits: number;
+  refereeCaptionCredits: number;
+  refereeImageCredits: number;
+  referralMaxRedemptions: number;
+}
+
+export interface AdminGamificationPlan {
+  planId: string;
+  planName: string;
+  /** False while the built-in defaults apply (no stored row). */
+  customized: boolean;
+  settings: GamificationPlanSettingsView;
+}
+
+export interface AdminUpdateGamificationPlanRequest {
+  questsEnabled: boolean;
+  streaksEnabled: boolean;
+  referralsEnabled: boolean;
+  progressMeterEnabled: boolean;
+  /**
+     * @minimum 0
+     * @maximum 1000
+     */
+  rewardMultiplierPercent: number;
+  /** @minimum 0 */
+  referrerCaptionCredits: number;
+  /** @minimum 0 */
+  referrerImageCredits: number;
+  /** @minimum 0 */
+  refereeCaptionCredits: number;
+  /** @minimum 0 */
+  refereeImageCredits: number;
+  /**
+     * @minimum 1
+     * @maximum 10000
+     */
+  referralMaxRedemptions: number;
+}
+
 export interface TopicIdeasRequest {
   /**
      * The niche or topic area to brainstorm ideas for.
@@ -3640,6 +3764,10 @@ export interface FeatureFlags {
   aiSpend: boolean;
   aiCostTracking: boolean;
   videoGen: boolean;
+  quests: boolean;
+  streaks: boolean;
+  referrals: boolean;
+  progressMeter: boolean;
 }
 
 /**

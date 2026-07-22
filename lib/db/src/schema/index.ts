@@ -35,3 +35,4 @@ export * from "./healthReports";
 export * from "./ads";
 export * from "./pushTokens";
 export * from "./promoCodes";
+export * from "./gamification";

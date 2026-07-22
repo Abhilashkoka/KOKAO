@@ -24,6 +24,10 @@ const ALL_ON: FeatureFlags = {
   aiSpend: true,
   aiCostTracking: true,
   videoGen: true,
+  quests: true,
+  streaks: true,
+  referrals: true,
+  progressMeter: true,
 };
 
 /**

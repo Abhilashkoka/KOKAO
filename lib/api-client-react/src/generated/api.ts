@@ -31,6 +31,7 @@ import type {
   AdminExportAuditLogsParams,
   AdminFeatureFlag,
   AdminFeatureFlagInput,
+  AdminGamificationPlan,
   AdminGetAiCostReportParams,
   AdminGrantCredits200,
   AdminListAuditLogsParams,
@@ -38,6 +39,7 @@ import type {
   AdminStats,
   AdminSweepRunResult,
   AdminTenant,
+  AdminUpdateGamificationPlanRequest,
   AdsBudgetCaps,
   AdsBudgetCapsInput,
   AdsCampaignDetail,
@@ -98,6 +100,8 @@ import type {
   CaptionResult,
   CarouselRequest,
   CarouselResult,
+  ClaimGamificationRewardRequest,
+  ClaimGamificationRewardResult,
   CompleteOnboardingInput,
   ConnectedAccount,
   ConsentAnalytics,
@@ -117,6 +121,7 @@ import type {
   FacebookCredentialInput,
   FeatureFlags,
   FunnelAnalytics,
+  GamificationState,
   GetAcquisitionAnalyticsParams,
   GetAdCampaignDetailParams,
   GetAudienceAnalyticsParams,
@@ -180,6 +185,7 @@ import type {
   RazorpayAppCredentialInput,
   RazorpayAppCredentialStatus,
   RedeemPromoInput,
+  ReferralInfo,
   ReliabilityAnalytics,
   ResearchRequest,
   ResearchResult,
@@ -3532,6 +3538,224 @@ export const useAdminClearVideoGenProviderKey = <TError = ErrorType<ErrorEnvelop
         TContext
       > => {
       return useMutation(getAdminClearVideoGenProviderKeyMutationOptions(options));
+    }
+
+export const getAdminListGamificationPlansUrl = () => {
+
+
+
+
+  return `/api/admin/gamification-plans`
+}
+
+/**
+ * @summary Gamification settings for every plan in the catalog (superadmin only)
+ */
+export const adminListGamificationPlans = async ( options?: RequestInit): Promise<AdminGamificationPlan[]> => {
+
+  return customFetch<AdminGamificationPlan[]>(getAdminListGamificationPlansUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListGamificationPlansQueryKey = () => {
+    return [
+    `/api/admin/gamification-plans`
+    ] as const;
+    }
+
+
+export const getAdminListGamificationPlansQueryOptions = <TData = Awaited<ReturnType<typeof adminListGamificationPlans>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListGamificationPlans>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListGamificationPlansQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListGamificationPlans>>> = ({ signal }) => adminListGamificationPlans({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListGamificationPlans>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListGamificationPlansQueryResult = NonNullable<Awaited<ReturnType<typeof adminListGamificationPlans>>>
+export type AdminListGamificationPlansQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Gamification settings for every plan in the catalog (superadmin only)
+ */
+
+export function useAdminListGamificationPlans<TData = Awaited<ReturnType<typeof adminListGamificationPlans>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListGamificationPlans>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListGamificationPlansQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateGamificationPlanUrl = (planId: string,) => {
+
+
+
+
+  return `/api/admin/gamification-plans/${planId}`
+}
+
+/**
+ * @summary Set one plan's gamification toggles and reward amounts (superadmin only)
+ */
+export const adminUpdateGamificationPlan = async (planId: string,
+    adminUpdateGamificationPlanRequest: AdminUpdateGamificationPlanRequest, options?: RequestInit): Promise<AdminGamificationPlan[]> => {
+
+  return customFetch<AdminGamificationPlan[]>(getAdminUpdateGamificationPlanUrl(planId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(adminUpdateGamificationPlanRequest)
+  }
+);}
+
+
+
+
+export const getAdminUpdateGamificationPlanMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateGamificationPlan>>, TError,{planId: string;data: BodyType<AdminUpdateGamificationPlanRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateGamificationPlan>>, TError,{planId: string;data: BodyType<AdminUpdateGamificationPlanRequest>}, TContext> => {
+
+const mutationKey = ['adminUpdateGamificationPlan'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateGamificationPlan>>, {planId: string;data: BodyType<AdminUpdateGamificationPlanRequest>}> = (props) => {
+          const {planId,data} = props ?? {};
+
+          return  adminUpdateGamificationPlan(planId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateGamificationPlanMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateGamificationPlan>>>
+    export type AdminUpdateGamificationPlanMutationBody = BodyType<AdminUpdateGamificationPlanRequest>
+    export type AdminUpdateGamificationPlanMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Set one plan's gamification toggles and reward amounts (superadmin only)
+ */
+export const useAdminUpdateGamificationPlan = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateGamificationPlan>>, TError,{planId: string;data: BodyType<AdminUpdateGamificationPlanRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateGamificationPlan>>,
+        TError,
+        {planId: string;data: BodyType<AdminUpdateGamificationPlanRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateGamificationPlanMutationOptions(options));
+    }
+
+export const getAdminResetGamificationPlanUrl = (planId: string,) => {
+
+
+
+
+  return `/api/admin/gamification-plans/${planId}`
+}
+
+/**
+ * @summary Reset one plan's gamification settings to the defaults (superadmin only)
+ */
+export const adminResetGamificationPlan = async (planId: string, options?: RequestInit): Promise<AdminGamificationPlan[]> => {
+
+  return customFetch<AdminGamificationPlan[]>(getAdminResetGamificationPlanUrl(planId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getAdminResetGamificationPlanMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminResetGamificationPlan>>, TError,{planId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminResetGamificationPlan>>, TError,{planId: string}, TContext> => {
+
+const mutationKey = ['adminResetGamificationPlan'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminResetGamificationPlan>>, {planId: string}> = (props) => {
+          const {planId} = props ?? {};
+
+          return  adminResetGamificationPlan(planId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminResetGamificationPlanMutationResult = NonNullable<Awaited<ReturnType<typeof adminResetGamificationPlan>>>
+
+    export type AdminResetGamificationPlanMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Reset one plan's gamification settings to the defaults (superadmin only)
+ */
+export const useAdminResetGamificationPlan = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminResetGamificationPlan>>, TError,{planId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminResetGamificationPlan>>,
+        TError,
+        {planId: string},
+        TContext
+      > => {
+      return useMutation(getAdminResetGamificationPlanMutationOptions(options));
     }
 
 export const getGetAiSpendRatesUrl = () => {
@@ -10690,6 +10914,230 @@ export const useImportGoogleDriveFiles = <TError = ErrorType<ErrorEnvelope>,
       > => {
       return useMutation(getImportGoogleDriveFilesMutationOptions(options));
     }
+
+export const getGetGamificationUrl = () => {
+
+
+
+
+  return `/api/gamification`
+}
+
+/**
+ * @summary Quests, streak state, and gamification enablement for this workspace
+ */
+export const getGamification = async ( options?: RequestInit): Promise<GamificationState> => {
+
+  return customFetch<GamificationState>(getGetGamificationUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetGamificationQueryKey = () => {
+    return [
+    `/api/gamification`
+    ] as const;
+    }
+
+
+export const getGetGamificationQueryOptions = <TData = Awaited<ReturnType<typeof getGamification>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGamification>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetGamificationQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGamification>>> = ({ signal }) => getGamification({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGamification>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetGamificationQueryResult = NonNullable<Awaited<ReturnType<typeof getGamification>>>
+export type GetGamificationQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Quests, streak state, and gamification enablement for this workspace
+ */
+
+export function useGetGamification<TData = Awaited<ReturnType<typeof getGamification>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGamification>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetGamificationQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getClaimGamificationRewardUrl = () => {
+
+
+
+
+  return `/api/gamification/claim`
+}
+
+/**
+ * @summary Claim a completed quest or reached streak milestone reward
+ */
+export const claimGamificationReward = async (claimGamificationRewardRequest: ClaimGamificationRewardRequest, options?: RequestInit): Promise<ClaimGamificationRewardResult> => {
+
+  return customFetch<ClaimGamificationRewardResult>(getClaimGamificationRewardUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(claimGamificationRewardRequest)
+  }
+);}
+
+
+
+
+export const getClaimGamificationRewardMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof claimGamificationReward>>, TError,{data: BodyType<ClaimGamificationRewardRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof claimGamificationReward>>, TError,{data: BodyType<ClaimGamificationRewardRequest>}, TContext> => {
+
+const mutationKey = ['claimGamificationReward'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof claimGamificationReward>>, {data: BodyType<ClaimGamificationRewardRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  claimGamificationReward(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClaimGamificationRewardMutationResult = NonNullable<Awaited<ReturnType<typeof claimGamificationReward>>>
+    export type ClaimGamificationRewardMutationBody = BodyType<ClaimGamificationRewardRequest>
+    export type ClaimGamificationRewardMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Claim a completed quest or reached streak milestone reward
+ */
+export const useClaimGamificationReward = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof claimGamificationReward>>, TError,{data: BodyType<ClaimGamificationRewardRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof claimGamificationReward>>,
+        TError,
+        {data: BodyType<ClaimGamificationRewardRequest>},
+        TContext
+      > => {
+      return useMutation(getClaimGamificationRewardMutationOptions(options));
+    }
+
+export const getGetReferralInfoUrl = () => {
+
+
+
+
+  return `/api/gamification/referral`
+}
+
+/**
+ * @summary This workspace's personal invite code and its performance
+ */
+export const getReferralInfo = async ( options?: RequestInit): Promise<ReferralInfo> => {
+
+  return customFetch<ReferralInfo>(getGetReferralInfoUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetReferralInfoQueryKey = () => {
+    return [
+    `/api/gamification/referral`
+    ] as const;
+    }
+
+
+export const getGetReferralInfoQueryOptions = <TData = Awaited<ReturnType<typeof getReferralInfo>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getReferralInfo>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetReferralInfoQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getReferralInfo>>> = ({ signal }) => getReferralInfo({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getReferralInfo>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetReferralInfoQueryResult = NonNullable<Awaited<ReturnType<typeof getReferralInfo>>>
+export type GetReferralInfoQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary This workspace's personal invite code and its performance
+ */
+
+export function useGetReferralInfo<TData = Awaited<ReturnType<typeof getReferralInfo>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getReferralInfo>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetReferralInfoQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetYoutubeAuthUrlUrl = () => {
 

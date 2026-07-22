@@ -68,6 +68,7 @@ import {
   AdminSetImageGenProviderKeyBody,
   AdminUpdateVideoGenSettingsBody,
   AdminSetVideoGenProviderKeyBody,
+  AdminUpdateGamificationPlanBody,
   AdminUpdateTextGenSettingsBody,
   AdminSetTextGenKeyBody,
   AdminUpdateAiSpendSettingsBody,
@@ -97,7 +98,16 @@ import {
   getEffectiveSeatLimit,
   getSeatsUsed,
 } from "../lib/team";
-import { creditPacksTable, promoCodesTable, type PromoCode } from "@workspace/db";
+import {
+  creditPacksTable,
+  promoCodesTable,
+  gamificationPlanSettingsTable,
+  type PromoCode,
+} from "@workspace/db";
+import {
+  DEFAULT_PLAN_GAMIFICATION,
+  rowToPlanGamification,
+} from "../lib/gamification";
 import { grantCredits, getCreditBalances } from "../lib/credits";
 import {
   normalizePromoCode,
@@ -2044,6 +2054,136 @@ router.delete("/admin/plans/:planId", async (req: Request, res: Response) => {
 
   res.json(await listPlans());
 });
+
+// ---------------------------------------------------------------------------
+// Gamification: per-plan quest/streak/referral configuration
+// ---------------------------------------------------------------------------
+
+/** One list shape shared by GET and both mutations: every catalog plan with
+ * its effective settings (stored row or the defaults) and whether a row
+ * exists. Custom plans created later appear here automatically. */
+async function listGamificationPlans() {
+  const plans = await listPlans();
+  const rows = await db.select().from(gamificationPlanSettingsTable);
+  const byId = new Map(rows.map((r) => [r.planId, r]));
+  return plans.map((p) => {
+    const row = byId.get(p.id);
+    return {
+      planId: p.id,
+      planName: p.name,
+      customized: !!row,
+      settings: row ? rowToPlanGamification(row) : { ...DEFAULT_PLAN_GAMIFICATION },
+    };
+  });
+}
+
+router.get("/admin/gamification-plans", async (_req: Request, res: Response) => {
+  res.json(await listGamificationPlans());
+});
+
+/**
+ * PUT /admin/gamification-plans/:planId
+ * Upsert one plan's gamification settings (toggles, reward multiplier,
+ * referral amounts). The plan id is validated against the live catalog.
+ */
+router.put("/admin/gamification-plans/:planId", async (req: Request, res: Response) => {
+  const planId = String(req.params.planId);
+  const catalog = await listPlans();
+  if (!catalog.some((p) => p.id === planId)) {
+    res.status(404).json({ error: "Unknown plan" });
+    return;
+  }
+  const parsed = AdminUpdateGamificationPlanBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const s = parsed.data;
+  const nonNegative = [
+    s.referrerCaptionCredits,
+    s.referrerImageCredits,
+    s.refereeCaptionCredits,
+    s.refereeImageCredits,
+  ];
+  if (
+    nonNegative.some((n) => !Number.isInteger(n) || n < 0) ||
+    !Number.isInteger(s.rewardMultiplierPercent) ||
+    s.rewardMultiplierPercent < 0 ||
+    s.rewardMultiplierPercent > 1000 ||
+    !Number.isInteger(s.referralMaxRedemptions) ||
+    s.referralMaxRedemptions < 1 ||
+    s.referralMaxRedemptions > 10000
+  ) {
+    res.status(400).json({
+      error:
+        "Credits must be whole numbers >= 0, the multiplier 0-1000%, and the referral cap 1-10000.",
+    });
+    return;
+  }
+
+  const values = {
+    planId,
+    questsEnabled: s.questsEnabled,
+    streaksEnabled: s.streaksEnabled,
+    referralsEnabled: s.referralsEnabled,
+    progressMeterEnabled: s.progressMeterEnabled,
+    rewardMultiplierPercent: s.rewardMultiplierPercent,
+    referrerCaptionCredits: s.referrerCaptionCredits,
+    referrerImageCredits: s.referrerImageCredits,
+    refereeCaptionCredits: s.refereeCaptionCredits,
+    refereeImageCredits: s.refereeImageCredits,
+    referralMaxRedemptions: s.referralMaxRedemptions,
+    updatedAt: new Date(),
+  };
+  await db
+    .insert(gamificationPlanSettingsTable)
+    .values(values)
+    .onConflictDoUpdate({ target: gamificationPlanSettingsTable.planId, set: values });
+
+  try {
+    await recordAdminAction({
+      action: "gamification_plan_change",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: null,
+      newValue: JSON.stringify({ planId, ...s }),
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write gamification audit log");
+  }
+
+  res.json(await listGamificationPlans());
+});
+
+/**
+ * DELETE /admin/gamification-plans/:planId
+ * Remove the plan's custom row so the built-in defaults apply again.
+ */
+router.delete(
+  "/admin/gamification-plans/:planId",
+  async (req: Request, res: Response) => {
+    const planId = String(req.params.planId);
+    await db
+      .delete(gamificationPlanSettingsTable)
+      .where(eq(gamificationPlanSettingsTable.planId, planId));
+    try {
+      await recordAdminAction({
+        action: "gamification_plan_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: planId,
+        newValue: "reset_to_defaults",
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write gamification audit log");
+    }
+    res.json(await listGamificationPlans());
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Billing: credit packs (superadmin-defined) + manual credit grants

@@ -26,4 +26,8 @@ export interface FeatureFlags {
   aiSpend: boolean;
   aiCostTracking: boolean;
   videoGen: boolean;
+  quests: boolean;
+  streaks: boolean;
+  referrals: boolean;
+  progressMeter: boolean;
 }

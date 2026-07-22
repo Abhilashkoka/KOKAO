@@ -50,6 +50,7 @@ import { VideoStudioPage } from "@/pages/video-studio";
 import { navigate } from "wouter/use-browser-location";
 import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
 import { CampaignPostCard, type GeneratedImage } from "@/components/campaign-post-card";
+import { GamificationCard } from "@/components/gamification-card";
 import { VoiceNoteButton } from "@/components/voice-note-button";
 import { LogoLoader } from "@/components/logo-loader";
 import { track, trackFeatureUse } from "@/lib/analytics";
@@ -266,6 +267,7 @@ export function StudioPage() {
     return (
       <div className="space-y-8 max-w-6xl mx-auto">
         <StudioHeader />
+        <GamificationCard />
         <ImageStudio />
       </div>
     );
@@ -274,6 +276,7 @@ export function StudioPage() {
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
       <StudioHeader />
+      <GamificationCard />
       <Tabs value={mode} onValueChange={setMode}>
         <TabsList data-testid="studio-mode-tabs">
           <TabsTrigger value="image" data-testid="tab-studio-image">
