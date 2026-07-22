@@ -10313,7 +10313,7 @@ components:
           description: What the tenant-facing "AI amount spent" rates would show for the same volume (fee included), for margin comparison.
     AiCostReportView:
       type: object
-      required: [month, months, displayRates, tenants]
+      required: [month, months, displayRates, summary, trend, tenants]
       properties:
         month:
           type: string
@@ -10325,10 +10325,46 @@ components:
             type: string
         displayRates:
           $ref: "#/components/schemas/AiSpendRatesView"
+        summary:
+          $ref: "#/components/schemas/AiCostReportMonthTotal"
+          description: Platform-wide totals for the selected month.
+        trend:
+          type: array
+          description: Platform totals per month, newest first (up to 12 months).
+          items:
+            $ref: "#/components/schemas/AiCostReportMonthTotal"
         tenants:
           type: array
           items:
             $ref: "#/components/schemas/AiCostReportTenantRow"
+    AiCostReportMonthTotal:
+      type: object
+      required:
+        [
+          month,
+          captionCount,
+          imageCount,
+          totalCostPaise,
+          displaySpendPaise,
+          unknownCount,
+        ]
+      properties:
+        month:
+          type: string
+          description: Month, YYYY-MM (UTC).
+        captionCount:
+          type: integer
+        imageCount:
+          type: integer
+        totalCostPaise:
+          type: integer
+          description: Sum of known per-event costs, in paise.
+        displaySpendPaise:
+          type: integer
+          description: What the current tenant-facing rates would display for this volume, in paise.
+        unknownCount:
+          type: integer
+          description: Events in the month with no computed cost.
     AdminFeatureFlag:
       type: object
       required: [feature, label, description, enabled]

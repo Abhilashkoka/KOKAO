@@ -1100,6 +1100,10 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
     db
       .select({
         month: sql<string>`to_char(${usageEventsTable.createdAt} at time zone 'UTC', 'YYYY-MM')`,
+        captionCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} = 'caption')::int`,
+        imageCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} = 'image')::int`,
+        knownCostPaise: sql<number>`coalesce(sum(${usageEventsTable.costPaise}) filter (where ${usageEventsTable.kind} in ('caption', 'image')), 0)::int`,
+        unknownCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} in ('caption', 'image') and ${usageEventsTable.costPaise} is null)::int`,
       })
       .from(usageEventsTable)
       .groupBy(sql`1`)
@@ -1171,10 +1175,40 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
     })
     .sort((a, b) => b.totalCostPaise - a.totalCostPaise);
 
+  const toMonthTotal = (r: {
+    month: string;
+    captionCount: number;
+    imageCount: number;
+    knownCostPaise: number;
+    unknownCount: number;
+  }) => ({
+    month: r.month,
+    captionCount: r.captionCount,
+    imageCount: r.imageCount,
+    totalCostPaise: r.knownCostPaise,
+    displaySpendPaise:
+      r.captionCount * displayRates.captionPaise + r.imageCount * displayRates.imagePaise,
+    unknownCount: r.unknownCount,
+  });
+  const trend = monthRows.slice(0, 12).map(toMonthTotal);
+  const selectedRow = monthRows.find((r) => r.month === month);
+  const summary = selectedRow
+    ? toMonthTotal(selectedRow)
+    : {
+        month,
+        captionCount: 0,
+        imageCount: 0,
+        totalCostPaise: 0,
+        displaySpendPaise: 0,
+        unknownCount: 0,
+      };
+
   res.json({
     month,
     months: monthRows.map((r) => r.month),
     displayRates,
+    summary,
+    trend,
     tenants,
   });
 });

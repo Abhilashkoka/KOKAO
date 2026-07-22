@@ -3489,12 +3489,29 @@ export interface AiCostReportTenantRow {
   displaySpendPaise: number;
 }
 
+export interface AiCostReportMonthTotal {
+  /** Month, YYYY-MM (UTC). */
+  month: string;
+  captionCount: number;
+  imageCount: number;
+  /** Sum of known per-event costs, in paise. */
+  totalCostPaise: number;
+  /** What the current tenant-facing rates would display for this volume, in paise. */
+  displaySpendPaise: number;
+  /** Events in the month with no computed cost. */
+  unknownCount: number;
+}
+
 export interface AiCostReportView {
   /** Reporting month, YYYY-MM (UTC). */
   month: string;
   /** Months that have any usage, newest first. */
   months: string[];
   displayRates: AiSpendRatesView;
+  /** Platform-wide totals for the selected month. */
+  summary: AiCostReportMonthTotal;
+  /** Platform totals per month, newest first (up to 12 months). */
+  trend: AiCostReportMonthTotal[];
   tenants: AiCostReportTenantRow[];
 }
 

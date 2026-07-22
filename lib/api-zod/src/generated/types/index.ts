@@ -68,6 +68,7 @@ export * from './adsTargetingLocation';
 export * from './adsTiktokAuthUrlResult';
 export * from './adsTiktokSelectInput';
 export * from './aiCostConfigView';
+export * from './aiCostReportMonthTotal';
 export * from './aiCostReportTenantRow';
 export * from './aiCostReportView';
 export * from './aiModelChoicesView';

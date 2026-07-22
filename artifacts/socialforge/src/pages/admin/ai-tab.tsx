@@ -1436,6 +1436,48 @@ function AiCostReportCard() {
                 </SelectContent>
               </Select>
             </div>
+            <div
+              className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+              data-testid="section-cost-summary"
+            >
+              <div className="rounded-md border p-3">
+                <div className="text-xs text-muted-foreground">Total actual cost</div>
+                <div className="text-lg font-semibold" data-testid="text-summary-actual-cost">
+                  {paiseToInr(report.summary.totalCostPaise)}
+                </div>
+              </div>
+              <div className="rounded-md border p-3">
+                <div className="text-xs text-muted-foreground">Total displayed spend</div>
+                <div className="text-lg font-semibold" data-testid="text-summary-display-spend">
+                  {paiseToInr(report.summary.displaySpendPaise)}
+                </div>
+              </div>
+              <div className="rounded-md border p-3">
+                <div className="text-xs text-muted-foreground">Overall margin</div>
+                <div
+                  className={`text-lg font-semibold ${
+                    report.summary.displaySpendPaise - report.summary.totalCostPaise < 0
+                      ? "text-destructive"
+                      : ""
+                  }`}
+                  data-testid="text-summary-margin"
+                >
+                  {paiseToInr(report.summary.displaySpendPaise - report.summary.totalCostPaise)}
+                </div>
+              </div>
+              <div className="rounded-md border p-3">
+                <div className="text-xs text-muted-foreground">Generations</div>
+                <div className="text-lg font-semibold" data-testid="text-summary-generations">
+                  {report.summary.captionCount + report.summary.imageCount}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {report.summary.captionCount} captions, {report.summary.imageCount} images
+                  {report.summary.unknownCount > 0
+                    ? ` · ${report.summary.unknownCount} unknown cost`
+                    : ""}
+                </div>
+              </div>
+            </div>
             {report.tenants.length === 0 ? (
               <p className="text-sm text-muted-foreground" data-testid="text-no-report-rows">
                 No caption or image usage recorded for this month.
@@ -1514,6 +1556,67 @@ function AiCostReportCard() {
                     })}
                   </tbody>
                 </table>
+              </div>
+            )}
+            {report.trend.length > 1 && (
+              <div className="space-y-2" data-testid="section-cost-trend">
+                <div className="text-sm font-medium">Month-over-month trend</div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="py-2 pr-3 font-medium">Month</th>
+                        <th className="py-2 pr-3 font-medium text-right">Captions</th>
+                        <th className="py-2 pr-3 font-medium text-right">Images</th>
+                        <th className="py-2 pr-3 font-medium text-right">Actual cost</th>
+                        <th className="py-2 pr-3 font-medium text-right">Displayed spend</th>
+                        <th className="py-2 pr-3 font-medium text-right">Margin</th>
+                        <th className="py-2 font-medium text-right">Unknown</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.trend.map((m) => {
+                        const margin = m.displaySpendPaise - m.totalCostPaise;
+                        return (
+                          <tr
+                            key={m.month}
+                            className={`border-b last:border-0 ${
+                              m.month === report.month ? "bg-muted/50" : ""
+                            }`}
+                            data-testid={`row-trend-${m.month}`}
+                          >
+                            <td className="py-2 pr-3 font-medium">{m.month}</td>
+                            <td className="py-2 pr-3 text-right">{m.captionCount}</td>
+                            <td className="py-2 pr-3 text-right">{m.imageCount}</td>
+                            <td className="py-2 pr-3 text-right">
+                              {paiseToInr(m.totalCostPaise)}
+                            </td>
+                            <td className="py-2 pr-3 text-right">
+                              {paiseToInr(m.displaySpendPaise)}
+                            </td>
+                            <td
+                              className={`py-2 pr-3 text-right ${margin < 0 ? "text-destructive" : ""}`}
+                            >
+                              {paiseToInr(margin)}
+                            </td>
+                            <td className="py-2 text-right">
+                              {m.unknownCount > 0 ? (
+                                <Badge variant="outline">{m.unknownCount} events</Badge>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Displayed spend in the trend uses today's tenant-facing rates for every
+                  month, so it compares volume, not historical pricing. Up to 12 months are
+                  shown, newest first.
+                </p>
               </div>
             )}
             <p className="text-xs text-muted-foreground">

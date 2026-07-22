@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { AiCostReportMonthTotal } from './aiCostReportMonthTotal';
 import type { AiCostReportTenantRow } from './aiCostReportTenantRow';
 import type { AiSpendRatesView } from './aiSpendRatesView';
 
@@ -14,5 +15,9 @@ export interface AiCostReportView {
   /** Months that have any usage, newest first. */
   months: string[];
   displayRates: AiSpendRatesView;
+  /** Platform-wide totals for the selected month. */
+  summary: AiCostReportMonthTotal;
+  /** Platform totals per month, newest first (up to 12 months). */
+  trend: AiCostReportMonthTotal[];
   tenants: AiCostReportTenantRow[];
 }

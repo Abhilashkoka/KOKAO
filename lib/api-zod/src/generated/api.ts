@@ -1257,6 +1257,22 @@ export const AdminGetAiCostReportResponse = zod.object({
   "captionPaise": zod.number().describe('Amount shown per generated caption, in paise (fee included).'),
   "imagePaise": zod.number().describe('Amount shown per generated image, in paise (fee included).')
 }).describe('Effective per-unit display amounts (base cost + platform fee, combined).'),
+  "summary": zod.object({
+  "month": zod.string().describe('Month, YYYY-MM (UTC).'),
+  "captionCount": zod.number(),
+  "imageCount": zod.number(),
+  "totalCostPaise": zod.number().describe('Sum of known per-event costs, in paise.'),
+  "displaySpendPaise": zod.number().describe('What the current tenant-facing rates would display for this volume, in paise.'),
+  "unknownCount": zod.number().describe('Events in the month with no computed cost.')
+}).describe('Platform-wide totals for the selected month.'),
+  "trend": zod.array(zod.object({
+  "month": zod.string().describe('Month, YYYY-MM (UTC).'),
+  "captionCount": zod.number(),
+  "imageCount": zod.number(),
+  "totalCostPaise": zod.number().describe('Sum of known per-event costs, in paise.'),
+  "displaySpendPaise": zod.number().describe('What the current tenant-facing rates would display for this volume, in paise.'),
+  "unknownCount": zod.number().describe('Events in the month with no computed cost.')
+})).describe('Platform totals per month, newest first (up to 12 months).'),
   "tenants": zod.array(zod.object({
   "tenantId": zod.number(),
   "name": zod.string().nullable(),
