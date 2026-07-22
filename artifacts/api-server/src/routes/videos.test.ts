@@ -161,6 +161,66 @@ describe("POST /api/ai/generate-video", () => {
     expect(row?.tenantId).toBe(tenant.tenantId);
   });
 
+  it("rejects topic-to-video without a topic before reserving any funding", async () => {
+    await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ engine: "topic_to_video", prompt: "   " });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/topic/i);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("creates a topic-to-video job persisting its narration options", async () => {
+    const tenant = await newTenant(); // free plan: 3 videos/month
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "topic_to_video",
+        prompt: "5 morning habits that transform your day",
+        aspectRatio: "9:16",
+        voice: "nova",
+        paragraphCount: 2,
+        subtitles: false,
+        stockSource: "pexels",
+        musicPath: `/objects/${tenant.tenantId}/uploads/track.mp3`,
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.engine).toBe("topic_to_video");
+    expect(res.body.status).toBe("queued");
+
+    await waitForPendingJobs();
+    expect(runnerState.calls).toEqual([{ jobId: res.body.id, funding: "quota" }]);
+
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+    expect(row?.options).toMatchObject({
+      voice: "nova",
+      paragraphCount: 2,
+      subtitles: false,
+      stockSource: "pexels",
+      musicPath: `/objects/${tenant.tenantId}/uploads/track.mp3`,
+    });
+  });
+
+  it("rejects a topic-to-video music path outside the caller's workspace", async () => {
+    const tenant = await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "topic_to_video",
+        prompt: "healthy meal prep for busy weeks",
+        musicPath: `/objects/${tenant.tenantId + 1}/uploads/stolen.mp3`,
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/music path/i);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
   it("402s when the plan has no video quota and no credits", async () => {
     await newTenant("payg"); // 0 videos/month, credit-funded only
     const res = await request(app)

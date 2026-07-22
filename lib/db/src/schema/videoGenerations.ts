@@ -15,7 +15,7 @@ import {
  * poll GET /ai/video-jobs/{id} until status is succeeded or failed.
  *
  * status: queued | processing | succeeded | failed
- * engine: text_to_video | image_to_video | slideshow
+ * engine: text_to_video | image_to_video | slideshow | topic_to_video
  */
 
 /** Options captured at enqueue time so the job is fully self-describing. */
@@ -28,8 +28,16 @@ export interface VideoJobOptions {
   slideDurationSec?: number;
   /** Slideshow: optional caption burned into the video. */
   overlayText?: string | null;
-  /** Slideshow: optional /objects/... path of a background music track. */
+  /** Slideshow + topic_to_video: optional /objects/... path of a music track. */
   musicPath?: string | null;
+  /** topic_to_video: narration voice. */
+  voice?: string;
+  /** topic_to_video: stock footage source ("auto" | "pexels" | "pixabay"). */
+  stockSource?: string;
+  /** topic_to_video: burn per-sentence subtitles (default true). */
+  subtitles?: boolean;
+  /** topic_to_video: script length in paragraphs (~30s each, 1-3). */
+  paragraphCount?: number;
 }
 
 export const videoGenerationsTable = pgTable("video_generations", {

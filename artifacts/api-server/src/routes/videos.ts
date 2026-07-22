@@ -54,6 +54,10 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     res.status(400).json({ error: "A prompt is required for text-to-video." });
     return;
   }
+  if (body.engine === "topic_to_video" && !body.prompt?.trim()) {
+    res.status(400).json({ error: "A topic is required for topic-to-video." });
+    return;
+  }
   if (body.engine === "image_to_video" && sourceImagePaths.length === 0) {
     res.status(400).json({ error: "A source image is required for image-to-video." });
     return;
@@ -123,6 +127,10 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
           slideDurationSec: body.slideDurationSec ?? 3,
           overlayText: body.overlayText ?? null,
           musicPath: body.musicPath ?? null,
+          voice: body.voice ?? "alloy",
+          stockSource: body.stockSource ?? "auto",
+          subtitles: body.subtitles ?? true,
+          paragraphCount: body.paragraphCount ?? 1,
         },
       })
       .returning()

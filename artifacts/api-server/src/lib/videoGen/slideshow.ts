@@ -42,12 +42,15 @@ function sniffImageExt(buffer: Buffer): string {
 }
 
 /** First available fontfile for drawtext; overlay is skipped when none exists. */
-async function findFontFile(): Promise<string | null> {
+export async function findFontFile(): Promise<string | null> {
   const candidates = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    "/usr/share/fonts/noto/NotoSans-Bold.ttf",
   ];
   for (const path of candidates) {
     try {
@@ -60,7 +63,7 @@ async function findFontFile(): Promise<string | null> {
   return null;
 }
 
-function runFfmpeg(args: string[], cwd: string): Promise<void> {
+export function runFfmpeg(args: string[], cwd: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const proc = spawn("ffmpeg", args, { cwd });
     let stderrTail = "";

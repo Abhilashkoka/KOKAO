@@ -1367,6 +1367,71 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/stock-sources/{sourceId}/key:
+    parameters:
+      - name: sourceId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: adminSetStockSourceKey
+      tags: [admin]
+      summary: Save a stock footage source API key (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetVideoGenProviderKeyRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoGenSettingsView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Unknown source
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: adminClearStockSourceKey
+      tags: [admin]
+      summary: Remove a saved stock footage source API key (superadmin only)
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoGenSettingsView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Unknown source
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai-spend/rates:
     get:
       operationId: getAiSpendRates
@@ -9257,13 +9322,14 @@ components:
       properties:
         engine:
           type: string
-          enum: [text_to_video, image_to_video, slideshow]
+          enum: [text_to_video, image_to_video, slideshow, topic_to_video]
         prompt:
           type: ["string", "null"]
           maxLength: 2000
           description: >-
             The brief. Required for text_to_video; an optional motion hint for
-            image_to_video; unused by slideshow.
+            image_to_video; the video topic for topic_to_video; unused by
+            slideshow.
         sourceImagePaths:
           type: ["array", "null"]
           maxItems: 20
@@ -9295,8 +9361,32 @@ components:
         musicPath:
           type: ["string", "null"]
           description: >-
-            Slideshow only; /objects/... path of an uploaded music track,
-            faded out at the end of the video.
+            Slideshow and topic_to_video; /objects/... path of an uploaded
+            music track, faded out at the end of the video.
+        voice:
+          type: string
+          enum: [alloy, echo, fable, onyx, nova, shimmer]
+          default: alloy
+          description: topic_to_video only; the narration voice.
+        stockSource:
+          type: string
+          enum: [auto, pexels, pixabay]
+          default: auto
+          description: >-
+            topic_to_video only; where stock footage comes from (auto = first
+            configured source).
+        subtitles:
+          type: boolean
+          default: true
+          description: topic_to_video only; burn per-sentence subtitles.
+        paragraphCount:
+          type: integer
+          minimum: 1
+          maximum: 3
+          default: 1
+          description: >-
+            topic_to_video only; script length in paragraphs (roughly 30
+            seconds of narration each).
     VideoJob:
       type: object
       required:
@@ -9306,7 +9396,7 @@ components:
           type: integer
         engine:
           type: string
-          enum: [text_to_video, image_to_video, slideshow]
+          enum: [text_to_video, image_to_video, slideshow, topic_to_video]
         status:
           type: string
           enum: [queued, processing, succeeded, failed]
@@ -9445,7 +9535,7 @@ components:
                 type: string
     VideoGenSettingsView:
       type: object
-      required: [provider, textToVideoModel, imageToVideoModel, providers]
+      required: [provider, textToVideoModel, imageToVideoModel, providers, stockSources]
       properties:
         provider:
           type: string
@@ -9460,6 +9550,29 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/VideoGenProviderInfo"
+        stockSources:
+          type: array
+          description: Stock footage sources available to the Topic to Video engine.
+          items:
+            $ref: "#/components/schemas/StockSourceInfo"
+    StockSourceInfo:
+      type: object
+      required: [id, label, configured, envKey]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        configured:
+          type: boolean
+          description: Whether an API key for this source is set.
+        envKey:
+          type: string
+          description: Secret name used as the fallback key.
+        keySource:
+          type: ["string", "null"]
+          enum: [database, env, null]
+          description: Where the active key comes from (admin-entered key wins over the env secret).
     VideoGenProviderInfo:
       type: object
       required:

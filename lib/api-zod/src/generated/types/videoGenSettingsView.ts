@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { StockSourceInfo } from './stockSourceInfo';
 import type { VideoGenProviderInfo } from './videoGenProviderInfo';
 
 export interface VideoGenSettingsView {
@@ -21,4 +22,6 @@ export interface VideoGenSettingsView {
      */
   imageToVideoModel: string | null;
   providers: VideoGenProviderInfo[];
+  /** Stock footage sources available to the Topic to Video engine. */
+  stockSources: StockSourceInfo[];
 }

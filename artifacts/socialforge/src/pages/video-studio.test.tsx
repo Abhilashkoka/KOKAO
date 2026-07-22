@@ -141,6 +141,41 @@ describe("Video Studio", () => {
     );
   });
 
+  it("keeps Generate disabled until the topic is long enough", async () => {
+    renderPage();
+    await userEvent.setup().click(screen.getByTestId("tab-topic-to-video"));
+    const button = screen.getByTestId("button-generate-video") as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "5 morning habits that transform your day" },
+    });
+    expect(button.disabled).toBe(false);
+  });
+
+  it("submits a topic-to-video job with narration defaults", async () => {
+    renderPage();
+    await userEvent.setup().click(screen.getByTestId("tab-topic-to-video"));
+    // The topic engine trades the seconds picker for length + voice controls.
+    expect(screen.getByTestId("select-video-length")).toBeTruthy();
+    expect(screen.getByTestId("select-video-voice")).toBeTruthy();
+    expect(screen.getByTestId("switch-subtitles")).toBeTruthy();
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "5 morning habits that transform your day" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-video"));
+    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+    expect(mockState.lastGenerateVars.data).toMatchObject({
+      engine: "topic_to_video",
+      prompt: "5 morning habits that transform your day",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      voice: "alloy",
+      stockSource: "auto",
+      subtitles: true,
+      paragraphCount: 1,
+    });
+  });
+
   it("shows the finished video with save and download actions", () => {
     mockState.activeJob = {
       id: 7,

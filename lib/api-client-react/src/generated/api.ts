@@ -3758,6 +3758,147 @@ export const useAdminResetGamificationPlan = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getAdminResetGamificationPlanMutationOptions(options));
     }
 
+export const getAdminSetStockSourceKeyUrl = (sourceId: string,) => {
+
+
+
+
+  return `/api/admin/stock-sources/${sourceId}/key`
+}
+
+/**
+ * @summary Save a stock footage source API key (superadmin only)
+ */
+export const adminSetStockSourceKey = async (sourceId: string,
+    setVideoGenProviderKeyRequest: SetVideoGenProviderKeyRequest, options?: RequestInit): Promise<VideoGenSettingsView> => {
+
+  return customFetch<VideoGenSettingsView>(getAdminSetStockSourceKeyUrl(sourceId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(setVideoGenProviderKeyRequest)
+  }
+);}
+
+
+
+
+export const getAdminSetStockSourceKeyMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetStockSourceKey>>, TError,{sourceId: string;data: BodyType<SetVideoGenProviderKeyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSetStockSourceKey>>, TError,{sourceId: string;data: BodyType<SetVideoGenProviderKeyRequest>}, TContext> => {
+
+const mutationKey = ['adminSetStockSourceKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSetStockSourceKey>>, {sourceId: string;data: BodyType<SetVideoGenProviderKeyRequest>}> = (props) => {
+          const {sourceId,data} = props ?? {};
+
+          return  adminSetStockSourceKey(sourceId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSetStockSourceKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminSetStockSourceKey>>>
+    export type AdminSetStockSourceKeyMutationBody = BodyType<SetVideoGenProviderKeyRequest>
+    export type AdminSetStockSourceKeyMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save a stock footage source API key (superadmin only)
+ */
+export const useAdminSetStockSourceKey = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetStockSourceKey>>, TError,{sourceId: string;data: BodyType<SetVideoGenProviderKeyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSetStockSourceKey>>,
+        TError,
+        {sourceId: string;data: BodyType<SetVideoGenProviderKeyRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminSetStockSourceKeyMutationOptions(options));
+    }
+
+export const getAdminClearStockSourceKeyUrl = (sourceId: string,) => {
+
+
+
+
+  return `/api/admin/stock-sources/${sourceId}/key`
+}
+
+/**
+ * @summary Remove a saved stock footage source API key (superadmin only)
+ */
+export const adminClearStockSourceKey = async (sourceId: string, options?: RequestInit): Promise<VideoGenSettingsView> => {
+
+  return customFetch<VideoGenSettingsView>(getAdminClearStockSourceKeyUrl(sourceId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getAdminClearStockSourceKeyMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearStockSourceKey>>, TError,{sourceId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminClearStockSourceKey>>, TError,{sourceId: string}, TContext> => {
+
+const mutationKey = ['adminClearStockSourceKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminClearStockSourceKey>>, {sourceId: string}> = (props) => {
+          const {sourceId} = props ?? {};
+
+          return  adminClearStockSourceKey(sourceId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminClearStockSourceKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminClearStockSourceKey>>>
+
+    export type AdminClearStockSourceKeyMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Remove a saved stock footage source API key (superadmin only)
+ */
+export const useAdminClearStockSourceKey = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearStockSourceKey>>, TError,{sourceId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminClearStockSourceKey>>,
+        TError,
+        {sourceId: string},
+        TContext
+      > => {
+      return useMutation(getAdminClearStockSourceKeyMutationOptions(options));
+    }
+
 export const getGetAiSpendRatesUrl = () => {
 
 

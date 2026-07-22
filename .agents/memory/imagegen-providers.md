@@ -10,3 +10,6 @@ description: Pluggable admin-selected image providers mirroring the ASR framewor
 - BFL (FLUX) provider is async: submit returns a `polling_url` to poll until Ready, then a short-lived result URL to download — both provider-returned URLs go through the same SSRF guard, and the model id doubles as the URL path segment so it must be regex-validated.
 - Providers can carry suggested `modelOptions` (value+label) in the catalog, exposed via the admin API and shown as a Select above the free-text model input — that's how "Nano Banana Pro" (gemini-3-pro-image-preview) is surfaced without a new provider.
 - UI pattern gotcha: a "draft provider" select (custom needs baseUrl+model before saving) must clear the draft when the user re-selects the saved provider and on successful save, or the card gets stuck in "Not saved yet".
+
+## Third-party media URLs are untrusted
+Any URL that arrives inside a provider/stock API response (image result URLs, stock clip renditions) must pass the SSRF guard before a server-side fetch: https-only, assertPublicHost, and manual redirect following with re-validation per hop. External patches tend to skip this — check it on review.

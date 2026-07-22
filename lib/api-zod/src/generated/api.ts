@@ -1137,7 +1137,14 @@ export const AdminGetVideoGenSettingsResponse = zod.object({
 })).optional(),
   "envKey": zod.string().optional().describe('Secret name required by this provider.'),
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
-}))
+})),
+  "stockSources": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "configured": zod.boolean().describe('Whether an API key for this source is set.'),
+  "envKey": zod.string().describe('Secret name used as the fallback key.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+})).describe('Stock footage sources available to the Topic to Video engine.')
 })
 
 
@@ -1171,7 +1178,14 @@ export const AdminUpdateVideoGenSettingsResponse = zod.object({
 })).optional(),
   "envKey": zod.string().optional().describe('Secret name required by this provider.'),
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
-}))
+})),
+  "stockSources": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "configured": zod.boolean().describe('Whether an API key for this source is set.'),
+  "envKey": zod.string().describe('Secret name used as the fallback key.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+})).describe('Stock footage sources available to the Topic to Video engine.')
 })
 
 
@@ -1210,7 +1224,14 @@ export const AdminSetVideoGenProviderKeyResponse = zod.object({
 })).optional(),
   "envKey": zod.string().optional().describe('Secret name required by this provider.'),
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
-}))
+})),
+  "stockSources": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "configured": zod.boolean().describe('Whether an API key for this source is set.'),
+  "envKey": zod.string().describe('Secret name used as the fallback key.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+})).describe('Stock footage sources available to the Topic to Video engine.')
 })
 
 
@@ -1242,7 +1263,14 @@ export const AdminClearVideoGenProviderKeyResponse = zod.object({
 })).optional(),
   "envKey": zod.string().optional().describe('Secret name required by this provider.'),
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
-}))
+})),
+  "stockSources": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "configured": zod.boolean().describe('Whether an API key for this source is set.'),
+  "envKey": zod.string().describe('Secret name used as the fallback key.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+})).describe('Stock footage sources available to the Topic to Video engine.')
 })
 
 
@@ -1349,6 +1377,91 @@ export const AdminResetGamificationPlanResponseItem = zod.object({
 })
 })
 export const AdminResetGamificationPlanResponse = zod.array(AdminResetGamificationPlanResponseItem)
+
+
+/**
+ * @summary Save a stock footage source API key (superadmin only)
+ */
+export const AdminSetStockSourceKeyParams = zod.object({
+  "sourceId": zod.coerce.string()
+})
+
+
+
+
+export const AdminSetStockSourceKeyBody = zod.object({
+  "apiKey": zod.string().min(1).describe('The provider API key (stored encrypted, never returned).')
+})
+
+export const AdminSetStockSourceKeyResponse = zod.object({
+  "provider": zod.string().describe('Currently selected video generation provider id.'),
+  "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
+  "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
+  "providers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "defaultTextToVideoModel": zod.string(),
+  "defaultImageToVideoModel": zod.string(),
+  "configured": zod.boolean().describe('Whether the API key needed by this provider is set.'),
+  "supportsModelOverride": zod.boolean(),
+  "textModelOptions": zod.array(zod.object({
+  "value": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "imageModelOptions": zod.array(zod.object({
+  "value": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "envKey": zod.string().optional().describe('Secret name required by this provider.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+})),
+  "stockSources": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "configured": zod.boolean().describe('Whether an API key for this source is set.'),
+  "envKey": zod.string().describe('Secret name used as the fallback key.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+})).describe('Stock footage sources available to the Topic to Video engine.')
+})
+
+
+/**
+ * @summary Remove a saved stock footage source API key (superadmin only)
+ */
+export const AdminClearStockSourceKeyParams = zod.object({
+  "sourceId": zod.coerce.string()
+})
+
+export const AdminClearStockSourceKeyResponse = zod.object({
+  "provider": zod.string().describe('Currently selected video generation provider id.'),
+  "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
+  "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
+  "providers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "defaultTextToVideoModel": zod.string(),
+  "defaultImageToVideoModel": zod.string(),
+  "configured": zod.boolean().describe('Whether the API key needed by this provider is set.'),
+  "supportsModelOverride": zod.boolean(),
+  "textModelOptions": zod.array(zod.object({
+  "value": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "imageModelOptions": zod.array(zod.object({
+  "value": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "envKey": zod.string().optional().describe('Secret name required by this provider.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+})),
+  "stockSources": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "configured": zod.boolean().describe('Whether an API key for this source is set.'),
+  "envKey": zod.string().describe('Secret name used as the fallback key.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+})).describe('Stock footage sources available to the Topic to Video engine.')
+})
 
 
 /**
@@ -4637,22 +4750,32 @@ export const generateVideoBodySlideDurationSecMax = 10;
 
 export const generateVideoBodyOverlayTextMax = 120;
 
+export const generateVideoBodyVoiceDefault = `alloy`;
+export const generateVideoBodyStockSourceDefault = `auto`;
+export const generateVideoBodySubtitlesDefault = true;
+export const generateVideoBodyParagraphCountDefault = 1;
+export const generateVideoBodyParagraphCountMax = 3;
+
 
 
 export const GenerateVideoBody = zod.object({
-  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow']),
-  "prompt": zod.string().max(generateVideoBodyPromptMax).nullish().describe('The brief. Required for text_to_video; an optional motion hint for image_to_video; unused by slideshow.'),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
+  "prompt": zod.string().max(generateVideoBodyPromptMax).nullish().describe('The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; unused by slideshow.'),
   "sourceImagePaths": zod.array(zod.string()).max(generateVideoBodySourceImagePathsMax).nullish().describe('Ordered \/objects\/... photo paths. image_to_video animates the first; slideshow uses all of them in order.'),
   "aspectRatio": zod.enum(['16:9', '9:16', '1:1']).default(generateVideoBodyAspectRatioDefault),
   "durationSec": zod.number().min(generateVideoBodyDurationSecMin).max(generateVideoBodyDurationSecMax).default(generateVideoBodyDurationSecDefault).describe('AI engines only; providers clamp to what they support.'),
   "slideDurationSec": zod.number().min(1).max(generateVideoBodySlideDurationSecMax).default(generateVideoBodySlideDurationSecDefault).describe('Slideshow only; seconds each photo is on screen.'),
   "overlayText": zod.string().max(generateVideoBodyOverlayTextMax).nullish().describe('Slideshow only; caption burned into the video.'),
-  "musicPath": zod.string().nullish().describe('Slideshow only; \/objects\/... path of an uploaded music track, faded out at the end of the video.')
+  "musicPath": zod.string().nullish().describe('Slideshow and topic_to_video; \/objects\/... path of an uploaded music track, faded out at the end of the video.'),
+  "voice": zod.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']).default(generateVideoBodyVoiceDefault).describe('topic_to_video only; the narration voice.'),
+  "stockSource": zod.enum(['auto', 'pexels', 'pixabay']).default(generateVideoBodyStockSourceDefault).describe('topic_to_video only; where stock footage comes from (auto = first configured source).'),
+  "subtitles": zod.boolean().default(generateVideoBodySubtitlesDefault).describe('topic_to_video only; burn per-sentence subtitles.'),
+  "paragraphCount": zod.number().min(1).max(generateVideoBodyParagraphCountMax).default(generateVideoBodyParagraphCountDefault).describe('topic_to_video only; script length in paragraphs (roughly 30 seconds of narration each).')
 })
 
 export const GenerateVideoResponse = zod.object({
   "id": zod.number(),
-  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow']),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
   "status": zod.enum(['queued', 'processing', 'succeeded', 'failed']),
   "prompt": zod.string().nullish(),
   "sourceImagePaths": zod.array(zod.string()),
@@ -4673,7 +4796,7 @@ export const GenerateVideoResponse = zod.object({
  */
 export const ListVideoJobsResponseItem = zod.object({
   "id": zod.number(),
-  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow']),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
   "status": zod.enum(['queued', 'processing', 'succeeded', 'failed']),
   "prompt": zod.string().nullish(),
   "sourceImagePaths": zod.array(zod.string()),
@@ -4699,7 +4822,7 @@ export const GetVideoJobParams = zod.object({
 
 export const GetVideoJobResponse = zod.object({
   "id": zod.number(),
-  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow']),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
   "status": zod.enum(['queued', 'processing', 'succeeded', 'failed']),
   "prompt": zod.string().nullish(),
   "sourceImagePaths": zod.array(zod.string()),

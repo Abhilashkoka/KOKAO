@@ -13,4 +13,5 @@ export const VideoGenerateRequestEngine = {
   text_to_video: 'text_to_video',
   image_to_video: 'image_to_video',
   slideshow: 'slideshow',
+  topic_to_video: 'topic_to_video',
 } as const;

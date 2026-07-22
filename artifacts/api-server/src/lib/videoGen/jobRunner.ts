@@ -6,6 +6,12 @@ import { refundCredits } from "../credits";
 import { logger } from "../logger";
 import { generateVideo, VideoGenNotConfiguredError, VideoGenProviderError } from "./index";
 import { renderSlideshow, extractPosterFrame } from "./slideshow";
+import {
+  generateTopicVideo,
+  NARRATION_VOICES,
+  type NarrationVoice,
+  type StockSourceChoice,
+} from "./topicVideo";
 import type { SourceImage } from "./types";
 
 /**
@@ -161,7 +167,39 @@ async function produceVideo(
     return { buffer, provider: null, model: null };
   }
 
+  if (job.engine === "topic_to_video") {
+    const music = options.musicPath
+      ? (
+          await loadTenantObject(
+            options.musicPath,
+            job.tenantId,
+            MAX_MUSIC_BYTES,
+            "Music track",
+          )
+        ).buffer
+      : null;
+    const result = await generateTopicVideo({
+      tenantId: job.tenantId,
+      topic: job.prompt ?? "",
+      aspectRatio,
+      voice: isNarrationVoice(options.voice) ? options.voice : "alloy",
+      stockSource: isStockSourceChoice(options.stockSource) ? options.stockSource : "auto",
+      subtitles: options.subtitles ?? true,
+      paragraphCount: options.paragraphCount ?? 1,
+      music,
+    });
+    return { buffer: result.buffer, provider: result.provider, model: result.model };
+  }
+
   throw new VideoJobInputError(`Unknown video engine: ${job.engine}`);
+}
+
+function isNarrationVoice(value: string | undefined): value is NarrationVoice {
+  return !!value && (NARRATION_VOICES as readonly string[]).includes(value);
+}
+
+function isStockSourceChoice(value: string | undefined): value is StockSourceChoice {
+  return value === "auto" || value === "pexels" || value === "pixabay";
 }
 
 /**

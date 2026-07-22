@@ -7,11 +7,13 @@
  */
 import type { VideoGenerateRequestAspectRatio } from './videoGenerateRequestAspectRatio';
 import type { VideoGenerateRequestEngine } from './videoGenerateRequestEngine';
+import type { VideoGenerateRequestStockSource } from './videoGenerateRequestStockSource';
+import type { VideoGenerateRequestVoice } from './videoGenerateRequestVoice';
 
 export interface VideoGenerateRequest {
   engine: VideoGenerateRequestEngine;
   /**
-     * The brief. Required for text_to_video; an optional motion hint for image_to_video; unused by slideshow.
+     * The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; unused by slideshow.
      * @maxLength 2000
      * @nullable
      */
@@ -42,8 +44,20 @@ export interface VideoGenerateRequest {
      */
   overlayText?: string | null;
   /**
-     * Slideshow only; /objects/... path of an uploaded music track, faded out at the end of the video.
+     * Slideshow and topic_to_video; /objects/... path of an uploaded music track, faded out at the end of the video.
      * @nullable
      */
   musicPath?: string | null;
+  /** topic_to_video only; the narration voice. */
+  voice?: VideoGenerateRequestVoice;
+  /** topic_to_video only; where stock footage comes from (auto = first configured source). */
+  stockSource?: VideoGenerateRequestStockSource;
+  /** topic_to_video only; burn per-sentence subtitles. */
+  subtitles?: boolean;
+  /**
+     * topic_to_video only; script length in paragraphs (roughly 30 seconds of narration each).
+     * @minimum 1
+     * @maximum 3
+     */
+  paragraphCount?: number;
 }

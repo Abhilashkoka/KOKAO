@@ -45,6 +45,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import {
   Clapperboard,
@@ -62,11 +63,22 @@ import {
   CheckCircle2,
   XCircle,
   Sparkles,
+  Lightbulb,
 } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 
-type Engine = "text_to_video" | "image_to_video" | "slideshow";
+type Engine = "text_to_video" | "image_to_video" | "slideshow" | "topic_to_video";
 type Aspect = "16:9" | "9:16" | "1:1";
+type Voice = "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
+
+const VOICES: { value: Voice; label: string }[] = [
+  { value: "alloy", label: "Alloy · balanced" },
+  { value: "nova", label: "Nova · bright" },
+  { value: "shimmer", label: "Shimmer · warm" },
+  { value: "echo", label: "Echo · deep" },
+  { value: "onyx", label: "Onyx · bold" },
+  { value: "fable", label: "Fable · storyteller" },
+];
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MUSIC_TYPES = ["audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/aac", "audio/wav"];
@@ -96,6 +108,10 @@ const ENGINE_META: Record<Engine, { title: string; blurb: string }> = {
     title: "Photo Slideshow",
     blurb: "Photos in, a polished video with crossfades out. No AI cost.",
   },
+  topic_to_video: {
+    title: "Topic to Video",
+    blurb: "Give a topic — AI writes the script, narrates it, and cuts stock footage to match.",
+  },
 };
 
 export function VideoStudioPage() {
@@ -108,6 +124,9 @@ export function VideoStudioPage() {
   const [durationSec, setDurationSec] = useState(5);
   const [slideDurationSec, setSlideDurationSec] = useState(3);
   const [overlayText, setOverlayText] = useState("");
+  const [voice, setVoice] = useState<Voice>("alloy");
+  const [paragraphCount, setParagraphCount] = useState(1);
+  const [subtitles, setSubtitles] = useState(true);
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [music, setMusic] = useState<{ objectPath: string; name: string } | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -261,7 +280,8 @@ export function VideoStudioPage() {
 
   const canGenerate = useMemo(() => {
     if (generateVideo.isPending || uploading) return false;
-    if (engine === "text_to_video") return prompt.trim().length >= 3;
+    if (engine === "text_to_video" || engine === "topic_to_video")
+      return prompt.trim().length >= 3;
     if (engine === "image_to_video") return photos.length >= 1;
     return photos.length >= 1;
   }, [engine, prompt, photos, generateVideo.isPending, uploading]);
@@ -278,7 +298,7 @@ export function VideoStudioPage() {
           engine,
           prompt: prompt.trim() || null,
           sourceImagePaths:
-            engine === "text_to_video"
+            engine === "text_to_video" || engine === "topic_to_video"
               ? []
               : engine === "image_to_video"
                 ? photos.slice(0, 1).map((p) => p.objectPath)
@@ -287,7 +307,14 @@ export function VideoStudioPage() {
           durationSec,
           slideDurationSec,
           overlayText: engine === "slideshow" && overlayText.trim() ? overlayText.trim() : null,
-          musicPath: engine === "slideshow" ? (music?.objectPath ?? null) : null,
+          musicPath:
+            engine === "slideshow" || engine === "topic_to_video"
+              ? (music?.objectPath ?? null)
+              : null,
+          voice,
+          stockSource: "auto",
+          subtitles,
+          paragraphCount,
         },
       },
       {
@@ -339,7 +366,7 @@ export function VideoStudioPage() {
   const removePhoto = (objectPath: string) =>
     setPhotos((prev) => prev.filter((p) => p.objectPath !== objectPath));
 
-  const needsPhotos = engine !== "text_to_video";
+  const needsPhotos = engine === "image_to_video" || engine === "slideshow";
   const meta = ENGINE_META[engine];
 
   return (
@@ -354,7 +381,7 @@ export function VideoStudioPage() {
       </div>
 
       <Tabs value={engine} onValueChange={(v) => setEngine(v as Engine)}>
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4">
           <TabsTrigger value="text_to_video" data-testid="tab-text-to-video">
             <Sparkles className="h-4 w-4 mr-1.5" /> Text to Video
           </TabsTrigger>
@@ -363,6 +390,9 @@ export function VideoStudioPage() {
           </TabsTrigger>
           <TabsTrigger value="slideshow" data-testid="tab-slideshow">
             <Images className="h-4 w-4 mr-1.5" /> Slideshow
+          </TabsTrigger>
+          <TabsTrigger value="topic_to_video" data-testid="tab-topic-to-video">
+            <Lightbulb className="h-4 w-4 mr-1.5" /> Topic to Video
           </TabsTrigger>
         </TabsList>
       </Tabs>
@@ -376,7 +406,11 @@ export function VideoStudioPage() {
           {engine !== "slideshow" && (
             <div className="space-y-2">
               <Label htmlFor="video-prompt">
-                {engine === "text_to_video" ? "Describe your video" : "Motion hint (optional)"}
+                {engine === "text_to_video"
+                  ? "Describe your video"
+                  : engine === "topic_to_video"
+                    ? "What's your video about?"
+                    : "Motion hint (optional)"}
               </Label>
               <Textarea
                 id="video-prompt"
@@ -384,7 +418,9 @@ export function VideoStudioPage() {
                 placeholder={
                   engine === "text_to_video"
                     ? "A steaming cup of chai on a rain-speckled window sill, cinematic close-up..."
-                    : "Slow zoom in, gentle parallax..."
+                    : engine === "topic_to_video"
+                      ? "5 morning habits that quietly transform your day..."
+                      : "Slow zoom in, gentle parallax..."
                 }
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
@@ -475,7 +511,7 @@ export function VideoStudioPage() {
               </ToggleGroup>
             </div>
 
-            {engine !== "slideshow" ? (
+            {engine === "text_to_video" || engine === "image_to_video" ? (
               <div className="space-y-2">
                 <Label>Length</Label>
                 <Select value={String(durationSec)} onValueChange={(v) => setDurationSec(Number(v))}>
@@ -489,6 +525,40 @@ export function VideoStudioPage() {
                   </SelectContent>
                 </Select>
               </div>
+            ) : engine === "topic_to_video" ? (
+              <>
+                <div className="space-y-2">
+                  <Label>Length</Label>
+                  <Select
+                    value={String(paragraphCount)}
+                    onValueChange={(v) => setParagraphCount(Number(v))}
+                  >
+                    <SelectTrigger className="w-36" data-testid="select-video-length">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">Short · ~30s</SelectItem>
+                      <SelectItem value="2">Medium · ~60s</SelectItem>
+                      <SelectItem value="3">Long · ~90s</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Voice</Label>
+                  <Select value={voice} onValueChange={(v) => setVoice(v as Voice)}>
+                    <SelectTrigger className="w-44" data-testid="select-video-voice">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {VOICES.map((v) => (
+                        <SelectItem key={v.value} value={v.value}>
+                          {v.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
             ) : (
               <div className="space-y-2">
                 <Label>Seconds per photo</Label>
@@ -511,19 +581,36 @@ export function VideoStudioPage() {
             )}
           </div>
 
-          {engine === "slideshow" && (
+          {(engine === "slideshow" || engine === "topic_to_video") && (
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="overlay-text">Caption on video (optional)</Label>
-                <Input
-                  id="overlay-text"
-                  data-testid="input-overlay-text"
-                  maxLength={120}
-                  placeholder="Summer collection '26"
-                  value={overlayText}
-                  onChange={(e) => setOverlayText(e.target.value)}
-                />
-              </div>
+              {engine === "slideshow" ? (
+                <div className="space-y-2">
+                  <Label htmlFor="overlay-text">Caption on video (optional)</Label>
+                  <Input
+                    id="overlay-text"
+                    data-testid="input-overlay-text"
+                    maxLength={120}
+                    placeholder="Summer collection '26"
+                    value={overlayText}
+                    onChange={(e) => setOverlayText(e.target.value)}
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="topic-subtitles">Subtitles</Label>
+                  <div className="flex items-center gap-3 border border-border rounded-md px-3 py-2">
+                    <Switch
+                      id="topic-subtitles"
+                      checked={subtitles}
+                      onCheckedChange={setSubtitles}
+                      data-testid="switch-subtitles"
+                    />
+                    <span className="text-sm text-muted-foreground">
+                      Burn captions into the video
+                    </span>
+                  </div>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Background music (optional)</Label>
                 {music ? (
@@ -590,7 +677,9 @@ export function VideoStudioPage() {
                     <p className="text-sm text-muted-foreground">
                       {activeJob.engine === "slideshow"
                         ? "Stitching photos with crossfades."
-                        : "AI video can take a few minutes. You can leave this page — the job keeps running."}
+                        : activeJob.engine === "topic_to_video"
+                          ? "Writing the script, recording narration, and cutting footage. This can take a few minutes — the job keeps running if you leave."
+                          : "AI video can take a few minutes. You can leave this page — the job keeps running."}
                     </p>
                   </div>
                 </div>

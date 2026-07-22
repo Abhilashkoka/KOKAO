@@ -1,0 +1,2911 @@
+From 425ccc60134ac1b55f8906db513c96d9cb44e78a Mon Sep 17 00:00:00 2001
+From: Abhilash Koka <abhilash.koka1@gmail.com>
+Date: Wed, 22 Jul 2026 18:47:52 +0000
+Subject: [PATCH] Add Topic to Video engine to the Video Studio
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A fourth Video Studio engine: give a topic and get a finished narrated
+short — AI script (tenant's text model via the textGen routing layer),
+stock footage from Pexels/Pixabay (admin-keyed, encrypted at rest, env
+fallback), sentence-timed TTS narration (OpenAI audio integration),
+burned subtitles, optional background music, all composed with the same
+system ffmpeg the slideshow engine uses.
+
+Pipeline design ported from MoneyPrinterTurbo (MIT) and reimplemented
+natively: one LLM call returns script + ordered search terms;
+per-sentence TTS gives exact subtitle cues from WAV headers with no
+transcription step; scenes cycle downloaded clips, cover-cropped to the
+target aspect.
+
+Wired end-to-end through the existing patterns: engine enum in the
+OpenAPI spec (+ regenerated clients), video quota/credit funding
+untouched, jobRunner branch, /admin/stock-sources/{id}/key endpoints,
+videoGen kill switch inherited, tenant-scoped music input, and a new
+Topic to Video tab in the studio with voice/length/subtitles controls.
+
+Verified: full typecheck clean; api-server 1046/1046 (22 new, incl.
+real-ffmpeg composition encodes), web 304/304 (2 new), mobile 149/149;
+spec lint + codegen drift clean; db push clean against Postgres 16.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MvH1dk9GX2coYLzGELYs9V
+---
+ .../api-server/src/lib/videoGen/jobRunner.ts  |  38 +++
+ .../api-server/src/lib/videoGen/slideshow.ts  |   7 +-
+ .../src/lib/videoGen/topicVideo/compose.ts    | 215 +++++++++++++
+ .../src/lib/videoGen/topicVideo/index.ts      | 184 +++++++++++
+ .../src/lib/videoGen/topicVideo/narration.ts  | 227 ++++++++++++++
+ .../src/lib/videoGen/topicVideo/script.ts     | 115 +++++++
+ .../lib/videoGen/topicVideo/stockSources.ts   | 281 +++++++++++++++++
+ .../videoGen/topicVideo/topicVideo.test.ts    | 292 ++++++++++++++++++
+ artifacts/api-server/src/routes/admin.ts      |  78 +++++
+ .../api-server/src/routes/videos.test.ts      |  60 ++++
+ artifacts/api-server/src/routes/videos.ts     |   8 +
+ .../src/pages/video-studio.test.tsx           |  35 +++
+ .../socialforge/src/pages/video-studio.tsx    | 133 ++++++--
+ .../src/generated/api.schemas.ts              |  73 ++++-
+ lib/api-client-react/src/generated/api.ts     | 141 +++++++++
+ lib/api-spec/openapi.yaml                     | 125 +++++++-
+ lib/api-zod/src/generated/api.ts              | 143 ++++++++-
+ lib/api-zod/src/generated/types/index.ts      |   4 +
+ .../src/generated/types/stockSourceInfo.ts    |  22 ++
+ .../types/stockSourceInfoKeySource.ts         |  19 ++
+ .../generated/types/videoGenSettingsView.ts   |   3 +
+ .../generated/types/videoGenerateRequest.ts   |  18 +-
+ .../types/videoGenerateRequestEngine.ts       |   1 +
+ .../types/videoGenerateRequestStockSource.ts  |  19 ++
+ .../types/videoGenerateRequestVoice.ts        |  22 ++
+ .../src/generated/types/videoJobEngine.ts     |   1 +
+ lib/db/src/schema/videoGenerations.ts         |  12 +-
+ 27 files changed, 2230 insertions(+), 46 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/script.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts
+ create mode 100644 lib/api-zod/src/generated/types/stockSourceInfo.ts
+ create mode 100644 lib/api-zod/src/generated/types/stockSourceInfoKeySource.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoGenerateRequestStockSource.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoGenerateRequestVoice.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index 2fa934f..2de065a 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -6,6 +6,12 @@ import { refundCredits } from "../credits";
+ import { logger } from "../logger";
+ import { generateVideo, VideoGenNotConfiguredError, VideoGenProviderError } from "./index";
+ import { renderSlideshow, extractPosterFrame } from "./slideshow";
++import {
++  generateTopicVideo,
++  NARRATION_VOICES,
++  type NarrationVoice,
++  type StockSourceChoice,
++} from "./topicVideo";
+ import type { SourceImage } from "./types";
+ 
+ /**
+@@ -161,9 +167,41 @@ async function produceVideo(
+     return { buffer, provider: null, model: null };
+   }
+ 
++  if (job.engine === "topic_to_video") {
++    const music = options.musicPath
++      ? (
++          await loadTenantObject(
++            options.musicPath,
++            job.tenantId,
++            MAX_MUSIC_BYTES,
++            "Music track",
++          )
++        ).buffer
++      : null;
++    const result = await generateTopicVideo({
++      tenantId: job.tenantId,
++      topic: job.prompt ?? "",
++      aspectRatio,
++      voice: isNarrationVoice(options.voice) ? options.voice : "alloy",
++      stockSource: isStockSourceChoice(options.stockSource) ? options.stockSource : "auto",
++      subtitles: options.subtitles ?? true,
++      paragraphCount: options.paragraphCount ?? 1,
++      music,
++    });
++    return { buffer: result.buffer, provider: result.provider, model: result.model };
++  }
++
+   throw new VideoJobInputError(`Unknown video engine: ${job.engine}`);
+ }
+ 
++function isNarrationVoice(value: string | undefined): value is NarrationVoice {
++  return !!value && (NARRATION_VOICES as readonly string[]).includes(value);
++}
++
++function isStockSourceChoice(value: string | undefined): value is StockSourceChoice {
++  return value === "auto" || value === "pexels" || value === "pixabay";
++}
++
+ /**
+  * Run one video job to completion. `funding` is how the route paid for it
+  * ("quota" = counts against the monthly plan, "credit" = already debited).
+diff --git a/artifacts/api-server/src/lib/videoGen/slideshow.ts b/artifacts/api-server/src/lib/videoGen/slideshow.ts
+index 8ab4904..0871bae 100644
+--- a/artifacts/api-server/src/lib/videoGen/slideshow.ts
++++ b/artifacts/api-server/src/lib/videoGen/slideshow.ts
+@@ -42,12 +42,15 @@ function sniffImageExt(buffer: Buffer): string {
+ }
+ 
+ /** First available fontfile for drawtext; overlay is skipped when none exists. */
+-async function findFontFile(): Promise<string | null> {
++export async function findFontFile(): Promise<string | null> {
+   const candidates = [
+     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+     "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
++    "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
++    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
++    "/usr/share/fonts/noto/NotoSans-Bold.ttf",
+   ];
+   for (const path of candidates) {
+     try {
+@@ -60,7 +63,7 @@ async function findFontFile(): Promise<string | null> {
+   return null;
+ }
+ 
+-function runFfmpeg(args: string[], cwd: string): Promise<void> {
++export function runFfmpeg(args: string[], cwd: string): Promise<void> {
+   return new Promise<void>((resolve, reject) => {
+     const proc = spawn("ffmpeg", args, { cwd });
+     let stderrTail = "";
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts
+new file mode 100644
+index 0000000..7a72575
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts
+@@ -0,0 +1,215 @@
++import { writeFile, readFile, mkdtemp, rm } from "fs/promises";
++import { tmpdir } from "os";
++import { join } from "path";
++import { runFfmpeg, findFontFile } from "../slideshow";
++import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
++import type { NarrationCue } from "./narration";
++
++/**
++ * Final assembly for the Topic to Video engine, on the same system ffmpeg the
++ * slideshow encoder uses. Composition rules are ported from
++ * MoneyPrinterTurbo (MIT, app/services/video.py): stock clips are
++ * cover-cropped to the target frame and cut per narration sentence; subtitles
++ * are burned white-on-stroke near the bottom; background music ducks under
++ * the voice (0.2 vs 1.0) and fades out at the end.
++ *
++ * Each sentence becomes one scene: its clip segment is preprocessed to an
++ * identically-encoded MP4 (looping the source if it runs short), the segments
++ * are concat-demuxed, and one final pass burns subtitles and mixes audio.
++ */
++
++const FPS = 30;
++/** Keep music clearly under the narration, per MoneyPrinterTurbo's default. */
++const MUSIC_VOLUME = 0.2;
++const MUSIC_FADE_SEC = 1.5;
++
++export interface ComposeInput {
++  /** Downloaded stock clips, cycled across scenes. At least one. */
++  clips: Buffer[];
++  /** Complete narration track (WAV). */
++  narrationWav: Buffer;
++  /** Sentence timings within the narration track, in order. */
++  cues: NarrationCue[];
++  /** Full output duration (narration + trailing pause). */
++  totalDurationSec: number;
++  aspectRatio: VideoAspect;
++  /** Burn per-sentence subtitles (skipped if no usable font is installed). */
++  subtitles: boolean;
++  /** Optional background music bytes. */
++  music?: Buffer | null;
++}
++
++/**
++ * Wrap subtitle text into short centered lines. Space-separated languages
++ * wrap on words; scripts without spaces fall back to hard character wraps.
++ */
++export function wrapSubtitleText(text: string, maxCharsPerLine: number): string {
++  const words = text.trim().split(/\s+/);
++  const lines: string[] = [];
++  let current = "";
++  for (const word of words) {
++    if (word.length > maxCharsPerLine) {
++      if (current) {
++        lines.push(current);
++        current = "";
++      }
++      for (let i = 0; i < word.length; i += maxCharsPerLine) {
++        const piece = word.slice(i, i + maxCharsPerLine);
++        if (piece.length === maxCharsPerLine) lines.push(piece);
++        else current = piece;
++      }
++      continue;
++    }
++    if (current && (current + " " + word).length > maxCharsPerLine) {
++      lines.push(current);
++      current = word;
++    } else {
++      current = current ? `${current} ${word}` : word;
++    }
++  }
++  if (current) lines.push(current);
++  return lines.join("\n");
++}
++
++/** Scene lengths: each sentence owns the track up to the next sentence. */
++export function sceneDurations(cues: NarrationCue[], totalDurationSec: number): number[] {
++  return cues.map((cue, i) => {
++    const end = i + 1 < cues.length ? cues[i + 1]!.startSec : totalDurationSec;
++    return Math.max(end - cue.startSec, 0.2);
++  });
++}
++
++/** Render the final MP4. Returns the encoded video bytes. */
++export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
++  if (input.clips.length === 0) {
++    throw new VideoGenProviderError("No stock footage available to compose the video.");
++  }
++  if (input.cues.length === 0) {
++    throw new VideoGenProviderError("No narration to compose the video around.");
++  }
++  const { width, height } = ASPECT_DIMENSIONS[input.aspectRatio];
++  const durations = sceneDurations(input.cues, input.totalDurationSec);
++
++  const dir = await mkdtemp(join(tmpdir(), "kokao-topic-video-"));
++  try {
++    for (let i = 0; i < input.clips.length; i++) {
++      await writeFile(join(dir, `clip_${i}.mp4`), input.clips[i]!);
++    }
++    await writeFile(join(dir, "narration.wav"), input.narrationWav);
++    const hasMusic = !!input.music && input.music.length > 0;
++    if (hasMusic) {
++      await writeFile(join(dir, "music"), input.music!);
++    }
++
++    // 1) One identically-encoded segment per scene, looping short sources.
++    const frame =
++      `scale=${width}:${height}:force_original_aspect_ratio=increase,` +
++      `crop=${width}:${height},setsar=1,fps=${FPS},format=yuv420p`;
++    for (let i = 0; i < durations.length; i++) {
++      const clipIndex = i % input.clips.length;
++      await runFfmpeg(
++        [
++          "-y",
++          "-stream_loop",
++          "-1",
++          "-i",
++          `clip_${clipIndex}.mp4`,
++          "-t",
++          durations[i]!.toFixed(3),
++          "-vf",
++          frame,
++          "-an",
++          "-c:v",
++          "libx264",
++          "-preset",
++          "veryfast",
++          "-crf",
++          "23",
++          `seg_${String(i).padStart(3, "0")}.mp4`,
++        ],
++        dir,
++      );
++    }
++    const concatList = durations
++      .map((_, i) => `file 'seg_${String(i).padStart(3, "0")}.mp4'`)
++      .join("\n");
++    await writeFile(join(dir, "list.txt"), concatList);
++
++    // 2) Final pass: concat scenes, burn subtitles, mix narration + music.
++    const fontFile = input.subtitles ? await findFontFile() : null;
++    const fontSize = Math.round(height / 18);
++    const maxCharsPerLine = Math.max(Math.floor((width * 0.88) / (fontSize * 0.56)), 8);
++    const strokeWidth = Math.max(2, Math.round(fontSize / 24));
++
++    const videoFilters: string[] = [];
++    if (fontFile) {
++      for (let i = 0; i < input.cues.length; i++) {
++        const cue = input.cues[i]!;
++        // textfile= sidesteps drawtext's brittle inline-escaping rules (same
++        // trick as the slideshow caption).
++        await writeFile(
++          join(dir, `cue_${String(i).padStart(3, "0")}.txt`),
++          wrapSubtitleText(cue.text, maxCharsPerLine),
++        );
++        const start = cue.startSec.toFixed(3);
++        // Hold each subtitle until the next one appears so text never
++        // flickers off during the inter-sentence pause.
++        const end = (
++          i + 1 < input.cues.length ? input.cues[i + 1]!.startSec : input.totalDurationSec
++        ).toFixed(3);
++        videoFilters.push(
++          `drawtext=fontfile=${fontFile}:textfile=cue_${String(i).padStart(3, "0")}.txt:` +
++            `fontcolor=white:fontsize=${fontSize}:borderw=${strokeWidth}:bordercolor=black:` +
++            `line_spacing=${Math.round(fontSize / 5)}:` +
++            `x=(w-text_w)/2:y=h-text_h-${Math.round(height / 8)}:` +
++            `enable='between(t,${start},${end})'`,
++        );
++      }
++    }
++    const videoChain =
++      videoFilters.length > 0 ? `[0:v]${videoFilters.join(",")}[vout]` : `[0:v]null[vout]`;
++
++    const audioChain = hasMusic
++      ? `[2:a]volume=${MUSIC_VOLUME},` +
++        `afade=t=out:st=${Math.max(0, input.totalDurationSec - MUSIC_FADE_SEC).toFixed(3)}:` +
++        `d=${MUSIC_FADE_SEC}[bgm];` +
++        `[1:a][bgm]amix=inputs=2:duration=first:normalize=0[aout]`
++      : `[1:a]anull[aout]`;
++
++    // The filtergraph can exceed argv comfort with many cues; feed it from a
++    // script file instead.
++    await writeFile(join(dir, "filters.txt"), `${videoChain};${audioChain}`);
++
++    const args = ["-y", "-f", "concat", "-safe", "0", "-i", "list.txt", "-i", "narration.wav"];
++    if (hasMusic) args.push("-stream_loop", "-1", "-i", "music");
++    args.push(
++      "-filter_complex_script",
++      "filters.txt",
++      "-map",
++      "[vout]",
++      "-map",
++      "[aout]",
++      "-t",
++      input.totalDurationSec.toFixed(3),
++      "-c:v",
++      "libx264",
++      "-preset",
++      "veryfast",
++      "-crf",
++      "20",
++      "-pix_fmt",
++      "yuv420p",
++      "-c:a",
++      "aac",
++      "-b:a",
++      "128k",
++      "-movflags",
++      "+faststart",
++      "out.mp4",
++    );
++    await runFfmpeg(args, dir);
++    return await readFile(join(dir, "out.mp4"));
++  } finally {
++    await rm(dir, { recursive: true, force: true }).catch(() => {});
++  }
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+new file mode 100644
+index 0000000..200adfb
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+@@ -0,0 +1,184 @@
++import { db, tenantsTable } from "@workspace/db";
++import { eq } from "drizzle-orm";
++import { logger } from "../../logger";
++import { VideoGenProviderError, type VideoAspect } from "../types";
++import { generateTopicScript } from "./script";
++import { splitIntoSentences, synthesizeNarration, type NarrationVoice } from "./narration";
++import {
++  resolveStockSource,
++  searchStockClips,
++  downloadStockClip,
++  type StockSourceChoice,
++  type StockClip,
++} from "./stockSources";
++import { composeTopicVideo } from "./compose";
++
++export { NARRATION_VOICES, type NarrationVoice } from "./narration";
++export {
++  STOCK_SOURCES,
++  getStockSourceDef,
++  isStockSourceConfigured,
++  getStockKeySource,
++  setStoredStockKey,
++  clearStoredStockKey,
++  type StockSourceChoice,
++  type StockSourceDef,
++  type StockKeySource,
++} from "./stockSources";
++
++/**
++ * Topic to Video: topic → AI script → stock footage → TTS narration →
++ * subtitles → one composed MP4. The pipeline design is ported from
++ * MoneyPrinterTurbo (MIT, https://github.com/harry0703/MoneyPrinterTurbo),
++ * reimplemented natively on this codebase's textGen routing, OpenAI audio
++ * integration, and ffmpeg composition.
++ */
++
++/** Overall wall-clock budget for one topic video (LLM + TTS + downloads + encode). */
++export const TOPIC_VIDEO_TOTAL_DEADLINE_MS = 10 * 60 * 1000;
++
++/** Distinct stock clips to download; scenes cycle through them. */
++const MAX_STOCK_CLIPS = 6;
++
++export interface TopicVideoParams {
++  tenantId: number;
++  topic: string;
++  aspectRatio: VideoAspect;
++  voice: NarrationVoice;
++  stockSource: StockSourceChoice;
++  subtitles: boolean;
++  paragraphCount: number;
++  music?: Buffer | null;
++}
++
++export interface TopicVideoResult {
++  buffer: Buffer;
++  /** The stock source that supplied the footage. */
++  provider: string;
++  /** The text model that wrote the script. */
++  model: string;
++}
++
++function checkDeadline(startedAt: number): void {
++  if (Date.now() - startedAt > TOPIC_VIDEO_TOTAL_DEADLINE_MS) {
++    throw new VideoGenProviderError(
++      "Topic video generation timed out. Try a shorter length, or try again.",
++    );
++  }
++}
++
++/**
++ * Gather up to MAX_STOCK_CLIPS distinct clips, round-robining across search
++ * terms so the footage follows the script's visual order. Search or download
++ * failures for one term never sink the job while any clip is available.
++ */
++async function gatherStockClips(
++  stockSource: StockSourceChoice,
++  searchTerms: string[],
++  aspect: VideoAspect,
++  neededScenes: number,
++  startedAt: number,
++): Promise<{ clips: Buffer[]; provider: string }> {
++  const { def, apiKey } = await resolveStockSource(stockSource);
++  const wanted = Math.max(1, Math.min(MAX_STOCK_CLIPS, neededScenes));
++
++  const perTerm: StockClip[][] = [];
++  for (const term of searchTerms) {
++    checkDeadline(startedAt);
++    try {
++      perTerm.push(await searchStockClips(def, apiKey, term, aspect));
++    } catch (err) {
++      logger.warn({ err, term, source: def.id }, "stock search failed for term");
++      perTerm.push([]);
++    }
++  }
++
++  // Interleave: first candidate of each term, then second of each, ...
++  const seenUrls = new Set<string>();
++  const candidates: StockClip[] = [];
++  const deepest = Math.max(0, ...perTerm.map((list) => list.length));
++  for (let depth = 0; depth < deepest; depth++) {
++    for (const list of perTerm) {
++      const clip = list[depth];
++      if (clip && !seenUrls.has(clip.url)) {
++        seenUrls.add(clip.url);
++        candidates.push(clip);
++      }
++    }
++  }
++  if (candidates.length === 0) {
++    throw new VideoGenProviderError(
++      `No stock footage found on ${def.label} for this topic. Try rephrasing it.`,
++    );
++  }
++
++  const clips: Buffer[] = [];
++  for (const candidate of candidates) {
++    if (clips.length >= wanted) break;
++    checkDeadline(startedAt);
++    try {
++      clips.push(await downloadStockClip(candidate));
++    } catch (err) {
++      logger.warn({ err, url: candidate.url }, "stock clip download failed; trying next");
++    }
++  }
++  if (clips.length === 0) {
++    throw new VideoGenProviderError(
++      `Could not download any stock footage from ${def.label}. Please try again.`,
++    );
++  }
++  return { clips, provider: def.id };
++}
++
++export async function generateTopicVideo(params: TopicVideoParams): Promise<TopicVideoResult> {
++  const startedAt = Date.now();
++  const topic = params.topic.trim();
++  if (!topic) {
++    throw new VideoGenProviderError("A topic is required.");
++  }
++
++  const tenant = (
++    await db.select().from(tenantsTable).where(eq(tenantsTable.id, params.tenantId)).limit(1)
++  )[0];
++  if (!tenant) {
++    throw new VideoGenProviderError("Tenant not found.");
++  }
++
++  // 1) Script + ordered stock search terms in one completion.
++  const { script, searchTerms, model } = await generateTopicScript({
++    tenantAiModel: tenant.aiModel,
++    topic,
++    paragraphCount: params.paragraphCount,
++  });
++  checkDeadline(startedAt);
++
++  // 2) Sentence-level narration with exact timings.
++  const sentences = splitIntoSentences(script);
++  if (sentences.length === 0) {
++    throw new VideoGenProviderError("The AI returned an empty script. Please try again.");
++  }
++  const narration = await synthesizeNarration(sentences, params.voice);
++  checkDeadline(startedAt);
++
++  // 3) Stock footage to cover every scene.
++  const { clips, provider } = await gatherStockClips(
++    params.stockSource,
++    searchTerms,
++    params.aspectRatio,
++    narration.cues.length,
++    startedAt,
++  );
++  checkDeadline(startedAt);
++
++  // 4) Compose.
++  const buffer = await composeTopicVideo({
++    clips,
++    narrationWav: narration.wav,
++    cues: narration.cues,
++    totalDurationSec: narration.totalDurationSec,
++    aspectRatio: params.aspectRatio,
++    subtitles: params.subtitles,
++    music: params.music ?? null,
++  });
++  return { buffer, provider, model };
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts
+new file mode 100644
+index 0000000..f8cbd6e
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts
+@@ -0,0 +1,227 @@
++import { textToSpeech } from "@workspace/integrations-openai-ai-server/audio";
++import { VideoGenProviderError } from "../types";
++
++/**
++ * Narration for the Topic to Video engine.
++ *
++ * The script is split into sentence-sized chunks; each chunk is spoken
++ * separately so its exact audio duration is known from the WAV header. That
++ * gives frame-accurate subtitle cues and scene cut points with zero extra AI
++ * calls — a deliberate simplification of MoneyPrinterTurbo's word-boundary
++ * approach (MIT, app/services/voice.py + subtitle.py) that needs no
++ * transcription model.
++ */
++
++export type NarrationVoice = "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
++
++export const NARRATION_VOICES: readonly NarrationVoice[] = [
++  "alloy",
++  "echo",
++  "fable",
++  "onyx",
++  "nova",
++  "shimmer",
++] as const;
++
++/** Silence inserted between sentences for natural pacing. */
++const SENTENCE_GAP_SEC = 0.25;
++/** Silence appended after the last sentence so the video doesn't cut hard. */
++const TAIL_SILENCE_SEC = 0.6;
++/** Subtitle cues longer than this get split on secondary punctuation. */
++const MAX_CHUNK_CHARS = 90;
++/** Fragments shorter than this merge into their neighbor. */
++const MIN_CHUNK_CHARS = 10;
++
++/**
++ * Split a narration script into speakable, subtitle-sized chunks.
++ * Handles Latin, CJK and Devanagari sentence terminators.
++ */
++export function splitIntoSentences(script: string): string[] {
++  const normalized = script.replace(/\s+/g, " ").trim();
++  if (!normalized) return [];
++
++  // Primary split: sentence terminators (kept with their sentence).
++  const primary = normalized.match(/[^.!?。！？।]+[.!?。！？।]*/g) ?? [normalized];
++
++  const chunks: string[] = [];
++  for (const raw of primary) {
++    const sentence = raw.trim();
++    if (!sentence) continue;
++    if (sentence.length <= MAX_CHUNK_CHARS) {
++      chunks.push(sentence);
++      continue;
++    }
++    // Secondary split on commas/semicolons, greedily packing chunks.
++    const parts = sentence.split(/(?<=[,;，；、])\s*/);
++    let current = "";
++    for (const part of parts) {
++      if (current && (current + " " + part).length > MAX_CHUNK_CHARS) {
++        chunks.push(current.trim());
++        current = part;
++      } else {
++        current = current ? `${current} ${part}` : part;
++      }
++    }
++    if (current.trim()) chunks.push(current.trim());
++  }
++
++  // Merge tiny fragments into the previous chunk so no cue flashes by.
++  const merged: string[] = [];
++  for (const chunk of chunks) {
++    const prev = merged[merged.length - 1];
++    if (prev !== undefined && (chunk.length < MIN_CHUNK_CHARS || prev.length < MIN_CHUNK_CHARS)) {
++      merged[merged.length - 1] = `${prev} ${chunk}`;
++    } else {
++      merged.push(chunk);
++    }
++  }
++  return merged;
++}
++
++interface WavFormat {
++  channels: number;
++  sampleRate: number;
++  bitsPerSample: number;
++  byteRate: number;
++  blockAlign: number;
++}
++
++interface ParsedWav {
++  format: WavFormat;
++  /** Raw PCM bytes from the data chunk. */
++  pcm: Buffer;
++  durationSec: number;
++}
++
++/** Minimal RIFF/WAVE parser: fmt + data chunks only, PCM assumed. */
++export function parseWav(buffer: Buffer): ParsedWav {
++  if (
++    buffer.length < 44 ||
++    buffer.toString("ascii", 0, 4) !== "RIFF" ||
++    buffer.toString("ascii", 8, 12) !== "WAVE"
++  ) {
++    throw new VideoGenProviderError("Text-to-speech returned unexpected audio data.");
++  }
++  let offset = 12;
++  let format: WavFormat | null = null;
++  let pcm: Buffer | null = null;
++  while (offset + 8 <= buffer.length) {
++    const chunkId = buffer.toString("ascii", offset, offset + 4);
++    const chunkSize = buffer.readUInt32LE(offset + 4);
++    const body = buffer.subarray(offset + 8, Math.min(offset + 8 + chunkSize, buffer.length));
++    if (chunkId === "fmt ") {
++      format = {
++        channels: body.readUInt16LE(2),
++        sampleRate: body.readUInt32LE(4),
++        byteRate: body.readUInt32LE(8),
++        blockAlign: body.readUInt16LE(12),
++        bitsPerSample: body.readUInt16LE(14),
++      };
++    } else if (chunkId === "data") {
++      pcm = Buffer.from(body);
++    }
++    offset += 8 + chunkSize + (chunkSize % 2); // chunks are word-aligned
++  }
++  if (!format || !pcm || format.byteRate === 0) {
++    throw new VideoGenProviderError("Text-to-speech returned unexpected audio data.");
++  }
++  return { format, pcm, durationSec: pcm.length / format.byteRate };
++}
++
++/** Build a complete WAV file from a format description and raw PCM bytes. */
++export function buildWav(format: WavFormat, pcm: Buffer): Buffer {
++  const header = Buffer.alloc(44);
++  header.write("RIFF", 0, "ascii");
++  header.writeUInt32LE(36 + pcm.length, 4);
++  header.write("WAVE", 8, "ascii");
++  header.write("fmt ", 12, "ascii");
++  header.writeUInt32LE(16, 16);
++  header.writeUInt16LE(1, 20); // PCM
++  header.writeUInt16LE(format.channels, 22);
++  header.writeUInt32LE(format.sampleRate, 24);
++  header.writeUInt32LE(format.byteRate, 28);
++  header.writeUInt16LE(format.blockAlign, 32);
++  header.writeUInt16LE(format.bitsPerSample, 34);
++  header.write("data", 36, "ascii");
++  header.writeUInt32LE(pcm.length, 40);
++  return Buffer.concat([header, pcm]);
++}
++
++/** PCM silence of the given duration, aligned to whole frames. */
++function silence(format: WavFormat, seconds: number): Buffer {
++  const bytes = Math.round((format.byteRate * seconds) / format.blockAlign) * format.blockAlign;
++  return Buffer.alloc(Math.max(bytes, 0));
++}
++
++export interface NarrationCue {
++  text: string;
++  /** Seconds from the start of the narration track. */
++  startSec: number;
++  endSec: number;
++}
++
++export interface Narration {
++  /** Complete WAV file: all sentences with gaps and a trailing pause. */
++  wav: Buffer;
++  cues: NarrationCue[];
++  totalDurationSec: number;
++}
++
++/**
++ * Speak every sentence, then stitch one narration track with per-sentence
++ * timings. Sentences are spoken sequentially — the TTS proxy is the
++ * bottleneck and parallel calls would just trip rate limits.
++ */
++export async function synthesizeNarration(
++  sentences: string[],
++  voice: NarrationVoice,
++): Promise<Narration> {
++  if (sentences.length === 0) {
++    throw new VideoGenProviderError("There is no narration to speak.");
++  }
++  const parts: ParsedWav[] = [];
++  for (const sentence of sentences) {
++    const audio = await textToSpeech(sentence, voice, "wav");
++    if (audio.length === 0) {
++      throw new VideoGenProviderError("Text-to-speech returned no audio. Please try again.");
++    }
++    parts.push(parseWav(audio));
++  }
++  const format = parts[0]!.format;
++  for (const part of parts) {
++    if (
++      part.format.sampleRate !== format.sampleRate ||
++      part.format.channels !== format.channels ||
++      part.format.bitsPerSample !== format.bitsPerSample
++    ) {
++      throw new VideoGenProviderError("Text-to-speech returned inconsistent audio formats.");
++    }
++  }
++
++  const gap = silence(format, SENTENCE_GAP_SEC);
++  const tail = silence(format, TAIL_SILENCE_SEC);
++  const cues: NarrationCue[] = [];
++  const pcmParts: Buffer[] = [];
++  let cursor = 0;
++  parts.forEach((part, i) => {
++    cues.push({
++      text: sentences[i]!,
++      startSec: cursor,
++      endSec: cursor + part.durationSec,
++    });
++    pcmParts.push(part.pcm);
++    cursor += part.durationSec;
++    if (i < parts.length - 1) {
++      pcmParts.push(gap);
++      cursor += gap.length / format.byteRate;
++    }
++  });
++  pcmParts.push(tail);
++  cursor += tail.length / format.byteRate;
++
++  return {
++    wav: buildWav(format, Buffer.concat(pcmParts)),
++    cues,
++    totalDurationSec: cursor,
++  };
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/script.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/script.ts
+new file mode 100644
+index 0000000..4092c65
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/script.ts
+@@ -0,0 +1,115 @@
++import { getTextGenClient } from "../../textGen";
++import { usageAccountingParams } from "../../aiCost";
++import { VideoGenProviderError } from "../types";
++
++/**
++ * Script + stock-search-term generation for the Topic to Video engine.
++ *
++ * Prompt rules are ported from MoneyPrinterTurbo (MIT, app/services/llm.py) —
++ * its script generator and search-term generator, merged into one JSON call so
++ * a topic costs a single completion. The narration rules ("no markdown, get
++ * straight to the point, same language as the topic") come straight from its
++ * battle-tested defaults; search terms stay English-only because Pexels and
++ * Pixabay index English tags.
++ */
++
++export interface TopicScript {
++  /** The narration script, plain spoken text. */
++  script: string;
++  /** English stock-footage search terms, ordered to follow the script. */
++  searchTerms: string[];
++}
++
++/** ~1 paragraph ≈ 30s of narration; the UI offers 1..3. */
++export const MAX_PARAGRAPHS = 3;
++
++export function buildTopicScriptPrompt(topic: string, paragraphCount: number): string {
++  const paragraphs = Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), MAX_PARAGRAPHS);
++  return `# Role: Short Video Script Writer
++
++## Goals:
++Write the narration script for a short vertical video about the given subject, plus stock-footage search terms that visually match it.
++
++## Script constraints:
++1. Write exactly ${paragraphs} paragraph${paragraphs > 1 ? "s" : ""} of spoken narration.
++2. Get straight to the point; never start with filler like "welcome to this video".
++3. No markdown, no titles, no formatting — only the raw spoken words.
++4. Never include "voiceover", "narrator" or similar speaker indicators.
++5. Never mention this prompt, the script itself, or the paragraph count.
++6. Write the script in the same language as the video subject.
++
++## Search term constraints:
++1. Return 5 stock-video search terms that follow the order of topics in the script; earlier terms must describe earlier visual moments.
++2. Each term is 1-3 words and includes the main subject of the video.
++3. Terms must be in English only, whatever language the script uses.
++
++## Output:
++Respond with ONLY a JSON object of this exact shape:
++{"script": "the full narration", "searchTerms": ["term 1", "term 2", "term 3", "term 4", "term 5"]}
++
++## Video Subject:
++${topic}`;
++}
++
++/** Strip leftover markdown/stage directions the model may sneak in. */
++export function cleanScript(raw: string): string {
++  let text = raw.replace(/[*#]/g, "");
++  text = text.replace(/\[[^\]]*\]/g, "");
++  return text.trim();
++}
++
++function sanitizeTerms(terms: unknown): string[] {
++  if (!Array.isArray(terms)) return [];
++  const seen = new Set<string>();
++  const out: string[] = [];
++  for (const t of terms) {
++    if (typeof t !== "string") continue;
++    const trimmed = t.trim();
++    if (!trimmed || seen.has(trimmed.toLowerCase())) continue;
++    seen.add(trimmed.toLowerCase());
++    out.push(trimmed);
++  }
++  return out;
++}
++
++/** One LLM call: topic in, narration script + ordered search terms out. */
++export async function generateTopicScript(params: {
++  tenantAiModel: string;
++  topic: string;
++  paragraphCount: number;
++}): Promise<TopicScript & { model: string }> {
++  const textGen = await getTextGenClient(params.tenantAiModel);
++  const completion = await textGen.client.chat.completions.create({
++    model: textGen.model,
++    messages: [
++      {
++        role: "system",
++        content:
++          "You write narration scripts for short social videos and reply with strict JSON only.",
++      },
++      { role: "user", content: buildTopicScriptPrompt(params.topic, params.paragraphCount) },
++    ],
++    max_completion_tokens: 8192,
++    response_format: { type: "json_object" },
++    ...usageAccountingParams(textGen.provider),
++  });
++
++  const raw = completion.choices[0]?.message?.content ?? "";
++  let parsed: { script?: unknown; searchTerms?: unknown };
++  try {
++    parsed = JSON.parse(raw);
++  } catch {
++    throw new VideoGenProviderError("The AI returned an unreadable script. Please try again.");
++  }
++  const script = cleanScript(typeof parsed.script === "string" ? parsed.script : "");
++  const searchTerms = sanitizeTerms(parsed.searchTerms);
++  if (!script) {
++    throw new VideoGenProviderError("The AI returned an empty script. Please try again.");
++  }
++  if (searchTerms.length === 0) {
++    // A script with no usable terms can still ship: fall back to the topic
++    // itself as the single search term.
++    searchTerms.push(params.topic.slice(0, 60));
++  }
++  return { script, searchTerms, model: textGen.model };
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts
+new file mode 100644
+index 0000000..4728282
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts
+@@ -0,0 +1,281 @@
++import { db, appCredentialsTable } from "@workspace/db";
++import { eq } from "drizzle-orm";
++import { encryptJson, decryptJson } from "../../secretCrypto";
++import {
++  VideoGenNotConfiguredError,
++  VideoGenProviderError,
++  videoGenFetch,
++  errorDetail,
++  ASPECT_DIMENSIONS,
++  type VideoAspect,
++} from "../types";
++
++/**
++ * Stock-footage sources for the Topic to Video engine. Mirrors the videoGen
++ * provider-key pattern: an admin-entered key (AES-encrypted in
++ * app_credentials under `stock_<id>`) wins over the env secret fallback.
++ *
++ * Search + selection logic is ported from MoneyPrinterTurbo (MIT,
++ * app/services/material.py), adapted to native fetch and cover-crop
++ * composition: any rendition that covers ~720p is usable because the
++ * compositor scales and center-crops to the target aspect.
++ */
++
++export type StockSourceId = "pexels" | "pixabay";
++/** "auto" = first configured source, Pexels preferred. */
++export type StockSourceChoice = StockSourceId | "auto";
++
++export interface StockSourceDef {
++  id: StockSourceId;
++  label: string;
++  envKey: string;
++}
++
++export const STOCK_SOURCES: readonly StockSourceDef[] = [
++  { id: "pexels", label: "Pexels", envKey: "PEXELS_API_KEY" },
++  { id: "pixabay", label: "Pixabay", envKey: "PIXABAY_API_KEY" },
++] as const;
++
++export function getStockSourceDef(id: string): StockSourceDef | undefined {
++  return STOCK_SOURCES.find((s) => s.id === id);
++}
++
++/** app_credentials row name for a source's stored key. */
++function stockCredentialProvider(sourceId: string): string {
++  return `stock_${sourceId}`;
++}
++
++interface StoredStockKey {
++  apiKey: string;
++}
++
++/** The API key saved by a superadmin (encrypted at rest), or null. */
++export async function getStoredStockKey(sourceId: string): Promise<string | null> {
++  const row = (
++    await db
++      .select()
++      .from(appCredentialsTable)
++      .where(eq(appCredentialsTable.provider, stockCredentialProvider(sourceId)))
++      .limit(1)
++  )[0];
++  if (!row) return null;
++  try {
++    const creds = decryptJson<StoredStockKey>(row.encryptedCredentials);
++    return creds.apiKey || null;
++  } catch {
++    return null;
++  }
++}
++
++/** Save (encrypted) or overwrite the admin-entered key for a source. */
++export async function setStoredStockKey(sourceId: string, apiKey: string): Promise<void> {
++  const encrypted = encryptJson({ apiKey } satisfies StoredStockKey);
++  await db
++    .insert(appCredentialsTable)
++    .values({ provider: stockCredentialProvider(sourceId), encryptedCredentials: encrypted })
++    .onConflictDoUpdate({
++      target: appCredentialsTable.provider,
++      set: { encryptedCredentials: encrypted, updatedAt: new Date() },
++    });
++}
++
++/** Remove the admin-entered key (env secret, if any, becomes the fallback). */
++export async function clearStoredStockKey(sourceId: string): Promise<void> {
++  await db
++    .delete(appCredentialsTable)
++    .where(eq(appCredentialsTable.provider, stockCredentialProvider(sourceId)));
++}
++
++export type StockKeySource = "database" | "env" | null;
++
++/** Where the effective key comes from: admin-entered DB key wins, env is fallback. */
++export async function getStockKeySource(def: StockSourceDef): Promise<StockKeySource> {
++  if (await getStoredStockKey(def.id)) return "database";
++  if (process.env[def.envKey]) return "env";
++  return null;
++}
++
++/** The effective API key for a source (DB first, then env), or null. */
++export async function resolveStockApiKey(def: StockSourceDef): Promise<string | null> {
++  const stored = await getStoredStockKey(def.id);
++  if (stored) return stored;
++  return process.env[def.envKey] ?? null;
++}
++
++export async function isStockSourceConfigured(def: StockSourceDef): Promise<boolean> {
++  return (await resolveStockApiKey(def)) !== null;
++}
++
++/** Resolve "auto" to the first configured source; validate explicit choices. */
++export async function resolveStockSource(
++  choice: StockSourceChoice,
++): Promise<{ def: StockSourceDef; apiKey: string }> {
++  const candidates =
++    choice === "auto" ? STOCK_SOURCES : STOCK_SOURCES.filter((s) => s.id === choice);
++  for (const def of candidates) {
++    const apiKey = await resolveStockApiKey(def);
++    if (apiKey) return { def, apiKey };
++  }
++  throw new VideoGenNotConfiguredError(
++    choice === "auto"
++      ? "No stock footage source is configured. Add a Pexels or Pixabay API key " +
++        "(free at pexels.com/api or pixabay.com/api/docs) in the admin settings, " +
++        "or set the PEXELS_API_KEY / PIXABAY_API_KEY secret."
++      : `The ${choice} stock source is not configured. Add its API key in the admin ` +
++        "settings or set the corresponding secret.",
++  );
++}
++
++/** One usable stock clip candidate. */
++export interface StockClip {
++  url: string;
++  /** Full source video duration in seconds (as reported by the API). */
++  durationSec: number;
++  width: number;
++  height: number;
++  provider: StockSourceId;
++}
++
++/** Renditions must cover roughly 720p after cover-cropping. */
++const MIN_RENDITION_AREA = 921_600; // 1280x720
++/** Source clips shorter than this are too choppy to reuse. */
++const MIN_CLIP_DURATION_SEC = 3;
++
++function pexelsOrientation(aspect: VideoAspect): string {
++  if (aspect === "9:16") return "portrait";
++  if (aspect === "1:1") return "square";
++  return "landscape";
++}
++
++/**
++ * Pick the rendition closest to the target pixel area from above — big enough
++ * to look sharp after the cover-crop, small enough to keep downloads fast.
++ */
++function pickRendition<T extends { width: number; height: number }>(
++  files: T[],
++  aspect: VideoAspect,
++): T | null {
++  const target = ASPECT_DIMENSIONS[aspect];
++  const targetArea = target.width * target.height;
++  const usable = files.filter((f) => f.width * f.height >= MIN_RENDITION_AREA);
++  if (usable.length === 0) return null;
++  usable.sort(
++    (a, b) =>
++      Math.abs(a.width * a.height - targetArea) - Math.abs(b.width * b.height - targetArea),
++  );
++  return usable[0]!;
++}
++
++async function searchPexels(
++  term: string,
++  aspect: VideoAspect,
++  apiKey: string,
++): Promise<StockClip[]> {
++  const params = new URLSearchParams({
++    query: term,
++    per_page: "15",
++    orientation: pexelsOrientation(aspect),
++  });
++  const res = await videoGenFetch(`https://api.pexels.com/videos/search?${params}`, {
++    headers: { Authorization: apiKey },
++  });
++  if (!res.ok) {
++    throw new VideoGenProviderError(
++      `Pexels search failed (${res.status}): ${await errorDetail(res)}`,
++      res.status,
++    );
++  }
++  const data = (await res.json()) as {
++    videos?: {
++      duration: number;
++      video_files?: { link: string; width: number; height: number }[];
++    }[];
++  };
++  const clips: StockClip[] = [];
++  for (const v of data.videos ?? []) {
++    if (!v.duration || v.duration < MIN_CLIP_DURATION_SEC) continue;
++    const rendition = pickRendition(v.video_files ?? [], aspect);
++    if (!rendition) continue;
++    clips.push({
++      url: rendition.link,
++      durationSec: v.duration,
++      width: rendition.width,
++      height: rendition.height,
++      provider: "pexels",
++    });
++  }
++  return clips;
++}
++
++async function searchPixabay(
++  term: string,
++  aspect: VideoAspect,
++  apiKey: string,
++): Promise<StockClip[]> {
++  const params = new URLSearchParams({
++    q: term,
++    video_type: "film",
++    per_page: "25",
++    key: apiKey,
++  });
++  const res = await videoGenFetch(`https://pixabay.com/api/videos/?${params}`, {});
++  if (!res.ok) {
++    throw new VideoGenProviderError(
++      `Pixabay search failed (${res.status}): ${await errorDetail(res)}`,
++      res.status,
++    );
++  }
++  const data = (await res.json()) as {
++    hits?: {
++      duration: number;
++      videos?: Record<string, { url: string; width: number; height: number }>;
++    }[];
++  };
++  const clips: StockClip[] = [];
++  for (const v of data.hits ?? []) {
++    if (!v.duration || v.duration < MIN_CLIP_DURATION_SEC) continue;
++    const rendition = pickRendition(Object.values(v.videos ?? {}), aspect);
++    if (!rendition) continue;
++    clips.push({
++      url: rendition.url,
++      durationSec: v.duration,
++      width: rendition.width,
++      height: rendition.height,
++      provider: "pixabay",
++    });
++  }
++  return clips;
++}
++
++export async function searchStockClips(
++  def: StockSourceDef,
++  apiKey: string,
++  term: string,
++  aspect: VideoAspect,
++): Promise<StockClip[]> {
++  return def.id === "pexels"
++    ? searchPexels(term, aspect, apiKey)
++    : searchPixabay(term, aspect, apiKey);
++}
++
++/** Cap per-clip downloads so one giant source file can't blow the job. */
++export const MAX_STOCK_CLIP_BYTES = 60 * 1024 * 1024;
++
++export async function downloadStockClip(clip: StockClip): Promise<Buffer> {
++  const res = await videoGenFetch(clip.url, {});
++  if (!res.ok) {
++    throw new VideoGenProviderError(
++      `Stock clip download failed (${res.status}): ${await errorDetail(res)}`,
++      res.status,
++    );
++  }
++  const declared = Number(res.headers.get("content-length") ?? 0);
++  if (declared > MAX_STOCK_CLIP_BYTES) {
++    throw new VideoGenProviderError("Stock clip is too large to download.");
++  }
++  const buffer = Buffer.from(await res.arrayBuffer());
++  if (buffer.length > MAX_STOCK_CLIP_BYTES) {
++    throw new VideoGenProviderError("Stock clip is too large to download.");
++  }
++  return buffer;
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts
+new file mode 100644
+index 0000000..9729a98
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts
+@@ -0,0 +1,292 @@
++import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
++import { writeFile, mkdtemp, rm } from "fs/promises";
++import { tmpdir } from "os";
++import { join } from "path";
++import { splitIntoSentences, parseWav, buildWav, synthesizeNarration } from "./narration";
++import { wrapSubtitleText, sceneDurations, composeTopicVideo } from "./compose";
++import { buildTopicScriptPrompt, cleanScript } from "./script";
++import { searchStockClips, STOCK_SOURCES } from "./stockSources";
++import { runFfmpeg } from "../slideshow";
++
++// ---------------------------------------------------------------------------
++// Sentence splitting
++
++describe("splitIntoSentences", () => {
++  it("splits on sentence punctuation and keeps the terminator", () => {
++    const out = splitIntoSentences(
++      "First things first. Then comes the second part! Are you ready for it?",
++    );
++    expect(out).toEqual([
++      "First things first.",
++      "Then comes the second part!",
++      "Are you ready for it?",
++    ]);
++  });
++
++  it("merges tiny fragments so no subtitle flashes by", () => {
++    const out = splitIntoSentences("Wow. That was a truly unexpected turn of events today.");
++    expect(out).toEqual(["Wow. That was a truly unexpected turn of events today."]);
++  });
++
++  it("splits very long sentences on commas", () => {
++    const long =
++      "The morning starts with a quiet stretch and a glass of water, followed by ten minutes of sunlight on the balcony, and only then does the phone come out of airplane mode for the day.";
++    const out = splitIntoSentences(long);
++    expect(out.length).toBeGreaterThan(1);
++    for (const chunk of out) {
++      expect(chunk.length).toBeLessThanOrEqual(120);
++    }
++  });
++
++  it("handles Devanagari sentence terminators", () => {
++    const out = splitIntoSentences("यह पहला वाक्य है। यह दूसरा वाक्य है और थोड़ा लंबा है।");
++    expect(out).toHaveLength(2);
++  });
++
++  it("returns empty for whitespace input", () => {
++    expect(splitIntoSentences("   \n  ")).toEqual([]);
++  });
++});
++
++// ---------------------------------------------------------------------------
++// WAV parsing and construction
++
++function makeTestWav(durationSec: number, sampleRate = 24_000): Buffer {
++  const byteRate = sampleRate * 2; // mono pcm16
++  const pcm = Buffer.alloc(Math.round(byteRate * durationSec));
++  return buildWav(
++    { channels: 1, sampleRate, bitsPerSample: 16, byteRate, blockAlign: 2 },
++    pcm,
++  );
++}
++
++describe("parseWav / buildWav", () => {
++  it("round-trips and reports the correct duration", () => {
++    const wav = makeTestWav(1.5);
++    const parsed = parseWav(wav);
++    expect(parsed.durationSec).toBeCloseTo(1.5, 2);
++    expect(parsed.format.sampleRate).toBe(24_000);
++    expect(parsed.format.channels).toBe(1);
++  });
++
++  it("rejects non-WAV bytes", () => {
++    expect(() => parseWav(Buffer.from("definitely not audio data at all"))).toThrow(
++      /unexpected audio/i,
++    );
++  });
++});
++
++// ---------------------------------------------------------------------------
++// Narration synthesis (TTS mocked)
++
++vi.mock("@workspace/integrations-openai-ai-server/audio", () => ({
++  textToSpeech: vi.fn(async () => makeTestWav(2)),
++}));
++
++describe("synthesizeNarration", () => {
++  it("stitches sentences with gaps and accurate cue timings", async () => {
++    const narration = await synthesizeNarration(
++      ["First sentence here.", "Second sentence here."],
++      "alloy",
++    );
++    expect(narration.cues).toHaveLength(2);
++    expect(narration.cues[0]!.startSec).toBe(0);
++    expect(narration.cues[0]!.endSec).toBeCloseTo(2, 1);
++    // Second cue starts after the first sentence plus the inter-sentence gap.
++    expect(narration.cues[1]!.startSec).toBeGreaterThan(2);
++    // Total = 2 + gap + 2 + tail.
++    expect(narration.totalDurationSec).toBeGreaterThan(4);
++    // The stitched track is a valid WAV of the reported length.
++    const parsed = parseWav(narration.wav);
++    expect(parsed.durationSec).toBeCloseTo(narration.totalDurationSec, 1);
++  });
++});
++
++// ---------------------------------------------------------------------------
++// Script prompt + cleanup
++
++describe("script generation helpers", () => {
++  it("builds a prompt carrying the topic and paragraph count", () => {
++    const prompt = buildTopicScriptPrompt("street food of Hyderabad", 2);
++    expect(prompt).toContain("street food of Hyderabad");
++    expect(prompt).toContain("exactly 2 paragraphs");
++    expect(prompt).toContain("searchTerms");
++  });
++
++  it("clamps the paragraph count into range", () => {
++    expect(buildTopicScriptPrompt("x", 99)).toContain("exactly 3 paragraphs");
++    expect(buildTopicScriptPrompt("x", 0)).toContain("exactly 1 paragraph");
++  });
++
++  it("cleans markdown remnants out of a script", () => {
++    expect(cleanScript("**Bold** start. [pause] The # real content.")).toBe(
++      "Bold start.  The  real content.",
++    );
++  });
++});
++
++// ---------------------------------------------------------------------------
++// Stock search (HTTP mocked)
++
++const PEXELS_FIXTURE = {
++  videos: [
++    {
++      duration: 12,
++      video_files: [
++        { link: "https://cdn.example/sd.mp4", width: 640, height: 360 },
++        { link: "https://cdn.example/hd.mp4", width: 1080, height: 1920 },
++        { link: "https://cdn.example/uhd.mp4", width: 2160, height: 3840 },
++      ],
++    },
++    { duration: 1, video_files: [{ link: "https://cdn.example/short.mp4", width: 1080, height: 1920 }] },
++    { duration: 8, video_files: [{ link: "https://cdn.example/tiny.mp4", width: 480, height: 854 }] },
++  ],
++};
++
++describe("searchStockClips", () => {
++  const pexels = STOCK_SOURCES.find((s) => s.id === "pexels")!;
++
++  beforeEach(() => {
++    vi.stubGlobal(
++      "fetch",
++      vi.fn(async () => new Response(JSON.stringify(PEXELS_FIXTURE), { status: 200 })),
++    );
++  });
++
++  afterEach(() => {
++    vi.unstubAllGlobals();
++  });
++
++  it("keeps only clips long enough with a rendition that covers the frame", async () => {
++    const clips = await searchStockClips(pexels, "key", "sunrise", "9:16");
++    // The 1s clip and the sub-720p-only clip are dropped.
++    expect(clips).toHaveLength(1);
++    // The 1080x1920 rendition is closest to the 9:16 target area (not the 4K one).
++    expect(clips[0]!.url).toBe("https://cdn.example/hd.mp4");
++    expect(clips[0]!.provider).toBe("pexels");
++  });
++
++  it("surfaces API errors as provider errors", async () => {
++    vi.stubGlobal("fetch", vi.fn(async () => new Response("nope", { status: 401 })));
++    await expect(searchStockClips(pexels, "bad-key", "sunrise", "9:16")).rejects.toThrow(
++      /pexels search failed/i,
++    );
++  });
++});
++
++// ---------------------------------------------------------------------------
++// Subtitle wrapping + scene timing
++
++describe("wrapSubtitleText", () => {
++  it("wraps on word boundaries", () => {
++    expect(wrapSubtitleText("the quick brown fox jumps over the lazy dog", 15)).toBe(
++      "the quick brown\nfox jumps over\nthe lazy dog",
++    );
++  });
++
++  it("hard-splits words longer than a line", () => {
++    const wrapped = wrapSubtitleText("Donaudampfschifffahrtsgesellschaft", 10);
++    for (const line of wrapped.split("\n")) {
++      expect(line.length).toBeLessThanOrEqual(10);
++    }
++  });
++});
++
++describe("sceneDurations", () => {
++  it("extends every scene to the next cue and the last to the end", () => {
++    const cues = [
++      { text: "a", startSec: 0, endSec: 2 },
++      { text: "b", startSec: 2.25, endSec: 4.25 },
++    ];
++    expect(sceneDurations(cues, 5)).toEqual([2.25, 2.75]);
++  });
++});
++
++// ---------------------------------------------------------------------------
++// Real-ffmpeg composition smoke test (same spirit as slideshow.test.ts)
++
++async function makeTestClip(seconds: number): Promise<Buffer> {
++  const dir = await mkdtemp(join(tmpdir(), "topic-test-clip-"));
++  try {
++    await runFfmpeg(
++      [
++        "-y",
++        "-f",
++        "lavfi",
++        "-i",
++        `color=c=teal:s=320x568:d=${seconds}:r=30`,
++        "-c:v",
++        "libx264",
++        "-preset",
++        "veryfast",
++        "-pix_fmt",
++        "yuv420p",
++        "clip.mp4",
++      ],
++      dir,
++    );
++    const { readFile } = await import("fs/promises");
++    return await readFile(join(dir, "clip.mp4"));
++  } finally {
++    await rm(dir, { recursive: true, force: true }).catch(() => {});
++  }
++}
++
++describe("composeTopicVideo (real ffmpeg)", () => {
++  it(
++    "renders narrated, subtitled scenes into a single MP4",
++    async () => {
++      const clip = await makeTestClip(2);
++      const cues = [
++        { text: "First scene of the story.", startSec: 0, endSec: 1.4 },
++        { text: "Second scene wraps it up.", startSec: 1.65, endSec: 3.05 },
++      ];
++      const wav = makeTestWav(3.6);
++      const out = await composeTopicVideo({
++        clips: [clip],
++        narrationWav: wav,
++        cues,
++        totalDurationSec: 3.65,
++        aspectRatio: "9:16",
++        subtitles: true,
++        music: null,
++      });
++      // MP4 magic: "ftyp" at offset 4.
++      expect(out.toString("ascii", 4, 8)).toBe("ftyp");
++      expect(out.length).toBeGreaterThan(1000);
++    },
++    120_000,
++  );
++
++  it(
++    "loops a short source clip to cover a longer scene",
++    async () => {
++      const clip = await makeTestClip(1);
++      const out = await composeTopicVideo({
++        clips: [clip],
++        narrationWav: makeTestWav(4),
++        cues: [{ text: "One long take.", startSec: 0, endSec: 3.4 }],
++        totalDurationSec: 4,
++        aspectRatio: "1:1",
++        subtitles: false,
++        music: null,
++      });
++      expect(out.toString("ascii", 4, 8)).toBe("ftyp");
++    },
++    120_000,
++  );
++
++  it("rejects an empty clip list", async () => {
++    await expect(
++      composeTopicVideo({
++        clips: [],
++        narrationWav: makeTestWav(1),
++        cues: [{ text: "x", startSec: 0, endSec: 1 }],
++        totalDurationSec: 1,
++        aspectRatio: "9:16",
++        subtitles: false,
++        music: null,
++      }),
++    ).rejects.toThrow(/no stock footage/i);
++  });
++});
+diff --git a/artifacts/api-server/src/routes/admin.ts b/artifacts/api-server/src/routes/admin.ts
+index bd6c3cf..49ceffe 100644
+--- a/artifacts/api-server/src/routes/admin.ts
++++ b/artifacts/api-server/src/routes/admin.ts
+@@ -47,6 +47,14 @@ import {
+   setStoredVideoGenKey,
+   clearStoredVideoGenKey,
+ } from "../lib/videoGen";
++import {
++  STOCK_SOURCES,
++  getStockSourceDef,
++  isStockSourceConfigured,
++  getStockKeySource,
++  setStoredStockKey,
++  clearStoredStockKey,
++} from "../lib/videoGen/topicVideo";
+ import {
+   TEXT_GEN_PROVIDERS,
+   getTextGenSelection,
+@@ -907,9 +915,79 @@ async function serializeVideoGenSettings() {
+         keySource: await getVideoGenKeySource(p),
+       })),
+     ),
++    stockSources: await Promise.all(
++      STOCK_SOURCES.map(async (s) => ({
++        id: s.id,
++        label: s.label,
++        configured: await isStockSourceConfigured(s),
++        envKey: s.envKey,
++        keySource: await getStockKeySource(s),
++      })),
++    ),
+   };
+ }
+ 
++/**
++ * PUT /admin/stock-sources/:sourceId/key
++ * Save a stock footage source's API key (encrypted at rest). Superadmin only.
++ * Stock sources feed the Topic to Video engine.
++ */
++router.put("/admin/stock-sources/:sourceId/key", async (req: Request, res: Response) => {
++  const def = getStockSourceDef(req.params.sourceId as string);
++  if (!def) {
++    res.status(404).json({ error: "Unknown stock footage source" });
++    return;
++  }
++  const parsed = AdminSetVideoGenProviderKeyBody.safeParse(req.body);
++  const apiKey = parsed.success ? parsed.data.apiKey.trim() : "";
++  if (!apiKey) {
++    res.status(400).json({ error: "API key is required" });
++    return;
++  }
++  await setStoredStockKey(def.id, apiKey);
++  try {
++    await recordAdminAction({
++      action: "videogen_key_change",
++      actorTenantId: req.tenantId,
++      actorEmail: req.tenantEmail,
++      targetTenantId: null,
++      targetEmail: null,
++      oldValue: null,
++      newValue: `stock_${def.id}:set`,
++    });
++  } catch (error) {
++    req.log.error({ err: error }, "Failed to write stock-source key audit log");
++  }
++  res.json(await serializeVideoGenSettings());
++});
++
++/**
++ * DELETE /admin/stock-sources/:sourceId/key
++ * Remove the saved key (the env secret, if set, becomes the fallback).
++ */
++router.delete("/admin/stock-sources/:sourceId/key", async (req: Request, res: Response) => {
++  const def = getStockSourceDef(req.params.sourceId as string);
++  if (!def) {
++    res.status(404).json({ error: "Unknown stock footage source" });
++    return;
++  }
++  await clearStoredStockKey(def.id);
++  try {
++    await recordAdminAction({
++      action: "videogen_key_change",
++      actorTenantId: req.tenantId,
++      actorEmail: req.tenantEmail,
++      targetTenantId: null,
++      targetEmail: null,
++      oldValue: null,
++      newValue: `stock_${def.id}:cleared`,
++    });
++  } catch (error) {
++    req.log.error({ err: error }, "Failed to write stock-source key audit log");
++  }
++  res.json(await serializeVideoGenSettings());
++});
++
+ /**
+  * GET /admin/video-gen-settings
+  * The platform-wide video generation provider selection.
+diff --git a/artifacts/api-server/src/routes/videos.test.ts b/artifacts/api-server/src/routes/videos.test.ts
+index 1a89423..d8ee0e1 100644
+--- a/artifacts/api-server/src/routes/videos.test.ts
++++ b/artifacts/api-server/src/routes/videos.test.ts
+@@ -161,6 +161,66 @@ describe("POST /api/ai/generate-video", () => {
+     expect(row?.tenantId).toBe(tenant.tenantId);
+   });
+ 
++  it("rejects topic-to-video without a topic before reserving any funding", async () => {
++    await newTenant();
++    const res = await request(app)
++      .post("/api/ai/generate-video")
++      .send({ engine: "topic_to_video", prompt: "   " });
++    expect(res.status).toBe(400);
++    expect(res.body.error).toMatch(/topic/i);
++    expect(runnerState.calls).toHaveLength(0);
++  });
++
++  it("creates a topic-to-video job persisting its narration options", async () => {
++    const tenant = await newTenant(); // free plan: 3 videos/month
++    const res = await request(app)
++      .post("/api/ai/generate-video")
++      .send({
++        engine: "topic_to_video",
++        prompt: "5 morning habits that transform your day",
++        aspectRatio: "9:16",
++        voice: "nova",
++        paragraphCount: 2,
++        subtitles: false,
++        stockSource: "pexels",
++        musicPath: `/objects/${tenant.tenantId}/uploads/track.mp3`,
++      });
++    expect(res.status).toBe(201);
++    expect(res.body.engine).toBe("topic_to_video");
++    expect(res.body.status).toBe("queued");
++
++    await waitForPendingJobs();
++    expect(runnerState.calls).toEqual([{ jobId: res.body.id, funding: "quota" }]);
++
++    const row = (
++      await db
++        .select()
++        .from(videoGenerationsTable)
++        .where(eq(videoGenerationsTable.id, res.body.id))
++    )[0];
++    expect(row?.options).toMatchObject({
++      voice: "nova",
++      paragraphCount: 2,
++      subtitles: false,
++      stockSource: "pexels",
++      musicPath: `/objects/${tenant.tenantId}/uploads/track.mp3`,
++    });
++  });
++
++  it("rejects a topic-to-video music path outside the caller's workspace", async () => {
++    const tenant = await newTenant();
++    const res = await request(app)
++      .post("/api/ai/generate-video")
++      .send({
++        engine: "topic_to_video",
++        prompt: "healthy meal prep for busy weeks",
++        musicPath: `/objects/${tenant.tenantId + 1}/uploads/stolen.mp3`,
++      });
++    expect(res.status).toBe(400);
++    expect(res.body.error).toMatch(/music path/i);
++    expect(runnerState.calls).toHaveLength(0);
++  });
++
+   it("402s when the plan has no video quota and no credits", async () => {
+     await newTenant("payg"); // 0 videos/month, credit-funded only
+     const res = await request(app)
+diff --git a/artifacts/api-server/src/routes/videos.ts b/artifacts/api-server/src/routes/videos.ts
+index 9405b2f..9c4e74f 100644
+--- a/artifacts/api-server/src/routes/videos.ts
++++ b/artifacts/api-server/src/routes/videos.ts
+@@ -54,6 +54,10 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+     res.status(400).json({ error: "A prompt is required for text-to-video." });
+     return;
+   }
++  if (body.engine === "topic_to_video" && !body.prompt?.trim()) {
++    res.status(400).json({ error: "A topic is required for topic-to-video." });
++    return;
++  }
+   if (body.engine === "image_to_video" && sourceImagePaths.length === 0) {
+     res.status(400).json({ error: "A source image is required for image-to-video." });
+     return;
+@@ -123,6 +127,10 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+           slideDurationSec: body.slideDurationSec ?? 3,
+           overlayText: body.overlayText ?? null,
+           musicPath: body.musicPath ?? null,
++          voice: body.voice ?? "alloy",
++          stockSource: body.stockSource ?? "auto",
++          subtitles: body.subtitles ?? true,
++          paragraphCount: body.paragraphCount ?? 1,
+         },
+       })
+       .returning()
+diff --git a/artifacts/socialforge/src/pages/video-studio.test.tsx b/artifacts/socialforge/src/pages/video-studio.test.tsx
+index 59ce23e..f0ce580 100644
+--- a/artifacts/socialforge/src/pages/video-studio.test.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.test.tsx
+@@ -141,6 +141,41 @@ describe("Video Studio", () => {
+     );
+   });
+ 
++  it("keeps Generate disabled until the topic is long enough", async () => {
++    renderPage();
++    await userEvent.setup().click(screen.getByTestId("tab-topic-to-video"));
++    const button = screen.getByTestId("button-generate-video") as HTMLButtonElement;
++    expect(button.disabled).toBe(true);
++    fireEvent.change(screen.getByTestId("input-video-prompt"), {
++      target: { value: "5 morning habits that transform your day" },
++    });
++    expect(button.disabled).toBe(false);
++  });
++
++  it("submits a topic-to-video job with narration defaults", async () => {
++    renderPage();
++    await userEvent.setup().click(screen.getByTestId("tab-topic-to-video"));
++    // The topic engine trades the seconds picker for length + voice controls.
++    expect(screen.getByTestId("select-video-length")).toBeTruthy();
++    expect(screen.getByTestId("select-video-voice")).toBeTruthy();
++    expect(screen.getByTestId("switch-subtitles")).toBeTruthy();
++    fireEvent.change(screen.getByTestId("input-video-prompt"), {
++      target: { value: "5 morning habits that transform your day" },
++    });
++    fireEvent.click(screen.getByTestId("button-generate-video"));
++    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
++    expect(mockState.lastGenerateVars.data).toMatchObject({
++      engine: "topic_to_video",
++      prompt: "5 morning habits that transform your day",
++      sourceImagePaths: [],
++      aspectRatio: "9:16",
++      voice: "alloy",
++      stockSource: "auto",
++      subtitles: true,
++      paragraphCount: 1,
++    });
++  });
++
+   it("shows the finished video with save and download actions", () => {
+     mockState.activeJob = {
+       id: 7,
+diff --git a/artifacts/socialforge/src/pages/video-studio.tsx b/artifacts/socialforge/src/pages/video-studio.tsx
+index a45f24f..1fe6837 100644
+--- a/artifacts/socialforge/src/pages/video-studio.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.tsx
+@@ -45,6 +45,7 @@ import {
+ import { Badge } from "@/components/ui/badge";
+ import { Progress } from "@/components/ui/progress";
+ import { RippleSpinner } from "@/components/ui/ripple-spinner";
++import { Switch } from "@/components/ui/switch";
+ import { useToast } from "@/hooks/use-toast";
+ import {
+   Clapperboard,
+@@ -62,11 +63,22 @@ import {
+   CheckCircle2,
+   XCircle,
+   Sparkles,
++  Lightbulb,
+ } from "lucide-react";
+ import { navigate } from "wouter/use-browser-location";
+ 
+-type Engine = "text_to_video" | "image_to_video" | "slideshow";
++type Engine = "text_to_video" | "image_to_video" | "slideshow" | "topic_to_video";
+ type Aspect = "16:9" | "9:16" | "1:1";
++type Voice = "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
++
++const VOICES: { value: Voice; label: string }[] = [
++  { value: "alloy", label: "Alloy · balanced" },
++  { value: "nova", label: "Nova · bright" },
++  { value: "shimmer", label: "Shimmer · warm" },
++  { value: "echo", label: "Echo · deep" },
++  { value: "onyx", label: "Onyx · bold" },
++  { value: "fable", label: "Fable · storyteller" },
++];
+ 
+ const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+ const MUSIC_TYPES = ["audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/aac", "audio/wav"];
+@@ -96,6 +108,10 @@ const ENGINE_META: Record<Engine, { title: string; blurb: string }> = {
+     title: "Photo Slideshow",
+     blurb: "Photos in, a polished video with crossfades out. No AI cost.",
+   },
++  topic_to_video: {
++    title: "Topic to Video",
++    blurb: "Give a topic — AI writes the script, narrates it, and cuts stock footage to match.",
++  },
+ };
+ 
+ export function VideoStudioPage() {
+@@ -108,6 +124,9 @@ export function VideoStudioPage() {
+   const [durationSec, setDurationSec] = useState(5);
+   const [slideDurationSec, setSlideDurationSec] = useState(3);
+   const [overlayText, setOverlayText] = useState("");
++  const [voice, setVoice] = useState<Voice>("alloy");
++  const [paragraphCount, setParagraphCount] = useState(1);
++  const [subtitles, setSubtitles] = useState(true);
+   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
+   const [music, setMusic] = useState<{ objectPath: string; name: string } | null>(null);
+   const [uploading, setUploading] = useState(false);
+@@ -261,7 +280,8 @@ export function VideoStudioPage() {
+ 
+   const canGenerate = useMemo(() => {
+     if (generateVideo.isPending || uploading) return false;
+-    if (engine === "text_to_video") return prompt.trim().length >= 3;
++    if (engine === "text_to_video" || engine === "topic_to_video")
++      return prompt.trim().length >= 3;
+     if (engine === "image_to_video") return photos.length >= 1;
+     return photos.length >= 1;
+   }, [engine, prompt, photos, generateVideo.isPending, uploading]);
+@@ -278,7 +298,7 @@ export function VideoStudioPage() {
+           engine,
+           prompt: prompt.trim() || null,
+           sourceImagePaths:
+-            engine === "text_to_video"
++            engine === "text_to_video" || engine === "topic_to_video"
+               ? []
+               : engine === "image_to_video"
+                 ? photos.slice(0, 1).map((p) => p.objectPath)
+@@ -287,7 +307,14 @@ export function VideoStudioPage() {
+           durationSec,
+           slideDurationSec,
+           overlayText: engine === "slideshow" && overlayText.trim() ? overlayText.trim() : null,
+-          musicPath: engine === "slideshow" ? (music?.objectPath ?? null) : null,
++          musicPath:
++            engine === "slideshow" || engine === "topic_to_video"
++              ? (music?.objectPath ?? null)
++              : null,
++          voice,
++          stockSource: "auto",
++          subtitles,
++          paragraphCount,
+         },
+       },
+       {
+@@ -339,7 +366,7 @@ export function VideoStudioPage() {
+   const removePhoto = (objectPath: string) =>
+     setPhotos((prev) => prev.filter((p) => p.objectPath !== objectPath));
+ 
+-  const needsPhotos = engine !== "text_to_video";
++  const needsPhotos = engine === "image_to_video" || engine === "slideshow";
+   const meta = ENGINE_META[engine];
+ 
+   return (
+@@ -354,7 +381,7 @@ export function VideoStudioPage() {
+       </div>
+ 
+       <Tabs value={engine} onValueChange={(v) => setEngine(v as Engine)}>
+-        <TabsList className="grid w-full grid-cols-3">
++        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4">
+           <TabsTrigger value="text_to_video" data-testid="tab-text-to-video">
+             <Sparkles className="h-4 w-4 mr-1.5" /> Text to Video
+           </TabsTrigger>
+@@ -364,6 +391,9 @@ export function VideoStudioPage() {
+           <TabsTrigger value="slideshow" data-testid="tab-slideshow">
+             <Images className="h-4 w-4 mr-1.5" /> Slideshow
+           </TabsTrigger>
++          <TabsTrigger value="topic_to_video" data-testid="tab-topic-to-video">
++            <Lightbulb className="h-4 w-4 mr-1.5" /> Topic to Video
++          </TabsTrigger>
+         </TabsList>
+       </Tabs>
+ 
+@@ -376,7 +406,11 @@ export function VideoStudioPage() {
+           {engine !== "slideshow" && (
+             <div className="space-y-2">
+               <Label htmlFor="video-prompt">
+-                {engine === "text_to_video" ? "Describe your video" : "Motion hint (optional)"}
++                {engine === "text_to_video"
++                  ? "Describe your video"
++                  : engine === "topic_to_video"
++                    ? "What's your video about?"
++                    : "Motion hint (optional)"}
+               </Label>
+               <Textarea
+                 id="video-prompt"
+@@ -384,7 +418,9 @@ export function VideoStudioPage() {
+                 placeholder={
+                   engine === "text_to_video"
+                     ? "A steaming cup of chai on a rain-speckled window sill, cinematic close-up..."
+-                    : "Slow zoom in, gentle parallax..."
++                    : engine === "topic_to_video"
++                      ? "5 morning habits that quietly transform your day..."
++                      : "Slow zoom in, gentle parallax..."
+                 }
+                 value={prompt}
+                 onChange={(e) => setPrompt(e.target.value)}
+@@ -475,7 +511,7 @@ export function VideoStudioPage() {
+               </ToggleGroup>
+             </div>
+ 
+-            {engine !== "slideshow" ? (
++            {engine === "text_to_video" || engine === "image_to_video" ? (
+               <div className="space-y-2">
+                 <Label>Length</Label>
+                 <Select value={String(durationSec)} onValueChange={(v) => setDurationSec(Number(v))}>
+@@ -489,6 +525,40 @@ export function VideoStudioPage() {
+                   </SelectContent>
+                 </Select>
+               </div>
++            ) : engine === "topic_to_video" ? (
++              <>
++                <div className="space-y-2">
++                  <Label>Length</Label>
++                  <Select
++                    value={String(paragraphCount)}
++                    onValueChange={(v) => setParagraphCount(Number(v))}
++                  >
++                    <SelectTrigger className="w-36" data-testid="select-video-length">
++                      <SelectValue />
++                    </SelectTrigger>
++                    <SelectContent>
++                      <SelectItem value="1">Short · ~30s</SelectItem>
++                      <SelectItem value="2">Medium · ~60s</SelectItem>
++                      <SelectItem value="3">Long · ~90s</SelectItem>
++                    </SelectContent>
++                  </Select>
++                </div>
++                <div className="space-y-2">
++                  <Label>Voice</Label>
++                  <Select value={voice} onValueChange={(v) => setVoice(v as Voice)}>
++                    <SelectTrigger className="w-44" data-testid="select-video-voice">
++                      <SelectValue />
++                    </SelectTrigger>
++                    <SelectContent>
++                      {VOICES.map((v) => (
++                        <SelectItem key={v.value} value={v.value}>
++                          {v.label}
++                        </SelectItem>
++                      ))}
++                    </SelectContent>
++                  </Select>
++                </div>
++              </>
+             ) : (
+               <div className="space-y-2">
+                 <Label>Seconds per photo</Label>
+@@ -511,19 +581,36 @@ export function VideoStudioPage() {
+             )}
+           </div>
+ 
+-          {engine === "slideshow" && (
++          {(engine === "slideshow" || engine === "topic_to_video") && (
+             <div className="grid gap-4 sm:grid-cols-2">
+-              <div className="space-y-2">
+-                <Label htmlFor="overlay-text">Caption on video (optional)</Label>
+-                <Input
+-                  id="overlay-text"
+-                  data-testid="input-overlay-text"
+-                  maxLength={120}
+-                  placeholder="Summer collection '26"
+-                  value={overlayText}
+-                  onChange={(e) => setOverlayText(e.target.value)}
+-                />
+-              </div>
++              {engine === "slideshow" ? (
++                <div className="space-y-2">
++                  <Label htmlFor="overlay-text">Caption on video (optional)</Label>
++                  <Input
++                    id="overlay-text"
++                    data-testid="input-overlay-text"
++                    maxLength={120}
++                    placeholder="Summer collection '26"
++                    value={overlayText}
++                    onChange={(e) => setOverlayText(e.target.value)}
++                  />
++                </div>
++              ) : (
++                <div className="space-y-2">
++                  <Label htmlFor="topic-subtitles">Subtitles</Label>
++                  <div className="flex items-center gap-3 border border-border rounded-md px-3 py-2">
++                    <Switch
++                      id="topic-subtitles"
++                      checked={subtitles}
++                      onCheckedChange={setSubtitles}
++                      data-testid="switch-subtitles"
++                    />
++                    <span className="text-sm text-muted-foreground">
++                      Burn captions into the video
++                    </span>
++                  </div>
++                </div>
++              )}
+               <div className="space-y-2">
+                 <Label>Background music (optional)</Label>
+                 {music ? (
+@@ -590,7 +677,9 @@ export function VideoStudioPage() {
+                     <p className="text-sm text-muted-foreground">
+                       {activeJob.engine === "slideshow"
+                         ? "Stitching photos with crossfades."
+-                        : "AI video can take a few minutes. You can leave this page — the job keeps running."}
++                        : activeJob.engine === "topic_to_video"
++                          ? "Writing the script, recording narration, and cutting footage. This can take a few minutes — the job keeps running if you leave."
++                          : "AI video can take a few minutes. You can leave this page — the job keeps running."}
+                     </p>
+                   </div>
+                 </div>
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index 2caa851..9f4f776 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -2324,6 +2324,7 @@ export const VideoGenerateRequestEngine = {
+   text_to_video: 'text_to_video',
+   image_to_video: 'image_to_video',
+   slideshow: 'slideshow',
++  topic_to_video: 'topic_to_video',
+ } as const;
+ 
+ export type VideoGenerateRequestAspectRatio = typeof VideoGenerateRequestAspectRatio[keyof typeof VideoGenerateRequestAspectRatio];
+@@ -2335,10 +2336,37 @@ export const VideoGenerateRequestAspectRatio = {
+   '1:1': '1:1',
+ } as const;
+ 
++/**
++ * topic_to_video only; the narration voice.
++ */
++export type VideoGenerateRequestVoice = typeof VideoGenerateRequestVoice[keyof typeof VideoGenerateRequestVoice];
++
++
++export const VideoGenerateRequestVoice = {
++  alloy: 'alloy',
++  echo: 'echo',
++  fable: 'fable',
++  onyx: 'onyx',
++  nova: 'nova',
++  shimmer: 'shimmer',
++} as const;
++
++/**
++ * topic_to_video only; where stock footage comes from (auto = first configured source).
++ */
++export type VideoGenerateRequestStockSource = typeof VideoGenerateRequestStockSource[keyof typeof VideoGenerateRequestStockSource];
++
++
++export const VideoGenerateRequestStockSource = {
++  auto: 'auto',
++  pexels: 'pexels',
++  pixabay: 'pixabay',
++} as const;
++
+ export interface VideoGenerateRequest {
+   engine: VideoGenerateRequestEngine;
+   /**
+-     * The brief. Required for text_to_video; an optional motion hint for image_to_video; unused by slideshow.
++     * The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; unused by slideshow.
+      * @maxLength 2000
+      * @nullable
+      */
+@@ -2369,10 +2397,22 @@ export interface VideoGenerateRequest {
+      */
+   overlayText?: string | null;
+   /**
+-     * Slideshow only; /objects/... path of an uploaded music track, faded out at the end of the video.
++     * Slideshow and topic_to_video; /objects/... path of an uploaded music track, faded out at the end of the video.
+      * @nullable
+      */
+   musicPath?: string | null;
++  /** topic_to_video only; the narration voice. */
++  voice?: VideoGenerateRequestVoice;
++  /** topic_to_video only; where stock footage comes from (auto = first configured source). */
++  stockSource?: VideoGenerateRequestStockSource;
++  /** topic_to_video only; burn per-sentence subtitles. */
++  subtitles?: boolean;
++  /**
++     * topic_to_video only; script length in paragraphs (roughly 30 seconds of narration each).
++     * @minimum 1
++     * @maximum 3
++     */
++  paragraphCount?: number;
+ }
+ 
+ export type VideoJobEngine = typeof VideoJobEngine[keyof typeof VideoJobEngine];
+@@ -2382,6 +2422,7 @@ export const VideoJobEngine = {
+   text_to_video: 'text_to_video',
+   image_to_video: 'image_to_video',
+   slideshow: 'slideshow',
++  topic_to_video: 'topic_to_video',
+ } as const;
+ 
+ export type VideoJobStatus = typeof VideoJobStatus[keyof typeof VideoJobStatus];
+@@ -2532,6 +2573,32 @@ export interface VideoGenProviderInfo {
+   keySource?: VideoGenProviderInfoKeySource;
+ }
+ 
++/**
++ * Where the active key comes from (admin-entered key wins over the env secret).
++ * @nullable
++ */
++export type StockSourceInfoKeySource = typeof StockSourceInfoKeySource[keyof typeof StockSourceInfoKeySource] | null;
++
++
++export const StockSourceInfoKeySource = {
++  database: 'database',
++  env: 'env',
++} as const;
++
++export interface StockSourceInfo {
++  id: string;
++  label: string;
++  /** Whether an API key for this source is set. */
++  configured: boolean;
++  /** Secret name used as the fallback key. */
++  envKey: string;
++  /**
++     * Where the active key comes from (admin-entered key wins over the env secret).
++     * @nullable
++     */
++  keySource?: StockSourceInfoKeySource;
++}
++
+ export interface VideoGenSettingsView {
+   /** Currently selected video generation provider id. */
+   provider: string;
+@@ -2546,6 +2613,8 @@ export interface VideoGenSettingsView {
+      */
+   imageToVideoModel: string | null;
+   providers: VideoGenProviderInfo[];
++  /** Stock footage sources available to the Topic to Video engine. */
++  stockSources: StockSourceInfo[];
+ }
+ 
+ export interface UpdateVideoGenSettingsRequest {
+diff --git a/lib/api-client-react/src/generated/api.ts b/lib/api-client-react/src/generated/api.ts
+index be99d54..e206f92 100644
+--- a/lib/api-client-react/src/generated/api.ts
++++ b/lib/api-client-react/src/generated/api.ts
+@@ -3534,6 +3534,147 @@ export const useAdminClearVideoGenProviderKey = <TError = ErrorType<ErrorEnvelop
+       return useMutation(getAdminClearVideoGenProviderKeyMutationOptions(options));
+     }
+ 
++export const getAdminSetStockSourceKeyUrl = (sourceId: string,) => {
++
++
++
++
++  return `/api/admin/stock-sources/${sourceId}/key`
++}
++
++/**
++ * @summary Save a stock footage source API key (superadmin only)
++ */
++export const adminSetStockSourceKey = async (sourceId: string,
++    setVideoGenProviderKeyRequest: SetVideoGenProviderKeyRequest, options?: RequestInit): Promise<VideoGenSettingsView> => {
++
++  return customFetch<VideoGenSettingsView>(getAdminSetStockSourceKeyUrl(sourceId),
++  {
++    ...options,
++    method: 'PUT',
++    headers: { 'Content-Type': 'application/json', ...options?.headers },
++    body: JSON.stringify(setVideoGenProviderKeyRequest)
++  }
++);}
++
++
++
++
++export const getAdminSetStockSourceKeyMutationOptions = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetStockSourceKey>>, TError,{sourceId: string;data: BodyType<SetVideoGenProviderKeyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof adminSetStockSourceKey>>, TError,{sourceId: string;data: BodyType<SetVideoGenProviderKeyRequest>}, TContext> => {
++
++const mutationKey = ['adminSetStockSourceKey'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSetStockSourceKey>>, {sourceId: string;data: BodyType<SetVideoGenProviderKeyRequest>}> = (props) => {
++          const {sourceId,data} = props ?? {};
++
++          return  adminSetStockSourceKey(sourceId,data,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type AdminSetStockSourceKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminSetStockSourceKey>>>
++    export type AdminSetStockSourceKeyMutationBody = BodyType<SetVideoGenProviderKeyRequest>
++    export type AdminSetStockSourceKeyMutationError = ErrorType<ErrorEnvelope>
++
++    /**
++ * @summary Save a stock footage source API key (superadmin only)
++ */
++export const useAdminSetStockSourceKey = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetStockSourceKey>>, TError,{sourceId: string;data: BodyType<SetVideoGenProviderKeyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof adminSetStockSourceKey>>,
++        TError,
++        {sourceId: string;data: BodyType<SetVideoGenProviderKeyRequest>},
++        TContext
++      > => {
++      return useMutation(getAdminSetStockSourceKeyMutationOptions(options));
++    }
++
++export const getAdminClearStockSourceKeyUrl = (sourceId: string,) => {
++
++
++
++
++  return `/api/admin/stock-sources/${sourceId}/key`
++}
++
++/**
++ * @summary Remove a saved stock footage source API key (superadmin only)
++ */
++export const adminClearStockSourceKey = async (sourceId: string, options?: RequestInit): Promise<VideoGenSettingsView> => {
++
++  return customFetch<VideoGenSettingsView>(getAdminClearStockSourceKeyUrl(sourceId),
++  {
++    ...options,
++    method: 'DELETE'
++
++
++  }
++);}
++
++
++
++
++export const getAdminClearStockSourceKeyMutationOptions = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearStockSourceKey>>, TError,{sourceId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof adminClearStockSourceKey>>, TError,{sourceId: string}, TContext> => {
++
++const mutationKey = ['adminClearStockSourceKey'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminClearStockSourceKey>>, {sourceId: string}> = (props) => {
++          const {sourceId} = props ?? {};
++
++          return  adminClearStockSourceKey(sourceId,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type AdminClearStockSourceKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminClearStockSourceKey>>>
++
++    export type AdminClearStockSourceKeyMutationError = ErrorType<ErrorEnvelope>
++
++    /**
++ * @summary Remove a saved stock footage source API key (superadmin only)
++ */
++export const useAdminClearStockSourceKey = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearStockSourceKey>>, TError,{sourceId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof adminClearStockSourceKey>>,
++        TError,
++        {sourceId: string},
++        TContext
++      > => {
++      return useMutation(getAdminClearStockSourceKeyMutationOptions(options));
++    }
++
+ export const getGetAiSpendRatesUrl = () => {
+ 
+ 
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index 55cc773..8f80e07 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -1282,6 +1282,71 @@ paths:
+             application/json:
+               schema:
+                 $ref: "#/components/schemas/ErrorEnvelope"
++  /admin/stock-sources/{sourceId}/key:
++    parameters:
++      - name: sourceId
++        in: path
++        required: true
++        schema:
++          type: string
++    put:
++      operationId: adminSetStockSourceKey
++      tags: [admin]
++      summary: Save a stock footage source API key (superadmin only)
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              $ref: "#/components/schemas/SetVideoGenProviderKeyRequest"
++      responses:
++        "200":
++          description: Saved
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/VideoGenSettingsView"
++        "400":
++          description: Invalid input
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++        "403":
++          description: Forbidden
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++        "404":
++          description: Unknown source
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++    delete:
++      operationId: adminClearStockSourceKey
++      tags: [admin]
++      summary: Remove a saved stock footage source API key (superadmin only)
++      responses:
++        "200":
++          description: Removed
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/VideoGenSettingsView"
++        "403":
++          description: Forbidden
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++        "404":
++          description: Unknown source
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
+   /ai-spend/rates:
+     get:
+       operationId: getAiSpendRates
+@@ -9106,13 +9171,14 @@ components:
+       properties:
+         engine:
+           type: string
+-          enum: [text_to_video, image_to_video, slideshow]
++          enum: [text_to_video, image_to_video, slideshow, topic_to_video]
+         prompt:
+           type: ["string", "null"]
+           maxLength: 2000
+           description: >-
+             The brief. Required for text_to_video; an optional motion hint for
+-            image_to_video; unused by slideshow.
++            image_to_video; the video topic for topic_to_video; unused by
++            slideshow.
+         sourceImagePaths:
+           type: ["array", "null"]
+           maxItems: 20
+@@ -9144,8 +9210,32 @@ components:
+         musicPath:
+           type: ["string", "null"]
+           description: >-
+-            Slideshow only; /objects/... path of an uploaded music track,
+-            faded out at the end of the video.
++            Slideshow and topic_to_video; /objects/... path of an uploaded
++            music track, faded out at the end of the video.
++        voice:
++          type: string
++          enum: [alloy, echo, fable, onyx, nova, shimmer]
++          default: alloy
++          description: topic_to_video only; the narration voice.
++        stockSource:
++          type: string
++          enum: [auto, pexels, pixabay]
++          default: auto
++          description: >-
++            topic_to_video only; where stock footage comes from (auto = first
++            configured source).
++        subtitles:
++          type: boolean
++          default: true
++          description: topic_to_video only; burn per-sentence subtitles.
++        paragraphCount:
++          type: integer
++          minimum: 1
++          maximum: 3
++          default: 1
++          description: >-
++            topic_to_video only; script length in paragraphs (roughly 30
++            seconds of narration each).
+     VideoJob:
+       type: object
+       required:
+@@ -9155,7 +9245,7 @@ components:
+           type: integer
+         engine:
+           type: string
+-          enum: [text_to_video, image_to_video, slideshow]
++          enum: [text_to_video, image_to_video, slideshow, topic_to_video]
+         status:
+           type: string
+           enum: [queued, processing, succeeded, failed]
+@@ -9294,7 +9384,7 @@ components:
+                 type: string
+     VideoGenSettingsView:
+       type: object
+-      required: [provider, textToVideoModel, imageToVideoModel, providers]
++      required: [provider, textToVideoModel, imageToVideoModel, providers, stockSources]
+       properties:
+         provider:
+           type: string
+@@ -9309,6 +9399,29 @@ components:
+           type: array
+           items:
+             $ref: "#/components/schemas/VideoGenProviderInfo"
++        stockSources:
++          type: array
++          description: Stock footage sources available to the Topic to Video engine.
++          items:
++            $ref: "#/components/schemas/StockSourceInfo"
++    StockSourceInfo:
++      type: object
++      required: [id, label, configured, envKey]
++      properties:
++        id:
++          type: string
++        label:
++          type: string
++        configured:
++          type: boolean
++          description: Whether an API key for this source is set.
++        envKey:
++          type: string
++          description: Secret name used as the fallback key.
++        keySource:
++          type: ["string", "null"]
++          enum: [database, env, null]
++          description: Where the active key comes from (admin-entered key wins over the env secret).
+     VideoGenProviderInfo:
+       type: object
+       required:
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index 00d6e79..5c83d6f 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -1133,7 +1133,14 @@ export const AdminGetVideoGenSettingsResponse = zod.object({
+ })).optional(),
+   "envKey": zod.string().optional().describe('Secret name required by this provider.'),
+   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+-}))
++})),
++  "stockSources": zod.array(zod.object({
++  "id": zod.string(),
++  "label": zod.string(),
++  "configured": zod.boolean().describe('Whether an API key for this source is set.'),
++  "envKey": zod.string().describe('Secret name used as the fallback key.'),
++  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
++})).describe('Stock footage sources available to the Topic to Video engine.')
+ })
+ 
+ 
+@@ -1167,7 +1174,14 @@ export const AdminUpdateVideoGenSettingsResponse = zod.object({
+ })).optional(),
+   "envKey": zod.string().optional().describe('Secret name required by this provider.'),
+   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+-}))
++})),
++  "stockSources": zod.array(zod.object({
++  "id": zod.string(),
++  "label": zod.string(),
++  "configured": zod.boolean().describe('Whether an API key for this source is set.'),
++  "envKey": zod.string().describe('Secret name used as the fallback key.'),
++  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
++})).describe('Stock footage sources available to the Topic to Video engine.')
+ })
+ 
+ 
+@@ -1206,7 +1220,14 @@ export const AdminSetVideoGenProviderKeyResponse = zod.object({
+ })).optional(),
+   "envKey": zod.string().optional().describe('Secret name required by this provider.'),
+   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+-}))
++})),
++  "stockSources": zod.array(zod.object({
++  "id": zod.string(),
++  "label": zod.string(),
++  "configured": zod.boolean().describe('Whether an API key for this source is set.'),
++  "envKey": zod.string().describe('Secret name used as the fallback key.'),
++  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
++})).describe('Stock footage sources available to the Topic to Video engine.')
+ })
+ 
+ 
+@@ -1238,7 +1259,99 @@ export const AdminClearVideoGenProviderKeyResponse = zod.object({
+ })).optional(),
+   "envKey": zod.string().optional().describe('Secret name required by this provider.'),
+   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+-}))
++})),
++  "stockSources": zod.array(zod.object({
++  "id": zod.string(),
++  "label": zod.string(),
++  "configured": zod.boolean().describe('Whether an API key for this source is set.'),
++  "envKey": zod.string().describe('Secret name used as the fallback key.'),
++  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
++})).describe('Stock footage sources available to the Topic to Video engine.')
++})
++
++
++/**
++ * @summary Save a stock footage source API key (superadmin only)
++ */
++export const AdminSetStockSourceKeyParams = zod.object({
++  "sourceId": zod.coerce.string()
++})
++
++
++
++
++export const AdminSetStockSourceKeyBody = zod.object({
++  "apiKey": zod.string().min(1).describe('The provider API key (stored encrypted, never returned).')
++})
++
++export const AdminSetStockSourceKeyResponse = zod.object({
++  "provider": zod.string().describe('Currently selected video generation provider id.'),
++  "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
++  "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
++  "providers": zod.array(zod.object({
++  "id": zod.string(),
++  "label": zod.string(),
++  "defaultTextToVideoModel": zod.string(),
++  "defaultImageToVideoModel": zod.string(),
++  "configured": zod.boolean().describe('Whether the API key needed by this provider is set.'),
++  "supportsModelOverride": zod.boolean(),
++  "textModelOptions": zod.array(zod.object({
++  "value": zod.string(),
++  "label": zod.string()
++})).optional(),
++  "imageModelOptions": zod.array(zod.object({
++  "value": zod.string(),
++  "label": zod.string()
++})).optional(),
++  "envKey": zod.string().optional().describe('Secret name required by this provider.'),
++  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
++})),
++  "stockSources": zod.array(zod.object({
++  "id": zod.string(),
++  "label": zod.string(),
++  "configured": zod.boolean().describe('Whether an API key for this source is set.'),
++  "envKey": zod.string().describe('Secret name used as the fallback key.'),
++  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
++})).describe('Stock footage sources available to the Topic to Video engine.')
++})
++
++
++/**
++ * @summary Remove a saved stock footage source API key (superadmin only)
++ */
++export const AdminClearStockSourceKeyParams = zod.object({
++  "sourceId": zod.coerce.string()
++})
++
++export const AdminClearStockSourceKeyResponse = zod.object({
++  "provider": zod.string().describe('Currently selected video generation provider id.'),
++  "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
++  "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
++  "providers": zod.array(zod.object({
++  "id": zod.string(),
++  "label": zod.string(),
++  "defaultTextToVideoModel": zod.string(),
++  "defaultImageToVideoModel": zod.string(),
++  "configured": zod.boolean().describe('Whether the API key needed by this provider is set.'),
++  "supportsModelOverride": zod.boolean(),
++  "textModelOptions": zod.array(zod.object({
++  "value": zod.string(),
++  "label": zod.string()
++})).optional(),
++  "imageModelOptions": zod.array(zod.object({
++  "value": zod.string(),
++  "label": zod.string()
++})).optional(),
++  "envKey": zod.string().optional().describe('Secret name required by this provider.'),
++  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
++})),
++  "stockSources": zod.array(zod.object({
++  "id": zod.string(),
++  "label": zod.string(),
++  "configured": zod.boolean().describe('Whether an API key for this source is set.'),
++  "envKey": zod.string().describe('Secret name used as the fallback key.'),
++  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
++})).describe('Stock footage sources available to the Topic to Video engine.')
+ })
+ 
+ 
+@@ -4528,22 +4641,32 @@ export const generateVideoBodySlideDurationSecMax = 10;
+ 
+ export const generateVideoBodyOverlayTextMax = 120;
+ 
++export const generateVideoBodyVoiceDefault = `alloy`;
++export const generateVideoBodyStockSourceDefault = `auto`;
++export const generateVideoBodySubtitlesDefault = true;
++export const generateVideoBodyParagraphCountDefault = 1;
++export const generateVideoBodyParagraphCountMax = 3;
++
+ 
+ 
+ export const GenerateVideoBody = zod.object({
+-  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow']),
+-  "prompt": zod.string().max(generateVideoBodyPromptMax).nullish().describe('The brief. Required for text_to_video; an optional motion hint for image_to_video; unused by slideshow.'),
++  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
++  "prompt": zod.string().max(generateVideoBodyPromptMax).nullish().describe('The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; unused by slideshow.'),
+   "sourceImagePaths": zod.array(zod.string()).max(generateVideoBodySourceImagePathsMax).nullish().describe('Ordered \/objects\/... photo paths. image_to_video animates the first; slideshow uses all of them in order.'),
+   "aspectRatio": zod.enum(['16:9', '9:16', '1:1']).default(generateVideoBodyAspectRatioDefault),
+   "durationSec": zod.number().min(generateVideoBodyDurationSecMin).max(generateVideoBodyDurationSecMax).default(generateVideoBodyDurationSecDefault).describe('AI engines only; providers clamp to what they support.'),
+   "slideDurationSec": zod.number().min(1).max(generateVideoBodySlideDurationSecMax).default(generateVideoBodySlideDurationSecDefault).describe('Slideshow only; seconds each photo is on screen.'),
+   "overlayText": zod.string().max(generateVideoBodyOverlayTextMax).nullish().describe('Slideshow only; caption burned into the video.'),
+-  "musicPath": zod.string().nullish().describe('Slideshow only; \/objects\/... path of an uploaded music track, faded out at the end of the video.')
++  "musicPath": zod.string().nullish().describe('Slideshow and topic_to_video; \/objects\/... path of an uploaded music track, faded out at the end of the video.'),
++  "voice": zod.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']).default(generateVideoBodyVoiceDefault).describe('topic_to_video only; the narration voice.'),
++  "stockSource": zod.enum(['auto', 'pexels', 'pixabay']).default(generateVideoBodyStockSourceDefault).describe('topic_to_video only; where stock footage comes from (auto = first configured source).'),
++  "subtitles": zod.boolean().default(generateVideoBodySubtitlesDefault).describe('topic_to_video only; burn per-sentence subtitles.'),
++  "paragraphCount": zod.number().min(1).max(generateVideoBodyParagraphCountMax).default(generateVideoBodyParagraphCountDefault).describe('topic_to_video only; script length in paragraphs (roughly 30 seconds of narration each).')
+ })
+ 
+ export const GenerateVideoResponse = zod.object({
+   "id": zod.number(),
+-  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow']),
++  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
+   "status": zod.enum(['queued', 'processing', 'succeeded', 'failed']),
+   "prompt": zod.string().nullish(),
+   "sourceImagePaths": zod.array(zod.string()),
+@@ -4564,7 +4687,7 @@ export const GenerateVideoResponse = zod.object({
+  */
+ export const ListVideoJobsResponseItem = zod.object({
+   "id": zod.number(),
+-  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow']),
++  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
+   "status": zod.enum(['queued', 'processing', 'succeeded', 'failed']),
+   "prompt": zod.string().nullish(),
+   "sourceImagePaths": zod.array(zod.string()),
+@@ -4590,7 +4713,7 @@ export const GetVideoJobParams = zod.object({
+ 
+ export const GetVideoJobResponse = zod.object({
+   "id": zod.number(),
+-  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow']),
++  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
+   "status": zod.enum(['queued', 'processing', 'succeeded', 'failed']),
+   "prompt": zod.string().nullish(),
+   "sourceImagePaths": zod.array(zod.string()),
+diff --git a/lib/api-zod/src/generated/types/index.ts b/lib/api-zod/src/generated/types/index.ts
+index 99b221d..df5de85 100644
+--- a/lib/api-zod/src/generated/types/index.ts
++++ b/lib/api-zod/src/generated/types/index.ts
+@@ -315,6 +315,8 @@ export * from './setImageGenProviderKeyRequest';
+ export * from './setTextGenKeyRequest';
+ export * from './setVideoGenProviderKeyRequest';
+ export * from './socialCredentialStatus';
++export * from './stockSourceInfo';
++export * from './stockSourceInfoKeySource';
+ export * from './summarizeUrlRequest';
+ export * from './summarizeUrlResult';
+ export * from './tasteProfileSummary';
+@@ -375,6 +377,8 @@ export * from './usage';
+ export * from './videoGenerateRequest';
+ export * from './videoGenerateRequestAspectRatio';
+ export * from './videoGenerateRequestEngine';
++export * from './videoGenerateRequestStockSource';
++export * from './videoGenerateRequestVoice';
+ export * from './videoGenProviderInfo';
+ export * from './videoGenProviderInfoKeySource';
+ export * from './videoGenSettingsView';
+diff --git a/lib/api-zod/src/generated/types/stockSourceInfo.ts b/lib/api-zod/src/generated/types/stockSourceInfo.ts
+new file mode 100644
+index 0000000..9015df1
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/stockSourceInfo.ts
+@@ -0,0 +1,22 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { StockSourceInfoKeySource } from './stockSourceInfoKeySource';
++
++export interface StockSourceInfo {
++  id: string;
++  label: string;
++  /** Whether an API key for this source is set. */
++  configured: boolean;
++  /** Secret name used as the fallback key. */
++  envKey: string;
++  /**
++     * Where the active key comes from (admin-entered key wins over the env secret).
++     * @nullable
++     */
++  keySource?: StockSourceInfoKeySource;
++}
+diff --git a/lib/api-zod/src/generated/types/stockSourceInfoKeySource.ts b/lib/api-zod/src/generated/types/stockSourceInfoKeySource.ts
+new file mode 100644
+index 0000000..3be16a0
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/stockSourceInfoKeySource.ts
+@@ -0,0 +1,19 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++/**
++ * Where the active key comes from (admin-entered key wins over the env secret).
++ * @nullable
++ */
++export type StockSourceInfoKeySource = typeof StockSourceInfoKeySource[keyof typeof StockSourceInfoKeySource] | null;
++
++
++export const StockSourceInfoKeySource = {
++  database: 'database',
++  env: 'env',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/videoGenSettingsView.ts b/lib/api-zod/src/generated/types/videoGenSettingsView.ts
+index 703d90a..e97992e 100644
+--- a/lib/api-zod/src/generated/types/videoGenSettingsView.ts
++++ b/lib/api-zod/src/generated/types/videoGenSettingsView.ts
+@@ -5,6 +5,7 @@
+  * KOKAO API
+  * OpenAPI spec version: 0.1.0
+  */
++import type { StockSourceInfo } from './stockSourceInfo';
+ import type { VideoGenProviderInfo } from './videoGenProviderInfo';
+ 
+ export interface VideoGenSettingsView {
+@@ -21,4 +22,6 @@ export interface VideoGenSettingsView {
+      */
+   imageToVideoModel: string | null;
+   providers: VideoGenProviderInfo[];
++  /** Stock footage sources available to the Topic to Video engine. */
++  stockSources: StockSourceInfo[];
+ }
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequest.ts b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+index 97bbc95..e934df1 100644
+--- a/lib/api-zod/src/generated/types/videoGenerateRequest.ts
++++ b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+@@ -7,11 +7,13 @@
+  */
+ import type { VideoGenerateRequestAspectRatio } from './videoGenerateRequestAspectRatio';
+ import type { VideoGenerateRequestEngine } from './videoGenerateRequestEngine';
++import type { VideoGenerateRequestStockSource } from './videoGenerateRequestStockSource';
++import type { VideoGenerateRequestVoice } from './videoGenerateRequestVoice';
+ 
+ export interface VideoGenerateRequest {
+   engine: VideoGenerateRequestEngine;
+   /**
+-     * The brief. Required for text_to_video; an optional motion hint for image_to_video; unused by slideshow.
++     * The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; unused by slideshow.
+      * @maxLength 2000
+      * @nullable
+      */
+@@ -42,8 +44,20 @@ export interface VideoGenerateRequest {
+      */
+   overlayText?: string | null;
+   /**
+-     * Slideshow only; /objects/... path of an uploaded music track, faded out at the end of the video.
++     * Slideshow and topic_to_video; /objects/... path of an uploaded music track, faded out at the end of the video.
+      * @nullable
+      */
+   musicPath?: string | null;
++  /** topic_to_video only; the narration voice. */
++  voice?: VideoGenerateRequestVoice;
++  /** topic_to_video only; where stock footage comes from (auto = first configured source). */
++  stockSource?: VideoGenerateRequestStockSource;
++  /** topic_to_video only; burn per-sentence subtitles. */
++  subtitles?: boolean;
++  /**
++     * topic_to_video only; script length in paragraphs (roughly 30 seconds of narration each).
++     * @minimum 1
++     * @maximum 3
++     */
++  paragraphCount?: number;
+ }
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequestEngine.ts b/lib/api-zod/src/generated/types/videoGenerateRequestEngine.ts
+index 0da5f1b..7c02237 100644
+--- a/lib/api-zod/src/generated/types/videoGenerateRequestEngine.ts
++++ b/lib/api-zod/src/generated/types/videoGenerateRequestEngine.ts
+@@ -13,4 +13,5 @@ export const VideoGenerateRequestEngine = {
+   text_to_video: 'text_to_video',
+   image_to_video: 'image_to_video',
+   slideshow: 'slideshow',
++  topic_to_video: 'topic_to_video',
+ } as const;
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequestStockSource.ts b/lib/api-zod/src/generated/types/videoGenerateRequestStockSource.ts
+new file mode 100644
+index 0000000..abfb6d8
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoGenerateRequestStockSource.ts
+@@ -0,0 +1,19 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++/**
++ * topic_to_video only; where stock footage comes from (auto = first configured source).
++ */
++export type VideoGenerateRequestStockSource = typeof VideoGenerateRequestStockSource[keyof typeof VideoGenerateRequestStockSource];
++
++
++export const VideoGenerateRequestStockSource = {
++  auto: 'auto',
++  pexels: 'pexels',
++  pixabay: 'pixabay',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequestVoice.ts b/lib/api-zod/src/generated/types/videoGenerateRequestVoice.ts
+new file mode 100644
+index 0000000..2941fa0
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoGenerateRequestVoice.ts
+@@ -0,0 +1,22 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++/**
++ * topic_to_video only; the narration voice.
++ */
++export type VideoGenerateRequestVoice = typeof VideoGenerateRequestVoice[keyof typeof VideoGenerateRequestVoice];
++
++
++export const VideoGenerateRequestVoice = {
++  alloy: 'alloy',
++  echo: 'echo',
++  fable: 'fable',
++  onyx: 'onyx',
++  nova: 'nova',
++  shimmer: 'shimmer',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/videoJobEngine.ts b/lib/api-zod/src/generated/types/videoJobEngine.ts
+index c9b75b2..733dd56 100644
+--- a/lib/api-zod/src/generated/types/videoJobEngine.ts
++++ b/lib/api-zod/src/generated/types/videoJobEngine.ts
+@@ -13,4 +13,5 @@ export const VideoJobEngine = {
+   text_to_video: 'text_to_video',
+   image_to_video: 'image_to_video',
+   slideshow: 'slideshow',
++  topic_to_video: 'topic_to_video',
+ } as const;
+diff --git a/lib/db/src/schema/videoGenerations.ts b/lib/db/src/schema/videoGenerations.ts
+index 9f8265a..050ffe7 100644
+--- a/lib/db/src/schema/videoGenerations.ts
++++ b/lib/db/src/schema/videoGenerations.ts
+@@ -15,7 +15,7 @@ import {
+  * poll GET /ai/video-jobs/{id} until status is succeeded or failed.
+  *
+  * status: queued | processing | succeeded | failed
+- * engine: text_to_video | image_to_video | slideshow
++ * engine: text_to_video | image_to_video | slideshow | topic_to_video
+  */
+ 
+ /** Options captured at enqueue time so the job is fully self-describing. */
+@@ -28,8 +28,16 @@ export interface VideoJobOptions {
+   slideDurationSec?: number;
+   /** Slideshow: optional caption burned into the video. */
+   overlayText?: string | null;
+-  /** Slideshow: optional /objects/... path of a background music track. */
++  /** Slideshow + topic_to_video: optional /objects/... path of a music track. */
+   musicPath?: string | null;
++  /** topic_to_video: narration voice. */
++  voice?: string;
++  /** topic_to_video: stock footage source ("auto" | "pexels" | "pixabay"). */
++  stockSource?: string;
++  /** topic_to_video: burn per-sentence subtitles (default true). */
++  subtitles?: boolean;
++  /** topic_to_video: script length in paragraphs (~30s each, 1-3). */
++  paragraphCount?: number;
+ }
+ 
+ export const videoGenerationsTable = pgTable("video_generations", {
+-- 
+2.43.0
+

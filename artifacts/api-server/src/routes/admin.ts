@@ -48,6 +48,14 @@ import {
   clearStoredVideoGenKey,
 } from "../lib/videoGen";
 import {
+  STOCK_SOURCES,
+  getStockSourceDef,
+  isStockSourceConfigured,
+  getStockKeySource,
+  setStoredStockKey,
+  clearStoredStockKey,
+} from "../lib/videoGen/topicVideo";
+import {
   TEXT_GEN_PROVIDERS,
   getTextGenSelection,
   setTextGenSelection,
@@ -917,8 +925,78 @@ async function serializeVideoGenSettings() {
         keySource: await getVideoGenKeySource(p),
       })),
     ),
+    stockSources: await Promise.all(
+      STOCK_SOURCES.map(async (s) => ({
+        id: s.id,
+        label: s.label,
+        configured: await isStockSourceConfigured(s),
+        envKey: s.envKey,
+        keySource: await getStockKeySource(s),
+      })),
+    ),
   };
 }
+
+/**
+ * PUT /admin/stock-sources/:sourceId/key
+ * Save a stock footage source's API key (encrypted at rest). Superadmin only.
+ * Stock sources feed the Topic to Video engine.
+ */
+router.put("/admin/stock-sources/:sourceId/key", async (req: Request, res: Response) => {
+  const def = getStockSourceDef(req.params.sourceId as string);
+  if (!def) {
+    res.status(404).json({ error: "Unknown stock footage source" });
+    return;
+  }
+  const parsed = AdminSetVideoGenProviderKeyBody.safeParse(req.body);
+  const apiKey = parsed.success ? parsed.data.apiKey.trim() : "";
+  if (!apiKey) {
+    res.status(400).json({ error: "API key is required" });
+    return;
+  }
+  await setStoredStockKey(def.id, apiKey);
+  try {
+    await recordAdminAction({
+      action: "videogen_key_change",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: null,
+      newValue: `stock_${def.id}:set`,
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write stock-source key audit log");
+  }
+  res.json(await serializeVideoGenSettings());
+});
+
+/**
+ * DELETE /admin/stock-sources/:sourceId/key
+ * Remove the saved key (the env secret, if set, becomes the fallback).
+ */
+router.delete("/admin/stock-sources/:sourceId/key", async (req: Request, res: Response) => {
+  const def = getStockSourceDef(req.params.sourceId as string);
+  if (!def) {
+    res.status(404).json({ error: "Unknown stock footage source" });
+    return;
+  }
+  await clearStoredStockKey(def.id);
+  try {
+    await recordAdminAction({
+      action: "videogen_key_change",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: null,
+      newValue: `stock_${def.id}:cleared`,
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write stock-source key audit log");
+  }
+  res.json(await serializeVideoGenSettings());
+});
 
 /**
  * GET /admin/video-gen-settings

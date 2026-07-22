@@ -2324,6 +2324,7 @@ export const VideoGenerateRequestEngine = {
   text_to_video: 'text_to_video',
   image_to_video: 'image_to_video',
   slideshow: 'slideshow',
+  topic_to_video: 'topic_to_video',
 } as const;
 
 export type VideoGenerateRequestAspectRatio = typeof VideoGenerateRequestAspectRatio[keyof typeof VideoGenerateRequestAspectRatio];
@@ -2335,10 +2336,37 @@ export const VideoGenerateRequestAspectRatio = {
   '1:1': '1:1',
 } as const;
 
+/**
+ * topic_to_video only; the narration voice.
+ */
+export type VideoGenerateRequestVoice = typeof VideoGenerateRequestVoice[keyof typeof VideoGenerateRequestVoice];
+
+
+export const VideoGenerateRequestVoice = {
+  alloy: 'alloy',
+  echo: 'echo',
+  fable: 'fable',
+  onyx: 'onyx',
+  nova: 'nova',
+  shimmer: 'shimmer',
+} as const;
+
+/**
+ * topic_to_video only; where stock footage comes from (auto = first configured source).
+ */
+export type VideoGenerateRequestStockSource = typeof VideoGenerateRequestStockSource[keyof typeof VideoGenerateRequestStockSource];
+
+
+export const VideoGenerateRequestStockSource = {
+  auto: 'auto',
+  pexels: 'pexels',
+  pixabay: 'pixabay',
+} as const;
+
 export interface VideoGenerateRequest {
   engine: VideoGenerateRequestEngine;
   /**
-     * The brief. Required for text_to_video; an optional motion hint for image_to_video; unused by slideshow.
+     * The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; unused by slideshow.
      * @maxLength 2000
      * @nullable
      */
@@ -2369,10 +2397,22 @@ export interface VideoGenerateRequest {
      */
   overlayText?: string | null;
   /**
-     * Slideshow only; /objects/... path of an uploaded music track, faded out at the end of the video.
+     * Slideshow and topic_to_video; /objects/... path of an uploaded music track, faded out at the end of the video.
      * @nullable
      */
   musicPath?: string | null;
+  /** topic_to_video only; the narration voice. */
+  voice?: VideoGenerateRequestVoice;
+  /** topic_to_video only; where stock footage comes from (auto = first configured source). */
+  stockSource?: VideoGenerateRequestStockSource;
+  /** topic_to_video only; burn per-sentence subtitles. */
+  subtitles?: boolean;
+  /**
+     * topic_to_video only; script length in paragraphs (roughly 30 seconds of narration each).
+     * @minimum 1
+     * @maximum 3
+     */
+  paragraphCount?: number;
 }
 
 export type VideoJobEngine = typeof VideoJobEngine[keyof typeof VideoJobEngine];
@@ -2382,6 +2422,7 @@ export const VideoJobEngine = {
   text_to_video: 'text_to_video',
   image_to_video: 'image_to_video',
   slideshow: 'slideshow',
+  topic_to_video: 'topic_to_video',
 } as const;
 
 export type VideoJobStatus = typeof VideoJobStatus[keyof typeof VideoJobStatus];
@@ -2532,6 +2573,32 @@ export interface VideoGenProviderInfo {
   keySource?: VideoGenProviderInfoKeySource;
 }
 
+/**
+ * Where the active key comes from (admin-entered key wins over the env secret).
+ * @nullable
+ */
+export type StockSourceInfoKeySource = typeof StockSourceInfoKeySource[keyof typeof StockSourceInfoKeySource] | null;
+
+
+export const StockSourceInfoKeySource = {
+  database: 'database',
+  env: 'env',
+} as const;
+
+export interface StockSourceInfo {
+  id: string;
+  label: string;
+  /** Whether an API key for this source is set. */
+  configured: boolean;
+  /** Secret name used as the fallback key. */
+  envKey: string;
+  /**
+     * Where the active key comes from (admin-entered key wins over the env secret).
+     * @nullable
+     */
+  keySource?: StockSourceInfoKeySource;
+}
+
 export interface VideoGenSettingsView {
   /** Currently selected video generation provider id. */
   provider: string;
@@ -2546,6 +2613,8 @@ export interface VideoGenSettingsView {
      */
   imageToVideoModel: string | null;
   providers: VideoGenProviderInfo[];
+  /** Stock footage sources available to the Topic to Video engine. */
+  stockSources: StockSourceInfo[];
 }
 
 export interface UpdateVideoGenSettingsRequest {
