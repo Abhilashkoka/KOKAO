@@ -1629,7 +1629,8 @@ function TiktokConnectionSection({
 function TiktokAdvertiserPicker({ canManage }: { canManage: boolean }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { data: choices, isLoading, error } = useListTiktokAdvertiserChoices();
+  const { data: choices, isLoading, error, refetch, isRefetching } =
+    useListTiktokAdvertiserChoices();
   const select = useSelectTiktokAdvertiser();
   const [picked, setPicked] = useState("");
 
@@ -1657,11 +1658,42 @@ function TiktokAdvertiserPicker({ canManage }: { canManage: boolean }) {
 
   if (isLoading) return <Skeleton className="h-10 w-full" />;
   if (error) {
+    const errPayload = error as {
+      data?: { authLost?: boolean } | null;
+      payload?: { authLost?: boolean } | null;
+    };
+    const authLost = Boolean(
+      errPayload?.data?.authLost ?? errPayload?.payload?.authLost,
+    );
+    if (authLost) {
+      return (
+        <p
+          className="text-sm text-destructive"
+          data-testid="text-tiktok-advertiser-error"
+        >
+          TikTok says this workspace no longer has access to your advertiser
+          accounts. Reconnect TikTok Ads to grant access again.
+        </p>
+      );
+    }
     return (
-      <p className="text-sm text-destructive">
-        Could not list your advertiser accounts. Reconnect TikTok Ads and try
-        again.
-      </p>
+      <div className="space-y-2" data-testid="text-tiktok-advertiser-error">
+        <p className="text-sm text-destructive">
+          TikTok couldn't return your advertiser accounts right now. This is
+          usually a temporary problem on TikTok's side — your access is still
+          in place, so reconnecting won't help. Try again in a few minutes.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => refetch()}
+          disabled={isRefetching}
+          data-testid="button-retry-tiktok-advertisers"
+        >
+          {isRefetching && <RippleSpinner className="h-4 w-4 mr-2" />}
+          Retry
+        </Button>
+      </div>
     );
   }
   return (

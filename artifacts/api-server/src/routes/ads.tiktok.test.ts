@@ -1213,6 +1213,50 @@ describe("tiktok advertiser selection", () => {
     }
   });
 
+  it("returns a plain 502 without authLost when listing fails transiently", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertTiktokConnection(tenant.tenantId, {
+        status: "pending_selection",
+        adAccountId: "",
+        adAccountName: "",
+        verifyStatus: "unverified",
+      });
+      mockListAdvertisers.mockRejectedValue(
+        new TiktokAdsApiError("Internal service error.", 502, 50000, false),
+      );
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/connections/tiktok/accounts");
+      expect(res.status).toBe(502);
+      expect(res.body.authLost).toBeUndefined();
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
+  it("flags authLost when listing fails with a revoked grant", async () => {
+    const tenant = await createTenant();
+    try {
+      await insertTiktokConnection(tenant.tenantId, {
+        status: "pending_selection",
+        adAccountId: "",
+        adAccountName: "",
+        verifyStatus: "unverified",
+      });
+      mockListAdvertisers.mockRejectedValue(
+        new TiktokAdsApiError("Access token revoked.", 401, 40105, true),
+      );
+
+      actAs(tenant.clerkUserId);
+      const res = await request(app).get("/api/ads/connections/tiktok/accounts");
+      expect(res.status).toBe(502);
+      expect(res.body.authLost).toBe(true);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("rejects selecting an advertiser that is not part of the grant", async () => {
     const tenant = await createTenant();
     try {

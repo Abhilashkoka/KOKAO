@@ -779,12 +779,14 @@ router.get(
         })),
       );
     } catch (err) {
-      if (err instanceof TiktokAdsApiError && err.authFailed) {
-        await markAdConnectionFailed(conn.id, err.message);
+      const authLost = err instanceof TiktokAdsApiError && err.authFailed;
+      if (authLost) {
+        await markAdConnectionFailed(conn.id, (err as Error).message);
       }
       res.status(502).json({
         error:
           err instanceof Error ? err.message : "Could not list advertiser accounts.",
+        ...(authLost ? { authLost: true } : {}),
       });
     }
   },
