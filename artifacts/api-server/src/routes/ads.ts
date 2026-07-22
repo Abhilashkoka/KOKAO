@@ -2688,6 +2688,26 @@ router.post(
         return;
       }
       targetName = current.name || (input.name ?? "");
+      // Meta only honors ad-set-level bid strategy/amount when the ad set
+      // holds its own budget. If this ad set is on a campaign-level budget
+      // and the draft doesn't give it one, the bid change would be approved
+      // but silently have no effect — reject it here so it never reaches the
+      // owner's approval queue.
+      if (
+        conn.platform === "meta" &&
+        input.targetType === "adset" &&
+        (input.bidAmount != null || input.bidStrategy != null) &&
+        current.dailyBudget == null &&
+        current.lifetimeBudget == null &&
+        input.dailyBudget == null &&
+        input.lifetimeBudget == null
+      ) {
+        res.status(400).json({
+          error:
+            "This ad set uses its campaign's budget, so Meta would ignore this bid change. Include a daily or lifetime budget for the ad set in the same draft, or move the budget to the ad set first.",
+        });
+        return;
+      }
       changes = buildUpdateDiff(current, {
         name: input.name,
         status: input.status,

@@ -1301,6 +1301,49 @@ describe("ad set and ad drafts", () => {
     }
   });
 
+  it("rejects a bid draft on an ad set without its own budget unless the draft adds one", async () => {
+    const tenant = await createTenant();
+    try {
+      const connectionId = await insertMetaAdConnection(tenant.tenantId);
+      // Ad set on a campaign-level budget: no daily or lifetime budget of its own.
+      mockRead.mockResolvedValue({
+        name: "Retargeting",
+        status: "ACTIVE",
+        dailyBudget: null,
+        lifetimeBudget: null,
+        startTime: null,
+        stopTime: null,
+        bidAmount: 100,
+        bidStrategy: "LOWEST_COST_WITHOUT_CAP",
+      });
+      actAs(tenant.clerkUserId);
+      const rejected = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "update",
+        targetId: "adset_1",
+        bidStrategy: "COST_CAP",
+        bidAmount: 250,
+      });
+      expect(rejected.status).toBe(400);
+      expect(rejected.body.error).toContain("campaign's budget");
+
+      // Same bid change plus an ad-set budget in the same draft is allowed.
+      const allowed = await request(app).post("/api/ads/drafts").send({
+        connectionId,
+        targetType: "adset",
+        action: "update",
+        targetId: "adset_1",
+        bidStrategy: "COST_CAP",
+        bidAmount: 250,
+        dailyBudget: 2000,
+      });
+      expect(allowed.status).toBe(201);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
+
   it("applies an ad set bid draft, passes bid fields to the update, and verifies the read-back", async () => {
     const tenant = await createTenant();
     try {

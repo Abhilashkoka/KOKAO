@@ -233,7 +233,9 @@ describe("edit prefill of bid fields", () => {
             currentName: "Ad set A",
             name: "Ad set A",
             status: "",
-            dailyBudget: "",
+            // The ad set holds its own budget; the budget-less warning path
+            // is covered in ads.draft-dialog.test.tsx.
+            dailyBudget: "2000",
             lifetimeBudget: "",
             startTime: "",
             stopTime: "",

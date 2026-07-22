@@ -964,6 +964,60 @@ describe("DraftDialog Meta", () => {
   });
 });
 
+describe("DraftDialog Meta bid on a budget-less ad set", () => {
+  it("shows the campaign-budget note and blocks a bid change until a budget is drafted", async () => {
+    const user = userEvent.setup();
+    // Ad set with NO budget of its own (campaign-level budget).
+    renderDraftDialog(() => {}, "meta", {
+      action: "update",
+      targetType: "adset",
+      targetId: "as_1",
+      currentName: "Meta set",
+      name: "Meta set",
+      bidStrategy: "LOWEST_COST_WITHOUT_CAP",
+    });
+    // Passive note renders even before any bid edit.
+    expect(
+      screen.getByTestId("text-bid-no-budget-warning").textContent,
+    ).toContain("campaign's budget");
+
+    // Drafting a bid change turns it into a blocking error.
+    await user.click(screen.getByTestId("select-draft-bid-strategy"));
+    await user.click(await screen.findByText("Cost cap"));
+    fireEvent.change(screen.getByTestId("input-draft-bid-amount"), {
+      target: { value: "2.50" },
+    });
+    const err = screen.getByTestId("text-bid-error");
+    expect(err.textContent).toContain("Meta would ignore this bid change");
+    expect(
+      (screen.getByTestId("button-submit-draft") as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    // Giving the ad set a budget in the same draft clears the block.
+    fireEvent.change(screen.getByTestId("input-draft-daily-budget"), {
+      target: { value: "20" },
+    });
+    expect(screen.queryByTestId("text-bid-error")).toBeNull();
+    expect(
+      (screen.getByTestId("button-submit-draft") as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  it("does not warn when the ad set already holds its own budget", () => {
+    renderDraftDialog(() => {}, "meta", {
+      action: "update",
+      targetType: "adset",
+      targetId: "as_1",
+      currentName: "Meta set",
+      name: "Meta set",
+      dailyBudget: "2000",
+      bidStrategy: "LOWEST_COST_WITHOUT_CAP",
+    });
+    expect(screen.queryByTestId("text-bid-no-budget-warning")).toBeNull();
+    expect(screen.queryByTestId("text-bid-error")).toBeNull();
+  });
+});
+
 describe("DraftDialog schedule date pickers", () => {
   it("prefills existing ISO values as a readable date and enabled time input", () => {
     renderDraftDialog(() => {}, "meta", {

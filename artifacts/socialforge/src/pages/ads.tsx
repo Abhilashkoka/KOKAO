@@ -2604,11 +2604,37 @@ export function DraftDialog({
         }`
       : null;
 
+  // Whether this draft would actually include a bid change (mirrors the
+  // submit() logic below).
+  const bidStrategyChanged = showBids && state.bidStrategy !== form.bidStrategy;
+  const bidAmountChanged =
+    showBids && state.bidAmount !== minorStrToMajorStr(form.bidAmount);
+  const bidChangeDrafted =
+    showBids &&
+    ((state.bidStrategy !== "" && bidStrategyChanged) ||
+      (state.bidAmount.trim() !== "" &&
+        (bidAmountChanged ||
+          (bidStrategyChanged &&
+            state.bidStrategy !== "" &&
+            state.bidStrategy !== "LOWEST_COST_WITHOUT_CAP"))));
+  // Meta only honors ad-set-level bid strategy/amount when the ad set holds
+  // its own budget. `form` reflects the ad set's live budgets at open time;
+  // drafting a budget in this same dialog would give it one.
+  const adSetLacksOwnBudget =
+    showBids && !form.dailyBudget.trim() && !form.lifetimeBudget.trim();
+  const budgetDraftedNow =
+    state.dailyBudget.trim() !== "" || state.lifetimeBudget.trim() !== "";
+  const bidWithoutBudget =
+    adSetLacksOwnBudget && bidChangeDrafted && !budgetDraftedNow;
+
   // Capped Meta bid strategies require a positive bid amount. The server
   // rejects the inconsistency at draft creation and again at approval; this
   // inline check surfaces it before the request is even sent.
   const bidError = (() => {
     if (!showBids) return null;
+    if (bidWithoutBudget) {
+      return "This ad set uses its campaign's budget, so Meta would ignore this bid change. Give the ad set its own budget in this draft, or move the budget to the ad set first.";
+    }
     const capped =
       state.bidStrategy === "LOWEST_COST_WITH_BID_CAP" ||
       state.bidStrategy === "COST_CAP";
@@ -2996,6 +3022,15 @@ export function DraftDialog({
                     data-testid="text-bid-error"
                   >
                     {bidError}
+                  </p>
+                ) : adSetLacksOwnBudget && !budgetDraftedNow ? (
+                  <p
+                    className="text-xs font-medium text-amber-600 dark:text-amber-500"
+                    data-testid="text-bid-no-budget-warning"
+                  >
+                    This ad set uses its campaign's budget, so Meta ignores
+                    ad-set bid settings. Add a budget above to make bid
+                    changes take effect.
                   </p>
                 ) : (
                   <p className="text-xs text-muted-foreground">
