@@ -109,7 +109,10 @@ let mockServer: ChildProcess;
 let credsSnapshot: Awaited<ReturnType<typeof snapshotAppCredentialRow>>;
 let tenantId: number;
 let clerkUserId: string;
+let otherTenantId: number;
+let otherClerkUserId: string;
 let packId: number;
+let activeSubscriptionId: string;
 const PLAN_ID = `e2e_rt_plan_${Date.now()}`;
 
 beforeAll(async () => {
@@ -141,6 +144,9 @@ beforeAll(async () => {
   const t = await createTenant();
   tenantId = t.tenantId;
   clerkUserId = t.clerkUserId;
+  const other = await createTenant();
+  otherTenantId = other.tenantId;
+  otherClerkUserId = other.clerkUserId;
   actAs(clerkUserId);
 
   const pack = (
@@ -193,7 +199,12 @@ afterAll(async () => {
   await db.delete(creditPacksTable).where(eq(creditPacksTable.id, packId));
   await db.delete(planSettingsTable).where(eq(planSettingsTable.id, PLAN_ID));
   invalidatePlanCache();
+  await db.delete(creditLedgerTable).where(eq(creditLedgerTable.tenantId, otherTenantId));
+  await db
+    .delete(creditBalancesTable)
+    .where(eq(creditBalancesTable.tenantId, otherTenantId));
   await deleteTenant(tenantId);
+  await deleteTenant(otherTenantId);
   await restoreAppCredentialRow("razorpay", credsSnapshot);
   resetAuthState();
   await pool.end();
@@ -346,6 +357,7 @@ describe("subscription upgrade round trip (real mock server)", () => {
     )[0];
     expect(row.status).toBe("active");
     expect(row.currentPeriodEnd).not.toBeNull();
+    activeSubscriptionId = subscriptionId;
   });
 
   it("reports the active subscription in the billing overview", async () => {
@@ -354,5 +366,90 @@ describe("subscription upgrade round trip (real mock server)", () => {
     expect(res.body.plan).toBe(PLAN_ID);
     expect(res.body.subscription.status).toBe("active");
     expect(res.body.credits.captionCredits).toBe(100);
+  });
+});
+
+describe("cross-tenant replay is rejected (real mock server)", () => {
+  let crossOrderId: string;
+
+  it("tenant A creates and pays a fresh order on the mock", async () => {
+    actAs(clerkUserId);
+    const res = await request(app)
+      .post("/api/billing/purchase-credits")
+      .send({ creditPackId: packId });
+    expect(res.status).toBe(200);
+    crossOrderId = res.body.razorpayOrderId;
+    const paid = await mockPost(`/orders/${crossOrderId}/mark-paid`);
+    expect(paid.ok).toBe(true);
+  });
+
+  it("tenant B cannot verify A's paid order even with a valid signature", async () => {
+    actAs(otherClerkUserId);
+    const res = await request(app).post("/api/billing/verify-purchase").send({
+      razorpayOrderId: crossOrderId,
+      razorpayPaymentId: "pay_RT_X1",
+      razorpaySignature: signOrder(crossOrderId, "pay_RT_X1"),
+    });
+    expect(res.status).toBe(400);
+
+    // B must not gain any credits or ledger entries.
+    const bal = (
+      await db
+        .select()
+        .from(creditBalancesTable)
+        .where(eq(creditBalancesTable.tenantId, otherTenantId))
+    )[0];
+    expect(bal?.captionCredits ?? 0).toBe(0);
+    expect(bal?.imageCredits ?? 0).toBe(0);
+    const ledger = await db
+      .select()
+      .from(creditLedgerTable)
+      .where(eq(creditLedgerTable.tenantId, otherTenantId));
+    expect(ledger).toHaveLength(0);
+  });
+
+  it("tenant B cannot verify A's active subscription with a valid signature", async () => {
+    actAs(otherClerkUserId);
+    const res = await request(app)
+      .post("/api/billing/verify-subscription")
+      .send({
+        razorpaySubscriptionId: activeSubscriptionId,
+        razorpayPaymentId: "pay_RT_X2",
+        razorpaySignature: signSubscription(activeSubscriptionId, "pay_RT_X2"),
+      });
+    expect(res.status).toBe(404);
+
+    // B's plan and subscription rows are untouched.
+    expect((await getTenant(otherTenantId)).plan).toBe("free");
+    const subs = await db
+      .select()
+      .from(subscriptionsTable)
+      .where(eq(subscriptionsTable.tenantId, otherTenantId));
+    expect(subs).toHaveLength(0);
+  });
+
+  it("tenant A can still verify its own order afterwards", async () => {
+    actAs(clerkUserId);
+    const res = await request(app).post("/api/billing/verify-purchase").send({
+      razorpayOrderId: crossOrderId,
+      razorpayPaymentId: "pay_RT_X1",
+      razorpaySignature: signOrder(crossOrderId, "pay_RT_X1"),
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+
+    const bal = (
+      await db
+        .select()
+        .from(creditBalancesTable)
+        .where(eq(creditBalancesTable.tenantId, tenantId))
+    )[0];
+    expect(bal.captionCredits).toBe(200);
+    expect(bal.imageCredits).toBe(80);
+    const ledger = await db
+      .select()
+      .from(creditLedgerTable)
+      .where(eq(creditLedgerTable.tenantId, tenantId));
+    expect(ledger).toHaveLength(2);
   });
 });
