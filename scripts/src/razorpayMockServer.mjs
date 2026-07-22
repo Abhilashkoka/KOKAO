@@ -110,7 +110,13 @@ const server = http.createServer(async (req, res) => {
     const id = path.split("/")[2];
     const sub = state.subscriptions[id];
     if (!sub) return json(404, { error: { description: "subscription not found" } });
-    sub.status = body.cancel_at_cycle_end ? sub.status : "cancelled";
+    if (body.cancel_at_cycle_end === 1) {
+      sub.status = "active";
+      sub.cancel_at_cycle_end = true;
+    } else {
+      sub.status = "cancelled";
+    }
+    state.subscriptions[id] = sub;
     return json(200, sub);
   }
   if (req.method === "GET" && path.startsWith("/subscriptions/")) {
