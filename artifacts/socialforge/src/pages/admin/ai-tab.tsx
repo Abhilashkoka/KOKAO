@@ -14,6 +14,11 @@ import {
   useAdminSetImageGenProviderKey,
   useAdminClearImageGenProviderKey,
   getAdminGetImageGenSettingsQueryKey,
+  useAdminGetVideoGenSettings,
+  useAdminUpdateVideoGenSettings,
+  useAdminSetVideoGenProviderKey,
+  useAdminClearVideoGenProviderKey,
+  getAdminGetVideoGenSettingsQueryKey,
   useAdminGetTextGenSettings,
   useAdminUpdateTextGenSettings,
   useAdminSetTextGenKey,
@@ -566,6 +571,330 @@ function ImageGenProviderCard() {
                     onClick={() => handleSaveKey(shown.id)}
                     disabled={setKey.isPending || !keyInput.trim()}
                     data-testid="button-save-image-gen-key"
+                  >
+                    {setKey.isPending ? "Saving..." : "Save key"}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+const VIDEO_GEN_KEY_PAGES: Record<string, string> = {
+  replicate: "https://replicate.com/account/api-tokens",
+};
+
+function VideoGenProviderCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: settings, isLoading } = useAdminGetVideoGenSettings();
+  const updateSettings = useAdminUpdateVideoGenSettings();
+  const setKey = useAdminSetVideoGenProviderKey();
+  const clearKey = useAdminClearVideoGenProviderKey();
+  const [keyInput, setKeyInput] = useState("");
+  const [textModelInput, setTextModelInput] = useState<string | null>(null);
+  const [imageModelInput, setImageModelInput] = useState<string | null>(null);
+  const [draftProvider, setDraftProvider] = useState<string | null>(null);
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: getAdminGetVideoGenSettingsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getAdminListAuditLogsQueryKey() });
+  };
+
+  const textModelValue = textModelInput ?? settings?.textToVideoModel ?? "";
+  const imageModelValue = imageModelInput ?? settings?.imageToVideoModel ?? "";
+
+  const saveSelection = (provider: string, textModel: string, imageModel: string) => {
+    updateSettings.mutate(
+      {
+        data: {
+          provider,
+          textToVideoModel: textModel.trim() || null,
+          imageToVideoModel: imageModel.trim() || null,
+        },
+      },
+      {
+        onSuccess: (result) => {
+          invalidate();
+          setDraftProvider(null);
+          setTextModelInput(null);
+          setImageModelInput(null);
+          const chosen = result.providers.find((p) => p.id === result.provider);
+          toast({
+            title: "Video settings updated",
+            description: chosen
+              ? `Videos are now generated with ${chosen.label}.`
+              : "Provider selection saved.",
+          });
+        },
+        onError: (err: unknown) => {
+          const message =
+            err && typeof err === "object" && "error" in err && typeof err.error === "string"
+              ? err.error
+              : "Could not change the video generation settings.";
+          toast({ title: "Update failed", description: message, variant: "destructive" });
+        },
+      },
+    );
+  };
+
+  const handleSelect = (provider: string) => {
+    if (!settings) return;
+    if (provider === settings.provider) {
+      setDraftProvider(null);
+      setTextModelInput(null);
+      setImageModelInput(null);
+      return;
+    }
+    // Switching providers resets any model overrides to that provider's defaults.
+    setTextModelInput(null);
+    setImageModelInput(null);
+    setDraftProvider(null);
+    saveSelection(provider, "", "");
+  };
+
+  const effectiveProvider = draftProvider ?? settings?.provider ?? "replicate";
+  const shown = settings?.providers.find((p) => p.id === effectiveProvider);
+
+  const handleSaveKey = (providerId: string) => {
+    const apiKey = keyInput.trim();
+    if (!apiKey) return;
+    setKey.mutate(
+      { providerId, data: { apiKey } },
+      {
+        onSuccess: () => {
+          invalidate();
+          setKeyInput("");
+          toast({
+            title: "API key saved",
+            description: "The key is stored encrypted and is now in use.",
+          });
+        },
+        onError: () => {
+          toast({
+            title: "Save failed",
+            description: "Could not save the API key.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handleClearKey = (providerId: string) => {
+    clearKey.mutate(
+      { providerId },
+      {
+        onSuccess: () => {
+          invalidate();
+          toast({ title: "API key removed", description: "The saved key was deleted." });
+        },
+        onError: () => {
+          toast({
+            title: "Remove failed",
+            description: "Could not remove the API key.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card data-testid="card-video-gen-provider">
+      <CardHeader>
+        <CardTitle>Video Generation Provider</CardTitle>
+        <CardDescription>
+          Which service and models power the Studio's Video tab. "Text to Video"
+          and "Animate Photo" each have their own model; the Slideshow engine
+          runs locally and needs no AI model. Any Replicate model in
+          owner/name form works.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading || !settings ? (
+          <Skeleton className="h-9 w-64" />
+        ) : (
+          <>
+            <div className="flex items-center gap-3">
+              <Select
+                value={effectiveProvider}
+                onValueChange={handleSelect}
+                disabled={updateSettings.isPending}
+              >
+                <SelectTrigger className="w-72" data-testid="select-video-gen-provider">
+                  <SelectValue placeholder="Select a provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  {settings.providers.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {shown &&
+                (shown.configured ? (
+                  <Badge variant="secondary">Ready</Badge>
+                ) : (
+                  <Badge variant="destructive">Needs key</Badge>
+                ))}
+            </div>
+            {shown && shown.supportsModelOverride && (
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Text to Video model</p>
+                  {shown.textModelOptions && shown.textModelOptions.length > 0 && (
+                    <Select
+                      value={
+                        shown.textModelOptions.some(
+                          (o) => o.value === (textModelValue || shown.defaultTextToVideoModel),
+                        )
+                          ? textModelValue || shown.defaultTextToVideoModel
+                          : ""
+                      }
+                      onValueChange={(value) => setTextModelInput(value)}
+                    >
+                      <SelectTrigger className="w-96" data-testid="select-video-gen-text-model">
+                        <SelectValue placeholder="Pick a model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {shown.textModelOptions.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>
+                            {o.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <Input
+                    placeholder={shown.defaultTextToVideoModel || "owner/model-name"}
+                    value={textModelValue}
+                    onChange={(e) => setTextModelInput(e.target.value)}
+                    className="w-96"
+                    data-testid="input-video-gen-text-model"
+                  />
+                  {shown.defaultTextToVideoModel && (
+                    <p className="text-xs text-muted-foreground">
+                      Leave empty to use the default: {shown.defaultTextToVideoModel}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Animate Photo model</p>
+                  {shown.imageModelOptions && shown.imageModelOptions.length > 0 && (
+                    <Select
+                      value={
+                        shown.imageModelOptions.some(
+                          (o) => o.value === (imageModelValue || shown.defaultImageToVideoModel),
+                        )
+                          ? imageModelValue || shown.defaultImageToVideoModel
+                          : ""
+                      }
+                      onValueChange={(value) => setImageModelInput(value)}
+                    >
+                      <SelectTrigger className="w-96" data-testid="select-video-gen-image-model">
+                        <SelectValue placeholder="Pick a model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {shown.imageModelOptions.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>
+                            {o.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <Input
+                    placeholder={shown.defaultImageToVideoModel || "owner/model-name"}
+                    value={imageModelValue}
+                    onChange={(e) => setImageModelInput(e.target.value)}
+                    className="w-96"
+                    data-testid="input-video-gen-image-model"
+                  />
+                  {shown.defaultImageToVideoModel && (
+                    <p className="text-xs text-muted-foreground">
+                      Leave empty to use the default: {shown.defaultImageToVideoModel}
+                    </p>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => saveSelection(effectiveProvider, textModelValue, imageModelValue)}
+                  disabled={updateSettings.isPending}
+                  data-testid="button-save-video-gen-settings"
+                >
+                  {updateSettings.isPending ? "Saving..." : "Save settings"}
+                </Button>
+              </div>
+            )}
+            {shown && shown.envKey && (
+              <div className="space-y-2 rounded-md border p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium">API key for {shown.label}</p>
+                  {VIDEO_GEN_KEY_PAGES[shown.id] && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      asChild
+                      data-testid="button-get-video-gen-key"
+                    >
+                      <a
+                        href={VIDEO_GEN_KEY_PAGES[shown.id]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Get a {shown.label} key
+                        <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+                      </a>
+                    </Button>
+                  )}
+                </div>
+                {shown.keySource === "database" ? (
+                  <div className="flex items-center gap-3">
+                    <p className="text-sm text-muted-foreground">
+                      A key is saved (stored encrypted, never shown). Enter a new
+                      one below to replace it.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleClearKey(shown.id)}
+                      disabled={clearKey.isPending}
+                      data-testid="button-remove-video-gen-key"
+                    >
+                      Remove key
+                    </Button>
+                  </div>
+                ) : shown.keySource === "env" ? (
+                  <p className="text-sm text-muted-foreground">
+                    Currently using the {shown.envKey} secret. A key entered here
+                    takes priority over it.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No key set. Paste the provider's API key to enable it.
+                  </p>
+                )}
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="password"
+                    autoComplete="off"
+                    placeholder="Paste API key"
+                    value={keyInput}
+                    onChange={(e) => setKeyInput(e.target.value)}
+                    className="w-72"
+                    data-testid="input-video-gen-api-key"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={() => handleSaveKey(shown.id)}
+                    disabled={setKey.isPending || !keyInput.trim()}
+                    data-testid="button-save-video-gen-key"
                   >
                     {setKey.isPending ? "Saving..." : "Save key"}
                   </Button>
@@ -1646,6 +1975,7 @@ export function AiTab() {
       )}
       <TextGenProviderCard />
       <ImageGenProviderCard />
+      <VideoGenProviderCard />
       <AsrProviderCard />
     </div>
   );
