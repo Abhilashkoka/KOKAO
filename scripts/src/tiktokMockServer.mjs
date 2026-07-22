@@ -17,6 +17,9 @@ const STATE_FILE = "/tmp/tiktok-mock-state.json";
 
 const DEFAULT_STATE = {
   revoked: false,
+  // When true, /advertiser/info/ returns a server error (token exchange still
+  // works) — simulates the advertiser verification call itself failing.
+  advertiserError: false,
   campaign: {
     campaign_id: "7100000000000000001",
     campaign_name: "TT Summer Launch",
@@ -113,6 +116,7 @@ const server = http.createServer(async (req, res) => {
   // -- control surface -------------------------------------------------
   if (path === "/__control/") {
     if (typeof body.revoked === "boolean") state.revoked = body.revoked;
+    if (typeof body.advertiserError === "boolean") state.advertiserError = body.advertiserError;
     if (body.reset) {
       state = structuredClone(DEFAULT_STATE);
       log = [];
@@ -120,7 +124,7 @@ const server = http.createServer(async (req, res) => {
     }
     saveState();
     record({ method: "POST", path, kind: "control", body });
-    return send({ ok: true, revoked: state.revoked });
+    return send({ ok: true, revoked: state.revoked, advertiserError: state.advertiserError });
   }
   if (path === "/__log/" || path === "/__log") {
     return send(log);
@@ -147,6 +151,9 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (path === "/advertiser/info/") {
+    if (state.advertiserError) {
+      return send({ code: 50000, message: "Internal service error. Please try again later.", data: {} });
+    }
     let ids = [];
     try {
       ids = JSON.parse(url.searchParams.get("advertiser_ids") || "[]").map(String);
