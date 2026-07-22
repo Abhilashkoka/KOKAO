@@ -52,9 +52,11 @@ const deleteContentMutate = vi.fn();
 const mockState: {
   content: any[];
   igCreds: any;
+  generateImagePending: boolean;
 } = {
   content: [],
   igCreds: {},
+  generateImagePending: false,
 };
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -72,7 +74,10 @@ vi.mock("@workspace/api-client-react", async () => {
       mutate: publishInstagramMutate,
       isPending: false,
     }),
-    useGenerateImage: () => ({ mutate: generateImageMutate, isPending: false }),
+    useGenerateImage: () => ({
+      mutate: generateImageMutate,
+      isPending: mockState.generateImagePending,
+    }),
     useDeleteContent: () => ({ mutate: deleteContentMutate, isPending: false }),
     useGetFacebookCredentials: () => ({ data: { verifyStatus: "verified" } }),
     useGetInstagramCredentials: () => ({ data: mockState.igCreds }),
@@ -158,6 +163,35 @@ beforeEach(() => {
   deleteContentMutate.mockReset();
   mockState.content = [];
   mockState.igCreds = { verifyStatus: "verified" };
+  mockState.generateImagePending = false;
+});
+
+describe("Library edit dialog image regeneration", () => {
+  it("clicking Generate image starts the mutation and keeps the edit dialog open", async () => {
+    renderPageWithCaption("A caption to draw from");
+    await openMenuAndClick(/edit/i);
+
+    const dialog = await screen.findByRole("dialog");
+    const genButton = within(dialog).getByRole("button", { name: /generate image/i });
+    fireEvent.click(genButton);
+
+    // No image on the item, so no replace-confirm — the mutation fires directly
+    // and the dialog stays open (no navigation away from the library).
+    expect(generateImageMutate).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
+  it("shows the ripple loader in the image area while generation is in flight", async () => {
+    mockState.generateImagePending = true;
+    renderPageWithCaption("A caption to draw from");
+    await openMenuAndClick(/edit/i);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByTestId("edit-image-generating")).toBeTruthy();
+    // The button flips to its generating state and is disabled.
+    const busyButton = within(dialog).getByRole("button", { name: /generating/i });
+    expect((busyButton as HTMLButtonElement).disabled).toBe(true);
+  });
 });
 
 describe("Content Library retry action", () => {

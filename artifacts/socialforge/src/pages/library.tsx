@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
+import { LogoLoader } from "@/components/logo-loader";
 import { useLocation, useSearch } from "wouter";
 import { 
   useListContent, 
@@ -984,7 +985,14 @@ export function LibraryPage() {
                   )}
                 </div>
               </div>
-              {editImagePath ? (
+              {generateImage.isPending ? (
+                <div
+                  className="w-full h-[260px] rounded-md border bg-muted/30 flex items-center justify-center"
+                  data-testid="edit-image-generating"
+                >
+                  <LogoLoader label="Generating your image..." />
+                </div>
+              ) : editImagePath ? (
                 <img
                   src={editImageB64 ? `data:image/png;base64,${editImageB64}` : `/api/storage${editImagePath}`}
                   alt="Content"
