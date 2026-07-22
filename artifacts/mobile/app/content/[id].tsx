@@ -85,6 +85,12 @@ export default function ContentDetailScreen() {
         // published/failed without a manual refresh.
         refetchInterval: (query) =>
           query.state.data?.status === "publishing" ? 4000 : false,
+        // A 404 means the post was deleted (e.g. after a notification was
+        // sent) — retrying can never succeed, so fail fast to the
+        // "no longer exists" state instead of spinning through retries.
+        retry: (failureCount, err) =>
+          (err as { status?: number } | null)?.status !== 404 &&
+          failureCount < 2,
       },
     },
   );
@@ -708,6 +714,44 @@ export default function ContentDetailScreen() {
   }
 
   if (isError || !data) {
+    // A 404 (or a malformed id in the URL) means the post no longer exists —
+    // e.g. tapping an inbox/push alert for a post the user already deleted.
+    // Show a friendly "gone" state with a way back instead of a raw error
+    // that a Retry button can never fix.
+    const status = (error as { status?: number } | null)?.status;
+    if (status === 404 || !Number.isInteger(contentId) || contentId <= 0) {
+      return (
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: c.background,
+            justifyContent: "center",
+          }}
+        >
+          <View style={styles.notFoundWrap}>
+            <View style={styles.notFoundIcon}>
+              <Feather name="trash-2" size={26} color={c.mutedForeground} />
+            </View>
+            <Text style={styles.notFoundTitle}>
+              This post no longer exists
+            </Text>
+            <Text style={styles.notFoundSubtitle}>
+              It may have been deleted after this alert was sent.
+            </Text>
+            <Button
+              title="Back to Library"
+              icon="arrow-left"
+              variant="secondary"
+              onPress={() => {
+                haptic();
+                router.replace("/(tabs)/library");
+              }}
+              style={{ marginTop: 16 }}
+            />
+          </View>
+        </View>
+      );
+    }
     return (
       <View style={{ flex: 1, backgroundColor: c.background }}>
         <ErrorState message={error?.message} onRetry={() => refetch()} />
@@ -1188,6 +1232,29 @@ export default function ContentDetailScreen() {
 
 const styles = StyleSheet.create({
   image: { width: "100%", aspectRatio: 1, borderRadius: colors.radius + 2 },
+  notFoundWrap: { alignItems: "center", paddingHorizontal: 32 },
+  notFoundIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: c.muted,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  notFoundTitle: {
+    fontFamily: fonts.semiBold,
+    fontSize: 17,
+    color: c.foreground,
+    textAlign: "center",
+  },
+  notFoundSubtitle: {
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    color: c.mutedForeground,
+    textAlign: "center",
+    marginTop: 6,
+  },
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
