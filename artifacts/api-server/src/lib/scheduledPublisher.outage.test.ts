@@ -350,6 +350,23 @@ const CASES: PlatformCase[] = [
     expectedPostId: "fb_post_1",
   },
   {
+    platform: "facebook",
+    label: "with image",
+    seed: async (tenantId) => {
+      await insertConnectedAccount(
+        tenantId,
+        "facebook",
+        { pageId: "pg_1", pageAccessToken: "pg_token" },
+        "verified",
+      );
+    },
+    withImage: true,
+    // Photo posts go through the /photos endpoint instead of /feed; a 5xx
+    // there must be classified transient exactly like the text-only path.
+    isCreateWrite: (c) => c.method === "POST" && c.url.includes("/photos"),
+    expectedPostId: "fb_post_1",
+  },
+  {
     platform: "instagram",
     seed: async (tenantId) => {
       await insertConnectedAccount(
