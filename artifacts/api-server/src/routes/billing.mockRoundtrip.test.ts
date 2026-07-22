@@ -453,3 +453,143 @@ describe("cross-tenant replay is rejected (real mock server)", () => {
     expect(ledger).toHaveLength(2);
   });
 });
+
+describe("retried purchase after a failed checkout (real mock server)", () => {
+  // Balances carried over from the two prior purchases (first round trip
+  // + the cross-tenant replay suite's order for tenant A).
+  const BASE_CAPTIONS = 200;
+  const BASE_IMAGES = 80;
+  let orderA: string;
+  let orderB: string;
+
+  async function balances() {
+    const row = (
+      await db
+        .select()
+        .from(creditBalancesTable)
+        .where(eq(creditBalancesTable.tenantId, tenantId))
+    )[0];
+    return {
+      captions: row?.captionCredits ?? 0,
+      images: row?.imageCredits ?? 0,
+    };
+  }
+
+  async function purchaseLedger() {
+    const rows = await db
+      .select()
+      .from(creditLedgerTable)
+      .where(eq(creditLedgerTable.tenantId, tenantId));
+    return rows.filter((r) => r.kind === "purchase");
+  }
+
+  it("creates order A which the user abandons unpaid", async () => {
+    actAs(clerkUserId);
+    const res = await request(app)
+      .post("/api/billing/purchase-credits")
+      .send({ creditPackId: packId });
+    expect(res.status).toBe(200);
+    orderA = res.body.razorpayOrderId;
+    expect(orderA).toMatch(/^order_MOCK/);
+  });
+
+  it("creates a fresh order B on retry, distinct from order A", async () => {
+    const res = await request(app)
+      .post("/api/billing/purchase-credits")
+      .send({ creditPackId: packId });
+    expect(res.status).toBe(200);
+    orderB = res.body.razorpayOrderId;
+    expect(orderB).toMatch(/^order_MOCK/);
+    expect(orderB).not.toBe(orderA);
+  });
+
+  it("verifying paid order B credits exactly once, untouched by abandoned order A", async () => {
+    await mockPost(`/orders/${orderB}/mark-paid`);
+    const res = await request(app).post("/api/billing/verify-purchase").send({
+      razorpayOrderId: orderB,
+      razorpayPaymentId: "pay_RT_B1",
+      razorpaySignature: signOrder(orderB, "pay_RT_B1"),
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+
+    const bal = await balances();
+    expect(bal.captions).toBe(BASE_CAPTIONS + 100);
+    expect(bal.images).toBe(BASE_IMAGES + 40);
+
+    const purchases = await purchaseLedger();
+    expect(purchases.map((p) => p.razorpayOrderId).sort()).not.toContain(orderA);
+    const bEntries = purchases.filter((p) => p.razorpayOrderId === orderB);
+    expect(bEntries).toHaveLength(1);
+    expect(bEntries[0].captionDelta).toBe(100);
+    expect(bEntries[0].imageDelta).toBe(40);
+  });
+
+  it("still rejects order A while it remains unpaid, without crediting", async () => {
+    const res = await request(app).post("/api/billing/verify-purchase").send({
+      razorpayOrderId: orderA,
+      razorpayPaymentId: "pay_RT_A1",
+      razorpaySignature: signOrder(orderA, "pay_RT_A1"),
+    });
+    expect(res.status).toBe(409);
+    const bal = await balances();
+    expect(bal.captions).toBe(BASE_CAPTIONS + 100);
+    expect(bal.images).toBe(BASE_IMAGES + 40);
+  });
+
+  it("credits order A once when it eventually gets paid and verified", async () => {
+    await mockPost(`/orders/${orderA}/mark-paid`);
+    const res = await request(app).post("/api/billing/verify-purchase").send({
+      razorpayOrderId: orderA,
+      razorpayPaymentId: "pay_RT_A1",
+      razorpaySignature: signOrder(orderA, "pay_RT_A1"),
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+
+    const bal = await balances();
+    expect(bal.captions).toBe(BASE_CAPTIONS + 200);
+    expect(bal.images).toBe(BASE_IMAGES + 80);
+
+    const purchases = await purchaseLedger();
+    const aEntries = purchases.filter((p) => p.razorpayOrderId === orderA);
+    const bEntries = purchases.filter((p) => p.razorpayOrderId === orderB);
+    expect(aEntries).toHaveLength(1);
+    expect(bEntries).toHaveLength(1);
+    expect(aEntries[0].captionDelta).toBe(100);
+    expect(aEntries[0].imageDelta).toBe(40);
+  });
+
+  it("re-verifying either order after both are credited never double-credits", async () => {
+    for (const [orderId, paymentId] of [
+      [orderA, "pay_RT_A1"],
+      [orderB, "pay_RT_B1"],
+    ] as const) {
+      const res = await request(app).post("/api/billing/verify-purchase").send({
+        razorpayOrderId: orderId,
+        razorpayPaymentId: paymentId,
+        razorpaySignature: signOrder(orderId, paymentId),
+      });
+      expect(res.status).toBe(200);
+    }
+
+    const bal = await balances();
+    expect(bal.captions).toBe(BASE_CAPTIONS + 200);
+    expect(bal.images).toBe(BASE_IMAGES + 80);
+
+    // Ledger reconciles with the balance: sum of all deltas equals the
+    // stored balance, and each order has exactly one ledger entry.
+    const rows = await db
+      .select()
+      .from(creditLedgerTable)
+      .where(eq(creditLedgerTable.tenantId, tenantId));
+    const captionSum = rows.reduce((s, r) => s + r.captionDelta, 0);
+    const imageSum = rows.reduce((s, r) => s + r.imageDelta, 0);
+    expect(captionSum).toBe(bal.captions);
+    expect(imageSum).toBe(bal.images);
+    const orderIds = rows
+      .map((r) => r.razorpayOrderId)
+      .filter((id): id is string => id != null);
+    expect(new Set(orderIds).size).toBe(orderIds.length);
+  });
+});
