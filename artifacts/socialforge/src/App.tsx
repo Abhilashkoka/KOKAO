@@ -3,7 +3,6 @@ import { LandingPage } from "@/pages/landing";
 import { DashboardPage } from "@/pages/dashboard";
 import { SignInPage, SignUpPage } from "@/pages/auth";
 import { StudioPage } from "@/pages/studio";
-import { VideoStudioPage } from "@/pages/video-studio";
 import { LibraryPage } from "@/pages/library";
 import { SchedulePage } from "@/pages/schedule";
 import { BrandKitsPage } from "@/pages/brand-kits";
@@ -37,6 +36,16 @@ import { AnalyticsTracker } from "@/components/analytics-tracker";
 import { ClerkProvider, Show, useClerk } from "@clerk/react";
 import { publishableKeyFromHost } from "@clerk/react/internal";
 import { useEffect, useRef } from "react";
+import { navigate } from "wouter/use-browser-location";
+
+// Video Studio now lives inside AI Studio as a tab; keep old links working.
+function VideoStudioRedirect() {
+  useEffect(() => {
+    const extra = window.location.search ? "&" + window.location.search.slice(1) : "";
+    navigate(`/studio?tab=video${extra}`, { replace: true });
+  }, []);
+  return null;
+}
 
 // Global 403 handling: when any /admin request is rejected (live superadmin
 // revocation), immediately purge cached admin data and flip role-gated UI —
@@ -167,7 +176,8 @@ function ClerkProviderWithRoutes() {
             <Route path="/sign-up/*?" component={SignUpPage} />
             
             <Route path="/studio" component={() => <ProtectedRoute component={StudioPage} feature="aiStudio" featureLabel="AI Studio" />} />
-            <Route path="/video-studio" component={() => <ProtectedRoute component={VideoStudioPage} feature="videoGen" featureLabel="Video Studio" />} />
+            {/* Video Studio now lives inside AI Studio as a tab; keep old links working. */}
+            <Route path="/video-studio" component={VideoStudioRedirect} />
             <Route path="/library" component={() => <ProtectedRoute component={LibraryPage} feature="contentLibrary" featureLabel="Content Library" />} />
             <Route path="/schedule" component={() => <ProtectedRoute component={SchedulePage} feature="scheduling" featureLabel="Scheduling" />} />
             <Route path="/brand-kits" component={() => <ProtectedRoute component={BrandKitsPage} feature="brandKits" featureLabel="Brand Kits" />} />

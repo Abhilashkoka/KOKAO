@@ -45,7 +45,8 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
-import { Wand2, Image as ImageIcon, Save, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd } from "lucide-react";
+import { Wand2, Image as ImageIcon, Save, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd, Clapperboard } from "lucide-react";
+import { VideoStudioPage } from "@/pages/video-studio";
 import { navigate } from "wouter/use-browser-location";
 import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
 import { CampaignPostCard, type GeneratedImage } from "@/components/campaign-post-card";
@@ -183,6 +184,39 @@ function PlatformFitPreview({ src }: { src: string }) {
 }
 
 export function StudioPage() {
+  const { flags } = useFeatureFlags();
+  const [mode, setMode] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("tab") === "video" || params.has("drive") ? "video" : "image";
+  });
+
+  if (!flags.videoGen) return <ImageStudio />;
+
+  return (
+    <div className="space-y-6">
+      <Tabs value={mode} onValueChange={setMode}>
+        <TabsList data-testid="studio-mode-tabs">
+          <TabsTrigger value="image" data-testid="tab-studio-image">
+            <ImageIcon className="mr-2 h-4 w-4" /> Image
+          </TabsTrigger>
+          <TabsTrigger value="video" data-testid="tab-studio-video">
+            <Clapperboard className="mr-2 h-4 w-4" /> Video
+          </TabsTrigger>
+        </TabsList>
+        {/* forceMount + hidden keeps both studios alive across tab switches, so
+            an in-flight generation or video job keeps polling in the background. */}
+        <TabsContent value="image" forceMount className="mt-6 data-[state=inactive]:hidden">
+          <ImageStudio />
+        </TabsContent>
+        <TabsContent value="video" forceMount className="mt-6 data-[state=inactive]:hidden">
+          <VideoStudioPage />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function ImageStudio() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [captionResult, setCaptionResult] = useState<{ caption: string; hashtags: string[]; title?: string } | null>(null);

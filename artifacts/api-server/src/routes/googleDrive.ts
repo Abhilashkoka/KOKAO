@@ -195,7 +195,7 @@ export const googleDriveCallbackRouter: IRouter = Router();
 googleDriveCallbackRouter.get(
   "/google-drive/auth/callback",
   async (req: Request, res: Response) => {
-    const webBase = "/video-studio";
+    const webBase = "/studio";
     const fail = (reason: string) =>
       res.redirect(`${webBase}?drive=error&reason=${encodeURIComponent(reason)}`);
 
