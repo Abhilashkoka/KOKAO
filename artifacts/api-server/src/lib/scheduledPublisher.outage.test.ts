@@ -131,6 +131,13 @@ function routePlatformCall(url: string, method: string): Response {
     if (url.includes("/2/users/") && url.includes("/tweets")) {
       return jsonRes(200, { data: [], meta: {} }); // dedupe probe
     }
+    if (url.includes("/2/media/upload")) {
+      // INIT/APPEND/FINALIZE all hit this endpoint; a 500 on the first
+      // call (INIT) during the outage exercises the media-upload transient
+      // classification before any tweet-creating write happens.
+      if (outage) return jsonRes(500, { detail: "media temporarily down" });
+      return jsonRes(200, { data: { id: "tw_media_1" } });
+    }
     if (url.includes("/2/tweets")) {
       if (outage) return jsonRes(500, { detail: "temporarily down" });
       return jsonRes(201, { data: { id: "tw_post_1" } });
@@ -259,8 +266,15 @@ async function getSchedule(id: number) {
 
 interface PlatformCase {
   platform: string;
+  /** Test-name suffix when a platform has more than one case. */
+  label?: string;
   seed: (tenantId: number) => Promise<void>;
   withImage: boolean;
+  /**
+   * True when the outage hits a step BEFORE the post-creating write (e.g. the
+   * X media upload), so tick 1 sees zero create writes instead of a failed one.
+   */
+  outageBeforeCreate?: boolean;
   /** Matches the platform's post-CREATING write (the call that must not duplicate). */
   isCreateWrite: (c: FetchCall) => boolean;
   expectedPostId: string;
@@ -306,6 +320,22 @@ const CASES: PlatformCase[] = [
     expectedPostId: "tw_post_1",
   },
   {
+    platform: "twitter",
+    label: "with image",
+    seed: async (tenantId) => {
+      await insertTwitterAccount(tenantId);
+    },
+    withImage: true,
+    // The 500 lands on the media-upload INIT, before any tweet-creating
+    // write — the schedule must still re-queue and publish on the retry.
+    outageBeforeCreate: true,
+    isCreateWrite: (c) =>
+      c.method === "POST" &&
+      c.url.includes("api.x.com/2/tweets") &&
+      !c.url.includes("/2/media/upload"),
+    expectedPostId: "tw_post_1",
+  },
+  {
     platform: "facebook",
     seed: async (tenantId) => {
       await insertConnectedAccount(
@@ -348,7 +378,8 @@ const CASES: PlatformCase[] = [
 
 describe("scheduled publish survives a platform outage (real cores, mocked HTTP)", () => {
   for (const tc of CASES) {
-    it(`${tc.platform}: 5xx on the first tick, published on the retry tick, no duplicate writes`, async () => {
+    const name = tc.label ? `${tc.platform} (${tc.label})` : tc.platform;
+    it(`${name}: 5xx on the first tick, published on the retry tick, no duplicate writes`, async () => {
       const tenant = await createTenant();
       try {
         await tc.seed(tenant.tenantId);
@@ -374,7 +405,13 @@ describe("scheduled publish survives a platform outage (real cores, mocked HTTP)
         expect(afterOutage.retryCount).toBe(1);
         expect(afterOutage.failureReason).toBeTruthy();
         const failedWrites = fetchCalls.filter(tc.isCreateWrite).length;
-        expect(failedWrites).toBeGreaterThanOrEqual(1);
+        if (tc.outageBeforeCreate) {
+          // The outage struck before the create write — nothing may have
+          // reached the post-creating endpoint yet.
+          expect(failedWrites).toBe(0);
+        } else {
+          expect(failedWrites).toBeGreaterThanOrEqual(1);
+        }
 
         // Tick 2: the outage clears — the retry publishes.
         outage = false;

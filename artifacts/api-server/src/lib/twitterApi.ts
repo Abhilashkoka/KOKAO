@@ -6,6 +6,10 @@ import { TWEET_MAX_LENGTH } from "@workspace/social-limits";
 import { decryptJson, encryptJson } from "./secretCrypto";
 import { platformFetch } from "./platformFetch";
 import { PublishAuthRevokedError } from "./socialReverify";
+import {
+  PublishTransientError,
+  isTransientPlatformStatus,
+} from "./publishOutcome";
 
 // Re-export the shared tweet-length limit so callers can source it from a single
 // place and stay aligned with @workspace/social-limits (no 280-char drift).
@@ -394,6 +398,13 @@ export async function uploadTwitterMedia(opts: {
     if (initRes.status === 401) {
       throw new PublishAuthRevokedError(MEDIA_UPLOAD_RECONNECT_MESSAGE);
     }
+    // A 5xx/429 from the media endpoint is a passing platform outage, not a
+    // rejection of the image: classify it transient (mirroring the LinkedIn
+    // image-upload classification) so publishTwitterCore maps it to 503 and
+    // the scheduled executor re-queues instead of permanently failing.
+    if (isTransientPlatformStatus(initRes.status)) {
+      throw new PublishTransientError(mediaUploadError(initJson, initRes.status));
+    }
     throw new Error(mediaUploadError(initJson, initRes.status));
   }
 
@@ -422,6 +433,9 @@ export async function uploadTwitterMedia(opts: {
     } catch {
       // APPEND can succeed with an empty body; only parse on the error path.
     }
+    if (isTransientPlatformStatus(appendRes.status)) {
+      throw new PublishTransientError(mediaUploadError(json, appendRes.status));
+    }
     throw new Error(mediaUploadError(json, appendRes.status));
   }
 
@@ -442,6 +456,11 @@ export async function uploadTwitterMedia(opts: {
   if (!finalizeRes.ok) {
     if (finalizeRes.status === 401) {
       throw new PublishAuthRevokedError(MEDIA_UPLOAD_RECONNECT_MESSAGE);
+    }
+    if (isTransientPlatformStatus(finalizeRes.status)) {
+      throw new PublishTransientError(
+        mediaUploadError(finalizeJson, finalizeRes.status),
+      );
     }
     throw new Error(mediaUploadError(finalizeJson, finalizeRes.status));
   }
