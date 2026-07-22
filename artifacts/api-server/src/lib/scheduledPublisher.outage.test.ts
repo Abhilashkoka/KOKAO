@@ -308,6 +308,24 @@ const CASES: PlatformCase[] = [
     expectedPostId: "th_post_1",
   },
   {
+    platform: "threads",
+    label: "with image",
+    seed: async (tenantId) => {
+      await insertThreadsAccount(tenantId, {
+        tokenExpiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+      });
+    },
+    // An image post creates an IMAGE container (carrying the signed image
+    // URL) before threads_publish; the 500 lands on that container create.
+    withImage: true,
+    isCreateWrite: (c) =>
+      c.method === "POST" &&
+      c.url.includes("graph.threads.net") &&
+      c.url.includes("/threads") &&
+      !c.url.includes("/threads_publish"),
+    expectedPostId: "th_post_1",
+  },
+  {
     platform: "twitter",
     seed: async (tenantId) => {
       // Token expiry defaults far enough out that no refresh is due — the
