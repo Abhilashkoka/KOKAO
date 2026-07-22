@@ -65,6 +65,15 @@ const server = http.createServer(async (req, res) => {
     state.orders[id] = order;
     return json(200, order);
   }
+  // Test-only helper (not a real Razorpay endpoint): simulate the shopper
+  // completing checkout so the order becomes payable-verified server-side.
+  if (req.method === "POST" && path.match(/^\/orders\/[^/]+\/mark-paid$/)) {
+    const id = path.split("/")[2];
+    const order = state.orders[id];
+    if (!order) return json(404, { error: { description: "order not found" } });
+    order.status = "paid";
+    return json(200, order);
+  }
   if (req.method === "GET" && path.startsWith("/orders/")) {
     const order = state.orders[path.slice("/orders/".length)];
     if (!order) return json(404, { error: { description: "order not found" } });
@@ -85,6 +94,23 @@ const server = http.createServer(async (req, res) => {
       notes: body.notes ?? {},
     };
     state.subscriptions[id] = sub;
+    return json(200, sub);
+  }
+  // Test-only helper: simulate the first charge succeeding so the
+  // subscription reaches an activatable state.
+  if (req.method === "POST" && path.match(/^\/subscriptions\/[^/]+\/mark-active$/)) {
+    const id = path.split("/")[2];
+    const sub = state.subscriptions[id];
+    if (!sub) return json(404, { error: { description: "subscription not found" } });
+    sub.status = "active";
+    sub.current_end = Math.floor(Date.now() / 1000) + 30 * 24 * 3600;
+    return json(200, sub);
+  }
+  if (req.method === "POST" && path.match(/^\/subscriptions\/[^/]+\/cancel$/)) {
+    const id = path.split("/")[2];
+    const sub = state.subscriptions[id];
+    if (!sub) return json(404, { error: { description: "subscription not found" } });
+    sub.status = body.cancel_at_cycle_end ? sub.status : "cancelled";
     return json(200, sub);
   }
   if (req.method === "GET" && path.startsWith("/subscriptions/")) {
