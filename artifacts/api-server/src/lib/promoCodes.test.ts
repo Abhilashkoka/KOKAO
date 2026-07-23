@@ -110,6 +110,30 @@ describe("redeemPromoCode", () => {
     expect(updated.redemptionCount).toBe(1);
   });
 
+  it("grants video credits and includes them in the message and metrics", async () => {
+    const promo = await insertPromo({
+      code: `VID-${suffix}`,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 4,
+    });
+    const before = await getCreditBalances(tenantId);
+    const result = await redeemPromoCode(tenantId, promo.code);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.videoCredits).toBe(4);
+      expect(result.message).toContain("4 video credits");
+    }
+    const after = await getCreditBalances(tenantId);
+    expect(after.videoCredits).toBe(before.videoCredits + 4);
+    const history = await listCreditHistory(tenantId);
+    const entry = history.find((h) => h.note === `Promo code VID-${suffix}`);
+    expect(entry?.videoDelta).toBe(4);
+
+    const metrics = await getPromoMetrics();
+    expect(metrics.totalVideoCredits).toBeGreaterThanOrEqual(4);
+  });
+
   it("rejects inactive, not-started, and expired codes", async () => {
     const inactive = await insertPromo({ code: `OFF-${suffix}`, active: false });
     const future = await insertPromo({

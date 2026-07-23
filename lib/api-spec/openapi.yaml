@@ -6639,6 +6639,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/signup-credit-settings:
+    get:
+      operationId: adminGetSignupCreditSettings
+      tags: [admin]
+      summary: Get the automatic signup credit grant configuration (superadmin only)
+      responses:
+        "200":
+          description: Signup credit settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignupCreditSettingsView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminUpdateSignupCreditSettings
+      tags: [admin]
+      summary: Update the automatic signup credit grant configuration (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignupCreditSettingsInput"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignupCreditSettingsView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/ads/settings:
     get:
       operationId: adminGetAdsSettings
@@ -7336,6 +7383,7 @@ components:
           campaign,
           captionCredits,
           imageCredits,
+          videoCredits,
           allowedPlans,
           audience,
           newTenantDays,
@@ -7359,6 +7407,8 @@ components:
         captionCredits:
           type: integer
         imageCredits:
+          type: integer
+        videoCredits:
           type: integer
         allowedPlans:
           type: ["array", "null"]
@@ -7411,6 +7461,9 @@ components:
         imageCredits:
           type: integer
           minimum: 0
+        videoCredits:
+          type: integer
+          minimum: 0
         allowedPlans:
           type: array
           items:
@@ -7449,6 +7502,9 @@ components:
         imageCredits:
           type: integer
           minimum: 0
+        videoCredits:
+          type: integer
+          minimum: 0
         allowedPlans:
           type: ["array", "null"]
           items:
@@ -7485,7 +7541,7 @@ components:
           maxLength: 64
     PromoRedeemResult:
       type: object
-      required: [ok, captionCredits, imageCredits, message]
+      required: [ok, captionCredits, imageCredits, videoCredits, message]
       properties:
         ok:
           type: boolean
@@ -7493,12 +7549,21 @@ components:
           type: integer
         imageCredits:
           type: integer
+        videoCredits:
+          type: integer
         message:
           type: string
     PromoMetrics:
       type: object
       required:
-        [totalRedemptions, totalCaptionCredits, totalImageCredits, byCampaign, byPlan]
+        [
+          totalRedemptions,
+          totalCaptionCredits,
+          totalImageCredits,
+          totalVideoCredits,
+          byCampaign,
+          byPlan,
+        ]
       properties:
         totalRedemptions:
           type: integer
@@ -7506,11 +7571,14 @@ components:
           type: integer
         totalImageCredits:
           type: integer
+        totalVideoCredits:
+          type: integer
         byCampaign:
           type: array
           items:
             type: object
-            required: [campaign, redemptions, captionCredits, imageCredits]
+            required:
+              [campaign, redemptions, captionCredits, imageCredits, videoCredits]
             properties:
               campaign:
                 type: string
@@ -7519,6 +7587,8 @@ components:
               captionCredits:
                 type: integer
               imageCredits:
+                type: integer
+              videoCredits:
                 type: integer
         byPlan:
           type: array
@@ -7546,6 +7616,37 @@ components:
           type: string
         tenantEmail:
           type: ["string", "null"]
+    SignupCreditSettingsView:
+      type: object
+      description: Automatic signup credit grant configuration (superadmin).
+      required: [enabled, captionCredits, imageCredits, videoCredits]
+      properties:
+        enabled:
+          type: boolean
+        captionCredits:
+          type: integer
+        imageCredits:
+          type: integer
+        videoCredits:
+          type: integer
+    SignupCreditSettingsInput:
+      type: object
+      required: [enabled, captionCredits, imageCredits, videoCredits]
+      properties:
+        enabled:
+          type: boolean
+        captionCredits:
+          type: integer
+          minimum: 0
+          maximum: 100000
+        imageCredits:
+          type: integer
+          minimum: 0
+          maximum: 100000
+        videoCredits:
+          type: integer
+          minimum: 0
+          maximum: 100000
     CreditLedgerEntry:
       type: object
       required: [id, kind, captionDelta, imageDelta, note, createdAt]
@@ -11615,6 +11716,7 @@ components:
           aiSpend,
           aiCostTracking,
           videoGen,
+          signupCredits,
           quests,
           streaks,
           referrals,
@@ -11654,6 +11756,8 @@ components:
         aiCostTracking:
           type: boolean
         videoGen:
+          type: boolean
+        signupCredits:
           type: boolean
         quests:
           type: boolean

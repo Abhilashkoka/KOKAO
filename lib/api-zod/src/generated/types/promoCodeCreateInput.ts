@@ -26,6 +26,8 @@ export interface PromoCodeCreateInput {
   captionCredits: number;
   /** @minimum 0 */
   imageCredits: number;
+  /** @minimum 0 */
+  videoCredits?: number;
   allowedPlans?: string[];
   audience?: PromoCodeCreateInputAudience;
   /**

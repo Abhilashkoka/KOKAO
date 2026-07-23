@@ -6,10 +6,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type PromoMetricsByCampaignItem = {
-  campaign: string;
-  redemptions: number;
+/**
+ * Automatic signup credit grant configuration (superadmin).
+ */
+export interface SignupCreditSettingsView {
+  enabled: boolean;
   captionCredits: number;
   imageCredits: number;
   videoCredits: number;
-};
+}

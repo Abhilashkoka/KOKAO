@@ -43,6 +43,7 @@ export type RedeemResult =
       ok: true;
       captionCredits: number;
       imageCredits: number;
+      videoCredits: number;
       /** Referral codes only: who earned the referrer reward, and how much. */
       referrerTenantId: number | null;
       referrerCaptionCredits: number;
@@ -98,6 +99,13 @@ function failureMessage(reason: RedeemFailureReason, promo?: PromoCode): string 
     case "referrals_disabled":
       return "Referral codes are currently disabled.";
   }
+}
+
+/** "a", "a and b", or "a, b, and c" — for the redeem success message. */
+function formatCreditParts(parts: string[]): string {
+  if (parts.length <= 1) return parts[0] ?? "credits";
+  if (parts.length === 2) return parts.join(" and ");
+  return `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
 }
 
 /** Best-effort rejected-attempt log; never blocks or fails the request. */
@@ -251,6 +259,7 @@ export async function redeemPromoCode(
       planAtRedemption: tenant.plan,
       captionCredits: promo.captionCredits,
       imageCredits: promo.imageCredits,
+      videoCredits: promo.videoCredits,
       referrerCaptionCredits,
       referrerImageCredits,
     });
@@ -268,23 +277,30 @@ export async function redeemPromoCode(
     )[0];
     const newCaptions = (balance?.captionCredits ?? 0) + promo.captionCredits;
     const newImages = (balance?.imageCredits ?? 0) + promo.imageCredits;
+    const newVideos = (balance?.videoCredits ?? 0) + promo.videoCredits;
     await tx.insert(creditLedgerTable).values({
       tenantId,
       kind: "promo",
       captionDelta: promo.captionCredits,
       imageDelta: promo.imageCredits,
+      videoDelta: promo.videoCredits,
       note: `Promo code ${promo.code}`,
     });
     if (balance) {
       await tx
         .update(creditBalancesTable)
-        .set({ captionCredits: newCaptions, imageCredits: newImages })
+        .set({
+          captionCredits: newCaptions,
+          imageCredits: newImages,
+          videoCredits: newVideos,
+        })
         .where(eq(creditBalancesTable.tenantId, tenantId));
     } else {
       await tx.insert(creditBalancesTable).values({
         tenantId,
         captionCredits: newCaptions,
         imageCredits: newImages,
+        videoCredits: newVideos,
       });
     }
 
@@ -324,14 +340,16 @@ export async function redeemPromoCode(
     const parts: string[] = [];
     if (promo.captionCredits > 0) parts.push(`${promo.captionCredits} caption credits`);
     if (promo.imageCredits > 0) parts.push(`${promo.imageCredits} image credits`);
+    if (promo.videoCredits > 0) parts.push(`${promo.videoCredits} video credits`);
     return {
       ok: true,
       captionCredits: promo.captionCredits,
       imageCredits: promo.imageCredits,
+      videoCredits: promo.videoCredits,
       referrerTenantId: ownerTenant?.id ?? null,
       referrerCaptionCredits,
       referrerImageCredits,
-      message: `Success! ${parts.join(" and ")} added to your account.`,
+      message: `Success! ${formatCreditParts(parts)} added to your account.`,
     };
   });
 
@@ -375,6 +393,7 @@ export async function getPromoMetrics() {
         redemptions: sql<number>`count(*)::int`,
         captionCredits: sql<number>`coalesce(sum(${promoRedemptionsTable.captionCredits}), 0)::int`,
         imageCredits: sql<number>`coalesce(sum(${promoRedemptionsTable.imageCredits}), 0)::int`,
+        videoCredits: sql<number>`coalesce(sum(${promoRedemptionsTable.videoCredits}), 0)::int`,
       })
       .from(promoRedemptionsTable),
     db
@@ -383,6 +402,7 @@ export async function getPromoMetrics() {
         redemptions: sql<number>`count(${promoRedemptionsTable.id})::int`,
         captionCredits: sql<number>`coalesce(sum(${promoRedemptionsTable.captionCredits}), 0)::int`,
         imageCredits: sql<number>`coalesce(sum(${promoRedemptionsTable.imageCredits}), 0)::int`,
+        videoCredits: sql<number>`coalesce(sum(${promoRedemptionsTable.videoCredits}), 0)::int`,
       })
       .from(promoRedemptionsTable)
       .innerJoin(promoCodesTable, eq(promoRedemptionsTable.promoCodeId, promoCodesTable.id))
@@ -401,6 +421,7 @@ export async function getPromoMetrics() {
     totalRedemptions: totals[0]?.redemptions ?? 0,
     totalCaptionCredits: totals[0]?.captionCredits ?? 0,
     totalImageCredits: totals[0]?.imageCredits ?? 0,
+    totalVideoCredits: totals[0]?.videoCredits ?? 0,
     byCampaign,
     byPlan,
   };

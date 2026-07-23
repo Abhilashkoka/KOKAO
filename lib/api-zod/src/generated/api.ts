@@ -86,6 +86,7 @@ export const ListFeatureFlagsResponse = zod.object({
   "aiSpend": zod.boolean(),
   "aiCostTracking": zod.boolean(),
   "videoGen": zod.boolean(),
+  "signupCredits": zod.boolean(),
   "quests": zod.boolean(),
   "streaks": zod.boolean(),
   "referrals": zod.boolean(),
@@ -6339,6 +6340,7 @@ export const AdminListPromoCodesResponseItem = zod.object({
   "campaign": zod.string().nullable(),
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
+  "videoCredits": zod.number(),
   "allowedPlans": zod.array(zod.string()).nullable(),
   "audience": zod.enum(['all', 'new', 'existing']),
   "newTenantDays": zod.number(),
@@ -6371,6 +6373,8 @@ export const adminCreatePromoCodesBodyCaptionCreditsMin = 0;
 
 export const adminCreatePromoCodesBodyImageCreditsMin = 0;
 
+export const adminCreatePromoCodesBodyVideoCreditsMin = 0;
+
 export const adminCreatePromoCodesBodyNewTenantDaysMax = 365;
 
 
@@ -6386,6 +6390,7 @@ export const AdminCreatePromoCodesBody = zod.object({
   "campaign": zod.string().max(adminCreatePromoCodesBodyCampaignMax).optional(),
   "captionCredits": zod.number().min(adminCreatePromoCodesBodyCaptionCreditsMin),
   "imageCredits": zod.number().min(adminCreatePromoCodesBodyImageCreditsMin),
+  "videoCredits": zod.number().min(adminCreatePromoCodesBodyVideoCreditsMin).optional(),
   "allowedPlans": zod.array(zod.string()).optional(),
   "audience": zod.enum(['all', 'new', 'existing']).optional(),
   "newTenantDays": zod.number().min(1).max(adminCreatePromoCodesBodyNewTenantDaysMax).optional(),
@@ -6403,6 +6408,7 @@ export const AdminCreatePromoCodesResponseItem = zod.object({
   "campaign": zod.string().nullable(),
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
+  "videoCredits": zod.number(),
   "allowedPlans": zod.array(zod.string()).nullable(),
   "audience": zod.enum(['all', 'new', 'existing']),
   "newTenantDays": zod.number(),
@@ -6432,6 +6438,8 @@ export const adminUpdatePromoCodeBodyCaptionCreditsMin = 0;
 
 export const adminUpdatePromoCodeBodyImageCreditsMin = 0;
 
+export const adminUpdatePromoCodeBodyVideoCreditsMin = 0;
+
 export const adminUpdatePromoCodeBodyNewTenantDaysMax = 365;
 
 
@@ -6444,6 +6452,7 @@ export const AdminUpdatePromoCodeBody = zod.object({
   "campaign": zod.string().max(adminUpdatePromoCodeBodyCampaignMax).nullish(),
   "captionCredits": zod.number().min(adminUpdatePromoCodeBodyCaptionCreditsMin).optional(),
   "imageCredits": zod.number().min(adminUpdatePromoCodeBodyImageCreditsMin).optional(),
+  "videoCredits": zod.number().min(adminUpdatePromoCodeBodyVideoCreditsMin).optional(),
   "allowedPlans": zod.array(zod.string()).nullish(),
   "audience": zod.enum(['all', 'new', 'existing']).optional(),
   "newTenantDays": zod.number().min(1).max(adminUpdatePromoCodeBodyNewTenantDaysMax).optional(),
@@ -6461,6 +6470,7 @@ export const AdminUpdatePromoCodeResponse = zod.object({
   "campaign": zod.string().nullable(),
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
+  "videoCredits": zod.number(),
   "allowedPlans": zod.array(zod.string()).nullable(),
   "audience": zod.enum(['all', 'new', 'existing']),
   "newTenantDays": zod.number(),
@@ -6489,6 +6499,7 @@ export const AdminDeactivatePromoCodeResponse = zod.object({
   "campaign": zod.string().nullable(),
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
+  "videoCredits": zod.number(),
   "allowedPlans": zod.array(zod.string()).nullable(),
   "audience": zod.enum(['all', 'new', 'existing']),
   "newTenantDays": zod.number(),
@@ -6511,11 +6522,13 @@ export const AdminGetPromoMetricsResponse = zod.object({
   "totalRedemptions": zod.number(),
   "totalCaptionCredits": zod.number(),
   "totalImageCredits": zod.number(),
+  "totalVideoCredits": zod.number(),
   "byCampaign": zod.array(zod.object({
   "campaign": zod.string(),
   "redemptions": zod.number(),
   "captionCredits": zod.number(),
-  "imageCredits": zod.number()
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number()
 })),
   "byPlan": zod.array(zod.object({
   "plan": zod.string(),
@@ -6562,6 +6575,7 @@ export const BillingRedeemPromoResponse = zod.object({
   "ok": zod.boolean(),
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
+  "videoCredits": zod.number(),
   "message": zod.string()
 })
 
@@ -8048,6 +8062,46 @@ export const AdminUpdateFeatureFlagResponse = zod.object({
   "description": zod.string(),
   "enabled": zod.boolean()
 })
+
+
+/**
+ * @summary Get the automatic signup credit grant configuration (superadmin only)
+ */
+export const AdminGetSignupCreditSettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number()
+}).describe('Automatic signup credit grant configuration (superadmin).')
+
+
+/**
+ * @summary Update the automatic signup credit grant configuration (superadmin only)
+ */
+export const adminUpdateSignupCreditSettingsBodyCaptionCreditsMin = 0;
+export const adminUpdateSignupCreditSettingsBodyCaptionCreditsMax = 100000;
+
+export const adminUpdateSignupCreditSettingsBodyImageCreditsMin = 0;
+export const adminUpdateSignupCreditSettingsBodyImageCreditsMax = 100000;
+
+export const adminUpdateSignupCreditSettingsBodyVideoCreditsMin = 0;
+export const adminUpdateSignupCreditSettingsBodyVideoCreditsMax = 100000;
+
+
+
+export const AdminUpdateSignupCreditSettingsBody = zod.object({
+  "enabled": zod.boolean(),
+  "captionCredits": zod.number().min(adminUpdateSignupCreditSettingsBodyCaptionCreditsMin).max(adminUpdateSignupCreditSettingsBodyCaptionCreditsMax),
+  "imageCredits": zod.number().min(adminUpdateSignupCreditSettingsBodyImageCreditsMin).max(adminUpdateSignupCreditSettingsBodyImageCreditsMax),
+  "videoCredits": zod.number().min(adminUpdateSignupCreditSettingsBodyVideoCreditsMin).max(adminUpdateSignupCreditSettingsBodyVideoCreditsMax)
+})
+
+export const AdminUpdateSignupCreditSettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number()
+}).describe('Automatic signup credit grant configuration (superadmin).')
 
 
 /**

@@ -10,5 +10,6 @@ export interface PromoRedeemResult {
   ok: boolean;
   captionCredits: number;
   imageCredits: number;
+  videoCredits: number;
   message: string;
 }

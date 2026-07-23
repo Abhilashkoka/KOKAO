@@ -14,6 +14,7 @@ export interface PromoCode {
   campaign: string | null;
   captionCredits: number;
   imageCredits: number;
+  videoCredits: number;
   /** @nullable */
   allowedPlans: string[] | null;
   audience: PromoCodeAudience;

@@ -536,6 +536,7 @@ export interface PromoCode {
   campaign: string | null;
   captionCredits: number;
   imageCredits: number;
+  videoCredits: number;
   /** @nullable */
   allowedPlans: string[] | null;
   audience: PromoCodeAudience;
@@ -584,6 +585,8 @@ export interface PromoCodeCreateInput {
   captionCredits: number;
   /** @minimum 0 */
   imageCredits: number;
+  /** @minimum 0 */
+  videoCredits?: number;
   allowedPlans?: string[];
   audience?: PromoCodeCreateInputAudience;
   /**
@@ -626,6 +629,8 @@ export interface PromoCodeUpdateInput {
   captionCredits?: number;
   /** @minimum 0 */
   imageCredits?: number;
+  /** @minimum 0 */
+  videoCredits?: number;
   /** @nullable */
   allowedPlans?: string[] | null;
   audience?: PromoCodeUpdateInputAudience;
@@ -665,6 +670,7 @@ export interface PromoRedeemResult {
   ok: boolean;
   captionCredits: number;
   imageCredits: number;
+  videoCredits: number;
   message: string;
 }
 
@@ -673,6 +679,7 @@ export type PromoMetricsByCampaignItem = {
   redemptions: number;
   captionCredits: number;
   imageCredits: number;
+  videoCredits: number;
 };
 
 export type PromoMetricsByPlanItem = {
@@ -684,6 +691,7 @@ export interface PromoMetrics {
   totalRedemptions: number;
   totalCaptionCredits: number;
   totalImageCredits: number;
+  totalVideoCredits: number;
   byCampaign: PromoMetricsByCampaignItem[];
   byPlan: PromoMetricsByPlanItem[];
 }
@@ -696,6 +704,35 @@ export interface PromoFailure {
   createdAt: string;
   /** @nullable */
   tenantEmail: string | null;
+}
+
+/**
+ * Automatic signup credit grant configuration (superadmin).
+ */
+export interface SignupCreditSettingsView {
+  enabled: boolean;
+  captionCredits: number;
+  imageCredits: number;
+  videoCredits: number;
+}
+
+export interface SignupCreditSettingsInput {
+  enabled: boolean;
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
+  captionCredits: number;
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
+  imageCredits: number;
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
+  videoCredits: number;
 }
 
 export interface CreditLedgerEntry {
@@ -3938,6 +3975,7 @@ export interface FeatureFlags {
   aiSpend: boolean;
   aiCostTracking: boolean;
   videoGen: boolean;
+  signupCredits: boolean;
   quests: boolean;
   streaks: boolean;
   referrals: boolean;

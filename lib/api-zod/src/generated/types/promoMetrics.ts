@@ -12,6 +12,7 @@ export interface PromoMetrics {
   totalRedemptions: number;
   totalCaptionCredits: number;
   totalImageCredits: number;
+  totalVideoCredits: number;
   byCampaign: PromoMetricsByCampaignItem[];
   byPlan: PromoMetricsByPlanItem[];
 }

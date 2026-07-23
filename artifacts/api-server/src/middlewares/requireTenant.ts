@@ -11,6 +11,7 @@ import { getEffectiveSeatLimit, getSeatsUsed } from "../lib/team";
 import { fetchVerifiedEmail } from "../lib/clerkUser";
 import { isSuperadminEmail } from "../lib/superadmins";
 import { notifyTeamMemberJoined } from "../lib/notifications";
+import { maybeGrantSignupCredits } from "../lib/signupCredits";
 
 /**
  * Resolves the Clerk-authenticated user to a KOKAO tenant, auto-provisioning
@@ -250,18 +251,29 @@ export async function requireTenant(
       if (!tenant) {
         // Conflict-safe provisioning: concurrent first requests for the same
         // clerkUserId race here, so insert-on-conflict-do-nothing then reselect.
-        await db
-          .insert(tenantsTable)
-          .values({ clerkUserId, email, name: "My Workspace" })
-          .onConflictDoNothing();
-        tenant = (
+        const inserted = (
           await db
-            .select()
-            .from(tenantsTable)
-            .where(eq(tenantsTable.clerkUserId, clerkUserId))
-            .limit(1)
+            .insert(tenantsTable)
+            .values({ clerkUserId, email, name: "My Workspace" })
+            .onConflictDoNothing()
+            .returning()
         )[0];
+        tenant =
+          inserted ??
+          (
+            await db
+              .select()
+              .from(tenantsTable)
+              .where(eq(tenantsTable.clerkUserId, clerkUserId))
+              .limit(1)
+          )[0];
         memberRole = "owner";
+        // Automatic signup credit bundle: only for BRAND-NEW workspaces (the
+        // request whose insert actually won). Best-effort and internally
+        // once-only guarded, so it can never fail provisioning or run twice.
+        if (inserted) {
+          await maybeGrantSignupCredits(inserted.id);
+        }
       }
     }
 

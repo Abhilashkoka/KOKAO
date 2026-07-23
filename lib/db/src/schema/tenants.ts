@@ -38,6 +38,13 @@ export const tenantsTable = pgTable("tenants", {
   // wins). Cleared when the tenant takes a billing action themselves
   // (subscribe verification, switch to pay-as-you-go).
   planOverriddenAt: timestamp("plan_overridden_at", { withTimezone: true }),
+  // Set exactly once when the automatic signup credit bundle is granted to a
+  // freshly provisioned workspace. The grant transaction flips this column
+  // NULL -> now() as its once-only guard, so a workspace can never receive
+  // the signup bonus twice — even under concurrent first requests.
+  signupCreditsGrantedAt: timestamp("signup_credits_granted_at", {
+    withTimezone: true,
+  }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

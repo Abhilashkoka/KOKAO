@@ -108,6 +108,12 @@ export const FEATURES = [
       "AI video generation (text-to-video, image-to-video), photo slideshows, and Google Drive photo import.",
   },
   {
+    id: "signupCredits",
+    label: "Signup Credits",
+    description:
+      "Automatically granting the configured welcome credit bundle to every brand-new workspace at first sign-in.",
+  },
+  {
     id: "quests",
     label: "Quests",
     description:

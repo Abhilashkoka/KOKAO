@@ -31,6 +31,7 @@ export const promoCodesTable = pgTable(
     campaign: text("campaign"),
     captionCredits: integer("caption_credits").notNull().default(0),
     imageCredits: integer("image_credits").notNull().default(0),
+    videoCredits: integer("video_credits").notNull().default(0),
     /**
      * Plan ids allowed to redeem (matched against tenants.plan). Null or
      * empty = any plan.
@@ -96,6 +97,7 @@ export const promoRedemptionsTable = pgTable(
     planAtRedemption: text("plan_at_redemption").notNull(),
     captionCredits: integer("caption_credits").notNull().default(0),
     imageCredits: integer("image_credits").notNull().default(0),
+    videoCredits: integer("video_credits").notNull().default(0),
     /** Referral codes only: what the code owner earned for this redemption. */
     referrerCaptionCredits: integer("referrer_caption_credits").notNull().default(0),
     referrerImageCredits: integer("referrer_image_credits").notNull().default(0),

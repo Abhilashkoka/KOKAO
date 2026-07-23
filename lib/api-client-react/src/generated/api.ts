@@ -212,6 +212,8 @@ import type {
   SetImageGenProviderKeyRequest,
   SetTextGenKeyRequest,
   SetVideoGenProviderKeyRequest,
+  SignupCreditSettingsInput,
+  SignupCreditSettingsView,
   SocialCredentialStatus,
   SummarizeUrlRequest,
   SummarizeUrlResult,
@@ -18743,6 +18745,153 @@ export const useAdminUpdateFeatureFlag = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAdminUpdateFeatureFlagMutationOptions(options));
+    }
+
+export const getAdminGetSignupCreditSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/signup-credit-settings`
+}
+
+/**
+ * @summary Get the automatic signup credit grant configuration (superadmin only)
+ */
+export const adminGetSignupCreditSettings = async ( options?: RequestInit): Promise<SignupCreditSettingsView> => {
+
+  return customFetch<SignupCreditSettingsView>(getAdminGetSignupCreditSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetSignupCreditSettingsQueryKey = () => {
+    return [
+    `/api/admin/signup-credit-settings`
+    ] as const;
+    }
+
+
+export const getAdminGetSignupCreditSettingsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetSignupCreditSettings>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetSignupCreditSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetSignupCreditSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetSignupCreditSettings>>> = ({ signal }) => adminGetSignupCreditSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetSignupCreditSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetSignupCreditSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetSignupCreditSettings>>>
+export type AdminGetSignupCreditSettingsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the automatic signup credit grant configuration (superadmin only)
+ */
+
+export function useAdminGetSignupCreditSettings<TData = Awaited<ReturnType<typeof adminGetSignupCreditSettings>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetSignupCreditSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetSignupCreditSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateSignupCreditSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/signup-credit-settings`
+}
+
+/**
+ * @summary Update the automatic signup credit grant configuration (superadmin only)
+ */
+export const adminUpdateSignupCreditSettings = async (signupCreditSettingsInput: SignupCreditSettingsInput, options?: RequestInit): Promise<SignupCreditSettingsView> => {
+
+  return customFetch<SignupCreditSettingsView>(getAdminUpdateSignupCreditSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(signupCreditSettingsInput)
+  }
+);}
+
+
+
+
+export const getAdminUpdateSignupCreditSettingsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateSignupCreditSettings>>, TError,{data: BodyType<SignupCreditSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateSignupCreditSettings>>, TError,{data: BodyType<SignupCreditSettingsInput>}, TContext> => {
+
+const mutationKey = ['adminUpdateSignupCreditSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateSignupCreditSettings>>, {data: BodyType<SignupCreditSettingsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateSignupCreditSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateSignupCreditSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateSignupCreditSettings>>>
+    export type AdminUpdateSignupCreditSettingsMutationBody = BodyType<SignupCreditSettingsInput>
+    export type AdminUpdateSignupCreditSettingsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update the automatic signup credit grant configuration (superadmin only)
+ */
+export const useAdminUpdateSignupCreditSettings = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateSignupCreditSettings>>, TError,{data: BodyType<SignupCreditSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateSignupCreditSettings>>,
+        TError,
+        {data: BodyType<SignupCreditSettingsInput>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateSignupCreditSettingsMutationOptions(options));
     }
 
 export const getAdminGetAdsSettingsUrl = () => {

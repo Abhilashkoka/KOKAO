@@ -91,6 +91,7 @@ import {
   AdminGrantCreditsBody,
   AdminCreatePromoCodesBody,
   AdminUpdatePromoCodeBody,
+  AdminUpdateSignupCreditSettingsBody,
 } from "@workspace/api-zod";
 import {
   notificationPoliciesTable,
@@ -136,6 +137,10 @@ import {
   loadDesignSkillRow,
 } from "../lib/designSkill";
 import { getAiSpendConfig, setAiSpendConfig, getAiSpendRates } from "../lib/aiSpend";
+import {
+  getSignupCreditSettings,
+  updateSignupCreditSettings,
+} from "../lib/signupCredits";
 import {
   getAiCostConfig,
   setAiCostConfig,
@@ -2448,6 +2453,7 @@ function serializePromoCode(p: PromoCode) {
     campaign: p.campaign,
     captionCredits: p.captionCredits,
     imageCredits: p.imageCredits,
+    videoCredits: p.videoCredits,
     allowedPlans: p.allowedPlans,
     audience: p.audience as "all" | "new" | "existing",
     newTenantDays: p.newTenantDays,
@@ -2513,7 +2519,11 @@ router.post("/admin/promo-codes", async (req: Request, res: Response) => {
     return;
   }
   const b = parsed.data;
-  if ((b.captionCredits ?? 0) <= 0 && (b.imageCredits ?? 0) <= 0) {
+  if (
+    (b.captionCredits ?? 0) <= 0 &&
+    (b.imageCredits ?? 0) <= 0 &&
+    (b.videoCredits ?? 0) <= 0
+  ) {
     res.status(400).json({ error: "A promo code must grant at least one credit." });
     return;
   }
@@ -2540,6 +2550,7 @@ router.post("/admin/promo-codes", async (req: Request, res: Response) => {
     campaign: b.campaign?.trim() || null,
     captionCredits: b.captionCredits,
     imageCredits: b.imageCredits,
+    videoCredits: b.videoCredits ?? 0,
     allowedPlans:
       b.allowedPlans && b.allowedPlans.length > 0 ? b.allowedPlans : null,
     audience: b.audience ?? "all",
@@ -2622,7 +2633,8 @@ router.put("/admin/promo-codes/:id", async (req: Request, res: Response) => {
   }
   const nextCaptions = b.captionCredits ?? previous.captionCredits;
   const nextImages = b.imageCredits ?? previous.imageCredits;
-  if (nextCaptions <= 0 && nextImages <= 0) {
+  const nextVideos = b.videoCredits ?? previous.videoCredits;
+  if (nextCaptions <= 0 && nextImages <= 0 && nextVideos <= 0) {
     res.status(400).json({ error: "A promo code must grant at least one credit." });
     return;
   }
@@ -2640,6 +2652,7 @@ router.put("/admin/promo-codes/:id", async (req: Request, res: Response) => {
           b.campaign === undefined ? previous.campaign : b.campaign?.trim() || null,
         captionCredits: nextCaptions,
         imageCredits: nextImages,
+        videoCredits: nextVideos,
         allowedPlans:
           b.allowedPlans === undefined
             ? previous.allowedPlans
@@ -2695,6 +2708,51 @@ router.delete("/admin/promo-codes/:id", async (req: Request, res: Response) => {
   );
   res.json(serializePromoCode(updated ?? { ...previous, active: false }));
 });
+
+// ---------------------------------------------------------------------------
+// Automatic signup credit grant (superadmin-configured welcome bundle)
+// ---------------------------------------------------------------------------
+
+/** GET /admin/signup-credit-settings — current welcome-bundle configuration. */
+router.get(
+  "/admin/signup-credit-settings",
+  async (_req: Request, res: Response) => {
+    res.json(await getSignupCreditSettings());
+  },
+);
+
+/** PUT /admin/signup-credit-settings — update the welcome bundle (audited). */
+router.put(
+  "/admin/signup-credit-settings",
+  async (req: Request, res: Response) => {
+    const parsed = AdminUpdateSignupCreditSettingsBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const before = await getSignupCreditSettings();
+    const updated = await updateSignupCreditSettings(parsed.data);
+    if (JSON.stringify(before) !== JSON.stringify(updated)) {
+      try {
+        await recordAdminAction({
+          action: "signup_credit_settings_change",
+          actorTenantId: req.tenantId,
+          actorEmail: req.tenantEmail,
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: JSON.stringify(before),
+          newValue: JSON.stringify(updated),
+        });
+      } catch (error) {
+        req.log.error(
+          { err: error },
+          "Failed to write signup-credit-settings audit log",
+        );
+      }
+    }
+    res.json(updated);
+  },
+);
 
 /** GET /admin/promo-metrics — totals plus per-campaign and per-plan splits. */
 router.get("/admin/promo-metrics", async (_req: Request, res: Response) => {
@@ -2790,6 +2848,7 @@ const AUDIT_ACTIONS = new Set([
   "textgen_provider_change",
   "textgen_key_change",
   "ai_spend_settings_change",
+  "signup_credit_settings_change",
   "ai_cost_change",
 ]);
 

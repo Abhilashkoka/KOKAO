@@ -330,6 +330,8 @@ export * from './setAsrProviderKeyRequest';
 export * from './setImageGenProviderKeyRequest';
 export * from './setTextGenKeyRequest';
 export * from './setVideoGenProviderKeyRequest';
+export * from './signupCreditSettingsInput';
+export * from './signupCreditSettingsView';
 export * from './socialCredentialStatus';
 export * from './stockSourceInfo';
 export * from './stockSourceInfoKeySource';

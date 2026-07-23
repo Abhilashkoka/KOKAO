@@ -17,6 +17,8 @@ export interface PromoCodeUpdateInput {
   captionCredits?: number;
   /** @minimum 0 */
   imageCredits?: number;
+  /** @minimum 0 */
+  videoCredits?: number;
   /** @nullable */
   allowedPlans?: string[] | null;
   audience?: PromoCodeUpdateInputAudience;

@@ -41,3 +41,5 @@ faithful, fast guard (proven by mutation: disabling the callouts fails the tests
   helper outputs and previews equal the trim helpers; verified by mutation.
   Radix menus/dialogs in jsdom need `hasPointerCapture`/`scrollIntoView`/
   `ResizeObserver` stubs + `@testing-library/user-event` to open dropdowns.
+
+- No jest-dom matchers are installed: `toHaveValue`/`toBeInTheDocument` throw "Invalid Chai property". Use plain assertions on `(el as HTMLInputElement).value` / `toBeTruthy()`.

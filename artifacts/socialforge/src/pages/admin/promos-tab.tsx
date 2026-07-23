@@ -34,6 +34,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { TicketPercent, BarChart3, AlertTriangle } from "lucide-react";
+import { SignupCreditsCard } from "./signup-credits-card";
 
 function errorMessage(error: unknown, fallback: string): string {
   const data = (error as { response?: { data?: { error?: string } } })?.response
@@ -55,6 +56,7 @@ interface FormState {
   campaign: string;
   captionCredits: string;
   imageCredits: string;
+  videoCredits: string;
   audience: PromoCodeAudience;
   newTenantDays: string;
   allowedPlans: string[];
@@ -73,6 +75,7 @@ const EMPTY_FORM: FormState = {
   campaign: "",
   captionCredits: "0",
   imageCredits: "0",
+  videoCredits: "0",
   audience: "all",
   newTenantDays: "30",
   allowedPlans: [],
@@ -116,10 +119,12 @@ export function PromosTab() {
   const handleCreate = () => {
     const captionCredits = Number(form.captionCredits) || 0;
     const imageCredits = Number(form.imageCredits) || 0;
-    if (captionCredits <= 0 && imageCredits <= 0) {
+    const videoCredits = Number(form.videoCredits) || 0;
+    if (captionCredits <= 0 && imageCredits <= 0 && videoCredits <= 0) {
       toast({
         title: "Add some credits",
-        description: "A promo code must grant at least one caption or image credit.",
+        description:
+          "A promo code must grant at least one caption, image, or video credit.",
         variant: "destructive",
       });
       return;
@@ -136,6 +141,7 @@ export function PromosTab() {
           ...(form.campaign.trim() ? { campaign: form.campaign.trim() } : {}),
           captionCredits,
           imageCredits,
+          videoCredits,
           ...(form.allowedPlans.length > 0
             ? { allowedPlans: form.allowedPlans }
             : {}),
@@ -200,6 +206,8 @@ export function PromosTab() {
 
   return (
     <div className="space-y-6">
+      <SignupCreditsCard />
+
       <Card className="border-border shadow-sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -300,6 +308,17 @@ export function PromosTab() {
                 value={form.imageCredits}
                 onChange={(e) => set({ imageCredits: e.target.value })}
                 data-testid="input-promo-images"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="promo-videos">Video credits</Label>
+              <Input
+                id="promo-videos"
+                type="number"
+                min={0}
+                value={form.videoCredits}
+                onChange={(e) => set({ videoCredits: e.target.value })}
+                data-testid="input-promo-videos"
               />
             </div>
             <div className="space-y-1.5">
@@ -492,9 +511,14 @@ export function PromosTab() {
                       )}
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {promo.captionCredits > 0 && `${promo.captionCredits} captions`}
-                      {promo.captionCredits > 0 && promo.imageCredits > 0 && " + "}
-                      {promo.imageCredits > 0 && `${promo.imageCredits} images`}
+                      {[
+                        promo.captionCredits > 0 &&
+                          `${promo.captionCredits} captions`,
+                        promo.imageCredits > 0 && `${promo.imageCredits} images`,
+                        promo.videoCredits > 0 && `${promo.videoCredits} videos`,
+                      ]
+                        .filter(Boolean)
+                        .join(" + ")}
                       {" · "}
                       {AUDIENCE_LABELS[promo.audience]}
                       {promo.allowedPlans &&
@@ -549,6 +573,12 @@ export function PromosTab() {
               </span>{" "}
               image credits given
             </div>
+            <div>
+              <span className="text-2xl font-bold">
+                {metrics?.totalVideoCredits ?? 0}
+              </span>{" "}
+              video credits given
+            </div>
           </div>
           {(metrics?.byCampaign.length ?? 0) > 0 && (
             <div>
@@ -559,7 +589,7 @@ export function PromosTab() {
                     <span>{row.campaign}</span>
                     <span>
                       {row.redemptions} redemptions · {row.captionCredits} captions ·{" "}
-                      {row.imageCredits} images
+                      {row.imageCredits} images · {row.videoCredits} videos
                     </span>
                   </div>
                 ))}
