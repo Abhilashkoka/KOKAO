@@ -323,6 +323,18 @@ function ImageStudio() {
   const [topicIdeas, setTopicIdeas] = useState<string[]>([]);
   const [articleUrl, setArticleUrl] = useState("");
   const [researchQuery, setResearchQuery] = useState("");
+  const [brainstormTab, setBrainstormTab] = useState("ideas");
+
+  // Carry typed text between the Ideas and Research tabs so switching never
+  // loses the topic; only prefill when the destination field is empty.
+  const onBrainstormTabChange = (tab: string) => {
+    if (tab === "research" && researchQuery.trim() === "" && niche.trim() !== "") {
+      setResearchQuery(niche);
+    } else if (tab === "ideas" && niche.trim() === "" && researchQuery.trim() !== "") {
+      setNiche(researchQuery);
+    }
+    setBrainstormTab(tab);
+  };
   const [researchResult, setResearchResult] = useState<ResearchResult | null>(null);
   const [campaignPlatforms, setCampaignPlatforms] = useState<string[]>([
     "instagram",
@@ -1239,7 +1251,7 @@ function ImageStudio() {
               <CardDescription>Brainstorm topics or pull a brief from an article.</CardDescription>
             </CardHeader>
             <CardContent>
-              <Tabs defaultValue="ideas">
+              <Tabs value={brainstormTab} onValueChange={onBrainstormTabChange}>
                 <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="ideas">
                     <Lightbulb className="mr-2 h-4 w-4" /> Ideas
