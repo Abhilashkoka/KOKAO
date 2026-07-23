@@ -76,6 +76,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
+import { SavedVisualPickerDialog } from "@/components/saved-visuals";
 
 type Engine = "text_to_video" | "image_to_video" | "slideshow" | "topic_to_video";
 type Aspect = "16:9" | "9:16" | "1:1";
@@ -154,6 +155,7 @@ export function VideoStudioPage() {
 
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [driveOpen, setDriveOpen] = useState(false);
+  const [savedOpen, setSavedOpen] = useState(false);
 
   const photoInputRef = useRef<HTMLInputElement>(null);
   const musicInputRef = useRef<HTMLInputElement>(null);
@@ -585,6 +587,15 @@ export function VideoStudioPage() {
                 >
                   <HardDrive className="h-4 w-4 mr-1.5" /> From Google Drive
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSavedOpen(true)}
+                  data-testid="button-pick-saved"
+                >
+                  <Images className="h-4 w-4 mr-1.5" /> From saved
+                </Button>
               </div>
               <input
                 ref={photoInputRef}
@@ -959,6 +970,16 @@ export function VideoStudioPage() {
           if (engine === "image_to_video") setPhotos(picked.slice(0, 1));
           else addPhotos(picked);
           setDriveOpen(false);
+        }}
+      />
+
+      <SavedVisualPickerDialog
+        open={savedOpen}
+        onOpenChange={setSavedOpen}
+        onPick={(imagePath, name) => {
+          const picked = [{ objectPath: imagePath, previewUrl: `/api/storage${imagePath}`, name }];
+          if (engine === "image_to_video") setPhotos(picked);
+          else addPhotos(picked);
         }}
       />
 

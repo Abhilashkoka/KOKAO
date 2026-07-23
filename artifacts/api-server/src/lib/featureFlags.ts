@@ -96,6 +96,12 @@ export const FEATURES = [
       "Uploading a reference image in AI Studio to guide image generation.",
   },
   {
+    id: "assetLibrary",
+    label: "Asset Library",
+    description:
+      "Saved visual assets on the Brands page, reusable as reference images in AI Studio and source photos in the Video Studio.",
+  },
+  {
     id: "videoGen",
     label: "Video Studio",
     description:

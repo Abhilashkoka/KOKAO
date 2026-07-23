@@ -20,6 +20,7 @@ const ALL_ON: FeatureFlags = {
   upgradeRequests: true,
   promoCodes: true,
   referenceImages: true,
+  assetLibrary: true,
   carousel: true,
   aiSpend: true,
   aiCostTracking: true,

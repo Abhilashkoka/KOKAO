@@ -37,6 +37,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Palette, Plus, Trash2, Star, Pencil, Wand2, Upload, X } from "lucide-react";
+import { SavedVisualsSection } from "@/components/saved-visuals";
 
 function commaList(input: string): string[] {
   return input
@@ -734,6 +735,8 @@ export function BrandKitsPage() {
           })}
         </div>
       )}
+
+      <SavedVisualsSection />
 
       {/* Archive confirmation dialog */}
       <Dialog

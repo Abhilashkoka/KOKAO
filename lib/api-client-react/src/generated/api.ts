@@ -113,6 +113,7 @@ import type {
   ContentUpdate,
   CreateCharacterOutfitRequest,
   CreateCharacterRequest,
+  CreateVisualAssetRequest,
   CreditPack,
   CreditPackInput,
   DataConsumptionAnalytics,
@@ -253,6 +254,7 @@ import type {
   VideoGenSettingsView,
   VideoGenerateRequest,
   VideoJob,
+  VisualAsset,
   YoutubeAppCredentialInput,
   YoutubeAppCredentialStatus,
   YoutubeAuthUrlResult,
@@ -4047,6 +4049,223 @@ export const useCreateCharacter = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getCreateCharacterMutationOptions(options));
+    }
+
+export const getListVisualAssetsUrl = () => {
+
+
+
+
+  return `/api/visual-assets`
+}
+
+/**
+ * @summary List the workspace's saved visual assets
+ */
+export const listVisualAssets = async ( options?: RequestInit): Promise<VisualAsset[]> => {
+
+  return customFetch<VisualAsset[]>(getListVisualAssetsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListVisualAssetsQueryKey = () => {
+    return [
+    `/api/visual-assets`
+    ] as const;
+    }
+
+
+export const getListVisualAssetsQueryOptions = <TData = Awaited<ReturnType<typeof listVisualAssets>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVisualAssets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListVisualAssetsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listVisualAssets>>> = ({ signal }) => listVisualAssets({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listVisualAssets>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListVisualAssetsQueryResult = NonNullable<Awaited<ReturnType<typeof listVisualAssets>>>
+export type ListVisualAssetsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List the workspace's saved visual assets
+ */
+
+export function useListVisualAssets<TData = Awaited<ReturnType<typeof listVisualAssets>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVisualAssets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListVisualAssetsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateVisualAssetUrl = () => {
+
+
+
+
+  return `/api/visual-assets`
+}
+
+/**
+ * @summary Save an uploaded image as a reusable visual asset (max 7)
+ */
+export const createVisualAsset = async (createVisualAssetRequest: CreateVisualAssetRequest, options?: RequestInit): Promise<VisualAsset> => {
+
+  return customFetch<VisualAsset>(getCreateVisualAssetUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(createVisualAssetRequest)
+  }
+);}
+
+
+
+
+export const getCreateVisualAssetMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createVisualAsset>>, TError,{data: BodyType<CreateVisualAssetRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createVisualAsset>>, TError,{data: BodyType<CreateVisualAssetRequest>}, TContext> => {
+
+const mutationKey = ['createVisualAsset'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createVisualAsset>>, {data: BodyType<CreateVisualAssetRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createVisualAsset(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateVisualAssetMutationResult = NonNullable<Awaited<ReturnType<typeof createVisualAsset>>>
+    export type CreateVisualAssetMutationBody = BodyType<CreateVisualAssetRequest>
+    export type CreateVisualAssetMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save an uploaded image as a reusable visual asset (max 7)
+ */
+export const useCreateVisualAsset = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createVisualAsset>>, TError,{data: BodyType<CreateVisualAssetRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createVisualAsset>>,
+        TError,
+        {data: BodyType<CreateVisualAssetRequest>},
+        TContext
+      > => {
+      return useMutation(getCreateVisualAssetMutationOptions(options));
+    }
+
+export const getDeleteVisualAssetUrl = (assetId: number,) => {
+
+
+
+
+  return `/api/visual-assets/${assetId}`
+}
+
+/**
+ * @summary Delete a saved visual asset
+ */
+export const deleteVisualAsset = async (assetId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteVisualAssetUrl(assetId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteVisualAssetMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteVisualAsset>>, TError,{assetId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteVisualAsset>>, TError,{assetId: number}, TContext> => {
+
+const mutationKey = ['deleteVisualAsset'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteVisualAsset>>, {assetId: number}> = (props) => {
+          const {assetId} = props ?? {};
+
+          return  deleteVisualAsset(assetId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteVisualAssetMutationResult = NonNullable<Awaited<ReturnType<typeof deleteVisualAsset>>>
+
+    export type DeleteVisualAssetMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Delete a saved visual asset
+ */
+export const useDeleteVisualAsset = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteVisualAsset>>, TError,{assetId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteVisualAsset>>,
+        TError,
+        {assetId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteVisualAssetMutationOptions(options));
     }
 
 export const getDeleteCharacterUrl = (characterId: number,) => {

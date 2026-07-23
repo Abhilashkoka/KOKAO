@@ -22,6 +22,7 @@ export interface FeatureFlags {
   upgradeRequests: boolean;
   promoCodes: boolean;
   referenceImages: boolean;
+  assetLibrary: boolean;
   carousel: boolean;
   aiSpend: boolean;
   aiCostTracking: boolean;

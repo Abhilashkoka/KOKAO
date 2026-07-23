@@ -81,6 +81,7 @@ export const ListFeatureFlagsResponse = zod.object({
   "upgradeRequests": zod.boolean(),
   "promoCodes": zod.boolean(),
   "referenceImages": zod.boolean(),
+  "assetLibrary": zod.boolean(),
   "carousel": zod.boolean(),
   "aiSpend": zod.boolean(),
   "aiCostTracking": zod.boolean(),
@@ -1515,6 +1516,48 @@ export const CreateCharacterResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
+
+
+/**
+ * @summary List the workspace's saved visual assets
+ */
+export const ListVisualAssetsResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "imagePath": zod.string().describe('Uploaded image; serve via \/api\/storage{path}.'),
+  "createdAt": zod.coerce.date()
+}).describe('A saved, reusable image for AI generation (reference or source photo).')
+export const ListVisualAssetsResponse = zod.array(ListVisualAssetsResponseItem)
+
+
+/**
+ * @summary Save an uploaded image as a reusable visual asset (max 7)
+ */
+export const createVisualAssetBodyNameMax = 80;
+
+
+
+export const CreateVisualAssetBody = zod.object({
+  "name": zod.string().min(1).max(createVisualAssetBodyNameMax),
+  "imagePath": zod.string().describe('An uploaded \/objects\/... path in this workspace.')
+})
+
+export const CreateVisualAssetResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "imagePath": zod.string().describe('Uploaded image; serve via \/api\/storage{path}.'),
+  "createdAt": zod.coerce.date()
+}).describe('A saved, reusable image for AI generation (reference or source photo).')
+
+
+/**
+ * @summary Delete a saved visual asset
+ */
+export const DeleteVisualAssetParams = zod.object({
+  "assetId": zod.coerce.number()
+})
+
+export const DeleteVisualAssetResponse = zod.void()
 
 
 /**

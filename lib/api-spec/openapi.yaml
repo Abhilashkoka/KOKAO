@@ -1475,6 +1475,63 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /visual-assets:
+    get:
+      operationId: listVisualAssets
+      tags: [assets]
+      summary: List the workspace's saved visual assets
+      responses:
+        "200":
+          description: Assets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VisualAsset"
+    post:
+      operationId: createVisualAsset
+      tags: [assets]
+      summary: Save an uploaded image as a reusable visual asset (max 7)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVisualAssetRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VisualAsset"
+        "400":
+          description: Invalid input or asset limit reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /visual-assets/{assetId}:
+    parameters:
+      - name: assetId
+        in: path
+        required: true
+        schema:
+          type: integer
+    delete:
+      operationId: deleteVisualAsset
+      tags: [assets]
+      summary: Delete a saved visual asset
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /characters/{characterId}:
     parameters:
       - name: characterId
@@ -9833,6 +9890,32 @@ components:
           description: >-
             Optional uploaded reference photo (/objects/... path). Used as the
             character's canonical reference; no AI cost.
+    VisualAsset:
+      type: object
+      description: A saved, reusable image for AI generation (reference or source photo).
+      required: [id, name, imagePath, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        imagePath:
+          type: string
+          description: Uploaded image; serve via /api/storage{path}.
+        createdAt:
+          type: string
+          format: date-time
+    CreateVisualAssetRequest:
+      type: object
+      required: [name, imagePath]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        imagePath:
+          type: string
+          description: An uploaded /objects/... path in this workspace.
     CreateCharacterOutfitRequest:
       type: object
       required: [name, description]
@@ -11527,6 +11610,7 @@ components:
           upgradeRequests,
           promoCodes,
           referenceImages,
+          assetLibrary,
           carousel,
           aiSpend,
           aiCostTracking,
@@ -11560,6 +11644,8 @@ components:
         promoCodes:
           type: boolean
         referenceImages:
+          type: boolean
+        assetLibrary:
           type: boolean
         carousel:
           type: boolean

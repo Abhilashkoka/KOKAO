@@ -18,6 +18,9 @@ import { ImageGenNotConfiguredError, ImageGenProviderError } from "../lib/imageG
 
 const router: IRouter = Router();
 
+/** Per-tenant cap: characters are curated identities, not a media library. */
+export const MAX_CHARACTERS = 5;
+
 /**
  * Characters: reusable, tenant-scoped identities for the Video Studio.
  * Creating a character from a description — and every costume variant — is
@@ -147,6 +150,17 @@ router.post("/characters", async (req: Request, res: Response) => {
     return;
   }
 
+  const existing = await db
+    .select({ id: charactersTable.id })
+    .from(charactersTable)
+    .where(eq(charactersTable.tenantId, req.tenantId));
+  if (existing.length >= MAX_CHARACTERS) {
+    res.status(400).json({
+      error: `You can save up to ${MAX_CHARACTERS} characters. Delete one to add another.`,
+    });
+    return;
+  }
+
   let referenceImagePath: string;
   let funding: Funding | null = null;
   const startedAt = Date.now();
@@ -181,26 +195,48 @@ router.post("/characters", async (req: Request, res: Response) => {
     return;
   }
 
-  const character = (
-    await db
-      .insert(charactersTable)
-      .values({ tenantId: req.tenantId, name, description, referenceImagePath })
-      .returning()
-  )[0]!;
-  const defaultOutfit = (
-    await db
-      .insert(characterOutfitsTable)
-      .values({
-        tenantId: req.tenantId,
-        characterId: character.id,
-        name: "Default",
-        description: description || "as shown in the reference image",
-        referenceImagePath,
-        isDefault: true,
-      })
-      .returning()
-  )[0]!;
-  res.status(201).json(serializeCharacter(character, [defaultOutfit]));
+  // Re-check the cap atomically: lock the tenant row so parallel creates
+  // serialize and cannot slip past the count check together.
+  const created = await db.transaction(async (tx) => {
+    await tx
+      .select({ id: tenantsTable.id })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, req.tenantId))
+      .for("update");
+    const count = await tx
+      .select({ id: charactersTable.id })
+      .from(charactersTable)
+      .where(eq(charactersTable.tenantId, req.tenantId));
+    if (count.length >= MAX_CHARACTERS) return null;
+    const character = (
+      await tx
+        .insert(charactersTable)
+        .values({ tenantId: req.tenantId, name, description, referenceImagePath })
+        .returning()
+    )[0]!;
+    const defaultOutfit = (
+      await tx
+        .insert(characterOutfitsTable)
+        .values({
+          tenantId: req.tenantId,
+          characterId: character.id,
+          name: "Default",
+          description: description || "as shown in the reference image",
+          referenceImagePath,
+          isDefault: true,
+        })
+        .returning()
+    )[0]!;
+    return { character, defaultOutfit };
+  });
+  if (!created) {
+    if (funding) await releaseImageFunding(req, funding);
+    res.status(400).json({
+      error: `You can save up to ${MAX_CHARACTERS} characters. Delete one to add another.`,
+    });
+    return;
+  }
+  res.status(201).json(serializeCharacter(created.character, [created.defaultOutfit]));
 });
 
 router.param("characterId", (req, res, next, value) => {

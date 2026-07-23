@@ -2686,6 +2686,27 @@ export interface CreateCharacterRequest {
   sourceImagePath?: string | null;
 }
 
+/**
+ * A saved, reusable image for AI generation (reference or source photo).
+ */
+export interface VisualAsset {
+  id: number;
+  name: string;
+  /** Uploaded image; serve via /api/storage{path}. */
+  imagePath: string;
+  createdAt: string;
+}
+
+export interface CreateVisualAssetRequest {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name: string;
+  /** An uploaded /objects/... path in this workspace. */
+  imagePath: string;
+}
+
 export interface CreateCharacterOutfitRequest {
   /**
      * @minLength 1
@@ -3912,6 +3933,7 @@ export interface FeatureFlags {
   upgradeRequests: boolean;
   promoCodes: boolean;
   referenceImages: boolean;
+  assetLibrary: boolean;
   carousel: boolean;
   aiSpend: boolean;
   aiCostTracking: boolean;

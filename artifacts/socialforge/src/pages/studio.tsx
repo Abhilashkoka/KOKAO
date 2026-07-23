@@ -55,6 +55,7 @@ import { VoiceNoteButton } from "@/components/voice-note-button";
 import { LogoLoader } from "@/components/logo-loader";
 import { track, trackFeatureUse } from "@/lib/analytics";
 import { useFeatureFlags } from "@/lib/features";
+import { SavedVisualPickerDialog } from "@/components/saved-visuals";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -362,6 +363,7 @@ function ImageStudio() {
   const [referenceImagePath, setReferenceImagePath] = useState<string | null>(null);
   const [referencePreview, setReferencePreview] = useState<string | null>(null);
   const [referenceUploading, setReferenceUploading] = useState(false);
+  const [savedPickerOpen, setSavedPickerOpen] = useState(false);
 
   const clearReferenceImage = () => {
     setReferenceImagePath(null);
@@ -1591,22 +1593,42 @@ function ImageStudio() {
                           </Button>
                         </div>
                       ) : (
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          disabled={referenceUploading}
-                          onClick={() => referenceFileRef.current?.click()}
-                          data-testid="button-upload-reference-image"
-                        >
-                          {referenceUploading ? (
-                            <RippleSpinner className="h-4 w-4 mr-2" />
-                          ) : (
-                            <Upload className="h-4 w-4 mr-2" />
-                          )}
-                          Upload reference image
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={referenceUploading}
+                            onClick={() => referenceFileRef.current?.click()}
+                            data-testid="button-upload-reference-image"
+                          >
+                            {referenceUploading ? (
+                              <RippleSpinner className="h-4 w-4 mr-2" />
+                            ) : (
+                              <Upload className="h-4 w-4 mr-2" />
+                            )}
+                            Upload reference image
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSavedPickerOpen(true)}
+                            data-testid="button-pick-saved-reference"
+                          >
+                            Choose from saved
+                          </Button>
+                        </div>
                       )}
+                      <SavedVisualPickerDialog
+                        open={savedPickerOpen}
+                        onOpenChange={setSavedPickerOpen}
+                        onPick={(imagePath) => {
+                          clearReferenceImage();
+                          setReferenceImagePath(imagePath);
+                          setReferencePreview(`/api/storage${imagePath}`);
+                        }}
+                      />
                     </div>
                   )}
 
