@@ -126,6 +126,12 @@ export const FEATURES = [
       "Personal invite codes: new users get bonus credits, referrers earn credits per signup (per-plan tuning on the Plans tab).",
   },
   {
+    id: "freeWatermark",
+    label: "Free Plan Watermark",
+    description:
+      "Stamps a 'Made with KOKAO.in' watermark on AI-generated images for workspaces on the free plan.",
+  },
+  {
     id: "progressMeter",
     label: "Upgrade Progress Meter",
     description:

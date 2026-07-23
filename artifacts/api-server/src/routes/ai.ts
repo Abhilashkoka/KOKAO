@@ -29,6 +29,7 @@ import {
   ReferenceImageError,
 } from "../lib/referenceGuide";
 import { isFeatureEnabled } from "../lib/featureFlags";
+import { applyMadeWithWatermark } from "../lib/watermark";
 import {
   getTextGenClient,
   listTenantModelChoices,
@@ -492,11 +493,23 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
   const startedAt = Date.now();
   try {
     const {
-      buffer,
+      buffer: rawBuffer,
       model: imageModel,
       provider: imageProvider,
       usage: imageUsage,
     } = await generateImage(prompt, size, referenceImage ?? undefined);
+
+    // Free-plan workspaces get a "Made with KOKAO.in" stamp, platform-wide
+    // switch "freeWatermark" (admin Feature Controls). The switch is
+    // default-ON, so a transient flag-read error fails OPEN (watermark
+    // applied); compositing errors fail soft to the original image.
+    // Character/outfit reference images are deliberately NOT watermarked —
+    // they are inputs to future generations and a stamp would bleed into
+    // every image made from them.
+    const wantWatermark =
+      tenant.plan === "free" &&
+      (await isFeatureEnabled("freeWatermark").catch(() => true));
+    const buffer = wantWatermark ? await applyMadeWithWatermark(rawBuffer) : rawBuffer;
 
     const uploadURL = await objectStorageService.getObjectEntityUploadURL(req.tenantId);
     const putRes = await fetch(uploadURL, {
