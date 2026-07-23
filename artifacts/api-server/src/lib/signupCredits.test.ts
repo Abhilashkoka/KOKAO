@@ -7,6 +7,7 @@ import {
   tenantsTable,
   creditLedgerTable,
   creditBalancesTable,
+  notificationsTable,
   type SignupCreditSettings,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -199,6 +200,60 @@ describe("maybeGrantSignupCredits", () => {
       (h) => h.kind === "signup_bonus",
     );
     expect(entries.length).toBe(1);
+  });
+
+  it("records a one-time welcome notification describing the granted credits", async () => {
+    await resetGrantMarker();
+    await db
+      .delete(notificationsTable)
+      .where(eq(notificationsTable.tenantId, tenantId));
+    await updateSignupCreditSettings({
+      enabled: true,
+      captionCredits: 3,
+      imageCredits: 1,
+      videoCredits: 0,
+    });
+    expect(await maybeGrantSignupCredits(tenantId)).toBe(true);
+    const rows = await db
+      .select()
+      .from(notificationsTable)
+      .where(eq(notificationsTable.tenantId, tenantId));
+    const welcome = rows.filter((r) => r.type === "signup_credits_granted");
+    expect(welcome.length).toBe(1);
+    expect(welcome[0].message).toContain("3 caption credits");
+    expect(welcome[0].message).toContain("1 image credit");
+    expect(welcome[0].message).not.toContain("video");
+
+    // A repeat call grants nothing and writes no second notice.
+    expect(await maybeGrantSignupCredits(tenantId)).toBe(false);
+    const again = await db
+      .select()
+      .from(notificationsTable)
+      .where(eq(notificationsTable.tenantId, tenantId));
+    expect(
+      again.filter((r) => r.type === "signup_credits_granted").length,
+    ).toBe(1);
+  });
+
+  it("writes no welcome notification when nothing is granted", async () => {
+    await resetGrantMarker();
+    await db
+      .delete(notificationsTable)
+      .where(eq(notificationsTable.tenantId, tenantId));
+    await updateSignupCreditSettings({
+      enabled: false,
+      captionCredits: 5,
+      imageCredits: 5,
+      videoCredits: 5,
+    });
+    expect(await maybeGrantSignupCredits(tenantId)).toBe(false);
+    const rows = await db
+      .select()
+      .from(notificationsTable)
+      .where(eq(notificationsTable.tenantId, tenantId));
+    expect(
+      rows.filter((r) => r.type === "signup_credits_granted").length,
+    ).toBe(0);
   });
 
   it("does not grant an all-zero bundle even when enabled", async () => {

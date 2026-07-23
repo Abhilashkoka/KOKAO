@@ -9,6 +9,7 @@ import {
 import { eq, isNull, and } from "drizzle-orm";
 import { logger } from "./logger";
 import { isFeatureEnabled } from "./featureFlags";
+import { notifySignupCreditsGranted } from "./notifications";
 
 /**
  * Automatic signup credit grant: a superadmin-configured bundle of
@@ -110,7 +111,7 @@ export async function maybeGrantSignupCredits(tenantId: number): Promise<boolean
     const videos = Math.max(0, settings.videoCredits);
     if (captions === 0 && images === 0 && videos === 0) return false;
 
-    return await db.transaction(async (tx) => {
+    const granted = await db.transaction(async (tx) => {
       // Once-only guard: only the request that flips the column grants.
       const claimed = (
         await tx
@@ -163,6 +164,18 @@ export async function maybeGrantSignupCredits(tenantId: number): Promise<boolean
       }
       return true;
     });
+
+    if (granted) {
+      // One-time welcome notice so the bonus isn't invisible. Fired only by
+      // the request that won the once-only grant, so it can never repeat and
+      // never fires for workspaces that received no grant. Best-effort.
+      await notifySignupCreditsGranted(tenantId, {
+        captions,
+        images,
+        videos,
+      });
+    }
+    return granted;
   } catch (error) {
     logger.error({ err: error, tenantId }, "Signup credit grant failed");
     return false;

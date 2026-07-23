@@ -137,6 +137,12 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
       "An approved advertising change could not be applied to your ad account and needs your attention.",
   },
   {
+    type: "signup_credits_granted",
+    label: "Welcome credits",
+    description:
+      "Your new workspace received a one-time bundle of free caption, image, or video credits to get started.",
+  },
+  {
     type: "publish_interrupted",
     label: "Interrupted publishes",
     description:

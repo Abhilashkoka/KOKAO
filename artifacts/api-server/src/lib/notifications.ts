@@ -944,6 +944,77 @@ export async function resolveSocialConnectionNotifications(
   }
 }
 
+export const SIGNUP_CREDITS_GRANTED = "signup_credits_granted";
+
+/**
+ * Tell a brand-new workspace about its one-time welcome credit bundle so the
+ * signup bonus is visible instead of silently appearing in the balance.
+ * Called exactly once, from the signup credit grant (which is once-only
+ * guarded), so this never repeats and never fires for workspaces that
+ * received no grant. In-app + push only — no email (emailing was explicitly
+ * out of scope for signup credits); the tenant's effective settings for the
+ * type still apply. Never throws — a notification failure cannot fail
+ * provisioning or the grant itself.
+ */
+export async function notifySignupCreditsGranted(
+  tenantId: number,
+  granted: { captions: number; images: number; videos: number },
+): Promise<void> {
+  try {
+    const effective = await getEffectiveSetting(
+      tenantId,
+      SIGNUP_CREDITS_GRANTED,
+    );
+    if (!effective.enabled) return;
+
+    const parts: string[] = [];
+    if (granted.captions > 0)
+      parts.push(
+        `${granted.captions} caption credit${granted.captions === 1 ? "" : "s"}`,
+      );
+    if (granted.images > 0)
+      parts.push(
+        `${granted.images} image credit${granted.images === 1 ? "" : "s"}`,
+      );
+    if (granted.videos > 0)
+      parts.push(
+        `${granted.videos} video credit${granted.videos === 1 ? "" : "s"}`,
+      );
+    if (parts.length === 0) return;
+    const list =
+      parts.length === 1
+        ? parts[0]
+        : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+
+    const title = "Welcome! You received free credits";
+    const message =
+      `Your new workspace received ${list} to get started. ` +
+      `They are already in your balance — head to the Studio to create your first post.`;
+    const linkUrl = "/studio";
+
+    await db.insert(notificationsTable).values({
+      tenantId,
+      type: SIGNUP_CREDITS_GRANTED,
+      platform: null,
+      title,
+      message,
+      linkUrl,
+      inApp: effective.inApp,
+    });
+
+    await sendTenantPush(tenantId, SIGNUP_CREDITS_GRANTED, {
+      title,
+      message,
+      linkUrl,
+    });
+  } catch (err) {
+    logger.error(
+      { err, tenantId },
+      "Failed to record signup-credits-granted notification",
+    );
+  }
+}
+
 /**
  * Record an in-app notification that one or more of a tenant's posts were
  * auto-failed because a server restart interrupted publishing mid-flight.
