@@ -30,6 +30,7 @@ import {
   Sparkles,
   TrendingUp,
   Users,
+  ChevronDown,
 } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 
@@ -57,6 +58,9 @@ export function GamificationCard() {
   const { data: me } = useGetMe();
   const claim = useClaimGamificationReward();
   const [referralOpen, setReferralOpen] = useState(false);
+  // Collapsed by default to keep the card slim; auto-opens when a reward is
+  // ready to claim. `expanded === null` means the user hasn't toggled yet.
+  const [expanded, setExpanded] = useState<boolean | null>(null);
 
   if (
     !state ||
@@ -94,6 +98,7 @@ export function GamificationCard() {
   const claimableCount =
     state.quests.filter((q) => q.completed && !q.claimed).length +
     state.streak.milestones.filter((m) => m.reached && !m.claimed && m.claimKey).length;
+  const showDetails = expanded ?? claimableCount > 0;
 
   // Progress meter only makes sense on finite plans; -1 means unlimited.
   const limits = me?.limits;
@@ -114,7 +119,7 @@ export function GamificationCard() {
 
   return (
     <Card className="border-primary/20 bg-gradient-to-r from-primary/5 via-card to-card shadow-sm">
-      <CardContent className="py-4 space-y-4">
+      <CardContent className="py-3 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" />
@@ -155,10 +160,22 @@ export function GamificationCard() {
                 <Users className="h-4 w-4 mr-1.5" /> Invite &amp; earn
               </Button>
             )}
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setExpanded(!showDetails)}
+              aria-expanded={showDetails}
+              data-testid="button-toggle-gamification"
+            >
+              {showDetails ? "Hide" : "Details"}
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${showDetails ? "rotate-180" : ""}`}
+              />
+            </button>
           </div>
         </div>
 
-        {state.streaksEnabled && state.streak.milestones.length > 0 && (
+        {showDetails && state.streaksEnabled && state.streak.milestones.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {state.streak.milestones.map((m) => (
               <div
@@ -193,7 +210,7 @@ export function GamificationCard() {
           </div>
         )}
 
-        {state.questsEnabled && unclaimedQuests.length > 0 && (
+        {showDetails && state.questsEnabled && unclaimedQuests.length > 0 && (
           <div className="grid gap-1.5 sm:grid-cols-2">
             {unclaimedQuests.map((quest) => (
               <div
@@ -229,7 +246,7 @@ export function GamificationCard() {
           </div>
         )}
 
-        {meterRows.length > 0 && (
+        {showDetails && meterRows.length > 0 && (
           <div className="rounded-lg border border-border/60 bg-background/60 px-3 py-2.5 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <span className="text-sm font-medium inline-flex items-center gap-1.5">
