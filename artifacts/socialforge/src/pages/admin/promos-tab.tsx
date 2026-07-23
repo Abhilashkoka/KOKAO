@@ -35,11 +35,23 @@ import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { TicketPercent, BarChart3, AlertTriangle } from "lucide-react";
 import { SignupCreditsCard } from "./signup-credits-card";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
-function errorMessage(error: unknown, fallback: string): string {
-  const data = (error as { response?: { data?: { error?: string } } })?.response
-    ?.data;
-  return data?.error ?? fallback;
+/**
+ * Server-side promo code format: uppercase letters, digits, hyphens,
+ * underscores; 3-64 chars after trimming/uppercasing. Kept in sync with
+ * the server's rule — the server remains the authority.
+ */
+const PROMO_CODE_PATTERN = /^[A-Z0-9_-]{3,64}$/;
+
+export function promoCodeFieldError(raw: string): string | null {
+  const code = raw.trim().toUpperCase();
+  if (code.length === 0) return "Enter a code.";
+  if (code.length < 3) return "Codes must be at least 3 characters.";
+  if (code.length > 64) return "Codes can be at most 64 characters.";
+  if (!PROMO_CODE_PATTERN.test(code))
+    return "Codes may only use letters, numbers, hyphens, and underscores (no spaces).";
+  return null;
 }
 
 const AUDIENCE_LABELS: Record<PromoCodeAudience, string> = {
@@ -116,7 +128,17 @@ export function PromosTab() {
     queryClient.invalidateQueries({ queryKey: getAdminGetPromoMetricsQueryKey() });
   };
 
+  const codeError = form.mode === "single" ? promoCodeFieldError(form.code) : null;
+
   const handleCreate = () => {
+    if (form.mode === "single" && codeError) {
+      toast({
+        title: "Check the code",
+        description: codeError,
+        variant: "destructive",
+      });
+      return;
+    }
     const captionCredits = Number(form.captionCredits) || 0;
     const imageCredits = Number(form.imageCredits) || 0;
     const videoCredits = Number(form.videoCredits) || 0;
@@ -173,7 +195,7 @@ export function PromosTab() {
         onError: (error) =>
           toast({
             title: "Could not create the code",
-            description: errorMessage(error, "Please check the values and try again."),
+            description: apiErrorMessage(error, "Please check the values and try again."),
             variant: "destructive",
           }),
       },
@@ -195,7 +217,7 @@ export function PromosTab() {
         onError: (error) =>
           toast({
             title: "Could not reactivate",
-            description: errorMessage(error, "Please try again."),
+            description: apiErrorMessage(error, "Please try again."),
             variant: "destructive",
           }),
       },
@@ -249,6 +271,18 @@ export function PromosTab() {
                   maxLength={64}
                   data-testid="input-new-promo-code"
                 />
+                {form.code.trim().length > 0 && codeError ? (
+                  <p
+                    className="text-sm text-destructive"
+                    data-testid="text-promo-code-error"
+                  >
+                    {codeError}
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    3-64 characters: letters, numbers, hyphens, underscores.
+                  </p>
+                )}
               </div>
             ) : (
               <>
@@ -442,7 +476,7 @@ export function PromosTab() {
             onClick={handleCreate}
             disabled={
               createCodes.isPending ||
-              (form.mode === "single" && form.code.trim().length < 3)
+              (form.mode === "single" && codeError !== null)
             }
             data-testid="button-create-promo"
           >
@@ -666,7 +700,7 @@ export function PromosTab() {
               onError: (error) =>
                 toast({
                   title: "Could not deactivate",
-                  description: errorMessage(error, "Please try again."),
+                  description: apiErrorMessage(error, "Please try again."),
                   variant: "destructive",
                 }),
             },

@@ -19,12 +19,7 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Gift } from "lucide-react";
-
-function errorMessage(error: unknown, fallback: string): string {
-  const data = (error as { response?: { data?: { error?: string } } })?.response
-    ?.data;
-  return data?.error ?? fallback;
-}
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
 export function SignupCreditsCard() {
   const { data: settings, isLoading } = useAdminGetSignupCreditSettings();
@@ -70,7 +65,7 @@ export function SignupCreditsCard() {
         onError: (error) =>
           toast({
             title: "Could not save",
-            description: errorMessage(error, "Please try again."),
+            description: apiErrorMessage(error, "Please try again."),
             variant: "destructive",
           }),
       },

@@ -32,6 +32,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useFeatureFlags } from "@/lib/features";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { CreditCard, Coins, ReceiptText, TicketPercent } from "lucide-react";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
 declare global {
   interface Window {
@@ -64,11 +65,6 @@ function formatInr(paise: number): string {
     minimumFractionDigits: paise % 100 === 0 ? 0 : 2,
     maximumFractionDigits: 2,
   })}`;
-}
-
-function errorMessage(error: unknown, fallback: string): string {
-  const data = (error as { response?: { data?: { error?: string } } })?.response?.data;
-  return data?.error ?? fallback;
 }
 
 export function BillingSettings() {
@@ -161,7 +157,7 @@ export function BillingSettings() {
               onError: (error) => {
                 toast({
                   title: "Verification pending",
-                  description: errorMessage(
+                  description: apiErrorMessage(
                     error,
                     "Payment received; your plan will activate shortly.",
                   ),
@@ -175,7 +171,7 @@ export function BillingSettings() {
     } catch (error) {
       toast({
         title: "Could not start checkout",
-        description: errorMessage(error, "Please try again."),
+        description: apiErrorMessage(error, "Please try again."),
         variant: "destructive",
       });
     } finally {
@@ -215,7 +211,7 @@ export function BillingSettings() {
               onError: (error) => {
                 toast({
                   title: "Verification pending",
-                  description: errorMessage(
+                  description: apiErrorMessage(
                     error,
                     "Payment received; credits will appear shortly.",
                   ),
@@ -229,7 +225,7 @@ export function BillingSettings() {
     } catch (error) {
       toast({
         title: "Could not start checkout",
-        description: errorMessage(error, "Please try again."),
+        description: apiErrorMessage(error, "Please try again."),
         variant: "destructive",
       });
     } finally {
@@ -251,7 +247,7 @@ export function BillingSettings() {
         onError: (error) =>
           toast({
             title: "Could not redeem the code",
-            description: errorMessage(error, "Please check the code and try again."),
+            description: apiErrorMessage(error, "Please check the code and try again."),
             variant: "destructive",
           }),
       },
@@ -292,7 +288,7 @@ export function BillingSettings() {
                     onError: (error) =>
                       toast({
                         title: "Could not send the request",
-                        description: errorMessage(
+                        description: apiErrorMessage(
                           error,
                           "Please try again in a moment.",
                         ),
@@ -445,7 +441,7 @@ export function BillingSettings() {
                     onError: (error) =>
                       toast({
                         title: "Could not switch",
-                        description: errorMessage(error, "Please try again."),
+                        description: apiErrorMessage(error, "Please try again."),
                         variant: "destructive",
                       }),
                   })
@@ -612,7 +608,7 @@ export function BillingSettings() {
             onError: (error) =>
               toast({
                 title: "Could not cancel",
-                description: errorMessage(error, "Please try again."),
+                description: apiErrorMessage(error, "Please try again."),
                 variant: "destructive",
               }),
           })
