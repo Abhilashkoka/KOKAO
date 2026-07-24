@@ -292,14 +292,32 @@ router.delete(
  */
 const ADS_OAUTH_SCOPE = "ads_management,ads_read,business_management";
 
-function adsRedirectUri(req: Request): string {
+/**
+ * OAuth redirect URIs must be byte-for-byte identical to what's whitelisted in
+ * each ad platform's developer console, so derive them from the canonical
+ * Replit domain env vars rather than per-request headers (which vary between
+ * the canvas frame, the preview tab, and a direct browser tab).
+ */
+function canonicalOrigin(req: Request): string {
+  const envHost = (
+    process.env.NODE_ENV === "production"
+      ? process.env.REPLIT_DOMAINS?.split(",")[0]
+      : process.env.REPLIT_DEV_DOMAIN
+  )
+    ?.trim()
+    .toLowerCase();
+  if (envHost) return `https://${envHost}`;
   const proto =
     (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0] ||
     req.protocol ||
     "https";
   const host =
     (req.headers["x-forwarded-host"] as string | undefined) || req.headers.host;
-  return `${proto}://${host}/api/ads/meta/auth/callback`;
+  return `${proto}://${host}`;
+}
+
+function adsRedirectUri(req: Request): string {
+  return `${canonicalOrigin(req)}/api/ads/meta/auth/callback`;
 }
 
 router.get(
@@ -315,6 +333,7 @@ router.get(
       });
       return;
     }
+    req.log.info({ redirectUri: adsRedirectUri(req) }, "meta ads oauth redirect uri");
     const params = new URLSearchParams({
       client_id: creds.appId,
       redirect_uri: adsRedirectUri(req),
@@ -575,13 +594,7 @@ router.post(
 // ---------------------------------------------------------------------------
 
 function tiktokAdsRedirectUri(req: Request): string {
-  const proto =
-    (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0] ||
-    req.protocol ||
-    "https";
-  const host =
-    (req.headers["x-forwarded-host"] as string | undefined) || req.headers.host;
-  return `${proto}://${host}/api/ads/tiktok/auth/callback`;
+  return `${canonicalOrigin(req)}/api/ads/tiktok/auth/callback`;
 }
 
 router.get(
@@ -970,13 +983,7 @@ router.post(
 const LINKEDIN_ADS_OAUTH_SCOPE = "r_ads rw_ads r_ads_reporting";
 
 function linkedinAdsRedirectUri(req: Request): string {
-  const proto =
-    (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0] ||
-    req.protocol ||
-    "https";
-  const host =
-    (req.headers["x-forwarded-host"] as string | undefined) || req.headers.host;
-  return `${proto}://${host}/api/ads/linkedin/auth/callback`;
+  return `${canonicalOrigin(req)}/api/ads/linkedin/auth/callback`;
 }
 
 router.get(
@@ -1008,13 +1015,7 @@ router.get(
 // ---------------------------------------------------------------------------
 
 function googleAdsRedirectUri(req: Request): string {
-  const proto =
-    (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0] ||
-    req.protocol ||
-    "https";
-  const host =
-    (req.headers["x-forwarded-host"] as string | undefined) || req.headers.host;
-  return `${proto}://${host}/api/ads/google/auth/callback`;
+  return `${canonicalOrigin(req)}/api/ads/google/auth/callback`;
 }
 
 router.get(
