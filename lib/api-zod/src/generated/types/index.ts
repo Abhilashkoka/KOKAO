@@ -242,6 +242,8 @@ export * from './imageGenModelOption';
 export * from './imageGenProviderInfo';
 export * from './imageGenProviderInfoKeySource';
 export * from './imageGenSettingsView';
+export * from './imageJob';
+export * from './imageJobStatus';
 export * from './imageRequest';
 export * from './imageRequestSize';
 export * from './imageResult';

@@ -93,7 +93,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "progressMeter": zod.boolean(),
   "calendar": zod.boolean(),
   "postMetrics": zod.boolean(),
-  "campaigns": zod.boolean()
+  "campaigns": zod.boolean(),
+  "imageJobs": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -4891,6 +4892,104 @@ export const GenerateImageBody = zod.object({
 export const GenerateImageResponse = zod.object({
   "imagePath": zod.string(),
   "b64Json": zod.string()
+})
+
+
+/**
+ * SSE variant of generateCaption for lower perceived latency. Emits `data:` lines of JSON events: {type:"delta", text} as caption text becomes available, then a terminal {type:"result", caption, hashtags, title?, clarifyingQuestions?} or {type:"error", message}. Quota and credit behavior is identical to generateCaption; a client disconnect mid-stream releases the reserved funding.
+ * @summary Generate an AI caption as a Server-Sent Events stream
+ */
+
+
+
+export const StreamCaptionBody = zod.object({
+  "prompt": zod.string().min(1).describe('Topic or idea for the post.'),
+  "platform": zod.string().optional(),
+  "brandKitId": zod.number().nullish(),
+  "tone": zod.string().optional()
+})
+
+export const StreamCaptionResponse = zod.unknown()
+
+
+/**
+ * Async variant of generateImage: validates the request, reserves funding (monthly quota first, then an image credit), creates the job, and returns immediately. Poll GET /ai/image-jobs/{jobId} until status is succeeded or failed. Gated by the imageJobs feature switch; when disabled, clients should fall back to the synchronous route.
+ * @summary Start a background image generation job
+ */
+
+
+
+export const GenerateImageAsyncBody = zod.object({
+  "prompt": zod.string().min(1),
+  "size": zod.enum(['1024x1024', '1536x1024', '1024x1536']).optional(),
+  "brandKitId": zod.number().nullish(),
+  "campaignId": zod.string().nullish().describe('Ties this image\'s data usage to a generated campaign'),
+  "platform": zod.string().nullish().describe('Target platform, for per-platform data metering'),
+  "referenceImagePath": zod.string().nullish().describe('Optional object-storage path (\/objects\/<tenantId>\/uploads\/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.')
+})
+
+export const GenerateImageAsyncResponse = zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['queued', 'processing', 'succeeded', 'failed']),
+  "prompt": zod.string(),
+  "size": zod.string(),
+  "brandKitId": zod.number().nullish(),
+  "campaignId": zod.string().nullish(),
+  "platform": zod.string().nullish(),
+  "imagePath": zod.string().nullish().describe('Set when status is succeeded; render via \/api\/storage{imagePath}.'),
+  "provider": zod.string().nullish(),
+  "model": zod.string().nullish(),
+  "error": zod.string().nullish(),
+  "durationMs": zod.number().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary List this workspace's recent image generation jobs (newest first)
+ */
+export const ListImageJobsResponseItem = zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['queued', 'processing', 'succeeded', 'failed']),
+  "prompt": zod.string(),
+  "size": zod.string(),
+  "brandKitId": zod.number().nullish(),
+  "campaignId": zod.string().nullish(),
+  "platform": zod.string().nullish(),
+  "imagePath": zod.string().nullish().describe('Set when status is succeeded; render via \/api\/storage{imagePath}.'),
+  "provider": zod.string().nullish(),
+  "model": zod.string().nullish(),
+  "error": zod.string().nullish(),
+  "durationMs": zod.number().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+export const ListImageJobsResponse = zod.array(ListImageJobsResponseItem)
+
+
+/**
+ * @summary Get one image generation job (poll until succeeded/failed)
+ */
+export const GetImageJobParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const GetImageJobResponse = zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['queued', 'processing', 'succeeded', 'failed']),
+  "prompt": zod.string(),
+  "size": zod.string(),
+  "brandKitId": zod.number().nullish(),
+  "campaignId": zod.string().nullish(),
+  "platform": zod.string().nullish(),
+  "imagePath": zod.string().nullish().describe('Set when status is succeeded; render via \/api\/storage{imagePath}.'),
+  "provider": zod.string().nullish(),
+  "model": zod.string().nullish(),
+  "error": zod.string().nullish(),
+  "durationMs": zod.number().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
 })
 
 

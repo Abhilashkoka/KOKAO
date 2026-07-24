@@ -2831,6 +2831,117 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/generate-caption/stream:
+    post:
+      operationId: streamCaption
+      tags: [ai]
+      summary: Generate an AI caption as a Server-Sent Events stream
+      description: >-
+        SSE variant of generateCaption for lower perceived latency. Emits
+        `data:` lines of JSON events: {type:"delta", text} as caption text
+        becomes available, then a terminal {type:"result", caption, hashtags,
+        title?, clarifyingQuestions?} or {type:"error", message}. Quota and
+        credit behavior is identical to generateCaption; a client disconnect
+        mid-stream releases the reserved funding.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CaptionRequest"
+      responses:
+        "200":
+          description: SSE stream of caption events
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "402":
+          description: Quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/generate-image-async:
+    post:
+      operationId: generateImageAsync
+      tags: [ai]
+      summary: Start a background image generation job
+      description: >-
+        Async variant of generateImage: validates the request, reserves
+        funding (monthly quota first, then an image credit), creates the job,
+        and returns immediately. Poll GET /ai/image-jobs/{jobId} until status
+        is succeeded or failed. Gated by the imageJobs feature switch; when
+        disabled, clients should fall back to the synchronous route.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImageRequest"
+      responses:
+        "201":
+          description: Job created and queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageJob"
+        "402":
+          description: Quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/image-jobs:
+    get:
+      operationId: listImageJobs
+      tags: [ai]
+      summary: List this workspace's recent image generation jobs (newest first)
+      responses:
+        "200":
+          description: Recent image jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ImageJob"
+  /ai/image-jobs/{jobId}:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      operationId: getImageJob
+      tags: [ai]
+      summary: Get one image generation job (poll until succeeded/failed)
+      responses:
+        "200":
+          description: The job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageJob"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/generate-video:
     post:
       operationId: generateVideo
@@ -9790,6 +9901,40 @@ components:
           type: string
         b64Json:
           type: string
+    ImageJob:
+      type: object
+      required: [id, status, prompt, size, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+          enum: [queued, processing, succeeded, failed]
+        prompt:
+          type: string
+        size:
+          type: string
+        brandKitId:
+          type: ["integer", "null"]
+        campaignId:
+          type: ["string", "null"]
+        platform:
+          type: ["string", "null"]
+        imagePath:
+          type: ["string", "null"]
+          description: Set when status is succeeded; render via /api/storage{imagePath}.
+        provider:
+          type: ["string", "null"]
+        model:
+          type: ["string", "null"]
+        error:
+          type: ["string", "null"]
+        durationMs:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
     VideoGenerateRequest:
       type: object
       required: [engine]
@@ -12083,6 +12228,7 @@ components:
           calendar,
           postMetrics,
           campaigns,
+          imageJobs,
         ]
       properties:
         aiStudio:
@@ -12134,6 +12280,8 @@ components:
         postMetrics:
           type: boolean
         campaigns:
+          type: boolean
+        imageJobs:
           type: boolean
     AiSpendSettingsView:
       type: object

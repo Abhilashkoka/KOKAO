@@ -13,6 +13,7 @@ import {
 import { and, eq, desc, ne, sql } from "drizzle-orm";
 import { getPlanLimits } from "../plans";
 import { slugify, buildDefaultPayload } from "./defaults";
+import { scheduleStyleCompile } from "./compiledStyle";
 
 /** Thrown when a tenant would exceed their plan's brand-kit allowance. */
 export class PlanLimitError extends Error {
@@ -266,7 +267,7 @@ export async function createKit(opts: CreateKitOptions) {
   payload.brand_controls.approval_status = "approved";
   const approvalStatus = payload.brand_controls.approval_status;
 
-  const kitId = await db.transaction(async (tx) => {
+  const { kitId, versionId } = await db.transaction(async (tx) => {
     const isFirst =
       (
         await tx
@@ -327,8 +328,12 @@ export async function createKit(opts: CreateKitOptions) {
         );
     }
 
-    return kit.id;
+    return { kitId: kit.id, versionId: version.id };
   });
+
+  // Precompile the reusable image art-direction text for this version in the
+  // background so the first image generation can skip the inline design pass.
+  scheduleStyleCompile(opts.tenantId, versionId, payload);
 
   return getKitDetail(opts.tenantId, kitId);
 }
@@ -349,7 +354,7 @@ export async function addVersion(opts: AddVersionOptions) {
   if (!kit) return null;
   const approvalStatus = opts.approvalStatus ?? opts.payload.brand_controls.approval_status;
 
-  await db.transaction(async (tx) => {
+  const created = await db.transaction(async (tx) => {
     const maxRow = (
       await tx
         .select({ max: sql<number>`coalesce(max(${brandKitVersionsTable.versionNumber}), 0)::int` })
@@ -385,7 +390,11 @@ export async function addVersion(opts: AddVersionOptions) {
         .set({ activeVersionId: version.id, status: "active" })
         .where(eq(brandKitsTable.id, opts.brandKitId));
     }
+
+    return version;
   });
+
+  scheduleStyleCompile(opts.tenantId, created.id, created.jsonPayload);
 
   return getKitDetail(opts.tenantId, opts.brandKitId);
 }
@@ -499,7 +508,12 @@ export async function deleteKit(tenantId: number, brandKitId: number) {
 export async function loadActivePayload(
   tenantId: number,
   brandKitId: number | null | undefined,
-): Promise<{ kit: BrandKit; payload: BrandKitPayload } | null> {
+): Promise<{
+  kit: BrandKit;
+  payload: BrandKitPayload;
+  /** Precompiled art-direction text for image prompts (null = not compiled). */
+  compiledStylePrompt: string | null;
+} | null> {
   if (!brandKitId) return null;
   const kit = await loadKit(tenantId, brandKitId);
   if (!kit) return null;
@@ -520,5 +534,9 @@ export async function loadActivePayload(
         .limit(1)
     )[0];
   if (!version) return null;
-  return { kit, payload: version.jsonPayload };
+  return {
+    kit,
+    payload: version.jsonPayload,
+    compiledStylePrompt: version.compiledStylePrompt ?? null,
+  };
 }

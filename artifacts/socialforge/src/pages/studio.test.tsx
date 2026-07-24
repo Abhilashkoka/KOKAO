@@ -94,6 +94,14 @@ vi.mock("wouter/use-browser-location", () => ({
   navigate: vi.fn(),
 }));
 
+// The SSE caption stream needs a real streaming fetch, which jsdom lacks.
+// Rejecting with a 404 drives studio through its JSON fallback path, which
+// is what these tests assert against.
+vi.mock("@/lib/captionStream", () => ({
+  streamCaptionRequest: () =>
+    Promise.reject(Object.assign(new Error("stream unavailable in tests"), { status: 404 })),
+}));
+
 // Resilient mock: unknown hooks fall back to an idle stub, so adding a new
 // hook to studio.tsx does not break these tests.
 vi.mock("@workspace/api-client-react", async () => {
@@ -143,6 +151,11 @@ vi.mock("@workspace/api-client-react", async () => {
     useGetInstagramCredentials: () => ({ data: mockState.connections.instagram, isLoading: false }),
     useGetLinkedinStatus: () => ({ data: mockState.connections.linkedin, isLoading: false }),
     useGetTwitterStatus: () => ({ data: mockState.connections.twitter, isLoading: false }),
+    // Async image jobs report "route disabled" so studio falls back to the
+    // sync useGenerateImage path these tests drive.
+    generateImageAsync: async () => {
+      throw Object.assign(new Error("async jobs unavailable in tests"), { status: 404 });
+    },
   });
 });
 

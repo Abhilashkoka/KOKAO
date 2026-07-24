@@ -33,6 +33,7 @@ const ALL_ON: FeatureFlags = {
   calendar: true,
   postMetrics: true,
   campaigns: true,
+  imageJobs: true,
 };
 
 /**

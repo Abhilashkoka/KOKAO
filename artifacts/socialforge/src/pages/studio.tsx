@@ -27,10 +27,15 @@ import {
   getListContentQueryKey,
   getGetMeQueryKey,
   getGetAiSpendRatesQueryKey,
+  generateImageAsync,
+  getImageJob,
   type BrandKit,
   type CampaignPost,
   type ResearchResult,
+  type CaptionResult as CaptionResultType,
+  type ImageRequest,
 } from "@workspace/api-client-react";
+import { streamCaptionRequest } from "@/lib/captionStream";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -310,6 +315,13 @@ function ImageStudio() {
   const [captionTweak, setCaptionTweak] = useState<string | null>(null);
   const [imageResult, setImageResult] = useState<{ imagePath: string; b64Json: string | null } | null>(null);
   const [imageTweak, setImageTweak] = useState<string | null>(null);
+  // True while the SSE caption stream is open (useGenerateCaption.isPending
+  // only covers the JSON fallback path).
+  const [captionStreaming, setCaptionStreaming] = useState(false);
+  // True while a background image job is queued/running (imageJobs flag path).
+  const [imageJobBusy, setImageJobBusy] = useState(false);
+  // True while "Generate all images" is running across campaign platforms.
+  const [campaignBulkBusy, setCampaignBulkBusy] = useState(false);
   const [campaignPosts, setCampaignPosts] = useState<CampaignPost[] | null>(null);
   const [campaignImages, setCampaignImages] = useState<Record<string, GeneratedImage>>({});
   const [pendingCampaignImage, setPendingCampaignImage] = useState<{ platform: string; image: GeneratedImage } | null>(null);
@@ -832,40 +844,53 @@ function ImageStudio() {
     const tweakInstruction = tweak
       ? ` ${CAPTION_TWEAKS.find((t) => t.label === tweak)?.instruction ?? tweak}`
       : "";
-    generateCaption.mutate(
-      {
-        data: {
-          prompt: `${data.prompt.trim()}${tweakInstruction}`,
-          platform: activePlatform,
-          brandKitId: data.brandKitId || undefined,
-          tone: data.tone,
-        },
-      },
-      {
-        onSuccess: (res) => {
-          setCampaignPosts(null);
-          setCarousel(null);
-          if (res.clarifyingQuestions && res.clarifyingQuestions.length > 0) {
-            setBriefQuestions(res.clarifyingQuestions);
-            setCaptionResult(null);
-            toast({
-              title: "A bit more detail needed",
-              description: "Answer the questions shown in Results, then generate again. Nothing was charged.",
-            });
-            return;
-          }
-          setBriefQuestions(null);
-          setCaptionResult(res);
-          setCaptionPlatform(activePlatform);
-          refreshQuota();
-          upsertDraft(res, imageResult);
-          track("caption_generated", { category: "content", outcome: "success" });
-          trackFeatureUse("studio_caption");
-          toast({ title: "Caption generated!", description: "Auto-saved to your library as a draft." });
-        },
-        onError: handleError,
-      },
-    );
+    const body = {
+      prompt: `${data.prompt.trim()}${tweakInstruction}`,
+      platform: activePlatform,
+      brandKitId: data.brandKitId || undefined,
+      tone: data.tone,
+    };
+    const onCaptionSuccess = (res: CaptionResultType) => {
+      setCampaignPosts(null);
+      setCarousel(null);
+      if (res.clarifyingQuestions && res.clarifyingQuestions.length > 0) {
+        setBriefQuestions(res.clarifyingQuestions);
+        setCaptionResult(null);
+        toast({
+          title: "A bit more detail needed",
+          description: "Answer the questions shown in Results, then generate again. Nothing was charged.",
+        });
+        return;
+      }
+      setBriefQuestions(null);
+      setCaptionResult(res);
+      setCaptionPlatform(activePlatform);
+      refreshQuota();
+      upsertDraft(res, imageResult);
+      track("caption_generated", { category: "content", outcome: "success" });
+      trackFeatureUse("studio_caption");
+      toast({ title: "Caption generated!", description: "Auto-saved to your library as a draft." });
+    };
+    // Prefer the SSE endpoint so text appears as it is generated; fall back
+    // to the JSON endpoint if the stream route is unavailable.
+    setCaptionStreaming(true);
+    streamCaptionRequest(body, (textSoFar) => {
+      setCampaignPosts(null);
+      setCarousel(null);
+      setBriefQuestions(null);
+      setCaptionPlatform(activePlatform);
+      setCaptionResult({ caption: textSoFar, hashtags: [] });
+    })
+      .then(onCaptionSuccess)
+      .catch((err) => {
+        if (err?.status === 404 || err?.status === 405) {
+          generateCaption.mutate({ data: body }, { onSuccess: onCaptionSuccess, onError: handleError });
+          return;
+        }
+        setCaptionResult(null);
+        handleError(err);
+      })
+      .finally(() => setCaptionStreaming(false));
   };
 
   const onGenerateCaption = (data: z.infer<typeof schema>) => runGenerateCaption(data, null);
@@ -884,31 +909,66 @@ function ImageStudio() {
     const tweakInstruction = tweak
       ? ` ${IMAGE_TWEAKS.find((t) => t.label === tweak)?.instruction ?? tweak}`
       : "";
-    generateImage.mutate(
-      {
-        data: {
-          prompt: `${data.prompt.trim()}${tweakInstruction}`,
-          size: activeImageSize,
-          brandKitId: data.brandKitId || undefined,
-          referenceImagePath:
-            flags.referenceImages && referenceImagePath ? referenceImagePath : undefined,
-        },
-      },
-      {
-        onSuccess: (res) => {
-          setCampaignPosts(null);
-          setCarousel(null);
-          setBriefQuestions(null);
-          setImageResult(res);
-          refreshQuota();
-          upsertDraft(captionResult, res);
-          track("image_generated", { category: "content", outcome: "success" });
-          trackFeatureUse("studio_image");
-          toast({ title: "Image generated!", description: "Auto-saved to your library as a draft." });
-        },
-        onError: handleError,
-      },
-    );
+    const body: ImageRequest = {
+      prompt: `${data.prompt.trim()}${tweakInstruction}`,
+      size: activeImageSize,
+      brandKitId: data.brandKitId || undefined,
+      referenceImagePath:
+        flags.referenceImages && referenceImagePath ? referenceImagePath : undefined,
+    };
+    const onImageSuccess = (res: { imagePath: string; b64Json: string | null }) => {
+      setCampaignPosts(null);
+      setCarousel(null);
+      setBriefQuestions(null);
+      setImageResult(res);
+      refreshQuota();
+      upsertDraft(captionResult, res);
+      track("image_generated", { category: "content", outcome: "success" });
+      trackFeatureUse("studio_image");
+      toast({ title: "Image generated!", description: "Auto-saved to your library as a draft." });
+    };
+    if (flags.imageJobs) {
+      runImageJob(body)
+        .then(onImageSuccess)
+        .catch((err) => {
+          if (err?.status === 404) {
+            // Async jobs disabled server-side — fall back to the sync route.
+            generateImage.mutate({ data: body }, { onSuccess: onImageSuccess, onError: handleError });
+            return;
+          }
+          handleError(err);
+        });
+      return;
+    }
+    generateImage.mutate({ data: body }, { onSuccess: onImageSuccess, onError: handleError });
+  };
+
+  /**
+   * Background image generation (imageJobs kill switch): enqueue the job,
+   * then poll until it finishes. Metering/refunds happen server-side in the
+   * job runner, so quota behavior matches the sync route exactly.
+   */
+  const runImageJob = async (body: ImageRequest): Promise<{ imagePath: string; b64Json: string | null }> => {
+    setImageJobBusy(true);
+    try {
+      const job = await generateImageAsync(body);
+      const startedAt = Date.now();
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const latest = await getImageJob(job.id);
+        if (latest.status === "succeeded" && latest.imagePath) {
+          return { imagePath: latest.imagePath, b64Json: null };
+        }
+        if (latest.status === "failed") {
+          throw new Error(latest.error || "Image generation failed. Nothing was charged.");
+        }
+        if (Date.now() - startedAt > 5 * 60_000) {
+          throw new Error("Image generation is taking longer than expected. Please try again.");
+        }
+      }
+    } finally {
+      setImageJobBusy(false);
+    }
   };
 
   const onGenerateImage = (data: z.infer<typeof schema>) => runGenerateImage(data, null);
@@ -1117,6 +1177,58 @@ function ImageStudio() {
     );
   };
 
+  /**
+   * Generate images for every campaign platform that doesn't have one yet,
+   * up to 3 at a time. Each image is metered individually (same as clicking
+   * the per-card button); results apply directly to their platform without
+   * the "apply to all?" dialog.
+   */
+  const generateAllCampaignImages = async () => {
+    if (!campaignPosts) return;
+    const brandKitId = form.getValues().brandKitId || undefined;
+    const targets = campaignPosts.filter((p) => !campaignImages[p.platform]);
+    if (targets.length === 0) return;
+    setCampaignBulkBusy(true);
+    let failures = 0;
+    let firstError: unknown = null;
+    const queue = [...targets];
+    const worker = async () => {
+      for (;;) {
+        const post = queue.shift();
+        if (!post) return;
+        try {
+          const res = await generateImage.mutateAsync({
+            data: {
+              prompt: (post.imagePrompt || post.caption).trim(),
+              brandKitId,
+            },
+          });
+          setCampaignImages((prev) => ({ ...prev, [post.platform]: res }));
+        } catch (err) {
+          failures += 1;
+          if (!firstError) firstError = err;
+        }
+      }
+    };
+    try {
+      await Promise.all(Array.from({ length: Math.min(3, targets.length) }, worker));
+    } finally {
+      setCampaignBulkBusy(false);
+    }
+    refreshQuota();
+    if (failures > 0) {
+      handleError(firstError);
+      if (failures < targets.length) {
+        toast({
+          title: "Some images finished",
+          description: `${targets.length - failures} of ${targets.length} images were generated.`,
+        });
+      }
+    } else {
+      toast({ title: "All campaign images generated!" });
+    }
+  };
+
   const handleCampaignImageGenerated = (platform: string, image: GeneratedImage) => {
     if ((campaignPosts?.length ?? 0) <= 1) {
       setCampaignImages((prev) => ({ ...prev, [platform]: image }));
@@ -1214,7 +1326,10 @@ function ImageStudio() {
 
   const isPending =
     generateCaption.isPending ||
+    captionStreaming ||
     generateImage.isPending ||
+    imageJobBusy ||
+    campaignBulkBusy ||
     generateCampaign.isPending ||
     generateCarousel.isPending ||
     researchTopic.isPending ||
@@ -1754,7 +1869,7 @@ function ImageStudio() {
                         disabled={isPending}
                         data-testid="button-generate-caption"
                       >
-                        {generateCaption.isPending ? (
+                        {generateCaption.isPending || captionStreaming ? (
                           <RippleSpinner className="mr-2 h-4 w-4" />
                         ) : (
                           <Wand2 className="mr-2 h-4 w-4" />
@@ -1769,7 +1884,7 @@ function ImageStudio() {
                         title={imageLimitHint}
                         data-testid="button-generate-image"
                       >
-                        {generateImage.isPending ? (
+                        {generateImage.isPending || imageJobBusy ? (
                           <RippleSpinner className="mr-2 h-4 w-4" />
                         ) : (
                           <ImageIcon className="mr-2 h-4 w-4" />
@@ -1937,6 +2052,23 @@ function ImageStudio() {
                     testId="text-ai-spent-campaign"
                   />
                 </div>
+                {campaignPosts.some((p) => !campaignImages[p.platform]) && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={isPending || imagesExhausted}
+                    title={imageLimitHint}
+                    onClick={generateAllCampaignImages}
+                    data-testid="button-generate-all-campaign-images"
+                  >
+                    {campaignBulkBusy ? (
+                      <RippleSpinner className="mr-2 h-4 w-4" />
+                    ) : (
+                      <ImageIcon className="mr-2 h-4 w-4" />
+                    )}
+                    Generate all images
+                  </Button>
+                )}
               </div>
               {campaignPosts.map((post) => (
                 <CampaignPostCard
@@ -1990,7 +2122,7 @@ function ImageStudio() {
                 </div>
               </CardHeader>
               <CardContent className="p-0 flex-1 bg-muted/10">
-                {(generateCaption.isPending || generateImage.isPending || generateCampaign.isPending || generateCarousel.isPending) &&
+                {(generateCaption.isPending || captionStreaming || generateImage.isPending || imageJobBusy || generateCampaign.isPending || generateCarousel.isPending) &&
                 !hasSingleResult ? (
                   <div className="h-full min-h-[400px] flex items-center justify-center p-8">
                     <LogoLoader
@@ -1999,7 +2131,7 @@ function ImageStudio() {
                           ? "Generating your carousel..."
                           : generateCampaign.isPending
                             ? "Generating your campaign..."
-                            : generateImage.isPending
+                            : generateImage.isPending || imageJobBusy
                               ? "Generating your image..."
                               : "Generating your caption..."
                       }
@@ -2070,7 +2202,7 @@ function ImageStudio() {
                             onClick={form.handleSubmit((data) => runGenerateImage(data, null))}
                             data-testid="button-regenerate-image"
                           >
-                            {generateImage.isPending ? (
+                            {generateImage.isPending || imageJobBusy ? (
                               <RippleSpinner className="mr-2 h-4 w-4" />
                             ) : (
                               <RefreshCw className="mr-2 h-4 w-4" />
@@ -2165,7 +2297,7 @@ function ImageStudio() {
                             onClick={form.handleSubmit((data) => runGenerateCaption(data, null))}
                             data-testid="button-regenerate-caption"
                           >
-                            {generateCaption.isPending ? (
+                            {generateCaption.isPending || captionStreaming ? (
                               <RippleSpinner className="mr-2 h-4 w-4" />
                             ) : (
                               <RefreshCw className="mr-2 h-4 w-4" />

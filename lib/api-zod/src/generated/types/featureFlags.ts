@@ -35,4 +35,5 @@ export interface FeatureFlags {
   calendar: boolean;
   postMetrics: boolean;
   campaigns: boolean;
+  imageJobs: boolean;
 }

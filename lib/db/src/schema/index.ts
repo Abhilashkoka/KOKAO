@@ -14,6 +14,7 @@ export * from "./asrSettings";
 export * from "./imageGenSettings";
 export * from "./videoGenSettings";
 export * from "./videoGenerations";
+export * from "./imageGenerations";
 export * from "./textGenSettings";
 export * from "./emailSettings";
 export * from "./designSkillSettings";

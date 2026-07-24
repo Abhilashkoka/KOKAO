@@ -108,6 +108,12 @@ export const FEATURES = [
       "AI video generation (text-to-video, image-to-video), photo slideshows, and Google Drive photo import.",
   },
   {
+    id: "imageJobs",
+    label: "Background Image Jobs",
+    description:
+      "Async AI image generation in AI Studio: images render as background jobs the browser polls, instead of one long blocking request. When off, the studio falls back to synchronous generation.",
+  },
+  {
     id: "signupCredits",
     label: "Signup Credits",
     description:

@@ -28,6 +28,13 @@ export const brandKitVersionsTable = pgTable(
     // "draft" | "approved" | "archived"
     approvalStatus: text("approval_status").notNull().default("draft"),
     jsonPayload: jsonb("json_payload").$type<BrandKitPayload>().notNull(),
+    /**
+     * Precompiled art-direction guidance for image generation, produced once
+     * per version by a background text-model pass right after the version is
+     * created. Null = not compiled (compute inline as before). Versions are
+     * immutable, so this never goes stale — edits create a new version.
+     */
+    compiledStylePrompt: text("compiled_style_prompt"),
     createdBy: text("created_by"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

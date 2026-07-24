@@ -37,6 +37,7 @@ import {
   type TextGenClient,
 } from "../lib/textGen";
 import { buildTasteGuidance } from "../lib/tasteMemory";
+import { performImageGeneration } from "../lib/imageGeneration";
 import {
   buildTextCostMeta,
   buildImageCostMeta,
@@ -246,6 +247,65 @@ function parseClarifyingQuestions(obj: unknown): string[] | null {
   return questions.length > 0 ? questions : null;
 }
 
+/**
+ * Assemble the RICE system prompt for a single-caption request. The brand
+ * lookup and taste-memory read are independent, so they run in parallel.
+ * Shared by the JSON and the SSE streaming caption endpoints.
+ */
+async function buildCaptionSystemPrompt(
+  tenantId: number,
+  data: {
+    platform?: string | null;
+    tone?: string | null;
+    brandKitId?: number | null;
+  },
+): Promise<{ systemPrompt: string; platform: string }> {
+  const [brand, taste] = await Promise.all([
+    loadBrandPayload(tenantId, data.brandKitId ?? null),
+    // Taste memory: learned preferences are soft guidance placed under
+    // Examples, AFTER the brand kit rules, so brand rules and the user's
+    // explicit prompt still win.
+    buildTasteGuidance(tenantId),
+  ]);
+  const platform = data.platform ?? "instagram";
+  const tone = data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
+
+  const context: string[] = [`Target platform: ${platform}.`, `Tone/voice: ${tone}.`];
+  const constraints: string[] = [...HUMAN_EXPERT_CONSTRAINTS];
+  if (brand) {
+    context.push(`Brand name: ${brand.identity.brand_name}.`);
+    if (brand.identity.tagline) context.push(`Brand tagline: ${brand.identity.tagline}.`);
+    if (brand.voice.dos.length > 0) {
+      constraints.push(`Voice do's: ${brand.voice.dos.slice(0, 5).join("; ")}.`);
+    }
+    if (brand.voice.donts.length > 0) {
+      constraints.push(`Voice don'ts: ${brand.voice.donts.slice(0, 5).join("; ")}.`);
+    }
+    if (brand.brand_controls.restricted_terms.length > 0) {
+      constraints.push(
+        `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
+      );
+    }
+  }
+
+  const systemPrompt = buildRicePrompt({
+    role: `You are a senior ${platform} copywriter with a decade of hands-on experience writing high-performing posts in this exact niche.`,
+    instruction: [
+      CLARIFY_RULE,
+      `Otherwise, write one ${platform} caption based on the user's creative brief, plus a short creative-brief title (3-8 words) naming the idea.`,
+    ],
+    context,
+    examples: taste.captionLines,
+    constraints,
+    outputFormat: [
+      'Respond ONLY with strict JSON of the form {"title": string, "caption": string, "hashtags": string[]}.',
+      "Hashtags must not include the # symbol. Provide 5-12 relevant hashtags.",
+      'If (and only if) the brief is too thin, respond instead with {"clarifyingQuestions": string[]}.',
+    ],
+  });
+  return { systemPrompt, platform };
+}
+
 router.post("/ai/generate-caption", async (req: Request, res: Response) => {
   const parsed = GenerateCaptionBody.safeParse(req.body);
   if (!parsed.success) {
@@ -279,47 +339,10 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
     return;
   }
 
-  const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
-  const platform = parsed.data.platform ?? "instagram";
-  const tone = parsed.data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
-
-  const context: string[] = [`Target platform: ${platform}.`, `Tone/voice: ${tone}.`];
-  const constraints: string[] = [...HUMAN_EXPERT_CONSTRAINTS];
-  if (brand) {
-    context.push(`Brand name: ${brand.identity.brand_name}.`);
-    if (brand.identity.tagline) context.push(`Brand tagline: ${brand.identity.tagline}.`);
-    if (brand.voice.dos.length > 0) {
-      constraints.push(`Voice do's: ${brand.voice.dos.slice(0, 5).join("; ")}.`);
-    }
-    if (brand.voice.donts.length > 0) {
-      constraints.push(`Voice don'ts: ${brand.voice.donts.slice(0, 5).join("; ")}.`);
-    }
-    if (brand.brand_controls.restricted_terms.length > 0) {
-      constraints.push(
-        `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
-      );
-    }
-  }
-  // Taste memory: learned preferences are soft guidance placed under
-  // Examples, AFTER the brand kit rules, so brand rules and the user's
-  // explicit prompt still win.
-  const taste = await buildTasteGuidance(req.tenantId);
-
-  const systemPrompt = buildRicePrompt({
-    role: `You are a senior ${platform} copywriter with a decade of hands-on experience writing high-performing posts in this exact niche.`,
-    instruction: [
-      CLARIFY_RULE,
-      `Otherwise, write one ${platform} caption based on the user's creative brief, plus a short creative-brief title (3-8 words) naming the idea.`,
-    ],
-    context,
-    examples: taste.captionLines,
-    constraints,
-    outputFormat: [
-      'Respond ONLY with strict JSON of the form {"title": string, "caption": string, "hashtags": string[]}.',
-      "Hashtags must not include the # symbol. Provide 5-12 relevant hashtags.",
-      'If (and only if) the brief is too thin, respond instead with {"clarifyingQuestions": string[]}.',
-    ],
-  });
+  const { systemPrompt, platform } = await buildCaptionSystemPrompt(
+    req.tenantId,
+    parsed.data,
+  );
 
   const startedAt = Date.now();
   try {
@@ -372,6 +395,208 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
     await releaseFunding(req, captionFunding, "caption");
     req.log.error({ err: error }, "Caption generation failed");
     res.status(500).json({ error: "Failed to generate caption" });
+  }
+});
+
+/**
+ * Incrementally extract the value of the "caption" string field from a
+ * partially received JSON document, so caption text can be streamed to the
+ * client word-by-word while the model is still emitting the rest of the JSON.
+ * Returns the caption text decoded so far (unescaped) and whether the closing
+ * quote has been seen.
+ */
+export function extractPartialCaption(raw: string): {
+  text: string;
+  done: boolean;
+} {
+  const keyMatch = /"caption"\s*:\s*"/.exec(raw);
+  if (!keyMatch) return { text: "", done: false };
+  let out = "";
+  let i = keyMatch.index + keyMatch[0].length;
+  while (i < raw.length) {
+    const ch = raw[i]!;
+    if (ch === "\\") {
+      const next = raw[i + 1];
+      if (next === undefined) break; // escape split across chunks; wait
+      if (next === "n") out += "\n";
+      else if (next === "t") out += "\t";
+      else if (next === "r") out += "\r";
+      else if (next === "u") {
+        const hex = raw.slice(i + 2, i + 6);
+        if (hex.length < 4) break;
+        const code = Number.parseInt(hex, 16);
+        if (!Number.isNaN(code)) out += String.fromCharCode(code);
+        i += 6;
+        continue;
+      } else out += next;
+      i += 2;
+      continue;
+    }
+    if (ch === '"') return { text: out, done: true };
+    out += ch;
+    i += 1;
+  }
+  return { text: out, done: false };
+}
+
+/**
+ * POST /ai/generate-caption/stream — the SSE variant of caption generation.
+ *
+ * Contract: funding is reserved BEFORE the stream starts (same 402 rules).
+ * Events are SSE `data:` lines of JSON:
+ *   {type:"delta", text}      — newly available caption text
+ *   {type:"result", caption, hashtags, title?, clarifyingQuestions?} — final
+ *   {type:"error", message}   — terminal failure
+ * Funding settles on a successful result, and is released on clarify, error,
+ * or client disconnect mid-stream. The JSON endpoint above stays unchanged
+ * for mobile and any non-SSE client.
+ */
+router.post("/ai/generate-caption/stream", async (req: Request, res: Response) => {
+  const parsed = GenerateCaptionBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+
+  const tenant = await loadTenant(req.tenantId);
+  if (!tenant) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+  if (!textGen) return;
+
+  const limits = await getPlanLimits(tenant.plan);
+  const usage = await getUsage(req.tenantId);
+  const captionFunding = await reserveFunding(
+    req.tenantId,
+    limits.captions,
+    usage.captions,
+    "caption",
+  );
+  if (!captionFunding) {
+    res.status(402).json({
+      error:
+        "Monthly caption quota reached and no caption credits left. Upgrade your plan or buy a credit pack.",
+    });
+    return;
+  }
+
+  const { systemPrompt, platform } = await buildCaptionSystemPrompt(
+    req.tenantId,
+    parsed.data,
+  );
+
+  res.status(200);
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+  const send = (event: Record<string, unknown>) => {
+    if (!res.writableEnded) res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+
+  // Exactly one funding settlement per request, no matter how the stream
+  // ends (result, clarify, error, or the client going away mid-stream).
+  let fundingResolved = false;
+  const releaseOnce = async () => {
+    if (fundingResolved) return;
+    fundingResolved = true;
+    await releaseFunding(req, captionFunding, "caption");
+  };
+
+  const startedAt = Date.now();
+  let raw = "";
+  let sent = 0;
+  const settleOnce = async () => {
+    if (fundingResolved) return;
+    fundingResolved = true;
+    await settleFunding(req, captionFunding, "caption", {
+      requestBytes: Buffer.byteLength(systemPrompt + parsed.data.prompt),
+      responseBytes: Buffer.byteLength(raw),
+      durationMs: Date.now() - startedAt,
+      model: textGen.model,
+      platform,
+    });
+  };
+
+  const abort = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) {
+      // Client disconnected mid-stream: stop paying the model. If caption
+      // text was already delivered via deltas, the generation was consumed —
+      // settle it (refunding here would let clients read the caption and
+      // disconnect before the final event to dodge the charge). Only refund
+      // when nothing usable was delivered.
+      abort.abort();
+      if (sent > 0) {
+        void settleOnce();
+      } else {
+        void releaseOnce();
+      }
+    }
+  });
+
+  try {
+    const stream = await textGen.client.chat.completions.create(
+      {
+        model: textGen.model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: parsed.data.prompt },
+        ],
+        max_completion_tokens: 8192,
+        response_format: { type: "json_object" },
+        stream: true,
+        ...usageAccountingParams(textGen.provider),
+      },
+      { signal: abort.signal },
+    );
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content ?? "";
+      if (!delta) continue;
+      raw += delta;
+      const partial = extractPartialCaption(raw);
+      if (partial.text.length > sent) {
+        send({ type: "delta", text: partial.text.slice(sent) });
+        sent = partial.text.length;
+      }
+    }
+
+    let caption = "";
+    let title = "";
+    let hashtags: string[] = [];
+    let clarifyingQuestions: string[] | null = null;
+    try {
+      const obj = JSON.parse(raw) as { caption?: string; title?: string; hashtags?: unknown };
+      clarifyingQuestions = parseClarifyingQuestions(obj);
+      caption = typeof obj.caption === "string" ? obj.caption : "";
+      title = typeof obj.title === "string" ? obj.title : "";
+      hashtags = Array.isArray(obj.hashtags)
+        ? obj.hashtags.map((h) => String(h).replace(/^#/, "")).filter(Boolean)
+        : [];
+    } catch {
+      caption = raw;
+    }
+
+    if (clarifyingQuestions && !caption) {
+      await releaseOnce();
+      send({ type: "result", caption: "", hashtags: [], clarifyingQuestions });
+      res.end();
+      return;
+    }
+
+    await settleOnce();
+    send({ type: "result", caption, hashtags, ...(title ? { title } : {}) });
+    res.end();
+  } catch (error) {
+    await releaseOnce();
+    if (!abort.signal.aborted) {
+      req.log.error({ err: error }, "Streaming caption generation failed");
+    }
+    send({ type: "error", message: "Failed to generate caption" });
+    res.end();
   }
 });
 
@@ -429,116 +654,27 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
     return;
   }
 
-  const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
   const size = parsed.data.size ?? "1024x1024";
 
-  // Base prompt (also the fallback if the design skill is off or fails):
-  // the user's brief plus lightweight brand hints.
-  let prompt = parsed.data.prompt;
-  if (brand) {
-    const palette = colorHint(brand);
-    const imagery = brand.visual_style.imagery_style.slice(0, 3).join(", ");
-    if (palette) prompt += `. Brand palette: ${palette}.`;
-    if (imagery) prompt += ` Imagery style: ${imagery}.`;
-    prompt += ` Cohesive with a ${voiceHint(brand)} brand aesthetic.`;
-  }
-
-  // Taste memory: soft style hint from previously approved image prompts.
-  const imageTaste = await buildTasteGuidance(req.tenantId);
-  if (imageTaste.imageHint) prompt += imageTaste.imageHint;
-
-  // Text-model passes below fail soft: if the routed text-gen provider is
-  // unconfigured, image generation continues with the base prompt.
-  const softTextGen = await getTextGenClient(tenant.aiModel).catch(() => null);
-
-  // Canvas-design skill: when enabled, a text-model pass first writes a design
-  // philosophy and compiles it into an art-directed prompt (brand elements are
-  // mandatory input when a brand kit applies). Fails soft to the base prompt.
-  if (softTextGen && (await isDesignSkillEnabledFor(tenant))) {
-    const designed = await buildDesignedImagePrompt({
-      client: softTextGen.client,
-      model: softTextGen.model,
-      userPrompt: parsed.data.prompt,
-      brand,
-      fallbackPrompt: prompt,
-    });
-    prompt = designed.imagePrompt;
-    if (designed.enriched) {
-      req.log.info(
-        { philosophy: designed.philosophy },
-        "Design skill enriched image prompt",
-      );
-    }
-  }
-
-  // Reference guide: a vision pass distills the uploaded image into a short
-  // style guide appended AFTER the design skill so it always survives prompt
-  // rewriting. Fails soft (null) — the raw image still reaches providers that
-  // support image input.
-  if (referenceImage) {
-    const guide = softTextGen
-      ? await buildReferenceGuide({
-          client: softTextGen.client,
-          model: softTextGen.model,
-          image: referenceImage,
-        })
-      : null;
-    if (guide) {
-      prompt += ` Match the style of the user's reference image: ${guide}`;
-    } else {
-      prompt += " Match the overall style, palette, and mood of the user's reference image.";
-    }
-  }
-
-  const startedAt = Date.now();
   try {
-    const {
-      buffer: rawBuffer,
-      model: imageModel,
-      provider: imageProvider,
-      usage: imageUsage,
-    } = await generateImage(prompt, size, referenceImage ?? undefined);
-
-    // Free-plan workspaces get a "Made with KOKAO.in" stamp, platform-wide
-    // switch "freeWatermark" (admin Feature Controls). The switch is
-    // default-ON, so a transient flag-read error fails OPEN (watermark
-    // applied); compositing errors fail soft to the original image.
-    // Character/outfit reference images are deliberately NOT watermarked —
-    // they are inputs to future generations and a stamp would bleed into
-    // every image made from them.
-    const wantWatermark =
-      tenant.plan === "free" &&
-      (await isFeatureEnabled("freeWatermark").catch(() => true));
-    const buffer = wantWatermark ? await applyMadeWithWatermark(rawBuffer) : rawBuffer;
-
-    const uploadURL = await objectStorageService.getObjectEntityUploadURL(req.tenantId);
-    const putRes = await fetch(uploadURL, {
-      method: "PUT",
-      headers: { "Content-Type": "image/png" },
-      body: new Uint8Array(buffer),
-      signal: AbortSignal.timeout(30_000),
+    // Shared pipeline: parallel prompt passes (taste, design skill or the
+    // precompiled brand style, reference guide) -> provider -> watermark ->
+    // storage. See lib/imageGeneration.ts.
+    const outcome = await performImageGeneration({
+      tenantId: req.tenantId,
+      tenant,
+      userPrompt: parsed.data.prompt,
+      size,
+      brandKitId: parsed.data.brandKitId ?? null,
+      referenceImage,
     });
-    if (!putRes.ok) {
-      throw new Error(`Upload failed with status ${putRes.status}`);
-    }
-    const imagePath = objectStorageService.normalizeObjectEntityPath(uploadURL);
 
-    const b64Json = buffer.toString("base64");
     await settleFunding(req, imageFunding, "image", {
-      // Prompt in, stored image + base64 preview out.
-      requestBytes: Buffer.byteLength(prompt),
-      responseBytes: buffer.length + Buffer.byteLength(b64Json),
-      durationMs: Date.now() - startedAt,
-      model: imageModel,
+      ...outcome.meta,
       campaignId: parsed.data.campaignId ?? undefined,
       platform: parsed.data.platform ?? undefined,
-      ...(await buildImageCostMeta({
-        provider: imageProvider,
-        model: imageModel,
-        usage: imageUsage,
-      })),
     });
-    res.json({ imagePath, b64Json });
+    res.json({ imagePath: outcome.imagePath, b64Json: outcome.b64Json });
   } catch (error) {
     await releaseFunding(req, imageFunding, "image");
     req.log.error({ err: error }, "Image generation failed");

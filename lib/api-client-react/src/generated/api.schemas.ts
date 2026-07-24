@@ -2366,6 +2366,44 @@ export interface ImageResult {
   b64Json: string;
 }
 
+export type ImageJobStatus = typeof ImageJobStatus[keyof typeof ImageJobStatus];
+
+
+export const ImageJobStatus = {
+  queued: 'queued',
+  processing: 'processing',
+  succeeded: 'succeeded',
+  failed: 'failed',
+} as const;
+
+export interface ImageJob {
+  id: number;
+  status: ImageJobStatus;
+  prompt: string;
+  size: string;
+  /** @nullable */
+  brandKitId?: number | null;
+  /** @nullable */
+  campaignId?: string | null;
+  /** @nullable */
+  platform?: string | null;
+  /**
+     * Set when status is succeeded; render via /api/storage{imagePath}.
+     * @nullable
+     */
+  imagePath?: string | null;
+  /** @nullable */
+  provider?: string | null;
+  /** @nullable */
+  model?: string | null;
+  /** @nullable */
+  error?: string | null;
+  /** @nullable */
+  durationMs?: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type VideoGenerateRequestEngine = typeof VideoGenerateRequestEngine[keyof typeof VideoGenerateRequestEngine];
 
 
@@ -4155,6 +4193,7 @@ export interface FeatureFlags {
   calendar: boolean;
   postMetrics: boolean;
   campaigns: boolean;
+  imageJobs: boolean;
 }
 
 /**

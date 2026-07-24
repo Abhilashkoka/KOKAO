@@ -10,6 +10,7 @@ import onboardingRouter from "./onboarding";
 import contentRouter from "./content";
 import aiRouter from "./ai";
 import videosRouter from "./videos";
+import imageJobsRouter from "./imageJobs";
 import charactersRouter from "./characters";
 import assetsRouter from "./assets";
 import googleDriveRouter, { googleDriveCallbackRouter } from "./googleDrive";
@@ -92,6 +93,10 @@ router.use("/ai/generate-carousel", requireFeature("carousel"));
 // import exists solely for it, so it shares the switch.
 router.use("/ai/generate-video", requireFeature("videoGen"));
 router.use("/ai/video-jobs", requireFeature("videoGen"));
+// Async image jobs: own kill switch on top of the /ai gate; when off, the
+// studio falls back to the synchronous generate-image route.
+router.use("/ai/generate-image-async", requireFeature("imageJobs"));
+router.use("/ai/image-jobs", requireFeature("imageJobs"));
 router.use("/google-drive", requireFeature("videoGen"));
 // Characters exist for the Video Studio, so they share its kill switch.
 router.use("/characters", requireFeature("videoGen"));
@@ -145,6 +150,7 @@ router.use(contentRouter);
 router.use(metricsRouter);
 router.use(campaignsRouter);
 router.use(aiRouter);
+router.use(imageJobsRouter);
 router.use(videosRouter);
 router.use(charactersRouter);
 router.use(assetsRouter);

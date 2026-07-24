@@ -150,6 +150,7 @@ import type {
   HealthReportOverview,
   HealthStatus,
   ImageGenSettingsView,
+  ImageJob,
   ImageRequest,
   ImageResult,
   ImportDriveFilesRequest,
@@ -7798,6 +7799,302 @@ export const useGenerateImage = <TError = ErrorType<ErrorEnvelope>,
       > => {
       return useMutation(getGenerateImageMutationOptions(options));
     }
+
+export const getStreamCaptionUrl = () => {
+
+
+
+
+  return `/api/ai/generate-caption/stream`
+}
+
+/**
+ * SSE variant of generateCaption for lower perceived latency. Emits `data:` lines of JSON events: {type:"delta", text} as caption text becomes available, then a terminal {type:"result", caption, hashtags, title?, clarifyingQuestions?} or {type:"error", message}. Quota and credit behavior is identical to generateCaption; a client disconnect mid-stream releases the reserved funding.
+ * @summary Generate an AI caption as a Server-Sent Events stream
+ */
+export const streamCaption = async (captionRequest: CaptionRequest, options?: RequestInit): Promise<string> => {
+
+  return customFetch<string>(getStreamCaptionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(captionRequest)
+  }
+);}
+
+
+
+
+export const getStreamCaptionMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof streamCaption>>, TError,{data: BodyType<CaptionRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof streamCaption>>, TError,{data: BodyType<CaptionRequest>}, TContext> => {
+
+const mutationKey = ['streamCaption'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof streamCaption>>, {data: BodyType<CaptionRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  streamCaption(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StreamCaptionMutationResult = NonNullable<Awaited<ReturnType<typeof streamCaption>>>
+    export type StreamCaptionMutationBody = BodyType<CaptionRequest>
+    export type StreamCaptionMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Generate an AI caption as a Server-Sent Events stream
+ */
+export const useStreamCaption = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof streamCaption>>, TError,{data: BodyType<CaptionRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof streamCaption>>,
+        TError,
+        {data: BodyType<CaptionRequest>},
+        TContext
+      > => {
+      return useMutation(getStreamCaptionMutationOptions(options));
+    }
+
+export const getGenerateImageAsyncUrl = () => {
+
+
+
+
+  return `/api/ai/generate-image-async`
+}
+
+/**
+ * Async variant of generateImage: validates the request, reserves funding (monthly quota first, then an image credit), creates the job, and returns immediately. Poll GET /ai/image-jobs/{jobId} until status is succeeded or failed. Gated by the imageJobs feature switch; when disabled, clients should fall back to the synchronous route.
+ * @summary Start a background image generation job
+ */
+export const generateImageAsync = async (imageRequest: ImageRequest, options?: RequestInit): Promise<ImageJob> => {
+
+  return customFetch<ImageJob>(getGenerateImageAsyncUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(imageRequest)
+  }
+);}
+
+
+
+
+export const getGenerateImageAsyncMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateImageAsync>>, TError,{data: BodyType<ImageRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generateImageAsync>>, TError,{data: BodyType<ImageRequest>}, TContext> => {
+
+const mutationKey = ['generateImageAsync'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generateImageAsync>>, {data: BodyType<ImageRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  generateImageAsync(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GenerateImageAsyncMutationResult = NonNullable<Awaited<ReturnType<typeof generateImageAsync>>>
+    export type GenerateImageAsyncMutationBody = BodyType<ImageRequest>
+    export type GenerateImageAsyncMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Start a background image generation job
+ */
+export const useGenerateImageAsync = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateImageAsync>>, TError,{data: BodyType<ImageRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generateImageAsync>>,
+        TError,
+        {data: BodyType<ImageRequest>},
+        TContext
+      > => {
+      return useMutation(getGenerateImageAsyncMutationOptions(options));
+    }
+
+export const getListImageJobsUrl = () => {
+
+
+
+
+  return `/api/ai/image-jobs`
+}
+
+/**
+ * @summary List this workspace's recent image generation jobs (newest first)
+ */
+export const listImageJobs = async ( options?: RequestInit): Promise<ImageJob[]> => {
+
+  return customFetch<ImageJob[]>(getListImageJobsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListImageJobsQueryKey = () => {
+    return [
+    `/api/ai/image-jobs`
+    ] as const;
+    }
+
+
+export const getListImageJobsQueryOptions = <TData = Awaited<ReturnType<typeof listImageJobs>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listImageJobs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListImageJobsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listImageJobs>>> = ({ signal }) => listImageJobs({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listImageJobs>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListImageJobsQueryResult = NonNullable<Awaited<ReturnType<typeof listImageJobs>>>
+export type ListImageJobsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List this workspace's recent image generation jobs (newest first)
+ */
+
+export function useListImageJobs<TData = Awaited<ReturnType<typeof listImageJobs>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listImageJobs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListImageJobsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetImageJobUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/image-jobs/${jobId}`
+}
+
+/**
+ * @summary Get one image generation job (poll until succeeded/failed)
+ */
+export const getImageJob = async (jobId: number, options?: RequestInit): Promise<ImageJob> => {
+
+  return customFetch<ImageJob>(getGetImageJobUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetImageJobQueryKey = (jobId: number,) => {
+    return [
+    `/api/ai/image-jobs/${jobId}`
+    ] as const;
+    }
+
+
+export const getGetImageJobQueryOptions = <TData = Awaited<ReturnType<typeof getImageJob>>, TError = ErrorType<ErrorEnvelope>>(jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getImageJob>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetImageJobQueryKey(jobId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getImageJob>>> = ({ signal }) => getImageJob(jobId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: jobId !== null && jobId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getImageJob>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetImageJobQueryResult = NonNullable<Awaited<ReturnType<typeof getImageJob>>>
+export type GetImageJobQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get one image generation job (poll until succeeded/failed)
+ */
+
+export function useGetImageJob<TData = Awaited<ReturnType<typeof getImageJob>>, TError = ErrorType<ErrorEnvelope>>(
+ jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getImageJob>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetImageJobQueryOptions(jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGenerateVideoUrl = () => {
 
