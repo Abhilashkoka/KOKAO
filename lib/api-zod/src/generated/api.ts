@@ -4896,7 +4896,7 @@ export const GenerateImageResponse = zod.object({
 
 
 /**
- * SSE variant of generateCaption for lower perceived latency. Emits `data:` lines of JSON events: {type:"delta", text} as caption text becomes available, then a terminal {type:"result", caption, hashtags, title?, clarifyingQuestions?} or {type:"error", message}. Quota and credit behavior is identical to generateCaption; a client disconnect mid-stream releases the reserved funding.
+ * SSE variant of generateCaption for lower perceived latency. Emits `data:` lines of JSON events: {type:"delta", text} as caption text becomes available, then a terminal {type:"result", caption, hashtags, title?, clarifyingQuestions?} or {type:"error", message}. Quota and credit behavior is identical to generateCaption; a client disconnect mid-stream settles (charges) the reserved funding if any caption text was already delivered, and releases it only when nothing was sent.
  * @summary Generate an AI caption as a Server-Sent Events stream
  */
 

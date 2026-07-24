@@ -2842,7 +2842,8 @@ paths:
         becomes available, then a terminal {type:"result", caption, hashtags,
         title?, clarifyingQuestions?} or {type:"error", message}. Quota and
         credit behavior is identical to generateCaption; a client disconnect
-        mid-stream releases the reserved funding.
+        mid-stream settles (charges) the reserved funding if any caption text
+        was already delivered, and releases it only when nothing was sent.
       requestBody:
         required: true
         content:

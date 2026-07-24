@@ -931,8 +931,9 @@ function ImageStudio() {
       runImageJob(body)
         .then(onImageSuccess)
         .catch((err) => {
-          if (err?.status === 404) {
-            // Async jobs disabled server-side — fall back to the sync route.
+          if (err?.status === 404 || err?.status === 403) {
+            // Async jobs disabled server-side (404 route-gated or 403
+            // feature_disabled if flags drift) — fall back to the sync route.
             generateImage.mutate({ data: body }, { onSuccess: onImageSuccess, onError: handleError });
             return;
           }

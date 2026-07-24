@@ -427,6 +427,11 @@ export async function activateVersion(
     .update(brandKitsTable)
     .set({ activeVersionId: version.id, status: "active" })
     .where(and(eq(brandKitsTable.id, brandKitId), eq(brandKitsTable.tenantId, tenantId)));
+  // Older versions may predate precompiled style prompts; backfill on
+  // activation so they get the same image-generation latency win (fails soft).
+  if (!version.compiledStylePrompt) {
+    scheduleStyleCompile(tenantId, version.id, version.jsonPayload);
+  }
   return getKitDetail(tenantId, brandKitId);
 }
 
