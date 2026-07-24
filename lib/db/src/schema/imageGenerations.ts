@@ -20,19 +20,15 @@ export const imageGenerationsTable = pgTable("image_generations", {
   id: serial("id").primaryKey(),
   tenantId: integer("tenant_id").notNull(),
   status: text("status").notNull().default("queued"),
-  /**
-   * How the job was funded ("quota" | "credit"), recorded at enqueue time so
-   * a cancel of a still-queued job knows whether a credit refund is owed.
-   */
-  funding: text("funding").notNull().default("quota"),
   /** The user's image brief (pre-pass prompt assembly happens in the runner). */
   prompt: text("prompt").notNull(),
   /** Requested output size, e.g. "1024x1024". */
   size: text("size").notNull().default("1024x1024"),
   /**
-   * How the route paid for this job: "quota" | "credit". Stored so the
-   * stuck-job sweep knows whether an abandoned row must refund a credit.
-   * Nullable for legacy rows created before the column existed.
+   * How the route paid for this job: "quota" | "credit", recorded at enqueue
+   * time so both cancel (still-queued jobs) and the stuck-job sweep know
+   * whether a credit refund is owed. Nullable for legacy rows created before
+   * the column existed (swept without refund).
    */
   funding: text("funding"),
   brandKitId: integer("brand_kit_id"),
