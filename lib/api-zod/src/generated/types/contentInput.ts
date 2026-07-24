@@ -27,4 +27,6 @@ export interface ContentInput {
   status?: ContentInputStatus;
   /** @nullable */
   brandKitId?: number | null;
+  /** @nullable */
+  campaignId?: number | null;
 }

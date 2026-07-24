@@ -30,6 +30,9 @@ const ALL_ON: FeatureFlags = {
   streaks: true,
   referrals: true,
   progressMeter: true,
+  calendar: true,
+  postMetrics: true,
+  campaigns: true,
 };
 
 /**

@@ -38,6 +38,8 @@ import analyticsRouter from "./analytics";
 import healthReportRouter from "./healthReport";
 import { publicAppBrandRouter, protectedAppBrandRouter } from "./appBrand";
 import featuresRouter from "./features";
+import metricsRouter from "./metrics";
+import campaignsRouter from "./campaigns";
 import { requireTenant } from "../middlewares/requireTenant";
 import { aiLimiter, sensitiveLimiter } from "../middlewares/rateLimit";
 import { requireFeature, requireAnyFeature } from "../lib/featureFlags";
@@ -121,6 +123,8 @@ router.use(
 );
 router.use("/push-tokens", requireFeature("pushNotifications"));
 router.use("/ai-spend", requireFeature("aiSpend"));
+router.use("/metrics", requireFeature("postMetrics"));
+router.use("/campaigns", requireFeature("campaigns"));
 
 router.use(protectedStorageRouter);
 router.use(featuresRouter);
@@ -138,6 +142,8 @@ router.use(
 router.use("/gamification/claim", sensitiveLimiter);
 
 router.use(contentRouter);
+router.use(metricsRouter);
+router.use(campaignsRouter);
 router.use(aiRouter);
 router.use(videosRouter);
 router.use(charactersRouter);

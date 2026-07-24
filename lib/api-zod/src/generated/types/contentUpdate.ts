@@ -27,4 +27,9 @@ export interface ContentUpdate {
   status?: ContentUpdateStatus;
   /** @nullable */
   brandKitId?: number | null;
+  /**
+     * Set to attach the item to a campaign; null to detach.
+     * @nullable
+     */
+  campaignId?: number | null;
 }

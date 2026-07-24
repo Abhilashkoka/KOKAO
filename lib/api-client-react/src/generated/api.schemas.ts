@@ -2201,6 +2201,11 @@ export interface ContentItem {
   twitterPostsPending?: number;
   /** @nullable */
   brandKitId?: number | null;
+  /**
+     * Campaign this item belongs to; null when unattached.
+     * @nullable
+     */
+  campaignId?: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -2233,6 +2238,8 @@ export interface ContentInput {
   status?: ContentInputStatus;
   /** @nullable */
   brandKitId?: number | null;
+  /** @nullable */
+  campaignId?: number | null;
 }
 
 export type ContentUpdateStatus = typeof ContentUpdateStatus[keyof typeof ContentUpdateStatus];
@@ -2263,6 +2270,11 @@ export interface ContentUpdate {
   status?: ContentUpdateStatus;
   /** @nullable */
   brandKitId?: number | null;
+  /**
+     * Set to attach the item to a campaign; null to detach.
+     * @nullable
+     */
+  campaignId?: number | null;
 }
 
 export interface CarouselRequest {
@@ -2987,6 +2999,166 @@ export interface CampaignResult {
   title?: string;
   /** Present (non-empty) when the brief was too thin to write an effective campaign. Contains the questions the user should answer; when set, posts is empty and nothing was charged. */
   clarifyingQuestions?: string[];
+}
+
+/**
+ * active = still being refreshed on the decay schedule; done = tracking window (14 days) ended; failed = the platform definitively rejected the lookup (see failureReason).
+ */
+export type PostMetricsPollState = typeof PostMetricsPollState[keyof typeof PostMetricsPollState];
+
+
+export const PostMetricsPollState = {
+  active: 'active',
+  done: 'done',
+  failed: 'failed',
+} as const;
+
+/**
+ * Latest engagement snapshot for one published post (one row per content item per platform). Counters are cumulative platform totals.
+ */
+export interface PostMetrics {
+  id: number;
+  contentItemId: number;
+  platform: string;
+  likes: number;
+  comments: number;
+  shares: number;
+  /** Reach/impressions where the platform exposes it; 0 when unavailable. */
+  impressions: number;
+  publishedAt: string;
+  /**
+     * Last successful metrics fetch; null until the first poll lands.
+     * @nullable
+     */
+  fetchedAt?: string | null;
+  /** active = still being refreshed on the decay schedule; done = tracking window (14 days) ended; failed = the platform definitively rejected the lookup (see failureReason). */
+  pollState: PostMetricsPollState;
+  /** @nullable */
+  failureReason?: string | null;
+}
+
+export type CampaignViewStatus = typeof CampaignViewStatus[keyof typeof CampaignViewStatus];
+
+
+export const CampaignViewStatus = {
+  active: 'active',
+  completed: 'completed',
+  archived: 'archived',
+} as const;
+
+export interface CampaignView {
+  id: number;
+  name: string;
+  /** What success means for this campaign (awareness | engagement | traffic | leads | sales | other). */
+  goal: string;
+  /**
+     * Optional numeric target for the goal (e.g. 500 interactions).
+     * @nullable
+     */
+  goalTarget?: number | null;
+  /** @nullable */
+  description?: string | null;
+  status: CampaignViewStatus;
+  /** @nullable */
+  startsAt?: string | null;
+  /** @nullable */
+  endsAt?: string | null;
+  /** Number of content items attached to this campaign. */
+  contentCount?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CampaignInput {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  name: string;
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  goal?: string;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  goalTarget?: number | null;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  description?: string | null;
+  /** @nullable */
+  startsAt?: string | null;
+  /** @nullable */
+  endsAt?: string | null;
+}
+
+export type CampaignUpdateStatus = typeof CampaignUpdateStatus[keyof typeof CampaignUpdateStatus];
+
+
+export const CampaignUpdateStatus = {
+  active: 'active',
+  completed: 'completed',
+  archived: 'archived',
+} as const;
+
+export interface CampaignUpdate {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  name?: string;
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  goal?: string;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  goalTarget?: number | null;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  description?: string | null;
+  status?: CampaignUpdateStatus;
+  /** @nullable */
+  startsAt?: string | null;
+  /** @nullable */
+  endsAt?: string | null;
+}
+
+export type CampaignReportTotals = {
+  likes: number;
+  comments: number;
+  shares: number;
+  impressions: number;
+  /** likes + comments + shares across all tracked posts. */
+  engagements: number;
+  /** Number of platform posts with metrics rows. */
+  trackedPosts: number;
+};
+
+export type CampaignReportItemsItem = {
+  contentItemId: number;
+  title: string;
+  status: string;
+  metrics: PostMetrics[];
+};
+
+/**
+ * Aggregated performance of everything published under a campaign, computed from the tracked post metrics.
+ */
+export interface CampaignReport {
+  campaign: CampaignView;
+  totals: CampaignReportTotals;
+  /** Per-content-item breakdown (one entry per attached item). */
+  items: CampaignReportItemsItem[];
 }
 
 /**
@@ -3980,6 +4152,9 @@ export interface FeatureFlags {
   streaks: boolean;
   referrals: boolean;
   progressMeter: boolean;
+  calendar: boolean;
+  postMetrics: boolean;
+  campaigns: boolean;
 }
 
 /**

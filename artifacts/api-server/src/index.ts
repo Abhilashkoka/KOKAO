@@ -13,6 +13,10 @@ import {
   startPushTokenMaintenance,
   stopPushTokenMaintenance,
 } from "./lib/push";
+import {
+  startPostMetricsSweep,
+  stopPostMetricsSweep,
+} from "./lib/postMetricsSweep";
 
 // Fail loudly before binding if a deployed context is missing required env,
 // rather than booting into a silently-degraded state.
@@ -60,6 +64,10 @@ const server: Server = app.listen(port, (err) => {
   // receipts report DeviceNotRegistered) and prune tokens whose device
   // hasn't re-registered in months (uninstalled apps never error).
   startPushTokenMaintenance();
+
+  // Periodically pull per-post engagement metrics back from the platforms
+  // for recently published posts (gated by the postMetrics kill switch).
+  startPostMetricsSweep();
 });
 
 // Graceful shutdown: drain in-flight background publish jobs (bounded by a
@@ -71,6 +79,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     stopConnectionSweep();
     stopScheduledPublisher();
     stopPushTokenMaintenance();
+    stopPostMetricsSweep();
     void shutdown(signal);
   });
 }

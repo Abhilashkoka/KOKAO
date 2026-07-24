@@ -12,6 +12,8 @@ import { AdminPage } from "@/pages/admin";
 import { AnalyticsPage } from "@/pages/analytics";
 import { HealthPage } from "@/pages/health";
 import { AdsPage } from "@/pages/ads";
+import { CalendarPage } from "@/pages/calendar";
+import { CampaignsPage } from "@/pages/campaigns";
 import { BrandProvider } from "@/lib/brand";
 import { FeatureGate, type FeatureId } from "@/lib/features";
 
@@ -180,6 +182,8 @@ function ClerkProviderWithRoutes() {
             <Route path="/video-studio" component={VideoStudioRedirect} />
             <Route path="/library" component={() => <ProtectedRoute component={LibraryPage} feature="contentLibrary" featureLabel="Content Library" />} />
             <Route path="/schedule" component={() => <ProtectedRoute component={SchedulePage} feature="scheduling" featureLabel="Scheduling" />} />
+            <Route path="/calendar" component={() => <ProtectedRoute component={CalendarPage} feature="calendar" featureLabel="Calendar" />} />
+            <Route path="/campaigns" component={() => <ProtectedRoute component={CampaignsPage} feature="campaigns" featureLabel="Campaigns" />} />
             <Route path="/brand-kits" component={() => <ProtectedRoute component={BrandKitsPage} feature="brandKits" featureLabel="Brand Kits" />} />
             <Route path="/accounts" component={() => <ProtectedRoute component={AccountsPage} feature="connectedAccounts" featureLabel="Connected Accounts" />} />
             <Route path="/ads" component={() => <ProtectedRoute component={AdsPage} />} />

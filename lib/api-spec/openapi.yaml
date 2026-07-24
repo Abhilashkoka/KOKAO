@@ -3265,6 +3265,178 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /metrics/summary:
+    get:
+      operationId: listPostMetrics
+      tags: [metrics]
+      summary: List post performance metrics for the tenant
+      description: >-
+        Returns the latest engagement snapshot for every published post the
+        background metrics poller tracks (one row per content item per
+        platform). Clients join these to library/calendar/campaign views by
+        contentItemId.
+      responses:
+        "200":
+          description: Latest per-post metrics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PostMetrics"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /campaigns:
+    get:
+      operationId: listCampaigns
+      tags: [campaigns]
+      summary: List campaigns
+      responses:
+        "200":
+          description: List of campaigns
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CampaignView"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: createCampaign
+      tags: [campaigns]
+      summary: Create a campaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CampaignInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /campaigns/{id}:
+    get:
+      operationId: getCampaign
+      tags: [campaigns]
+      summary: Get a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Campaign
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignView"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: updateCampaign
+      tags: [campaigns]
+      summary: Update a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CampaignUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignView"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteCampaign
+      tags: [campaigns]
+      summary: Delete a campaign
+      description: >-
+        Deletes the campaign and detaches its content items (they keep
+        existing with campaignId cleared).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /campaigns/{id}/report:
+    get:
+      operationId: getCampaignReport
+      tags: [campaigns]
+      summary: Aggregated performance report for a campaign
+      description: >-
+        Aggregates the tracked post metrics of every content item attached to
+        the campaign: totals across platforms plus a per-item breakdown.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Campaign report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignReport"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /accounts:
     get:
       operationId: listAccounts
@@ -9412,6 +9584,9 @@ components:
             posts" action.
         brandKitId:
           type: ["integer", "null"]
+        campaignId:
+          type: ["integer", "null"]
+          description: Campaign this item belongs to; null when unattached.
         createdAt:
           type: string
           format: date-time
@@ -9448,6 +9623,8 @@ components:
           enum: [draft, scheduled, published]
         brandKitId:
           type: ["integer", "null"]
+        campaignId:
+          type: ["integer", "null"]
     ContentUpdate:
       type: object
       properties:
@@ -9477,6 +9654,9 @@ components:
           enum: [draft, scheduled, published]
         brandKitId:
           type: ["integer", "null"]
+        campaignId:
+          type: ["integer", "null"]
+          description: Set to attach the item to a campaign; null to detach.
 
     CarouselSlide:
       type: object
@@ -10413,6 +10593,185 @@ components:
           items:
             type: string
 
+    PostMetrics:
+      type: object
+      description: >-
+        Latest engagement snapshot for one published post (one row per
+        content item per platform). Counters are cumulative platform totals.
+      required:
+        [
+          id,
+          contentItemId,
+          platform,
+          likes,
+          comments,
+          shares,
+          impressions,
+          publishedAt,
+          pollState,
+        ]
+      properties:
+        id:
+          type: integer
+        contentItemId:
+          type: integer
+        platform:
+          type: string
+        likes:
+          type: integer
+        comments:
+          type: integer
+        shares:
+          type: integer
+        impressions:
+          type: integer
+          description: Reach/impressions where the platform exposes it; 0 when unavailable.
+        publishedAt:
+          type: string
+          format: date-time
+        fetchedAt:
+          type: ["string", "null"]
+          format: date-time
+          description: Last successful metrics fetch; null until the first poll lands.
+        pollState:
+          type: string
+          enum: [active, done, failed]
+          description: >-
+            active = still being refreshed on the decay schedule; done =
+            tracking window (14 days) ended; failed = the platform
+            definitively rejected the lookup (see failureReason).
+        failureReason:
+          type: ["string", "null"]
+    CampaignView:
+      type: object
+      required: [id, name, goal, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        goal:
+          type: string
+          description: >-
+            What success means for this campaign (awareness | engagement |
+            traffic | leads | sales | other).
+        goalTarget:
+          type: ["integer", "null"]
+          description: Optional numeric target for the goal (e.g. 500 interactions).
+        description:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [active, completed, archived]
+        startsAt:
+          type: ["string", "null"]
+          format: date-time
+        endsAt:
+          type: ["string", "null"]
+          format: date-time
+        contentCount:
+          type: integer
+          description: Number of content items attached to this campaign.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CampaignInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        goal:
+          type: string
+          minLength: 1
+          maxLength: 100
+        goalTarget:
+          type: ["integer", "null"]
+          minimum: 0
+        description:
+          type: ["string", "null"]
+          maxLength: 2000
+        startsAt:
+          type: ["string", "null"]
+          format: date-time
+        endsAt:
+          type: ["string", "null"]
+          format: date-time
+    CampaignUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        goal:
+          type: string
+          minLength: 1
+          maxLength: 100
+        goalTarget:
+          type: ["integer", "null"]
+          minimum: 0
+        description:
+          type: ["string", "null"]
+          maxLength: 2000
+        status:
+          type: string
+          enum: [active, completed, archived]
+        startsAt:
+          type: ["string", "null"]
+          format: date-time
+        endsAt:
+          type: ["string", "null"]
+          format: date-time
+    CampaignReport:
+      type: object
+      description: >-
+        Aggregated performance of everything published under a campaign,
+        computed from the tracked post metrics.
+      required: [campaign, totals, items]
+      properties:
+        campaign:
+          $ref: "#/components/schemas/CampaignView"
+        totals:
+          type: object
+          required: [likes, comments, shares, impressions, engagements, trackedPosts]
+          properties:
+            likes:
+              type: integer
+            comments:
+              type: integer
+            shares:
+              type: integer
+            impressions:
+              type: integer
+            engagements:
+              type: integer
+              description: likes + comments + shares across all tracked posts.
+            trackedPosts:
+              type: integer
+              description: Number of platform posts with metrics rows.
+        items:
+          type: array
+          description: Per-content-item breakdown (one entry per attached item).
+          items:
+            type: object
+            required: [contentItemId, title, status, metrics]
+            properties:
+              contentItemId:
+                type: integer
+              title:
+                type: string
+              status:
+                type: string
+              metrics:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PostMetrics"
     ScheduledPost:
       type: object
       required:
@@ -11721,6 +12080,9 @@ components:
           streaks,
           referrals,
           progressMeter,
+          calendar,
+          postMetrics,
+          campaigns,
         ]
       properties:
         aiStudio:
@@ -11766,6 +12128,12 @@ components:
         referrals:
           type: boolean
         progressMeter:
+          type: boolean
+        calendar:
+          type: boolean
+        postMetrics:
+          type: boolean
+        campaigns:
           type: boolean
     AiSpendSettingsView:
       type: object

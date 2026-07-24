@@ -14,6 +14,9 @@ import notificationSettingsRouter from "../routes/notificationSettings";
 import pushTokensRouter from "../routes/pushTokens";
 import meRouter from "../routes/me";
 import teamRouter from "../routes/team";
+import contentRouter from "../routes/content";
+import metricsRouter from "../routes/metrics";
+import campaignsRouter from "../routes/campaigns";
 
 function attachLogStub(app: Express): void {
   // pino-http normally attaches req.log; stub it so route handlers can log.
@@ -64,6 +67,9 @@ export function createTestApp(): Express {
     pushTokensRouter,
     meRouter,
     teamRouter,
+    contentRouter,
+    metricsRouter,
+    campaignsRouter,
   );
   return app;
 }

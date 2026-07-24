@@ -61,6 +61,10 @@ export const contentItemsTable = pgTable("content_items", {
   id: serial("id").primaryKey(),
   tenantId: integer("tenant_id").notNull(),
   brandKitId: integer("brand_kit_id"),
+  // Optional campaign this item belongs to (campaigns.id). Detached on
+  // campaign delete (SET NULL is done in app code; no FK constraint, matching
+  // the rest of the schema).
+  campaignId: integer("campaign_id"),
   title: text("title").notNull(),
   caption: text("caption").notNull().default(""),
   imagePath: text("image_path"),
@@ -110,6 +114,7 @@ export const contentItemsTable = pgTable("content_items", {
 export const insertContentItemSchema = createInsertSchema(contentItemsTable).omit({
   id: true,
   tenantId: true,
+  campaignId: true,
   publishedPlatforms: true,
   linkedinCommentState: true,
   threadsChainState: true,

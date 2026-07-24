@@ -18,15 +18,20 @@ import {
   useGetLinkedinStatus,
   useGenerateCaption,
   useGenerateImage,
+  useListCampaigns,
+  useListPostMetrics,
+  getListCampaignsQueryKey,
+  getListPostMetricsQueryKey,
   getListContentQueryKey
 } from "@workspace/api-client-react";
+import { useFeatureFlags } from "@/lib/features";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
-import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, Twitter, ExternalLink, AtSign, AlertCircle, RotateCw, Wand2, Image as ImageIcon, X, Layers } from "lucide-react";
+import { Edit, MoreVertical, Trash2, LayoutGrid, Facebook, Instagram, Linkedin, Twitter, ExternalLink, AtSign, AlertCircle, RotateCw, Wand2, Image as ImageIcon, X, Layers, Heart, MessageCircle, Share2, Eye } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -73,6 +78,21 @@ export function LibraryPage() {
   const [deleteItem, setDeleteItem] = useState<any | null>(null);
   const [editImagePrompt, setEditImagePrompt] = useState<string | null>(null);
   const [editImageB64, setEditImageB64] = useState<string | null>(null);
+  const [editCampaignId, setEditCampaignId] = useState<number | null>(null);
+
+  const { flags } = useFeatureFlags();
+  const { data: campaigns } = useListCampaigns({
+    query: { queryKey: getListCampaignsQueryKey(), enabled: flags.campaigns },
+  });
+  const { data: postMetrics } = useListPostMetrics({
+    query: { queryKey: getListPostMetricsQueryKey(), enabled: flags.postMetrics },
+  });
+  const metricsByItem = new Map<number, NonNullable<typeof postMetrics>>();
+  for (const m of postMetrics ?? []) {
+    const list = metricsByItem.get(m.contentItemId) ?? [];
+    list.push(m);
+    metricsByItem.set(m.contentItemId, list);
+  }
   const generateCaption = useGenerateCaption();
   const generateImage = useGenerateImage();
 
@@ -533,6 +553,7 @@ export function LibraryPage() {
     setEditImagePath(item.imagePath ?? null);
     setEditImagePrompt(item.imagePrompt ?? null);
     setEditImageB64(null);
+    setEditCampaignId(item.campaignId ?? null);
   };
 
   // Deep link from notifications: /library?item=<id> opens that post's edit
@@ -573,6 +594,7 @@ export function LibraryPage() {
         platform: editPlatform,
         imagePath: editImagePath,
         imagePrompt: editImagePrompt,
+        campaignId: editCampaignId,
       }
     }, {
       onSuccess: () => {
@@ -757,6 +779,20 @@ export function LibraryPage() {
                   </div>
                 )}
 
+                {flags.postMetrics && (metricsByItem.get(item.id)?.length ?? 0) > 0 && (
+                  <div className="space-y-1 mb-4" data-testid={`post-metrics-${item.id}`}>
+                    {(metricsByItem.get(item.id) ?? []).map((m) => (
+                      <div key={m.id} className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span className="capitalize font-medium">{m.platform === "twitter" ? "X" : m.platform}:</span>
+                        <span className="inline-flex items-center gap-0.5"><Heart className="h-3 w-3" /> {m.likes}</span>
+                        <span className="inline-flex items-center gap-0.5"><MessageCircle className="h-3 w-3" /> {m.comments}</span>
+                        <span className="inline-flex items-center gap-0.5"><Share2 className="h-3 w-3" /> {m.shares}</span>
+                        <span className="inline-flex items-center gap-0.5"><Eye className="h-3 w-3" /> {m.impressions}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <PendingPostsWarnings item={item} />
 
                 {item.status === 'failed' && item.failureReason && (
@@ -910,6 +946,25 @@ export function LibraryPage() {
               <label className="text-sm font-medium">Title</label>
               <Input value={editTitle} onChange={e => setEditTitle(e.target.value)} />
             </div>
+            {flags.campaigns && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Campaign</label>
+                <Select
+                  value={editCampaignId != null ? String(editCampaignId) : "none"}
+                  onValueChange={(v) => setEditCampaignId(v === "none" ? null : Number(v))}
+                >
+                  <SelectTrigger data-testid="select-edit-campaign">
+                    <SelectValue placeholder="No campaign" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No campaign</SelectItem>
+                    {(campaigns ?? []).map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-sm font-medium">Caption</label>

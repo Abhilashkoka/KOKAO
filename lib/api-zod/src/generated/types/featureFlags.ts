@@ -32,4 +32,7 @@ export interface FeatureFlags {
   streaks: boolean;
   referrals: boolean;
   progressMeter: boolean;
+  calendar: boolean;
+  postMetrics: boolean;
+  campaigns: boolean;
 }

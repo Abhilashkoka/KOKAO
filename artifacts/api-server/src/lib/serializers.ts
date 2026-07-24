@@ -56,6 +56,7 @@ export function serializeContent(c: ContentItem) {
         )
       : 0,
     brandKitId: c.brandKitId ?? null,
+    campaignId: c.campaignId ?? null,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
   };

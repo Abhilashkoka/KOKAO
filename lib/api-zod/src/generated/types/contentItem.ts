@@ -50,6 +50,11 @@ export interface ContentItem {
   twitterPostsPending?: number;
   /** @nullable */
   brandKitId?: number | null;
+  /**
+     * Campaign this item belongs to; null when unattached.
+     * @nullable
+     */
+  campaignId?: number | null;
   createdAt: Date;
   updatedAt: Date;
 }

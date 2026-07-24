@@ -90,7 +90,10 @@ export const ListFeatureFlagsResponse = zod.object({
   "quests": zod.boolean(),
   "streaks": zod.boolean(),
   "referrals": zod.boolean(),
-  "progressMeter": zod.boolean()
+  "progressMeter": zod.boolean(),
+  "calendar": zod.boolean(),
+  "postMetrics": zod.boolean(),
+  "campaigns": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -4664,6 +4667,7 @@ export const ListContentResponseItem = zod.object({
   "threadsPostsPending": zod.number().optional().describe('How many Threads reply-chain posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
   "twitterPostsPending": zod.number().optional().describe('How many X thread posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
   "brandKitId": zod.number().nullish(),
+  "campaignId": zod.number().nullish().describe('Campaign this item belongs to; null when unattached.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -4692,7 +4696,8 @@ export const CreateContentBody = zod.object({
   "platform": zod.string().optional(),
   "contentType": zod.string().optional(),
   "status": zod.enum(['draft', 'scheduled', 'published']).optional(),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "campaignId": zod.number().nullish()
 })
 
 export const CreateContentResponse = zod.object({
@@ -4724,6 +4729,7 @@ export const CreateContentResponse = zod.object({
   "threadsPostsPending": zod.number().optional().describe('How many Threads reply-chain posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
   "twitterPostsPending": zod.number().optional().describe('How many X thread posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
   "brandKitId": zod.number().nullish(),
+  "campaignId": zod.number().nullish().describe('Campaign this item belongs to; null when unattached.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -4765,6 +4771,7 @@ export const GetContentResponse = zod.object({
   "threadsPostsPending": zod.number().optional().describe('How many Threads reply-chain posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
   "twitterPostsPending": zod.number().optional().describe('How many X thread posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
   "brandKitId": zod.number().nullish(),
+  "campaignId": zod.number().nullish().describe('Campaign this item belongs to; null when unattached.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -4796,7 +4803,8 @@ export const UpdateContentBody = zod.object({
   "platform": zod.string().optional(),
   "contentType": zod.string().optional(),
   "status": zod.enum(['draft', 'scheduled', 'published']).optional(),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "campaignId": zod.number().nullish().describe('Set to attach the item to a campaign; null to detach.')
 })
 
 export const UpdateContentResponse = zod.object({
@@ -4828,6 +4836,7 @@ export const UpdateContentResponse = zod.object({
   "threadsPostsPending": zod.number().optional().describe('How many Threads reply-chain posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
   "twitterPostsPending": zod.number().optional().describe('How many X thread posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
   "brandKitId": zod.number().nullish(),
+  "campaignId": zod.number().nullish().describe('Campaign this item belongs to; null when unattached.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -5045,6 +5054,7 @@ export const SaveVideoToLibraryResponse = zod.object({
   "threadsPostsPending": zod.number().optional().describe('How many Threads reply-chain posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
   "twitterPostsPending": zod.number().optional().describe('How many X thread posts from the last publish are still missing (0 when none). When > 0 the client can offer a \"resend missing posts\" action.'),
   "brandKitId": zod.number().nullish(),
+  "campaignId": zod.number().nullish().describe('Campaign this item belongs to; null when unattached.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -5278,6 +5288,208 @@ export const RetryScheduleResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
+
+
+/**
+ * Returns the latest engagement snapshot for every published post the background metrics poller tracks (one row per content item per platform). Clients join these to library/calendar/campaign views by contentItemId.
+ * @summary List post performance metrics for the tenant
+ */
+export const ListPostMetricsResponseItem = zod.object({
+  "id": zod.number(),
+  "contentItemId": zod.number(),
+  "platform": zod.string(),
+  "likes": zod.number(),
+  "comments": zod.number(),
+  "shares": zod.number(),
+  "impressions": zod.number().describe('Reach\/impressions where the platform exposes it; 0 when unavailable.'),
+  "publishedAt": zod.coerce.date(),
+  "fetchedAt": zod.coerce.date().nullish().describe('Last successful metrics fetch; null until the first poll lands.'),
+  "pollState": zod.enum(['active', 'done', 'failed']).describe('active = still being refreshed on the decay schedule; done = tracking window (14 days) ended; failed = the platform definitively rejected the lookup (see failureReason).'),
+  "failureReason": zod.string().nullish()
+}).describe('Latest engagement snapshot for one published post (one row per content item per platform). Counters are cumulative platform totals.')
+export const ListPostMetricsResponse = zod.array(ListPostMetricsResponseItem)
+
+
+/**
+ * @summary List campaigns
+ */
+export const ListCampaignsResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "goal": zod.string().describe('What success means for this campaign (awareness | engagement | traffic | leads | sales | other).'),
+  "goalTarget": zod.number().nullish().describe('Optional numeric target for the goal (e.g. 500 interactions).'),
+  "description": zod.string().nullish(),
+  "status": zod.enum(['active', 'completed', 'archived']),
+  "startsAt": zod.coerce.date().nullish(),
+  "endsAt": zod.coerce.date().nullish(),
+  "contentCount": zod.number().optional().describe('Number of content items attached to this campaign.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+export const ListCampaignsResponse = zod.array(ListCampaignsResponseItem)
+
+
+/**
+ * @summary Create a campaign
+ */
+export const createCampaignBodyNameMax = 200;
+
+export const createCampaignBodyGoalMax = 100;
+
+export const createCampaignBodyGoalTargetMin = 0;
+
+export const createCampaignBodyDescriptionMax = 2000;
+
+
+
+export const CreateCampaignBody = zod.object({
+  "name": zod.string().min(1).max(createCampaignBodyNameMax),
+  "goal": zod.string().min(1).max(createCampaignBodyGoalMax).optional(),
+  "goalTarget": zod.number().min(createCampaignBodyGoalTargetMin).nullish(),
+  "description": zod.string().max(createCampaignBodyDescriptionMax).nullish(),
+  "startsAt": zod.coerce.date().nullish(),
+  "endsAt": zod.coerce.date().nullish()
+})
+
+export const CreateCampaignResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "goal": zod.string().describe('What success means for this campaign (awareness | engagement | traffic | leads | sales | other).'),
+  "goalTarget": zod.number().nullish().describe('Optional numeric target for the goal (e.g. 500 interactions).'),
+  "description": zod.string().nullish(),
+  "status": zod.enum(['active', 'completed', 'archived']),
+  "startsAt": zod.coerce.date().nullish(),
+  "endsAt": zod.coerce.date().nullish(),
+  "contentCount": zod.number().optional().describe('Number of content items attached to this campaign.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Get a campaign
+ */
+export const GetCampaignParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetCampaignResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "goal": zod.string().describe('What success means for this campaign (awareness | engagement | traffic | leads | sales | other).'),
+  "goalTarget": zod.number().nullish().describe('Optional numeric target for the goal (e.g. 500 interactions).'),
+  "description": zod.string().nullish(),
+  "status": zod.enum(['active', 'completed', 'archived']),
+  "startsAt": zod.coerce.date().nullish(),
+  "endsAt": zod.coerce.date().nullish(),
+  "contentCount": zod.number().optional().describe('Number of content items attached to this campaign.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Update a campaign
+ */
+export const UpdateCampaignParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const updateCampaignBodyNameMax = 200;
+
+export const updateCampaignBodyGoalMax = 100;
+
+export const updateCampaignBodyGoalTargetMin = 0;
+
+export const updateCampaignBodyDescriptionMax = 2000;
+
+
+
+export const UpdateCampaignBody = zod.object({
+  "name": zod.string().min(1).max(updateCampaignBodyNameMax).optional(),
+  "goal": zod.string().min(1).max(updateCampaignBodyGoalMax).optional(),
+  "goalTarget": zod.number().min(updateCampaignBodyGoalTargetMin).nullish(),
+  "description": zod.string().max(updateCampaignBodyDescriptionMax).nullish(),
+  "status": zod.enum(['active', 'completed', 'archived']).optional(),
+  "startsAt": zod.coerce.date().nullish(),
+  "endsAt": zod.coerce.date().nullish()
+})
+
+export const UpdateCampaignResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "goal": zod.string().describe('What success means for this campaign (awareness | engagement | traffic | leads | sales | other).'),
+  "goalTarget": zod.number().nullish().describe('Optional numeric target for the goal (e.g. 500 interactions).'),
+  "description": zod.string().nullish(),
+  "status": zod.enum(['active', 'completed', 'archived']),
+  "startsAt": zod.coerce.date().nullish(),
+  "endsAt": zod.coerce.date().nullish(),
+  "contentCount": zod.number().optional().describe('Number of content items attached to this campaign.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * Deletes the campaign and detaches its content items (they keep existing with campaignId cleared).
+ * @summary Delete a campaign
+ */
+export const DeleteCampaignParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const DeleteCampaignResponse = zod.void()
+
+
+/**
+ * Aggregates the tracked post metrics of every content item attached to the campaign: totals across platforms plus a per-item breakdown.
+ * @summary Aggregated performance report for a campaign
+ */
+export const GetCampaignReportParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetCampaignReportResponse = zod.object({
+  "campaign": zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "goal": zod.string().describe('What success means for this campaign (awareness | engagement | traffic | leads | sales | other).'),
+  "goalTarget": zod.number().nullish().describe('Optional numeric target for the goal (e.g. 500 interactions).'),
+  "description": zod.string().nullish(),
+  "status": zod.enum(['active', 'completed', 'archived']),
+  "startsAt": zod.coerce.date().nullish(),
+  "endsAt": zod.coerce.date().nullish(),
+  "contentCount": zod.number().optional().describe('Number of content items attached to this campaign.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}),
+  "totals": zod.object({
+  "likes": zod.number(),
+  "comments": zod.number(),
+  "shares": zod.number(),
+  "impressions": zod.number(),
+  "engagements": zod.number().describe('likes + comments + shares across all tracked posts.'),
+  "trackedPosts": zod.number().describe('Number of platform posts with metrics rows.')
+}),
+  "items": zod.array(zod.object({
+  "contentItemId": zod.number(),
+  "title": zod.string(),
+  "status": zod.string(),
+  "metrics": zod.array(zod.object({
+  "id": zod.number(),
+  "contentItemId": zod.number(),
+  "platform": zod.string(),
+  "likes": zod.number(),
+  "comments": zod.number(),
+  "shares": zod.number(),
+  "impressions": zod.number().describe('Reach\/impressions where the platform exposes it; 0 when unavailable.'),
+  "publishedAt": zod.coerce.date(),
+  "fetchedAt": zod.coerce.date().nullish().describe('Last successful metrics fetch; null until the first poll lands.'),
+  "pollState": zod.enum(['active', 'done', 'failed']).describe('active = still being refreshed on the decay schedule; done = tracking window (14 days) ended; failed = the platform definitively rejected the lookup (see failureReason).'),
+  "failureReason": zod.string().nullish()
+}).describe('Latest engagement snapshot for one published post (one row per content item per platform). Counters are cumulative platform totals.'))
+})).describe('Per-content-item breakdown (one entry per attached item).')
+}).describe('Aggregated performance of everything published under a campaign, computed from the tracked post metrics.')
 
 
 /**

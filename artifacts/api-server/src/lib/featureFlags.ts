@@ -138,6 +138,24 @@ export const FEATURES = [
       "Stamps a 'Made with KOKAO.in' watermark on AI-generated images for workspaces on the free plan.",
   },
   {
+    id: "calendar",
+    label: "Content Calendar",
+    description:
+      "The monthly calendar view of scheduled and published posts.",
+  },
+  {
+    id: "postMetrics",
+    label: "Post Performance",
+    description:
+      "Pulling per-post engagement metrics (likes, comments, shares, reach) back from Facebook, Instagram, and LinkedIn, and the performance displays built on them.",
+  },
+  {
+    id: "campaigns",
+    label: "Campaigns",
+    description:
+      "Persistent campaign containers: grouping content under a goal and the aggregated campaign performance report.",
+  },
+  {
     id: "progressMeter",
     label: "Upgrade Progress Meter",
     description:

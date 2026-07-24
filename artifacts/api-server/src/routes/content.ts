@@ -1,11 +1,28 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, contentItemsTable } from "@workspace/db";
+import { db, contentItemsTable, campaignsTable } from "@workspace/db";
 import { and, eq, desc } from "drizzle-orm";
 import { CreateContentBody, UpdateContentBody } from "@workspace/api-zod";
 import { serializeContent } from "../lib/serializers";
 import { recordTasteSignal } from "../lib/tasteMemory";
 
 const router: IRouter = Router();
+
+/** A campaignId in a write must reference the tenant's own campaign. */
+async function campaignBelongsToTenant(
+  campaignId: number,
+  tenantId: number,
+): Promise<boolean> {
+  const row = (
+    await db
+      .select({ id: campaignsTable.id })
+      .from(campaignsTable)
+      .where(
+        and(eq(campaignsTable.id, campaignId), eq(campaignsTable.tenantId, tenantId)),
+      )
+      .limit(1)
+  )[0];
+  return !!row;
+}
 
 router.param("id", (req, res, next, value) => {
   const id = Number(value);
@@ -29,6 +46,13 @@ router.post("/content", async (req: Request, res: Response) => {
   const parsed = CreateContentBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  if (
+    parsed.data.campaignId != null &&
+    !(await campaignBelongsToTenant(parsed.data.campaignId, req.tenantId))
+  ) {
+    res.status(400).json({ error: "Campaign not found" });
     return;
   }
   const created = (
@@ -61,6 +85,13 @@ router.patch("/content/:id", async (req: Request, res: Response) => {
   const parsed = UpdateContentBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  if (
+    parsed.data.campaignId != null &&
+    !(await campaignBelongsToTenant(parsed.data.campaignId, req.tenantId))
+  ) {
+    res.status(400).json({ error: "Campaign not found" });
     return;
   }
   const updated = (
