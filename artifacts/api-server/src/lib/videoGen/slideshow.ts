@@ -63,6 +63,42 @@ export async function findFontFile(): Promise<string | null> {
   return null;
 }
 
+/** Read a media file's duration (seconds) via ffprobe. Returns null on failure. */
+export function probeDurationSec(file: string, cwd: string): Promise<number | null> {
+  return new Promise((resolve) => {
+    const proc = spawn(
+      "ffprobe",
+      [
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        file,
+      ],
+      { cwd },
+    );
+    let out = "";
+    const timer = setTimeout(() => {
+      proc.kill("SIGKILL");
+      resolve(null);
+    }, 30_000);
+    proc.stdout.on("data", (chunk: Buffer) => {
+      out += chunk.toString();
+    });
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      const value = Number.parseFloat(out.trim());
+      resolve(code === 0 && Number.isFinite(value) && value > 0 ? value : null);
+    });
+    proc.on("error", () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+  });
+}
+
 export function runFfmpeg(args: string[], cwd: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const proc = spawn("ffmpeg", args, { cwd });
@@ -125,13 +161,28 @@ export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
       args.push("-i", "music");
     }
 
-    // Normalize every slide to the target frame, then chain crossfades.
+    // Normalize every slide to the target frame with a gentle Ken Burns
+    // move (alternating zoom in / zoom out per slide), then chain
+    // crossfades. Photos are cover-cropped — same fill rule as the topic
+    // video composer — instead of letterboxed, and the zoompan works on a
+    // 2x supersampled frame so the motion is smooth rather than steppy.
     const filters: string[] = [];
+    const superW = width * 2;
+    const superH = height * 2;
+    const zoomSpan = 0.08; // 8% total move per slide
+    const frames = Math.max(1, Math.round(slideSec * FPS));
+    const zoomStep = (zoomSpan / frames).toFixed(6);
     for (let i = 0; i < count; i++) {
+      const zoomExpr =
+        i % 2 === 0
+          ? `min(1+${zoomStep}*on,${(1 + zoomSpan).toFixed(3)})` // zoom in
+          : `max(${(1 + zoomSpan).toFixed(3)}-${zoomStep}*on,1.001)`; // zoom out
       filters.push(
-        `[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-          `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,` +
-          `setsar=1,fps=${FPS},format=yuv420p[v${i}]`,
+        `[${i}:v]scale=${superW}:${superH}:force_original_aspect_ratio=increase,` +
+          `crop=${superW}:${superH},` +
+          `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
+          `d=1:s=${width}x${height}:fps=${FPS},` +
+          `setsar=1,format=yuv420p[v${i}]`,
       );
     }
     let chainLabel = "v0";
@@ -206,15 +257,35 @@ export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
   }
 }
 
-/** Extract a PNG poster frame from a video (used for library thumbnails). */
+/** Extract a PNG poster frame from a video (used for library thumbnails).
+ * Grabs a frame ~1s in (past fade-ins) at up to 1080px wide so grid
+ * thumbnails and share previews stay sharp; falls back to the first frame
+ * for very short clips. */
 export async function extractPosterFrame(video: Buffer): Promise<Buffer> {
   const dir = await mkdtemp(join(tmpdir(), "kokao-poster-"));
   try {
     await writeFile(join(dir, "in.mp4"), video);
-    await runFfmpeg(
-      ["-y", "-ss", "0.5", "-i", "in.mp4", "-frames:v", "1", "-vf", "scale=640:-2", "poster.png"],
-      dir,
-    );
+    const grab = (seekSec: number) =>
+      runFfmpeg(
+        [
+          "-y",
+          "-ss",
+          seekSec.toFixed(2),
+          "-i",
+          "in.mp4",
+          "-frames:v",
+          "1",
+          "-vf",
+          "scale='min(1080,iw)':-2",
+          "poster.png",
+        ],
+        dir,
+      );
+    try {
+      await grab(1.0);
+    } catch {
+      await grab(0);
+    }
     return await readFile(join(dir, "poster.png"));
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});

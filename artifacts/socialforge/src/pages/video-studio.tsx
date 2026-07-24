@@ -136,6 +136,7 @@ export function VideoStudioPage() {
   const [slideDurationSec, setSlideDurationSec] = useState(3);
   const [overlayText, setOverlayText] = useState("");
   const [voice, setVoice] = useState<Voice>("alloy");
+  const [stockSource, setStockSource] = useState<"auto" | "pexels" | "pixabay">("auto");
   const [paragraphCount, setParagraphCount] = useState(1);
   const [subtitles, setSubtitles] = useState(true);
   const [visuals, setVisuals] = useState<"stock" | "character">("stock");
@@ -336,7 +337,7 @@ export function VideoStudioPage() {
               ? (music?.objectPath ?? null)
               : null,
           voice,
-          stockSource: "auto",
+          stockSource,
           subtitles,
           paragraphCount,
           visualsSource: engine === "topic_to_video" ? visuals : "stock",
@@ -670,6 +671,24 @@ export function VideoStudioPage() {
                     </SelectContent>
                   </Select>
                 </div>
+                {visuals === "stock" && (
+                  <div className="space-y-2">
+                    <Label>Footage source</Label>
+                    <Select
+                      value={stockSource}
+                      onValueChange={(v) => setStockSource(v as typeof stockSource)}
+                    >
+                      <SelectTrigger className="w-36" data-testid="select-stock-source">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Auto</SelectItem>
+                        <SelectItem value="pexels">Pexels</SelectItem>
+                        <SelectItem value="pixabay">Pixabay</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </>
             ) : (
               <div className="space-y-2">

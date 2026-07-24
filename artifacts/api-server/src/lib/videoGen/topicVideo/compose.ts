@@ -1,7 +1,7 @@
 import { writeFile, readFile, mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { runFfmpeg, findFontFile } from "../slideshow";
+import { runFfmpeg, findFontFile, probeDurationSec } from "../slideshow";
 import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
 import type { NarrationCue } from "./narration";
 
@@ -19,9 +19,16 @@ import type { NarrationCue } from "./narration";
  */
 
 const FPS = 30;
-/** Keep music clearly under the narration, per MoneyPrinterTurbo's default. */
-const MUSIC_VOLUME = 0.2;
+/**
+ * Music level BEFORE ducking. Sidechain compression (keyed on the narration)
+ * pulls it well below the voice while someone is speaking, so this can sit
+ * higher than the old static 0.2 and fill the pauses instead of being
+ * inaudible throughout.
+ */
+const MUSIC_VOLUME = 0.45;
 const MUSIC_FADE_SEC = 1.5;
+/** Dip-to-black length on scene cuts (skipped on very short scenes). */
+const SCENE_FADE_SEC = 0.2;
 
 /** An explicit visual scene: which clip plays, for how long. */
 export interface SceneSegment {
@@ -125,33 +132,63 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
       await writeFile(join(dir, "music"), input.music!);
     }
 
-    // 1) One identically-encoded segment per scene, looping short sources.
+    // Probe each clip's duration once so scenes can seek into a DIFFERENT
+    // part of the footage instead of always replaying from t=0 (which made
+    // reused clips feel like a loop). Probe failure just disables seeking.
+    const clipDurations = new Map<number, number | null>();
+    for (const scene of scenes) {
+      if (!clipDurations.has(scene.clipIndex)) {
+        clipDurations.set(
+          scene.clipIndex,
+          await probeDurationSec(`clip_${scene.clipIndex}.mp4`, dir),
+        );
+      }
+    }
+
+    // 1) One identically-encoded segment per scene. Long sources are seeked
+    // into (golden-ratio spread per scene, deterministic); short sources
+    // loop as before. Cuts get a subtle dip-to-black so scene changes read
+    // as intentional edits rather than jumps.
     const frame =
       `scale=${width}:${height}:force_original_aspect_ratio=increase,` +
       `crop=${width}:${height},setsar=1,fps=${FPS},format=yuv420p`;
     for (let i = 0; i < scenes.length; i++) {
-      await runFfmpeg(
-        [
-          "-y",
-          "-stream_loop",
-          "-1",
-          "-i",
-          `clip_${scenes[i]!.clipIndex}.mp4`,
-          "-t",
-          scenes[i]!.durationSec.toFixed(3),
-          "-vf",
-          frame,
-          "-an",
-          "-c:v",
-          "libx264",
-          "-preset",
-          "veryfast",
-          "-crf",
-          "23",
-          `seg_${String(i).padStart(3, "0")}.mp4`,
-        ],
-        dir,
+      const scene = scenes[i]!;
+      const clipDur = clipDurations.get(scene.clipIndex) ?? null;
+      const spare = clipDur !== null ? clipDur - scene.durationSec : 0;
+      const canSeek = clipDur !== null && spare > 0.5;
+      const seekSec = canSeek ? ((i * 0.618034) % 1) * (spare - 0.25) : 0;
+
+      const fades: string[] = [];
+      if (scene.durationSec > SCENE_FADE_SEC * 4) {
+        if (i > 0) fades.push(`fade=t=in:st=0:d=${SCENE_FADE_SEC}`);
+        if (i < scenes.length - 1) {
+          fades.push(
+            `fade=t=out:st=${(scene.durationSec - SCENE_FADE_SEC).toFixed(3)}:d=${SCENE_FADE_SEC}`,
+          );
+        }
+      }
+
+      const args = ["-y"];
+      if (canSeek) args.push("-ss", seekSec.toFixed(3));
+      else args.push("-stream_loop", "-1");
+      args.push(
+        "-i",
+        `clip_${scene.clipIndex}.mp4`,
+        "-t",
+        scene.durationSec.toFixed(3),
+        "-vf",
+        [frame, ...fades].join(","),
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        `seg_${String(i).padStart(3, "0")}.mp4`,
       );
+      await runFfmpeg(args, dir);
     }
     const concatList = scenes
       .map((_, i) => `file 'seg_${String(i).padStart(3, "0")}.mp4'`)
@@ -192,12 +229,21 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
     const videoChain =
       videoFilters.length > 0 ? `[0:v]${videoFilters.join(",")}[vout]` : `[0:v]null[vout]`;
 
+    // Audio: the narration is loudness-normalized to a spoken-word target,
+    // the music is genuinely DUCKED under speech via sidechain compression
+    // (keyed on the narration, so it swells back in the pauses), and the
+    // final mix is normalized to the ~-14 LUFS social platforms expect.
+    const narrationNorm = "loudnorm=I=-16:TP=-1.5:LRA=11";
+    const mixNorm = "loudnorm=I=-14:TP=-1.5:LRA=11";
+    const musicFade =
+      `afade=t=out:st=${Math.max(0, input.totalDurationSec - MUSIC_FADE_SEC).toFixed(3)}:` +
+      `d=${MUSIC_FADE_SEC}`;
     const audioChain = hasMusic
-      ? `[2:a]volume=${MUSIC_VOLUME},` +
-        `afade=t=out:st=${Math.max(0, input.totalDurationSec - MUSIC_FADE_SEC).toFixed(3)}:` +
-        `d=${MUSIC_FADE_SEC}[bgm];` +
-        `[1:a][bgm]amix=inputs=2:duration=first:normalize=0[aout]`
-      : `[1:a]anull[aout]`;
+      ? `[1:a]${narrationNorm},asplit=2[nar][narkey];` +
+        `[2:a]volume=${MUSIC_VOLUME},${musicFade}[bgm];` +
+        `[bgm][narkey]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=400[duck];` +
+        `[nar][duck]amix=inputs=2:duration=first:normalize=0,${mixNorm}[aout]`
+      : `[1:a]${mixNorm}[aout]`;
 
     // The filtergraph can exceed argv comfort with many cues; feed it from a
     // script file instead.

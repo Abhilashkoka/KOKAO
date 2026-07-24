@@ -1,5 +1,10 @@
 import { textToSpeech } from "@workspace/integrations-openai-ai-server/audio";
 import { VideoGenProviderError } from "../types";
+import { withRetries, withTimeout } from "../retry";
+
+/** A single sentence should never take this long to speak; a hung TTS call
+ * must not stall the whole multi-minute job. */
+const TTS_TIMEOUT_MS = 90_000;
 
 /**
  * Narration for the Topic to Video engine.
@@ -181,7 +186,14 @@ export async function synthesizeNarration(
   }
   const parts: ParsedWav[] = [];
   for (const sentence of sentences) {
-    const audio = await textToSpeech(sentence, voice, "wav");
+    // Bounded + retried: the TTS SDK call has no abort support of its own,
+    // so a hung or transiently-failing upstream gets one clean second chance
+    // instead of stalling (or instantly failing) the whole job.
+    const audio = await withRetries(
+      () =>
+        withTimeout(() => textToSpeech(sentence, voice, "wav"), TTS_TIMEOUT_MS, "Narration"),
+      { attempts: 2 },
+    );
     if (audio.length === 0) {
       throw new VideoGenProviderError("Text-to-speech returned no audio. Please try again.");
     }

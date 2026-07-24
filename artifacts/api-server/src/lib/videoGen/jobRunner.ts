@@ -6,6 +6,7 @@ import { refundCredits } from "../credits";
 import { logger } from "../logger";
 import { generateVideo, VideoGenNotConfiguredError, VideoGenProviderError } from "./index";
 import { renderSlideshow, extractPosterFrame } from "./slideshow";
+import { normalizeVideo } from "./postprocess";
 import {
   generateTopicVideo,
   NARRATION_VOICES,
@@ -130,7 +131,13 @@ async function produceVideo(
         aspectRatio,
         durationSec: options.durationSec ?? 5,
       });
-      return { buffer: result.buffer, provider: result.provider, model: result.model };
+      return {
+        // Providers routinely ignore the requested aspect/resolution;
+        // normalize (fail-soft) so the delivered file matches the request.
+        buffer: await normalizeVideo(result.buffer, aspectRatio),
+        provider: result.provider,
+        model: result.model,
+      };
     }
     const result = await generateVideo({
       mode: "text",
@@ -138,7 +145,11 @@ async function produceVideo(
       aspectRatio,
       durationSec: options.durationSec ?? 5,
     });
-    return { buffer: result.buffer, provider: result.provider, model: result.model };
+    return {
+      buffer: await normalizeVideo(result.buffer, aspectRatio),
+      provider: result.provider,
+      model: result.model,
+    };
   }
 
   if (job.engine === "image_to_video") {
@@ -152,7 +163,11 @@ async function produceVideo(
       durationSec: options.durationSec ?? 5,
       image,
     });
-    return { buffer: result.buffer, provider: result.provider, model: result.model };
+    return {
+      buffer: await normalizeVideo(result.buffer, aspectRatio),
+      provider: result.provider,
+      model: result.model,
+    };
   }
 
   if (job.engine === "slideshow") {

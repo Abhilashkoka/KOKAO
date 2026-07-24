@@ -1,0 +1,799 @@
+From b01ccb40dae362f6c0cc5af5683086d5adf06637 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 24 Jul 2026 12:10:36 +0000
+Subject: [PATCH] Video engine quality + reliability overhaul
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Quality (all deterministic ffmpeg, no new AI cost):
+- Real music ducking: narration loudness-normalized (-16 LUFS), music
+  sidechain-compressed under speech and swelling back in pauses (was a
+  static 0.2 volume), final mix normalized to the -14 LUFS platforms expect
+- Stock scenes seek INTO long clips (golden-ratio spread, deterministic)
+  instead of always replaying from t=0; short clips still loop
+- Dip-to-black fades on topic-video scene cuts (was hard concat cuts)
+- Slideshows: cover-crop + gentle alternating Ken Burns zoom on a 2x
+  supersampled frame (was static letterboxed stills with black bars)
+- Raw AI clips normalized to the REQUESTED aspect/resolution (WAN outputs
+  720p, MiniMax ignores aspect, Veo is 16:9-first) — fail-soft passthrough
+- Poster frames: 1080px grabbed past the fade-in (was 640px at 0.5s)
+
+Reliability:
+- Replicate create/download wrapped in bounded retry-with-backoff on
+  429/5xx/network; polling tolerates 3 consecutive transient failures
+- TTS calls bounded by a 90s timeout + one retry, so a hung narration
+  can never stall a 25-minute topic video
+- New retry.ts helper with typed transient-status detection
+
+UI: expose the Pexels/Pixabay footage-source choice the backend already
+supported (was hardcoded 'auto').
+
+Tests: 5 new (real-ffmpeg normalize, fail-soft passthrough, retry/timeout
+semantics); all 43 videoGen tests green including upstream topicVideo and
+character-scene suites against the new filter graphs.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EJdoZ8bk1pWTrmbMVQJZ7G
+---
+ .../api-server/src/lib/videoGen/jobRunner.ts  |  21 +++-
+ .../src/lib/videoGen/postprocess.test.ts      |  73 ++++++++++++
+ .../src/lib/videoGen/postprocess.ts           |  61 ++++++++++
+ .../src/lib/videoGen/providers/replicate.ts   |  81 ++++++++-----
+ .../api-server/src/lib/videoGen/retry.ts      |  79 +++++++++++++
+ .../api-server/src/lib/videoGen/slideshow.ts  |  89 +++++++++++++--
+ .../src/lib/videoGen/topicVideo/compose.ts    | 106 +++++++++++++-----
+ .../src/lib/videoGen/topicVideo/narration.ts  |  14 ++-
+ .../socialforge/src/pages/video-studio.tsx    |  21 +++-
+ 9 files changed, 474 insertions(+), 71 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/postprocess.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/postprocess.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/retry.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index f28dfa5..15d75fe 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -6,6 +6,7 @@ import { refundCredits } from "../credits";
+ import { logger } from "../logger";
+ import { generateVideo, VideoGenNotConfiguredError, VideoGenProviderError } from "./index";
+ import { renderSlideshow, extractPosterFrame } from "./slideshow";
++import { normalizeVideo } from "./postprocess";
+ import {
+   generateTopicVideo,
+   NARRATION_VOICES,
+@@ -130,7 +131,13 @@ async function produceVideo(
+         aspectRatio,
+         durationSec: options.durationSec ?? 5,
+       });
+-      return { buffer: result.buffer, provider: result.provider, model: result.model };
++      return {
++        // Providers routinely ignore the requested aspect/resolution;
++        // normalize (fail-soft) so the delivered file matches the request.
++        buffer: await normalizeVideo(result.buffer, aspectRatio),
++        provider: result.provider,
++        model: result.model,
++      };
+     }
+     const result = await generateVideo({
+       mode: "text",
+@@ -138,7 +145,11 @@ async function produceVideo(
+       aspectRatio,
+       durationSec: options.durationSec ?? 5,
+     });
+-    return { buffer: result.buffer, provider: result.provider, model: result.model };
++    return {
++      buffer: await normalizeVideo(result.buffer, aspectRatio),
++      provider: result.provider,
++      model: result.model,
++    };
+   }
+ 
+   if (job.engine === "image_to_video") {
+@@ -152,7 +163,11 @@ async function produceVideo(
+       durationSec: options.durationSec ?? 5,
+       image,
+     });
+-    return { buffer: result.buffer, provider: result.provider, model: result.model };
++    return {
++      buffer: await normalizeVideo(result.buffer, aspectRatio),
++      provider: result.provider,
++      model: result.model,
++    };
+   }
+ 
+   if (job.engine === "slideshow") {
+diff --git a/artifacts/api-server/src/lib/videoGen/postprocess.test.ts b/artifacts/api-server/src/lib/videoGen/postprocess.test.ts
+new file mode 100644
+index 0000000..3c16783
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/postprocess.test.ts
+@@ -0,0 +1,73 @@
++import { describe, it, expect } from "vitest";
++import { renderSlideshow } from "./slideshow";
++import { normalizeVideo } from "./postprocess";
++import { withRetries, withTimeout } from "./retry";
++import { VideoGenProviderError } from "./types";
++
++// 1x1 red PNG.
++const PNG_1PX = Buffer.from(
++  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
++  "base64",
++);
++
++function isMp4(buffer: Buffer): boolean {
++  return buffer.length > 12 && buffer.toString("ascii", 4, 8) === "ftyp";
++}
++
++describe("normalizeVideo", () => {
++  it("re-frames a clip to the requested aspect with real ffmpeg", async () => {
++    // Render a small 1:1 clip, then normalize it to 9:16 — mimicking a
++    // provider that ignored the requested aspect ratio.
++    const square = await renderSlideshow({
++      images: [PNG_1PX],
++      aspectRatio: "1:1",
++      slideDurationSec: 1,
++    });
++    const portrait = await normalizeVideo(square, "9:16");
++    expect(isMp4(portrait)).toBe(true);
++    // A real transcode happened (not the fail-soft passthrough).
++    expect(portrait.equals(square)).toBe(false);
++  }, 180_000);
++
++  it("fails soft: garbage input returns the original buffer untouched", async () => {
++    const garbage = Buffer.from("definitely not a video");
++    const out = await normalizeVideo(garbage, "9:16");
++    expect(out.equals(garbage)).toBe(true);
++  }, 60_000);
++});
++
++describe("retry helpers", () => {
++  it("retries transient provider errors and succeeds", async () => {
++    let calls = 0;
++    const result = await withRetries(
++      async () => {
++        calls += 1;
++        if (calls < 3) throw new VideoGenProviderError("busy", 429);
++        return "ok";
++      },
++      { attempts: 3, baseDelayMs: 1 },
++    );
++    expect(result).toBe("ok");
++    expect(calls).toBe(3);
++  });
++
++  it("does not retry permanent provider rejections", async () => {
++    let calls = 0;
++    await expect(
++      withRetries(
++        async () => {
++          calls += 1;
++          throw new VideoGenProviderError("bad prompt", 422);
++        },
++        { attempts: 3, baseDelayMs: 1 },
++      ),
++    ).rejects.toBeInstanceOf(VideoGenProviderError);
++    expect(calls).toBe(1);
++  });
++
++  it("withTimeout rejects a hung call instead of stalling forever", async () => {
++    await expect(
++      withTimeout(() => new Promise(() => {}), 50, "Test"),
++    ).rejects.toBeInstanceOf(VideoGenProviderError);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/postprocess.ts b/artifacts/api-server/src/lib/videoGen/postprocess.ts
+new file mode 100644
+index 0000000..6553573
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/postprocess.ts
+@@ -0,0 +1,61 @@
++import { writeFile, readFile, mkdtemp, rm } from "fs/promises";
++import { tmpdir } from "os";
++import { join } from "path";
++import { runFfmpeg } from "./slideshow";
++import { ASPECT_DIMENSIONS, type VideoAspect } from "./types";
++import { logger } from "../logger";
++
++/**
++ * Normalize a raw AI provider clip to the aspect ratio and resolution the
++ * user actually asked for. Providers routinely ignore the request: WAN-fast
++ * outputs 480-720p, MiniMax has no aspect parameter at all, and Veo is
++ * 16:9-first — so without this pass a 9:16 reel request could ship as a
++ * landscape 720p clip. Cover-crop + upscale to the canonical frame, 30fps,
++ * H.264 yuv420p with faststart; audio (rare, but some models emit it) is
++ * kept and normalized for platform loudness.
++ *
++ * Fail-soft: any error returns the ORIGINAL buffer — a normalization hiccup
++ * must never fail a generation that already cost money.
++ */
++export async function normalizeVideo(video: Buffer, aspectRatio: VideoAspect): Promise<Buffer> {
++  const { width, height } = ASPECT_DIMENSIONS[aspectRatio];
++  const dir = await mkdtemp(join(tmpdir(), "kokao-normalize-"));
++  try {
++    await writeFile(join(dir, "in.mp4"), video);
++    await runFfmpeg(
++      [
++        "-y",
++        "-i",
++        "in.mp4",
++        "-vf",
++        `scale=${width}:${height}:force_original_aspect_ratio=increase,` +
++          `crop=${width}:${height},setsar=1,fps=30,format=yuv420p`,
++        "-map",
++        "0:v:0",
++        "-map",
++        "0:a?",
++        "-c:v",
++        "libx264",
++        "-preset",
++        "veryfast",
++        "-crf",
++        "20",
++        "-c:a",
++        "aac",
++        "-b:a",
++        "128k",
++        "-movflags",
++        "+faststart",
++        "out.mp4",
++      ],
++      dir,
++    );
++    const out = await readFile(join(dir, "out.mp4"));
++    return out.length > 0 ? out : video;
++  } catch (error) {
++    logger.warn({ err: error }, "Video normalization failed; delivering the raw provider clip");
++    return video;
++  } finally {
++    await rm(dir, { recursive: true, force: true }).catch(() => {});
++  }
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/providers/replicate.ts b/artifacts/api-server/src/lib/videoGen/providers/replicate.ts
+index 915a85d..3155cb9 100644
+--- a/artifacts/api-server/src/lib/videoGen/providers/replicate.ts
++++ b/artifacts/api-server/src/lib/videoGen/providers/replicate.ts
+@@ -7,6 +7,7 @@ import {
+   type VideoGenInput,
+   type VideoGenResult,
+ } from "../types";
++import { withRetries, isTransientStatus } from "../retry";
+ 
+ /**
+  * Default Replicate video models. Both are the fast WAN 2.2 variants: cheap,
+@@ -87,21 +88,34 @@ export async function generateWithReplicate(
+     "Content-Type": "application/json",
+   };
+ 
+-  const res = await videoGenFetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
+-    method: "POST",
+-    headers: { ...headers, Prefer: "wait=60" },
+-    body: JSON.stringify({ input: buildInput(input) }),
+-  });
+-  if (!res.ok) {
+-    throw new VideoGenProviderError(
+-      `Replicate video prediction failed (${res.status}): ${await errorDetail(res)}`,
+-      res.status,
+-    );
+-  }
+-  let prediction = (await res.json()) as ReplicatePrediction;
++  // Create with bounded retries: 429s and transient 5xxs are routine on
++  // busy video models and should never fail a multi-minute job outright.
++  let prediction = await withRetries(
++    async (): Promise<ReplicatePrediction> => {
++      const res = await videoGenFetch(
++        `https://api.replicate.com/v1/models/${model}/predictions`,
++        {
++          method: "POST",
++          headers: { ...headers, Prefer: "wait=60" },
++          body: JSON.stringify({ input: buildInput(input) }),
++        },
++      );
++      if (!res.ok) {
++        throw new VideoGenProviderError(
++          `Replicate video prediction failed (${res.status}): ${await errorDetail(res)}`,
++          res.status,
++        );
++      }
++      return (await res.json()) as ReplicatePrediction;
++    },
++    { attempts: 3 },
++  );
+ 
+   // Video models regularly need minutes; poll within the overall deadline.
++  // A few consecutive transient poll failures are tolerated — only a
++  // persistent failure (or a definitive non-2xx that isn't transient) throws.
+   const deadline = Date.now() + VIDEO_GEN_TOTAL_DEADLINE_MS;
++  let consecutivePollFailures = 0;
+   while (
+     prediction.status &&
+     ["starting", "processing"].includes(prediction.status) &&
+@@ -109,14 +123,22 @@ export async function generateWithReplicate(
+     Date.now() < deadline
+   ) {
+     await new Promise((r) => setTimeout(r, 5000));
+-    const poll = await videoGenFetch(prediction.urls.get, { method: "GET", headers });
+-    if (!poll.ok) {
+-      throw new VideoGenProviderError(
+-        `Replicate polling failed (${poll.status}): ${await errorDetail(poll)}`,
+-        poll.status,
+-      );
++    try {
++      const poll = await videoGenFetch(prediction.urls.get, { method: "GET", headers });
++      if (!poll.ok) {
++        throw new VideoGenProviderError(
++          `Replicate polling failed (${poll.status}): ${await errorDetail(poll)}`,
++          poll.status,
++        );
++      }
++      prediction = (await poll.json()) as ReplicatePrediction;
++      consecutivePollFailures = 0;
++    } catch (error) {
++      const transient =
++        !(error instanceof VideoGenProviderError) || isTransientStatus(error.status);
++      consecutivePollFailures += 1;
++      if (!transient || consecutivePollFailures >= 3) throw error;
+     }
+-    prediction = (await poll.json()) as ReplicatePrediction;
+   }
+ 
+   if (prediction.status !== "succeeded") {
+@@ -128,14 +150,19 @@ export async function generateWithReplicate(
+   if (!url) {
+     throw new VideoGenProviderError("Replicate returned no video URL.");
+   }
+-  const video = await videoGenFetch(url, { method: "GET" });
+-  if (!video.ok) {
+-    throw new VideoGenProviderError(
+-      `Replicate video download failed (${video.status}).`,
+-      video.status,
+-    );
+-  }
+-  const buffer = Buffer.from(await video.arrayBuffer());
++  const buffer = await withRetries(
++    async () => {
++      const video = await videoGenFetch(url, { method: "GET" });
++      if (!video.ok) {
++        throw new VideoGenProviderError(
++          `Replicate video download failed (${video.status}).`,
++          video.status,
++        );
++      }
++      return Buffer.from(await video.arrayBuffer());
++    },
++    { attempts: 3 },
++  );
+   if (buffer.length === 0) {
+     throw new VideoGenProviderError("Replicate returned an empty video.");
+   }
+diff --git a/artifacts/api-server/src/lib/videoGen/retry.ts b/artifacts/api-server/src/lib/videoGen/retry.ts
+new file mode 100644
+index 0000000..248b583
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/retry.ts
+@@ -0,0 +1,79 @@
++import { VideoGenProviderError } from "./types";
++
++/**
++ * Small bounded retry-with-backoff for the flaky edges of video generation:
++ * provider create calls (429/5xx/network) and TTS. Retries are few and
++ * short — a genuinely down upstream should fail the job quickly rather than
++ * eat the whole deadline.
++ */
++
++export interface RetryOptions {
++  /** Total attempts including the first (default 3). */
++  attempts?: number;
++  /** Base backoff in ms; grows ×2 per retry (default 1500). */
++  baseDelayMs?: number;
++  /** Whether an error is worth retrying (default: retryable provider errors + network). */
++  isRetryable?: (error: unknown) => boolean;
++  /** Called before each retry sleep (for logging). */
++  onRetry?: (error: unknown, attempt: number) => void;
++}
++
++/** Transient upstream statuses worth one more try. */
++export function isTransientStatus(status: number | undefined): boolean {
++  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
++}
++
++function defaultRetryable(error: unknown): boolean {
++  if (error instanceof VideoGenProviderError) return isTransientStatus(error.status);
++  // Network/abort-level failures (fetch TypeError, socket resets) are
++  // transient by nature; anything typed as a permanent provider rejection
++  // already returned false above.
++  return error instanceof Error && !(error instanceof VideoGenProviderError);
++}
++
++export async function withRetries<T>(
++  fn: () => Promise<T>,
++  options: RetryOptions = {},
++): Promise<T> {
++  const attempts = Math.max(1, options.attempts ?? 3);
++  const baseDelayMs = options.baseDelayMs ?? 1500;
++  const isRetryable = options.isRetryable ?? defaultRetryable;
++  let lastError: unknown;
++  for (let attempt = 1; attempt <= attempts; attempt++) {
++    try {
++      return await fn();
++    } catch (error) {
++      lastError = error;
++      if (attempt === attempts || !isRetryable(error)) throw error;
++      options.onRetry?.(error, attempt);
++      await new Promise((r) => setTimeout(r, baseDelayMs * 2 ** (attempt - 1)));
++    }
++  }
++  throw lastError;
++}
++
++/**
++ * Bound a promise-returning call that has no abort support of its own (the
++ * TTS SDK call): reject after `ms` so a hung upstream can never stall the
++ * whole job. The abandoned promise settles harmlessly in the background.
++ */
++export async function withTimeout<T>(
++  fn: () => Promise<T>,
++  ms: number,
++  label: string,
++): Promise<T> {
++  let timer: ReturnType<typeof setTimeout> | undefined;
++  try {
++    return await Promise.race([
++      fn(),
++      new Promise<never>((_, reject) => {
++        timer = setTimeout(
++          () => reject(new VideoGenProviderError(`${label} timed out after ${ms / 1000}s.`)),
++          ms,
++        );
++      }),
++    ]);
++  } finally {
++    clearTimeout(timer);
++  }
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/slideshow.ts b/artifacts/api-server/src/lib/videoGen/slideshow.ts
+index 0871bae..7c1595f 100644
+--- a/artifacts/api-server/src/lib/videoGen/slideshow.ts
++++ b/artifacts/api-server/src/lib/videoGen/slideshow.ts
+@@ -63,6 +63,42 @@ export async function findFontFile(): Promise<string | null> {
+   return null;
+ }
+ 
++/** Read a media file's duration (seconds) via ffprobe. Returns null on failure. */
++export function probeDurationSec(file: string, cwd: string): Promise<number | null> {
++  return new Promise((resolve) => {
++    const proc = spawn(
++      "ffprobe",
++      [
++        "-v",
++        "error",
++        "-show_entries",
++        "format=duration",
++        "-of",
++        "default=noprint_wrappers=1:nokey=1",
++        file,
++      ],
++      { cwd },
++    );
++    let out = "";
++    const timer = setTimeout(() => {
++      proc.kill("SIGKILL");
++      resolve(null);
++    }, 30_000);
++    proc.stdout.on("data", (chunk: Buffer) => {
++      out += chunk.toString();
++    });
++    proc.on("close", (code) => {
++      clearTimeout(timer);
++      const value = Number.parseFloat(out.trim());
++      resolve(code === 0 && Number.isFinite(value) && value > 0 ? value : null);
++    });
++    proc.on("error", () => {
++      clearTimeout(timer);
++      resolve(null);
++    });
++  });
++}
++
+ export function runFfmpeg(args: string[], cwd: string): Promise<void> {
+   return new Promise<void>((resolve, reject) => {
+     const proc = spawn("ffmpeg", args, { cwd });
+@@ -125,13 +161,28 @@ export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
+       args.push("-i", "music");
+     }
+ 
+-    // Normalize every slide to the target frame, then chain crossfades.
++    // Normalize every slide to the target frame with a gentle Ken Burns
++    // move (alternating zoom in / zoom out per slide), then chain
++    // crossfades. Photos are cover-cropped — same fill rule as the topic
++    // video composer — instead of letterboxed, and the zoompan works on a
++    // 2x supersampled frame so the motion is smooth rather than steppy.
+     const filters: string[] = [];
++    const superW = width * 2;
++    const superH = height * 2;
++    const zoomSpan = 0.08; // 8% total move per slide
++    const frames = Math.max(1, Math.round(slideSec * FPS));
++    const zoomStep = (zoomSpan / frames).toFixed(6);
+     for (let i = 0; i < count; i++) {
++      const zoomExpr =
++        i % 2 === 0
++          ? `min(1+${zoomStep}*on,${(1 + zoomSpan).toFixed(3)})` // zoom in
++          : `max(${(1 + zoomSpan).toFixed(3)}-${zoomStep}*on,1.001)`; // zoom out
+       filters.push(
+-        `[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
+-          `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,` +
+-          `setsar=1,fps=${FPS},format=yuv420p[v${i}]`,
++        `[${i}:v]scale=${superW}:${superH}:force_original_aspect_ratio=increase,` +
++          `crop=${superW}:${superH},` +
++          `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
++          `d=1:s=${width}x${height}:fps=${FPS},` +
++          `setsar=1,format=yuv420p[v${i}]`,
+       );
+     }
+     let chainLabel = "v0";
+@@ -206,15 +257,35 @@ export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
+   }
+ }
+ 
+-/** Extract a PNG poster frame from a video (used for library thumbnails). */
++/** Extract a PNG poster frame from a video (used for library thumbnails).
++ * Grabs a frame ~1s in (past fade-ins) at up to 1080px wide so grid
++ * thumbnails and share previews stay sharp; falls back to the first frame
++ * for very short clips. */
+ export async function extractPosterFrame(video: Buffer): Promise<Buffer> {
+   const dir = await mkdtemp(join(tmpdir(), "kokao-poster-"));
+   try {
+     await writeFile(join(dir, "in.mp4"), video);
+-    await runFfmpeg(
+-      ["-y", "-ss", "0.5", "-i", "in.mp4", "-frames:v", "1", "-vf", "scale=640:-2", "poster.png"],
+-      dir,
+-    );
++    const grab = (seekSec: number) =>
++      runFfmpeg(
++        [
++          "-y",
++          "-ss",
++          seekSec.toFixed(2),
++          "-i",
++          "in.mp4",
++          "-frames:v",
++          "1",
++          "-vf",
++          "scale='min(1080,iw)':-2",
++          "poster.png",
++        ],
++        dir,
++      );
++    try {
++      await grab(1.0);
++    } catch {
++      await grab(0);
++    }
+     return await readFile(join(dir, "poster.png"));
+   } finally {
+     await rm(dir, { recursive: true, force: true }).catch(() => {});
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts
+index b76b535..ddaa57a 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts
+@@ -1,7 +1,7 @@
+ import { writeFile, readFile, mkdtemp, rm } from "fs/promises";
+ import { tmpdir } from "os";
+ import { join } from "path";
+-import { runFfmpeg, findFontFile } from "../slideshow";
++import { runFfmpeg, findFontFile, probeDurationSec } from "../slideshow";
+ import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
+ import type { NarrationCue } from "./narration";
+ 
+@@ -19,9 +19,16 @@ import type { NarrationCue } from "./narration";
+  */
+ 
+ const FPS = 30;
+-/** Keep music clearly under the narration, per MoneyPrinterTurbo's default. */
+-const MUSIC_VOLUME = 0.2;
++/**
++ * Music level BEFORE ducking. Sidechain compression (keyed on the narration)
++ * pulls it well below the voice while someone is speaking, so this can sit
++ * higher than the old static 0.2 and fill the pauses instead of being
++ * inaudible throughout.
++ */
++const MUSIC_VOLUME = 0.45;
+ const MUSIC_FADE_SEC = 1.5;
++/** Dip-to-black length on scene cuts (skipped on very short scenes). */
++const SCENE_FADE_SEC = 0.2;
+ 
+ /** An explicit visual scene: which clip plays, for how long. */
+ export interface SceneSegment {
+@@ -125,33 +132,63 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
+       await writeFile(join(dir, "music"), input.music!);
+     }
+ 
+-    // 1) One identically-encoded segment per scene, looping short sources.
++    // Probe each clip's duration once so scenes can seek into a DIFFERENT
++    // part of the footage instead of always replaying from t=0 (which made
++    // reused clips feel like a loop). Probe failure just disables seeking.
++    const clipDurations = new Map<number, number | null>();
++    for (const scene of scenes) {
++      if (!clipDurations.has(scene.clipIndex)) {
++        clipDurations.set(
++          scene.clipIndex,
++          await probeDurationSec(`clip_${scene.clipIndex}.mp4`, dir),
++        );
++      }
++    }
++
++    // 1) One identically-encoded segment per scene. Long sources are seeked
++    // into (golden-ratio spread per scene, deterministic); short sources
++    // loop as before. Cuts get a subtle dip-to-black so scene changes read
++    // as intentional edits rather than jumps.
+     const frame =
+       `scale=${width}:${height}:force_original_aspect_ratio=increase,` +
+       `crop=${width}:${height},setsar=1,fps=${FPS},format=yuv420p`;
+     for (let i = 0; i < scenes.length; i++) {
+-      await runFfmpeg(
+-        [
+-          "-y",
+-          "-stream_loop",
+-          "-1",
+-          "-i",
+-          `clip_${scenes[i]!.clipIndex}.mp4`,
+-          "-t",
+-          scenes[i]!.durationSec.toFixed(3),
+-          "-vf",
+-          frame,
+-          "-an",
+-          "-c:v",
+-          "libx264",
+-          "-preset",
+-          "veryfast",
+-          "-crf",
+-          "23",
+-          `seg_${String(i).padStart(3, "0")}.mp4`,
+-        ],
+-        dir,
++      const scene = scenes[i]!;
++      const clipDur = clipDurations.get(scene.clipIndex) ?? null;
++      const spare = clipDur !== null ? clipDur - scene.durationSec : 0;
++      const canSeek = clipDur !== null && spare > 0.5;
++      const seekSec = canSeek ? ((i * 0.618034) % 1) * (spare - 0.25) : 0;
++
++      const fades: string[] = [];
++      if (scene.durationSec > SCENE_FADE_SEC * 4) {
++        if (i > 0) fades.push(`fade=t=in:st=0:d=${SCENE_FADE_SEC}`);
++        if (i < scenes.length - 1) {
++          fades.push(
++            `fade=t=out:st=${(scene.durationSec - SCENE_FADE_SEC).toFixed(3)}:d=${SCENE_FADE_SEC}`,
++          );
++        }
++      }
++
++      const args = ["-y"];
++      if (canSeek) args.push("-ss", seekSec.toFixed(3));
++      else args.push("-stream_loop", "-1");
++      args.push(
++        "-i",
++        `clip_${scene.clipIndex}.mp4`,
++        "-t",
++        scene.durationSec.toFixed(3),
++        "-vf",
++        [frame, ...fades].join(","),
++        "-an",
++        "-c:v",
++        "libx264",
++        "-preset",
++        "veryfast",
++        "-crf",
++        "23",
++        `seg_${String(i).padStart(3, "0")}.mp4`,
+       );
++      await runFfmpeg(args, dir);
+     }
+     const concatList = scenes
+       .map((_, i) => `file 'seg_${String(i).padStart(3, "0")}.mp4'`)
+@@ -192,12 +229,21 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
+     const videoChain =
+       videoFilters.length > 0 ? `[0:v]${videoFilters.join(",")}[vout]` : `[0:v]null[vout]`;
+ 
++    // Audio: the narration is loudness-normalized to a spoken-word target,
++    // the music is genuinely DUCKED under speech via sidechain compression
++    // (keyed on the narration, so it swells back in the pauses), and the
++    // final mix is normalized to the ~-14 LUFS social platforms expect.
++    const narrationNorm = "loudnorm=I=-16:TP=-1.5:LRA=11";
++    const mixNorm = "loudnorm=I=-14:TP=-1.5:LRA=11";
++    const musicFade =
++      `afade=t=out:st=${Math.max(0, input.totalDurationSec - MUSIC_FADE_SEC).toFixed(3)}:` +
++      `d=${MUSIC_FADE_SEC}`;
+     const audioChain = hasMusic
+-      ? `[2:a]volume=${MUSIC_VOLUME},` +
+-        `afade=t=out:st=${Math.max(0, input.totalDurationSec - MUSIC_FADE_SEC).toFixed(3)}:` +
+-        `d=${MUSIC_FADE_SEC}[bgm];` +
+-        `[1:a][bgm]amix=inputs=2:duration=first:normalize=0[aout]`
+-      : `[1:a]anull[aout]`;
++      ? `[1:a]${narrationNorm},asplit=2[nar][narkey];` +
++        `[2:a]volume=${MUSIC_VOLUME},${musicFade}[bgm];` +
++        `[bgm][narkey]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=400[duck];` +
++        `[nar][duck]amix=inputs=2:duration=first:normalize=0,${mixNorm}[aout]`
++      : `[1:a]${mixNorm}[aout]`;
+ 
+     // The filtergraph can exceed argv comfort with many cues; feed it from a
+     // script file instead.
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts
+index f8cbd6e..b924ddb 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts
+@@ -1,5 +1,10 @@
+ import { textToSpeech } from "@workspace/integrations-openai-ai-server/audio";
+ import { VideoGenProviderError } from "../types";
++import { withRetries, withTimeout } from "../retry";
++
++/** A single sentence should never take this long to speak; a hung TTS call
++ * must not stall the whole multi-minute job. */
++const TTS_TIMEOUT_MS = 90_000;
+ 
+ /**
+  * Narration for the Topic to Video engine.
+@@ -181,7 +186,14 @@ export async function synthesizeNarration(
+   }
+   const parts: ParsedWav[] = [];
+   for (const sentence of sentences) {
+-    const audio = await textToSpeech(sentence, voice, "wav");
++    // Bounded + retried: the TTS SDK call has no abort support of its own,
++    // so a hung or transiently-failing upstream gets one clean second chance
++    // instead of stalling (or instantly failing) the whole job.
++    const audio = await withRetries(
++      () =>
++        withTimeout(() => textToSpeech(sentence, voice, "wav"), TTS_TIMEOUT_MS, "Narration"),
++      { attempts: 2 },
++    );
+     if (audio.length === 0) {
+       throw new VideoGenProviderError("Text-to-speech returned no audio. Please try again.");
+     }
+diff --git a/artifacts/socialforge/src/pages/video-studio.tsx b/artifacts/socialforge/src/pages/video-studio.tsx
+index eba6fa1..dcf0cad 100644
+--- a/artifacts/socialforge/src/pages/video-studio.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.tsx
+@@ -136,6 +136,7 @@ export function VideoStudioPage() {
+   const [slideDurationSec, setSlideDurationSec] = useState(3);
+   const [overlayText, setOverlayText] = useState("");
+   const [voice, setVoice] = useState<Voice>("alloy");
++  const [stockSource, setStockSource] = useState<"auto" | "pexels" | "pixabay">("auto");
+   const [paragraphCount, setParagraphCount] = useState(1);
+   const [subtitles, setSubtitles] = useState(true);
+   const [visuals, setVisuals] = useState<"stock" | "character">("stock");
+@@ -336,7 +337,7 @@ export function VideoStudioPage() {
+               ? (music?.objectPath ?? null)
+               : null,
+           voice,
+-          stockSource: "auto",
++          stockSource,
+           subtitles,
+           paragraphCount,
+           visualsSource: engine === "topic_to_video" ? visuals : "stock",
+@@ -670,6 +671,24 @@ export function VideoStudioPage() {
+                     </SelectContent>
+                   </Select>
+                 </div>
++                {visuals === "stock" && (
++                  <div className="space-y-2">
++                    <Label>Footage source</Label>
++                    <Select
++                      value={stockSource}
++                      onValueChange={(v) => setStockSource(v as typeof stockSource)}
++                    >
++                      <SelectTrigger className="w-36" data-testid="select-stock-source">
++                        <SelectValue />
++                      </SelectTrigger>
++                      <SelectContent>
++                        <SelectItem value="auto">Auto</SelectItem>
++                        <SelectItem value="pexels">Pexels</SelectItem>
++                        <SelectItem value="pixabay">Pixabay</SelectItem>
++                      </SelectContent>
++                    </Select>
++                  </div>
++                )}
+               </>
+             ) : (
+               <div className="space-y-2">
+-- 
+2.43.0
+

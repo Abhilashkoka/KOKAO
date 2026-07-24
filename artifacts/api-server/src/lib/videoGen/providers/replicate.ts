@@ -7,6 +7,7 @@ import {
   type VideoGenInput,
   type VideoGenResult,
 } from "../types";
+import { withRetries, isTransientStatus } from "../retry";
 
 /**
  * Default Replicate video models. Both are the fast WAN 2.2 variants: cheap,
@@ -87,21 +88,34 @@ export async function generateWithReplicate(
     "Content-Type": "application/json",
   };
 
-  const res = await videoGenFetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
-    method: "POST",
-    headers: { ...headers, Prefer: "wait=60" },
-    body: JSON.stringify({ input: buildInput(input) }),
-  });
-  if (!res.ok) {
-    throw new VideoGenProviderError(
-      `Replicate video prediction failed (${res.status}): ${await errorDetail(res)}`,
-      res.status,
-    );
-  }
-  let prediction = (await res.json()) as ReplicatePrediction;
+  // Create with bounded retries: 429s and transient 5xxs are routine on
+  // busy video models and should never fail a multi-minute job outright.
+  let prediction = await withRetries(
+    async (): Promise<ReplicatePrediction> => {
+      const res = await videoGenFetch(
+        `https://api.replicate.com/v1/models/${model}/predictions`,
+        {
+          method: "POST",
+          headers: { ...headers, Prefer: "wait=60" },
+          body: JSON.stringify({ input: buildInput(input) }),
+        },
+      );
+      if (!res.ok) {
+        throw new VideoGenProviderError(
+          `Replicate video prediction failed (${res.status}): ${await errorDetail(res)}`,
+          res.status,
+        );
+      }
+      return (await res.json()) as ReplicatePrediction;
+    },
+    { attempts: 3 },
+  );
 
   // Video models regularly need minutes; poll within the overall deadline.
+  // A few consecutive transient poll failures are tolerated — only a
+  // persistent failure (or a definitive non-2xx that isn't transient) throws.
   const deadline = Date.now() + VIDEO_GEN_TOTAL_DEADLINE_MS;
+  let consecutivePollFailures = 0;
   while (
     prediction.status &&
     ["starting", "processing"].includes(prediction.status) &&
@@ -109,14 +123,22 @@ export async function generateWithReplicate(
     Date.now() < deadline
   ) {
     await new Promise((r) => setTimeout(r, 5000));
-    const poll = await videoGenFetch(prediction.urls.get, { method: "GET", headers });
-    if (!poll.ok) {
-      throw new VideoGenProviderError(
-        `Replicate polling failed (${poll.status}): ${await errorDetail(poll)}`,
-        poll.status,
-      );
+    try {
+      const poll = await videoGenFetch(prediction.urls.get, { method: "GET", headers });
+      if (!poll.ok) {
+        throw new VideoGenProviderError(
+          `Replicate polling failed (${poll.status}): ${await errorDetail(poll)}`,
+          poll.status,
+        );
+      }
+      prediction = (await poll.json()) as ReplicatePrediction;
+      consecutivePollFailures = 0;
+    } catch (error) {
+      const transient =
+        !(error instanceof VideoGenProviderError) || isTransientStatus(error.status);
+      consecutivePollFailures += 1;
+      if (!transient || consecutivePollFailures >= 3) throw error;
     }
-    prediction = (await poll.json()) as ReplicatePrediction;
   }
 
   if (prediction.status !== "succeeded") {
@@ -128,14 +150,19 @@ export async function generateWithReplicate(
   if (!url) {
     throw new VideoGenProviderError("Replicate returned no video URL.");
   }
-  const video = await videoGenFetch(url, { method: "GET" });
-  if (!video.ok) {
-    throw new VideoGenProviderError(
-      `Replicate video download failed (${video.status}).`,
-      video.status,
-    );
-  }
-  const buffer = Buffer.from(await video.arrayBuffer());
+  const buffer = await withRetries(
+    async () => {
+      const video = await videoGenFetch(url, { method: "GET" });
+      if (!video.ok) {
+        throw new VideoGenProviderError(
+          `Replicate video download failed (${video.status}).`,
+          video.status,
+        );
+      }
+      return Buffer.from(await video.arrayBuffer());
+    },
+    { attempts: 3 },
+  );
   if (buffer.length === 0) {
     throw new VideoGenProviderError("Replicate returned an empty video.");
   }
