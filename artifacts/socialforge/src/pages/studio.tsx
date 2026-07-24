@@ -1358,6 +1358,8 @@ function ImageStudio() {
           queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
           track("content_saved", { category: "content", outcome: "success" });
           toast({ title: "Carousel saved to library!" });
+          // Saved to the library: remove it from the Studio results.
+          setCarousel(null);
           clearStudioSession();
           navigate("/library");
         },
@@ -1540,6 +1542,12 @@ function ImageStudio() {
       }
       queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
       setDraft(null);
+      // The content now lives in the library: clear it out of the Studio
+      // results so it is not shown (or re-persisted) as in-progress work.
+      setCaptionResult(null);
+      setCaptionPlatform(null);
+      setImageResult(null);
+      setBriefQuestions(null);
       track("content_saved", { category: "content", outcome: "success" });
       toast({ title: "Saved to library!" });
       // The work is now in the library: drop the in-progress session so it
