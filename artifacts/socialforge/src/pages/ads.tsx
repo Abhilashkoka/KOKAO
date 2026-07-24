@@ -723,6 +723,13 @@ function PlatformUnavailableNotice({
   );
 }
 
+/** Feedback shown on this page when the OAuth sign-in opens in a new tab. */
+const OAUTH_TAB_OPENED_TOAST = (providerName: string) => ({
+  title: `${providerName} sign-in opened in a new tab`,
+  description:
+    "Approve access there, then come back here — this page updates automatically once you're connected.",
+});
+
 function ConnectionSection({
   metaConn,
   metaAvailable,
@@ -752,7 +759,9 @@ function ConnectionSection({
   const startOAuth = async () => {
     const res = await authUrl.refetch();
     if (res.data?.url) {
-      openOAuthUrl(res.data.url);
+      if (openOAuthUrl(res.data.url) === "tab") {
+        toast(OAUTH_TAB_OPENED_TOAST("Facebook"));
+      }
     } else {
       toast({
         variant: "destructive",
@@ -914,7 +923,9 @@ function GoogleConnectionCard({
   const startOAuth = async () => {
     const res = await authUrl.refetch();
     if (res.data?.url) {
-      openOAuthUrl(res.data.url);
+      if (openOAuthUrl(res.data.url) === "tab") {
+        toast(OAUTH_TAB_OPENED_TOAST("Google"));
+      }
     } else {
       toast({
         variant: "destructive",
@@ -1111,7 +1122,9 @@ function LinkedinConnectionSection({
   const startOAuth = async () => {
     const res = await authUrl.refetch();
     if (res.data?.url) {
-      openOAuthUrl(res.data.url);
+      if (openOAuthUrl(res.data.url) === "tab") {
+        toast(OAUTH_TAB_OPENED_TOAST("LinkedIn"));
+      }
     } else {
       toast({
         variant: "destructive",
@@ -1523,7 +1536,9 @@ function TiktokConnectionSection({
   const startOAuth = async () => {
     const res = await authUrl.refetch();
     if (res.data?.url) {
-      openOAuthUrl(res.data.url);
+      if (openOAuthUrl(res.data.url) === "tab") {
+        toast(OAUTH_TAB_OPENED_TOAST("TikTok"));
+      }
     } else {
       toast({
         variant: "destructive",
