@@ -12,10 +12,15 @@ async function streamObject(
   res: Response,
   file: Awaited<ReturnType<ObjectStorageService["getObjectEntityFile"]>>,
   isPublic = false,
+  downloadName?: string,
 ) {
   const response = await objectStorageService.downloadObject(file, { isPublic });
   res.status(response.status);
   response.headers.forEach((value, key) => res.setHeader(key, value));
+  if (downloadName) {
+    const safe = downloadName.replace(/[^\w.-]/g, "_").slice(0, 120) || "download";
+    res.setHeader("Content-Disposition", `attachment; filename="${safe}"`);
+  }
   if (response.body) {
     const nodeStream = Readable.fromWeb(response.body as ReadableStream<Uint8Array>);
     nodeStream.pipe(res);
@@ -108,7 +113,13 @@ protectedStorageRouter.get(
         objectPath,
         req.tenantId,
       );
-      await streamObject(res, objectFile);
+      // ?download=<name> forces a save dialog instead of inline playback.
+      const downloadParam = req.query.download;
+      const downloadName =
+        typeof downloadParam === "string" && downloadParam.length > 0
+          ? downloadParam
+          : undefined;
+      await streamObject(res, objectFile, false, downloadName);
     } catch (error) {
       if (error instanceof ObjectNotFoundError) {
         req.log.warn({ err: error }, "Object not found");

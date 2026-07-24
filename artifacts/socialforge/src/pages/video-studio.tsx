@@ -56,6 +56,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import {
   Clapperboard,
+  Download,
   Film,
   Image as ImageIcon,
   Images,
@@ -401,6 +402,42 @@ export function VideoStudioPage() {
           }),
       },
     );
+  };
+
+  const [downloading, setDownloading] = useState(false);
+  const onDownload = async () => {
+    if (!activeJob?.videoPath) return;
+    const fileName = `kokao-video-${activeJob.id}.mp4`;
+    setDownloading(true);
+    try {
+      const res = await fetch(storageUrl(activeJob.videoPath), { credentials: "include" });
+      if (!res.ok) throw new Error(`Download failed (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch {
+      // Blob download blocked or fetch failed — open the file in a new tab
+      // with an attachment disposition so the browser saves it from there.
+      const opened = window.open(
+        `${storageUrl(activeJob.videoPath)}?download=${encodeURIComponent(fileName)}`,
+        "_blank",
+      );
+      if (!opened) {
+        toast({
+          title: "Could not download",
+          description: "Your browser blocked the download. Please try again.",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setDownloading(false);
+    }
   };
 
   const removePhoto = (objectPath: string) =>
@@ -840,10 +877,21 @@ export function VideoStudioPage() {
                   >
                     <Save className="h-4 w-4 mr-2" /> Save to library
                   </Button>
-                  <Button variant="outline" asChild>
-                    <a href={storageUrl(activeJob.videoPath)} download>
-                      Download
-                    </a>
+                  <Button
+                    variant="outline"
+                    onClick={() => void onDownload()}
+                    disabled={downloading}
+                    data-testid="button-download-video"
+                  >
+                    {downloading ? (
+                      <>
+                        <RippleSpinner className="mr-2 h-4 w-4" /> Downloading…
+                      </>
+                    ) : (
+                      <>
+                        <Download className="h-4 w-4 mr-2" /> Download
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>
