@@ -1,0 +1,850 @@
+From 13e702e7ced9fb2419e3fe840e6c97d754805222 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 24 Jul 2026 09:15:19 +0000
+Subject: [PATCH] Add one-sheet composer: multi-platform publish/schedule in 2
+ clicks
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- New ComposerSheet: caption editing, media preview, platform checkboxes
+  with live connection status, pre-publish checklist driven by the shared
+  social-limits helpers (IG-needs-image blocker; X/LinkedIn/Threads
+  overflow explained BEFORE the click), post-now or schedule with a
+  per-platform queue entry, last platform selection remembered
+- Studio: 'Publish…' on the auto-saved draft opens the composer inline —
+  generate -> publish without leaving the page
+- Library: one primary 'Publish / Schedule' action per card (legacy
+  per-platform dialogs untouched for now)
+- Sequential multi-platform publishing with per-platform outcome reporting;
+  partial failures never hide successes
+- Frontend-only: no API, schema, or contract changes
+- Tests: 6 composer tests (gating, multi-publish, IG blocker, caption
+  save + thread warning, scheduling, partial failure)
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EJdoZ8bk1pWTrmbMVQJZ7G
+---
+ .../src/components/composer.test.tsx          | 196 ++++++++
+ .../socialforge/src/components/composer.tsx   | 474 ++++++++++++++++++
+ artifacts/socialforge/src/pages/library.tsx   |  31 ++
+ artifacts/socialforge/src/pages/studio.tsx    |  34 +-
+ 4 files changed, 734 insertions(+), 1 deletion(-)
+ create mode 100644 artifacts/socialforge/src/components/composer.test.tsx
+ create mode 100644 artifacts/socialforge/src/components/composer.tsx
+
+diff --git a/artifacts/socialforge/src/components/composer.test.tsx b/artifacts/socialforge/src/components/composer.test.tsx
+new file mode 100644
+index 0000000..2e7acbb
+--- /dev/null
++++ b/artifacts/socialforge/src/components/composer.test.tsx
+@@ -0,0 +1,196 @@
++import { describe, it, expect, beforeEach, vi } from "vitest";
++import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
++import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
++import { TooltipProvider } from "@/components/ui/tooltip";
++import { splitIntoTweets } from "@workspace/social-limits";
++
++if (typeof globalThis.ResizeObserver === "undefined") {
++  (globalThis as any).ResizeObserver = class {
++    observe() {}
++    unobserve() {}
++    disconnect() {}
++  };
++}
++
++const calls: {
++  published: { platform: string; id: number }[];
++  scheduled: { platform: string; contentItemId: number; scheduledAt: string }[];
++  captionUpdates: { id: number; caption: string }[];
++  failPlatforms: Set<string>;
++} = { published: [], scheduled: [], captionUpdates: [], failPlatforms: new Set() };
++
++const toastSpy = vi.fn();
++vi.mock("@/hooks/use-toast", () => ({
++  useToast: () => ({ toast: toastSpy }),
++}));
++
++function publishMock(platform: string) {
++  return () => ({
++    isPending: false,
++    mutateAsync: vi.fn(async (vars: { id: number }) => {
++      if (calls.failPlatforms.has(platform)) throw new Error(`${platform} down`);
++      calls.published.push({ platform, id: vars.id });
++      return {};
++    }),
++  });
++}
++
++const liveStatus = { configured: true, connected: true, expired: false };
++
++vi.mock("@workspace/api-client-react", async () => {
++  const { createApiClientMock } = await import("../test/apiClientMock");
++  return createApiClientMock({
++    usePublishContentToFacebook: publishMock("facebook"),
++    usePublishContentToInstagram: publishMock("instagram"),
++    usePublishContentToLinkedin: publishMock("linkedin"),
++    usePublishContentToTwitter: publishMock("twitter"),
++    usePublishContentToThreads: publishMock("threads"),
++    useCreateSchedule: () => ({
++      isPending: false,
++      mutateAsync: vi.fn(async (vars: { data: any }) => {
++        calls.scheduled.push(vars.data);
++        return {};
++      }),
++    }),
++    useUpdateContent: () => ({
++      isPending: false,
++      mutateAsync: vi.fn(async (vars: { id: number; data: any }) => {
++        calls.captionUpdates.push({ id: vars.id, caption: vars.data.caption });
++        return {};
++      }),
++    }),
++    useGetFacebookCredentials: () => ({
++      data: { appConfigured: true, verifyStatus: "verified" },
++    }),
++    useGetInstagramCredentials: () => ({
++      data: { appConfigured: true, verifyStatus: "verified" },
++    }),
++    useGetLinkedinStatus: () => ({ data: liveStatus }),
++    useGetTwitterStatus: () => ({ data: liveStatus }),
++    useGetThreadsStatus: () => ({ data: { ...liveStatus, connected: false } }),
++  });
++});
++
++import { ComposerSheet, type ComposerItem } from "./composer";
++
++const ITEM: ComposerItem = {
++  id: 42,
++  title: "Launch post",
++  caption: "Hello world",
++  imagePath: "/objects/1/uploads/img.png",
++};
++
++function renderComposer(item: ComposerItem = ITEM) {
++  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
++  const onOpenChange = vi.fn();
++  render(
++    <QueryClientProvider client={client}>
++      <TooltipProvider>
++        <ComposerSheet open onOpenChange={onOpenChange} item={item} />
++      </TooltipProvider>
++    </QueryClientProvider>,
++  );
++  return { onOpenChange };
++}
++
++beforeEach(() => {
++  calls.published = [];
++  calls.scheduled = [];
++  calls.captionUpdates = [];
++  calls.failPlatforms = new Set();
++  toastSpy.mockClear();
++  localStorage.clear();
++  cleanup();
++});
++
++describe("ComposerSheet", () => {
++  it("disables unconnected platforms and blocks submit until one is picked", () => {
++    renderComposer();
++    // Threads is not connected in the mock: checkbox disabled.
++    expect(
++      (screen.getByTestId("composer-platform-threads") as HTMLButtonElement).disabled,
++    ).toBe(true);
++    expect((screen.getByTestId("composer-submit") as HTMLButtonElement).disabled).toBe(
++      true,
++    );
++    fireEvent.click(screen.getByTestId("composer-platform-facebook"));
++    expect((screen.getByTestId("composer-submit") as HTMLButtonElement).disabled).toBe(
++      false,
++    );
++  });
++
++  it("publishes to every selected platform with one click and remembers the choice", async () => {
++    renderComposer();
++    fireEvent.click(screen.getByTestId("composer-platform-facebook"));
++    fireEvent.click(screen.getByTestId("composer-platform-linkedin"));
++    fireEvent.click(screen.getByTestId("composer-submit"));
++    await waitFor(() => expect(calls.published).toHaveLength(2));
++    expect(calls.published).toEqual([
++      { platform: "facebook", id: 42 },
++      { platform: "linkedin", id: 42 },
++    ]);
++    expect(toastSpy).toHaveBeenCalledWith(
++      expect.objectContaining({ title: "Published to 2 platforms" }),
++    );
++    expect(JSON.parse(localStorage.getItem("kokao.composer.platforms")!)).toEqual([
++      "facebook",
++      "linkedin",
++    ]);
++  });
++
++  it("blocks Instagram without an image, with a clear reason", () => {
++    renderComposer({ ...ITEM, imagePath: null });
++    fireEvent.click(screen.getByTestId("composer-platform-instagram"));
++    expect(screen.getByTestId("composer-checklist").textContent).toContain(
++      "Instagram needs an image",
++    );
++    expect((screen.getByTestId("composer-submit") as HTMLButtonElement).disabled).toBe(
++      true,
++    );
++  });
++
++  it("saves caption edits before publishing and warns about X threads", async () => {
++    const longCaption = "word ".repeat(90).trim(); // well over 280 chars
++    renderComposer();
++    fireEvent.change(screen.getByTestId("composer-caption"), {
++      target: { value: longCaption },
++    });
++    fireEvent.click(screen.getByTestId("composer-platform-twitter"));
++    // The thread warning derives from the SHARED social-limits helper.
++    expect(screen.getByTestId("composer-checklist").textContent).toContain(
++      `thread of ${splitIntoTweets(longCaption).length} tweets`,
++    );
++    fireEvent.click(screen.getByTestId("composer-submit"));
++    await waitFor(() => expect(calls.published).toHaveLength(1));
++    expect(calls.captionUpdates).toEqual([{ id: 42, caption: longCaption }]);
++  });
++
++  it("schedules one queue entry per selected platform", async () => {
++    renderComposer();
++    fireEvent.click(screen.getByTestId("composer-platform-facebook"));
++    fireEvent.click(screen.getByTestId("composer-platform-twitter"));
++    fireEvent.click(screen.getByTestId("composer-mode-schedule"));
++    fireEvent.click(screen.getByTestId("composer-submit"));
++    await waitFor(() => expect(calls.scheduled).toHaveLength(2));
++    expect(calls.scheduled.map((s) => s.platform)).toEqual(["facebook", "twitter"]);
++    expect(calls.scheduled.every((s) => s.contentItemId === 42)).toBe(true);
++    expect(calls.published).toHaveLength(0);
++  });
++
++  it("reports partial failure without hiding the successes", async () => {
++    calls.failPlatforms = new Set(["linkedin"]);
++    renderComposer();
++    fireEvent.click(screen.getByTestId("composer-platform-facebook"));
++    fireEvent.click(screen.getByTestId("composer-platform-linkedin"));
++    fireEvent.click(screen.getByTestId("composer-submit"));
++    await waitFor(() =>
++      expect(toastSpy).toHaveBeenCalledWith(
++        expect.objectContaining({
++          title: "Published to facebook — 1 failed",
++          variant: "destructive",
++        }),
++      ),
++    );
++    expect(calls.published).toEqual([{ platform: "facebook", id: 42 }]);
++  });
++});
+diff --git a/artifacts/socialforge/src/components/composer.tsx b/artifacts/socialforge/src/components/composer.tsx
+new file mode 100644
+index 0000000..cad2b86
+--- /dev/null
++++ b/artifacts/socialforge/src/components/composer.tsx
+@@ -0,0 +1,474 @@
++import { useEffect, useMemo, useState } from "react";
++import {
++  useUpdateContent,
++  usePublishContentToFacebook,
++  usePublishContentToInstagram,
++  usePublishContentToLinkedin,
++  usePublishContentToTwitter,
++  usePublishContentToThreads,
++  useCreateSchedule,
++  useGetFacebookCredentials,
++  useGetInstagramCredentials,
++  useGetLinkedinStatus,
++  useGetTwitterStatus,
++  useGetThreadsStatus,
++  getListContentQueryKey,
++  getListSchedulesQueryKey,
++} from "@workspace/api-client-react";
++import { useQueryClient } from "@tanstack/react-query";
++import {
++  Sheet,
++  SheetContent,
++  SheetDescription,
++  SheetHeader,
++  SheetTitle,
++} from "@/components/ui/sheet";
++import { Button } from "@/components/ui/button";
++import { Textarea } from "@/components/ui/textarea";
++import { Input } from "@/components/ui/input";
++import { Label } from "@/components/ui/label";
++import { Checkbox } from "@/components/ui/checkbox";
++import { RippleSpinner } from "@/components/ui/ripple-spinner";
++import { useToast } from "@/hooks/use-toast";
++import {
++  Send,
++  CalendarClock,
++  AlertCircle,
++  Info,
++  Facebook,
++  Instagram,
++  Linkedin,
++  Twitter,
++  AtSign,
++} from "lucide-react";
++import {
++  isOverTweetLimit,
++  splitIntoTweets,
++  isOverLinkedinLimit,
++  splitForLinkedin,
++  THREADS_MAX_LENGTH,
++  chunkOnWhitespace,
++} from "@workspace/social-limits";
++import { track } from "@/lib/analytics";
++
++/**
++ * The composer: one sheet that takes a content item from draft to published
++ * (or scheduled) on every selected platform, without leaving the page the
++ * user is on. Connection status, per-platform validation (via the shared
++ * social-limits helpers, so warnings always match what publish will do), and
++ * the now/schedule choice all live inline. The last platform selection is
++ * remembered per browser.
++ */
++
++export interface ComposerItem {
++  id: number;
++  title: string;
++  caption: string;
++  imagePath: string | null;
++  videoPath?: string | null;
++  videoThumbnailPath?: string | null;
++}
++
++type PlatformKey = "instagram" | "facebook" | "linkedin" | "twitter" | "threads";
++
++const PLATFORMS: { key: PlatformKey; label: string; icon: typeof Facebook }[] = [
++  { key: "instagram", label: "Instagram", icon: Instagram },
++  { key: "facebook", label: "Facebook", icon: Facebook },
++  { key: "linkedin", label: "LinkedIn", icon: Linkedin },
++  { key: "twitter", label: "X (Twitter)", icon: Twitter },
++  { key: "threads", label: "Threads", icon: AtSign },
++];
++
++const STORAGE_KEY = "kokao.composer.platforms";
++
++function loadRememberedPlatforms(): PlatformKey[] {
++  try {
++    const raw = localStorage.getItem(STORAGE_KEY);
++    const parsed = raw ? (JSON.parse(raw) as string[]) : [];
++    return PLATFORMS.map((p) => p.key).filter((k) => parsed.includes(k));
++  } catch {
++    return [];
++  }
++}
++
++function rememberPlatforms(keys: PlatformKey[]): void {
++  try {
++    localStorage.setItem(STORAGE_KEY, JSON.stringify(keys));
++  } catch {
++    // Remembering defaults is best-effort.
++  }
++}
++
++/** Default schedule slot: one hour from now, on the next quarter hour. */
++function defaultScheduleAt(): { date: string; time: string } {
++  const at = new Date(Date.now() + 60 * 60 * 1000);
++  at.setMinutes(Math.ceil(at.getMinutes() / 15) * 15, 0, 0);
++  const pad = (n: number) => String(n).padStart(2, "0");
++  return {
++    date: `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`,
++    time: `${pad(at.getHours())}:${pad(at.getMinutes())}`,
++  };
++}
++
++export function ComposerSheet({
++  open,
++  onOpenChange,
++  item,
++}: {
++  open: boolean;
++  onOpenChange: (open: boolean) => void;
++  item: ComposerItem | null;
++}) {
++  const { toast } = useToast();
++  const queryClient = useQueryClient();
++
++  const updateContent = useUpdateContent();
++  const createSchedule = useCreateSchedule();
++  const publishFacebook = usePublishContentToFacebook();
++  const publishInstagram = usePublishContentToInstagram();
++  const publishLinkedin = usePublishContentToLinkedin();
++  const publishTwitter = usePublishContentToTwitter();
++  const publishThreads = usePublishContentToThreads();
++
++  const { data: fbStatus } = useGetFacebookCredentials();
++  const { data: igStatus } = useGetInstagramCredentials();
++  const { data: liStatus } = useGetLinkedinStatus();
++  const { data: twStatus } = useGetTwitterStatus();
++  const { data: thStatus } = useGetThreadsStatus();
++
++  const [caption, setCaption] = useState("");
++  const [selected, setSelected] = useState<PlatformKey[]>([]);
++  const [mode, setMode] = useState<"now" | "schedule">("now");
++  const [scheduleDate, setScheduleDate] = useState("");
++  const [scheduleTime, setScheduleTime] = useState("");
++  const [busy, setBusy] = useState(false);
++
++  // Same readiness rules the Studio and Library pages already apply.
++  const fbLive = !!fbStatus && fbStatus.appConfigured && fbStatus.verifyStatus === "verified";
++  const live: Record<PlatformKey, boolean> = {
++    facebook: fbLive,
++    // Instagram publishing rides on the Facebook Page token, so it needs both.
++    instagram:
++      fbLive && !!igStatus && igStatus.appConfigured && igStatus.verifyStatus === "verified",
++    linkedin: !!liStatus && liStatus.configured && liStatus.connected && !liStatus.expired,
++    twitter: !!twStatus && twStatus.configured && twStatus.connected && !twStatus.expired,
++    threads: !!thStatus && thStatus.configured && thStatus.connected && !thStatus.expired,
++  };
++
++  useEffect(() => {
++    if (!open || !item) return;
++    setCaption(item.caption);
++    const remembered = loadRememberedPlatforms().filter((k) => live[k]);
++    setSelected(remembered);
++    setMode("now");
++    const slot = defaultScheduleAt();
++    setScheduleDate(slot.date);
++    setScheduleTime(slot.time);
++    // Intentionally only when the sheet (re)opens for an item.
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [open, item?.id]);
++
++  const toggle = (key: PlatformKey) =>
++    setSelected((prev) =>
++      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
++    );
++
++  // Pre-publish checklist: blockers stop the action, infos just explain what
++  // will happen (threads/overflow behavior mirrors the server exactly).
++  const checklist = useMemo(() => {
++    const blockers: string[] = [];
++    const infos: string[] = [];
++    if (!item) return { blockers, infos };
++    const hasImage = !!item.imagePath;
++    if (selected.includes("instagram") && !hasImage) {
++      blockers.push(
++        item.videoPath
++          ? "Instagram video publishing isn't wired up yet — this item has no image to post."
++          : "Instagram needs an image. Generate or attach one first.",
++      );
++    }
++    if (selected.includes("twitter") && isOverTweetLimit(caption)) {
++      infos.push(
++        `X: over the character limit — will post as a thread of ${splitIntoTweets(caption).length} tweets.`,
++      );
++    }
++    if (selected.includes("linkedin") && isOverLinkedinLimit(caption)) {
++      infos.push(
++        `LinkedIn: long caption — the overflow continues in ${splitForLinkedin(caption).comments.length} comment(s).`,
++      );
++    }
++    if (selected.includes("threads") && caption.length > THREADS_MAX_LENGTH) {
++      infos.push(
++        `Threads: over the limit — will post as a chain of ${chunkOnWhitespace(caption, THREADS_MAX_LENGTH).length} posts.`,
++      );
++    }
++    return { blockers, infos };
++  }, [item, selected, caption]);
++
++  const scheduledAtDate = useMemo(() => {
++    if (!scheduleDate || !scheduleTime) return null;
++    const at = new Date(`${scheduleDate}T${scheduleTime}:00`);
++    return Number.isNaN(at.getTime()) ? null : at;
++  }, [scheduleDate, scheduleTime]);
++
++  const canSubmit =
++    !!item &&
++    !busy &&
++    selected.length > 0 &&
++    checklist.blockers.length === 0 &&
++    caption.trim().length > 0 &&
++    (mode === "now" || (scheduledAtDate !== null && scheduledAtDate > new Date()));
++
++  const publishMutations: Record<
++    PlatformKey,
++    { mutateAsync: (vars: { id: number }) => Promise<unknown> }
++  > = {
++    facebook: publishFacebook,
++    instagram: publishInstagram,
++    linkedin: publishLinkedin,
++    twitter: publishTwitter,
++    threads: publishThreads,
++  };
++
++  const onSubmit = async () => {
++    if (!item || !canSubmit) return;
++    setBusy(true);
++    rememberPlatforms(selected);
++    try {
++      // Persist caption edits first so every platform posts the same text.
++      if (caption !== item.caption) {
++        await updateContent.mutateAsync({ id: item.id, data: { caption } });
++      }
++
++      if (mode === "schedule") {
++        const failed: string[] = [];
++        for (const key of selected) {
++          try {
++            await createSchedule.mutateAsync({
++              data: {
++                contentItemId: item.id,
++                platform: key,
++                scheduledAt: scheduledAtDate!.toISOString(),
++              },
++            });
++            track("post_scheduled", { platform: key });
++          } catch {
++            failed.push(key);
++          }
++        }
++        queryClient.invalidateQueries({ queryKey: getListSchedulesQueryKey() });
++        queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
++        if (failed.length === 0) {
++          toast({
++            title: "Scheduled!",
++            description: `Queued for ${selected.length} platform${selected.length === 1 ? "" : "s"} at ${scheduledAtDate!.toLocaleString()}.`,
++          });
++          onOpenChange(false);
++        } else {
++          toast({
++            title: "Partly scheduled",
++            description: `Could not schedule: ${failed.join(", ")}. The rest are queued.`,
++            variant: "destructive",
++          });
++        }
++        return;
++      }
++
++      // Publish now: sequential so one platform's failure never hides
++      // another's success; each platform reports its own outcome.
++      const succeeded: string[] = [];
++      const failed: { key: string; message: string }[] = [];
++      for (const key of selected) {
++        try {
++          await publishMutations[key].mutateAsync({ id: item.id });
++          succeeded.push(key);
++          track("post_published", { platform: key });
++        } catch (error: any) {
++          failed.push({ key, message: error?.message || "publish failed" });
++        }
++      }
++      queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
++      if (failed.length === 0) {
++        toast({
++          title: succeeded.length === 1 ? "Published!" : `Published to ${succeeded.length} platforms`,
++          description:
++            succeeded.includes("instagram")
++              ? "Instagram finishes processing in the background — the library card updates when it's live."
++              : undefined,
++        });
++        onOpenChange(false);
++      } else {
++        toast({
++          title:
++            succeeded.length > 0
++              ? `Published to ${succeeded.join(", ")} — ${failed.length} failed`
++              : "Publish failed",
++          description: failed.map((f) => `${f.key}: ${f.message}`).join(" · "),
++          variant: "destructive",
++        });
++      }
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  return (
++    <Sheet open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
++      <SheetContent className="w-full sm:max-w-lg overflow-y-auto flex flex-col gap-5">
++        <SheetHeader>
++          <SheetTitle className="flex items-center gap-2">
++            <Send className="h-4 w-4 text-primary" /> Publish
++          </SheetTitle>
++          <SheetDescription>
++            {item?.title ? `“${item.title}”` : "Pick platforms, post now or schedule."}
++          </SheetDescription>
++        </SheetHeader>
++
++        {item && (
++          <>
++            {(item.imagePath || item.videoPath) && (
++              <div className="rounded-lg overflow-hidden border border-border bg-muted max-h-52 flex items-center justify-center">
++                {item.videoPath ? (
++                  <video
++                    src={`/api/storage${item.videoPath}`}
++                    poster={
++                      item.videoThumbnailPath
++                        ? `/api/storage${item.videoThumbnailPath}`
++                        : undefined
++                    }
++                    controls
++                    playsInline
++                    preload="metadata"
++                    className="max-h-52 w-full object-contain bg-black"
++                  />
++                ) : (
++                  <img
++                    src={`/api/storage${item.imagePath}`}
++                    alt={item.title}
++                    className="max-h-52 object-contain"
++                  />
++                )}
++              </div>
++            )}
++
++            <div className="space-y-1.5">
++              <Label htmlFor="composer-caption">Caption</Label>
++              <Textarea
++                id="composer-caption"
++                data-testid="composer-caption"
++                value={caption}
++                onChange={(e) => setCaption(e.target.value)}
++                rows={5}
++              />
++            </div>
++
++            <div className="space-y-2">
++              <Label>Platforms</Label>
++              <div className="grid grid-cols-2 gap-2">
++                {PLATFORMS.map(({ key, label, icon: Icon }) => (
++                  <label
++                    key={key}
++                    className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-sm transition-colors ${
++                      !live[key]
++                        ? "border-border/50 text-muted-foreground/60 cursor-not-allowed"
++                        : selected.includes(key)
++                          ? "border-primary bg-primary/5 cursor-pointer"
++                          : "border-border cursor-pointer hover:border-primary/40"
++                    }`}
++                  >
++                    <Checkbox
++                      checked={selected.includes(key)}
++                      disabled={!live[key] || busy}
++                      onCheckedChange={() => toggle(key)}
++                      data-testid={`composer-platform-${key}`}
++                    />
++                    <Icon className="h-4 w-4" />
++                    <span className="flex-1">{label}</span>
++                    {!live[key] && <span className="text-xs">not connected</span>}
++                  </label>
++                ))}
++              </div>
++            </div>
++
++            {(checklist.blockers.length > 0 || checklist.infos.length > 0) && (
++              <div className="space-y-1.5" data-testid="composer-checklist">
++                {checklist.blockers.map((text) => (
++                  <p key={text} className="flex items-start gap-2 text-sm text-destructive">
++                    <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" /> {text}
++                  </p>
++                ))}
++                {checklist.infos.map((text) => (
++                  <p key={text} className="flex items-start gap-2 text-sm text-muted-foreground">
++                    <Info className="h-4 w-4 mt-0.5 shrink-0" /> {text}
++                  </p>
++                ))}
++              </div>
++            )}
++
++            <div className="space-y-2">
++              <div className="grid grid-cols-2 gap-2">
++                <Button
++                  type="button"
++                  variant={mode === "now" ? "default" : "outline"}
++                  onClick={() => setMode("now")}
++                  disabled={busy}
++                  data-testid="composer-mode-now"
++                >
++                  <Send className="h-4 w-4 mr-1.5" /> Post now
++                </Button>
++                <Button
++                  type="button"
++                  variant={mode === "schedule" ? "default" : "outline"}
++                  onClick={() => setMode("schedule")}
++                  disabled={busy}
++                  data-testid="composer-mode-schedule"
++                >
++                  <CalendarClock className="h-4 w-4 mr-1.5" /> Schedule
++                </Button>
++              </div>
++              {mode === "schedule" && (
++                <div className="grid grid-cols-2 gap-2">
++                  <Input
++                    type="date"
++                    value={scheduleDate}
++                    onChange={(e) => setScheduleDate(e.target.value)}
++                    disabled={busy}
++                    aria-label="Schedule date"
++                  />
++                  <Input
++                    type="time"
++                    value={scheduleTime}
++                    onChange={(e) => setScheduleTime(e.target.value)}
++                    disabled={busy}
++                    aria-label="Schedule time"
++                  />
++                </div>
++              )}
++            </div>
++
++            <Button
++              className="mt-auto"
++              size="lg"
++              disabled={!canSubmit}
++              onClick={() => void onSubmit()}
++              data-testid="composer-submit"
++            >
++              {busy ? (
++                <RippleSpinner className="mr-2 h-4 w-4" />
++              ) : mode === "now" ? (
++                <Send className="h-4 w-4 mr-2" />
++              ) : (
++                <CalendarClock className="h-4 w-4 mr-2" />
++              )}
++              {busy
++                ? "Working…"
++                : mode === "now"
++                  ? `Publish to ${selected.length || "…"} platform${selected.length === 1 ? "" : "s"}`
++                  : "Schedule"}
++            </Button>
++          </>
++        )}
++      </SheetContent>
++    </Sheet>
++  );
++}
+diff --git a/artifacts/socialforge/src/pages/library.tsx b/artifacts/socialforge/src/pages/library.tsx
+index 19549da..9a6a5ed 100644
+--- a/artifacts/socialforge/src/pages/library.tsx
++++ b/artifacts/socialforge/src/pages/library.tsx
+@@ -36,6 +36,8 @@ import { Textarea } from "@/components/ui/textarea";
+ import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, splitForLinkedin, chunkOnWhitespace, splitIntoTweets, THREADS_MAX_LENGTH } from "@workspace/social-limits";
+ import { useRestartRetry } from "@workspace/api-client-react";
+ import { PendingPostsWarnings, usePendingResendActions } from "@/components/pending-posts-warning";
++import { ComposerSheet, type ComposerItem } from "@/components/composer";
++import { Send } from "lucide-react";
+ import { track } from "@/lib/analytics";
+ 
+ const PLATFORM_NAMES: Record<string, string> = {
+@@ -79,6 +81,9 @@ export function LibraryPage() {
+   const [publishItem, setPublishItem] = useState<any | null>(null);
+   const publishContent = usePublishContentToFacebook();
+ 
++  // The one-sheet composer: multi-platform publish/schedule in one place.
++  const [composerItem, setComposerItem] = useState<ComposerItem | null>(null);
++
+   const [instagramItem, setInstagramItem] = useState<any | null>(null);
+   const publishInstagram = usePublishContentToInstagram();
+   const [retryingId, setRetryingId] = useState<number | null>(null);
+@@ -768,6 +773,24 @@ export function LibraryPage() {
+               </CardContent>
+               
+               <CardFooter className="p-4 pt-0 bg-card flex flex-col items-stretch gap-2 text-xs text-muted-foreground">
++                <Button
++                  size="sm"
++                  className="w-full"
++                  disabled={publishBusy || item.status === "publishing"}
++                  onClick={() =>
++                    setComposerItem({
++                      id: item.id,
++                      title: item.title,
++                      caption: item.caption,
++                      imagePath: item.imagePath ?? null,
++                      videoPath: item.videoPath ?? null,
++                      videoThumbnailPath: item.videoThumbnailPath ?? null,
++                    })
++                  }
++                  data-testid={`button-composer-${item.id}`}
++                >
++                  <Send className="h-3.5 w-3.5 mr-1.5" /> Publish / Schedule
++                </Button>
+                 <div className="flex flex-wrap gap-1.5">
+                   {([
+                     { key: "facebook", label: "Facebook", Icon: Facebook, ready: fbReady, open: () => setPublishItem(item), title: fbReady ? "Publish to Facebook" : "Connect and verify your Facebook Page on the Accounts page first." },
+@@ -1277,6 +1300,14 @@ export function LibraryPage() {
+           </DialogFooter>
+         </DialogContent>
+       </Dialog>
++
++      <ComposerSheet
++        open={!!composerItem}
++        onOpenChange={(open) => {
++          if (!open) setComposerItem(null);
++        }}
++        item={composerItem}
++      />
+     </div>
+   );
+ }
+\ No newline at end of file
+diff --git a/artifacts/socialforge/src/pages/studio.tsx b/artifacts/socialforge/src/pages/studio.tsx
+index 5cade99..cf147d7 100644
+--- a/artifacts/socialforge/src/pages/studio.tsx
++++ b/artifacts/socialforge/src/pages/studio.tsx
+@@ -50,6 +50,8 @@ import { navigate } from "wouter/use-browser-location";
+ import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
+ import { CampaignPostCard, type GeneratedImage } from "@/components/campaign-post-card";
+ import { GamificationCard } from "@/components/gamification-card";
++import { ComposerSheet } from "@/components/composer";
++import { Send } from "lucide-react";
+ import { VoiceNoteButton } from "@/components/voice-note-button";
+ import { LogoLoader } from "@/components/logo-loader";
+ import { track, trackFeatureUse } from "@/lib/analytics";
+@@ -341,6 +343,9 @@ export function StudioPage() {
+   // as a library draft; "Save to Library" accepts it, "Discard" deletes it.
+   const [draftId, setDraftId] = useState<number | null>(null);
+   const draftIdRef = useRef<number | null>(null);
++  // One-sheet composer: publish/schedule the auto-saved draft without
++  // leaving the Studio.
++  const [composerOpen, setComposerOpen] = useState(false);
+   const setDraft = (id: number | null) => {
+     draftIdRef.current = id;
+     setDraftId(id);
+@@ -1889,7 +1894,19 @@ export function StudioPage() {
+                         )}
+                         Discard
+                       </Button>
+-                      <Button onClick={handleSave} disabled={isPending} size="sm" data-testid="button-save-draft">
++                      {draftId !== null && (
++                        <Button
++                          onClick={() => setComposerOpen(true)}
++                          disabled={isPending}
++                          size="sm"
++                          variant="default"
++                          data-testid="button-open-composer"
++                        >
++                          <Send className="mr-2 h-4 w-4" />
++                          Publish…
++                        </Button>
++                      )}
++                      <Button onClick={handleSave} disabled={isPending} size="sm" variant="outline" data-testid="button-save-draft">
+                         {createContent.isPending || updateContent.isPending ? (
+                           <RippleSpinner className="mr-2 h-4 w-4" />
+                         ) : (
+@@ -2140,6 +2157,21 @@ export function StudioPage() {
+           </AlertDialogFooter>
+         </AlertDialogContent>
+       </AlertDialog>
++
++      <ComposerSheet
++        open={composerOpen}
++        onOpenChange={setComposerOpen}
++        item={
++          draftId !== null
++            ? {
++                id: draftId,
++                title: buildDraftData(captionResult, imageResult).title,
++                caption: captionResult?.caption ?? "",
++                imagePath: imageResult?.imagePath ?? null,
++              }
++            : null
++        }
++      />
+     </div>
+   );
+ }
+-- 
+2.43.0
+

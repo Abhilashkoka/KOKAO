@@ -4196,6 +4196,7 @@ export interface FeatureFlags {
   campaigns: boolean;
   imageJobs: boolean;
   studioQuickPublish: boolean;
+  campaignStreaming: boolean;
 }
 
 /**

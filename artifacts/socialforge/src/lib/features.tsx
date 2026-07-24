@@ -35,6 +35,7 @@ const ALL_ON: FeatureFlags = {
   campaigns: true,
   imageJobs: true,
   studioQuickPublish: true,
+  campaignStreaming: true,
 };
 
 /**

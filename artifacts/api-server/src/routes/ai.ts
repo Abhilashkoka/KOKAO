@@ -28,7 +28,7 @@ import {
   buildReferenceGuide,
   ReferenceImageError,
 } from "../lib/referenceGuide";
-import { isFeatureEnabled } from "../lib/featureFlags";
+import { isFeatureEnabled, requireFeature } from "../lib/featureFlags";
 import { applyMadeWithWatermark } from "../lib/watermark";
 import {
   getTextGenClient,
@@ -1199,6 +1199,383 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Failed to generate campaign" });
   }
 });
+
+/**
+ * Decode a JSON string literal starting at `start` (the index of the first
+ * character AFTER the opening quote) in a partially received document.
+ * Returns the text decoded so far and whether the closing quote was seen.
+ */
+function decodePartialJsonString(raw: string, start: number): { text: string; done: boolean } {
+  let out = "";
+  let i = start;
+  while (i < raw.length) {
+    const ch = raw[i]!;
+    if (ch === "\\") {
+      const next = raw[i + 1];
+      if (next === undefined) break; // escape split across chunks; wait
+      if (next === "n") out += "\n";
+      else if (next === "t") out += "\t";
+      else if (next === "r") out += "\r";
+      else if (next === "u") {
+        const hex = raw.slice(i + 2, i + 6);
+        if (hex.length < 4) break;
+        const code = Number.parseInt(hex, 16);
+        if (!Number.isNaN(code)) out += String.fromCharCode(code);
+        i += 6;
+        continue;
+      } else out += next;
+      i += 2;
+      continue;
+    }
+    if (ch === '"') return { text: out, done: true };
+    out += ch;
+    i += 1;
+  }
+  return { text: out, done: false };
+}
+
+/**
+ * Incrementally extract per-platform caption text from a partially received
+ * campaign JSON document of the form
+ * {"title": ..., "posts": [{"platform": "x", "caption": "...", ...}, ...]}.
+ * The campaign prompt asks for "platform" before "caption" inside each post,
+ * so each caption is attributed to the closest preceding platform key. The
+ * terminal result event always comes from a full JSON.parse, so any
+ * attribution slip during streaming is cosmetic and self-corrects.
+ */
+export function extractPartialCampaign(
+  raw: string,
+): Array<{ platform: string; text: string; done: boolean }> {
+  const out: Array<{ platform: string; text: string; done: boolean }> = [];
+  const platformRe = /"platform"\s*:\s*"([^"]*)"/g;
+  const marks: Array<{ platform: string; end: number }> = [];
+  for (let m = platformRe.exec(raw); m; m = platformRe.exec(raw)) {
+    marks.push({ platform: m[1]!.toLowerCase().trim(), end: m.index + m[0].length });
+  }
+  for (let i = 0; i < marks.length; i++) {
+    const mark = marks[i]!;
+    const regionEnd = i + 1 < marks.length ? marks[i + 1]!.end : raw.length;
+    const region = raw.slice(mark.end, regionEnd);
+    const capMatch = /"caption"\s*:\s*"/.exec(region);
+    if (!capMatch) {
+      out.push({ platform: mark.platform, text: "", done: false });
+      continue;
+    }
+    const decoded = decodePartialJsonString(
+      raw,
+      mark.end + capMatch.index + capMatch[0].length,
+    );
+    out.push({ platform: mark.platform, text: decoded.text, done: decoded.done });
+  }
+  return out;
+}
+
+/**
+ * POST /ai/generate-campaign/stream — the SSE variant of campaign generation.
+ *
+ * Contract: funding is identical to the JSON route (plan quota first, then an
+ * atomic all-or-nothing credit reservation, 402 when the two together cannot
+ * cover one caption per platform). Events are SSE `data:` lines of JSON:
+ *   {type:"delta", platform, text} — newly available caption text for a platform
+ *   {type:"result", posts, campaignId, title?} — final full campaign
+ *   {type:"result", posts: [], clarifyingQuestions} — model needs more input
+ *   {type:"error", message} — terminal failure
+ * On success one usage row is recorded per platform (campaign-tagged). If the
+ * client disconnects mid-stream after any caption text was delivered, the
+ * campaign SETTLES (usage rows are still recorded — otherwise clients could
+ * read the captions and drop the connection to dodge the charge); reserved
+ * credits are refunded only when nothing usable was sent. Gated by the
+ * campaignStreaming kill switch; the JSON route stays unchanged.
+ */
+router.post(
+  "/ai/generate-campaign/stream",
+  requireFeature("campaignStreaming"),
+  async (req: Request, res: Response) => {
+    const parsed = GenerateCampaignBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+
+    const tenant = await loadTenant(req.tenantId);
+    if (!tenant) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+    if (!textGen) return;
+
+    const platforms = Array.from(
+      new Set(parsed.data.platforms.map((p) => p.toLowerCase().trim()).filter(Boolean)),
+    );
+    if (platforms.length === 0) {
+      res.status(400).json({ error: "Select at least one platform." });
+      return;
+    }
+
+    const limits = await getPlanLimits(tenant.plan);
+    const usage = await getUsage(req.tenantId);
+    let quotaFunded = platforms.length;
+    let creditFunded = 0;
+    if (limits.captions !== -1) {
+      const remainingQuota = Math.max(0, limits.captions - usage.captions);
+      quotaFunded = Math.min(platforms.length, remainingQuota);
+      creditFunded = platforms.length - quotaFunded;
+      if (creditFunded > 0) {
+        const reserved = await spendCredit(req.tenantId, "caption", creditFunded);
+        if (!reserved) {
+          res.status(402).json({
+            error:
+              "This campaign would exceed your monthly caption quota and you don't have enough caption credits. Upgrade your plan, buy a credit pack, or pick fewer platforms.",
+          });
+          return;
+        }
+      }
+    }
+
+    const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
+    const tone = parsed.data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
+    const rankedPlatforms = [...platforms].sort(
+      (a, b) => (PLATFORM_CAPACITY[b] ?? 1000) - (PLATFORM_CAPACITY[a] ?? 1000),
+    );
+    const masterPlatform = rankedPlatforms[0];
+    const styleLines = platforms.map(
+      (p) => `${p}: caption style -> ${PLATFORM_STYLES[p] ?? p}; image style -> ${PLATFORM_IMAGE_STYLES[p] ?? "high quality, on-brand"}.`,
+    );
+    const capacityLines = rankedPlatforms.map(
+      (p) => `${p}: about ${PLATFORM_CAPACITY[p] ?? 1000} characters available.`,
+    );
+    const context: string[] = [
+      `Requested platforms, ordered from most to least character room: ${rankedPlatforms.join(", ")}.`,
+      ...capacityLines,
+      `Overall tone/voice: ${tone}.`,
+      ...styleLines,
+    ];
+    const constraints: string[] = [...HUMAN_EXPERT_CONSTRAINTS];
+    if (brand) {
+      context.push(`Brand name: ${brand.identity.brand_name}.`);
+      const palette = colorHint(brand);
+      if (palette) {
+        context.push(`Incorporate the brand palette (${palette}) into each image prompt.`);
+      }
+      if (brand.brand_controls.restricted_terms.length > 0) {
+        constraints.push(
+          `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
+        );
+      }
+    }
+    const systemPrompt = buildRicePrompt({
+      role: "You are a senior social media strategist and expert copywriter with deep, hands-on experience running multi-platform campaigns in this niche.",
+      instruction: [
+        CLARIFY_RULE,
+        `Otherwise: FIRST write the full master caption for ${masterPlatform} — the platform with the most character room — developing the idea completely.`,
+        "THEN adapt that master caption down for each remaining platform in decreasing order of character room: condense and reshape it to fit each platform's limit and format while keeping the core message, strongest hook, and expert specifics. Do not write unrelated captions per platform.",
+        "For each platform also write a concise, descriptive AI image-generation prompt that complements its caption.",
+        "Also produce a short creative-brief title (3-8 words) naming the campaign idea.",
+      ],
+      context,
+      examples: [],
+      constraints,
+      outputFormat: [
+        'Respond ONLY with strict JSON of the form {"title": string, "posts": [{"platform": string, "caption": string, "hashtags": string[], "imagePrompt": string}]}. Inside each post object, always emit the "platform" field first, then "caption".',
+        "Include one object per requested platform, using the exact platform identifiers given. Hashtags must not include the # symbol; provide 5-12 per post.",
+        'If (and only if) the brief is too thin, respond instead with {"clarifyingQuestions": string[]}.',
+      ],
+    });
+
+    res.status(200);
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+    const send = (event: Record<string, unknown>) => {
+      if (!res.writableEnded) res.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+
+    const campaignId = randomUUID();
+    const startedAt = Date.now();
+    let raw = "";
+    let sentTotal = 0;
+    // Exactly one funding settlement per request (settle = usage rows are
+    // recorded; refund = reserved credits go back), no matter how the stream
+    // ends (result, clarify, error, or the client going away mid-stream).
+    let fundingResolved = false;
+    const refundOnce = async (reason: string) => {
+      if (fundingResolved) return;
+      fundingResolved = true;
+      if (creditFunded > 0) {
+        try {
+          await refundCredits(req.tenantId, "caption", creditFunded, reason);
+        } catch (refundError) {
+          req.log.error({ err: refundError }, "Failed to refund reserved campaign credits");
+        }
+      }
+    };
+    /** Record the per-platform usage rows (no funding-state guard). */
+    const settleRows = async (
+      posts: Array<{ platform: string; caption: string; hashtags: string[]; imagePrompt: string }>,
+      costMeta: Awaited<ReturnType<typeof buildTextCostMeta>>,
+    ) => {
+      const requestBytes = Buffer.byteLength(systemPrompt + parsed.data.prompt);
+      const perPlatformRequest = Math.ceil(requestBytes / posts.length);
+      const splitAcross = (total: number | undefined, i: number): number | undefined => {
+        if (total === undefined) return undefined;
+        const base = Math.floor(total / posts.length);
+        return i === 0 ? total - base * (posts.length - 1) : base;
+      };
+      try {
+        await Promise.all(
+          posts.map((post, i) =>
+            recordUsage(req.tenantId, "caption", {
+              funding: i < quotaFunded ? "quota" : "credit",
+              requestBytes: perPlatformRequest,
+              responseBytes: Buffer.byteLength(JSON.stringify(post)),
+              durationMs: Date.now() - startedAt,
+              model: textGen.model,
+              campaignId,
+              platform: post.platform,
+              provider: costMeta.provider,
+              inputTokens: splitAcross(costMeta.inputTokens ?? undefined, i),
+              outputTokens: splitAcross(costMeta.outputTokens ?? undefined, i),
+              costPaise: splitAcross(costMeta.costPaise ?? undefined, i),
+            }),
+          ),
+        );
+      } catch (usageError) {
+        req.log.error({ err: usageError }, "Failed to record streamed campaign usage");
+      }
+    };
+    /** Build the per-platform post list from whatever JSON arrived so far. */
+    const buildPosts = (
+      postsRaw: unknown[],
+    ): Array<{ platform: string; caption: string; hashtags: string[]; imagePrompt: string }> => {
+      const byPlatform = new Map<string, { caption: string; hashtags: string[]; imagePrompt: string }>();
+      for (const item of postsRaw) {
+        if (!item || typeof item !== "object") continue;
+        const o = item as Record<string, unknown>;
+        const platform = String(o.platform ?? "").toLowerCase().trim();
+        if (!platform) continue;
+        byPlatform.set(platform, {
+          caption: typeof o.caption === "string" ? o.caption : "",
+          hashtags: Array.isArray(o.hashtags)
+            ? o.hashtags.map((h) => String(h).replace(/^#/, "")).filter(Boolean)
+            : [],
+          imagePrompt: typeof o.imagePrompt === "string" ? o.imagePrompt : "",
+        });
+      }
+      return platforms.map((platform) => {
+        const found = byPlatform.get(platform);
+        return {
+          platform,
+          caption: found?.caption ?? "",
+          hashtags: found?.hashtags ?? [],
+          imagePrompt: found?.imagePrompt ?? "",
+        };
+      });
+    };
+
+    const abort = new AbortController();
+    let lastUsage: { usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number } | null } = {};
+    res.on("close", () => {
+      if (!res.writableEnded) {
+        // Client disconnected mid-stream: stop paying the model. If caption
+        // text was already delivered via deltas, the generation was consumed —
+        // settle with whatever arrived (partial captions still charge; the
+        // model run cost the same). Only refund when nothing usable was sent.
+        abort.abort();
+        if (sentTotal > 0 && !fundingResolved) {
+          // Claim the settlement synchronously so the abort error surfacing
+          // in the main try/catch cannot refund the funding first.
+          fundingResolved = true;
+          void (async () => {
+            const partial = extractPartialCampaign(raw);
+            const posts = buildPosts(
+              partial.map((p) => ({ platform: p.platform, caption: p.text })),
+            );
+            const costMeta = await buildTextCostMeta(lastUsage, textGen);
+            await settleRows(posts, costMeta);
+          })();
+        } else {
+          void refundOnce("campaign stream disconnected before delivery");
+        }
+      }
+    });
+
+    try {
+      const stream = await textGen.client.chat.completions.create(
+        {
+          model: textGen.model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: parsed.data.prompt },
+          ],
+          max_completion_tokens: 8192,
+          response_format: { type: "json_object" },
+          stream: true,
+          ...usageAccountingParams(textGen.provider),
+        },
+        { signal: abort.signal },
+      );
+
+      // Track how much of each platform's caption has been sent so deltas
+      // carry only new text.
+      const sentByPlatform = new Map<string, number>();
+      for await (const chunk of stream) {
+        const c = chunk as typeof chunk & { usage?: typeof lastUsage.usage };
+        if (c.usage) lastUsage = { usage: c.usage };
+        const delta = chunk.choices[0]?.delta?.content ?? "";
+        if (!delta) continue;
+        raw += delta;
+        for (const p of extractPartialCampaign(raw)) {
+          const sent = sentByPlatform.get(p.platform) ?? 0;
+          if (p.text.length > sent) {
+            send({ type: "delta", platform: p.platform, text: p.text.slice(sent) });
+            sentByPlatform.set(p.platform, p.text.length);
+            sentTotal += p.text.length - sent;
+          }
+        }
+      }
+
+      let postsRaw: unknown[] = [];
+      let title = "";
+      let clarifyingQuestions: string[] | null = null;
+      try {
+        const obj = JSON.parse(raw) as { posts?: unknown; title?: string };
+        clarifyingQuestions = parseClarifyingQuestions(obj);
+        postsRaw = Array.isArray(obj.posts) ? obj.posts : [];
+        title = typeof obj.title === "string" ? obj.title : "";
+      } catch {
+        postsRaw = [];
+      }
+
+      if (clarifyingQuestions && postsRaw.length === 0) {
+        await refundOnce("campaign needs more input");
+        send({ type: "result", posts: [], clarifyingQuestions });
+        res.end();
+        return;
+      }
+
+      const posts = buildPosts(postsRaw);
+      const costMeta = await buildTextCostMeta(
+        lastUsage.usage ? lastUsage : {},
+        textGen,
+      );
+      if (!fundingResolved) {
+        fundingResolved = true;
+        await settleRows(posts, costMeta);
+      }
+      send({ type: "result", posts, campaignId, ...(title ? { title } : {}) });
+      res.end();
+    } catch (error) {
+      await refundOnce("campaign generation failed");
+      if (!abort.signal.aborted) {
+        req.log.error({ err: error }, "Streaming campaign generation failed");
+      }
+      send({ type: "error", message: "Failed to generate campaign" });
+      res.end();
+    }
+  },
+);
 
 /**
  * POST /ai/generate-carousel

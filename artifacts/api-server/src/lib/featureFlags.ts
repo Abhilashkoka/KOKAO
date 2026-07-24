@@ -168,6 +168,12 @@ export const FEATURES = [
       "The inline publish panel in AI Studio: post now or schedule right after generating, plus campaign 'Schedule the week'.",
   },
   {
+    id: "campaignStreaming",
+    label: "Campaign Streaming",
+    description:
+      "Streaming campaign generation in AI Studio: platform captions appear live as they are written instead of after one long wait. When off, the studio falls back to the standard campaign request.",
+  },
+  {
     id: "progressMeter",
     label: "Upgrade Progress Meter",
     description:

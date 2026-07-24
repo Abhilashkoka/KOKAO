@@ -95,7 +95,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "postMetrics": zod.boolean(),
   "campaigns": zod.boolean(),
   "imageJobs": zod.boolean(),
-  "studioQuickPublish": zod.boolean()
+  "studioQuickPublish": zod.boolean(),
+  "campaignStreaming": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -5257,6 +5258,24 @@ export const GenerateCampaignResponse = zod.object({
   "title": zod.string().optional().describe('Short creative-brief title for the whole campaign.'),
   "clarifyingQuestions": zod.array(zod.string()).optional().describe('Present (non-empty) when the brief was too thin to write an effective campaign. Contains the questions the user should answer; when set, posts is empty and nothing was charged.')
 })
+
+
+/**
+ * SSE variant of generateCampaign for lower perceived latency. Emits `data:` lines of JSON events: {type:"delta", platform, text} as a platform's caption text becomes available, then a terminal {type:"result", posts, campaignId?, title?, clarifyingQuestions?} or {type:"error", message}. Quota and credit behavior is identical to generateCampaign; a client disconnect mid-stream settles (charges) the campaign if any caption text was already delivered, and refunds reserved credits only when nothing was sent. Gated by the campaignStreaming feature switch; when disabled, clients should fall back to the JSON route.
+ * @summary Generate a multi-platform campaign as a Server-Sent Events stream
+ */
+
+
+
+
+export const StreamCampaignBody = zod.object({
+  "prompt": zod.string().min(1).describe('Topic, idea, or summary to base the campaign on.'),
+  "platforms": zod.array(zod.string()).min(1).describe('Target platforms (e.g. instagram, facebook, linkedin, twitter).'),
+  "brandKitId": zod.number().nullish(),
+  "tone": zod.string().optional()
+})
+
+export const StreamCampaignResponse = zod.unknown()
 
 
 /**

@@ -37,9 +37,11 @@ import {
   type CampaignPost,
   type ResearchResult,
   type CaptionResult as CaptionResultType,
+  type CampaignResult as CampaignResultType,
   type ImageRequest,
 } from "@workspace/api-client-react";
 import { streamCaptionRequest } from "@/lib/captionStream";
+import { streamCampaignRequest } from "@/lib/campaignStream";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -323,6 +325,7 @@ function ImageStudio() {
   // True while the SSE caption stream is open (useGenerateCaption.isPending
   // only covers the JSON fallback path).
   const [captionStreaming, setCaptionStreaming] = useState(false);
+  const [campaignStreaming, setCampaignStreaming] = useState(false);
   // True while a background image job is queued/running (imageJobs flag path).
   const [imageJobBusy, setImageJobBusy] = useState(false);
   // Live state of the background image job so the loader can show real
@@ -1131,50 +1134,85 @@ function ImageStudio() {
       toast({ title: "Select platforms", description: "Pick at least one platform.", variant: "destructive" });
       return;
     }
-    generateCampaign.mutate(
-      {
-        data: {
-          prompt: data.prompt,
-          platforms: campaignPlatforms,
-          brandKitId: data.brandKitId || undefined,
-          tone: data.tone,
-        },
-      },
-      {
-        onSuccess: (res) => {
-          if (res.clarifyingQuestions && res.clarifyingQuestions.length > 0) {
-            setBriefQuestions(res.clarifyingQuestions);
-            setCampaignPosts(null);
-            setCampaignTitle(null);
-            toast({
-              title: "A bit more detail needed",
-              description: "Answer the questions shown in Results, then generate again. Nothing was charged.",
-            });
-            return;
-          }
-          setBriefQuestions(null);
-          setCaptionResult(null);
-          setCaptionPlatform(null);
-          setImageResult(null);
-          setCarousel(null);
-          setCampaignImages({});
-          setPendingCampaignImage(null);
-          setCampaignPosts(res.posts);
-          setCampaignTitle(res.title ?? null);
-          setDraft(null);
-          autoSaveCampaignDrafts(res.posts, res.title ?? null);
-          refreshQuota();
-          track("campaign_generated", {
-            category: "content",
-            outcome: "success",
-            platform_count: res.posts.length,
-          });
-          trackFeatureUse("campaign_generator");
-          toast({ title: "Campaign generated!", description: `${res.posts.length} platform variants ready.` });
-        },
-        onError: handleError,
-      },
+    const body = {
+      prompt: data.prompt,
+      platforms: campaignPlatforms,
+      brandKitId: data.brandKitId || undefined,
+      tone: data.tone,
+    };
+    const onCampaignSuccess = (res: CampaignResultType) => {
+      if (res.clarifyingQuestions && res.clarifyingQuestions.length > 0) {
+        setBriefQuestions(res.clarifyingQuestions);
+        setCampaignPosts(null);
+        setCampaignTitle(null);
+        toast({
+          title: "A bit more detail needed",
+          description: "Answer the questions shown in Results, then generate again. Nothing was charged.",
+        });
+        return;
+      }
+      setBriefQuestions(null);
+      setCaptionResult(null);
+      setCaptionPlatform(null);
+      setImageResult(null);
+      setCarousel(null);
+      setCampaignImages({});
+      setPendingCampaignImage(null);
+      setCampaignPosts(res.posts);
+      setCampaignTitle(res.title ?? null);
+      setDraft(null);
+      autoSaveCampaignDrafts(res.posts, res.title ?? null);
+      refreshQuota();
+      track("campaign_generated", {
+        category: "content",
+        outcome: "success",
+        platform_count: res.posts.length,
+      });
+      trackFeatureUse("campaign_generator");
+      toast({ title: "Campaign generated!", description: `${res.posts.length} platform variants ready.` });
+    };
+    if (!flags.campaignStreaming) {
+      generateCampaign.mutate({ data: body }, { onSuccess: onCampaignSuccess, onError: handleError });
+      return;
+    }
+    // Prefer the SSE endpoint so each platform's caption appears as it is
+    // written; fall back to the JSON endpoint if the stream route is
+    // unavailable (kill switch off server-side, old deploy, proxy quirks).
+    setCampaignStreaming(true);
+    setBriefQuestions(null);
+    setCaptionResult(null);
+    setCaptionPlatform(null);
+    setImageResult(null);
+    setCarousel(null);
+    setCampaignImages({});
+    setPendingCampaignImage(null);
+    setDraft(null);
+    setCampaignTitle(null);
+    setCampaignPosts(
+      campaignPlatforms.map((platform) => ({
+        platform,
+        caption: "",
+        hashtags: [],
+        imagePrompt: "",
+      })),
     );
+    streamCampaignRequest(body, (platform, textSoFar) => {
+      setCampaignPosts((prev) =>
+        prev
+          ? prev.map((p) => (p.platform === platform ? { ...p, caption: textSoFar } : p))
+          : prev,
+      );
+    })
+      .then(onCampaignSuccess)
+      .catch((err) => {
+        if (err?.status === 404 || err?.status === 403 || err?.status === 405) {
+          generateCampaign.mutate({ data: body }, { onSuccess: onCampaignSuccess, onError: handleError });
+          return;
+        }
+        setCampaignPosts(null);
+        handleError(err);
+      })
+      .finally(() => setCampaignStreaming(false));
   };
 
   // Effective slide count: empty box falls back to 5; clamped to 2-10.
@@ -1562,6 +1600,7 @@ function ImageStudio() {
   const isPending =
     generateCaption.isPending ||
     captionStreaming ||
+    campaignStreaming ||
     generateImage.isPending ||
     imageJobBusy ||
     campaignBulkBusy ||
@@ -2072,7 +2111,7 @@ function ImageStudio() {
                       className="w-full"
                       data-testid="button-generate-campaign"
                     >
-                      {generateCampaign.isPending ? (
+                      {generateCampaign.isPending || campaignStreaming ? (
                         <RippleSpinner className="mr-2 h-4 w-4" />
                       ) : (
                         <Layers className="mr-2 h-4 w-4" />

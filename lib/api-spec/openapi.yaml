@@ -3200,6 +3200,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/generate-campaign/stream:
+    post:
+      operationId: streamCampaign
+      tags: [ai]
+      summary: Generate a multi-platform campaign as a Server-Sent Events stream
+      description: >-
+        SSE variant of generateCampaign for lower perceived latency. Emits
+        `data:` lines of JSON events: {type:"delta", platform, text} as a
+        platform's caption text becomes available, then a terminal
+        {type:"result", posts, campaignId?, title?, clarifyingQuestions?} or
+        {type:"error", message}. Quota and credit behavior is identical to
+        generateCampaign; a client disconnect mid-stream settles (charges)
+        the campaign if any caption text was already delivered, and refunds
+        reserved credits only when nothing was sent. Gated by the
+        campaignStreaming feature switch; when disabled, clients should fall
+        back to the JSON route.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CampaignRequest"
+      responses:
+        "200":
+          description: SSE stream of campaign events
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "402":
+          description: Quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/generate-carousel:
     post:
       operationId: generateCarousel
@@ -12265,6 +12312,7 @@ components:
           campaigns,
           imageJobs,
           studioQuickPublish,
+          campaignStreaming,
         ]
       properties:
         aiStudio:
@@ -12320,6 +12368,8 @@ components:
         imageJobs:
           type: boolean
         studioQuickPublish:
+          type: boolean
+        campaignStreaming:
           type: boolean
     AiSpendSettingsView:
       type: object

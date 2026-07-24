@@ -8745,6 +8745,77 @@ export const useGenerateCampaign = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getGenerateCampaignMutationOptions(options));
     }
 
+export const getStreamCampaignUrl = () => {
+
+
+
+
+  return `/api/ai/generate-campaign/stream`
+}
+
+/**
+ * SSE variant of generateCampaign for lower perceived latency. Emits `data:` lines of JSON events: {type:"delta", platform, text} as a platform's caption text becomes available, then a terminal {type:"result", posts, campaignId?, title?, clarifyingQuestions?} or {type:"error", message}. Quota and credit behavior is identical to generateCampaign; a client disconnect mid-stream settles (charges) the campaign if any caption text was already delivered, and refunds reserved credits only when nothing was sent. Gated by the campaignStreaming feature switch; when disabled, clients should fall back to the JSON route.
+ * @summary Generate a multi-platform campaign as a Server-Sent Events stream
+ */
+export const streamCampaign = async (campaignRequest: CampaignRequest, options?: RequestInit): Promise<string> => {
+
+  return customFetch<string>(getStreamCampaignUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(campaignRequest)
+  }
+);}
+
+
+
+
+export const getStreamCampaignMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof streamCampaign>>, TError,{data: BodyType<CampaignRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof streamCampaign>>, TError,{data: BodyType<CampaignRequest>}, TContext> => {
+
+const mutationKey = ['streamCampaign'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof streamCampaign>>, {data: BodyType<CampaignRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  streamCampaign(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StreamCampaignMutationResult = NonNullable<Awaited<ReturnType<typeof streamCampaign>>>
+    export type StreamCampaignMutationBody = BodyType<CampaignRequest>
+    export type StreamCampaignMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Generate a multi-platform campaign as a Server-Sent Events stream
+ */
+export const useStreamCampaign = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof streamCampaign>>, TError,{data: BodyType<CampaignRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof streamCampaign>>,
+        TError,
+        {data: BodyType<CampaignRequest>},
+        TContext
+      > => {
+      return useMutation(getStreamCampaignMutationOptions(options));
+    }
+
 export const getGenerateCarouselUrl = () => {
 
 

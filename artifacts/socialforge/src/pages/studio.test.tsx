@@ -102,6 +102,13 @@ vi.mock("@/lib/captionStream", () => ({
     Promise.reject(Object.assign(new Error("stream unavailable in tests"), { status: 404 })),
 }));
 
+// Same for the SSE campaign stream: a 404 drives studio through its JSON
+// fallback path (generateCampaign.mutate), which these tests assert against.
+vi.mock("@/lib/campaignStream", () => ({
+  streamCampaignRequest: () =>
+    Promise.reject(Object.assign(new Error("stream unavailable in tests"), { status: 404 })),
+}));
+
 // Resilient mock: unknown hooks fall back to an idle stub, so adding a new
 // hook to studio.tsx does not break these tests.
 vi.mock("@workspace/api-client-react", async () => {

@@ -61,5 +61,6 @@
 - [Post metrics sweep](post-metrics-sweep.md) — poll rows must be claimed atomically (UPDATE over FOR UPDATE SKIP LOCKED) before platform calls; decay hourly→daily→done at 14d; gate every metrics hook by its own flag.
 - [SSE streaming & async image jobs](sse-generation-streaming.md) — mid-stream disconnect after deltas must SETTLE not refund; job runners claim atomically; async twins need sync-route gate parity.
 - [Studio quick publish](studio-quick-publish.md) — campaign auto-save draft mapping needs an epoch guard; clear studio draft state after inline publish/schedule so Discard can't delete live items.
+- [Campaign SSE streaming](campaign-streaming.md) — prompt must order platform-before-caption for partial-JSON attribution; disconnect close handler claims funding flag synchronously; kill-switch tests need real DB flag rows, not module mocks.
 - [Mobile billing e2e](mobile-billing-e2e.md) — Razorpay mock server + dev base-URL env; expo-router web needs full goto (popstate blanks); seed team invites BEFORE first sign-in.
 - [ApiError message extraction](api-error-message-shape.md) — shared ApiError puts the parsed body on `.data`; axios-style `err.response.data.error` reads always miss and show generic fallbacks — use the apiErrorMessage helper.
