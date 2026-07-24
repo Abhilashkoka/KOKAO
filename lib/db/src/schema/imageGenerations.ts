@@ -29,6 +29,12 @@ export const imageGenerationsTable = pgTable("image_generations", {
   prompt: text("prompt").notNull(),
   /** Requested output size, e.g. "1024x1024". */
   size: text("size").notNull().default("1024x1024"),
+  /**
+   * How the route paid for this job: "quota" | "credit". Stored so the
+   * stuck-job sweep knows whether an abandoned row must refund a credit.
+   * Nullable for legacy rows created before the column existed.
+   */
+  funding: text("funding"),
   brandKitId: integer("brand_kit_id"),
   /** Optional /objects/... path of a tenant-scoped reference image. */
   referenceImagePath: text("reference_image_path"),

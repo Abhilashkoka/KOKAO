@@ -17,6 +17,7 @@ import {
   startPostMetricsSweep,
   stopPostMetricsSweep,
 } from "./lib/postMetricsSweep";
+import { startImageJobSweep, stopImageJobSweep } from "./lib/imageJobs";
 
 // Fail loudly before binding if a deployed context is missing required env,
 // rather than booting into a silently-degraded state.
@@ -68,6 +69,10 @@ const server: Server = app.listen(port, (err) => {
   // Periodically pull per-post engagement metrics back from the platforms
   // for recently published posts (gated by the postMetrics kill switch).
   startPostMetricsSweep();
+
+  // Periodically fail out image jobs abandoned in queued/processing by a
+  // restart (the background runner is in-process), refunding credit funding.
+  startImageJobSweep();
 });
 
 // Graceful shutdown: drain in-flight background publish jobs (bounded by a
@@ -80,6 +85,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     stopScheduledPublisher();
     stopPushTokenMaintenance();
     stopPostMetricsSweep();
+    stopImageJobSweep();
     void shutdown(signal);
   });
 }
