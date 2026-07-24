@@ -80,18 +80,26 @@ export async function spendCredit(
   });
 }
 
+/** The transaction handle drizzle passes to `db.transaction` callbacks. */
+type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 /**
  * Return credits that were reserved for work that then failed. Appends a
  * "refund" ledger entry so the reserve/refund pair is fully auditable.
+ *
+ * Pass `outerTx` to run the refund inside an existing transaction so the
+ * refund commits or rolls back atomically with the caller's own writes
+ * (e.g. cancelling a queued image job must never cancel without refunding).
  */
 export async function refundCredits(
   tenantId: number,
   kind: CreditKind,
   count: number,
   note?: string,
+  outerTx?: DbTransaction,
 ): Promise<void> {
   if (count <= 0) return;
-  await db.transaction(async (tx) => {
+  const run = async (tx: DbTransaction) => {
     const row = (
       await tx
         .select()
@@ -131,7 +139,12 @@ export async function refundCredits(
         videoCredits: newVideos,
       });
     }
-  });
+  };
+  if (outerTx) {
+    await run(outerTx);
+  } else {
+    await db.transaction(run);
+  }
 }
 
 /**

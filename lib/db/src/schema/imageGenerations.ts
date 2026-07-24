@@ -14,12 +14,17 @@ import {
  * succeeded or failed. Funding is reserved by the route BEFORE enqueueing and
  * settled/refunded by the runner, exactly like video jobs.
  *
- * status: queued | processing | succeeded | failed
+ * status: queued | processing | succeeded | failed | cancelled
  */
 export const imageGenerationsTable = pgTable("image_generations", {
   id: serial("id").primaryKey(),
   tenantId: integer("tenant_id").notNull(),
   status: text("status").notNull().default("queued"),
+  /**
+   * How the job was funded ("quota" | "credit"), recorded at enqueue time so
+   * a cancel of a still-queued job knows whether a credit refund is owed.
+   */
+  funding: text("funding").notNull().default("quota"),
   /** The user's image brief (pre-pass prompt assembly happens in the runner). */
   prompt: text("prompt").notNull(),
   /** Requested output size, e.g. "1024x1024". */

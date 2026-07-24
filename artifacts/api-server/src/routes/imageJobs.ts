@@ -92,6 +92,7 @@ router.post("/ai/generate-image-async", async (req: Request, res: Response) => {
       .values({
         tenantId: req.tenantId,
         status: "queued",
+        funding,
         prompt: body.prompt,
         size: body.size ?? "1024x1024",
         brandKitId: body.brandKitId ?? null,
@@ -152,6 +153,68 @@ router.get("/ai/image-jobs/:jobId", async (req: Request, res: Response) => {
     return;
   }
   res.json(serializeImageJob(job));
+});
+
+/**
+ * Cancel a still-queued job. The conditional queued->cancelled UPDATE is the
+ * same atomic guard the runner uses for its queued->processing claim, so a
+ * job can never be both cancelled and executed: whichever flip lands first
+ * wins. Refunds the reserved credit when the job was credit-funded (quota
+ * funding is only metered on success, so there is nothing to refund).
+ */
+router.post("/ai/image-jobs/:jobId/cancel", async (req: Request, res: Response) => {
+  const id = Number(req.params.jobId);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  // The status flip and the credit refund share one transaction so a job can
+  // never end up cancelled without its refund (or vice versa).
+  const cancelled = await db.transaction(async (tx) => {
+    const row = (
+      await tx
+        .update(imageGenerationsTable)
+        .set({ status: "cancelled", error: null })
+        .where(
+          and(
+            eq(imageGenerationsTable.id, id),
+            eq(imageGenerationsTable.tenantId, req.tenantId),
+            eq(imageGenerationsTable.status, "queued"),
+          ),
+        )
+        .returning()
+    )[0];
+    if (row && row.funding === "credit") {
+      await refundCredits(req.tenantId, "image", 1, "image job cancelled", tx);
+    }
+    return row;
+  });
+  if (cancelled) {
+    res.json(serializeImageJob(cancelled));
+    return;
+  }
+  const existing = (
+    await db
+      .select()
+      .from(imageGenerationsTable)
+      .where(
+        and(
+          eq(imageGenerationsTable.id, id),
+          eq(imageGenerationsTable.tenantId, req.tenantId),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (!existing) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  res.status(409).json({
+    error:
+      existing.status === "processing"
+        ? "This job has already started and can no longer be cancelled."
+        : "This job has already finished.",
+  });
 });
 
 export default router;

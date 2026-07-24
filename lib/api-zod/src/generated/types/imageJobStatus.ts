@@ -14,4 +14,5 @@ export const ImageJobStatus = {
   processing: 'processing',
   succeeded: 'succeeded',
   failed: 'failed',
+  cancelled: 'cancelled',
 } as const;

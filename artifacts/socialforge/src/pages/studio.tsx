@@ -32,6 +32,7 @@ import {
   getGetAiSpendRatesQueryKey,
   generateImageAsync,
   getImageJob,
+  cancelImageJob,
   type BrandKit,
   type CampaignPost,
   type ResearchResult,
@@ -324,6 +325,21 @@ function ImageStudio() {
   const [captionStreaming, setCaptionStreaming] = useState(false);
   // True while a background image job is queued/running (imageJobs flag path).
   const [imageJobBusy, setImageJobBusy] = useState(false);
+  // Live state of the background image job so the loader can show real
+  // queued/processing status, elapsed time, and a cancel action.
+  const [imageJobState, setImageJobState] = useState<{ id: number; status: string; startedAt: number } | null>(null);
+  const [imageJobElapsed, setImageJobElapsed] = useState(0);
+  const [imageJobCancelling, setImageJobCancelling] = useState(false);
+  useEffect(() => {
+    if (!imageJobState) {
+      setImageJobElapsed(0);
+      return;
+    }
+    const tick = () => setImageJobElapsed(Math.floor((Date.now() - imageJobState.startedAt) / 1000));
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [imageJobState]);
   // True while "Generate all images" is running across campaign platforms.
   const [campaignBulkBusy, setCampaignBulkBusy] = useState(false);
   const [campaignPosts, setCampaignPosts] = useState<CampaignPost[] | null>(null);
@@ -1024,6 +1040,14 @@ function ImageStudio() {
       runImageJob(body)
         .then(onImageSuccess)
         .catch((err) => {
+          if (err?.imageJobCancelled) {
+            refreshQuota();
+            toast({
+              title: "Generation cancelled",
+              description: "The image job was cancelled before it started. Nothing was charged.",
+            });
+            return;
+          }
           if (err?.status === 404 || err?.status === 403) {
             // Async jobs disabled server-side (404 route-gated or 403
             // feature_disabled if flags drift) — fall back to the sync route.
@@ -1044,14 +1068,22 @@ function ImageStudio() {
    */
   const runImageJob = async (body: ImageRequest): Promise<{ imagePath: string; b64Json: string | null }> => {
     setImageJobBusy(true);
+    setImageJobCancelling(false);
     try {
       const job = await generateImageAsync(body);
       const startedAt = Date.now();
+      setImageJobState({ id: job.id, status: job.status, startedAt });
       for (;;) {
         await new Promise((r) => setTimeout(r, 2000));
         const latest = await getImageJob(job.id);
+        setImageJobState({ id: job.id, status: latest.status, startedAt });
         if (latest.status === "succeeded" && latest.imagePath) {
           return { imagePath: latest.imagePath, b64Json: null };
+        }
+        if (latest.status === "cancelled") {
+          const cancelledErr = new Error("cancelled") as Error & { imageJobCancelled?: boolean };
+          cancelledErr.imageJobCancelled = true;
+          throw cancelledErr;
         }
         if (latest.status === "failed") {
           throw new Error(latest.error || "Image generation failed. Nothing was charged.");
@@ -1062,6 +1094,33 @@ function ImageStudio() {
       }
     } finally {
       setImageJobBusy(false);
+      setImageJobState(null);
+      setImageJobCancelling(false);
+    }
+  };
+
+  /**
+   * Cancel the in-flight background image job. Only still-queued jobs can be
+   * cancelled server-side (credit funding is refunded there); if the job
+   * already started, the server answers 409 and generation continues.
+   */
+  const cancelRunningImageJob = async () => {
+    if (!imageJobState || imageJobCancelling) return;
+    setImageJobCancelling(true);
+    try {
+      await cancelImageJob(imageJobState.id);
+      // The poll loop notices the cancelled status and unwinds; the toast
+      // fires from the catch handler so it also covers races.
+    } catch (err) {
+      setImageJobCancelling(false);
+      const status = (err as { status?: number })?.status;
+      toast({
+        title: status === 409 ? "Too late to cancel" : "Couldn't cancel",
+        description:
+          status === 409
+            ? "Generation already started, so it will finish normally."
+            : "Something went wrong cancelling the job. It will finish normally.",
+      });
     }
   };
 
@@ -2320,18 +2379,57 @@ function ImageStudio() {
               <CardContent className="p-0 flex-1 bg-muted/10">
                 {(generateCaption.isPending || captionStreaming || generateImage.isPending || imageJobBusy || generateCampaign.isPending || generateCarousel.isPending) &&
                 !hasSingleResult ? (
-                  <div className="h-full min-h-[400px] flex items-center justify-center p-8">
+                  <div className="h-full min-h-[400px] flex flex-col items-center justify-center gap-4 p-8">
                     <LogoLoader
                       label={
                         generateCarousel.isPending
                           ? "Generating your carousel..."
                           : generateCampaign.isPending
                             ? "Generating your campaign..."
-                            : generateImage.isPending || imageJobBusy
-                              ? "Generating your image..."
-                              : "Generating your caption..."
+                            : imageJobBusy && imageJobState
+                              ? imageJobState.status === "queued"
+                                ? "Waiting in queue..."
+                                : "Generating your image..."
+                              : generateImage.isPending || imageJobBusy
+                                ? "Generating your image..."
+                                : "Generating your caption..."
                       }
                     />
+                    {imageJobBusy && imageJobState && (
+                      <div className="flex flex-col items-center gap-2" data-testid="image-job-progress">
+                        <p className="text-sm text-muted-foreground" data-testid="text-image-job-status">
+                          {imageJobState.status === "queued"
+                            ? "Your image is queued and will start shortly."
+                            : "Your image is being generated in the background."}
+                          {" "}
+                          <span data-testid="text-image-job-elapsed">
+                            {imageJobElapsed >= 60
+                              ? `${Math.floor(imageJobElapsed / 60)}m ${imageJobElapsed % 60}s elapsed`
+                              : `${imageJobElapsed}s elapsed`}
+                          </span>
+                        </p>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={imageJobState.status !== "queued" || imageJobCancelling}
+                          title={
+                            imageJobState.status !== "queued"
+                              ? "Generation already started and can no longer be cancelled."
+                              : undefined
+                          }
+                          onClick={cancelRunningImageJob}
+                          data-testid="button-cancel-image-job"
+                        >
+                          {imageJobCancelling ? (
+                            <RippleSpinner className="mr-2 h-4 w-4" />
+                          ) : (
+                            <X className="mr-2 h-4 w-4" />
+                          )}
+                          Cancel
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 ) : briefQuestions && briefQuestions.length > 0 && !hasSingleResult ? (
                   <div className="p-6 bg-card space-y-3" data-testid="card-brief-questions">

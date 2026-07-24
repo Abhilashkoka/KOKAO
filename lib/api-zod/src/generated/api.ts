@@ -4931,7 +4931,7 @@ export const GenerateImageAsyncBody = zod.object({
 
 export const GenerateImageAsyncResponse = zod.object({
   "id": zod.number(),
-  "status": zod.enum(['queued', 'processing', 'succeeded', 'failed']),
+  "status": zod.enum(['queued', 'processing', 'succeeded', 'failed', 'cancelled']),
   "prompt": zod.string(),
   "size": zod.string(),
   "brandKitId": zod.number().nullish(),
@@ -4952,7 +4952,7 @@ export const GenerateImageAsyncResponse = zod.object({
  */
 export const ListImageJobsResponseItem = zod.object({
   "id": zod.number(),
-  "status": zod.enum(['queued', 'processing', 'succeeded', 'failed']),
+  "status": zod.enum(['queued', 'processing', 'succeeded', 'failed', 'cancelled']),
   "prompt": zod.string(),
   "size": zod.string(),
   "brandKitId": zod.number().nullish(),
@@ -4978,7 +4978,33 @@ export const GetImageJobParams = zod.object({
 
 export const GetImageJobResponse = zod.object({
   "id": zod.number(),
-  "status": zod.enum(['queued', 'processing', 'succeeded', 'failed']),
+  "status": zod.enum(['queued', 'processing', 'succeeded', 'failed', 'cancelled']),
+  "prompt": zod.string(),
+  "size": zod.string(),
+  "brandKitId": zod.number().nullish(),
+  "campaignId": zod.string().nullish(),
+  "platform": zod.string().nullish(),
+  "imagePath": zod.string().nullish().describe('Set when status is succeeded; render via \/api\/storage{imagePath}.'),
+  "provider": zod.string().nullish(),
+  "model": zod.string().nullish(),
+  "error": zod.string().nullish(),
+  "durationMs": zod.number().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * Marks a queued job cancelled and refunds its credit funding (if it was credit-funded). Jobs that have already started processing cannot be cancelled and return 409.
+ * @summary Cancel a still-queued image generation job
+ */
+export const CancelImageJobParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const CancelImageJobResponse = zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['queued', 'processing', 'succeeded', 'failed', 'cancelled']),
   "prompt": zod.string(),
   "size": zod.string(),
   "brandKitId": zod.number().nullish(),

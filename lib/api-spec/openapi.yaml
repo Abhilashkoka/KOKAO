@@ -2943,6 +2943,40 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/image-jobs/{jobId}/cancel:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: cancelImageJob
+      tags: [ai]
+      summary: Cancel a still-queued image generation job
+      description: >-
+        Marks a queued job cancelled and refunds its credit funding (if it was
+        credit-funded). Jobs that have already started processing cannot be
+        cancelled and return 409.
+      responses:
+        "200":
+          description: The cancelled job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageJob"
+        "409":
+          description: Job already started, finished, or was already cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/generate-video:
     post:
       operationId: generateVideo
@@ -9910,7 +9944,7 @@ components:
           type: integer
         status:
           type: string
-          enum: [queued, processing, succeeded, failed]
+          enum: [queued, processing, succeeded, failed, cancelled]
         prompt:
           type: string
         size:

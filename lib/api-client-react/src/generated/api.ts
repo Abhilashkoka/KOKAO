@@ -8096,6 +8096,77 @@ export function useGetImageJob<TData = Awaited<ReturnType<typeof getImageJob>>, 
 
 
 
+export const getCancelImageJobUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/image-jobs/${jobId}/cancel`
+}
+
+/**
+ * Marks a queued job cancelled and refunds its credit funding (if it was credit-funded). Jobs that have already started processing cannot be cancelled and return 409.
+ * @summary Cancel a still-queued image generation job
+ */
+export const cancelImageJob = async (jobId: number, options?: RequestInit): Promise<ImageJob> => {
+
+  return customFetch<ImageJob>(getCancelImageJobUrl(jobId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getCancelImageJobMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelImageJob>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof cancelImageJob>>, TError,{jobId: number}, TContext> => {
+
+const mutationKey = ['cancelImageJob'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof cancelImageJob>>, {jobId: number}> = (props) => {
+          const {jobId} = props ?? {};
+
+          return  cancelImageJob(jobId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CancelImageJobMutationResult = NonNullable<Awaited<ReturnType<typeof cancelImageJob>>>
+
+    export type CancelImageJobMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Cancel a still-queued image generation job
+ */
+export const useCancelImageJob = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelImageJob>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof cancelImageJob>>,
+        TError,
+        {jobId: number},
+        TContext
+      > => {
+      return useMutation(getCancelImageJobMutationOptions(options));
+    }
+
 export const getGenerateVideoUrl = () => {
 
 
