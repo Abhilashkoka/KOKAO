@@ -1510,6 +1510,8 @@ function ImageStudio() {
           `${scheduled.join(", ")} — one per day at 10:00.` +
           (skipped > 0 ? ` ${skipped} platform${skipped === 1 ? "" : "s"} skipped (not connected).` : ""),
       });
+      // Everything is scheduled: reset the Studio for the next idea.
+      resetStudio();
     } else if (scheduled.length > 0) {
       toast({
         title: "Partially scheduled",
@@ -1553,7 +1555,27 @@ function ImageStudio() {
     setReferenceImagePath(null);
     setReferencePreview(null);
     form.reset({ prompt: "", tone: "professional", brandKitId: undefined });
+    savedCampaignPlatformsRef.current = new Set();
     clearStudioSession();
+  };
+
+  // Tracks which campaign posts have been saved via their per-card Save
+  // button; once every post is in the library the Studio resets itself.
+  const savedCampaignPlatformsRef = useRef<Set<string>>(new Set());
+  const handleCampaignPostSaved = (platform: string) => {
+    savedCampaignPlatformsRef.current.add(platform);
+    const allSaved =
+      (campaignPosts?.length ?? 0) > 0 &&
+      campaignPosts!.every((p) => savedCampaignPlatformsRef.current.has(p.platform));
+    if (allSaved) {
+      savedCampaignPlatformsRef.current = new Set();
+      toast({
+        title: "Campaign saved",
+        description: "All posts are in your library. The Studio is ready for a new idea.",
+      });
+      resetStudio();
+      navigate("/library");
+    }
   };
 
   const handleSave = () => {
@@ -2403,6 +2425,7 @@ function ImageStudio() {
                   image={campaignImages[post.platform] ?? null}
                   onImageGenerated={handleCampaignImageGenerated}
                   draftId={campaignDraftIds[post.platform]}
+                  onSaved={handleCampaignPostSaved}
                 />
               ))}
             </div>

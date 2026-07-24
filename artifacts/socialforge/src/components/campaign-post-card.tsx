@@ -57,9 +57,11 @@ interface CampaignPostCardProps {
   onImageGenerated?: (platform: string, image: GeneratedImage) => void;
   /** Id of the silently auto-saved draft for this post; Save updates it in place. */
   draftId?: number;
+  /** Notifies the parent after a successful save so it can track progress. */
+  onSaved?: (platform: string) => void;
 }
 
-export function CampaignPostCard({ post, brandKitId, brief, image: controlledImage, onImageGenerated, draftId }: CampaignPostCardProps) {
+export function CampaignPostCard({ post, brandKitId, brief, image: controlledImage, onImageGenerated, draftId, onSaved: onSavedProp }: CampaignPostCardProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const generateImage = useGenerateImage();
@@ -129,6 +131,7 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
       queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
       setSaved(true);
       toast({ title: "Saved to library!" });
+      onSavedProp?.(post.platform);
     };
     if (draftId) {
       // The post was already auto-saved as a draft: update it in place so
