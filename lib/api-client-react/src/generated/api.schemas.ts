@@ -4194,6 +4194,7 @@ export interface FeatureFlags {
   postMetrics: boolean;
   campaigns: boolean;
   imageJobs: boolean;
+  studioQuickPublish: boolean;
 }
 
 /**

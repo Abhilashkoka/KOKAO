@@ -3,6 +3,7 @@ import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import {
   useGenerateImage,
   useCreateContent,
+  useUpdateContent,
   useGetMe,
   getListContentQueryKey,
   getGetMeQueryKey,
@@ -54,13 +55,16 @@ interface CampaignPostCardProps {
   brief: string;
   image?: GeneratedImage | null;
   onImageGenerated?: (platform: string, image: GeneratedImage) => void;
+  /** Id of the silently auto-saved draft for this post; Save updates it in place. */
+  draftId?: number;
 }
 
-export function CampaignPostCard({ post, brandKitId, brief, image: controlledImage, onImageGenerated }: CampaignPostCardProps) {
+export function CampaignPostCard({ post, brandKitId, brief, image: controlledImage, onImageGenerated, draftId }: CampaignPostCardProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const generateImage = useGenerateImage();
   const createContent = useCreateContent();
+  const updateContent = useUpdateContent();
   const { data: me } = useGetMe();
 
   const imagesLeft =
@@ -112,27 +116,41 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
   };
 
   const onSave = () => {
-    createContent.mutate(
-      {
-        data: {
-          title: `${PLATFORM_LABELS[post.platform] ?? post.platform}: ${brief.slice(0, 40)}`,
-          caption: post.caption || undefined,
-          imagePath: image?.imagePath || undefined,
-          imagePrompt: post.imagePrompt || undefined,
-          platform: post.platform,
-          status: "draft",
-          brandKitId: brandKitId || undefined,
+    const data = {
+      title: `${PLATFORM_LABELS[post.platform] ?? post.platform}: ${brief.slice(0, 40)}`,
+      caption: post.caption || undefined,
+      imagePath: image?.imagePath || undefined,
+      imagePrompt: post.imagePrompt || undefined,
+      platform: post.platform,
+      status: "draft" as const,
+      brandKitId: brandKitId || undefined,
+    };
+    const onSaved = () => {
+      queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+      setSaved(true);
+      toast({ title: "Saved to library!" });
+    };
+    if (draftId) {
+      // The post was already auto-saved as a draft: update it in place so
+      // Save never duplicates the library item.
+      updateContent.mutate(
+        { id: draftId, data },
+        {
+          onSuccess: onSaved,
+          onError: (err: any) => {
+            const status = err?.status ?? err?.response?.status;
+            if (status === 404) {
+              // Draft deleted elsewhere: fall back to creating a fresh item.
+              createContent.mutate({ data }, { onSuccess: onSaved, onError: handleError });
+              return;
+            }
+            handleError(err);
+          },
         },
-      },
-      {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
-          setSaved(true);
-          toast({ title: "Saved to library!" });
-        },
-        onError: handleError,
-      },
-    );
+      );
+      return;
+    }
+    createContent.mutate({ data }, { onSuccess: onSaved, onError: handleError });
   };
 
   return (
@@ -157,8 +175,8 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
               )}
               {image ? "Regenerate" : "Image"}
             </Button>
-            <Button type="button" size="sm" onClick={onSave} disabled={createContent.isPending || saved}>
-              {createContent.isPending ? (
+            <Button type="button" size="sm" onClick={onSave} disabled={createContent.isPending || updateContent.isPending || saved}>
+              {createContent.isPending || updateContent.isPending ? (
                 <RippleSpinner className="mr-2 h-4 w-4" />
               ) : saved ? (
                 <Check className="mr-2 h-4 w-4" />

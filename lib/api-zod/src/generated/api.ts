@@ -94,7 +94,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "calendar": zod.boolean(),
   "postMetrics": zod.boolean(),
   "campaigns": zod.boolean(),
-  "imageJobs": zod.boolean()
+  "imageJobs": zod.boolean(),
+  "studioQuickPublish": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 

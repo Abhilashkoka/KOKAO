@@ -22,6 +22,9 @@ import {
   useGetInstagramCredentials,
   useGetLinkedinStatus,
   useGetTwitterStatus,
+  useGetThreadsStatus,
+  useCreateSchedule,
+  getListSchedulesQueryKey,
   useRequestUploadUrl,
   useGetAiSpendRates,
   getListContentQueryKey,
@@ -50,11 +53,12 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
-import { Wand2, Image as ImageIcon, Save, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd, Clapperboard } from "lucide-react";
+import { Wand2, Image as ImageIcon, Save, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd, Clapperboard, CalendarClock } from "lucide-react";
 import { VideoStudioPage } from "@/pages/video-studio";
 import { navigate } from "wouter/use-browser-location";
 import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
 import { CampaignPostCard, type GeneratedImage } from "@/components/campaign-post-card";
+import { QuickPublishPanel, QUICK_PUBLISH_LABELS } from "@/components/studio-quick-publish";
 import { GamificationCard } from "@/components/gamification-card";
 import { VoiceNoteButton } from "@/components/voice-note-button";
 import { LogoLoader } from "@/components/logo-loader";
@@ -447,7 +451,8 @@ function ImageStudio() {
   const { data: igStatus, isLoading: igLoading } = useGetInstagramCredentials();
   const { data: liStatus, isLoading: liLoading } = useGetLinkedinStatus();
   const { data: twStatus, isLoading: twLoading } = useGetTwitterStatus();
-  const connectionsLoading = fbLoading || igLoading || liLoading || twLoading;
+  const { data: thStatus, isLoading: thLoading } = useGetThreadsStatus();
+  const connectionsLoading = fbLoading || igLoading || liLoading || twLoading || thLoading;
   const fbLive = !!fbStatus && fbStatus.appConfigured && fbStatus.verifyStatus === "verified";
   const platformLive: Record<string, boolean> = {
     facebook: fbLive,
@@ -456,6 +461,7 @@ function ImageStudio() {
       fbLive && !!igStatus && igStatus.appConfigured && igStatus.verifyStatus === "verified",
     linkedin: !!liStatus && liStatus.configured && liStatus.connected && !liStatus.expired,
     twitter: !!twStatus && twStatus.configured && twStatus.connected && !twStatus.expired,
+    threads: !!thStatus && thStatus.configured && thStatus.connected && !thStatus.expired,
   };
 
   // Once connection statuses load, drop any preselected platform that isn't live.
@@ -475,6 +481,7 @@ function ImageStudio() {
   const createContent = useCreateContent();
   const updateContent = useUpdateContent();
   const deleteContent = useDeleteContent();
+  const createSchedule = useCreateSchedule();
   const recordTasteSignal = useRecordTasteSignal();
   const requestUpgrade = useBillingRequestUpgrade();
   const { data: me } = useGetMe();
@@ -559,6 +566,74 @@ function ImageStudio() {
     }
   };
 
+  // Campaign auto-save: every generated campaign post is silently persisted
+  // as a library draft (one per platform) so nothing is ever lost and the
+  // quick actions can publish/schedule without a manual save first.
+  const [campaignDraftIds, setCampaignDraftIds] = useState<Record<string, number>>({});
+  const campaignSyncedImagesRef = useRef<Record<string, string>>({});
+  // Each campaign generation bumps this epoch; late auto-save responses from
+  // a superseded generation are ignored so they can't bind stale draft ids.
+  const campaignEpochRef = useRef(0);
+
+  const buildCampaignDraftData = (post: CampaignPost, title: string | null, imagePath?: string) => {
+    const values = form.getValues();
+    const base = (title || values.prompt).trim();
+    return {
+      title: `${QUICK_PUBLISH_LABELS[post.platform] ?? post.platform}: ${base.slice(0, 40)}${base.length > 40 ? "..." : ""}`,
+      caption: post.caption || undefined,
+      imagePath: imagePath || undefined,
+      imagePrompt: post.imagePrompt || undefined,
+      platform: post.platform,
+      status: "draft" as const,
+      brandKitId: values.brandKitId || undefined,
+    };
+  };
+
+  const autoSaveCampaignDrafts = (posts: CampaignPost[], title: string | null) => {
+    const epoch = ++campaignEpochRef.current;
+    setCampaignDraftIds({});
+    campaignSyncedImagesRef.current = {};
+    for (const post of posts) {
+      // A fresh campaign has no images yet; the sync effect below adds them.
+      createContent.mutate(
+        { data: buildCampaignDraftData(post, title) },
+        {
+          onSuccess: (item) => {
+            if (campaignEpochRef.current !== epoch) return;
+            setCampaignDraftIds((prev) => ({ ...prev, [post.platform]: item.id }));
+            queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+          },
+          onError: () => {
+            // Best-effort; the per-card Save button still works.
+          },
+        },
+      );
+    }
+  };
+
+  // Keep each campaign draft's image in sync as images are generated/applied.
+  useEffect(() => {
+    for (const [platform, img] of Object.entries(campaignImages)) {
+      const id = campaignDraftIds[platform];
+      if (!id || !img?.imagePath) continue;
+      if (campaignSyncedImagesRef.current[platform] === img.imagePath) continue;
+      campaignSyncedImagesRef.current[platform] = img.imagePath;
+      updateContent.mutate(
+        { id, data: { imagePath: img.imagePath } },
+        {
+          onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+          },
+          onError: () => {
+            // Best-effort: allow a later image change to retry.
+            delete campaignSyncedImagesRef.current[platform];
+          },
+        },
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignImages, campaignDraftIds]);
+
   const form = useForm<z.infer<typeof schema>>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -629,6 +704,22 @@ function ImageStudio() {
         setReferencePreview(`/api/storage${s.referenceImagePath}`);
       }
       if (typeof s.draftId === "number") setDraft(s.draftId);
+      if (s.campaignDraftIds && typeof s.campaignDraftIds === "object") {
+        const ids: Record<string, number> = {};
+        for (const [platform, id] of Object.entries(s.campaignDraftIds)) {
+          if (typeof id === "number") ids[platform] = id;
+        }
+        if (Object.keys(ids).length > 0) {
+          setCampaignDraftIds(ids);
+          // Images restored from the session were already synced to these
+          // drafts before it was saved; don't re-PATCH them on restore.
+          if (s.campaignImages && typeof s.campaignImages === "object") {
+            for (const [platform, path] of Object.entries(s.campaignImages)) {
+              if (typeof path === "string" && path) campaignSyncedImagesRef.current[platform] = path;
+            }
+          }
+        }
+      }
     } catch {
       // Corrupt or inaccessible storage: start fresh.
     }
@@ -689,6 +780,7 @@ function ImageStudio() {
             researchResult,
             referenceImagePath,
             draftId,
+            campaignDraftIds,
           }),
         );
       } catch {
@@ -708,6 +800,7 @@ function ImageStudio() {
     campaignPosts,
     campaignTitle,
     campaignImages,
+    campaignDraftIds,
     carousel,
     carouselMode,
     carouselSlideCountText,
@@ -1010,6 +1103,7 @@ function ImageStudio() {
           setCampaignPosts(res.posts);
           setCampaignTitle(res.title ?? null);
           setDraft(null);
+          autoSaveCampaignDrafts(res.posts, res.title ?? null);
           refreshQuota();
           track("campaign_generated", {
             category: "content",
@@ -1250,6 +1344,87 @@ function ImageStudio() {
       setCampaignImages((prev) => ({ ...prev, [platform]: image }));
     }
     setPendingCampaignImage(null);
+  };
+
+  // "Schedule the week": auto-slot each campaign post into consecutive daily
+  // time slots (starting tomorrow at 10:00 local) in one click.
+  const [scheduleWeekBusy, setScheduleWeekBusy] = useState(false);
+
+  const ensureCampaignDraft = async (post: CampaignPost): Promise<number> => {
+    const existing = campaignDraftIds[post.platform];
+    if (existing) return existing;
+    const epoch = campaignEpochRef.current;
+    const imagePath = campaignImages[post.platform]?.imagePath;
+    const item = await createContent.mutateAsync({
+      data: buildCampaignDraftData(post, campaignTitle, imagePath),
+    });
+    if (campaignEpochRef.current === epoch) {
+      if (imagePath) campaignSyncedImagesRef.current[post.platform] = imagePath;
+      setCampaignDraftIds((prev) => ({ ...prev, [post.platform]: item.id }));
+    }
+    return item.id;
+  };
+
+  const scheduleTheWeek = async () => {
+    if (!campaignPosts || campaignPosts.length === 0) return;
+    const targets = campaignPosts.filter((p) => platformLive[p.platform]);
+    if (targets.length === 0) {
+      toast({
+        title: "No connected accounts",
+        description: "Connect the campaign's social accounts to schedule these posts.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setScheduleWeekBusy(true);
+    const scheduled: string[] = [];
+    const failed: string[] = [];
+    try {
+      for (let i = 0; i < targets.length; i++) {
+        const post = targets[i];
+        const label = QUICK_PUBLISH_LABELS[post.platform] ?? post.platform;
+        const when = new Date();
+        when.setDate(when.getDate() + i + 1);
+        when.setHours(10, 0, 0, 0);
+        try {
+          const id = await ensureCampaignDraft(post);
+          await createSchedule.mutateAsync({
+            data: { contentItemId: id, platform: post.platform, scheduledAt: when.toISOString() },
+          });
+          scheduled.push(
+            `${label} (${when.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })})`,
+          );
+        } catch {
+          failed.push(label);
+        }
+      }
+    } finally {
+      setScheduleWeekBusy(false);
+    }
+    queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListSchedulesQueryKey() });
+    const skipped = campaignPosts.length - targets.length;
+    if (failed.length === 0 && scheduled.length > 0) {
+      track("campaign_week_scheduled", { category: "content", outcome: "success", post_count: scheduled.length });
+      toast({
+        title: "Week scheduled!",
+        description:
+          `${scheduled.join(", ")} — one per day at 10:00.` +
+          (skipped > 0 ? ` ${skipped} platform${skipped === 1 ? "" : "s"} skipped (not connected).` : ""),
+      });
+    } else if (scheduled.length > 0) {
+      toast({
+        title: "Partially scheduled",
+        description: `Scheduled ${scheduled.join(", ")}. Failed: ${failed.join(", ")}. You can schedule those from the Library.`,
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Scheduling failed",
+        description: "Nothing could be scheduled. Try again or use the Library.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleSave = () => {
@@ -2053,23 +2228,42 @@ function ImageStudio() {
                     testId="text-ai-spent-campaign"
                   />
                 </div>
-                {campaignPosts.some((p) => !campaignImages[p.platform]) && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={isPending || imagesExhausted}
-                    title={imageLimitHint}
-                    onClick={generateAllCampaignImages}
-                    data-testid="button-generate-all-campaign-images"
-                  >
-                    {campaignBulkBusy ? (
-                      <RippleSpinner className="mr-2 h-4 w-4" />
-                    ) : (
-                      <ImageIcon className="mr-2 h-4 w-4" />
-                    )}
-                    Generate all images
-                  </Button>
-                )}
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {campaignPosts.some((p) => !campaignImages[p.platform]) && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={isPending || imagesExhausted}
+                      title={imageLimitHint}
+                      onClick={generateAllCampaignImages}
+                      data-testid="button-generate-all-campaign-images"
+                    >
+                      {campaignBulkBusy ? (
+                        <RippleSpinner className="mr-2 h-4 w-4" />
+                      ) : (
+                        <ImageIcon className="mr-2 h-4 w-4" />
+                      )}
+                      Generate all images
+                    </Button>
+                  )}
+                  {flags.studioQuickPublish && flags.scheduling && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isPending || scheduleWeekBusy}
+                      onClick={scheduleTheWeek}
+                      data-testid="button-schedule-week"
+                    >
+                      {scheduleWeekBusy ? (
+                        <RippleSpinner className="mr-2 h-4 w-4" />
+                      ) : (
+                        <CalendarClock className="mr-2 h-4 w-4" />
+                      )}
+                      Schedule the week
+                    </Button>
+                  )}
+                </div>
               </div>
               {campaignPosts.map((post) => (
                 <CampaignPostCard
@@ -2079,6 +2273,7 @@ function ImageStudio() {
                   brief={currentPrompt}
                   image={campaignImages[post.platform] ?? null}
                   onImageGenerated={handleCampaignImageGenerated}
+                  draftId={campaignDraftIds[post.platform]}
                 />
               ))}
             </div>
@@ -2313,6 +2508,36 @@ function ImageStudio() {
                             }}
                           />
                         </div>
+                      </div>
+                    )}
+                    {flags.studioQuickPublish && flags.connectedAccounts && draftId && (
+                      <div className="p-6 bg-card">
+                        <QuickPublishPanel
+                          contentItemId={draftId}
+                          platformLive={platformLive}
+                          defaultSelected={campaignPlatforms}
+                          disabled={isPending}
+                          onPublished={() => {
+                            // The draft is now a published item: reset the
+                            // studio so Discard can't delete a live post.
+                            setDraft(null);
+                            setCaptionResult(null);
+                            setCaptionPlatform(null);
+                            setImageResult(null);
+                            setBriefQuestions(null);
+                            clearStudioSession();
+                          }}
+                          onScheduled={() => {
+                            // A schedule now references this item: keep it in
+                            // the library and reset the studio.
+                            setDraft(null);
+                            setCaptionResult(null);
+                            setCaptionPlatform(null);
+                            setImageResult(null);
+                            setBriefQuestions(null);
+                            clearStudioSession();
+                          }}
+                        />
                       </div>
                     )}
                   </div>

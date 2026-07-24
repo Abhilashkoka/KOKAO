@@ -12230,6 +12230,7 @@ components:
           postMetrics,
           campaigns,
           imageJobs,
+          studioQuickPublish,
         ]
       properties:
         aiStudio:
@@ -12283,6 +12284,8 @@ components:
         campaigns:
           type: boolean
         imageJobs:
+          type: boolean
+        studioQuickPublish:
           type: boolean
     AiSpendSettingsView:
       type: object

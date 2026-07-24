@@ -162,6 +162,12 @@ export const FEATURES = [
       "Persistent campaign containers: grouping content under a goal and the aggregated campaign performance report.",
   },
   {
+    id: "studioQuickPublish",
+    label: "Studio Quick Publish",
+    description:
+      "The inline publish panel in AI Studio: post now or schedule right after generating, plus campaign 'Schedule the week'.",
+  },
+  {
     id: "progressMeter",
     label: "Upgrade Progress Meter",
     description:

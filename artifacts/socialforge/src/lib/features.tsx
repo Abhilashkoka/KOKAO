@@ -34,6 +34,7 @@ const ALL_ON: FeatureFlags = {
   postMetrics: true,
   campaigns: true,
   imageJobs: true,
+  studioQuickPublish: true,
 };
 
 /**
