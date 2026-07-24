@@ -36,6 +36,7 @@ import {
   RazorpayCheckoutModal,
   type CheckoutRequest,
 } from "@/components/RazorpayCheckoutModal";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
 
@@ -48,10 +49,6 @@ function formatInr(paise: number): string {
   })}`;
 }
 
-function errorMessage(error: unknown, fallback: string): string {
-  const data = (error as { response?: { data?: { error?: string } } })?.response?.data;
-  return data?.error ?? fallback;
-}
 
 function formatLimit(limit: number): string {
   return limit === -1 ? "Unlimited" : String(limit);
@@ -172,7 +169,7 @@ export default function SettingsScreen() {
     } catch (error) {
       setNotice({
         kind: "error",
-        text: errorMessage(error, "Could not start checkout. Please try again."),
+        text: apiErrorMessage(error, "Could not start checkout. Please try again."),
       });
     } finally {
       setBusyId(null);
@@ -197,7 +194,7 @@ export default function SettingsScreen() {
     } catch (error) {
       setNotice({
         kind: "error",
-        text: errorMessage(error, "Could not start checkout. Please try again."),
+        text: apiErrorMessage(error, "Could not start checkout. Please try again."),
       });
     } finally {
       setBusyId(null);
@@ -221,7 +218,7 @@ export default function SettingsScreen() {
         onError: (error) =>
           setNotice({
             kind: "error",
-            text: errorMessage(error, "Could not cancel the subscription. Please try again."),
+            text: apiErrorMessage(error, "Could not cancel the subscription. Please try again."),
           }),
       });
     } else {
@@ -233,7 +230,7 @@ export default function SettingsScreen() {
         onError: (error) =>
           setNotice({
             kind: "error",
-            text: errorMessage(error, "Could not switch plans. Please try again."),
+            text: apiErrorMessage(error, "Could not switch plans. Please try again."),
           }),
       });
     }
@@ -326,7 +323,7 @@ export default function SettingsScreen() {
           onError: (error) =>
             done(
               "error",
-              errorMessage(error, "Payment received; your plan will activate shortly."),
+              apiErrorMessage(error, "Payment received; your plan will activate shortly."),
             ),
         },
       );
@@ -348,7 +345,7 @@ export default function SettingsScreen() {
           onError: (error) =>
             done(
               "error",
-              errorMessage(error, "Payment received; credits will appear shortly."),
+              apiErrorMessage(error, "Payment received; credits will appear shortly."),
             ),
         },
       );
@@ -472,7 +469,7 @@ export default function SettingsScreen() {
                     onError: (error) =>
                       setNotice({
                         kind: "error",
-                        text: errorMessage(
+                        text: apiErrorMessage(
                           error,
                           "Could not send the request. Please try again.",
                         ),

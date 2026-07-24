@@ -59,3 +59,4 @@
 - [RICE studio prompts](rice-studio-prompts.md) — caption/campaign prompts use RICE sections; soft taste examples must trail hard brand constraints; clarify path must charge nothing.
 - [Actual AI cost tracking](ai-cost-tracking.md) — per-event cost in paise; unknown = NULL never guessed; model-only price fallback; OpenRouter reported cost wins; capture is best-effort.
 - [Mobile billing e2e](mobile-billing-e2e.md) — Razorpay mock server + dev base-URL env; expo-router web needs full goto (popstate blanks); seed team invites BEFORE first sign-in.
+- [ApiError message extraction](api-error-message-shape.md) — shared ApiError puts the parsed body on `.data`; axios-style `err.response.data.error` reads always miss and show generic fallbacks — use the apiErrorMessage helper.

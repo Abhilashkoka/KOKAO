@@ -267,6 +267,58 @@ describe("Mobile Plan & Billing purchase actions", () => {
     expect(screen.queryByText("Switch to Pay As You Go")).toBeNull();
   });
 
+  it("shows the server's specific error message when a purchase fails", async () => {
+    purchaseMutateAsync.mockRejectedValue(
+      Object.assign(new Error("HTTP 400"), {
+        status: 400,
+        data: { error: "This credit pack is no longer available." },
+      }),
+    );
+    renderScreen();
+
+    fireEvent.click(screen.getByText("Buy"));
+    await waitFor(() =>
+      expect(
+        screen.getByText("This credit pack is no longer available."),
+      ).toBeTruthy(),
+    );
+  });
+
+  it("falls back to a generic message when the server gives no reason", async () => {
+    subscribeMutateAsync.mockRejectedValue(new Error("network down"));
+    renderScreen();
+
+    fireEvent.click(screen.getByText("Upgrade"));
+    await waitFor(() =>
+      expect(
+        screen.getByText("Could not start checkout. Please try again."),
+      ).toBeTruthy(),
+    );
+  });
+
+  it("shows the server's specific error message when cancelling fails", async () => {
+    mockState.plan = "pro";
+    mockState.subscription = { ...activeSub };
+    cancelMutate.mockImplementation((_vars, opts) =>
+      opts?.onError?.(
+        Object.assign(new Error("HTTP 409"), {
+          status: 409,
+          data: { error: "Subscription is already scheduled to cancel." },
+        }),
+      ),
+    );
+    renderScreen();
+
+    fireEvent.click(screen.getByText("Cancel subscription"));
+    const confirmButtons = screen.getAllByText("Cancel subscription");
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]);
+    await waitFor(() =>
+      expect(
+        screen.getByText("Subscription is already scheduled to cancel."),
+      ).toBeTruthy(),
+    );
+  });
+
   it("explains when payments are not configured instead of offering checkout", () => {
     mockState.configured = false;
     renderScreen();

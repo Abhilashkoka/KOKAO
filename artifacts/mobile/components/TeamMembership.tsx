@@ -6,6 +6,7 @@ import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useGetMe, useLeaveTeam } from "@workspace/api-client-react";
 
 import { Badge, Button, Card } from "@/components/ui";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
 
@@ -104,8 +105,7 @@ export function TeamMembershipCard() {
       },
       onError: (err: any) => {
         setLeaveError(
-          err?.response?.data?.error ||
-            "Could not leave the workspace. Please try again.",
+          apiErrorMessage(err, "Could not leave the workspace. Please try again."),
         );
       },
     });
