@@ -1358,9 +1358,8 @@ function ImageStudio() {
           queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
           track("content_saved", { category: "content", outcome: "success" });
           toast({ title: "Carousel saved to library!" });
-          // Saved to the library: remove it from the Studio results.
-          setCarousel(null);
-          clearStudioSession();
+          // Saved to the library: reset the whole Studio to a fresh page.
+          resetStudio();
           navigate("/library");
         },
         onError: (err: unknown) => {
@@ -1526,6 +1525,37 @@ function ImageStudio() {
     }
   };
 
+  /**
+   * Full Studio reset after a successful save: the work now lives in the
+   * library, so every input and result returns to a fresh page — prompt,
+   * results, brainstorm/research fields, reference image, and the persisted
+   * session.
+   */
+  const resetStudio = () => {
+    setDraft(null);
+    setCaptionResult(null);
+    setCaptionPlatform(null);
+    setCaptionTweak(null);
+    setImageResult(null);
+    setImageTweak(null);
+    setBriefQuestions(null);
+    setCampaignPosts(null);
+    setCampaignTitle(null);
+    setCampaignImages({});
+    setCampaignDraftIds({});
+    setPendingCampaignImage(null);
+    setCarousel(null);
+    setNiche("");
+    setTopicIdeas([]);
+    setArticleUrl("");
+    setResearchQuery("");
+    setResearchResult(null);
+    setReferenceImagePath(null);
+    setReferencePreview(null);
+    form.reset({ prompt: "", tone: "professional", brandKitId: undefined });
+    clearStudioSession();
+  };
+
   const handleSave = () => {
     if (!captionResult?.caption && !imageResult?.imagePath) {
       toast({ title: "Nothing to save", variant: "destructive" });
@@ -1541,18 +1571,11 @@ function ImageStudio() {
         recordTasteSignal.mutate({ data: { contentItemId: savedId, kind: "saved" } });
       }
       queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
-      setDraft(null);
-      // The content now lives in the library: clear it out of the Studio
-      // results so it is not shown (or re-persisted) as in-progress work.
-      setCaptionResult(null);
-      setCaptionPlatform(null);
-      setImageResult(null);
-      setBriefQuestions(null);
       track("content_saved", { category: "content", outcome: "success" });
       toast({ title: "Saved to library!" });
-      // The work is now in the library: drop the in-progress session so it
-      // does not restore stale state next time the Studio opens.
-      clearStudioSession();
+      // The work is now in the library: reset the whole Studio to a fresh
+      // page so nothing lingers (or gets re-persisted) when it reopens.
+      resetStudio();
       navigate("/library");
     };
     const onSaveError = (err: unknown) => {
