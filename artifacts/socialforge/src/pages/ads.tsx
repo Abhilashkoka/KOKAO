@@ -86,6 +86,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { openOAuthUrl } from "@/lib/oauth";
 import { Megaphone, CheckCircle2, AlertCircle, AlertTriangle, ArrowRight, ImagePlus, MapPin, Pencil, Plus, ShieldCheck, X, TrendingUp, Wallet, CalendarIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -751,7 +752,7 @@ function ConnectionSection({
   const startOAuth = async () => {
     const res = await authUrl.refetch();
     if (res.data?.url) {
-      window.location.href = res.data.url;
+      openOAuthUrl(res.data.url);
     } else {
       toast({
         variant: "destructive",
@@ -913,7 +914,7 @@ function GoogleConnectionCard({
   const startOAuth = async () => {
     const res = await authUrl.refetch();
     if (res.data?.url) {
-      window.location.href = res.data.url;
+      openOAuthUrl(res.data.url);
     } else {
       toast({
         variant: "destructive",
@@ -1110,7 +1111,7 @@ function LinkedinConnectionSection({
   const startOAuth = async () => {
     const res = await authUrl.refetch();
     if (res.data?.url) {
-      window.location.href = res.data.url;
+      openOAuthUrl(res.data.url);
     } else {
       toast({
         variant: "destructive",
@@ -1522,7 +1523,7 @@ function TiktokConnectionSection({
   const startOAuth = async () => {
     const res = await authUrl.refetch();
     if (res.data?.url) {
-      window.location.href = res.data.url;
+      openOAuthUrl(res.data.url);
     } else {
       toast({
         variant: "destructive",
