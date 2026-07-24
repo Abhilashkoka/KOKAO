@@ -34,7 +34,10 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { TicketPercent, BarChart3, AlertTriangle } from "lucide-react";
-import { SignupCreditsCard } from "./signup-credits-card";
+import {
+  SignupCreditsCard,
+  SignupCreditsStatusCard,
+} from "./signup-credits-card";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
 /**
@@ -229,6 +232,7 @@ export function PromosTab() {
   return (
     <div className="space-y-6">
       <SignupCreditsCard />
+      <SignupCreditsStatusCard />
 
       <Card className="border-border shadow-sm">
         <CardHeader>

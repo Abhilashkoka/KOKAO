@@ -10,7 +10,7 @@ import {
   notificationsTable,
   type SignupCreditSettings,
 } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   getSignupCreditSettings,
   updateSignupCreditSettings,
@@ -67,12 +67,13 @@ beforeAll(async () => {
 afterAll(async () => {
   await db.delete(signupCreditSettingsTable);
   if (settingsSnapshot) {
-    await db.insert(signupCreditSettingsTable).values({
-      enabled: settingsSnapshot.enabled,
-      captionCredits: settingsSnapshot.captionCredits,
-      imageCredits: settingsSnapshot.imageCredits,
-      videoCredits: settingsSnapshot.videoCredits,
-    });
+    // Restore the row EXACTLY, id included — the app treats the table as a
+    // singleton and other sessions may have cached/read the original id, so
+    // a shared-DB test run must never mint a replacement row with a new id.
+    await db.insert(signupCreditSettingsTable).values(settingsSnapshot);
+    await db.execute(
+      sql`SELECT setval(pg_get_serial_sequence('signup_credit_settings', 'id'), (SELECT MAX(id) FROM signup_credit_settings))`,
+    );
   }
   if (flagSnapshot) {
     await setFlag(flagSnapshot.enabled);

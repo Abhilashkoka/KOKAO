@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { SignupCreditsCard } from "./signup-credits-card";
+import {
+  SignupCreditsCard,
+  SignupCreditsStatusCard,
+} from "./signup-credits-card";
 
 const mockState = {
   settings: {
@@ -92,6 +95,74 @@ describe("SignupCreditsCard", () => {
     expect(updateMutate).not.toHaveBeenCalled();
     expect(toastFn).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Add some credits" }),
+    );
+  });
+});
+
+function renderStatusCard() {
+  const client = new QueryClient();
+  return render(
+    <QueryClientProvider client={client}>
+      <SignupCreditsStatusCard />
+    </QueryClientProvider>,
+  );
+}
+
+describe("SignupCreditsStatusCard", () => {
+  it("shows the saved bundle and active state", () => {
+    mockState.settings = {
+      enabled: true,
+      captionCredits: 5,
+      imageCredits: 2,
+      videoCredits: 1,
+    };
+    renderStatusCard();
+    expect(screen.getByTestId("badge-signup-credits-status").textContent).toBe(
+      "Active",
+    );
+    expect(
+      screen.getByTestId("text-signup-credits-bundle").textContent,
+    ).toContain("5 caption / 2 image / 1 video credits");
+    expect(
+      screen.getByTestId("button-toggle-signup-credits").textContent,
+    ).toBe("Deactivate");
+  });
+
+  it("toggles only the enabled flag, keeping saved amounts", () => {
+    mockState.settings = {
+      enabled: false,
+      captionCredits: 3,
+      imageCredits: 3,
+      videoCredits: 1,
+    };
+    renderStatusCard();
+    expect(screen.getByTestId("badge-signup-credits-status").textContent).toBe(
+      "Inactive",
+    );
+    fireEvent.click(screen.getByTestId("button-toggle-signup-credits"));
+    expect(updateMutate).toHaveBeenCalledTimes(1);
+    expect(updateMutate.mock.calls[0][0]).toEqual({
+      data: {
+        enabled: true,
+        captionCredits: 3,
+        imageCredits: 3,
+        videoCredits: 1,
+      },
+    });
+  });
+
+  it("refuses to activate an all-zero bundle", () => {
+    mockState.settings = {
+      enabled: false,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 0,
+    };
+    renderStatusCard();
+    fireEvent.click(screen.getByTestId("button-toggle-signup-credits"));
+    expect(updateMutate).not.toHaveBeenCalled();
+    expect(toastFn).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Add some credits first" }),
     );
   });
 });

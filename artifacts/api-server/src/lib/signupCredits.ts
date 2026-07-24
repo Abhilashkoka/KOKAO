@@ -6,7 +6,7 @@ import {
   creditLedgerTable,
   type SignupCreditSettings,
 } from "@workspace/db";
-import { eq, isNull, and } from "drizzle-orm";
+import { eq, isNull, and, asc, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { isFeatureEnabled } from "./featureFlags";
 import { notifySignupCreditsGranted } from "./notifications";
@@ -40,15 +40,22 @@ const DEFAULTS: SignupCreditSettingsView = {
   videoCredits: 0,
 };
 
-/** Singleton row: always id=1 (enforced by the fixed-id upsert below). */
-const SETTINGS_ROW_ID = 1;
+/**
+ * Singleton semantics WITHOUT a fixed id: the table holds at most one
+ * meaningful row, but its serial id can be anything (e.g. after a
+ * delete-and-restore the row comes back with a new id). Reads always take
+ * the lowest-id row; writes update the existing row in place (or insert
+ * the first one) under an advisory lock so concurrent first-time saves
+ * can never create duplicates.
+ */
+const SETTINGS_ADVISORY_LOCK_KEY = 0x51674c53; // arbitrary app-unique key
 
 async function loadRow(): Promise<SignupCreditSettings | undefined> {
   return (
     await db
       .select()
       .from(signupCreditSettingsTable)
-      .where(eq(signupCreditSettingsTable.id, SETTINGS_ROW_ID))
+      .orderBy(asc(signupCreditSettingsTable.id))
       .limit(1)
   )[0];
 }
@@ -67,27 +74,39 @@ export async function getSignupCreditSettings(): Promise<SignupCreditSettingsVie
 export async function updateSignupCreditSettings(
   input: SignupCreditSettingsView,
 ): Promise<SignupCreditSettingsView> {
-  // Single-statement upsert on the fixed id so concurrent first-time saves
-  // can never create more than one settings row.
-  await db
-    .insert(signupCreditSettingsTable)
-    .values({
-      id: SETTINGS_ROW_ID,
-      enabled: input.enabled,
-      captionCredits: input.captionCredits,
-      imageCredits: input.imageCredits,
-      videoCredits: input.videoCredits,
-    })
-    .onConflictDoUpdate({
-      target: signupCreditSettingsTable.id,
-      set: {
+  await db.transaction(async (tx) => {
+    // Advisory lock serializes concurrent saves so an empty table can never
+    // gain two rows, whatever id the existing row happens to have.
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(${SETTINGS_ADVISORY_LOCK_KEY})`,
+    );
+    const existing = (
+      await tx
+        .select({ id: signupCreditSettingsTable.id })
+        .from(signupCreditSettingsTable)
+        .orderBy(asc(signupCreditSettingsTable.id))
+        .limit(1)
+    )[0];
+    if (existing) {
+      await tx
+        .update(signupCreditSettingsTable)
+        .set({
+          enabled: input.enabled,
+          captionCredits: input.captionCredits,
+          imageCredits: input.imageCredits,
+          videoCredits: input.videoCredits,
+          updatedAt: new Date(),
+        })
+        .where(eq(signupCreditSettingsTable.id, existing.id));
+    } else {
+      await tx.insert(signupCreditSettingsTable).values({
         enabled: input.enabled,
         captionCredits: input.captionCredits,
         imageCredits: input.imageCredits,
         videoCredits: input.videoCredits,
-        updatedAt: new Date(),
-      },
-    });
+      });
+    }
+  });
   return getSignupCreditSettings();
 }
 
