@@ -135,6 +135,9 @@ export interface StockClip {
   width: number;
   height: number;
   provider: StockSourceId;
+  /** Preview frame for vision-based relevance ranking (null when the API
+   * returned none — such candidates are simply skipped by the ranker). */
+  thumbnailUrl: string | null;
 }
 
 /** Renditions must cover roughly 720p after cover-cropping. */
@@ -189,6 +192,7 @@ async function searchPexels(
   const data = (await res.json()) as {
     videos?: {
       duration: number;
+      image?: string;
       video_files?: { link: string; width: number; height: number }[];
     }[];
   };
@@ -203,6 +207,7 @@ async function searchPexels(
       width: rendition.width,
       height: rendition.height,
       provider: "pexels",
+      thumbnailUrl: typeof v.image === "string" && v.image ? v.image : null,
     });
   }
   return clips;
@@ -229,20 +234,26 @@ async function searchPixabay(
   const data = (await res.json()) as {
     hits?: {
       duration: number;
-      videos?: Record<string, { url: string; width: number; height: number }>;
+      videos?: Record<
+        string,
+        { url: string; width: number; height: number; thumbnail?: string }
+      >;
     }[];
   };
   const clips: StockClip[] = [];
   for (const v of data.hits ?? []) {
     if (!v.duration || v.duration < MIN_CLIP_DURATION_SEC) continue;
-    const rendition = pickRendition(Object.values(v.videos ?? {}), aspect);
+    const renditions = Object.values(v.videos ?? {});
+    const rendition = pickRendition(renditions, aspect);
     if (!rendition) continue;
+    const thumbnail = renditions.find((r) => typeof r.thumbnail === "string" && r.thumbnail);
     clips.push({
       url: rendition.url,
       durationSec: v.duration,
       width: rendition.width,
       height: rendition.height,
       provider: "pixabay",
+      thumbnailUrl: thumbnail?.thumbnail ?? null,
     });
   }
   return clips;

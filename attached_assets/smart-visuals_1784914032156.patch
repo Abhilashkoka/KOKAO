@@ -1,0 +1,915 @@
+From 3a26057d9bbd6ef73a92a2759344c8c72f450bc6 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 24 Jul 2026 17:19:50 +0000
+Subject: [PATCH] Smarter visuals: vision-ranked stock + fully-generated AI
+ b-roll
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Vision-ranked stock (the 'AI finds the RIGHT footage' fix):
+- Stock candidates now carry thumbnail frames (Pexels/Pixabay)
+- One vision call shows the tenant's text model every candidate thumbnail
+  plus the narrated scenes and asks it to assign the best-matching clip to
+  each scene (meaning over keywords, variety preferred, watermarks avoided)
+- Successful rankings pin each sentence to its clip via the sceneMap;
+  failed downloads fall back per scene; ranking is STRICTLY fail-soft —
+  any error/timeout/non-vision model reverts to the old search order
+- Fixes irrelevant footage, especially for non-English topics whose
+  translated search terms match poorly
+
+AI b-roll (visualsSource 'ai') — owned imagery, zero licensing questions:
+- One LLM art-direction call writes a photorealistic prompt per scene
+  (consistent mood, no text/watermarks), images generated through the
+  existing switchable imageGen registry (concurrency 3)
+- Each still becomes a Ken Burns clip sized to its scene, composed with
+  the normal narration/subtitles/ducked-music pipeline
+- Priced at 2 video units per paragraph (half the character rate: images
+  only, no image-to-video calls); 15-minute deadline tier
+- Contract enum + UI toggle ('AI imagery') with cost note
+
+Deliberately NOT web scraping: scraped media in customers' published
+marketing posts is a copyright/DMCA liability. Ranked licensed pools +
+generated imagery deliver the relevance without the risk.
+
+Tests: Ken Burns stillToClip (real ffmpeg), ai/character/stock unit
+pricing, ranking fail-soft guarantees; 63 API + 9 page tests green;
+typecheck + spec lint + codegen drift clean.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EJdoZ8bk1pWTrmbMVQJZ7G
+---
+ .../api-server/src/lib/videoGen/jobRunner.ts  |   7 +-
+ .../lib/videoGen/topicVideo/aiBroll.test.ts   |  65 ++++++
+ .../src/lib/videoGen/topicVideo/aiBroll.ts    | 196 ++++++++++++++++++
+ .../src/lib/videoGen/topicVideo/index.ts      |  99 ++++++++-
+ .../lib/videoGen/topicVideo/stockSources.ts   |  15 +-
+ .../videoGen/topicVideo/topicVideo.test.ts    |   8 +-
+ .../src/lib/videoGen/topicVideo/visionRank.ts | 116 +++++++++++
+ .../api-server/src/lib/videoGen/units.ts      |   6 +
+ artifacts/api-server/src/routes/videos.ts     |   7 +-
+ .../socialforge/src/pages/video-studio.tsx    |  13 +-
+ .../src/generated/api.schemas.ts              |   5 +-
+ lib/api-spec/openapi.yaml                     |   9 +-
+ lib/api-zod/src/generated/api.ts              |   2 +-
+ .../generated/types/videoGenerateRequest.ts   |   2 +-
+ .../videoGenerateRequestVisualsSource.ts      |   3 +-
+ 15 files changed, 524 insertions(+), 29 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/visionRank.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index 15d75fe..5dfe41c 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -217,7 +217,12 @@ async function produceVideo(
+       subtitles: options.subtitles ?? true,
+       paragraphCount: options.paragraphCount ?? 1,
+       music,
+-      visualsSource: options.visualsSource === "character" ? "character" : "stock",
++      visualsSource:
++        options.visualsSource === "character"
++          ? "character"
++          : options.visualsSource === "ai"
++            ? "ai"
++            : "stock",
+       characterId: options.characterId ?? null,
+       outfitId: options.outfitId ?? null,
+       wardrobeNotes: options.wardrobeNotes ?? null,
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.test.ts
+new file mode 100644
+index 0000000..6b249ad
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.test.ts
+@@ -0,0 +1,65 @@
++import { describe, it, expect } from "vitest";
++import { stillToClip } from "./aiBroll";
++import { assignClipsToScenes } from "./visionRank";
++import { videoJobUnits } from "../units";
++
++// 1x1 red PNG.
++const PNG_1PX = Buffer.from(
++  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
++  "base64",
++);
++
++function isMp4(buffer: Buffer): boolean {
++  return buffer.length > 12 && buffer.toString("ascii", 4, 8) === "ftyp";
++}
++
++describe("stillToClip", () => {
++  it("turns a still image into a Ken Burns MP4 with real ffmpeg", async () => {
++    const zoomIn = await stillToClip(PNG_1PX, 1.5, "9:16", true);
++    expect(isMp4(zoomIn)).toBe(true);
++    const zoomOut = await stillToClip(PNG_1PX, 1.5, "1:1", false);
++    expect(isMp4(zoomOut)).toBe(true);
++  }, 180_000);
++});
++
++describe("videoJobUnits for AI b-roll", () => {
++  it("prices at 2 units per paragraph, half the character rate", () => {
++    const base = { aspectRatio: "9:16" as const };
++    expect(videoJobUnits("topic_to_video", { ...base, visualsSource: "ai", paragraphCount: 1 })).toBe(2);
++    expect(videoJobUnits("topic_to_video", { ...base, visualsSource: "ai", paragraphCount: 3 })).toBe(6);
++    expect(
++      videoJobUnits("topic_to_video", { ...base, visualsSource: "character", paragraphCount: 1 }),
++    ).toBe(4);
++    expect(videoJobUnits("topic_to_video", { ...base, visualsSource: "stock", paragraphCount: 3 })).toBe(1);
++  });
++});
++
++describe("assignClipsToScenes fail-soft guarantees", () => {
++  const clip = (thumbnailUrl: string | null) => ({
++    url: "https://example.com/a.mp4",
++    durationSec: 10,
++    width: 1280,
++    height: 720,
++    provider: "pexels" as const,
++    thumbnailUrl,
++  });
++
++  it("returns null when there are not enough thumbnails to rank", async () => {
++    expect(
++      await assignClipsToScenes({
++        tenantAiModel: "auto",
++        topic: "coffee",
++        sceneTexts: ["A", "B"],
++        candidates: [clip(null), clip(null)],
++      }),
++    ).toBeNull();
++    expect(
++      await assignClipsToScenes({
++        tenantAiModel: "auto",
++        topic: "coffee",
++        sceneTexts: [],
++        candidates: [clip("https://example.com/t.jpg"), clip("https://example.com/t2.jpg")],
++      }),
++    ).toBeNull();
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
+new file mode 100644
+index 0000000..67b6ae0
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
+@@ -0,0 +1,196 @@
++import { writeFile, readFile, mkdtemp, rm } from "fs/promises";
++import { tmpdir } from "os";
++import { join } from "path";
++import { getTextGenClient } from "../../textGen";
++import { usageAccountingParams } from "../../aiCost";
++import { generateImage, type ImageSize } from "../../imageGen";
++import { logger } from "../../logger";
++import { runFfmpeg } from "../slideshow";
++import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
++import type { ScriptScene } from "./characterScenes";
++import type { SceneSegment } from "./compose";
++
++/**
++ * AI b-roll for Topic to Video: instead of licensed stock footage, every
++ * scene's visual is GENERATED — a brand-safe image from the scene's meaning,
++ * turned into a moving clip with a gentle Ken Burns move. Fully owned by the
++ * tenant, always on-topic, and it never raises a licensing question.
++ *
++ * Cost model: images only (no image-to-video calls), so it prices well below
++ * character videos — see videoJobUnits.
++ */
++
++export const AI_BROLL_SCENES_PER_PARAGRAPH = 4;
++/** Parallel image generations; mirrors the character-scene ceiling. */
++const IMAGE_CONCURRENCY = 3;
++const FPS = 30;
++
++function imageSizeForAspect(aspect: VideoAspect): ImageSize {
++  if (aspect === "9:16") return "1024x1536";
++  if (aspect === "16:9") return "1536x1024";
++  return "1024x1024";
++}
++
++/**
++ * One LLM call turns the scenes into concrete photographic prompts. Fails
++ * soft: a scene without a plan falls back to its narration text.
++ */
++export async function planBrollVisuals(params: {
++  tenantAiModel: string;
++  topic: string;
++  scenes: ScriptScene[];
++}): Promise<string[]> {
++  const fallback = params.scenes.map(
++    (scene) => `Photorealistic cinematic still: ${scene.text.slice(0, 240)}`,
++  );
++  try {
++    const textGen = await getTextGenClient(params.tenantAiModel);
++    const sceneList = params.scenes.map((s, i) => `${i + 1}. ${s.text}`).join("\n");
++    const completion = await textGen.client.chat.completions.create({
++      model: textGen.model,
++      messages: [
++        {
++          role: "system",
++          content: "You art-direct b-roll imagery and reply with strict JSON only.",
++        },
++        {
++          role: "user",
++          content: `# Role: B-roll Art Director
++
++A short video about "${params.topic}" has ${params.scenes.length} narrated scenes. Write one image-generation prompt per scene.
++
++## Rules:
++1. Reply with strict JSON: {"prompts": ["...", ...]} — exactly ${params.scenes.length} entries, in scene order.
++2. Each prompt describes ONE photorealistic, cinematic still that visualizes that scene's meaning: concrete subject, setting, lighting, camera angle.
++3. No text, watermarks, logos, or recognizable brands in the image. No people looking into the camera.
++4. Keep a consistent visual mood across all scenes (same time of day / palette family).
++
++## Scenes (narration):
++${sceneList}`,
++        },
++      ],
++      max_completion_tokens: 4096,
++      response_format: { type: "json_object" },
++      ...usageAccountingParams(textGen.provider),
++    });
++    const parsed = JSON.parse(completion.choices[0]?.message?.content ?? "") as {
++      prompts?: unknown;
++    };
++    const prompts: unknown[] | null = Array.isArray(parsed.prompts) ? parsed.prompts : null;
++    if (!prompts) return fallback;
++    return params.scenes.map((_, i) => {
++      const entry = prompts[i];
++      return typeof entry === "string" && entry.trim() ? entry.trim() : fallback[i]!;
++    });
++  } catch (error) {
++    logger.warn({ err: error }, "B-roll visual planning failed; using narration text");
++    return fallback;
++  }
++}
++
++/** Turn a still image into a Ken Burns clip matching the scene's duration. */
++export async function stillToClip(
++  image: Buffer,
++  durationSec: number,
++  aspectRatio: VideoAspect,
++  zoomIn: boolean,
++): Promise<Buffer> {
++  const { width, height } = ASPECT_DIMENSIONS[aspectRatio];
++  const superW = width * 2;
++  const superH = height * 2;
++  const seconds = Math.max(0.5, durationSec);
++  const frames = Math.max(1, Math.round(seconds * FPS));
++  const zoomSpan = 0.08;
++  const zoomStep = (zoomSpan / frames).toFixed(6);
++  const zoomExpr = zoomIn
++    ? `min(1+${zoomStep}*on,${(1 + zoomSpan).toFixed(3)})`
++    : `max(${(1 + zoomSpan).toFixed(3)}-${zoomStep}*on,1.001)`;
++
++  const dir = await mkdtemp(join(tmpdir(), "kokao-broll-"));
++  try {
++    await writeFile(join(dir, "still.png"), image);
++    await runFfmpeg(
++      [
++        "-y",
++        "-loop",
++        "1",
++        "-t",
++        seconds.toFixed(3),
++        "-i",
++        "still.png",
++        "-vf",
++        `scale=${superW}:${superH}:force_original_aspect_ratio=increase,` +
++          `crop=${superW}:${superH},` +
++          `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
++          `d=1:s=${width}x${height}:fps=${FPS},` +
++          `setsar=1,format=yuv420p`,
++        "-an",
++        "-c:v",
++        "libx264",
++        "-preset",
++        "veryfast",
++        "-crf",
++        "23",
++        "clip.mp4",
++      ],
++      dir,
++    );
++    return await readFile(join(dir, "clip.mp4"));
++  } finally {
++    await rm(dir, { recursive: true, force: true }).catch(() => {});
++  }
++}
++
++async function mapWithConcurrency<T, R>(
++  items: T[],
++  limit: number,
++  fn: (item: T, index: number) => Promise<R>,
++): Promise<R[]> {
++  const results = new Array<R>(items.length);
++  let next = 0;
++  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
++    while (next < items.length) {
++      const index = next++;
++      results[index] = await fn(items[index]!, index);
++    }
++  });
++  await Promise.all(workers);
++  return results;
++}
++
++/**
++ * Generate one owned clip per scene: image from the scene's plan, then a
++ * Ken Burns move sized to the scene's duration (alternating in/out).
++ */
++export async function generateBrollClips(params: {
++  tenantAiModel: string;
++  topic: string;
++  scenes: ScriptScene[];
++  aspectRatio: VideoAspect;
++}): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[]; provider: string }> {
++  if (params.scenes.length === 0) {
++    throw new VideoGenProviderError("There are no scenes to visualize.");
++  }
++  const prompts = await planBrollVisuals({
++    tenantAiModel: params.tenantAiModel,
++    topic: params.topic,
++    scenes: params.scenes,
++  });
++  const size = imageSizeForAspect(params.aspectRatio);
++
++  let provider = "ai";
++  const clips = await mapWithConcurrency(params.scenes, IMAGE_CONCURRENCY, async (scene, i) => {
++    const image = await generateImage(prompts[i]!, size);
++    provider = image.provider;
++    return stillToClip(image.buffer, scene.durationSec, params.aspectRatio, i % 2 === 0);
++  });
++
++  return {
++    clips,
++    sceneMap: params.scenes.map((scene, i) => ({
++      clipIndex: i,
++      durationSec: scene.durationSec,
++    })),
++    provider,
++  };
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+index b157739..518661c 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+@@ -11,13 +11,15 @@ import {
+   type StockSourceChoice,
+   type StockClip,
+ } from "./stockSources";
+-import { composeTopicVideo } from "./compose";
++import { composeTopicVideo, sceneDurations } from "./compose";
+ import {
+   CHARACTER_SCENES_PER_PARAGRAPH,
+   groupCuesIntoScenes,
+   planSceneVisuals,
+   generateCharacterSceneClips,
+ } from "./characterScenes";
++import { assignClipsToScenes } from "./visionRank";
++import { AI_BROLL_SCENES_PER_PARAGRAPH, generateBrollClips } from "./aiBroll";
+ import { getCharacterDetail, resolveOutfit } from "../../characters";
+ 
+ export { NARRATION_VOICES, type NarrationVoice } from "./narration";
+@@ -45,6 +47,8 @@ export {
+ export const TOPIC_VIDEO_TOTAL_DEADLINE_MS = 10 * 60 * 1000;
+ /** Character videos generate every scene with AI, so they get a longer leash. */
+ export const CHARACTER_VIDEO_TOTAL_DEADLINE_MS = 25 * 60 * 1000;
++/** AI b-roll generates one image per scene — between the two. */
++export const AI_BROLL_TOTAL_DEADLINE_MS = 15 * 60 * 1000;
+ 
+ /** Distinct stock clips to download; scenes cycle through them. */
+ const MAX_STOCK_CLIPS = 6;
+@@ -58,8 +62,9 @@ export interface TopicVideoParams {
+   subtitles: boolean;
+   paragraphCount: number;
+   music?: Buffer | null;
+-  /** "stock" (default) or "character" — AI scenes with a locked character. */
+-  visualsSource?: "stock" | "character";
++  /** "stock" (default), "character" (locked-character AI scenes), or "ai"
++   * (fully generated b-roll — owned imagery, no licensing questions). */
++  visualsSource?: "stock" | "character" | "ai";
+   characterId?: number | null;
+   outfitId?: number | null;
+   wardrobeNotes?: string | null;
+@@ -92,7 +97,8 @@ async function gatherStockClips(
+   aspect: VideoAspect,
+   neededScenes: number,
+   startedAt: number,
+-): Promise<{ clips: Buffer[]; provider: string }> {
++  ranking: { tenantAiModel: string; topic: string; sceneTexts: string[] } | null,
++): Promise<{ clips: Buffer[]; provider: string; sceneToClip: number[] | null }> {
+   const { def, apiKey } = await resolveStockSource(stockSource);
+   const wanted = Math.max(1, Math.min(MAX_STOCK_CLIPS, neededScenes));
+ 
+@@ -126,14 +132,42 @@ async function gatherStockClips(
+     );
+   }
+ 
++  // Vision ranking: one call maps every scene to the candidate whose actual
++  // FOOTAGE fits it best (thumbnails shown to the tenant's vision model).
++  // Strictly fail-soft — null keeps the interleaved search order.
++  const assignment = ranking
++    ? await assignClipsToScenes({
++        tenantAiModel: ranking.tenantAiModel,
++        topic: ranking.topic,
++        sceneTexts: ranking.sceneTexts,
++        candidates,
++      })
++    : null;
++
++  // Download order: the ranked picks (unique, first-appearance order) when
++  // ranking succeeded, else the interleaved search order.
++  const downloadOrder: number[] = [];
++  if (assignment) {
++    for (const index of assignment.sceneToCandidate) {
++      if (!downloadOrder.includes(index)) downloadOrder.push(index);
++    }
++  } else {
++    candidates.forEach((_, index) => downloadOrder.push(index));
++  }
++
+   const clips: Buffer[] = [];
+-  for (const candidate of candidates) {
++  const slotByCandidate = new Map<number, number>();
++  for (const candidateIndex of downloadOrder) {
+     if (clips.length >= wanted) break;
+     checkDeadline(startedAt);
+     try {
+-      clips.push(await downloadStockClip(candidate));
++      clips.push(await downloadStockClip(candidates[candidateIndex]!));
++      slotByCandidate.set(candidateIndex, clips.length - 1);
+     } catch (err) {
+-      logger.warn({ err, url: candidate.url }, "stock clip download failed; trying next");
++      logger.warn(
++        { err, url: candidates[candidateIndex]!.url },
++        "stock clip download failed; trying next",
++      );
+     }
+   }
+   if (clips.length === 0) {
+@@ -141,15 +175,26 @@ async function gatherStockClips(
+       `Could not download any stock footage from ${def.label}. Please try again.`,
+     );
+   }
+-  return { clips, provider: def.id };
++
++  // Per-scene clip slots; scenes whose ranked pick failed to download cycle
++  // through what DID download, matching the old behavior.
++  const sceneToClip = assignment
++    ? assignment.sceneToCandidate.map(
++        (candidateIndex, i) => slotByCandidate.get(candidateIndex) ?? i % clips.length,
++      )
++    : null;
++  return { clips, provider: def.id, sceneToClip };
+ }
+ 
+ export async function generateTopicVideo(params: TopicVideoParams): Promise<TopicVideoResult> {
+   const startedAt = Date.now();
+   const characterMode = params.visualsSource === "character";
++  const aiMode = params.visualsSource === "ai";
+   const deadlineMs = characterMode
+     ? CHARACTER_VIDEO_TOTAL_DEADLINE_MS
+-    : TOPIC_VIDEO_TOTAL_DEADLINE_MS;
++    : aiMode
++      ? AI_BROLL_TOTAL_DEADLINE_MS
++      : TOPIC_VIDEO_TOTAL_DEADLINE_MS;
+   const topic = params.topic.trim();
+   if (!topic) {
+     throw new VideoGenProviderError("A topic is required.");
+@@ -178,11 +223,29 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+   const narration = await synthesizeNarration(sentences, params.voice);
+   checkDeadline(startedAt, deadlineMs);
+ 
+-  // 3) Visuals: locked-character AI scenes, or stock footage.
++  // 3) Visuals: locked-character AI scenes, generated b-roll, or stock.
+   let clips: Buffer[];
+   let sceneMap = null;
+   let provider: string;
+-  if (characterMode) {
++  if (aiMode) {
++    const sceneCount =
++      AI_BROLL_SCENES_PER_PARAGRAPH *
++      Math.min(Math.max(Math.trunc(params.paragraphCount) || 1, 1), 3);
++    const scenes = groupCuesIntoScenes(
++      narration.cues,
++      narration.totalDurationSec,
++      sceneCount,
++    );
++    const generated = await generateBrollClips({
++      tenantAiModel: tenant.aiModel,
++      topic,
++      scenes,
++      aspectRatio: params.aspectRatio,
++    });
++    clips = generated.clips;
++    sceneMap = generated.sceneMap;
++    provider = generated.provider;
++  } else if (characterMode) {
+     const generated = await generateCharacterStoryClips({
+       tenantId: params.tenantId,
+       tenantAiModel: tenant.aiModel,
+@@ -205,9 +268,23 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+       params.aspectRatio,
+       narration.cues.length,
+       startedAt,
++      {
++        tenantAiModel: tenant.aiModel,
++        topic,
++        sceneTexts: narration.cues.map((cue) => cue.text),
++      },
+     );
+     clips = stock.clips;
+     provider = stock.provider;
++    // A successful ranking pins each sentence to its best-matching clip.
++    if (stock.sceneToClip) {
++      sceneMap = sceneDurations(narration.cues, narration.totalDurationSec).map(
++        (durationSec, i) => ({
++          clipIndex: stock.sceneToClip![i] ?? i % clips.length,
++          durationSec,
++        }),
++      );
++    }
+   }
+   checkDeadline(startedAt, deadlineMs);
+ 
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts
+index 8cebce0..d204aaa 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts
+@@ -135,6 +135,9 @@ export interface StockClip {
+   width: number;
+   height: number;
+   provider: StockSourceId;
++  /** Preview frame for vision-based relevance ranking (null when the API
++   * returned none — such candidates are simply skipped by the ranker). */
++  thumbnailUrl: string | null;
+ }
+ 
+ /** Renditions must cover roughly 720p after cover-cropping. */
+@@ -189,6 +192,7 @@ async function searchPexels(
+   const data = (await res.json()) as {
+     videos?: {
+       duration: number;
++      image?: string;
+       video_files?: { link: string; width: number; height: number }[];
+     }[];
+   };
+@@ -203,6 +207,7 @@ async function searchPexels(
+       width: rendition.width,
+       height: rendition.height,
+       provider: "pexels",
++      thumbnailUrl: typeof v.image === "string" && v.image ? v.image : null,
+     });
+   }
+   return clips;
+@@ -229,20 +234,26 @@ async function searchPixabay(
+   const data = (await res.json()) as {
+     hits?: {
+       duration: number;
+-      videos?: Record<string, { url: string; width: number; height: number }>;
++      videos?: Record<
++        string,
++        { url: string; width: number; height: number; thumbnail?: string }
++      >;
+     }[];
+   };
+   const clips: StockClip[] = [];
+   for (const v of data.hits ?? []) {
+     if (!v.duration || v.duration < MIN_CLIP_DURATION_SEC) continue;
+-    const rendition = pickRendition(Object.values(v.videos ?? {}), aspect);
++    const renditions = Object.values(v.videos ?? {});
++    const rendition = pickRendition(renditions, aspect);
+     if (!rendition) continue;
++    const thumbnail = renditions.find((r) => typeof r.thumbnail === "string" && r.thumbnail);
+     clips.push({
+       url: rendition.url,
+       durationSec: v.duration,
+       width: rendition.width,
+       height: rendition.height,
+       provider: "pixabay",
++      thumbnailUrl: thumbnail?.thumbnail ?? null,
+     });
+   }
+   return clips;
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts
+index d21cc9d..330d406 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts
+@@ -337,7 +337,13 @@ describe("composeTopicVideo (real ffmpeg)", () => {
+ // SSRF guard on stock clip downloads (URLs come from third-party responses)
+ 
+ describe("downloadStockClip SSRF guard", () => {
+-  const base = { durationSec: 5, width: 1920, height: 1080, provider: "pexels" as const };
++  const base = {
++    durationSec: 5,
++    width: 1920,
++    height: 1080,
++    provider: "pexels" as const,
++    thumbnailUrl: null,
++  };
+ 
+   it("rejects non-https clip URLs", async () => {
+     await expect(
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/visionRank.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/visionRank.ts
+new file mode 100644
+index 0000000..7b100e3
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/visionRank.ts
+@@ -0,0 +1,116 @@
++import { getTextGenClient } from "../../textGen";
++import { usageAccountingParams } from "../../aiCost";
++import { logger } from "../../logger";
++import { withTimeout } from "../retry";
++import type { StockClip } from "./stockSources";
++
++/**
++ * Vision-based relevance ranking for stock footage.
++ *
++ * Keyword search alone routinely returns footage that matches the words but
++ * not the meaning (worse still for non-English topics, whose search terms
++ * are translated). This pass shows the candidates' thumbnail frames to the
++ * tenant's vision-capable text model in ONE call and asks it to assign the
++ * best-matching candidate to every scene of the script.
++ *
++ * Strictly fail-soft: any error, timeout, non-vision model, or malformed
++ * reply returns null and the caller falls back to the existing round-robin
++ * behavior. A ranking pass must never fail a video that would otherwise
++ * render.
++ */
++
++/** Most thumbnails one call carries; keeps vision payloads and cost sane. */
++export const MAX_RANKED_CANDIDATES = 12;
++
++/** One vision call, bounded — ranking is an enhancement, not a dependency. */
++const RANK_TIMEOUT_MS = 60_000;
++
++export interface SceneAssignment {
++  /** Per scene (same order as `sceneTexts`): index into the candidate list. */
++  sceneToCandidate: number[];
++}
++
++export async function assignClipsToScenes(params: {
++  tenantAiModel: string;
++  topic: string;
++  sceneTexts: string[];
++  candidates: StockClip[];
++}): Promise<SceneAssignment | null> {
++  const withThumbs = params.candidates
++    .map((clip, index) => ({ clip, index }))
++    .filter((c) => !!c.clip.thumbnailUrl)
++    .slice(0, MAX_RANKED_CANDIDATES);
++  // Ranking needs real choices; with 0-1 usable thumbnails there is nothing
++  // to decide.
++  if (withThumbs.length < 2 || params.sceneTexts.length === 0) return null;
++
++  try {
++    const textGen = await getTextGenClient(params.tenantAiModel);
++    const sceneList = params.sceneTexts.map((text, i) => `${i + 1}. ${text}`).join("\n");
++    const content: (
++      | { type: "text"; text: string }
++      | { type: "image_url"; image_url: { url: string } }
++    )[] = [
++      {
++        type: "text",
++        text: `# Role: Video Editor picking b-roll
++
++A short video about "${params.topic}" has ${params.sceneTexts.length} narrated scenes. Below are ${withThumbs.length} candidate stock clips (one thumbnail each, numbered in order).
++
++## Scenes (narration):
++${sceneList}
++
++## Rules:
++1. Reply with strict JSON only: {"assignments": [<candidate number for scene 1>, <for scene 2>, ...]} — exactly ${params.sceneTexts.length} numbers, each between 1 and ${withThumbs.length}.
++2. Pick the candidate whose FOOTAGE best matches each scene's meaning — not just its keywords.
++3. Prefer visual variety: avoid reusing a candidate while an unused one fits reasonably well.
++4. Never pick a thumbnail with visible watermarks, text overlays, or people looking straight into the camera awkwardly.`,
++      },
++      ...withThumbs.map((c) => ({
++        type: "image_url" as const,
++        image_url: { url: c.clip.thumbnailUrl! },
++      })),
++    ];
++
++    const completion = await withTimeout(
++      () =>
++        textGen.client.chat.completions.create({
++          model: textGen.model,
++          messages: [
++            {
++              role: "system",
++              content: "You match stock footage to video scenes and reply with strict JSON only.",
++            },
++            { role: "user", content },
++          ],
++          max_completion_tokens: 2048,
++          response_format: { type: "json_object" },
++          ...usageAccountingParams(textGen.provider),
++        }),
++      RANK_TIMEOUT_MS,
++      "Footage ranking",
++    );
++
++    const parsed = JSON.parse(completion.choices[0]?.message?.content ?? "") as {
++      assignments?: unknown;
++    };
++    const assignments: unknown[] | null = Array.isArray(parsed.assignments)
++      ? parsed.assignments
++      : null;
++    if (!assignments) return null;
++    const sceneToCandidate = params.sceneTexts.map((_, i) => {
++      const pick = assignments[i];
++      const number = typeof pick === "number" ? Math.trunc(pick) : NaN;
++      // Model numbers are 1-based positions in the thumbnail list; map back
++      // to the caller's candidate indices. Bad entries fall back per scene.
++      if (number >= 1 && number <= withThumbs.length) {
++        return withThumbs[number - 1]!.index;
++      }
++      return withThumbs[i % withThumbs.length]!.index;
++    });
++    return { sceneToCandidate };
++  } catch (error) {
++    logger.warn({ err: error }, "Vision footage ranking failed; using search order");
++    return null;
++  }
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/units.ts b/artifacts/api-server/src/lib/videoGen/units.ts
+index 05cfcb9..02a0e39 100644
+--- a/artifacts/api-server/src/lib/videoGen/units.ts
++++ b/artifacts/api-server/src/lib/videoGen/units.ts
+@@ -15,5 +15,11 @@ export function videoJobUnits(engine: string, options: VideoJobOptions | null):
+     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
+     return CHARACTER_SCENES_PER_PARAGRAPH * paragraphs;
+   }
++  // AI b-roll: every scene is a generated image (no image-to-video calls),
++  // so it prices at half the character rate: Short = 2, Medium = 4, Long = 6.
++  if (engine === "topic_to_video" && options?.visualsSource === "ai") {
++    const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
++    return 2 * paragraphs;
++  }
+   return 1;
+ }
+diff --git a/artifacts/api-server/src/routes/videos.ts b/artifacts/api-server/src/routes/videos.ts
+index 12c6dd7..3711260 100644
+--- a/artifacts/api-server/src/routes/videos.ts
++++ b/artifacts/api-server/src/routes/videos.ts
+@@ -93,8 +93,9 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+   // BEFORE funding, and resolve the effective outfit so the job is
+   // self-describing even if the default outfit changes later.
+   const visualsSource =
+-    body.engine === "topic_to_video" && body.visualsSource === "character"
+-      ? "character"
++    body.engine === "topic_to_video" &&
++    (body.visualsSource === "character" || body.visualsSource === "ai")
++      ? body.visualsSource
+       : "stock";
+   const wantsCharacter =
+     visualsSource === "character" ||
+@@ -160,7 +161,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+     res.status(402).json({
+       error:
+         units > 1
+-          ? `This character video needs ${units} video units (one per scene) and your plan does not have enough left. Upgrade your plan or buy a credit pack.`
++          ? `This video needs ${units} video units (one per generated scene) and your plan does not have enough left. Upgrade your plan or buy a credit pack.`
+           : "Monthly video quota reached and no video credits left. Upgrade your plan or buy a credit pack.",
+     });
+     return;
+diff --git a/artifacts/socialforge/src/pages/video-studio.tsx b/artifacts/socialforge/src/pages/video-studio.tsx
+index dcf0cad..8cb874a 100644
+--- a/artifacts/socialforge/src/pages/video-studio.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.tsx
+@@ -139,7 +139,7 @@ export function VideoStudioPage() {
+   const [stockSource, setStockSource] = useState<"auto" | "pexels" | "pixabay">("auto");
+   const [paragraphCount, setParagraphCount] = useState(1);
+   const [subtitles, setSubtitles] = useState(true);
+-  const [visuals, setVisuals] = useState<"stock" | "character">("stock");
++  const [visuals, setVisuals] = useState<"stock" | "character" | "ai">("stock");
+   const [characterId, setCharacterId] = useState<number | null>(null);
+   const [outfitId, setOutfitId] = useState<number | null>(null);
+   const [wardrobeNotes, setWardrobeNotes] = useState("");
+@@ -476,15 +476,24 @@ export function VideoStudioPage() {
+                 type="single"
+                 variant="outline"
+                 value={visuals}
+-                onValueChange={(v) => v && setVisuals(v as "stock" | "character")}
++                onValueChange={(v) => v && setVisuals(v as "stock" | "character" | "ai")}
+               >
+                 <ToggleGroupItem value="stock" data-testid="toggle-visuals-stock">
+                   Stock footage
+                 </ToggleGroupItem>
++                <ToggleGroupItem value="ai" data-testid="toggle-visuals-ai">
++                  AI imagery
++                </ToggleGroupItem>
+                 <ToggleGroupItem value="character" data-testid="toggle-visuals-character">
+                   Your character
+                 </ToggleGroupItem>
+               </ToggleGroup>
++              {visuals === "ai" && (
++                <p className="text-xs text-muted-foreground">
++                  Every scene's visual is generated for your topic — fully owned,
++                  no stock licensing. Costs 2 video units per paragraph.
++                </p>
++              )}
+               {visuals === "character" && (
+                 <div className="space-y-3">
+                   <CharacterPicker
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index 8d14845..e5a9f74 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -2452,7 +2452,7 @@ export const VideoGenerateRequestStockSource = {
+ } as const;
+ 
+ /**
+- * topic_to_video only; "character" generates every scene with the locked character instead of stock footage. Costs one video unit per scene (4 per paragraph).
++ * topic_to_video only. "character" generates every scene with the locked character (one video unit per scene, 4 per paragraph). "ai" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph.
+  */
+ export type VideoGenerateRequestVisualsSource = typeof VideoGenerateRequestVisualsSource[keyof typeof VideoGenerateRequestVisualsSource];
+ 
+@@ -2460,6 +2460,7 @@ export type VideoGenerateRequestVisualsSource = typeof VideoGenerateRequestVisua
+ export const VideoGenerateRequestVisualsSource = {
+   stock: 'stock',
+   character: 'character',
++  ai: 'ai',
+ } as const;
+ 
+ export interface VideoGenerateRequest {
+@@ -2512,7 +2513,7 @@ export interface VideoGenerateRequest {
+      * @maximum 3
+      */
+   paragraphCount?: number;
+-  /** topic_to_video only; "character" generates every scene with the locked character instead of stock footage. Costs one video unit per scene (4 per paragraph). */
++  /** topic_to_video only. "character" generates every scene with the locked character (one video unit per scene, 4 per paragraph). "ai" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph. */
+   visualsSource?: VideoGenerateRequestVisualsSource;
+   /**
+      * Character lock: the character featured in the video (text_to_video and topic_to_video character mode).
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index bbceb48..b80a50a 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -10090,12 +10090,13 @@ components:
+             seconds of narration each).
+         visualsSource:
+           type: string
+-          enum: [stock, character]
++          enum: [stock, character, ai]
+           default: stock
+           description: >-
+-            topic_to_video only; "character" generates every scene with the
+-            locked character instead of stock footage. Costs one video unit
+-            per scene (4 per paragraph).
++            topic_to_video only. "character" generates every scene with the
++            locked character (one video unit per scene, 4 per paragraph).
++            "ai" generates owned b-roll imagery per scene with a Ken Burns
++            move — no stock licensing — at 2 units per paragraph.
+         characterId:
+           type: ["integer", "null"]
+           description: >-
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index a3ea003..99a27f9 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -5063,7 +5063,7 @@ export const GenerateVideoBody = zod.object({
+   "stockSource": zod.enum(['auto', 'pexels', 'pixabay']).default(generateVideoBodyStockSourceDefault).describe('topic_to_video only; where stock footage comes from (auto = first configured source).'),
+   "subtitles": zod.boolean().default(generateVideoBodySubtitlesDefault).describe('topic_to_video only; burn per-sentence subtitles.'),
+   "paragraphCount": zod.number().min(1).max(generateVideoBodyParagraphCountMax).default(generateVideoBodyParagraphCountDefault).describe('topic_to_video only; script length in paragraphs (roughly 30 seconds of narration each).'),
+-  "visualsSource": zod.enum(['stock', 'character']).default(generateVideoBodyVisualsSourceDefault).describe('topic_to_video only; \"character\" generates every scene with the locked character instead of stock footage. Costs one video unit per scene (4 per paragraph).'),
++  "visualsSource": zod.enum(['stock', 'character', 'ai']).default(generateVideoBodyVisualsSourceDefault).describe('topic_to_video only. \"character\" generates every scene with the locked character (one video unit per scene, 4 per paragraph). \"ai\" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph.'),
+   "characterId": zod.number().nullish().describe('Character lock: the character featured in the video (text_to_video and topic_to_video character mode).'),
+   "outfitId": zod.number().nullish().describe('Costume lock: the outfit the character wears. Defaults to the character\'s default outfit.'),
+   "wardrobeNotes": zod.string().max(generateVideoBodyWardrobeNotesMax).nullish().describe('topic_to_video character mode; costume-change instructions (e.g. \"switch to gym wear for the workout scenes\").')
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequest.ts b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+index 8c0087a..6f09ced 100644
+--- a/lib/api-zod/src/generated/types/videoGenerateRequest.ts
++++ b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+@@ -61,7 +61,7 @@ export interface VideoGenerateRequest {
+      * @maximum 3
+      */
+   paragraphCount?: number;
+-  /** topic_to_video only; "character" generates every scene with the locked character instead of stock footage. Costs one video unit per scene (4 per paragraph). */
++  /** topic_to_video only. "character" generates every scene with the locked character (one video unit per scene, 4 per paragraph). "ai" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph. */
+   visualsSource?: VideoGenerateRequestVisualsSource;
+   /**
+      * Character lock: the character featured in the video (text_to_video and topic_to_video character mode).
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequestVisualsSource.ts b/lib/api-zod/src/generated/types/videoGenerateRequestVisualsSource.ts
+index 9404e1e..a76021e 100644
+--- a/lib/api-zod/src/generated/types/videoGenerateRequestVisualsSource.ts
++++ b/lib/api-zod/src/generated/types/videoGenerateRequestVisualsSource.ts
+@@ -7,7 +7,7 @@
+  */
+ 
+ /**
+- * topic_to_video only; "character" generates every scene with the locked character instead of stock footage. Costs one video unit per scene (4 per paragraph).
++ * topic_to_video only. "character" generates every scene with the locked character (one video unit per scene, 4 per paragraph). "ai" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph.
+  */
+ export type VideoGenerateRequestVisualsSource = typeof VideoGenerateRequestVisualsSource[keyof typeof VideoGenerateRequestVisualsSource];
+ 
+@@ -15,4 +15,5 @@ export type VideoGenerateRequestVisualsSource = typeof VideoGenerateRequestVisua
+ export const VideoGenerateRequestVisualsSource = {
+   stock: 'stock',
+   character: 'character',
++  ai: 'ai',
+ } as const;
+-- 
+2.43.0
+

@@ -11,13 +11,15 @@ import {
   type StockSourceChoice,
   type StockClip,
 } from "./stockSources";
-import { composeTopicVideo } from "./compose";
+import { composeTopicVideo, sceneDurations } from "./compose";
 import {
   CHARACTER_SCENES_PER_PARAGRAPH,
   groupCuesIntoScenes,
   planSceneVisuals,
   generateCharacterSceneClips,
 } from "./characterScenes";
+import { assignClipsToScenes } from "./visionRank";
+import { AI_BROLL_SCENES_PER_PARAGRAPH, generateBrollClips } from "./aiBroll";
 import { getCharacterDetail, resolveOutfit } from "../../characters";
 
 export { NARRATION_VOICES, type NarrationVoice } from "./narration";
@@ -45,6 +47,8 @@ export {
 export const TOPIC_VIDEO_TOTAL_DEADLINE_MS = 10 * 60 * 1000;
 /** Character videos generate every scene with AI, so they get a longer leash. */
 export const CHARACTER_VIDEO_TOTAL_DEADLINE_MS = 25 * 60 * 1000;
+/** AI b-roll generates one image per scene — between the two. */
+export const AI_BROLL_TOTAL_DEADLINE_MS = 15 * 60 * 1000;
 
 /** Distinct stock clips to download; scenes cycle through them. */
 const MAX_STOCK_CLIPS = 6;
@@ -58,8 +62,9 @@ export interface TopicVideoParams {
   subtitles: boolean;
   paragraphCount: number;
   music?: Buffer | null;
-  /** "stock" (default) or "character" — AI scenes with a locked character. */
-  visualsSource?: "stock" | "character";
+  /** "stock" (default), "character" (locked-character AI scenes), or "ai"
+   * (fully generated b-roll — owned imagery, no licensing questions). */
+  visualsSource?: "stock" | "character" | "ai";
   characterId?: number | null;
   outfitId?: number | null;
   wardrobeNotes?: string | null;
@@ -92,7 +97,8 @@ async function gatherStockClips(
   aspect: VideoAspect,
   neededScenes: number,
   startedAt: number,
-): Promise<{ clips: Buffer[]; provider: string }> {
+  ranking: { tenantAiModel: string; topic: string; sceneTexts: string[] } | null,
+): Promise<{ clips: Buffer[]; provider: string; sceneToClip: number[] | null }> {
   const { def, apiKey } = await resolveStockSource(stockSource);
   const wanted = Math.max(1, Math.min(MAX_STOCK_CLIPS, neededScenes));
 
@@ -126,14 +132,42 @@ async function gatherStockClips(
     );
   }
 
+  // Vision ranking: one call maps every scene to the candidate whose actual
+  // FOOTAGE fits it best (thumbnails shown to the tenant's vision model).
+  // Strictly fail-soft — null keeps the interleaved search order.
+  const assignment = ranking
+    ? await assignClipsToScenes({
+        tenantAiModel: ranking.tenantAiModel,
+        topic: ranking.topic,
+        sceneTexts: ranking.sceneTexts,
+        candidates,
+      })
+    : null;
+
+  // Download order: the ranked picks (unique, first-appearance order) when
+  // ranking succeeded, else the interleaved search order.
+  const downloadOrder: number[] = [];
+  if (assignment) {
+    for (const index of assignment.sceneToCandidate) {
+      if (!downloadOrder.includes(index)) downloadOrder.push(index);
+    }
+  } else {
+    candidates.forEach((_, index) => downloadOrder.push(index));
+  }
+
   const clips: Buffer[] = [];
-  for (const candidate of candidates) {
+  const slotByCandidate = new Map<number, number>();
+  for (const candidateIndex of downloadOrder) {
     if (clips.length >= wanted) break;
     checkDeadline(startedAt);
     try {
-      clips.push(await downloadStockClip(candidate));
+      clips.push(await downloadStockClip(candidates[candidateIndex]!));
+      slotByCandidate.set(candidateIndex, clips.length - 1);
     } catch (err) {
-      logger.warn({ err, url: candidate.url }, "stock clip download failed; trying next");
+      logger.warn(
+        { err, url: candidates[candidateIndex]!.url },
+        "stock clip download failed; trying next",
+      );
     }
   }
   if (clips.length === 0) {
@@ -141,15 +175,26 @@ async function gatherStockClips(
       `Could not download any stock footage from ${def.label}. Please try again.`,
     );
   }
-  return { clips, provider: def.id };
+
+  // Per-scene clip slots; scenes whose ranked pick failed to download cycle
+  // through what DID download, matching the old behavior.
+  const sceneToClip = assignment
+    ? assignment.sceneToCandidate.map(
+        (candidateIndex, i) => slotByCandidate.get(candidateIndex) ?? i % clips.length,
+      )
+    : null;
+  return { clips, provider: def.id, sceneToClip };
 }
 
 export async function generateTopicVideo(params: TopicVideoParams): Promise<TopicVideoResult> {
   const startedAt = Date.now();
   const characterMode = params.visualsSource === "character";
+  const aiMode = params.visualsSource === "ai";
   const deadlineMs = characterMode
     ? CHARACTER_VIDEO_TOTAL_DEADLINE_MS
-    : TOPIC_VIDEO_TOTAL_DEADLINE_MS;
+    : aiMode
+      ? AI_BROLL_TOTAL_DEADLINE_MS
+      : TOPIC_VIDEO_TOTAL_DEADLINE_MS;
   const topic = params.topic.trim();
   if (!topic) {
     throw new VideoGenProviderError("A topic is required.");
@@ -178,11 +223,29 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
   const narration = await synthesizeNarration(sentences, params.voice);
   checkDeadline(startedAt, deadlineMs);
 
-  // 3) Visuals: locked-character AI scenes, or stock footage.
+  // 3) Visuals: locked-character AI scenes, generated b-roll, or stock.
   let clips: Buffer[];
   let sceneMap = null;
   let provider: string;
-  if (characterMode) {
+  if (aiMode) {
+    const sceneCount =
+      AI_BROLL_SCENES_PER_PARAGRAPH *
+      Math.min(Math.max(Math.trunc(params.paragraphCount) || 1, 1), 3);
+    const scenes = groupCuesIntoScenes(
+      narration.cues,
+      narration.totalDurationSec,
+      sceneCount,
+    );
+    const generated = await generateBrollClips({
+      tenantAiModel: tenant.aiModel,
+      topic,
+      scenes,
+      aspectRatio: params.aspectRatio,
+    });
+    clips = generated.clips;
+    sceneMap = generated.sceneMap;
+    provider = generated.provider;
+  } else if (characterMode) {
     const generated = await generateCharacterStoryClips({
       tenantId: params.tenantId,
       tenantAiModel: tenant.aiModel,
@@ -205,9 +268,23 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
       params.aspectRatio,
       narration.cues.length,
       startedAt,
+      {
+        tenantAiModel: tenant.aiModel,
+        topic,
+        sceneTexts: narration.cues.map((cue) => cue.text),
+      },
     );
     clips = stock.clips;
     provider = stock.provider;
+    // A successful ranking pins each sentence to its best-matching clip.
+    if (stock.sceneToClip) {
+      sceneMap = sceneDurations(narration.cues, narration.totalDurationSec).map(
+        (durationSec, i) => ({
+          clipIndex: stock.sceneToClip![i] ?? i % clips.length,
+          durationSec,
+        }),
+      );
+    }
   }
   checkDeadline(startedAt, deadlineMs);
 

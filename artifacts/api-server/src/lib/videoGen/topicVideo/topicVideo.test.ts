@@ -337,7 +337,13 @@ describe("composeTopicVideo (real ffmpeg)", () => {
 // SSRF guard on stock clip downloads (URLs come from third-party responses)
 
 describe("downloadStockClip SSRF guard", () => {
-  const base = { durationSec: 5, width: 1920, height: 1080, provider: "pexels" as const };
+  const base = {
+    durationSec: 5,
+    width: 1920,
+    height: 1080,
+    provider: "pexels" as const,
+    thumbnailUrl: null,
+  };
 
   it("rejects non-https clip URLs", async () => {
     await expect(

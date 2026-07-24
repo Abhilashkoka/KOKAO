@@ -93,8 +93,9 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   // BEFORE funding, and resolve the effective outfit so the job is
   // self-describing even if the default outfit changes later.
   const visualsSource =
-    body.engine === "topic_to_video" && body.visualsSource === "character"
-      ? "character"
+    body.engine === "topic_to_video" &&
+    (body.visualsSource === "character" || body.visualsSource === "ai")
+      ? body.visualsSource
       : "stock";
   const wantsCharacter =
     visualsSource === "character" ||
@@ -160,7 +161,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     res.status(402).json({
       error:
         units > 1
-          ? `This character video needs ${units} video units (one per scene) and your plan does not have enough left. Upgrade your plan or buy a credit pack.`
+          ? `This video needs ${units} video units (one per generated scene) and your plan does not have enough left. Upgrade your plan or buy a credit pack.`
           : "Monthly video quota reached and no video credits left. Upgrade your plan or buy a credit pack.",
     });
     return;

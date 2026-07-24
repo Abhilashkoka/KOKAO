@@ -217,7 +217,12 @@ async function produceVideo(
       subtitles: options.subtitles ?? true,
       paragraphCount: options.paragraphCount ?? 1,
       music,
-      visualsSource: options.visualsSource === "character" ? "character" : "stock",
+      visualsSource:
+        options.visualsSource === "character"
+          ? "character"
+          : options.visualsSource === "ai"
+            ? "ai"
+            : "stock",
       characterId: options.characterId ?? null,
       outfitId: options.outfitId ?? null,
       wardrobeNotes: options.wardrobeNotes ?? null,

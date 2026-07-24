@@ -140,7 +140,7 @@ export function VideoStudioPage() {
   const [stockSource, setStockSource] = useState<"auto" | "pexels" | "pixabay">("auto");
   const [paragraphCount, setParagraphCount] = useState(1);
   const [subtitles, setSubtitles] = useState(true);
-  const [visuals, setVisuals] = useState<"stock" | "character">("stock");
+  const [visuals, setVisuals] = useState<"stock" | "character" | "ai">("stock");
   const [characterId, setCharacterId] = useState<number | null>(null);
   const [outfitId, setOutfitId] = useState<number | null>(null);
   const [wardrobeNotes, setWardrobeNotes] = useState("");
@@ -513,15 +513,24 @@ export function VideoStudioPage() {
                 type="single"
                 variant="outline"
                 value={visuals}
-                onValueChange={(v) => v && setVisuals(v as "stock" | "character")}
+                onValueChange={(v) => v && setVisuals(v as "stock" | "character" | "ai")}
               >
                 <ToggleGroupItem value="stock" data-testid="toggle-visuals-stock">
                   Stock footage
+                </ToggleGroupItem>
+                <ToggleGroupItem value="ai" data-testid="toggle-visuals-ai">
+                  AI imagery
                 </ToggleGroupItem>
                 <ToggleGroupItem value="character" data-testid="toggle-visuals-character">
                   Your character
                 </ToggleGroupItem>
               </ToggleGroup>
+              {visuals === "ai" && (
+                <p className="text-xs text-muted-foreground">
+                  Every scene's visual is generated for your topic — fully owned,
+                  no stock licensing. Costs 2 video units per paragraph.
+                </p>
+              )}
               {visuals === "character" && (
                 <div className="space-y-3">
                   <CharacterPicker

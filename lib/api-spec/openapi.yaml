@@ -10090,12 +10090,13 @@ components:
             seconds of narration each).
         visualsSource:
           type: string
-          enum: [stock, character]
+          enum: [stock, character, ai]
           default: stock
           description: >-
-            topic_to_video only; "character" generates every scene with the
-            locked character instead of stock footage. Costs one video unit
-            per scene (4 per paragraph).
+            topic_to_video only. "character" generates every scene with the
+            locked character (one video unit per scene, 4 per paragraph).
+            "ai" generates owned b-roll imagery per scene with a Ken Burns
+            move — no stock licensing — at 2 units per paragraph.
         characterId:
           type: ["integer", "null"]
           description: >-

@@ -2452,7 +2452,7 @@ export const VideoGenerateRequestStockSource = {
 } as const;
 
 /**
- * topic_to_video only; "character" generates every scene with the locked character instead of stock footage. Costs one video unit per scene (4 per paragraph).
+ * topic_to_video only. "character" generates every scene with the locked character (one video unit per scene, 4 per paragraph). "ai" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph.
  */
 export type VideoGenerateRequestVisualsSource = typeof VideoGenerateRequestVisualsSource[keyof typeof VideoGenerateRequestVisualsSource];
 
@@ -2460,6 +2460,7 @@ export type VideoGenerateRequestVisualsSource = typeof VideoGenerateRequestVisua
 export const VideoGenerateRequestVisualsSource = {
   stock: 'stock',
   character: 'character',
+  ai: 'ai',
 } as const;
 
 export interface VideoGenerateRequest {
@@ -2512,7 +2513,7 @@ export interface VideoGenerateRequest {
      * @maximum 3
      */
   paragraphCount?: number;
-  /** topic_to_video only; "character" generates every scene with the locked character instead of stock footage. Costs one video unit per scene (4 per paragraph). */
+  /** topic_to_video only. "character" generates every scene with the locked character (one video unit per scene, 4 per paragraph). "ai" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph. */
   visualsSource?: VideoGenerateRequestVisualsSource;
   /**
      * Character lock: the character featured in the video (text_to_video and topic_to_video character mode).

@@ -15,5 +15,11 @@ export function videoJobUnits(engine: string, options: VideoJobOptions | null): 
     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
     return CHARACTER_SCENES_PER_PARAGRAPH * paragraphs;
   }
+  // AI b-roll: every scene is a generated image (no image-to-video calls),
+  // so it prices at half the character rate: Short = 2, Medium = 4, Long = 6.
+  if (engine === "topic_to_video" && options?.visualsSource === "ai") {
+    const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
+    return 2 * paragraphs;
+  }
   return 1;
 }
