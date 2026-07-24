@@ -12313,6 +12313,7 @@ components:
           imageJobs,
           studioQuickPublish,
           campaignStreaming,
+          composer,
         ]
       properties:
         aiStudio:
@@ -12370,6 +12371,8 @@ components:
         studioQuickPublish:
           type: boolean
         campaignStreaming:
+          type: boolean
+        composer:
           type: boolean
     AiSpendSettingsView:
       type: object

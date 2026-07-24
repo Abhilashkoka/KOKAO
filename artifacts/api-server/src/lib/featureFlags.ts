@@ -174,6 +174,12 @@ export const FEATURES = [
       "Streaming campaign generation in AI Studio: platform captions appear live as they are written instead of after one long wait. When off, the studio falls back to the standard campaign request.",
   },
   {
+    id: "composer",
+    label: "Library Composer",
+    description:
+      "The one-sheet Publish / Schedule composer on Content Library cards: media preview, inline caption editing, and multi-platform publish or schedule in one place. When off, the library falls back to the legacy per-platform dialogs.",
+  },
+  {
     id: "progressMeter",
     label: "Upgrade Progress Meter",
     description:

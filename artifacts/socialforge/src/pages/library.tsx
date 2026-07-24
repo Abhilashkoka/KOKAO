@@ -41,6 +41,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, LINKEDIN_MAX_LENGTH, isOverLinkedinLimit, splitForLinkedin, chunkOnWhitespace, splitIntoTweets, THREADS_MAX_LENGTH } from "@workspace/social-limits";
 import { useRestartRetry } from "@workspace/api-client-react";
 import { PendingPostsWarnings, usePendingResendActions } from "@/components/pending-posts-warning";
+import { ComposerSheet, type ComposerItem } from "@/components/composer";
+import { Send } from "lucide-react";
 import { track } from "@/lib/analytics";
 
 const PLATFORM_NAMES: Record<string, string> = {
@@ -98,6 +100,10 @@ export function LibraryPage() {
 
   const [publishItem, setPublishItem] = useState<any | null>(null);
   const publishContent = usePublishContentToFacebook();
+
+  // The one-sheet composer: multi-platform publish/schedule in one place,
+  // sharing the Studio's QuickPublishPanel engine.
+  const [composerItem, setComposerItem] = useState<ComposerItem | null>(null);
 
   const [instagramItem, setInstagramItem] = useState<any | null>(null);
   const publishInstagram = usePublishContentToInstagram();
@@ -804,6 +810,27 @@ export function LibraryPage() {
               </CardContent>
               
               <CardFooter className="p-4 pt-0 bg-card flex flex-col items-stretch gap-2 text-xs text-muted-foreground">
+                {flags.composer && (
+                <Button
+                  size="sm"
+                  className="w-full"
+                  disabled={publishBusy || item.status === "publishing"}
+                  onClick={() =>
+                    setComposerItem({
+                      id: item.id,
+                      title: item.title,
+                      caption: item.caption,
+                      imagePath: item.imagePath ?? null,
+                      videoPath: item.videoPath ?? null,
+                      videoThumbnailPath: item.videoThumbnailPath ?? null,
+                      platform: item.platform,
+                    })
+                  }
+                  data-testid={`button-composer-${item.id}`}
+                >
+                  <Send className="h-3.5 w-3.5 mr-1.5" /> Publish / Schedule
+                </Button>
+                )}
                 <div className="flex flex-wrap gap-1.5">
                   {([
                     { key: "facebook", label: "Facebook", Icon: Facebook, ready: fbReady, open: () => setPublishItem(item), title: fbReady ? "Publish to Facebook" : "Connect and verify your Facebook Page on the Accounts page first." },
@@ -1332,6 +1359,14 @@ export function LibraryPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ComposerSheet
+        open={!!composerItem}
+        onOpenChange={(open) => {
+          if (!open) setComposerItem(null);
+        }}
+        item={composerItem}
+      />
     </div>
   );
 }

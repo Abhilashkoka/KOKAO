@@ -19,7 +19,15 @@ import { useToast } from "@/hooks/use-toast";
 import { useFeatureFlags } from "@/lib/features";
 import { track } from "@/lib/analytics";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
-import { Send, CalendarClock, Globe } from "lucide-react";
+import { Send, CalendarClock, Globe, AlertCircle, Info } from "lucide-react";
+import {
+  isOverTweetLimit,
+  splitIntoTweets,
+  isOverLinkedinLimit,
+  splitForLinkedin,
+  THREADS_MAX_LENGTH,
+  chunkOnWhitespace,
+} from "@workspace/social-limits";
 
 export const QUICK_PUBLISH_LABELS: Record<string, string> = {
   facebook: "Facebook",
@@ -39,6 +47,9 @@ export function defaultScheduleValue(minutesFromNow = 60): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** localStorage key remembering the last platform selection (composer mode). */
+const SELECTION_STORAGE_KEY = "kokao.quickPublish.platforms";
+
 interface QuickPublishPanelProps {
   /** The auto-saved draft to publish. */
   contentItemId: number;
@@ -51,6 +62,26 @@ interface QuickPublishPanelProps {
   onPublished?: (succeeded: string[]) => void;
   /** Called after at least one schedule was created successfully. */
   onScheduled?: (succeeded: string[]) => void;
+  /**
+   * The caption that will be posted. When provided, a pre-publish checklist
+   * explains platform behavior BEFORE the click (X threads, LinkedIn comment
+   * overflow, Threads chains) using the same social-limits helpers the
+   * server-side publishers use, so the warning can never drift from reality.
+   */
+  caption?: string;
+  /**
+   * Whether the item has an image. Pass `false` to gate Instagram (which
+   * requires one): its checkbox disables with a hint instead of failing at
+   * publish time. Leave undefined to skip the check.
+   */
+  hasImage?: boolean;
+  /**
+   * Runs before publishing/scheduling (e.g. persist caption edits so every
+   * platform posts the same text). Return false to abort the action.
+   */
+  beforeAction?: () => Promise<boolean>;
+  /** Remember the selection in this browser and prefill it next time. */
+  rememberSelection?: boolean;
 }
 
 /**
@@ -66,6 +97,10 @@ export function QuickPublishPanel({
   disabled,
   onPublished,
   onScheduled,
+  caption,
+  hasImage,
+  beforeAction,
+  rememberSelection,
 }: QuickPublishPanelProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -87,21 +122,73 @@ export function QuickPublishPanel({
   };
 
   const livePlatforms = PLATFORM_ORDER.filter((p) => platformLive[p]);
+  // Instagram requires an image: when the item has none, keep the checkbox
+  // visible but disabled so the user learns why instead of hitting an error.
+  const instagramBlocked = hasImage === false && platformLive.instagram === true;
+  const publishablePlatforms = instagramBlocked
+    ? livePlatforms.filter((p) => p !== "instagram")
+    : livePlatforms;
 
   const [selected, setSelected] = useState<string[]>([]);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleAt, setScheduleAt] = useState(() => defaultScheduleValue());
   const [busy, setBusy] = useState<"publish" | "schedule" | null>(null);
 
-  // Re-prefill whenever the draft changes (a new generation): campaign
-  // toggles intersected with live connections, falling back to all connected.
+  // Re-prefill whenever the draft changes (a new generation): the remembered
+  // selection (composer mode) or the campaign toggles, intersected with live
+  // connections, falling back to all connected.
   useEffect(() => {
-    const prefilled = defaultSelected.filter((p) => platformLive[p]);
-    setSelected(prefilled.length > 0 ? prefilled : livePlatforms);
+    let remembered: string[] = [];
+    if (rememberSelection) {
+      try {
+        const raw = localStorage.getItem(SELECTION_STORAGE_KEY);
+        remembered = raw ? (JSON.parse(raw) as string[]) : [];
+      } catch {
+        remembered = [];
+      }
+    }
+    const rememberedLive = remembered.filter((p) => publishablePlatforms.includes(p));
+    const prefilled = defaultSelected.filter((p) => publishablePlatforms.includes(p));
+    setSelected(
+      rememberedLive.length > 0
+        ? rememberedLive
+        : prefilled.length > 0
+          ? prefilled
+          : publishablePlatforms,
+    );
     setScheduleOpen(false);
     setBusy(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contentItemId, livePlatforms.join(",")]);
+  }, [contentItemId, livePlatforms.join(","), instagramBlocked]);
+
+  const persistSelection = (platforms: string[]) => {
+    if (!rememberSelection) return;
+    try {
+      localStorage.setItem(SELECTION_STORAGE_KEY, JSON.stringify(platforms));
+    } catch {
+      // Remembering defaults is best-effort.
+    }
+  };
+
+  // Pre-publish checklist: platform behavior explained BEFORE the click.
+  const checklistInfos: string[] = [];
+  if (caption) {
+    if (selected.includes("twitter") && isOverTweetLimit(caption)) {
+      checklistInfos.push(
+        `X: over the character limit — will post as a thread of ${splitIntoTweets(caption).length} tweets.`,
+      );
+    }
+    if (selected.includes("linkedin") && isOverLinkedinLimit(caption)) {
+      checklistInfos.push(
+        `LinkedIn: long caption — the overflow continues in ${splitForLinkedin(caption).comments.length} comment(s).`,
+      );
+    }
+    if (selected.includes("threads") && caption.length > THREADS_MAX_LENGTH) {
+      checklistInfos.push(
+        `Threads: over the limit — will post as a chain of ${chunkOnWhitespace(caption, THREADS_MAX_LENGTH).length} posts.`,
+      );
+    }
+  }
 
   if (livePlatforms.length === 0) {
     return (
@@ -126,6 +213,11 @@ export function QuickPublishPanel({
       return;
     }
     setBusy("publish");
+    persistSelection(platforms);
+    if (beforeAction && !(await beforeAction().catch(() => false))) {
+      setBusy(null);
+      return;
+    }
     const succeeded: string[] = [];
     const failed: { platform: string; message: string }[] = [];
     // Sequential on purpose: each publish route holds the per-item lock, and
@@ -174,6 +266,11 @@ export function QuickPublishPanel({
       return;
     }
     setBusy("schedule");
+    persistSelection(selected);
+    if (beforeAction && !(await beforeAction().catch(() => false))) {
+      setBusy(null);
+      return;
+    }
     const succeeded: string[] = [];
     const failed: string[] = [];
     for (const platform of selected) {
@@ -211,18 +308,40 @@ export function QuickPublishPanel({
     <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-4" data-testid="panel-quick-publish">
       <p className="text-sm font-medium">Publish this post</p>
       <div className="flex flex-wrap gap-x-4 gap-y-2">
-        {livePlatforms.map((platform) => (
-          <label key={platform} className="flex items-center gap-2 text-sm cursor-pointer">
-            <Checkbox
-              checked={selected.includes(platform)}
-              onCheckedChange={(v) => toggle(platform, v === true)}
-              disabled={anyBusy}
-              data-testid={`checkbox-quick-publish-${platform}`}
-            />
-            {QUICK_PUBLISH_LABELS[platform] ?? platform}
-          </label>
-        ))}
+        {livePlatforms.map((platform) => {
+          const blocked = platform === "instagram" && instagramBlocked;
+          return (
+            <label
+              key={platform}
+              className={`flex items-center gap-2 text-sm ${blocked ? "text-muted-foreground/60 cursor-not-allowed" : "cursor-pointer"}`}
+            >
+              <Checkbox
+                checked={selected.includes(platform)}
+                onCheckedChange={(v) => toggle(platform, v === true)}
+                disabled={anyBusy || blocked}
+                data-testid={`checkbox-quick-publish-${platform}`}
+              />
+              {QUICK_PUBLISH_LABELS[platform] ?? platform}
+              {blocked && <span className="text-xs">(needs an image)</span>}
+            </label>
+          );
+        })}
       </div>
+      {instagramBlocked && selected.length === 0 && (
+        <p className="flex items-start gap-1.5 text-xs text-destructive" data-testid="text-quick-publish-ig-blocked">
+          <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          Instagram needs an image — generate or attach one first.
+        </p>
+      )}
+      {checklistInfos.length > 0 && (
+        <div className="space-y-1" data-testid="quick-publish-checklist">
+          {checklistInfos.map((text) => (
+            <p key={text} className="flex items-start gap-1.5 text-xs text-muted-foreground">
+              <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" /> {text}
+            </p>
+          ))}
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
@@ -234,15 +353,15 @@ export function QuickPublishPanel({
           {busy === "publish" ? <RippleSpinner className="mr-2 h-4 w-4" /> : <Send className="mr-2 h-4 w-4" />}
           Post now
         </Button>
-        {livePlatforms.length > 1 && (
+        {publishablePlatforms.length > 1 && (
           <Button
             type="button"
             size="sm"
             variant="outline"
             disabled={anyBusy}
             onClick={() => {
-              setSelected(livePlatforms);
-              postNow(livePlatforms);
+              setSelected(publishablePlatforms);
+              postNow(publishablePlatforms);
             }}
             data-testid="button-quick-publish-all"
           >

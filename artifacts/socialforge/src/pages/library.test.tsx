@@ -53,10 +53,13 @@ const mockState: {
   content: any[];
   igCreds: any;
   generateImagePending: boolean;
+  /** undefined = server flags unavailable, so the UI falls back to all-on. */
+  flags: Record<string, boolean> | undefined;
 } = {
   content: [],
   igCreds: {},
   generateImagePending: false,
+  flags: undefined,
 };
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -70,6 +73,7 @@ vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("../test/apiClientMock");
   return createApiClientMock({
     useListContent: () => ({ data: mockState.content, isLoading: false }),
+    useListFeatureFlags: () => ({ data: mockState.flags, isLoading: false }),
     usePublishContentToInstagram: () => ({
       mutate: publishInstagramMutate,
       isPending: false,
@@ -164,6 +168,22 @@ beforeEach(() => {
   mockState.content = [];
   mockState.igCreds = { verifyStatus: "verified" };
   mockState.generateImagePending = false;
+  mockState.flags = undefined;
+});
+
+describe("Library composer kill switch", () => {
+  it("shows the Publish / Schedule composer button when the flag is on (default)", () => {
+    renderPageWithCaption("Some caption");
+    expect(screen.getByTestId("button-composer-1")).toBeTruthy();
+  });
+
+  it("hides the composer button when the composer flag is off, keeping legacy publish buttons", () => {
+    mockState.flags = { composer: false, postMetrics: true, campaigns: true };
+    renderPageWithCaption("Some caption");
+    expect(screen.queryByTestId("button-composer-1")).toBeNull();
+    // Legacy per-platform publish buttons remain available.
+    expect(screen.getByRole("button", { name: /facebook/i })).toBeTruthy();
+  });
 });
 
 describe("Library edit dialog image regeneration", () => {

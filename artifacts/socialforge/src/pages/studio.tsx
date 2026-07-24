@@ -2654,6 +2654,8 @@ function ImageStudio() {
                           platformLive={platformLive}
                           defaultSelected={campaignPlatforms}
                           disabled={isPending}
+                          caption={captionResult?.caption}
+                          hasImage={!!imageResult?.imagePath}
                           onPublished={() => {
                             // The draft is now a published item: reset the
                             // studio so Discard can't delete a live post.
