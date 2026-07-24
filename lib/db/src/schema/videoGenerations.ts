@@ -67,6 +67,9 @@ export const videoGenerationsTable = pgTable("video_generations", {
   thumbnailPath: text("thumbnail_path"),
   /** Human-readable failure reason; null unless status is failed. */
   error: text("error"),
+  /** What the pipeline is doing right now ("Writing the script", ...); only
+   * meaningful while status is processing. Shown live in the studio. */
+  stage: text("stage"),
   /** Wall-clock generation time, for the usage/cost meters. */
   durationMs: integer("duration_ms"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

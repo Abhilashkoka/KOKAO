@@ -1,5 +1,7 @@
 import { db, imageGenSettingsTable, appCredentialsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { logger } from "../logger";
+import { orderByHealth, recordProviderFailure, recordProviderSuccess } from "../providerHealth";
 import { encryptJson, decryptJson } from "../secretCrypto";
 import { generateWithOpenAIBuiltin, OPENAI_BUILTIN_MODEL } from "./providers/openaiBuiltin";
 import { generateWithGemini, GEMINI_IMAGE_MODEL } from "./providers/gemini";
@@ -9,7 +11,13 @@ import { generateWithOpenAICompatible } from "./providers/openaiCompatible";
 import { generateWithBfl, BFL_MODEL } from "./providers/bfl";
 import { generateWithSeedream, SEEDREAM_MODEL } from "./providers/seedream";
 import { generateWithOpenRouter, OPENROUTER_IMAGE_MODEL } from "./providers/openrouter";
-import type { ImageGenInput, ImageGenResult, ImageSize, ReferenceImage } from "./types";
+import {
+  ImageGenProviderError,
+  type ImageGenInput,
+  type ImageGenResult,
+  type ImageSize,
+  type ReferenceImage,
+} from "./types";
 
 export { ImageGenNotConfiguredError, ImageGenProviderError } from "./types";
 export type { ImageGenInput, ImageGenResult, ImageSize, ReferenceImage } from "./types";
@@ -252,9 +260,71 @@ export function effectiveModel(def: ImageGenProviderDef, override: string | null
   return def.defaultModel;
 }
 
+function imageGenHealthKey(providerId: string): string {
+  return `imagegen:${providerId}`;
+}
+
+/** Whether an image-gen failure is the PROVIDER's fault (429/5xx/network),
+ * as opposed to a bad prompt or invalid key that would fail anywhere. */
+function isTransientImageGenError(error: unknown): boolean {
+  if (error instanceof ImageGenProviderError) {
+    if (error.status === undefined) return true; // timeout / network-shaped
+    return (
+      error.status === 429 ||
+      error.status === 500 ||
+      error.status === 502 ||
+      error.status === 503 ||
+      error.status === 504
+    );
+  }
+  // Raw fetch TypeError / socket resets — transient by nature.
+  return error instanceof Error;
+}
+
+/** How many OTHER configured providers to try after a transient failure. */
+const IMAGE_GEN_FALLBACK_LIMIT = 2;
+
+async function runImageGenProvider(
+  def: ImageGenProviderDef,
+  input: Omit<ImageGenInput, "model" | "baseUrl" | "referenceImage">,
+  selection: ImageGenSelection,
+  referenceImage: ReferenceImage | undefined,
+  isSelected: boolean,
+): Promise<ImageGenResult> {
+  const apiKey = await resolveImageGenApiKey(def);
+  const key = imageGenHealthKey(def.id);
+  try {
+    const result = await def.generate(
+      {
+        ...input,
+        // Model/baseUrl overrides belong to the SELECTED provider only; a
+        // fallback provider runs with its own default model.
+        model: isSelected ? effectiveModel(def, selection.model) : def.defaultModel,
+        baseUrl:
+          isSelected && def.requiresBaseUrl ? (selection.customBaseUrl ?? undefined) : undefined,
+        referenceImage: def.supportsImageInput ? referenceImage : undefined,
+      },
+      apiKey,
+    );
+    recordProviderSuccess(key);
+    return result;
+  } catch (error) {
+    if (isTransientImageGenError(error)) {
+      recordProviderFailure(key, error instanceof Error ? error.message : undefined);
+    }
+    throw error;
+  }
+}
+
 /** Generate an image using the currently selected provider. The reference
- * image is only forwarded when that provider supports image input; callers
- * should bake reference guidance into the prompt text either way. */
+ * image is only forwarded to providers that support image input; callers
+ * should bake reference guidance into the prompt text either way.
+ *
+ * Reliability: the selected provider is always attempted first (that attempt
+ * doubles as the circuit breaker's half-open probe). If it fails with a
+ * TRANSIENT error (429/5xx/network/timeout), up to two other configured
+ * providers are tried — healthiest first — before the job is failed. A
+ * permanent error (bad prompt, invalid key) never triggers fallback. */
 export async function generateImage(
   prompt: string,
   size: ImageSize,
@@ -264,15 +334,40 @@ export async function generateImage(
   const def =
     getImageGenProviderDef(selection.provider) ??
     getImageGenProviderDef(DEFAULT_IMAGE_GEN_PROVIDER)!;
-  const apiKey = await resolveImageGenApiKey(def);
-  return def.generate(
-    {
-      prompt,
-      size,
-      model: effectiveModel(def, selection.model),
-      baseUrl: def.requiresBaseUrl ? (selection.customBaseUrl ?? undefined) : undefined,
-      referenceImage: def.supportsImageInput ? referenceImage : undefined,
-    },
-    apiKey,
+  const input = { prompt, size };
+
+  let primaryError: unknown;
+  try {
+    return await runImageGenProvider(def, input, selection, referenceImage, true);
+  } catch (error) {
+    primaryError = error;
+    if (!isTransientImageGenError(error)) throw error;
+  }
+
+  // Transient primary failure: try alternates that are actually configured.
+  // "custom" is excluded — its base URL belongs to the admin's selection.
+  const alternates: ImageGenProviderDef[] = [];
+  for (const candidate of IMAGE_GEN_PROVIDERS) {
+    if (candidate.id === def.id || candidate.requiresBaseUrl) continue;
+    if (referenceImage && !candidate.supportsImageInput) continue;
+    if (await isImageGenProviderConfigured(candidate)) alternates.push(candidate);
+  }
+  const ordered = orderByHealth(alternates, (c) => imageGenHealthKey(c.id)).slice(
+    0,
+    IMAGE_GEN_FALLBACK_LIMIT,
   );
+
+  for (const candidate of ordered) {
+    logger.warn(
+      { primary: def.id, fallback: candidate.id, err: primaryError },
+      "Image provider failed transiently; trying fallback provider",
+    );
+    try {
+      return await runImageGenProvider(candidate, input, selection, referenceImage, false);
+    } catch (error) {
+      if (!isTransientImageGenError(error)) throw error;
+    }
+  }
+
+  throw primaryError;
 }

@@ -1,6 +1,7 @@
 import { writeFile, readFile, mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
+import { pickMusicStartOffsetSec } from "../musicOffset";
 import { runFfmpeg, findFontFile, probeDurationSec } from "../slideshow";
 import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
 import type { NarrationCue } from "./narration";
@@ -91,6 +92,36 @@ export function wrapSubtitleText(text: string, maxCharsPerLine: number): string 
   return lines.join("\n");
 }
 
+/**
+ * Break up back-to-back repeats of the same footage (diversity idea from
+ * OpenMontage's MMR selection, reimplemented): when two adjacent scenes would
+ * show the same clip, the second swaps to the least-used clip that differs
+ * from both neighbors. Deterministic, and a no-op with a single clip.
+ */
+export function diversifySceneClips(scenes: SceneSegment[], clipCount: number): SceneSegment[] {
+  if (clipCount <= 1) return scenes;
+  const out = scenes.map((scene) => ({ ...scene }));
+  for (let i = 1; i < out.length; i++) {
+    if (out[i]!.clipIndex !== out[i - 1]!.clipIndex) continue;
+    const prev = out[i - 1]!.clipIndex;
+    const next = i + 1 < out.length ? out[i + 1]!.clipIndex : -1;
+    const counts = new Array<number>(clipCount).fill(0);
+    for (const scene of out) counts[scene.clipIndex] = (counts[scene.clipIndex] ?? 0) + 1;
+    let best = -1;
+    let bestPenalty = Infinity;
+    for (let c = 0; c < clipCount; c++) {
+      if (c === prev) continue;
+      const penalty = (c === next ? 1000 : 0) + (counts[c] ?? 0);
+      if (penalty < bestPenalty) {
+        best = c;
+        bestPenalty = penalty;
+      }
+    }
+    if (best !== -1) out[i]!.clipIndex = best;
+  }
+  return out;
+}
+
 /** Scene lengths: each sentence owns the track up to the next sentence. */
 export function sceneDurations(cues: NarrationCue[], totalDurationSec: number): number[] {
   return cues.map((cue, i) => {
@@ -108,18 +139,19 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
     throw new VideoGenProviderError("No narration to compose the video around.");
   }
   const { width, height } = ASPECT_DIMENSIONS[input.aspectRatio];
-  const scenes: SceneSegment[] =
+  const rawScenes: SceneSegment[] =
     input.sceneMap && input.sceneMap.length > 0
       ? input.sceneMap
       : sceneDurations(input.cues, input.totalDurationSec).map((durationSec, i) => ({
           clipIndex: i % input.clips.length,
           durationSec,
         }));
-  for (const scene of scenes) {
+  for (const scene of rawScenes) {
     if (scene.clipIndex < 0 || scene.clipIndex >= input.clips.length) {
       throw new VideoGenProviderError("Scene map references a missing clip.");
     }
   }
+  const scenes = diversifySceneClips(rawScenes, input.clips.length);
 
   const dir = await mkdtemp(join(tmpdir(), "kokao-topic-video-"));
   try {
@@ -128,8 +160,12 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
     }
     await writeFile(join(dir, "narration.wav"), input.narrationWav);
     const hasMusic = !!input.music && input.music.length > 0;
+    let musicSeekSec = 0;
     if (hasMusic) {
       await writeFile(join(dir, "music"), input.music!);
+      // Skip a long quiet intro so the bed is musical from the first second
+      // (fail-soft: 0 = play from the top, the old behavior).
+      musicSeekSec = await pickMusicStartOffsetSec("music", dir, input.totalDurationSec);
     }
 
     // Probe each clip's duration once so scenes can seek into a DIFFERENT
@@ -250,7 +286,11 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
     await writeFile(join(dir, "filters.txt"), `${videoChain};${audioChain}`);
 
     const args = ["-y", "-f", "concat", "-safe", "0", "-i", "list.txt", "-i", "narration.wav"];
-    if (hasMusic) args.push("-stream_loop", "-1", "-i", "music");
+    if (hasMusic) {
+      args.push("-stream_loop", "-1");
+      if (musicSeekSec > 0) args.push("-ss", musicSeekSec.toFixed(3));
+      args.push("-i", "music");
+    }
     args.push(
       "-filter_complex_script",
       "filters.txt",

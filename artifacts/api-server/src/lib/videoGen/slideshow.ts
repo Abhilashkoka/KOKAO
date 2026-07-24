@@ -2,6 +2,9 @@ import { spawn } from "child_process";
 import { writeFile, readFile, mkdtemp, rm, access } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
+// Circular at module level only (musicOffset uses probeDurationSec from here);
+// both sides call across at runtime, never during module init, so it's safe.
+import { pickMusicStartOffsetSec } from "./musicOffset";
 import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "./types";
 
 /**
@@ -131,6 +134,16 @@ export function runFfmpeg(args: string[], cwd: string): Promise<void> {
   });
 }
 
+/** The duration renderSlideshow aims for (same clamps + xfade overlap math);
+ * used by the post-render QA gate to detect truncated renders. */
+export function expectedSlideshowDurationSec(
+  imageCount: number,
+  slideDurationSec: number,
+): number {
+  const slideSec = Math.min(MAX_SLIDE_SECONDS, Math.max(MIN_SLIDE_SECONDS, slideDurationSec));
+  return imageCount * slideSec - (imageCount - 1) * TRANSITION_SEC;
+}
+
 /** Render an MP4 slideshow from photos. Returns the encoded video bytes. */
 export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
   const count = input.images.length;
@@ -155,9 +168,13 @@ export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
       await writeFile(join(dir, name), input.images[i]!);
       args.push("-loop", "1", "-t", String(slideSec), "-i", name);
     }
+    const totalSec = count * slideSec - (count - 1) * TRANSITION_SEC;
     const musicIndex = count;
     if (input.music && input.music.length > 0) {
       await writeFile(join(dir, "music"), input.music);
+      // Skip a long quiet intro in the track (fail-soft: 0 = from the top).
+      const musicSeekSec = await pickMusicStartOffsetSec("music", dir, totalSec);
+      if (musicSeekSec > 0) args.push("-ss", musicSeekSec.toFixed(3));
       args.push("-i", "music");
     }
 
@@ -198,7 +215,6 @@ export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
       filters.push(`[v0]copy[xfaded]`);
     }
 
-    const totalSec = count * slideSec - (count - 1) * TRANSITION_SEC;
     let videoOut = "xfaded";
     const fontFile = input.overlayText?.trim() ? await findFontFile() : null;
     if (input.overlayText?.trim() && fontFile) {

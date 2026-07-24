@@ -5,8 +5,9 @@ import { recordUsage } from "../usage";
 import { refundCredits } from "../credits";
 import { logger } from "../logger";
 import { generateVideo, VideoGenNotConfiguredError, VideoGenProviderError } from "./index";
-import { renderSlideshow, extractPosterFrame } from "./slideshow";
+import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
 import { normalizeVideo } from "./postprocess";
+import { verifyRenderedVideo, type VideoQaExpectations } from "./qaGate";
 import {
   generateTopicVideo,
   NARRATION_VOICES,
@@ -115,7 +116,13 @@ async function setJob(
 
 async function produceVideo(
   job: VideoGeneration,
-): Promise<{ buffer: Buffer; provider: string | null; model: string | null }> {
+  onStage: (stage: string) => void,
+): Promise<{
+  buffer: Buffer;
+  provider: string | null;
+  model: string | null;
+  qa: VideoQaExpectations;
+}> {
   const options = job.options ?? { aspectRatio: "9:16" as const };
   const aspectRatio = options.aspectRatio ?? "9:16";
 
@@ -123,6 +130,7 @@ async function produceVideo(
     // With a character picked, the clip is identity-anchored: keyframe edit
     // of the locked outfit's reference, then image-to-video.
     if (options.characterId) {
+      onStage("Filming your character");
       const result = await generateCharacterClip({
         tenantId: job.tenantId,
         characterId: options.characterId,
@@ -137,8 +145,10 @@ async function produceVideo(
         buffer: await normalizeVideo(result.buffer, aspectRatio),
         provider: result.provider,
         model: result.model,
+        qa: { minDurationSec: 0.5, label: "character clip" },
       };
     }
+    onStage("Generating the video");
     const result = await generateVideo({
       mode: "text",
       prompt: job.prompt ?? "",
@@ -149,6 +159,7 @@ async function produceVideo(
       buffer: await normalizeVideo(result.buffer, aspectRatio),
       provider: result.provider,
       model: result.model,
+      qa: { minDurationSec: 0.5, label: "text-to-video clip" },
     };
   }
 
@@ -156,6 +167,7 @@ async function produceVideo(
     const sourcePath = job.sourceImagePaths?.[0];
     if (!sourcePath) throw new VideoJobInputError("No source image provided.");
     const image = await loadSourceImage(sourcePath, job.tenantId);
+    onStage("Animating your image");
     const result = await generateVideo({
       mode: "image",
       prompt: job.prompt ?? "",
@@ -167,12 +179,14 @@ async function produceVideo(
       buffer: await normalizeVideo(result.buffer, aspectRatio),
       provider: result.provider,
       model: result.model,
+      qa: { minDurationSec: 0.5, label: "image-to-video clip" },
     };
   }
 
   if (job.engine === "slideshow") {
     const paths = job.sourceImagePaths ?? [];
     if (paths.length === 0) throw new VideoJobInputError("No photos provided.");
+    onStage("Preparing your photos");
     const images: Buffer[] = [];
     for (const path of paths) {
       images.push((await loadSourceImage(path, job.tenantId)).buffer);
@@ -187,14 +201,24 @@ async function produceVideo(
           )
         ).buffer
       : null;
+    const slideDurationSec = options.slideDurationSec ?? 3;
+    onStage("Composing the slideshow");
     const buffer = await renderSlideshow({
       images,
       aspectRatio,
-      slideDurationSec: options.slideDurationSec ?? 3,
+      slideDurationSec,
       overlayText: options.overlayText ?? null,
       music,
     });
-    return { buffer, provider: null, model: null };
+    return {
+      buffer,
+      provider: null,
+      model: null,
+      qa: {
+        expectedDurationSec: expectedSlideshowDurationSec(images.length, slideDurationSec),
+        label: "slideshow",
+      },
+    };
   }
 
   if (job.engine === "topic_to_video") {
@@ -226,8 +250,18 @@ async function produceVideo(
       characterId: options.characterId ?? null,
       outfitId: options.outfitId ?? null,
       wardrobeNotes: options.wardrobeNotes ?? null,
+      onStage,
     });
-    return { buffer: result.buffer, provider: result.provider, model: result.model };
+    return {
+      buffer: result.buffer,
+      provider: result.provider,
+      model: result.model,
+      qa: {
+        expectedDurationSec: result.durationSec,
+        expectAudio: true,
+        label: "topic video",
+      },
+    };
   }
 
   throw new VideoJobInputError(`Unknown video engine: ${job.engine}`);
@@ -258,12 +292,24 @@ export async function runVideoGenerationJob(
   )[0];
   if (!job || job.status !== "queued") return;
 
-  await setJob(jobId, { status: "processing" });
+  await setJob(jobId, { status: "processing", stage: "Getting started" });
   const startedAt = Date.now();
 
-  try {
-    const { buffer, provider, model } = await produceVideo(job);
+  // Live progress: fire-and-forget stage writes; clients poll them. A stage
+  // write must never fail (or slow down) the actual pipeline.
+  const onStage = (stage: string): void => {
+    void setJob(jobId, { stage }).catch(() => {});
+  };
 
+  try {
+    const { buffer, provider, model, qa } = await produceVideo(job, onStage);
+
+    // Quality gate: never deliver (or charge for) a broken render. A failure
+    // here throws VideoGenProviderError and lands in the refund path below.
+    onStage("Running quality checks");
+    await verifyRenderedVideo(buffer, qa);
+
+    onStage("Saving to your library");
     const videoPath = await uploadToStorage(job.tenantId, buffer, "video/mp4");
     // Thumbnail is best-effort: a poster failure must never fail the video.
     let thumbnailPath: string | null = null;
@@ -283,6 +329,7 @@ export async function runVideoGenerationJob(
       model,
       durationMs,
       error: null,
+      stage: null,
     });
     // Multi-unit jobs (character story videos: one unit per scene) meter one
     // usage row per unit so quota accounting matches what was reserved.
@@ -313,6 +360,7 @@ export async function runVideoGenerationJob(
     await setJob(jobId, {
       status: "failed",
       error: message,
+      stage: null,
       durationMs: Date.now() - startedAt,
     }).catch(() => {});
     if (funding === "credit") {

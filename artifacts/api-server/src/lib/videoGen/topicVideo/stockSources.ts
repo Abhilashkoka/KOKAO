@@ -1,5 +1,10 @@
 import { db, appCredentialsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import {
+  orderByHealth,
+  recordProviderFailure,
+  recordProviderSuccess,
+} from "../../providerHealth";
 import { encryptJson, decryptJson } from "../../secretCrypto";
 import { assertPublicHost } from "../../webFetch";
 import {
@@ -107,12 +112,20 @@ export async function isStockSourceConfigured(def: StockSourceDef): Promise<bool
   return (await resolveStockApiKey(def)) !== null;
 }
 
-/** Resolve "auto" to the first configured source; validate explicit choices. */
+function stockHealthKey(id: StockSourceId): string {
+  return `stock:${id}`;
+}
+
+/** Resolve "auto" to the first configured source; validate explicit choices.
+ * In "auto" mode a source whose circuit breaker is open (recent consecutive
+ * 429/5xx) is deprioritized so jobs land on the source that's actually up. */
 export async function resolveStockSource(
   choice: StockSourceChoice,
 ): Promise<{ def: StockSourceDef; apiKey: string }> {
   const candidates =
-    choice === "auto" ? STOCK_SOURCES : STOCK_SOURCES.filter((s) => s.id === choice);
+    choice === "auto"
+      ? orderByHealth([...STOCK_SOURCES], (s) => stockHealthKey(s.id))
+      : STOCK_SOURCES.filter((s) => s.id === choice);
   for (const def of candidates) {
     const apiKey = await resolveStockApiKey(def);
     if (apiKey) return { def, apiKey };
@@ -265,9 +278,28 @@ export async function searchStockClips(
   term: string,
   aspect: VideoAspect,
 ): Promise<StockClip[]> {
-  return def.id === "pexels"
-    ? searchPexels(term, aspect, apiKey)
-    : searchPixabay(term, aspect, apiKey);
+  const key = stockHealthKey(def.id);
+  try {
+    const clips =
+      def.id === "pexels"
+        ? await searchPexels(term, aspect, apiKey)
+        : await searchPixabay(term, aspect, apiKey);
+    recordProviderSuccess(key);
+    return clips;
+  } catch (error) {
+    const status = error instanceof VideoGenProviderError ? error.status : undefined;
+    const transient =
+      status === undefined ||
+      status === 429 ||
+      status === 500 ||
+      status === 502 ||
+      status === 503 ||
+      status === 504;
+    if (transient) {
+      recordProviderFailure(key, error instanceof Error ? error.message : undefined);
+    }
+    throw error;
+  }
 }
 
 /** Cap per-clip downloads so one giant source file can't blow the job. */

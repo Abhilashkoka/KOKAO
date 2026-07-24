@@ -107,6 +107,28 @@ function storageUrl(path: string): string {
   return `/api/storage${path}`;
 }
 
+/** Progress % from the job's REAL pipeline stage (reported by the server). */
+const STAGE_PROGRESS: Record<string, number> = {
+  "Getting started": 8,
+  "Preparing your photos": 20,
+  "Writing the script": 18,
+  "Voicing the narration": 32,
+  "Finding the right footage": 48,
+  "Creating AI imagery": 48,
+  "Filming your character": 48,
+  "Generating the video": 40,
+  "Animating your image": 40,
+  "Composing the slideshow": 55,
+  "Composing the video": 70,
+  "Running quality checks": 88,
+  "Saving to your library": 96,
+};
+
+function stageProgress(job: VideoJob): number {
+  if (job.status === "queued") return 5;
+  return STAGE_PROGRESS[job.stage ?? ""] ?? 60;
+}
+
 const ENGINE_META: Record<Engine, { title: string; blurb: string }> = {
   text_to_video: {
     title: "Text to Video",
@@ -848,19 +870,21 @@ export function VideoStudioPage() {
                 <div className="flex items-center gap-3">
                   <RippleSpinner className="h-5 w-5" />
                   <div>
-                    <p className="font-medium">
-                      {activeJob.status === "queued" ? "Queued…" : "Rendering your video…"}
+                    <p className="font-medium" data-testid="text-job-stage">
+                      {activeJob.status === "queued"
+                        ? "Queued…"
+                        : `${activeJob.stage ?? "Rendering your video"}…`}
                     </p>
                     <p className="text-sm text-muted-foreground">
                       {activeJob.engine === "slideshow"
                         ? "Stitching photos with crossfades."
                         : activeJob.engine === "topic_to_video"
-                          ? "Writing the script, recording narration, and cutting footage. This can take a few minutes — the job keeps running if you leave."
+                          ? "This can take a few minutes — the job keeps running if you leave."
                           : "AI video can take a few minutes. You can leave this page — the job keeps running."}
                     </p>
                   </div>
                 </div>
-                <Progress value={activeJob.status === "queued" ? 15 : 60} />
+                <Progress value={stageProgress(activeJob)} />
               </div>
             )}
             {activeJob.status === "succeeded" && activeJob.videoPath && (

@@ -2580,6 +2580,11 @@ export interface VideoJob {
      * @nullable
      */
   error?: string | null;
+  /**
+     * What the pipeline is doing right now (e.g. "Writing the script", "Composing the video"). Only meaningful while status is processing; null otherwise.
+     * @nullable
+     */
+  stage?: string | null;
   /** @nullable */
   durationMs?: number | null;
   createdAt: string;

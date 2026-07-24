@@ -247,4 +247,40 @@ describe("Video Studio", () => {
     expect(video.getAttribute("src")).toBe("/api/storage/objects/1/uploads/v.mp4");
     expect(screen.getByTestId("button-save-video")).toBeTruthy();
   });
+
+  it("shows the server-reported pipeline stage while a job is processing", () => {
+    mockState.activeJob = {
+      id: 8,
+      engine: "topic_to_video",
+      status: "processing",
+      prompt: "coffee culture",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      stage: "Voicing the narration",
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-8"));
+    expect(screen.getByTestId("text-job-stage").textContent).toBe("Voicing the narration…");
+  });
+
+  it("falls back to a generic label when no stage is reported yet", () => {
+    mockState.activeJob = {
+      id: 9,
+      engine: "text_to_video",
+      status: "processing",
+      prompt: "sunset",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      stage: null,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-9"));
+    expect(screen.getByTestId("text-job-stage").textContent).toBe("Rendering your video…");
+  });
 });

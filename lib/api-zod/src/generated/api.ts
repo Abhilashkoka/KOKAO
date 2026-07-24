@@ -5082,6 +5082,7 @@ export const GenerateVideoResponse = zod.object({
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -5103,6 +5104,7 @@ export const ListVideoJobsResponseItem = zod.object({
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -5129,6 +5131,7 @@ export const GetVideoJobResponse = zod.object({
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()

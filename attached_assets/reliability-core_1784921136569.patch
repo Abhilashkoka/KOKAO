@@ -1,0 +1,1786 @@
+From 590f9542a9f29a38ebf00732547fc209cc975376 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 24 Jul 2026 19:23:45 +0000
+Subject: [PATCH] Reliability core: provider failover, render QA gate, scene
+ diversity, live stages
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Four exceptional-tier upgrades from the open-source study, built native:
+
+1. Provider circuit breaker + image failover (OmniRoute pattern, MIT):
+   - lib/providerHealth.ts: in-memory per-provider breaker (3 consecutive
+     transient failures open it, exponential cooldown capped at 10 min,
+     success closes instantly). Deprioritizes, never blocks: the admin's
+     selected provider is always attempted first as the half-open probe.
+   - generateImage() now fails over: on a TRANSIENT error (429/5xx/network/
+     timeout) up to two other configured providers are tried, healthiest
+     first, each with its own default model; reference images only go to
+     providers that accept them. Permanent errors never trigger failover.
+   - Stock sources: "auto" prefers the source whose breaker is closed, and
+     every search records success/failure into the breaker.
+
+2. Post-render QA gate (OpenMontage final-review idea, reimplemented):
+   - lib/videoGen/qaGate.ts verifies every video BEFORE upload: ffprobe
+     decodability, duration drift >25% vs the pipeline's target, all-sampled-
+     frames-black detection (signalstats YAVG), and silent-narration
+     detection (volumedetect) for topic videos. A failing render fails the
+     job through the existing credit-refund path — tenants are never charged
+     for a black, silent, truncated, or unplayable file.
+
+3. Scene diversity + music energy window (OpenMontage ideas, reimplemented):
+   - diversifySceneClips(): no two adjacent scenes show the same footage
+     when an alternative exists (least-used clip differing from both
+     neighbors; deterministic).
+   - musicOffset.ts: ebur128 momentary-loudness scan finds where a music
+     track actually gets going; slideshow + topic compositions seek past
+     long quiet intros (strictly fail-soft to 0 = old behavior).
+
+4. Real progress stages (replaces the fake 15%/60% bar):
+   - video_generations.stage column + VideoJob.stage in the contract.
+   - The pipeline reports what it is doing ("Writing the script", "Voicing
+     the narration", "Finding the right footage", "Composing the video",
+     "Running quality checks", ...) and the studio shows the live stage with
+     a progress bar mapped to real pipeline position.
+
+Verified: 106 api tests green across videoGen/imageGen/providerHealth/routes
+(incl. real-ffmpeg QA-gate and music-energy fixtures), 11 studio page tests,
+root typecheck clean, spec lint clean, codegen committed, db push applied.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EJdoZ8bk1pWTrmbMVQJZ7G
+---
+ .../src/lib/imageGen/fallback.test.ts         | 144 ++++++++++++++
+ .../api-server/src/lib/imageGen/index.ts      | 121 ++++++++++--
+ .../api-server/src/lib/providerHealth.test.ts |  66 +++++++
+ .../api-server/src/lib/providerHealth.ts      |  96 ++++++++++
+ .../api-server/src/lib/videoGen/jobRunner.ts  |  62 +++++-
+ .../src/lib/videoGen/musicOffset.test.ts      | 127 ++++++++++++
+ .../src/lib/videoGen/musicOffset.ts           | 104 ++++++++++
+ .../src/lib/videoGen/qaGate.test.ts           | 112 +++++++++++
+ .../api-server/src/lib/videoGen/qaGate.ts     | 181 ++++++++++++++++++
+ .../api-server/src/lib/videoGen/slideshow.ts  |  18 +-
+ .../src/lib/videoGen/topicVideo/compose.ts    |  46 ++++-
+ .../src/lib/videoGen/topicVideo/index.ts      |  12 +-
+ .../lib/videoGen/topicVideo/stockSources.ts   |  42 +++-
+ artifacts/api-server/src/routes/videos.ts     |   1 +
+ .../src/pages/video-studio.test.tsx           |  36 ++++
+ .../socialforge/src/pages/video-studio.tsx    |  32 +++-
+ .../src/generated/api.schemas.ts              |   5 +
+ lib/api-spec/openapi.yaml                     |   6 +
+ lib/api-zod/src/generated/api.ts              |   3 +
+ lib/api-zod/src/generated/types/videoJob.ts   |   5 +
+ lib/db/src/schema/videoGenerations.ts         |   3 +
+ 21 files changed, 1188 insertions(+), 34 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/imageGen/fallback.test.ts
+ create mode 100644 artifacts/api-server/src/lib/providerHealth.test.ts
+ create mode 100644 artifacts/api-server/src/lib/providerHealth.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/musicOffset.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/musicOffset.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/qaGate.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/qaGate.ts
+
+diff --git a/artifacts/api-server/src/lib/imageGen/fallback.test.ts b/artifacts/api-server/src/lib/imageGen/fallback.test.ts
+new file mode 100644
+index 0000000..15cfb13
+--- /dev/null
++++ b/artifacts/api-server/src/lib/imageGen/fallback.test.ts
+@@ -0,0 +1,144 @@
++import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
++import { like } from "drizzle-orm";
++import { db, appCredentialsTable, imageGenSettingsTable } from "@workspace/db";
++import {
++  recordProviderFailure,
++  resetProviderHealthForTests,
++} from "../providerHealth";
++import { generateImage, setImageGenSelection } from "./index";
++import { ImageGenProviderError, type ImageGenResult } from "./types";
++
++vi.mock("./providers/openaiBuiltin", () => ({
++  OPENAI_BUILTIN_MODEL: "gpt-image-1",
++  generateWithOpenAIBuiltin: vi.fn(),
++}));
++vi.mock("./providers/gemini", () => ({
++  GEMINI_IMAGE_MODEL: "gemini-2.5-flash-image",
++  generateWithGemini: vi.fn(),
++}));
++vi.mock("./providers/seedream", () => ({
++  SEEDREAM_MODEL: "seedream-5-0-pro",
++  generateWithSeedream: vi.fn(),
++}));
++vi.mock("./providers/bfl", () => ({
++  BFL_MODEL: "flux-2-pro",
++  generateWithBfl: vi.fn(),
++}));
++
++import { generateWithOpenAIBuiltin } from "./providers/openaiBuiltin";
++import { generateWithGemini } from "./providers/gemini";
++import { generateWithSeedream } from "./providers/seedream";
++import { generateWithBfl } from "./providers/bfl";
++
++const ENV_KEYS = [
++  "GEMINI_API_KEY",
++  "ARK_API_KEY",
++  "BFL_API_KEY",
++  "STABILITY_API_KEY",
++  "REPLICATE_API_TOKEN",
++  "OPENROUTER_API_KEY",
++  "CUSTOM_IMAGE_API_KEY",
++] as const;
++const savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
++
++function result(provider: string): ImageGenResult {
++  return { buffer: Buffer.from(provider), provider, model: `${provider}-model` };
++}
++
++describe("generateImage provider fallback", () => {
++  beforeEach(async () => {
++    vi.mocked(generateWithOpenAIBuiltin).mockReset();
++    vi.mocked(generateWithGemini).mockReset();
++    vi.mocked(generateWithSeedream).mockReset();
++    vi.mocked(generateWithBfl).mockReset();
++    resetProviderHealthForTests();
++    for (const key of ENV_KEYS) delete process.env[key];
++    // Stored admin keys would override env config; clear them for determinism.
++    await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "imagegen_%"));
++    await db.delete(imageGenSettingsTable);
++    await setImageGenSelection({ provider: "openai", model: null, customBaseUrl: null });
++  });
++
++  afterAll(() => {
++    for (const key of ENV_KEYS) {
++      if (savedEnv[key] === undefined) delete process.env[key];
++      else process.env[key] = savedEnv[key];
++    }
++  });
++
++  it("falls back to another configured provider on a transient failure", async () => {
++    process.env.GEMINI_API_KEY = "test-gemini-key";
++    vi.mocked(generateWithOpenAIBuiltin).mockRejectedValue(
++      new ImageGenProviderError("upstream down", 503),
++    );
++    vi.mocked(generateWithGemini).mockResolvedValue(result("gemini"));
++
++    const out = await generateImage("a calm pastel skyline", "1024x1024");
++    expect(out.provider).toBe("gemini");
++    expect(generateWithOpenAIBuiltin).toHaveBeenCalledTimes(1);
++    expect(generateWithGemini).toHaveBeenCalledTimes(1);
++    // Fallback runs with ITS default model, not the selection's override.
++    expect(vi.mocked(generateWithGemini).mock.calls[0][0].model).toBe("gemini-2.5-flash-image");
++  });
++
++  it("does not fall back on a permanent error", async () => {
++    process.env.GEMINI_API_KEY = "test-gemini-key";
++    vi.mocked(generateWithOpenAIBuiltin).mockRejectedValue(
++      new ImageGenProviderError("prompt rejected", 400),
++    );
++
++    await expect(generateImage("p", "1024x1024")).rejects.toThrow("prompt rejected");
++    expect(generateWithGemini).not.toHaveBeenCalled();
++  });
++
++  it("rethrows the primary error when no alternate is configured", async () => {
++    vi.mocked(generateWithOpenAIBuiltin).mockRejectedValue(
++      new ImageGenProviderError("rate limited", 429),
++    );
++
++    await expect(generateImage("p", "1024x1024")).rejects.toThrow("rate limited");
++    expect(generateWithGemini).not.toHaveBeenCalled();
++    expect(generateWithSeedream).not.toHaveBeenCalled();
++  });
++
++  it("prefers the healthiest alternate when a breaker is open", async () => {
++    process.env.GEMINI_API_KEY = "test-gemini-key";
++    process.env.ARK_API_KEY = "test-ark-key";
++    for (let i = 0; i < 3; i++) recordProviderFailure("imagegen:gemini");
++    vi.mocked(generateWithOpenAIBuiltin).mockRejectedValue(
++      new ImageGenProviderError("upstream down", 502),
++    );
++    vi.mocked(generateWithSeedream).mockResolvedValue(result("seedream"));
++
++    const out = await generateImage("p", "1024x1024");
++    expect(out.provider).toBe("seedream");
++    expect(generateWithGemini).not.toHaveBeenCalled();
++  });
++
++  it("skips alternates that cannot take the reference image", async () => {
++    process.env.BFL_API_KEY = "test-bfl-key";
++    vi.mocked(generateWithOpenAIBuiltin).mockRejectedValue(
++      new ImageGenProviderError("upstream down", 503),
++    );
++
++    await expect(
++      generateImage("p", "1024x1024", { buffer: Buffer.from("ref"), mimeType: "image/png" }),
++    ).rejects.toThrow("upstream down");
++    expect(generateWithBfl).not.toHaveBeenCalled();
++  });
++
++  it("tries the second alternate when the first also fails transiently", async () => {
++    process.env.GEMINI_API_KEY = "test-gemini-key";
++    process.env.ARK_API_KEY = "test-ark-key";
++    vi.mocked(generateWithOpenAIBuiltin).mockRejectedValue(
++      new ImageGenProviderError("upstream down", 503),
++    );
++    vi.mocked(generateWithGemini).mockRejectedValue(
++      new ImageGenProviderError("also down", 503),
++    );
++    vi.mocked(generateWithSeedream).mockResolvedValue(result("seedream"));
++
++    const out = await generateImage("p", "1024x1024");
++    expect(out.provider).toBe("seedream");
++  });
++});
+diff --git a/artifacts/api-server/src/lib/imageGen/index.ts b/artifacts/api-server/src/lib/imageGen/index.ts
+index e0368d0..e2c9a4b 100644
+--- a/artifacts/api-server/src/lib/imageGen/index.ts
++++ b/artifacts/api-server/src/lib/imageGen/index.ts
+@@ -1,5 +1,7 @@
+ import { db, imageGenSettingsTable, appCredentialsTable } from "@workspace/db";
+ import { eq } from "drizzle-orm";
++import { logger } from "../logger";
++import { orderByHealth, recordProviderFailure, recordProviderSuccess } from "../providerHealth";
+ import { encryptJson, decryptJson } from "../secretCrypto";
+ import { generateWithOpenAIBuiltin, OPENAI_BUILTIN_MODEL } from "./providers/openaiBuiltin";
+ import { generateWithGemini, GEMINI_IMAGE_MODEL } from "./providers/gemini";
+@@ -9,7 +11,13 @@ import { generateWithOpenAICompatible } from "./providers/openaiCompatible";
+ import { generateWithBfl, BFL_MODEL } from "./providers/bfl";
+ import { generateWithSeedream, SEEDREAM_MODEL } from "./providers/seedream";
+ import { generateWithOpenRouter, OPENROUTER_IMAGE_MODEL } from "./providers/openrouter";
+-import type { ImageGenInput, ImageGenResult, ImageSize, ReferenceImage } from "./types";
++import {
++  ImageGenProviderError,
++  type ImageGenInput,
++  type ImageGenResult,
++  type ImageSize,
++  type ReferenceImage,
++} from "./types";
+ 
+ export { ImageGenNotConfiguredError, ImageGenProviderError } from "./types";
+ export type { ImageGenInput, ImageGenResult, ImageSize, ReferenceImage } from "./types";
+@@ -252,9 +260,71 @@ export function effectiveModel(def: ImageGenProviderDef, override: string | null
+   return def.defaultModel;
+ }
+ 
++function imageGenHealthKey(providerId: string): string {
++  return `imagegen:${providerId}`;
++}
++
++/** Whether an image-gen failure is the PROVIDER's fault (429/5xx/network),
++ * as opposed to a bad prompt or invalid key that would fail anywhere. */
++function isTransientImageGenError(error: unknown): boolean {
++  if (error instanceof ImageGenProviderError) {
++    if (error.status === undefined) return true; // timeout / network-shaped
++    return (
++      error.status === 429 ||
++      error.status === 500 ||
++      error.status === 502 ||
++      error.status === 503 ||
++      error.status === 504
++    );
++  }
++  // Raw fetch TypeError / socket resets — transient by nature.
++  return error instanceof Error;
++}
++
++/** How many OTHER configured providers to try after a transient failure. */
++const IMAGE_GEN_FALLBACK_LIMIT = 2;
++
++async function runImageGenProvider(
++  def: ImageGenProviderDef,
++  input: Omit<ImageGenInput, "model" | "baseUrl" | "referenceImage">,
++  selection: ImageGenSelection,
++  referenceImage: ReferenceImage | undefined,
++  isSelected: boolean,
++): Promise<ImageGenResult> {
++  const apiKey = await resolveImageGenApiKey(def);
++  const key = imageGenHealthKey(def.id);
++  try {
++    const result = await def.generate(
++      {
++        ...input,
++        // Model/baseUrl overrides belong to the SELECTED provider only; a
++        // fallback provider runs with its own default model.
++        model: isSelected ? effectiveModel(def, selection.model) : def.defaultModel,
++        baseUrl:
++          isSelected && def.requiresBaseUrl ? (selection.customBaseUrl ?? undefined) : undefined,
++        referenceImage: def.supportsImageInput ? referenceImage : undefined,
++      },
++      apiKey,
++    );
++    recordProviderSuccess(key);
++    return result;
++  } catch (error) {
++    if (isTransientImageGenError(error)) {
++      recordProviderFailure(key, error instanceof Error ? error.message : undefined);
++    }
++    throw error;
++  }
++}
++
+ /** Generate an image using the currently selected provider. The reference
+- * image is only forwarded when that provider supports image input; callers
+- * should bake reference guidance into the prompt text either way. */
++ * image is only forwarded to providers that support image input; callers
++ * should bake reference guidance into the prompt text either way.
++ *
++ * Reliability: the selected provider is always attempted first (that attempt
++ * doubles as the circuit breaker's half-open probe). If it fails with a
++ * TRANSIENT error (429/5xx/network/timeout), up to two other configured
++ * providers are tried — healthiest first — before the job is failed. A
++ * permanent error (bad prompt, invalid key) never triggers fallback. */
+ export async function generateImage(
+   prompt: string,
+   size: ImageSize,
+@@ -264,15 +334,40 @@ export async function generateImage(
+   const def =
+     getImageGenProviderDef(selection.provider) ??
+     getImageGenProviderDef(DEFAULT_IMAGE_GEN_PROVIDER)!;
+-  const apiKey = await resolveImageGenApiKey(def);
+-  return def.generate(
+-    {
+-      prompt,
+-      size,
+-      model: effectiveModel(def, selection.model),
+-      baseUrl: def.requiresBaseUrl ? (selection.customBaseUrl ?? undefined) : undefined,
+-      referenceImage: def.supportsImageInput ? referenceImage : undefined,
+-    },
+-    apiKey,
++  const input = { prompt, size };
++
++  let primaryError: unknown;
++  try {
++    return await runImageGenProvider(def, input, selection, referenceImage, true);
++  } catch (error) {
++    primaryError = error;
++    if (!isTransientImageGenError(error)) throw error;
++  }
++
++  // Transient primary failure: try alternates that are actually configured.
++  // "custom" is excluded — its base URL belongs to the admin's selection.
++  const alternates: ImageGenProviderDef[] = [];
++  for (const candidate of IMAGE_GEN_PROVIDERS) {
++    if (candidate.id === def.id || candidate.requiresBaseUrl) continue;
++    if (referenceImage && !candidate.supportsImageInput) continue;
++    if (await isImageGenProviderConfigured(candidate)) alternates.push(candidate);
++  }
++  const ordered = orderByHealth(alternates, (c) => imageGenHealthKey(c.id)).slice(
++    0,
++    IMAGE_GEN_FALLBACK_LIMIT,
+   );
++
++  for (const candidate of ordered) {
++    logger.warn(
++      { primary: def.id, fallback: candidate.id, err: primaryError },
++      "Image provider failed transiently; trying fallback provider",
++    );
++    try {
++      return await runImageGenProvider(candidate, input, selection, referenceImage, false);
++    } catch (error) {
++      if (!isTransientImageGenError(error)) throw error;
++    }
++  }
++
++  throw primaryError;
+ }
+diff --git a/artifacts/api-server/src/lib/providerHealth.test.ts b/artifacts/api-server/src/lib/providerHealth.test.ts
+new file mode 100644
+index 0000000..0492f45
+--- /dev/null
++++ b/artifacts/api-server/src/lib/providerHealth.test.ts
+@@ -0,0 +1,66 @@
++import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
++import {
++  recordProviderFailure,
++  recordProviderSuccess,
++  isProviderHealthy,
++  getProviderHealth,
++  orderByHealth,
++  resetProviderHealthForTests,
++} from "./providerHealth";
++
++describe("providerHealth circuit breaker", () => {
++  beforeEach(() => {
++    resetProviderHealthForTests();
++    vi.useFakeTimers();
++  });
++  afterEach(() => {
++    vi.useRealTimers();
++  });
++
++  it("stays healthy below the failure threshold", () => {
++    recordProviderFailure("imagegen:gemini", "boom");
++    recordProviderFailure("imagegen:gemini", "boom");
++    expect(isProviderHealthy("imagegen:gemini")).toBe(true);
++  });
++
++  it("opens after 3 consecutive failures and half-opens after the cooldown", () => {
++    for (let i = 0; i < 3; i++) recordProviderFailure("imagegen:gemini", "503");
++    expect(isProviderHealthy("imagegen:gemini")).toBe(false);
++
++    // First open period is 60s.
++    vi.advanceTimersByTime(59_000);
++    expect(isProviderHealthy("imagegen:gemini")).toBe(false);
++    vi.advanceTimersByTime(2_000);
++    expect(isProviderHealthy("imagegen:gemini")).toBe(true);
++  });
++
++  it("backs off exponentially and caps at 10 minutes", () => {
++    for (let i = 0; i < 7; i++) recordProviderFailure("imagegen:gemini");
++    // 60s * 2^(7-3) = 960s, capped to 600s.
++    vi.advanceTimersByTime(599_000);
++    expect(isProviderHealthy("imagegen:gemini")).toBe(false);
++    vi.advanceTimersByTime(2_000);
++    expect(isProviderHealthy("imagegen:gemini")).toBe(true);
++  });
++
++  it("a success closes the breaker immediately", () => {
++    for (let i = 0; i < 5; i++) recordProviderFailure("imagegen:gemini");
++    expect(isProviderHealthy("imagegen:gemini")).toBe(false);
++    recordProviderSuccess("imagegen:gemini");
++    expect(isProviderHealthy("imagegen:gemini")).toBe(true);
++    expect(getProviderHealth("imagegen:gemini")?.consecutiveFailures).toBe(0);
++  });
++
++  it("unknown providers are healthy", () => {
++    expect(isProviderHealthy("imagegen:never-seen")).toBe(true);
++    expect(getProviderHealth("imagegen:never-seen")).toBeNull();
++  });
++
++  it("orderByHealth keeps original order but moves open-breaker items last", () => {
++    const items = ["a", "b", "c"];
++    expect(orderByHealth(items, (x) => `p:${x}`)).toEqual(["a", "b", "c"]);
++
++    for (let i = 0; i < 3; i++) recordProviderFailure("p:a");
++    expect(orderByHealth(items, (x) => `p:${x}`)).toEqual(["b", "c", "a"]);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/providerHealth.ts b/artifacts/api-server/src/lib/providerHealth.ts
+new file mode 100644
+index 0000000..5e84d03
+--- /dev/null
++++ b/artifacts/api-server/src/lib/providerHealth.ts
+@@ -0,0 +1,96 @@
++/**
++ * In-process provider health tracking: a small circuit breaker per provider
++ * key ("imagegen:gemini", "videogen:replicate", "stock:pexels", ...).
++ *
++ * Scope-separated failure handling (pattern from OmniRoute, MIT):
++ * - consecutive TRANSIENT failures (429/5xx/network) trip the breaker;
++ * - an open breaker deprioritizes the provider for fallback ordering and
++ *   short-circuits retries, then half-opens after a cooldown so one probe
++ *   can close it again;
++ * - permanent errors (bad prompt, invalid key) never trip it — they are the
++ *   caller's problem, not the provider's health.
++ *
++ * In-memory by design: the API server is a single process, and breaker state
++ * is worth nothing across restarts. No DB writes on the hot path.
++ */
++
++export interface ProviderHealthState {
++  consecutiveFailures: number;
++  /** Epoch ms until which the provider is considered unavailable. */
++  openUntil: number;
++  lastFailureMessage: string | null;
++}
++
++const FAILURES_TO_OPEN = 3;
++const BASE_OPEN_MS = 60_000;
++const MAX_OPEN_MS = 10 * 60 * 1000;
++
++const state = new Map<string, ProviderHealthState>();
++
++function entry(key: string): ProviderHealthState {
++  let current = state.get(key);
++  if (!current) {
++    current = { consecutiveFailures: 0, openUntil: 0, lastFailureMessage: null };
++    state.set(key, current);
++  }
++  return current;
++}
++
++/** Record a TRANSIENT failure (429/5xx/network/timeout). */
++export function recordProviderFailure(key: string, message?: string): void {
++  const current = entry(key);
++  current.consecutiveFailures += 1;
++  current.lastFailureMessage = message?.slice(0, 200) ?? null;
++  if (current.consecutiveFailures >= FAILURES_TO_OPEN) {
++    const backoff = Math.min(
++      MAX_OPEN_MS,
++      BASE_OPEN_MS * 2 ** (current.consecutiveFailures - FAILURES_TO_OPEN),
++    );
++    current.openUntil = Date.now() + backoff;
++  }
++}
++
++/** Record a success: closes the breaker and resets the count. */
++export function recordProviderSuccess(key: string): void {
++  const current = entry(key);
++  current.consecutiveFailures = 0;
++  current.openUntil = 0;
++  current.lastFailureMessage = null;
++}
++
++/**
++ * Whether the provider should be PREFERRED right now. An open breaker only
++ * deprioritizes: the explicitly-selected provider is always still attempted
++ * (that attempt doubles as the half-open probe).
++ */
++export function isProviderHealthy(key: string): boolean {
++  const current = state.get(key);
++  if (!current) return true;
++  return Date.now() >= current.openUntil;
++}
++
++/** Diagnostic snapshot (admin/debugging). */
++export function getProviderHealth(key: string): ProviderHealthState | null {
++  const current = state.get(key);
++  if (!current) return null;
++  return { ...current };
++}
++
++/** Test-only: wipe all breaker state. */
++export function resetProviderHealthForTests(): void {
++  state.clear();
++}
++
++/**
++ * Order candidate keys healthiest-first, keeping the original order within
++ * each health class — so the admin's chosen provider stays first unless its
++ * breaker is open and a healthy alternative exists.
++ */
++export function orderByHealth<T>(items: T[], keyOf: (item: T) => string): T[] {
++  const healthy: T[] = [];
++  const unhealthy: T[] = [];
++  for (const item of items) {
++    (isProviderHealthy(keyOf(item)) ? healthy : unhealthy).push(item);
++  }
++  return [...healthy, ...unhealthy];
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index 5dfe41c..a6802cb 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -5,8 +5,9 @@ import { recordUsage } from "../usage";
+ import { refundCredits } from "../credits";
+ import { logger } from "../logger";
+ import { generateVideo, VideoGenNotConfiguredError, VideoGenProviderError } from "./index";
+-import { renderSlideshow, extractPosterFrame } from "./slideshow";
++import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
+ import { normalizeVideo } from "./postprocess";
++import { verifyRenderedVideo, type VideoQaExpectations } from "./qaGate";
+ import {
+   generateTopicVideo,
+   NARRATION_VOICES,
+@@ -115,7 +116,13 @@ async function setJob(
+ 
+ async function produceVideo(
+   job: VideoGeneration,
+-): Promise<{ buffer: Buffer; provider: string | null; model: string | null }> {
++  onStage: (stage: string) => void,
++): Promise<{
++  buffer: Buffer;
++  provider: string | null;
++  model: string | null;
++  qa: VideoQaExpectations;
++}> {
+   const options = job.options ?? { aspectRatio: "9:16" as const };
+   const aspectRatio = options.aspectRatio ?? "9:16";
+ 
+@@ -123,6 +130,7 @@ async function produceVideo(
+     // With a character picked, the clip is identity-anchored: keyframe edit
+     // of the locked outfit's reference, then image-to-video.
+     if (options.characterId) {
++      onStage("Filming your character");
+       const result = await generateCharacterClip({
+         tenantId: job.tenantId,
+         characterId: options.characterId,
+@@ -137,8 +145,10 @@ async function produceVideo(
+         buffer: await normalizeVideo(result.buffer, aspectRatio),
+         provider: result.provider,
+         model: result.model,
++        qa: { minDurationSec: 0.5, label: "character clip" },
+       };
+     }
++    onStage("Generating the video");
+     const result = await generateVideo({
+       mode: "text",
+       prompt: job.prompt ?? "",
+@@ -149,6 +159,7 @@ async function produceVideo(
+       buffer: await normalizeVideo(result.buffer, aspectRatio),
+       provider: result.provider,
+       model: result.model,
++      qa: { minDurationSec: 0.5, label: "text-to-video clip" },
+     };
+   }
+ 
+@@ -156,6 +167,7 @@ async function produceVideo(
+     const sourcePath = job.sourceImagePaths?.[0];
+     if (!sourcePath) throw new VideoJobInputError("No source image provided.");
+     const image = await loadSourceImage(sourcePath, job.tenantId);
++    onStage("Animating your image");
+     const result = await generateVideo({
+       mode: "image",
+       prompt: job.prompt ?? "",
+@@ -167,12 +179,14 @@ async function produceVideo(
+       buffer: await normalizeVideo(result.buffer, aspectRatio),
+       provider: result.provider,
+       model: result.model,
++      qa: { minDurationSec: 0.5, label: "image-to-video clip" },
+     };
+   }
+ 
+   if (job.engine === "slideshow") {
+     const paths = job.sourceImagePaths ?? [];
+     if (paths.length === 0) throw new VideoJobInputError("No photos provided.");
++    onStage("Preparing your photos");
+     const images: Buffer[] = [];
+     for (const path of paths) {
+       images.push((await loadSourceImage(path, job.tenantId)).buffer);
+@@ -187,14 +201,24 @@ async function produceVideo(
+           )
+         ).buffer
+       : null;
++    const slideDurationSec = options.slideDurationSec ?? 3;
++    onStage("Composing the slideshow");
+     const buffer = await renderSlideshow({
+       images,
+       aspectRatio,
+-      slideDurationSec: options.slideDurationSec ?? 3,
++      slideDurationSec,
+       overlayText: options.overlayText ?? null,
+       music,
+     });
+-    return { buffer, provider: null, model: null };
++    return {
++      buffer,
++      provider: null,
++      model: null,
++      qa: {
++        expectedDurationSec: expectedSlideshowDurationSec(images.length, slideDurationSec),
++        label: "slideshow",
++      },
++    };
+   }
+ 
+   if (job.engine === "topic_to_video") {
+@@ -226,8 +250,18 @@ async function produceVideo(
+       characterId: options.characterId ?? null,
+       outfitId: options.outfitId ?? null,
+       wardrobeNotes: options.wardrobeNotes ?? null,
++      onStage,
+     });
+-    return { buffer: result.buffer, provider: result.provider, model: result.model };
++    return {
++      buffer: result.buffer,
++      provider: result.provider,
++      model: result.model,
++      qa: {
++        expectedDurationSec: result.durationSec,
++        expectAudio: true,
++        label: "topic video",
++      },
++    };
+   }
+ 
+   throw new VideoJobInputError(`Unknown video engine: ${job.engine}`);
+@@ -258,12 +292,24 @@ export async function runVideoGenerationJob(
+   )[0];
+   if (!job || job.status !== "queued") return;
+ 
+-  await setJob(jobId, { status: "processing" });
++  await setJob(jobId, { status: "processing", stage: "Getting started" });
+   const startedAt = Date.now();
+ 
++  // Live progress: fire-and-forget stage writes; clients poll them. A stage
++  // write must never fail (or slow down) the actual pipeline.
++  const onStage = (stage: string): void => {
++    void setJob(jobId, { stage }).catch(() => {});
++  };
++
+   try {
+-    const { buffer, provider, model } = await produceVideo(job);
++    const { buffer, provider, model, qa } = await produceVideo(job, onStage);
++
++    // Quality gate: never deliver (or charge for) a broken render. A failure
++    // here throws VideoGenProviderError and lands in the refund path below.
++    onStage("Running quality checks");
++    await verifyRenderedVideo(buffer, qa);
+ 
++    onStage("Saving to your library");
+     const videoPath = await uploadToStorage(job.tenantId, buffer, "video/mp4");
+     // Thumbnail is best-effort: a poster failure must never fail the video.
+     let thumbnailPath: string | null = null;
+@@ -283,6 +329,7 @@ export async function runVideoGenerationJob(
+       model,
+       durationMs,
+       error: null,
++      stage: null,
+     });
+     // Multi-unit jobs (character story videos: one unit per scene) meter one
+     // usage row per unit so quota accounting matches what was reserved.
+@@ -313,6 +360,7 @@ export async function runVideoGenerationJob(
+     await setJob(jobId, {
+       status: "failed",
+       error: message,
++      stage: null,
+       durationMs: Date.now() - startedAt,
+     }).catch(() => {});
+     if (funding === "credit") {
+diff --git a/artifacts/api-server/src/lib/videoGen/musicOffset.test.ts b/artifacts/api-server/src/lib/videoGen/musicOffset.test.ts
+new file mode 100644
+index 0000000..e9eef7f
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/musicOffset.test.ts
+@@ -0,0 +1,127 @@
++import { describe, it, expect, beforeAll } from "vitest";
++import { spawnSync } from "child_process";
++import { mkdtemp, rm } from "fs/promises";
++import { tmpdir } from "os";
++import { join } from "path";
++import {
++  chooseOffsetFromTimeline,
++  parseEbur128Timeline,
++  pickMusicStartOffsetSec,
++} from "./musicOffset";
++import { diversifySceneClips, type SceneSegment } from "./topicVideo/compose";
++
++describe("diversifySceneClips", () => {
++  const scene = (clipIndex: number, durationSec = 2): SceneSegment => ({ clipIndex, durationSec });
++
++  it("breaks up adjacent repeats of the same clip", () => {
++    const out = diversifySceneClips([scene(0), scene(0), scene(1)], 3);
++    expect(out[1]!.clipIndex).not.toBe(0);
++    expect(out[1]!.clipIndex).not.toBe(1); // prefers differing from BOTH neighbors
++    expect(out.map((s) => s.durationSec)).toEqual([2, 2, 2]);
++  });
++
++  it("leaves already-diverse layouts untouched", () => {
++    const layout = [scene(0), scene(1), scene(0), scene(2)];
++    expect(diversifySceneClips(layout, 3)).toEqual(layout);
++  });
++
++  it("is a no-op with a single clip", () => {
++    const layout = [scene(0), scene(0), scene(0)];
++    expect(diversifySceneClips(layout, 1)).toEqual(layout);
++    expect(diversifySceneClips(layout, 1)).toBe(layout);
++  });
++
++  it("with two clips, alternates instead of repeating", () => {
++    const out = diversifySceneClips([scene(0), scene(0), scene(0)], 2);
++    for (let i = 1; i < out.length; i++) {
++      expect(out[i]!.clipIndex).not.toBe(out[i - 1]!.clipIndex);
++    }
++  });
++
++  it("does not mutate its input", () => {
++    const layout = [scene(0), scene(0)];
++    diversifySceneClips(layout, 2);
++    expect(layout[1]!.clipIndex).toBe(0);
++  });
++});
++
++describe("chooseOffsetFromTimeline", () => {
++  const quietThenLoud = [
++    { t: 0.1, m: -60 },
++    { t: 5.0, m: -55 },
++    { t: 10.0, m: -18 },
++    { t: 15.0, m: -16 },
++  ];
++
++  it("skips a quiet intro, keeping a lead-in", () => {
++    // Active from t=10 (peak -16, threshold -28); lead-in 1s → 9.
++    expect(chooseOffsetFromTimeline(quietThenLoud, 60, 20)).toBe(9);
++  });
++
++  it("returns 0 when the track starts strong", () => {
++    const strong = [
++      { t: 0.1, m: -17 },
++      { t: 5.0, m: -16 },
++    ];
++    expect(chooseOffsetFromTimeline(strong, 60, 20)).toBe(0);
++  });
++
++  it("clamps so the video still fits inside the track", () => {
++    // Would want 9, but only 60-55=5 of headroom.
++    expect(chooseOffsetFromTimeline(quietThenLoud, 60, 55)).toBe(5);
++  });
++
++  it("returns 0 for empty or sub-threshold timelines", () => {
++    expect(chooseOffsetFromTimeline([], 60, 20)).toBe(0);
++  });
++});
++
++describe("parseEbur128Timeline", () => {
++  it("parses ffmpeg's momentary-loudness log lines", () => {
++    const stderr = [
++      "[Parsed_ebur128_0 @ 0x55] t: 0.099979    TARGET:-23 LUFS    M: -120.7 S: -120.7     I: -70.0 LUFS       LRA:   0.0 LU",
++      "[Parsed_ebur128_0 @ 0x55] t: 2.199979    TARGET:-23 LUFS    M: -17.3 S: -19.6     I: -20.3 LUFS       LRA:   1.2 LU",
++    ].join("\n");
++    expect(parseEbur128Timeline(stderr)).toEqual([
++      { t: 0.099979, m: -120.7 },
++      { t: 2.199979, m: -17.3 },
++    ]);
++  });
++});
++
++describe("pickMusicStartOffsetSec (real ffmpeg)", () => {
++  let dir: string;
++
++  beforeAll(async () => {
++    dir = await mkdtemp(join(tmpdir(), "kokao-music-"));
++    // 6s of near-silence, then 24s of tone: the "long quiet intro" shape.
++    const result = spawnSync(
++      "ffmpeg",
++      [
++        "-y",
++        "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=6",
++        "-f", "lavfi", "-i", "sine=frequency=440:duration=24",
++        "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[a]",
++        "-map", "[a]",
++        "quiet-intro.wav",
++      ],
++      { cwd: dir, timeout: 60_000 },
++    );
++    if (result.status !== 0) {
++      throw new Error(`fixture encode failed: ${result.stderr?.toString().slice(-300)}`);
++    }
++    return async () => {
++      await rm(dir, { recursive: true, force: true }).catch(() => {});
++    };
++  });
++
++  it("finds the start of the musical part", async () => {
++    const offset = await pickMusicStartOffsetSec("quiet-intro.wav", dir, 10);
++    expect(offset).toBeGreaterThan(3);
++    expect(offset).toBeLessThan(7);
++  });
++
++  it("fails soft to 0 for a missing file", async () => {
++    expect(await pickMusicStartOffsetSec("nope.wav", dir, 10)).toBe(0);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/musicOffset.ts b/artifacts/api-server/src/lib/videoGen/musicOffset.ts
+new file mode 100644
+index 0000000..c712d2a
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/musicOffset.ts
+@@ -0,0 +1,104 @@
++import { spawn } from "child_process";
++import { logger } from "../logger";
++import { probeDurationSec } from "./slideshow";
++
++/**
++ * Pick where in a background-music track playback should START, so the video
++ * gets the musical part instead of a long quiet intro (idea from
++ * OpenMontage's audio-energy stage, reimplemented on ffmpeg's ebur128
++ * loudness meter — no AGPL code). Strictly fail-soft: any hiccup returns 0
++ * and the track simply plays from the top, exactly as before.
++ */
++
++const ANALYZE_TIMEOUT_MS = 45_000;
++/** Momentary loudness within this many dB of the track's own peak = "active". */
++const ACTIVE_WINDOW_DB = 12;
++/** Lead-in kept before the detected active moment (so it doesn't slam in). */
++const LEAD_IN_SEC = 1.0;
++/** Offsets smaller than this aren't worth cutting the intro for. */
++const MIN_USEFUL_OFFSET_SEC = 1.5;
++/** ebur128 prints ~10 lines/sec; cap the buffer for very long uploads. */
++const MAX_STDERR_BYTES = 4_000_000;
++
++/** Full ebur128 stderr timeline for a track, or null on any failure. */
++function ebur128Stderr(musicFile: string, cwd: string): Promise<string | null> {
++  return new Promise((resolve) => {
++    let proc;
++    try {
++      proc = spawn("ffmpeg", ["-i", musicFile, "-af", "ebur128", "-f", "null", "-"], { cwd });
++    } catch {
++      resolve(null);
++      return;
++    }
++    let stderr = "";
++    const timer = setTimeout(() => {
++      proc.kill("SIGKILL");
++      resolve(null);
++    }, ANALYZE_TIMEOUT_MS);
++    proc.stderr.on("data", (chunk: Buffer) => {
++      if (stderr.length < MAX_STDERR_BYTES) stderr += chunk.toString();
++    });
++    proc.on("close", (code) => {
++      clearTimeout(timer);
++      resolve(code === 0 ? stderr : null);
++    });
++    proc.on("error", () => {
++      clearTimeout(timer);
++      resolve(null);
++    });
++  });
++}
++
++/** Parse "t: <sec> ... M: <dB>" momentary-loudness samples from ebur128 logs. */
++export function parseEbur128Timeline(stderr: string): { t: number; m: number }[] {
++  const samples: { t: number; m: number }[] = [];
++  const re = /t:\s*([\d.]+)\s+TARGET:[^\n]*?M:\s*(-?[\d.]+)/g;
++  let match: RegExpExecArray | null;
++  while ((match = re.exec(stderr)) !== null) {
++    const t = Number.parseFloat(match[1]!);
++    const m = Number.parseFloat(match[2]!);
++    if (Number.isFinite(t) && Number.isFinite(m)) samples.push({ t, m });
++  }
++  return samples;
++}
++
++/** Offset choice given a loudness timeline (pure; exported for tests). */
++export function chooseOffsetFromTimeline(
++  samples: { t: number; m: number }[],
++  musicDurationSec: number,
++  windowSec: number,
++): number {
++  if (samples.length === 0) return 0;
++  let peak = -Infinity;
++  for (const sample of samples) if (sample.m > peak) peak = sample.m;
++  if (!Number.isFinite(peak)) return 0;
++  const threshold = peak - ACTIVE_WINDOW_DB;
++  const first = samples.find((sample) => sample.m >= threshold);
++  if (!first) return 0;
++  let offset = Math.max(0, first.t - LEAD_IN_SEC);
++  // Keep the whole video inside the remaining track.
++  offset = Math.min(offset, Math.max(0, musicDurationSec - windowSec));
++  return offset >= MIN_USEFUL_OFFSET_SEC ? offset : 0;
++}
++
++/**
++ * Seconds to seek into `musicFile` before playback, given the video runs
++ * `windowSec`. Returns 0 (play from the top) whenever analysis fails, the
++ * track already starts strong, or the track is too short to skip anything.
++ */
++export async function pickMusicStartOffsetSec(
++  musicFile: string,
++  cwd: string,
++  windowSec: number,
++): Promise<number> {
++  try {
++    const musicDur = await probeDurationSec(musicFile, cwd);
++    if (musicDur === null || musicDur <= windowSec + MIN_USEFUL_OFFSET_SEC) return 0;
++    const stderr = await ebur128Stderr(musicFile, cwd);
++    if (!stderr) return 0;
++    return chooseOffsetFromTimeline(parseEbur128Timeline(stderr), musicDur, windowSec);
++  } catch (error) {
++    logger.warn({ err: error }, "Music energy analysis failed; playing from the top");
++    return 0;
++  }
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/qaGate.test.ts b/artifacts/api-server/src/lib/videoGen/qaGate.test.ts
+new file mode 100644
+index 0000000..9ef17e8
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/qaGate.test.ts
+@@ -0,0 +1,112 @@
++import { describe, it, expect, beforeAll } from "vitest";
++import { spawnSync } from "child_process";
++import { mkdtemp, readFile, rm } from "fs/promises";
++import { tmpdir } from "os";
++import { join } from "path";
++import { verifyRenderedVideo } from "./qaGate";
++
++/**
++ * Real-ffmpeg tests: each fixture is a tiny encoded MP4 shaped to trip (or
++ * pass) exactly one gate check.
++ */
++
++let fixturesDir: string;
++
++function encode(args: string[]): void {
++  const result = spawnSync("ffmpeg", ["-y", ...args], {
++    cwd: fixturesDir,
++    timeout: 60_000,
++  });
++  if (result.status !== 0) {
++    throw new Error(`fixture encode failed: ${result.stderr?.toString().slice(-300)}`);
++  }
++}
++
++async function fixture(name: string): Promise<Buffer> {
++  return readFile(join(fixturesDir, name));
++}
++
++beforeAll(async () => {
++  fixturesDir = await mkdtemp(join(tmpdir(), "kokao-qa-fixtures-"));
++
++  // Bright test pattern + audible tone, 2s.
++  encode([
++    "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=15:duration=2",
++    "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
++    "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-shortest", "good.mp4",
++  ]);
++  // Pure black frames + audible tone, 2s.
++  encode([
++    "-f", "lavfi", "-i", "color=c=black:size=320x240:rate=15:duration=2",
++    "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
++    "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-shortest", "black.mp4",
++  ]);
++  // Bright picture + digital-silence audio track, 2s.
++  encode([
++    "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=15:duration=2",
++    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=2",
++    "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-shortest", "silent.mp4",
++  ]);
++  // Bright picture, NO audio stream, 2s.
++  encode([
++    "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=15:duration=2",
++    "-c:v", "libx264", "-preset", "ultrafast", "-an", "noaudio.mp4",
++  ]);
++
++  return async () => {
++    await rm(fixturesDir, { recursive: true, force: true }).catch(() => {});
++  };
++});
++
++describe("verifyRenderedVideo", () => {
++  it("passes a healthy video with audio", async () => {
++    await expect(
++      verifyRenderedVideo(await fixture("good.mp4"), {
++        expectedDurationSec: 2,
++        expectAudio: true,
++      }),
++    ).resolves.toBeUndefined();
++  });
++
++  it("rejects an unplayable buffer", async () => {
++    await expect(
++      verifyRenderedVideo(Buffer.from("this is not a video file at all")),
++    ).rejects.toThrow(/unplayable/);
++  });
++
++  it("rejects a render far shorter than intended", async () => {
++    await expect(
++      verifyRenderedVideo(await fixture("good.mp4"), { expectedDurationSec: 30 }),
++    ).rejects.toThrow(/instead of/);
++  });
++
++  it("rejects a clip under the sanity floor", async () => {
++    await expect(
++      verifyRenderedVideo(await fixture("good.mp4"), { minDurationSec: 4 }),
++    ).rejects.toThrow(/only .* long/);
++  });
++
++  it("rejects an all-black picture", async () => {
++    await expect(verifyRenderedVideo(await fixture("black.mp4"))).rejects.toThrow(
++      /black throughout/,
++    );
++  });
++
++  it("rejects a silent narration track when audio is expected", async () => {
++    await expect(
++      verifyRenderedVideo(await fixture("silent.mp4"), { expectAudio: true }),
++    ).rejects.toThrow(/silent/);
++  });
++
++  it("rejects a missing audio stream when audio is expected", async () => {
++    await expect(
++      verifyRenderedVideo(await fixture("noaudio.mp4"), { expectAudio: true }),
++    ).rejects.toThrow(/silent/);
++  });
++
++  it("ignores audio entirely when none is expected", async () => {
++    await expect(
++      verifyRenderedVideo(await fixture("noaudio.mp4"), { expectedDurationSec: 2 }),
++    ).resolves.toBeUndefined();
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/qaGate.ts b/artifacts/api-server/src/lib/videoGen/qaGate.ts
+new file mode 100644
+index 0000000..6f273f7
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/qaGate.ts
+@@ -0,0 +1,181 @@
++import { spawn } from "child_process";
++import { writeFile, readFile, mkdtemp, rm } from "fs/promises";
++import { tmpdir } from "os";
++import { join } from "path";
++import { logger } from "../logger";
++import { probeDurationSec } from "./slideshow";
++import { VideoGenProviderError } from "./types";
++
++/**
++ * Post-render QA gate: every video is verified BEFORE it is uploaded and the
++ * job marked succeeded (idea from OpenMontage's final-review stage,
++ * reimplemented — no AGPL code). A video that fails the gate fails the job,
++ * which flows into the existing credit-refund path — so a tenant is never
++ * charged for a black, silent, truncated, or unplayable file.
++ *
++ * The gate is deliberately conservative: hard checks (decodability) are
++ * strict, judgement checks (darkness, silence) only fail when the evidence is
++ * unambiguous, and infrastructure hiccups inside a sub-check pass the video
++ * rather than fail it.
++ */
++
++export interface VideoQaExpectations {
++  /** Duration the pipeline aimed for; drifting more than 25% fails the gate. */
++  expectedDurationSec?: number | null;
++  /** Sanity floor (provider clips must be at least this long). */
++  minDurationSec?: number;
++  /** Whether an audible audio track is required (narrated videos). */
++  expectAudio?: boolean;
++  /** Job label used in error messages/logs. */
++  label?: string;
++}
++
++/** Allowed relative drift between expected and rendered duration. */
++const MAX_DURATION_DRIFT = 0.25;
++/** Frames sampled across the timeline for the darkness check. */
++const DARK_SAMPLE_POINTS = [0.15, 0.4, 0.6, 0.85];
++/** signalstats YAVG below this reads as "essentially black" (16 = video black). */
++const DARK_YAVG_THRESHOLD = 18;
++/** volumedetect mean_volume below this reads as "silent". */
++const SILENCE_MEAN_VOLUME_DB = -50;
++/** Per-subcheck ffmpeg timeout. */
++const SUBCHECK_TIMEOUT_MS = 60_000;
++
++/** Run ffmpeg capturing stderr (volumedetect reports there). Never throws. */
++function runFfmpegCapture(
++  args: string[],
++  cwd: string,
++): Promise<{ code: number | null; stderr: string } | null> {
++  return new Promise((resolve) => {
++    let proc;
++    try {
++      proc = spawn("ffmpeg", args, { cwd });
++    } catch {
++      resolve(null);
++      return;
++    }
++    let stderr = "";
++    const timer = setTimeout(() => {
++      proc.kill("SIGKILL");
++      resolve(null);
++    }, SUBCHECK_TIMEOUT_MS);
++    proc.stderr.on("data", (chunk: Buffer) => {
++      stderr = (stderr + chunk.toString()).slice(-8000);
++    });
++    proc.on("close", (code) => {
++      clearTimeout(timer);
++      resolve({ code, stderr });
++    });
++    proc.on("error", () => {
++      clearTimeout(timer);
++      resolve(null);
++    });
++  });
++}
++
++/** YAVG of one frame at `seekSec`, or null when it cannot be measured. */
++async function frameLuma(dir: string, seekSec: number, index: number): Promise<number | null> {
++  const statsFile = `stats_${index}.txt`;
++  const result = await runFfmpegCapture(
++    [
++      "-y",
++      "-ss",
++      seekSec.toFixed(3),
++      "-i",
++      "out.mp4",
++      "-frames:v",
++      "1",
++      "-vf",
++      `signalstats,metadata=print:file=${statsFile}`,
++      "-f",
++      "null",
++      "-",
++    ],
++    dir,
++  );
++  if (!result || result.code !== 0) return null;
++  try {
++    const stats = await readFile(join(dir, statsFile), "utf8");
++    const match = stats.match(/signalstats\.YAVG=([\d.]+)/);
++    return match ? Number.parseFloat(match[1]!) : null;
++  } catch {
++    return null;
++  }
++}
++
++/**
++ * Verify a rendered video against expectations. Throws VideoGenProviderError
++ * (user-visible message, triggers the refund path) when the video is broken.
++ */
++export async function verifyRenderedVideo(
++  video: Buffer,
++  expectations: VideoQaExpectations = {},
++): Promise<void> {
++  const label = expectations.label ?? "video";
++  const dir = await mkdtemp(join(tmpdir(), "kokao-qa-"));
++  try {
++    await writeFile(join(dir, "out.mp4"), video);
++
++    // 1) Decodability + duration. A file ffprobe cannot read is undeliverable.
++    const durationSec = await probeDurationSec("out.mp4", dir);
++    if (durationSec === null) {
++      throw new VideoGenProviderError(
++        "The rendered video failed quality checks (unplayable file). You were not charged — please try again.",
++      );
++    }
++
++    // 2) Sanity floor for provider clips.
++    if (expectations.minDurationSec && durationSec < expectations.minDurationSec) {
++      throw new VideoGenProviderError(
++        `The rendered video failed quality checks (only ${durationSec.toFixed(1)}s long). You were not charged — please try again.`,
++      );
++    }
++
++    // 3) Duration drift vs what the pipeline aimed for (truncated encodes).
++    const expected = expectations.expectedDurationSec;
++    if (expected && expected > 0) {
++      const drift = Math.abs(durationSec - expected) / expected;
++      if (drift > MAX_DURATION_DRIFT) {
++        throw new VideoGenProviderError(
++          `The rendered video failed quality checks (${durationSec.toFixed(1)}s instead of ~${expected.toFixed(0)}s). You were not charged — please try again.`,
++        );
++      }
++    }
++
++    // 4) All-black output (a dead visual chain still encodes fine). Fades mean
++    // single dark frames are normal — only ALL sampled frames dark fails.
++    const lumas: (number | null)[] = [];
++    for (let i = 0; i < DARK_SAMPLE_POINTS.length; i++) {
++      lumas.push(await frameLuma(dir, DARK_SAMPLE_POINTS[i]! * durationSec, i));
++    }
++    const measured = lumas.filter((l): l is number => l !== null);
++    if (measured.length > 0 && measured.every((l) => l < DARK_YAVG_THRESHOLD)) {
++      throw new VideoGenProviderError(
++        "The rendered video failed quality checks (picture is black throughout). You were not charged — please try again.",
++      );
++    }
++
++    // 5) Silent narration (TTS returned nothing / mix dropped the voice).
++    if (expectations.expectAudio) {
++      const result = await runFfmpegCapture(
++        ["-i", "out.mp4", "-vn", "-af", "volumedetect", "-f", "null", "-"],
++        dir,
++      );
++      if (result) {
++        const match = result.stderr.match(/mean_volume:\s*(-?[\d.]+)\s*dB/);
++        const meanDb = match ? Number.parseFloat(match[1]!) : null;
++        // No audio stream at all → ffmpeg errors and prints no mean_volume.
++        const silent = meanDb === null || meanDb < SILENCE_MEAN_VOLUME_DB;
++        if (silent) {
++          throw new VideoGenProviderError(
++            "The rendered video failed quality checks (audio track is silent). You were not charged — please try again.",
++          );
++        }
++      }
++    }
++
++    logger.debug({ label, durationSec }, "Video passed post-render QA");
++  } finally {
++    await rm(dir, { recursive: true, force: true }).catch(() => {});
++  }
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/slideshow.ts b/artifacts/api-server/src/lib/videoGen/slideshow.ts
+index 7c1595f..9e8cc8b 100644
+--- a/artifacts/api-server/src/lib/videoGen/slideshow.ts
++++ b/artifacts/api-server/src/lib/videoGen/slideshow.ts
+@@ -2,6 +2,9 @@ import { spawn } from "child_process";
+ import { writeFile, readFile, mkdtemp, rm, access } from "fs/promises";
+ import { tmpdir } from "os";
+ import { join } from "path";
++// Circular at module level only (musicOffset uses probeDurationSec from here);
++// both sides call across at runtime, never during module init, so it's safe.
++import { pickMusicStartOffsetSec } from "./musicOffset";
+ import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "./types";
+ 
+ /**
+@@ -131,6 +134,16 @@ export function runFfmpeg(args: string[], cwd: string): Promise<void> {
+   });
+ }
+ 
++/** The duration renderSlideshow aims for (same clamps + xfade overlap math);
++ * used by the post-render QA gate to detect truncated renders. */
++export function expectedSlideshowDurationSec(
++  imageCount: number,
++  slideDurationSec: number,
++): number {
++  const slideSec = Math.min(MAX_SLIDE_SECONDS, Math.max(MIN_SLIDE_SECONDS, slideDurationSec));
++  return imageCount * slideSec - (imageCount - 1) * TRANSITION_SEC;
++}
++
+ /** Render an MP4 slideshow from photos. Returns the encoded video bytes. */
+ export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
+   const count = input.images.length;
+@@ -155,9 +168,13 @@ export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
+       await writeFile(join(dir, name), input.images[i]!);
+       args.push("-loop", "1", "-t", String(slideSec), "-i", name);
+     }
++    const totalSec = count * slideSec - (count - 1) * TRANSITION_SEC;
+     const musicIndex = count;
+     if (input.music && input.music.length > 0) {
+       await writeFile(join(dir, "music"), input.music);
++      // Skip a long quiet intro in the track (fail-soft: 0 = from the top).
++      const musicSeekSec = await pickMusicStartOffsetSec("music", dir, totalSec);
++      if (musicSeekSec > 0) args.push("-ss", musicSeekSec.toFixed(3));
+       args.push("-i", "music");
+     }
+ 
+@@ -198,7 +215,6 @@ export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
+       filters.push(`[v0]copy[xfaded]`);
+     }
+ 
+-    const totalSec = count * slideSec - (count - 1) * TRANSITION_SEC;
+     let videoOut = "xfaded";
+     const fontFile = input.overlayText?.trim() ? await findFontFile() : null;
+     if (input.overlayText?.trim() && fontFile) {
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts
+index ddaa57a..67d46c5 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts
+@@ -1,6 +1,7 @@
+ import { writeFile, readFile, mkdtemp, rm } from "fs/promises";
+ import { tmpdir } from "os";
+ import { join } from "path";
++import { pickMusicStartOffsetSec } from "../musicOffset";
+ import { runFfmpeg, findFontFile, probeDurationSec } from "../slideshow";
+ import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
+ import type { NarrationCue } from "./narration";
+@@ -91,6 +92,36 @@ export function wrapSubtitleText(text: string, maxCharsPerLine: number): string
+   return lines.join("\n");
+ }
+ 
++/**
++ * Break up back-to-back repeats of the same footage (diversity idea from
++ * OpenMontage's MMR selection, reimplemented): when two adjacent scenes would
++ * show the same clip, the second swaps to the least-used clip that differs
++ * from both neighbors. Deterministic, and a no-op with a single clip.
++ */
++export function diversifySceneClips(scenes: SceneSegment[], clipCount: number): SceneSegment[] {
++  if (clipCount <= 1) return scenes;
++  const out = scenes.map((scene) => ({ ...scene }));
++  for (let i = 1; i < out.length; i++) {
++    if (out[i]!.clipIndex !== out[i - 1]!.clipIndex) continue;
++    const prev = out[i - 1]!.clipIndex;
++    const next = i + 1 < out.length ? out[i + 1]!.clipIndex : -1;
++    const counts = new Array<number>(clipCount).fill(0);
++    for (const scene of out) counts[scene.clipIndex] = (counts[scene.clipIndex] ?? 0) + 1;
++    let best = -1;
++    let bestPenalty = Infinity;
++    for (let c = 0; c < clipCount; c++) {
++      if (c === prev) continue;
++      const penalty = (c === next ? 1000 : 0) + (counts[c] ?? 0);
++      if (penalty < bestPenalty) {
++        best = c;
++        bestPenalty = penalty;
++      }
++    }
++    if (best !== -1) out[i]!.clipIndex = best;
++  }
++  return out;
++}
++
+ /** Scene lengths: each sentence owns the track up to the next sentence. */
+ export function sceneDurations(cues: NarrationCue[], totalDurationSec: number): number[] {
+   return cues.map((cue, i) => {
+@@ -108,18 +139,19 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
+     throw new VideoGenProviderError("No narration to compose the video around.");
+   }
+   const { width, height } = ASPECT_DIMENSIONS[input.aspectRatio];
+-  const scenes: SceneSegment[] =
++  const rawScenes: SceneSegment[] =
+     input.sceneMap && input.sceneMap.length > 0
+       ? input.sceneMap
+       : sceneDurations(input.cues, input.totalDurationSec).map((durationSec, i) => ({
+           clipIndex: i % input.clips.length,
+           durationSec,
+         }));
+-  for (const scene of scenes) {
++  for (const scene of rawScenes) {
+     if (scene.clipIndex < 0 || scene.clipIndex >= input.clips.length) {
+       throw new VideoGenProviderError("Scene map references a missing clip.");
+     }
+   }
++  const scenes = diversifySceneClips(rawScenes, input.clips.length);
+ 
+   const dir = await mkdtemp(join(tmpdir(), "kokao-topic-video-"));
+   try {
+@@ -128,8 +160,12 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
+     }
+     await writeFile(join(dir, "narration.wav"), input.narrationWav);
+     const hasMusic = !!input.music && input.music.length > 0;
++    let musicSeekSec = 0;
+     if (hasMusic) {
+       await writeFile(join(dir, "music"), input.music!);
++      // Skip a long quiet intro so the bed is musical from the first second
++      // (fail-soft: 0 = play from the top, the old behavior).
++      musicSeekSec = await pickMusicStartOffsetSec("music", dir, input.totalDurationSec);
+     }
+ 
+     // Probe each clip's duration once so scenes can seek into a DIFFERENT
+@@ -250,7 +286,11 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
+     await writeFile(join(dir, "filters.txt"), `${videoChain};${audioChain}`);
+ 
+     const args = ["-y", "-f", "concat", "-safe", "0", "-i", "list.txt", "-i", "narration.wav"];
+-    if (hasMusic) args.push("-stream_loop", "-1", "-i", "music");
++    if (hasMusic) {
++      args.push("-stream_loop", "-1");
++      if (musicSeekSec > 0) args.push("-ss", musicSeekSec.toFixed(3));
++      args.push("-i", "music");
++    }
+     args.push(
+       "-filter_complex_script",
+       "filters.txt",
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+index 518661c..7b70da3 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+@@ -68,6 +68,8 @@ export interface TopicVideoParams {
+   characterId?: number | null;
+   outfitId?: number | null;
+   wardrobeNotes?: string | null;
++  /** Live progress reporting ("Writing the script", ...); optional. */
++  onStage?: (stage: string) => void;
+ }
+ 
+ export interface TopicVideoResult {
+@@ -76,6 +78,8 @@ export interface TopicVideoResult {
+   provider: string;
+   /** The text model that wrote the script. */
+   model: string;
++  /** Narration length the composition was built around (QA gate reference). */
++  durationSec: number;
+ }
+ 
+ function checkDeadline(startedAt: number, deadlineMs = TOPIC_VIDEO_TOTAL_DEADLINE_MS): void {
+@@ -208,6 +212,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+   }
+ 
+   // 1) Script + ordered stock search terms in one completion.
++  params.onStage?.("Writing the script");
+   const { script, searchTerms, model } = await generateTopicScript({
+     tenantAiModel: tenant.aiModel,
+     topic,
+@@ -220,6 +225,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+   if (sentences.length === 0) {
+     throw new VideoGenProviderError("The AI returned an empty script. Please try again.");
+   }
++  params.onStage?.("Voicing the narration");
+   const narration = await synthesizeNarration(sentences, params.voice);
+   checkDeadline(startedAt, deadlineMs);
+ 
+@@ -228,6 +234,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+   let sceneMap = null;
+   let provider: string;
+   if (aiMode) {
++    params.onStage?.("Creating AI imagery");
+     const sceneCount =
+       AI_BROLL_SCENES_PER_PARAGRAPH *
+       Math.min(Math.max(Math.trunc(params.paragraphCount) || 1, 1), 3);
+@@ -246,6 +253,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+     sceneMap = generated.sceneMap;
+     provider = generated.provider;
+   } else if (characterMode) {
++    params.onStage?.("Filming your character");
+     const generated = await generateCharacterStoryClips({
+       tenantId: params.tenantId,
+       tenantAiModel: tenant.aiModel,
+@@ -262,6 +270,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+     sceneMap = generated.sceneMap;
+     provider = generated.provider;
+   } else {
++    params.onStage?.("Finding the right footage");
+     const stock = await gatherStockClips(
+       params.stockSource,
+       searchTerms,
+@@ -289,6 +298,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+   checkDeadline(startedAt, deadlineMs);
+ 
+   // 4) Compose.
++  params.onStage?.("Composing the video");
+   const buffer = await composeTopicVideo({
+     clips,
+     narrationWav: narration.wav,
+@@ -299,7 +309,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+     music: params.music ?? null,
+     sceneMap,
+   });
+-  return { buffer, provider, model };
++  return { buffer, provider, model, durationSec: narration.totalDurationSec };
+ }
+ 
+ /** Script scenes → wardrobe plan → identity-locked clips, for character mode. */
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts
+index d204aaa..cd86eed 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts
+@@ -1,5 +1,10 @@
+ import { db, appCredentialsTable } from "@workspace/db";
+ import { eq } from "drizzle-orm";
++import {
++  orderByHealth,
++  recordProviderFailure,
++  recordProviderSuccess,
++} from "../../providerHealth";
+ import { encryptJson, decryptJson } from "../../secretCrypto";
+ import { assertPublicHost } from "../../webFetch";
+ import {
+@@ -107,12 +112,20 @@ export async function isStockSourceConfigured(def: StockSourceDef): Promise<bool
+   return (await resolveStockApiKey(def)) !== null;
+ }
+ 
+-/** Resolve "auto" to the first configured source; validate explicit choices. */
++function stockHealthKey(id: StockSourceId): string {
++  return `stock:${id}`;
++}
++
++/** Resolve "auto" to the first configured source; validate explicit choices.
++ * In "auto" mode a source whose circuit breaker is open (recent consecutive
++ * 429/5xx) is deprioritized so jobs land on the source that's actually up. */
+ export async function resolveStockSource(
+   choice: StockSourceChoice,
+ ): Promise<{ def: StockSourceDef; apiKey: string }> {
+   const candidates =
+-    choice === "auto" ? STOCK_SOURCES : STOCK_SOURCES.filter((s) => s.id === choice);
++    choice === "auto"
++      ? orderByHealth([...STOCK_SOURCES], (s) => stockHealthKey(s.id))
++      : STOCK_SOURCES.filter((s) => s.id === choice);
+   for (const def of candidates) {
+     const apiKey = await resolveStockApiKey(def);
+     if (apiKey) return { def, apiKey };
+@@ -265,9 +278,28 @@ export async function searchStockClips(
+   term: string,
+   aspect: VideoAspect,
+ ): Promise<StockClip[]> {
+-  return def.id === "pexels"
+-    ? searchPexels(term, aspect, apiKey)
+-    : searchPixabay(term, aspect, apiKey);
++  const key = stockHealthKey(def.id);
++  try {
++    const clips =
++      def.id === "pexels"
++        ? await searchPexels(term, aspect, apiKey)
++        : await searchPixabay(term, aspect, apiKey);
++    recordProviderSuccess(key);
++    return clips;
++  } catch (error) {
++    const status = error instanceof VideoGenProviderError ? error.status : undefined;
++    const transient =
++      status === undefined ||
++      status === 429 ||
++      status === 500 ||
++      status === 502 ||
++      status === 503 ||
++      status === 504;
++    if (transient) {
++      recordProviderFailure(key, error instanceof Error ? error.message : undefined);
++    }
++    throw error;
++  }
+ }
+ 
+ /** Cap per-clip downloads so one giant source file can't blow the job. */
+diff --git a/artifacts/api-server/src/routes/videos.ts b/artifacts/api-server/src/routes/videos.ts
+index 3711260..47ba316 100644
+--- a/artifacts/api-server/src/routes/videos.ts
++++ b/artifacts/api-server/src/routes/videos.ts
+@@ -35,6 +35,7 @@ function serializeVideoJob(job: VideoGeneration) {
+     provider: job.provider ?? null,
+     model: job.model ?? null,
+     error: job.error ?? null,
++    stage: job.stage ?? null,
+     durationMs: job.durationMs ?? null,
+     createdAt: job.createdAt.toISOString(),
+     updatedAt: job.updatedAt.toISOString(),
+diff --git a/artifacts/socialforge/src/pages/video-studio.test.tsx b/artifacts/socialforge/src/pages/video-studio.test.tsx
+index a024e07..b9bdb38 100644
+--- a/artifacts/socialforge/src/pages/video-studio.test.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.test.tsx
+@@ -247,4 +247,40 @@ describe("Video Studio", () => {
+     expect(video.getAttribute("src")).toBe("/api/storage/objects/1/uploads/v.mp4");
+     expect(screen.getByTestId("button-save-video")).toBeTruthy();
+   });
++
++  it("shows the server-reported pipeline stage while a job is processing", () => {
++    mockState.activeJob = {
++      id: 8,
++      engine: "topic_to_video",
++      status: "processing",
++      prompt: "coffee culture",
++      sourceImagePaths: [],
++      aspectRatio: "9:16",
++      stage: "Voicing the narration",
++      createdAt: "2026-01-01T00:00:00Z",
++      updatedAt: "2026-01-01T00:00:00Z",
++    };
++    mockState.jobs = [mockState.activeJob];
++    renderPage();
++    fireEvent.click(screen.getByTestId("job-card-8"));
++    expect(screen.getByTestId("text-job-stage").textContent).toBe("Voicing the narration…");
++  });
++
++  it("falls back to a generic label when no stage is reported yet", () => {
++    mockState.activeJob = {
++      id: 9,
++      engine: "text_to_video",
++      status: "processing",
++      prompt: "sunset",
++      sourceImagePaths: [],
++      aspectRatio: "9:16",
++      stage: null,
++      createdAt: "2026-01-01T00:00:00Z",
++      updatedAt: "2026-01-01T00:00:00Z",
++    };
++    mockState.jobs = [mockState.activeJob];
++    renderPage();
++    fireEvent.click(screen.getByTestId("job-card-9"));
++    expect(screen.getByTestId("text-job-stage").textContent).toBe("Rendering your video…");
++  });
+ });
+diff --git a/artifacts/socialforge/src/pages/video-studio.tsx b/artifacts/socialforge/src/pages/video-studio.tsx
+index 8cb874a..c2d9629 100644
+--- a/artifacts/socialforge/src/pages/video-studio.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.tsx
+@@ -106,6 +106,28 @@ function storageUrl(path: string): string {
+   return `/api/storage${path}`;
+ }
+ 
++/** Progress % from the job's REAL pipeline stage (reported by the server). */
++const STAGE_PROGRESS: Record<string, number> = {
++  "Getting started": 8,
++  "Preparing your photos": 20,
++  "Writing the script": 18,
++  "Voicing the narration": 32,
++  "Finding the right footage": 48,
++  "Creating AI imagery": 48,
++  "Filming your character": 48,
++  "Generating the video": 40,
++  "Animating your image": 40,
++  "Composing the slideshow": 55,
++  "Composing the video": 70,
++  "Running quality checks": 88,
++  "Saving to your library": 96,
++};
++
++function stageProgress(job: VideoJob): number {
++  if (job.status === "queued") return 5;
++  return STAGE_PROGRESS[job.stage ?? ""] ?? 60;
++}
++
+ const ENGINE_META: Record<Engine, { title: string; blurb: string }> = {
+   text_to_video: {
+     title: "Text to Video",
+@@ -811,19 +833,21 @@ export function VideoStudioPage() {
+                 <div className="flex items-center gap-3">
+                   <RippleSpinner className="h-5 w-5" />
+                   <div>
+-                    <p className="font-medium">
+-                      {activeJob.status === "queued" ? "Queued…" : "Rendering your video…"}
++                    <p className="font-medium" data-testid="text-job-stage">
++                      {activeJob.status === "queued"
++                        ? "Queued…"
++                        : `${activeJob.stage ?? "Rendering your video"}…`}
+                     </p>
+                     <p className="text-sm text-muted-foreground">
+                       {activeJob.engine === "slideshow"
+                         ? "Stitching photos with crossfades."
+                         : activeJob.engine === "topic_to_video"
+-                          ? "Writing the script, recording narration, and cutting footage. This can take a few minutes — the job keeps running if you leave."
++                          ? "This can take a few minutes — the job keeps running if you leave."
+                           : "AI video can take a few minutes. You can leave this page — the job keeps running."}
+                     </p>
+                   </div>
+                 </div>
+-                <Progress value={activeJob.status === "queued" ? 15 : 60} />
++                <Progress value={stageProgress(activeJob)} />
+               </div>
+             )}
+             {activeJob.status === "succeeded" && activeJob.videoPath && (
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index e5a9f74..af6e5ba 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -2580,6 +2580,11 @@ export interface VideoJob {
+      * @nullable
+      */
+   error?: string | null;
++  /**
++     * What the pipeline is doing right now (e.g. "Writing the script", "Composing the video"). Only meaningful while status is processing; null otherwise.
++     * @nullable
++     */
++  stage?: string | null;
+   /** @nullable */
+   durationMs?: number | null;
+   createdAt: string;
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index b80a50a..abd8573 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -10147,6 +10147,12 @@ components:
+         error:
+           type: ["string", "null"]
+           description: Human-readable failure reason when status is failed.
++        stage:
++          type: ["string", "null"]
++          description: >-
++            What the pipeline is doing right now (e.g. "Writing the script",
++            "Composing the video"). Only meaningful while status is
++            processing; null otherwise.
+         durationMs:
+           type: ["integer", "null"]
+         createdAt:
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index 99a27f9..31b87ec 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -5081,6 +5081,7 @@ export const GenerateVideoResponse = zod.object({
+   "provider": zod.string().nullish(),
+   "model": zod.string().nullish(),
+   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
++  "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
+   "durationMs": zod.number().nullish(),
+   "createdAt": zod.coerce.date(),
+   "updatedAt": zod.coerce.date()
+@@ -5102,6 +5103,7 @@ export const ListVideoJobsResponseItem = zod.object({
+   "provider": zod.string().nullish(),
+   "model": zod.string().nullish(),
+   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
++  "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
+   "durationMs": zod.number().nullish(),
+   "createdAt": zod.coerce.date(),
+   "updatedAt": zod.coerce.date()
+@@ -5128,6 +5130,7 @@ export const GetVideoJobResponse = zod.object({
+   "provider": zod.string().nullish(),
+   "model": zod.string().nullish(),
+   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
++  "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
+   "durationMs": zod.number().nullish(),
+   "createdAt": zod.coerce.date(),
+   "updatedAt": zod.coerce.date()
+diff --git a/lib/api-zod/src/generated/types/videoJob.ts b/lib/api-zod/src/generated/types/videoJob.ts
+index 3f4e4a5..db3e550 100644
+--- a/lib/api-zod/src/generated/types/videoJob.ts
++++ b/lib/api-zod/src/generated/types/videoJob.ts
+@@ -35,6 +35,11 @@ export interface VideoJob {
+      * @nullable
+      */
+   error?: string | null;
++  /**
++     * What the pipeline is doing right now (e.g. "Writing the script", "Composing the video"). Only meaningful while status is processing; null otherwise.
++     * @nullable
++     */
++  stage?: string | null;
+   /** @nullable */
+   durationMs?: number | null;
+   createdAt: Date;
+diff --git a/lib/db/src/schema/videoGenerations.ts b/lib/db/src/schema/videoGenerations.ts
+index 806caf4..67d6cb0 100644
+--- a/lib/db/src/schema/videoGenerations.ts
++++ b/lib/db/src/schema/videoGenerations.ts
+@@ -67,6 +67,9 @@ export const videoGenerationsTable = pgTable("video_generations", {
+   thumbnailPath: text("thumbnail_path"),
+   /** Human-readable failure reason; null unless status is failed. */
+   error: text("error"),
++  /** What the pipeline is doing right now ("Writing the script", ...); only
++   * meaningful while status is processing. Shown live in the studio. */
++  stage: text("stage"),
+   /** Wall-clock generation time, for the usage/cost meters. */
+   durationMs: integer("duration_ms"),
+   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+-- 
+2.43.0
+

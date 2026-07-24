@@ -68,6 +68,8 @@ export interface TopicVideoParams {
   characterId?: number | null;
   outfitId?: number | null;
   wardrobeNotes?: string | null;
+  /** Live progress reporting ("Writing the script", ...); optional. */
+  onStage?: (stage: string) => void;
 }
 
 export interface TopicVideoResult {
@@ -76,6 +78,8 @@ export interface TopicVideoResult {
   provider: string;
   /** The text model that wrote the script. */
   model: string;
+  /** Narration length the composition was built around (QA gate reference). */
+  durationSec: number;
 }
 
 function checkDeadline(startedAt: number, deadlineMs = TOPIC_VIDEO_TOTAL_DEADLINE_MS): void {
@@ -208,6 +212,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
   }
 
   // 1) Script + ordered stock search terms in one completion.
+  params.onStage?.("Writing the script");
   const { script, searchTerms, model } = await generateTopicScript({
     tenantAiModel: tenant.aiModel,
     topic,
@@ -220,6 +225,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
   if (sentences.length === 0) {
     throw new VideoGenProviderError("The AI returned an empty script. Please try again.");
   }
+  params.onStage?.("Voicing the narration");
   const narration = await synthesizeNarration(sentences, params.voice);
   checkDeadline(startedAt, deadlineMs);
 
@@ -228,6 +234,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
   let sceneMap = null;
   let provider: string;
   if (aiMode) {
+    params.onStage?.("Creating AI imagery");
     const sceneCount =
       AI_BROLL_SCENES_PER_PARAGRAPH *
       Math.min(Math.max(Math.trunc(params.paragraphCount) || 1, 1), 3);
@@ -246,6 +253,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     sceneMap = generated.sceneMap;
     provider = generated.provider;
   } else if (characterMode) {
+    params.onStage?.("Filming your character");
     const generated = await generateCharacterStoryClips({
       tenantId: params.tenantId,
       tenantAiModel: tenant.aiModel,
@@ -262,6 +270,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     sceneMap = generated.sceneMap;
     provider = generated.provider;
   } else {
+    params.onStage?.("Finding the right footage");
     const stock = await gatherStockClips(
       params.stockSource,
       searchTerms,
@@ -289,6 +298,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
   checkDeadline(startedAt, deadlineMs);
 
   // 4) Compose.
+  params.onStage?.("Composing the video");
   const buffer = await composeTopicVideo({
     clips,
     narrationWav: narration.wav,
@@ -299,7 +309,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     music: params.music ?? null,
     sceneMap,
   });
-  return { buffer, provider, model };
+  return { buffer, provider, model, durationSec: narration.totalDurationSec };
 }
 
 /** Script scenes → wardrobe plan → identity-locked clips, for character mode. */

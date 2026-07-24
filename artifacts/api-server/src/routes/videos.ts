@@ -35,6 +35,7 @@ function serializeVideoJob(job: VideoGeneration) {
     provider: job.provider ?? null,
     model: job.model ?? null,
     error: job.error ?? null,
+    stage: job.stage ?? null,
     durationMs: job.durationMs ?? null,
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
