@@ -517,6 +517,68 @@ describe("Studio campaign platform toggles gated by connection status", () => {
   });
 });
 
+describe("Studio Look pills", () => {
+  it("sends no recipe when nothing is picked", async () => {
+    await generateImage();
+    expect(mockState.lastImageVars.data.promptRecipe).toBeUndefined();
+  });
+
+  it("sends the picked preset and drops it again when unpicked", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Prompt"), {
+      target: { value: "A prompt long enough to pass validation" },
+    });
+
+    await user.click(screen.getByTestId("toggle-look-product"));
+    fireEvent.click(screen.getByTestId("button-generate-image"));
+    await waitFor(() =>
+      expect(mockState.lastImageVars.data.promptRecipe).toEqual({ preset: "product" }),
+    );
+
+    // Radix single toggles deselect on a second click; the request has to
+    // follow, or a tenant can never get back to an unstyled image.
+    await user.click(screen.getByTestId("toggle-look-product"));
+    fireEvent.click(screen.getByTestId("button-generate-image"));
+    await waitFor(() =>
+      expect(mockState.lastImageVars.data.promptRecipe).toBeUndefined(),
+    );
+  });
+
+  it("sends a camera override alongside the preset", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Prompt"), {
+      target: { value: "A prompt long enough to pass validation" },
+    });
+
+    await user.click(screen.getByTestId("toggle-look-food"));
+    await user.click(screen.getByTestId("button-toggle-look-gear"));
+    await user.click(screen.getByTestId("select-look-aperture"));
+    await user.click(screen.getByRole("option", { name: /f\/1\.4/ }));
+
+    fireEvent.click(screen.getByTestId("button-generate-image"));
+    await waitFor(() =>
+      expect(mockState.lastImageVars.data.promptRecipe).toEqual({
+        preset: "food",
+        aperture: "f1.4",
+      }),
+    );
+  });
+
+  it("counts set overrides on the collapsed details toggle", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByTestId("button-toggle-look-gear"));
+    await user.click(screen.getByTestId("select-look-lighting"));
+    await user.click(screen.getByRole("option", { name: "Neon" }));
+    await user.click(screen.getByTestId("button-toggle-look-gear"));
+    expect(screen.getByTestId("button-toggle-look-gear").textContent).toBe(
+      "Camera details (1)",
+    );
+  });
+});
+
 describe("Studio image buttons when the monthly image quota is exhausted", () => {
   it("disables the Image button with a plan-limit hint when quota and credits are both zero", () => {
     mockState.me = {

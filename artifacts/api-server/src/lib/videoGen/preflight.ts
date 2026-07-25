@@ -11,7 +11,11 @@ import {
   isVideoGenProviderConfigured,
   videoGenHealthKey,
 } from "./index";
-import { STOCK_SOURCES, isStockSourceConfigured, stockHealthKey } from "./topicVideo/stockSources";
+import {
+  stockCandidates,
+  stockHealthKey,
+  type StockSourceChoice,
+} from "./topicVideo/stockSources";
 import { TTS_PROVIDERS, isTtsProviderConfigured, ttsHealthKey } from "./topicVideo/tts";
 
 /**
@@ -77,14 +81,14 @@ async function imageGenKeys(): Promise<string[]> {
   return keys;
 }
 
-async function stockKeys(choice: string): Promise<string[]> {
-  const keys: string[] = [];
-  for (const def of STOCK_SOURCES) {
-    // An explicit source choice is not interchangeable; "auto" tries all.
-    if (choice !== "auto" && def.id !== choice) continue;
-    if (await isStockSourceConfigured(def)) keys.push(stockHealthKey(def.id));
-  }
-  return keys;
+/**
+ * Exactly the sources the job will really try — the same list `gatherStockClips`
+ * walks, so preflight can neither refuse a job the runtime would have served nor
+ * fund one the runtime will reject for a missing key.
+ */
+async function stockKeys(choice: StockSourceChoice): Promise<string[]> {
+  const sources = await stockCandidates(choice);
+  return sources.map((source) => stockHealthKey(source.def.id));
 }
 
 async function ttsKeys(): Promise<string[]> {
@@ -139,7 +143,7 @@ export async function preflightVideoJob(
 
   // 3) Stock footage for a stock-visuals topic video.
   if (engine === "topic_to_video" && visualsSource === "stock") {
-    const choice = options?.stockSource ?? "auto";
+    const choice = (options?.stockSource ?? "auto") as StockSourceChoice;
     const issue = evaluate(
       await stockKeys(choice),
       choice === "auto"

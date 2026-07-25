@@ -12,10 +12,13 @@ export interface StockSourceInfo {
   label: string;
   /** Whether an API key for this source is set. */
   configured: boolean;
-  /** Secret name used as the fallback key. */
-  envKey: string;
   /**
-     * Where the active key comes from (admin-entered key wins over the env secret).
+     * Secret name used as the fallback key, or null for a keyless source.
+     * @nullable
+     */
+  envKey: string | null;
+  /**
+     * Where the active key comes from (admin-entered key wins over the env secret). "builtin" means the source needs no credential at all.
      * @nullable
      */
   keySource?: StockSourceInfoKeySource;

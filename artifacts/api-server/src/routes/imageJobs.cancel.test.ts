@@ -26,7 +26,7 @@ vi.mock("@clerk/express", async () => {
   };
 });
 
-// The runner is exercised elsewhere; cancel tests only need the row states.
+// The runner is exercised elsewhere; these tests only need the row states.
 vi.mock("../lib/imageJobs", () => ({
   runImageGenerationJob: vi.fn(async () => {}),
 }));
@@ -151,6 +151,39 @@ describe("POST /ai/image-jobs/:jobId/cancel", () => {
 
     const res = await request(app).post(`/api/ai/image-jobs/${jobId}/cancel`);
     expect(res.status).toBe(409);
+  });
+
+  it("stores the compiled prompt, not the brief plus a recipe", async () => {
+    // The gallery replays whatever is in this column, so the photographic
+    // direction has to be baked in before the row is written.
+    const tenant = await newTenant();
+    actAs(tenant.clerkUserId);
+
+    const res = await request(app)
+      .post("/api/ai/generate-image-async")
+      .send({ prompt: "A tin of espresso blend", promptRecipe: { preset: "product" } });
+    expect(res.status).toBe(201);
+    createdJobIds.push(res.body.id);
+
+    expect(res.body.prompt).toContain("A tin of espresso blend.");
+    expect(res.body.prompt).toContain("100mm macro lens at f/8");
+    const row = (
+      await db
+        .select()
+        .from(imageGenerationsTable)
+        .where(eq(imageGenerationsTable.id, res.body.id))
+    )[0];
+    expect(row.prompt).toBe(res.body.prompt);
+  });
+
+  it("rejects a look id that is not in the vocabulary", async () => {
+    const tenant = await newTenant();
+    actAs(tenant.clerkUserId);
+
+    const res = await request(app)
+      .post("/api/ai/generate-image-async")
+      .send({ prompt: "A tin of espresso blend", promptRecipe: { camera: "hasselblad-907x" } });
+    expect(res.status).toBe(400);
   });
 
   it("404s on another tenant's job", async () => {

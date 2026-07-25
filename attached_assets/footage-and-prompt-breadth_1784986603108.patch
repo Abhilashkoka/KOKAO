@@ -1,0 +1,2416 @@
+From d877db46936d12b9c4843546698017a066f34b99 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 25 Jul 2026 08:28:22 +0000
+Subject: [PATCH] Two more ways to get a usable frame
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Stock footage no longer depends on one library, and the image studio can
+ask for a photograph instead of hoping for one.
+
+Wikimedia Commons joins the stock registry as a keyless source, restricted
+to public domain and CC0 files — CC-BY is excluded because a published post
+has nowhere to put the attribution, and CC-BY-SA because share-alike could
+follow the tenant's finished video out the door. It is failover, not a
+substitute: it only joins the auto list when a keyed library is configured,
+so a fresh deployment still gets the loud "add a Pexels key" 400. Ordering
+runs through the health breaker across both groups, so a healthy Commons
+beats a broken Pexels and a healthy Pexels still wins outright. Tenants can
+also pick it outright.
+
+The runtime now actually walks that list. gatherStockClips searched one
+source and gave up; collectStockCandidates tries each in turn and moves on
+when a source comes back empty, which covers both "the API is down" and
+"this library has nothing for monsoon street food" — from the caller's seat
+those are the same problem with the same answer. Preflight walks the same
+list, so it can neither refuse a job the runtime would have served nor fund
+one the runtime will reject.
+
+The image Look pills compile a brief into photographic direction: a genre
+preset carries the boring correct gear for that shoot (macro at f/8 on a
+sweep for packshots, 35mm by a window for lifestyle) and each axis can be
+overridden on its own. It is a lookup and a join — no model call, no key,
+no cost, same recipe in, same string out. Compiling happens in the routes so
+the stored prompt is the finished text the gallery can replay, which is also
+why there is no schema change and no runner change.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EJdoZ8bk1pWTrmbMVQJZ7G
+---
+ .../src/lib/imageGen/promptCompiler.test.ts   | 130 ++++++
+ .../src/lib/imageGen/promptCompiler.ts        | 179 ++++++++
+ .../api-server/src/lib/videoGen/jobRunner.ts  |   2 +-
+ .../src/lib/videoGen/preflight.test.ts        |  21 +-
+ .../api-server/src/lib/videoGen/preflight.ts  |  24 +-
+ .../src/lib/videoGen/topicVideo/index.ts      |  40 +-
+ .../videoGen/topicVideo/stockSources.test.ts  | 401 ++++++++++++++++++
+ .../lib/videoGen/topicVideo/stockSources.ts   | 265 +++++++++++-
+ artifacts/api-server/src/routes/ai.ts         |   3 +-
+ .../src/routes/imageJobs.cancel.test.ts       |  35 +-
+ artifacts/api-server/src/routes/imageJobs.ts  |   6 +-
+ .../socialforge/src/pages/admin/ai-tab.tsx    |  57 ++-
+ .../socialforge/src/pages/studio.test.tsx     |  62 +++
+ artifacts/socialforge/src/pages/studio.tsx    | 160 ++++++-
+ .../socialforge/src/pages/video-studio.tsx    |   7 +-
+ .../src/generated/api.schemas.ts              |  86 +++-
+ lib/api-spec/openapi.yaml                     |  41 +-
+ lib/api-zod/src/generated/api.ts              |  40 +-
+ .../src/generated/types/imagePromptRecipe.ts  |  23 +
+ .../types/imagePromptRecipeAperture.ts        |  18 +
+ .../types/imagePromptRecipeCamera.ts          |  18 +
+ .../generated/types/imagePromptRecipeLens.ts  |  19 +
+ .../types/imagePromptRecipeLighting.ts        |  19 +
+ .../types/imagePromptRecipePreset.ts          |  18 +
+ .../src/generated/types/imageRequest.ts       |   2 +
+ lib/api-zod/src/generated/types/index.ts      |   6 +
+ .../src/generated/types/stockSourceInfo.ts    |   9 +-
+ .../types/stockSourceInfoKeySource.ts         |   3 +-
+ .../generated/types/videoGenerateRequest.ts   |   2 +-
+ .../types/videoGenerateRequestStockSource.ts  |   3 +-
+ lib/db/src/schema/videoGenerations.ts         |   2 +-
+ 31 files changed, 1582 insertions(+), 119 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/imageGen/promptCompiler.test.ts
+ create mode 100644 artifacts/api-server/src/lib/imageGen/promptCompiler.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.test.ts
+ create mode 100644 lib/api-zod/src/generated/types/imagePromptRecipe.ts
+ create mode 100644 lib/api-zod/src/generated/types/imagePromptRecipeAperture.ts
+ create mode 100644 lib/api-zod/src/generated/types/imagePromptRecipeCamera.ts
+ create mode 100644 lib/api-zod/src/generated/types/imagePromptRecipeLens.ts
+ create mode 100644 lib/api-zod/src/generated/types/imagePromptRecipeLighting.ts
+ create mode 100644 lib/api-zod/src/generated/types/imagePromptRecipePreset.ts
+
+diff --git a/artifacts/api-server/src/lib/imageGen/promptCompiler.test.ts b/artifacts/api-server/src/lib/imageGen/promptCompiler.test.ts
+new file mode 100644
+index 0000000..0a78635
+--- /dev/null
++++ b/artifacts/api-server/src/lib/imageGen/promptCompiler.test.ts
+@@ -0,0 +1,130 @@
++import { describe, it, expect } from "vitest";
++import { GenerateImageBody } from "@workspace/api-zod";
++import { compileImagePrompt, IMAGE_LOOK_IDS } from "./promptCompiler";
++
++const BRIEF = "A tin of our single-origin espresso blend";
++
++describe("compileImagePrompt", () => {
++  it("returns the brief untouched when nothing was picked", () => {
++    expect(compileImagePrompt(BRIEF)).toBe(BRIEF);
++    expect(compileImagePrompt(BRIEF, null)).toBe(BRIEF);
++    expect(compileImagePrompt(BRIEF, {})).toBe(BRIEF);
++    expect(compileImagePrompt(`  ${BRIEF}  `)).toBe(BRIEF);
++  });
++
++  it("compiles a preset into scene, gear, light and finish", () => {
++    const out = compileImagePrompt(BRIEF, { preset: "product" });
++    expect(out).toBe(
++      `${BRIEF}. Studio product photograph on a seamless gradient sweep, crisp edges and a ` +
++        "subtle contact reflection. Shot on a medium-format digital camera with a 100mm macro " +
++        "lens at f/8, the whole subject in focus. Lit by a large softbox key at 45 degrees " +
++        "with a subtle rim light for edge separation. Overall: commercial catalogue finish, " +
++        "true-to-life colour, high micro-detail.",
++    );
++  });
++
++  it("lets a pill override the preset's default for that axis only", () => {
++    const out = compileImagePrompt(BRIEF, { preset: "product", aperture: "f1.4" });
++    expect(out).toContain("at f/1.4, very shallow depth of field and creamy bokeh");
++    expect(out).not.toContain("f/8");
++    // The axes it did not touch still come from the preset.
++    expect(out).toContain("a medium-format digital camera");
++    expect(out).toContain("a large softbox key");
++  });
++
++  it("uses a lone pill without a preset", () => {
++    expect(compileImagePrompt(BRIEF, { lens: "natural-50" })).toBe(
++      `${BRIEF}. Shot with a 50mm lens.`,
++    );
++    expect(compileImagePrompt(BRIEF, { lighting: "neon" })).toBe(
++      `${BRIEF}. Lit by coloured neon practicals against deep shadow, with wet-surface reflections.`,
++    );
++  });
++
++  it("keeps the gear sentence readable whichever axes are set", () => {
++    expect(compileImagePrompt(BRIEF, { camera: "phone", aperture: "f2.8" })).toBe(
++      `${BRIEF}. Shot on a modern smartphone camera at f/2.8, shallow depth of field with a ` +
++        "softly blurred background.",
++    );
++  });
++
++  it("does not double up the brief's own punctuation", () => {
++    expect(compileImagePrompt("Launch day!", { lens: "wide-24" })).toBe(
++      "Launch day! Shot with a 24mm wide-angle lens.",
++    );
++    expect(compileImagePrompt("Launch day.", { lens: "wide-24" })).toBe(
++      "Launch day. Shot with a 24mm wide-angle lens.",
++    );
++  });
++
++  it("does not leave a dangling separator when the brief is empty", () => {
++    // The route's schema requires a prompt, so this only guards the join itself.
++    expect(compileImagePrompt("", { lens: "wide-24" })).toBe("Shot with a 24mm wide-angle lens.");
++  });
++
++  it("ignores ids it does not know instead of emitting a hole", () => {
++    // The schema rejects these before the route calls us; if one ever slips
++    // through, losing that axis beats shipping "Shot on undefined".
++    const out = compileImagePrompt(BRIEF, { camera: "hasselblad-907x", lens: "natural-50" });
++    expect(out).toBe(`${BRIEF}. Shot with a 50mm lens.`);
++  });
++
++  it("falls back to the preset when an override id is unknown", () => {
++    const out = compileImagePrompt(BRIEF, { preset: "food", aperture: "f0.95" });
++    expect(out).toContain("at f/2.8");
++  });
++
++  it("is deterministic", () => {
++    const recipe = { preset: "fashion", lighting: "golden-hour" };
++    expect(compileImagePrompt(BRIEF, recipe)).toBe(compileImagePrompt(BRIEF, recipe));
++  });
++
++  it("gives every preset a full set of gear, light and finish", () => {
++    for (const preset of IMAGE_LOOK_IDS.preset) {
++      const out = compileImagePrompt(BRIEF, { preset });
++      expect(out, preset).toContain("Shot on");
++      expect(out, preset).toContain("with a");
++      expect(out, preset).toContain("at f/");
++      expect(out, preset).toContain("Lit by");
++      expect(out, preset).toContain("Overall:");
++    }
++  });
++});
++
++describe("the Look vocabulary matches the API contract", () => {
++  // The pill ids live in two places by necessity: the OpenAPI enums (which
++  // clients are typed from) and the phrase tables here. A drift means a pill
++  // the schema accepts but the compiler silently drops, so assert both ways.
++  it("accepts every id the compiler knows", () => {
++    for (const [axis, ids] of Object.entries(IMAGE_LOOK_IDS)) {
++      for (const id of ids) {
++        const parsed = GenerateImageBody.safeParse({
++          prompt: BRIEF,
++          promptRecipe: { [axis]: id },
++        });
++        expect(parsed.success, `${axis}=${id}`).toBe(true);
++      }
++    }
++  });
++
++  it("rejects an id the compiler does not know", () => {
++    const parsed = GenerateImageBody.safeParse({
++      prompt: BRIEF,
++      promptRecipe: { camera: "hasselblad-907x" },
++    });
++    expect(parsed.success).toBe(false);
++  });
++
++  it("knows every id the schema accepts", () => {
++    // Walks the generated zod enums so an id added to the spec without a
++    // phrase here fails the build rather than shipping as a dead pill.
++    const shape = (GenerateImageBody as unknown as {
++      shape: { promptRecipe: { unwrap: () => { shape: Record<string, { unwrap: () => { options: string[] } }> } } };
++    }).shape.promptRecipe
++      .unwrap()
++      .shape;
++    for (const [axis, ids] of Object.entries(IMAGE_LOOK_IDS)) {
++      expect(shape[axis]!.unwrap().options.sort(), axis).toEqual([...ids].sort());
++    }
++  });
++});
+diff --git a/artifacts/api-server/src/lib/imageGen/promptCompiler.ts b/artifacts/api-server/src/lib/imageGen/promptCompiler.ts
+new file mode 100644
+index 0000000..9c58663
+--- /dev/null
++++ b/artifacts/api-server/src/lib/imageGen/promptCompiler.ts
+@@ -0,0 +1,179 @@
++/**
++ * Deterministic marketing prompt compiler.
++ *
++ * Image models answer to photographic direction — format, focal length,
++ * aperture, light — far more reliably than to adjectives like "professional"
++ * or "high quality". Tenants running a coffee shop have no reason to know that
++ * vocabulary, so the studio offers it as a few pills and this file turns those
++ * ids into the sentence a photographer would have written.
++ *
++ * It is a lookup and a join: no model call, no key, no cost, and the same
++ * recipe always compiles to the same string. The compiled prompt is what gets
++ * stored on the job, so the gallery shows something the tenant can paste back
++ * in and re-run.
++ */
++
++/** Pill ids the studio may send. Unknown ids are rejected by the route's schema. */
++export interface ImagePromptRecipe {
++  preset?: string | null;
++  camera?: string | null;
++  lens?: string | null;
++  aperture?: string | null;
++  lighting?: string | null;
++}
++
++/** Bodies and formats, in the words these models were trained on. */
++const CAMERAS: Record<string, string> = {
++  phone: "a modern smartphone camera",
++  mirrorless: "a full-frame mirrorless camera",
++  dslr: "a full-frame DSLR",
++  "medium-format": "a medium-format digital camera",
++  film35: "a 35mm film camera with fine natural grain",
++};
++
++const LENSES: Record<string, string> = {
++  "wide-24": "a 24mm wide-angle lens",
++  "reportage-35": "a 35mm lens",
++  "natural-50": "a 50mm lens",
++  "portrait-85": "an 85mm portrait lens",
++  "macro-100": "a 100mm macro lens",
++  "tele-135": "a 135mm telephoto lens",
++};
++
++/**
++ * Each aperture carries its own consequence, because the f-number alone is a
++ * number the model can ignore and "creamy bokeh" is not.
++ */
++const APERTURES: Record<string, string> = {
++  "f1.4": "f/1.4, very shallow depth of field and creamy bokeh",
++  "f2.8": "f/2.8, shallow depth of field with a softly blurred background",
++  "f5.6": "f/5.6, the subject sharp and gently separated from its background",
++  f8: "f/8, the whole subject in focus",
++  f16: "f/16, deep focus from front to back",
++};
++
++const LIGHTING: Record<string, string> = {
++  softbox:
++    "Lit by a large softbox key at 45 degrees with a subtle rim light for edge separation",
++  window: "Lit by soft daylight through a window, gentle falloff and natural shadows",
++  "golden-hour": "Lit by low golden-hour sun, long warm shadows and a hint of haze",
++  flash: "Lit by direct flash, hard shadows and a crisp editorial snap",
++  overcast: "Lit by flat overcast daylight, even and almost shadowless",
++  neon: "Lit by coloured neon practicals against deep shadow, with wet-surface reflections",
++};
++
++interface LookPreset {
++  /** What is being photographed and how it sits in frame. */
++  scene: string;
++  /** The grade and finish, appended last so it colours everything above it. */
++  finish: string;
++  /** Gear the preset implies; any of these can be overridden pill by pill. */
++  camera: string;
++  lens: string;
++  aperture: string;
++  lighting: string;
++}
++
++/**
++ * One pill for each shoot a small brand actually books. The gear defaults are
++ * the boring correct answer for that genre — macro at f/8 on a sweep for
++ * packshots, 35mm wide open by a window for lifestyle — so a tenant who only
++ * clicks "Product" still gets a coherent set rather than a slogan.
++ */
++const PRESETS: Record<string, LookPreset> = {
++  product: {
++    scene:
++      "Studio product photograph on a seamless gradient sweep, crisp edges and a subtle contact reflection",
++    finish: "commercial catalogue finish, true-to-life colour, high micro-detail",
++    camera: "medium-format",
++    lens: "macro-100",
++    aperture: "f8",
++    lighting: "softbox",
++  },
++  food: {
++    scene:
++      "Appetising food photograph, close tabletop scene with sparse props and honest crumb-level texture",
++    finish: "fresh and edible-looking, warm neutral colour, no plastic sheen",
++    camera: "mirrorless",
++    lens: "natural-50",
++    aperture: "f2.8",
++    lighting: "window",
++  },
++  fashion: {
++    scene:
++      "Editorial fashion photograph, confident full-length pose with clean negative space around the figure",
++    finish: "magazine-editorial grade, true skin tones, fabric weave still visible",
++    camera: "dslr",
++    lens: "portrait-85",
++    aperture: "f2.8",
++    lighting: "softbox",
++  },
++  lifestyle: {
++    scene:
++      "Candid lifestyle photograph, real people mid-moment in an unstaged everyday setting",
++    finish: "authentic and lightly retouched, natural colour, a little movement left in the frame",
++    camera: "mirrorless",
++    lens: "reportage-35",
++    aperture: "f2.8",
++    lighting: "window",
++  },
++  architecture: {
++    scene:
++      "Architectural photograph with strictly vertical lines and a considered one-point composition",
++    finish: "clean and geometric, corrected perspective, no lens distortion",
++    camera: "dslr",
++    lens: "wide-24",
++    aperture: "f8",
++    lighting: "golden-hour",
++  },
++};
++
++/** The accepted ids, for the schema-drift test and for anything that lists them. */
++export const IMAGE_LOOK_IDS = {
++  preset: Object.keys(PRESETS),
++  camera: Object.keys(CAMERAS),
++  lens: Object.keys(LENSES),
++  aperture: Object.keys(APERTURES),
++  lighting: Object.keys(LIGHTING),
++} as const;
++
++/** `undefined` for a blank/absent id so the `??` chain falls through to the preset. */
++function phrase(table: Record<string, string>, id: string | null | undefined): string | undefined {
++  return id ? table[id] : undefined;
++}
++
++/**
++ * Fold the tenant's brief and their pill choices into one prompt.
++ *
++ * Pills override the preset's gear rather than adding to it, and every axis is
++ * independent: a lens with no preset is still useful direction, so it is still
++ * compiled. With nothing chosen the brief comes back untouched — the whole
++ * feature stays invisible to tenants who never open the Look row.
++ *
++ * The brand kit, taste pass and reference guide are layered on later by
++ * `performImageGeneration`; this only writes the photography.
++ */
++export function compileImagePrompt(
++  userPrompt: string,
++  recipe?: ImagePromptRecipe | null,
++): string {
++  const brief = userPrompt.trim();
++  const preset = recipe?.preset ? PRESETS[recipe.preset] : undefined;
++  const camera = phrase(CAMERAS, recipe?.camera) ?? phrase(CAMERAS, preset?.camera);
++  const lens = phrase(LENSES, recipe?.lens) ?? phrase(LENSES, preset?.lens);
++  const aperture = phrase(APERTURES, recipe?.aperture) ?? phrase(APERTURES, preset?.aperture);
++  const lighting = phrase(LIGHTING, recipe?.lighting) ?? phrase(LIGHTING, preset?.lighting);
++
++  const sentences: string[] = [];
++  if (preset) sentences.push(preset.scene);
++  const gear = [camera && `on ${camera}`, lens && `with ${lens}`, aperture && `at ${aperture}`]
++    .filter(Boolean)
++    .join(" ");
++  if (gear) sentences.push(`Shot ${gear}`);
++  if (lighting) sentences.push(lighting);
++  if (preset) sentences.push(`Overall: ${preset.finish}`);
++  if (sentences.length === 0) return brief;
++
++  const head = brief && !/[.!?]$/.test(brief) ? `${brief}.` : brief;
++  return [head, ...sentences.map((s) => `${s}.`)].filter(Boolean).join(" ");
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index e7922ce..7312fc8 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -323,7 +323,7 @@ function isNarrationVoice(value: string | undefined): value is NarrationVoice {
+ }
+ 
+ function isStockSourceChoice(value: string | undefined): value is StockSourceChoice {
+-  return value === "auto" || value === "pexels" || value === "pixabay";
++  return value === "auto" || value === "pexels" || value === "pixabay" || value === "wikimedia";
+ }
+ 
+ /**
+diff --git a/artifacts/api-server/src/lib/videoGen/preflight.test.ts b/artifacts/api-server/src/lib/videoGen/preflight.test.ts
+index 54e280e..8ac0cf6 100644
+--- a/artifacts/api-server/src/lib/videoGen/preflight.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/preflight.test.ts
+@@ -127,17 +127,36 @@ describe("preflightVideoJob", () => {
+     expect(issue?.message).toContain("stock footage source");
+   });
+ 
+-  it("refuses when every configured stock source is failing", async () => {
++  it("refuses when every stock source, archive included, is failing", async () => {
+     process.env.PEXELS_API_KEY = "test-pexels-key";
+     process.env.PIXABAY_API_KEY = "test-pixabay-key";
+     open("stock:pexels");
+     open("stock:pixabay");
++    open("stock:wikimedia");
+ 
+     const issue = await preflightVideoJob("topic_to_video", options());
+     expect(issue?.status).toBe(503);
+     expect(issue?.message).toContain("stock footage source");
+   });
+ 
++  it("passes on the keyless archive when both keyed libraries are down", async () => {
++    process.env.PEXELS_API_KEY = "test-pexels-key";
++    process.env.PIXABAY_API_KEY = "test-pixabay-key";
++    open("stock:pexels");
++    open("stock:pixabay");
++
++    // Public-domain footage beats a failed video; the runtime walks to it too.
++    expect(await preflightVideoJob("topic_to_video", options())).toBeNull();
++  });
++
++  it("does not let the archive stand in for a missing stock account", async () => {
++    // Commons needs no key, so it is always "configured" — but with no keyed
++    // library at all the operator must still hear about the missing key.
++    const issue = await preflightVideoJob("topic_to_video", options({ stockSource: "auto" }));
++    expect(issue?.status).toBe(400);
++    expect(issue?.message).toContain("Pexels");
++  });
++
+   it("passes when one stock source is still healthy", async () => {
+     process.env.PEXELS_API_KEY = "test-pexels-key";
+     process.env.PIXABAY_API_KEY = "test-pixabay-key";
+diff --git a/artifacts/api-server/src/lib/videoGen/preflight.ts b/artifacts/api-server/src/lib/videoGen/preflight.ts
+index 8354329..fb80d07 100644
+--- a/artifacts/api-server/src/lib/videoGen/preflight.ts
++++ b/artifacts/api-server/src/lib/videoGen/preflight.ts
+@@ -11,7 +11,11 @@ import {
+   isVideoGenProviderConfigured,
+   videoGenHealthKey,
+ } from "./index";
+-import { STOCK_SOURCES, isStockSourceConfigured, stockHealthKey } from "./topicVideo/stockSources";
++import {
++  stockCandidates,
++  stockHealthKey,
++  type StockSourceChoice,
++} from "./topicVideo/stockSources";
+ import { TTS_PROVIDERS, isTtsProviderConfigured, ttsHealthKey } from "./topicVideo/tts";
+ 
+ /**
+@@ -77,14 +81,14 @@ async function imageGenKeys(): Promise<string[]> {
+   return keys;
+ }
+ 
+-async function stockKeys(choice: string): Promise<string[]> {
+-  const keys: string[] = [];
+-  for (const def of STOCK_SOURCES) {
+-    // An explicit source choice is not interchangeable; "auto" tries all.
+-    if (choice !== "auto" && def.id !== choice) continue;
+-    if (await isStockSourceConfigured(def)) keys.push(stockHealthKey(def.id));
+-  }
+-  return keys;
++/**
++ * Exactly the sources the job will really try — the same list `gatherStockClips`
++ * walks, so preflight can neither refuse a job the runtime would have served nor
++ * fund one the runtime will reject for a missing key.
++ */
++async function stockKeys(choice: StockSourceChoice): Promise<string[]> {
++  const sources = await stockCandidates(choice);
++  return sources.map((source) => stockHealthKey(source.def.id));
+ }
+ 
+ async function ttsKeys(): Promise<string[]> {
+@@ -139,7 +143,7 @@ export async function preflightVideoJob(
+ 
+   // 3) Stock footage for a stock-visuals topic video.
+   if (engine === "topic_to_video" && visualsSource === "stock") {
+-    const choice = options?.stockSource ?? "auto";
++    const choice = (options?.stockSource ?? "auto") as StockSourceChoice;
+     const issue = evaluate(
+       await stockKeys(choice),
+       choice === "auto"
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+index 7d9178c..57df951 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+@@ -5,8 +5,9 @@ import { VideoGenProviderError, type VideoAspect } from "../types";
+ import { generateTopicScript } from "./script";
+ import { splitIntoSentences, synthesizeNarration, type NarrationVoice } from "./narration";
+ import {
+-  resolveStockSource,
+-  searchStockClips,
++  stockCandidates,
++  stockNotConfiguredError,
++  collectStockCandidates,
+   downloadStockClip,
+   type StockSourceChoice,
+   type StockClip,
+@@ -53,6 +54,8 @@ export const AI_BROLL_TOTAL_DEADLINE_MS = 15 * 60 * 1000;
+ 
+ /** Distinct stock clips to download; scenes cycle through them. */
+ const MAX_STOCK_CLIPS = 6;
++/** Other stock sources to try when the first one comes back empty. */
++const STOCK_FALLBACK_LIMIT = 2;
+ 
+ export interface TopicVideoParams {
+   tenantId: number;
+@@ -114,33 +117,16 @@ async function gatherStockClips(
+   startedAt: number,
+   ranking: { tenantAiModel: string; topic: string; sceneTexts: string[] } | null,
+ ): Promise<{ clips: Buffer[]; provider: string; sceneToClip: number[] | null }> {
+-  const { def, apiKey } = await resolveStockSource(stockSource);
++  const sources = (await stockCandidates(stockSource)).slice(0, 1 + STOCK_FALLBACK_LIMIT);
++  if (sources.length === 0) throw stockNotConfiguredError(stockSource);
+   const wanted = Math.max(1, Math.min(MAX_STOCK_CLIPS, neededScenes));
+ 
+-  const perTerm: StockClip[][] = [];
+-  for (const term of searchTerms) {
+-    checkDeadline(startedAt);
+-    try {
+-      perTerm.push(await searchStockClips(def, apiKey, term, aspect));
+-    } catch (err) {
+-      logger.warn({ err, term, source: def.id }, "stock search failed for term");
+-      perTerm.push([]);
+-    }
+-  }
+-
+-  // Interleave: first candidate of each term, then second of each, ...
+-  const seenUrls = new Set<string>();
+-  const candidates: StockClip[] = [];
+-  const deepest = Math.max(0, ...perTerm.map((list) => list.length));
+-  for (let depth = 0; depth < deepest; depth++) {
+-    for (const list of perTerm) {
+-      const clip = list[depth];
+-      if (clip && !seenUrls.has(clip.url)) {
+-        seenUrls.add(clip.url);
+-        candidates.push(clip);
+-      }
+-    }
+-  }
++  const { def, clips: candidates } = await collectStockCandidates(
++    sources,
++    searchTerms,
++    aspect,
++    () => checkDeadline(startedAt),
++  );
+   if (candidates.length === 0) {
+     throw new VideoGenProviderError(
+       `No stock footage found on ${def.label} for this topic. Try rephrasing it.`,
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.test.ts
+new file mode 100644
+index 0000000..cae1cab
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.test.ts
+@@ -0,0 +1,401 @@
++import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from "vitest";
++import { like } from "drizzle-orm";
++import { db, appCredentialsTable } from "@workspace/db";
++import { recordProviderFailure, resetProviderHealthForTests } from "../../providerHealth";
++import {
++  STOCK_SOURCES,
++  collectStockCandidates,
++  getStockKeySource,
++  isStockSourceConfigured,
++  searchStockClips,
++  stockCandidates,
++  stockNotConfiguredError,
++} from "./stockSources";
++
++const ENV_KEYS = ["PEXELS_API_KEY", "PIXABAY_API_KEY"] as const;
++const savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
++
++const wikimedia = STOCK_SOURCES.find((s) => s.id === "wikimedia")!;
++
++/** Trip a circuit breaker the way three real consecutive failures would. */
++function open(key: string): void {
++  for (let i = 0; i < 3; i++) recordProviderFailure(key);
++}
++
++function ids(candidates: { def: { id: string } }[]): string[] {
++  return candidates.map((c) => c.def.id);
++}
++
++beforeEach(async () => {
++  resetProviderHealthForTests();
++  for (const key of ENV_KEYS) delete process.env[key];
++  await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "stock_%"));
++});
++
++afterAll(() => {
++  for (const key of ENV_KEYS) {
++    if (savedEnv[key] === undefined) delete process.env[key];
++    else process.env[key] = savedEnv[key];
++  }
++});
++
++// ---------------------------------------------------------------------------
++// Which sources a choice may use
++
++describe("stockCandidates", () => {
++  it("treats the keyless archive as configured but not as a stock account", async () => {
++    expect(await isStockSourceConfigured(wikimedia)).toBe(true);
++    expect(await getStockKeySource(wikimedia)).toBe("builtin");
++    // Nothing keyed is configured, so "auto" has nothing to offer: the operator
++    // should hear "add a Pexels key", not quietly start shipping archive footage.
++    expect(await stockCandidates("auto")).toEqual([]);
++    expect(stockNotConfiguredError("auto").message).toMatch(/Pexels/);
++  });
++
++  it("puts the archive behind the configured library as failover", async () => {
++    process.env.PEXELS_API_KEY = "test-pexels-key";
++    expect(ids(await stockCandidates("auto"))).toEqual(["pexels", "wikimedia"]);
++  });
++
++  it("promotes the archive when every keyed library is failing", async () => {
++    process.env.PEXELS_API_KEY = "test-pexels-key";
++    process.env.PIXABAY_API_KEY = "test-pixabay-key";
++    open("stock:pexels");
++    open("stock:pixabay");
++
++    expect(ids(await stockCandidates("auto"))).toEqual(["wikimedia", "pexels", "pixabay"]);
++  });
++
++  it("keeps a healthy library ahead of the archive", async () => {
++    process.env.PEXELS_API_KEY = "test-pexels-key";
++    process.env.PIXABAY_API_KEY = "test-pixabay-key";
++    open("stock:pexels");
++
++    expect(ids(await stockCandidates("auto"))).toEqual(["pixabay", "wikimedia", "pexels"]);
++  });
++
++  it("honours an explicit archive choice with no keys configured at all", async () => {
++    const candidates = await stockCandidates("wikimedia");
++    expect(ids(candidates)).toEqual(["wikimedia"]);
++    expect(candidates[0]!.apiKey).toBe("");
++  });
++
++  it("does not fall back off an explicit library choice", async () => {
++    process.env.PEXELS_API_KEY = "test-pexels-key";
++    expect(await stockCandidates("pixabay")).toEqual([]);
++  });
++});
++
++// ---------------------------------------------------------------------------
++// Wikimedia Commons search
++
++/** One Commons search hit, formatversion=2 shape. */
++function page(licence: string, extra: Record<string, unknown> = {}) {
++  return {
++    title: "File:Example.webm",
++    videoinfo: [
++      {
++        url: "https://upload.wikimedia.org/example.webm",
++        width: 1920,
++        height: 1080,
++        duration: 12,
++        mime: "video/webm",
++        thumburl: "https://upload.wikimedia.org/thumb.jpg",
++        extmetadata: { License: { value: licence } },
++        derivatives: [
++          { src: "https://upload.wikimedia.org/example.480p.webm", width: 854, height: 480 },
++          { src: "https://upload.wikimedia.org/example.1080p.webm", width: 1920, height: 1080 },
++        ],
++        ...extra,
++      },
++    ],
++  };
++}
++
++function commonsResponse(pages: unknown[]): Response {
++  return new Response(JSON.stringify({ query: { pages } }), { status: 200 });
++}
++
++describe("searchStockClips on Wikimedia Commons", () => {
++  afterEach(() => {
++    vi.unstubAllGlobals();
++  });
++
++  it("accepts public-domain and CC0 files and picks the rendition that covers the frame", async () => {
++    vi.stubGlobal(
++      "fetch",
++      vi.fn(async () => commonsResponse([page("cc0"), page("pd-old-70")])),
++    );
++
++    const clips = await searchStockClips(wikimedia, "", "monsoon street", "9:16");
++    expect(clips).toHaveLength(2);
++    // The 480p transcode is below the 720p floor, so the 1080p one wins.
++    expect(clips[0]!.url).toBe("https://upload.wikimedia.org/example.1080p.webm");
++    expect(clips[0]!.provider).toBe("wikimedia");
++    expect(clips[0]!.durationSec).toBe(12);
++  });
++
++  it("rejects every licence that would attach a condition to the tenant's video", async () => {
++    vi.stubGlobal(
++      "fetch",
++      vi.fn(async () =>
++        commonsResponse([
++          page("cc-by-4.0"),
++          page("cc-by-sa-3.0"),
++          page("attribution"),
++          page("fair use"),
++        ]),
++      ),
++    );
++
++    expect(await searchStockClips(wikimedia, "", "monsoon street", "9:16")).toEqual([]);
++  });
++
++  it("accepts an unambiguous human-readable licence when the code is missing", async () => {
++    vi.stubGlobal(
++      "fetch",
++      vi.fn(async () =>
++        commonsResponse([
++          {
++            ...page("cc0"),
++            videoinfo: [
++              {
++                ...page("cc0").videoinfo[0],
++                extmetadata: { LicenseShortName: { value: "Public domain" } },
++              },
++            ],
++          },
++          {
++            ...page("cc0"),
++            videoinfo: [
++              {
++                ...page("cc0").videoinfo[0],
++                extmetadata: { LicenseShortName: { value: "CC BY-SA 4.0" } },
++              },
++            ],
++          },
++        ]),
++      ),
++    );
++
++    const clips = await searchStockClips(wikimedia, "", "monsoon street", "9:16");
++    expect(clips).toHaveLength(1);
++  });
++
++  it("skips a file with no licence metadata at all", async () => {
++    vi.stubGlobal(
++      "fetch",
++      vi.fn(async () =>
++        commonsResponse([{ ...page("cc0"), videoinfo: [{ ...page("cc0").videoinfo[0], extmetadata: undefined }] }]),
++      ),
++    );
++
++    expect(await searchStockClips(wikimedia, "", "monsoon street", "9:16")).toEqual([]);
++  });
++
++  it("drops clips that are too short or too small to use", async () => {
++    vi.stubGlobal(
++      "fetch",
++      vi.fn(async () =>
++        commonsResponse([
++          page("cc0", { duration: 1 }),
++          page("cc0", {
++            derivatives: [
++              { src: "https://upload.wikimedia.org/tiny.webm", width: 640, height: 360 },
++            ],
++            width: 640,
++            height: 360,
++          }),
++        ]),
++      ),
++    );
++
++    expect(await searchStockClips(wikimedia, "", "monsoon street", "9:16")).toEqual([]);
++  });
++
++  it("retries without the derivatives prop and falls back to the original file", async () => {
++    const fetchMock = vi
++      .fn()
++      .mockResolvedValueOnce(
++        new Response(JSON.stringify({ error: { code: "unknown_viprop", info: "no derivatives" } }), {
++          status: 200,
++        }),
++      )
++      .mockResolvedValueOnce(
++        commonsResponse([{ ...page("cc0"), videoinfo: [{ ...page("cc0").videoinfo[0], derivatives: undefined }] }]),
++      );
++    vi.stubGlobal("fetch", fetchMock);
++
++    const clips = await searchStockClips(wikimedia, "", "monsoon street", "9:16");
++    expect(clips).toHaveLength(1);
++    expect(clips[0]!.url).toBe("https://upload.wikimedia.org/example.webm");
++
++    const first = new URL(fetchMock.mock.calls[0]![0] as string).searchParams;
++    const second = new URL(fetchMock.mock.calls[1]![0] as string).searchParams;
++    expect(first.get("viprop")).toContain("derivatives");
++    expect(second.get("viprop")).not.toContain("derivatives");
++  });
++
++  it("identifies itself and asks only for videos", async () => {
++    const fetchMock = vi.fn(async () => commonsResponse([page("cc0")]));
++    vi.stubGlobal("fetch", fetchMock);
++
++    await searchStockClips(wikimedia, "", "monsoon street", "9:16");
++
++    const [url, init] = fetchMock.mock.calls[0]! as unknown as [string, RequestInit];
++    const params = new URL(url).searchParams;
++    expect(params.get("gsrsearch")).toBe("filetype:video monsoon street");
++    expect(params.get("gsrnamespace")).toBe("6");
++    expect((init.headers as Record<string, string>)["User-Agent"]).toMatch(/^KOKAO\//);
++  });
++
++  it("surfaces an API-level error the retry could not fix", async () => {
++    vi.stubGlobal(
++      "fetch",
++      vi.fn(async () =>
++        new Response(JSON.stringify({ error: { code: "badvalue", info: "bad parameter" } }), {
++          status: 200,
++        }),
++      ),
++    );
++
++    await expect(searchStockClips(wikimedia, "", "monsoon street", "9:16")).rejects.toThrow(
++      /bad parameter/,
++    );
++  });
++
++  it("surfaces an HTTP failure with its status so failover can classify it", async () => {
++    vi.stubGlobal("fetch", vi.fn(async () => new Response("rate limited", { status: 429 })));
++
++    await expect(searchStockClips(wikimedia, "", "monsoon street", "9:16")).rejects.toMatchObject({
++      name: "VideoGenProviderError",
++      status: 429,
++    });
++  });
++});
++
++// ---------------------------------------------------------------------------
++// Walking the sources
++
++const PEXELS_HIT = {
++  videos: [
++    {
++      duration: 9,
++      image: "https://cdn.example/thumb.jpg",
++      video_files: [{ link: "https://cdn.example/hd.mp4", width: 1080, height: 1920 }],
++    },
++  ],
++};
++
++describe("collectStockCandidates", () => {
++  const pexels = STOCK_SOURCES.find((s) => s.id === "pexels")!;
++  const pixabay = STOCK_SOURCES.find((s) => s.id === "pixabay")!;
++
++  afterEach(() => {
++    vi.unstubAllGlobals();
++  });
++
++  it("stops at the first source that has footage", async () => {
++    const fetchMock = vi.fn(async () => new Response(JSON.stringify(PEXELS_HIT), { status: 200 }));
++    vi.stubGlobal("fetch", fetchMock);
++
++    const out = await collectStockCandidates(
++      [
++        { def: pexels, apiKey: "k" },
++        { def: wikimedia, apiKey: "" },
++      ],
++      ["sunrise", "coffee"],
++      "9:16",
++    );
++
++    expect(out.def.id).toBe("pexels");
++    expect(out.clips).toHaveLength(1); // both terms returned the same URL
++    expect(fetchMock).toHaveBeenCalledTimes(2); // Commons was never asked
++  });
++
++  it("falls through to the archive when the library is down", async () => {
++    vi.stubGlobal(
++      "fetch",
++      vi.fn(async (url: string) =>
++        url.startsWith("https://api.pexels.com")
++          ? new Response("upstream unavailable", { status: 503 })
++          : commonsResponse([page("cc0")]),
++      ),
++    );
++
++    const out = await collectStockCandidates(
++      [
++        { def: pexels, apiKey: "k" },
++        { def: wikimedia, apiKey: "" },
++      ],
++      ["monsoon street"],
++      "9:16",
++    );
++
++    expect(out.def.id).toBe("wikimedia");
++    expect(out.clips).toHaveLength(1);
++  });
++
++  it("falls through when a library simply has nothing for the topic", async () => {
++    vi.stubGlobal(
++      "fetch",
++      vi.fn(async (url: string) =>
++        url.startsWith("https://api.pexels.com")
++          ? new Response(JSON.stringify({ videos: [] }), { status: 200 })
++          : commonsResponse([page("cc0")]),
++      ),
++    );
++
++    const out = await collectStockCandidates(
++      [
++        { def: pexels, apiKey: "k" },
++        { def: wikimedia, apiKey: "" },
++      ],
++      ["a topic the big libraries have never heard of"],
++      "9:16",
++    );
++
++    expect(out.def.id).toBe("wikimedia");
++    expect(out.clips).toHaveLength(1);
++  });
++
++  it("reports the last source tried when nothing anywhere has footage", async () => {
++    vi.stubGlobal(
++      "fetch",
++      vi.fn(async () => new Response(JSON.stringify({ videos: [], hits: [] }), { status: 200 })),
++    );
++
++    const out = await collectStockCandidates(
++      [
++        { def: pexels, apiKey: "k" },
++        { def: pixabay, apiKey: "k" },
++      ],
++      ["nothing"],
++      "9:16",
++    );
++
++    expect(out.clips).toEqual([]);
++    expect(out.def.id).toBe("pixabay");
++  });
++
++  it("does not substitute anything for an explicit one-source choice", async () => {
++    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ hits: [] }), { status: 200 }));
++    vi.stubGlobal("fetch", fetchMock);
++
++    const out = await collectStockCandidates([{ def: pixabay, apiKey: "k" }], ["sunrise"], "9:16");
++
++    expect(out.clips).toEqual([]);
++    expect(fetchMock).toHaveBeenCalledTimes(1);
++  });
++
++  it("enforces the job deadline before every search", async () => {
++    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ videos: [] }), { status: 200 })));
++    const onTick = vi.fn(() => {
++      throw new Error("deadline exceeded");
++    });
++
++    await expect(
++      collectStockCandidates([{ def: pexels, apiKey: "k" }], ["sunrise"], "9:16", onTick),
++    ).rejects.toThrow("deadline exceeded");
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts
+index a071f20..85282e2 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts
+@@ -5,6 +5,7 @@ import {
+   recordProviderFailure,
+   recordProviderSuccess,
+ } from "../../providerHealth";
++import { logger } from "../../logger";
+ import { encryptJson, decryptJson } from "../../secretCrypto";
+ import { assertPublicHost } from "../../webFetch";
+ import {
+@@ -27,19 +28,25 @@ import {
+  * compositor scales and center-crops to the target aspect.
+  */
+ 
+-export type StockSourceId = "pexels" | "pixabay";
+-/** "auto" = first configured source, Pexels preferred. */
++export type StockSourceId = "pexels" | "pixabay" | "wikimedia";
++/** "auto" = healthiest configured source, keyed libraries preferred. */
+ export type StockSourceChoice = StockSourceId | "auto";
+ 
+ export interface StockSourceDef {
+   id: StockSourceId;
+   label: string;
+-  envKey: string;
++  /**
++   * Secret name holding the API key, or null for a source that needs no
++   * credential at all. Keyless sources are public, license-filtered archives:
++   * always "configured", but only reachable as failover (see stockCandidates).
++   */
++  envKey: string | null;
+ }
+ 
+ export const STOCK_SOURCES: readonly StockSourceDef[] = [
+   { id: "pexels", label: "Pexels", envKey: "PEXELS_API_KEY" },
+   { id: "pixabay", label: "Pixabay", envKey: "PIXABAY_API_KEY" },
++  { id: "wikimedia", label: "Wikimedia Commons", envKey: null },
+ ] as const;
+ 
+ export function getStockSourceDef(id: string): StockSourceDef | undefined {
+@@ -92,17 +99,20 @@ export async function clearStoredStockKey(sourceId: string): Promise<void> {
+     .where(eq(appCredentialsTable.provider, stockCredentialProvider(sourceId)));
+ }
+ 
+-export type StockKeySource = "database" | "env" | null;
++export type StockKeySource = "database" | "env" | "builtin" | null;
+ 
+ /** Where the effective key comes from: admin-entered DB key wins, env is fallback. */
+ export async function getStockKeySource(def: StockSourceDef): Promise<StockKeySource> {
++  if (def.envKey === null) return "builtin";
+   if (await getStoredStockKey(def.id)) return "database";
+   if (process.env[def.envKey]) return "env";
+   return null;
+ }
+ 
+-/** The effective API key for a source (DB first, then env), or null. */
++/** The effective API key for a source (DB first, then env), or null.
++ * A keyless source resolves to "" — configured, with nothing to send. */
+ export async function resolveStockApiKey(def: StockSourceDef): Promise<string | null> {
++  if (def.envKey === null) return "";
+   const stored = await getStoredStockKey(def.id);
+   if (stored) return stored;
+   return process.env[def.envKey] ?? null;
+@@ -116,21 +126,51 @@ export function stockHealthKey(id: StockSourceId): string {
+   return `stock:${id}`;
+ }
+ 
+-/** Resolve "auto" to the first configured source; validate explicit choices.
+- * In "auto" mode a source whose circuit breaker is open (recent consecutive
+- * 429/5xx) is deprioritized so jobs land on the source that's actually up. */
+-export async function resolveStockSource(
++/**
++ * Every source this choice may legitimately use, best first.
++ *
++ * For an explicit choice that is just the one source. For "auto" it is the
++ * configured keyed libraries, healthiest first (a source whose circuit breaker
++ * is open — recent consecutive 429/5xx — is deprioritized so jobs land on
++ * whatever is actually up), and then the keyless public-domain archives as
++ * failover behind them.
++ *
++ * The archives are deliberately NOT a substitute for a stock account: they are
++ * appended only once at least one keyed library is configured. A deployment
++ * with no stock key at all should hear "add a Pexels key", not quietly start
++ * shipping museum footage. But when Pexels and Pixabay are both down mid-job,
++ * Commons is a far better answer than a failed video.
++ */
++export async function stockCandidates(
+   choice: StockSourceChoice,
+-): Promise<{ def: StockSourceDef; apiKey: string }> {
+-  const candidates =
+-    choice === "auto"
+-      ? orderByHealth([...STOCK_SOURCES], (s) => stockHealthKey(s.id))
+-      : STOCK_SOURCES.filter((s) => s.id === choice);
+-  for (const def of candidates) {
++): Promise<{ def: StockSourceDef; apiKey: string }[]> {
++  if (choice !== "auto") {
++    const def = STOCK_SOURCES.find((s) => s.id === choice);
++    if (!def) return [];
+     const apiKey = await resolveStockApiKey(def);
+-    if (apiKey) return { def, apiKey };
++    return apiKey === null ? [] : [{ def, apiKey }];
+   }
+-  throw new VideoGenNotConfiguredError(
++
++  const keyed: { def: StockSourceDef; apiKey: string }[] = [];
++  for (const def of STOCK_SOURCES) {
++    if (def.envKey === null) continue;
++    const apiKey = await resolveStockApiKey(def);
++    if (apiKey !== null) keyed.push({ def, apiKey });
++  }
++  if (keyed.length === 0) return [];
++
++  const keyless = STOCK_SOURCES.filter((s) => s.envKey === null).map((def) => ({
++    def,
++    apiKey: "",
++  }));
++  // Health ordering spans both groups, so a healthy archive beats a broken
++  // Pexels while a healthy Pexels still wins outright.
++  return orderByHealth([...keyed, ...keyless], (c) => stockHealthKey(c.def.id));
++}
++
++/** What to tell the tenant when a choice has no usable source at all. */
++export function stockNotConfiguredError(choice: StockSourceChoice): VideoGenNotConfiguredError {
++  return new VideoGenNotConfiguredError(
+     choice === "auto"
+       ? "No stock footage source is configured. Add a Pexels or Pixabay API key " +
+         "(free at pexels.com/api or pixabay.com/api/docs) in the admin settings, " +
+@@ -272,6 +312,193 @@ async function searchPixabay(
+   return clips;
+ }
+ 
++/**
++ * Wikimedia Commons — a keyless, license-filtered archive.
++ *
++ * Commons is the deepest free source of regional footage (Indian streets,
++ * festivals, wildlife, archival film) where Pexels is thin. It is also a mixed
++ * licence pool, so the filter below is the whole point of this integration:
++ * only PUBLIC DOMAIN and CC0 files are accepted.
++ *
++ * CC BY and CC BY-SA are excluded on purpose. BY needs a credit KOKAO has
++ * nowhere to put inside a tenant's published post, and SA would arguably
++ * push its share-alike terms onto the finished video — a licence obligation
++ * we must not hand a paying customer by accident. Public domain and CC0 carry
++ * neither, so an accepted clip is unconditionally safe to composite.
++ *
++ * lessismore: no per-clip licence field on StockClip — the filter IS the audit
++ * trail. Nothing that reaches a video needs attribution, so there is nothing
++ * per-clip to record.
++ */
++const WIKIMEDIA_API = "https://commons.wikimedia.org/w/api.php";
++
++/** Commons asks every API client to identify itself; anonymous UAs are blocked. */
++const WIKIMEDIA_USER_AGENT =
++  "KOKAO/1.0 (social marketing video generator; https://github.com/Abhilashkoka/KOKAO)";
++
++/** Transcoded renditions come from `derivatives`, which only TimedMediaHandler
++ * serves. If this wiki rejects the prop we retry without it and fall back to
++ * the original file. */
++const WIKIMEDIA_VIPROPS = "url|size|dimensions|mime|extmetadata|derivatives";
++const WIKIMEDIA_VIPROPS_BASIC = "url|size|dimensions|mime|extmetadata";
++
++/**
++ * Licence codes that impose no condition on the finished video. Commons
++ * reports codes like "cc0", "pd", "pd-old-70", "pdm-owner"; anything else
++ * ("cc-by-4.0", "cc-by-sa-3.0", "attribution", "fair use") is rejected.
++ */
++const UNCONDITIONAL_LICENCES = ["cc0", "cc-zero", "pd", "pdm"];
++
++function isUnconditionalLicence(extmetadata: WikimediaExtMetadata | undefined): boolean {
++  const code = extmetadata?.License?.value?.toLowerCase().trim();
++  if (code) {
++    return UNCONDITIONAL_LICENCES.some((ok) => code === ok || code.startsWith(`${ok}-`));
++  }
++  // No machine-readable code: accept only an unambiguous human-readable one.
++  const short = extmetadata?.LicenseShortName?.value?.toLowerCase() ?? "";
++  return short.includes("public domain") || short.startsWith("cc0");
++}
++
++interface WikimediaExtMetadata {
++  License?: { value?: string };
++  LicenseShortName?: { value?: string };
++}
++
++interface WikimediaVideoInfo {
++  url?: string;
++  width?: number;
++  height?: number;
++  duration?: number;
++  mime?: string;
++  thumburl?: string;
++  extmetadata?: WikimediaExtMetadata;
++  derivatives?: { src?: string; width?: number; height?: number; type?: string }[];
++}
++
++interface WikimediaResponse {
++  error?: { code?: string; info?: string };
++  query?: { pages?: { title?: string; videoinfo?: WikimediaVideoInfo[] }[] };
++}
++
++async function queryWikimedia(term: string, viprop: string): Promise<WikimediaResponse> {
++  const params = new URLSearchParams({
++    action: "query",
++    format: "json",
++    formatversion: "2",
++    generator: "search",
++    gsrsearch: `filetype:video ${term}`,
++    gsrnamespace: "6",
++    gsrlimit: "20",
++    prop: "videoinfo",
++    viprop,
++    viurlwidth: "640",
++  });
++  const res = await videoGenFetch(`${WIKIMEDIA_API}?${params}`, {
++    headers: { "User-Agent": WIKIMEDIA_USER_AGENT, Accept: "application/json" },
++  });
++  if (!res.ok) {
++    throw new VideoGenProviderError(
++      `Wikimedia Commons search failed (${res.status}): ${await errorDetail(res)}`,
++      res.status,
++    );
++  }
++  return (await res.json()) as WikimediaResponse;
++}
++
++async function searchWikimedia(term: string, aspect: VideoAspect): Promise<StockClip[]> {
++  let data = await queryWikimedia(term, WIKIMEDIA_VIPROPS);
++  if (data.error) {
++    data = await queryWikimedia(term, WIKIMEDIA_VIPROPS_BASIC);
++  }
++  if (data.error) {
++    throw new VideoGenProviderError(
++      `Wikimedia Commons search failed: ${data.error.info ?? data.error.code ?? "unknown error"}`,
++    );
++  }
++
++  const clips: StockClip[] = [];
++  for (const page of data.query?.pages ?? []) {
++    const info = page.videoinfo?.[0];
++    if (!info?.url || !info.duration || info.duration < MIN_CLIP_DURATION_SEC) continue;
++    if (!isUnconditionalLicence(info.extmetadata)) continue;
++
++    // Transcodes when the wiki offers them, else the original upload.
++    const renditions = (info.derivatives ?? [])
++      .filter((d) => d.src && d.width && d.height)
++      .map((d) => ({ url: d.src!, width: d.width!, height: d.height! }));
++    if (renditions.length === 0 && info.width && info.height) {
++      renditions.push({ url: info.url, width: info.width, height: info.height });
++    }
++    const rendition = pickRendition(renditions, aspect);
++    if (!rendition) continue;
++
++    clips.push({
++      url: rendition.url,
++      durationSec: info.duration,
++      width: rendition.width,
++      height: rendition.height,
++      provider: "wikimedia",
++      thumbnailUrl: typeof info.thumburl === "string" && info.thumburl ? info.thumburl : null,
++    });
++  }
++  return clips;
++}
++
++/**
++ * Search every term on each source in turn and stop at the first source that
++ * actually has footage, returning its interleaved candidates (first hit of each
++ * term, then second of each, ...) deduplicated by URL.
++ *
++ * A source contributes nothing either because it is down (every term threw) or
++ * because it simply has no clips for this topic. From here those are the same
++ * problem and the next source is the answer to both, so failover is on empty
++ * results rather than on errors alone. An explicit source choice arrives here as
++ * a one-element list, so it still fails loudly instead of quietly substituting a
++ * different library.
++ *
++ * `onTick` runs before every search call — the caller uses it to enforce the
++ * job's wall-clock deadline.
++ */
++export async function collectStockCandidates(
++  sources: { def: StockSourceDef; apiKey: string }[],
++  terms: string[],
++  aspect: VideoAspect,
++  onTick?: () => void,
++): Promise<{ def: StockSourceDef; clips: StockClip[] }> {
++  let lastDef = sources[0]!.def;
++  for (const { def, apiKey } of sources) {
++    lastDef = def;
++    const perTerm: StockClip[][] = [];
++    for (const term of terms) {
++      onTick?.();
++      try {
++        perTerm.push(await searchStockClips(def, apiKey, term, aspect));
++      } catch (err) {
++        logger.warn({ err, term, source: def.id }, "stock search failed for term");
++        perTerm.push([]);
++      }
++    }
++
++    const seenUrls = new Set<string>();
++    const clips: StockClip[] = [];
++    const deepest = Math.max(0, ...perTerm.map((list) => list.length));
++    for (let depth = 0; depth < deepest; depth++) {
++      for (const list of perTerm) {
++        const clip = list[depth];
++        if (clip && !seenUrls.has(clip.url)) {
++          seenUrls.add(clip.url);
++          clips.push(clip);
++        }
++      }
++    }
++    if (clips.length > 0) return { def, clips };
++    if (sources.length > 1) {
++      logger.warn({ source: def.id }, "stock source returned no candidates; trying the next");
++    }
++  }
++  return { def: lastDef, clips: [] };
++}
++
+ export async function searchStockClips(
+   def: StockSourceDef,
+   apiKey: string,
+@@ -283,7 +510,9 @@ export async function searchStockClips(
+     const clips =
+       def.id === "pexels"
+         ? await searchPexels(term, aspect, apiKey)
+-        : await searchPixabay(term, aspect, apiKey);
++        : def.id === "pixabay"
++          ? await searchPixabay(term, aspect, apiKey)
++          : await searchWikimedia(term, aspect);
+     recordProviderSuccess(key);
+     return clips;
+   } catch (error) {
+diff --git a/artifacts/api-server/src/routes/ai.ts b/artifacts/api-server/src/routes/ai.ts
+index 3bf2146..3e5c4fb 100644
+--- a/artifacts/api-server/src/routes/ai.ts
++++ b/artifacts/api-server/src/routes/ai.ts
+@@ -8,6 +8,7 @@ import {
+   ImageGenNotConfiguredError,
+   ImageGenProviderError,
+ } from "../lib/imageGen";
++import { compileImagePrompt } from "../lib/imageGen/promptCompiler";
+ import {
+   GenerateCaptionBody,
+   GenerateHooksBody,
+@@ -665,7 +666,7 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
+     const outcome = await performImageGeneration({
+       tenantId: req.tenantId,
+       tenant,
+-      userPrompt: parsed.data.prompt,
++      userPrompt: compileImagePrompt(parsed.data.prompt, parsed.data.promptRecipe),
+       size,
+       brandKitId: parsed.data.brandKitId ?? null,
+       referenceImage,
+diff --git a/artifacts/api-server/src/routes/imageJobs.cancel.test.ts b/artifacts/api-server/src/routes/imageJobs.cancel.test.ts
+index fc31e92..bf63dff 100644
+--- a/artifacts/api-server/src/routes/imageJobs.cancel.test.ts
++++ b/artifacts/api-server/src/routes/imageJobs.cancel.test.ts
+@@ -26,7 +26,7 @@ vi.mock("@clerk/express", async () => {
+   };
+ });
+ 
+-// The runner is exercised elsewhere; cancel tests only need the row states.
++// The runner is exercised elsewhere; these tests only need the row states.
+ vi.mock("../lib/imageJobs", () => ({
+   runImageGenerationJob: vi.fn(async () => {}),
+ }));
+@@ -153,6 +153,39 @@ describe("POST /ai/image-jobs/:jobId/cancel", () => {
+     expect(res.status).toBe(409);
+   });
+ 
++  it("stores the compiled prompt, not the brief plus a recipe", async () => {
++    // The gallery replays whatever is in this column, so the photographic
++    // direction has to be baked in before the row is written.
++    const tenant = await newTenant();
++    actAs(tenant.clerkUserId);
++
++    const res = await request(app)
++      .post("/api/ai/generate-image-async")
++      .send({ prompt: "A tin of espresso blend", promptRecipe: { preset: "product" } });
++    expect(res.status).toBe(201);
++    createdJobIds.push(res.body.id);
++
++    expect(res.body.prompt).toContain("A tin of espresso blend.");
++    expect(res.body.prompt).toContain("100mm macro lens at f/8");
++    const row = (
++      await db
++        .select()
++        .from(imageGenerationsTable)
++        .where(eq(imageGenerationsTable.id, res.body.id))
++    )[0];
++    expect(row.prompt).toBe(res.body.prompt);
++  });
++
++  it("rejects a look id that is not in the vocabulary", async () => {
++    const tenant = await newTenant();
++    actAs(tenant.clerkUserId);
++
++    const res = await request(app)
++      .post("/api/ai/generate-image-async")
++      .send({ prompt: "A tin of espresso blend", promptRecipe: { camera: "hasselblad-907x" } });
++    expect(res.status).toBe(400);
++  });
++
+   it("404s on another tenant's job", async () => {
+     const owner = await newTenant();
+     const stranger = await newTenant();
+diff --git a/artifacts/api-server/src/routes/imageJobs.ts b/artifacts/api-server/src/routes/imageJobs.ts
+index 78ce585..d470435 100644
+--- a/artifacts/api-server/src/routes/imageJobs.ts
++++ b/artifacts/api-server/src/routes/imageJobs.ts
+@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
+ import { db, tenantsTable, imageGenerationsTable, type ImageGeneration } from "@workspace/db";
+ import { and, eq, desc } from "drizzle-orm";
+ import { GenerateImageAsyncBody } from "@workspace/api-zod";
++import { compileImagePrompt } from "../lib/imageGen/promptCompiler";
+ import { getPlanLimits } from "../lib/plans";
+ import { getUsage } from "../lib/usage";
+ import { spendCredit, refundCredits } from "../lib/credits";
+@@ -93,7 +94,10 @@ router.post("/ai/generate-image-async", async (req: Request, res: Response) => {
+         tenantId: req.tenantId,
+         status: "queued",
+         funding,
+-        prompt: body.prompt,
++        // Compiled here, not in the runner: the stored prompt is what the
++        // gallery shows and what a re-run sends back, so it has to be the
++        // finished text rather than a brief plus a recipe the runner ate.
++        prompt: compileImagePrompt(body.prompt, body.promptRecipe),
+         size: body.size ?? "1024x1024",
+         brandKitId: body.brandKitId ?? null,
+         referenceImagePath: body.referenceImagePath ?? null,
+diff --git a/artifacts/socialforge/src/pages/admin/ai-tab.tsx b/artifacts/socialforge/src/pages/admin/ai-tab.tsx
+index a3489e2..93f1a4e 100644
+--- a/artifacts/socialforge/src/pages/admin/ai-tab.tsx
++++ b/artifacts/socialforge/src/pages/admin/ai-tab.tsx
+@@ -660,6 +660,7 @@ function StockSourcesCard() {
+           API keys for the stock video libraries used by the Topic to Video
+           engine. Free keys are available from both providers; configuring
+           either one is enough (Pexels is preferred when both are set).
++          Wikimedia Commons needs no key and backs them up.
+         </CardDescription>
+       </CardHeader>
+       <CardContent className="space-y-3">
+@@ -671,7 +672,9 @@ function StockSourcesCard() {
+               <div className="flex items-center justify-between gap-3">
+                 <div className="flex items-center gap-2">
+                   <p className="text-sm font-medium">{source.label}</p>
+-                  {source.configured ? (
++                  {source.keySource === "builtin" ? (
++                    <Badge variant="outline">No key needed</Badge>
++                  ) : source.configured ? (
+                     <Badge variant="secondary">Ready</Badge>
+                   ) : (
+                     <Badge variant="destructive">Needs key</Badge>
+@@ -695,7 +698,13 @@ function StockSourcesCard() {
+                   </Button>
+                 )}
+               </div>
+-              {source.keySource === "database" ? (
++              {source.keySource === "builtin" ? (
++                <p className="text-sm text-muted-foreground">
++                  Public domain and CC0 clips only — no account, no attribution.
++                  Used when the keyed libraries are down or have nothing for a
++                  topic, not instead of them.
++                </p>
++              ) : source.keySource === "database" ? (
+                 <div className="flex items-center gap-3">
+                   <p className="text-sm text-muted-foreground">
+                     A key is saved (stored encrypted, never shown). Enter a new
+@@ -721,27 +730,29 @@ function StockSourcesCard() {
+                   No key set. Paste the provider's API key to enable it.
+                 </p>
+               )}
+-              <div className="flex items-center gap-2">
+-                <Input
+-                  type="password"
+-                  autoComplete="off"
+-                  placeholder="Paste API key"
+-                  value={keyInputs[source.id] ?? ""}
+-                  onChange={(e) =>
+-                    setKeyInputs((prev) => ({ ...prev, [source.id]: e.target.value }))
+-                  }
+-                  className="w-72"
+-                  data-testid={`input-stock-key-${source.id}`}
+-                />
+-                <Button
+-                  size="sm"
+-                  onClick={() => handleSaveKey(source.id)}
+-                  disabled={setKey.isPending || !(keyInputs[source.id] ?? "").trim()}
+-                  data-testid={`button-save-stock-key-${source.id}`}
+-                >
+-                  {setKey.isPending ? "Saving..." : "Save key"}
+-                </Button>
+-              </div>
++              {source.keySource !== "builtin" && (
++                <div className="flex items-center gap-2">
++                  <Input
++                    type="password"
++                    autoComplete="off"
++                    placeholder="Paste API key"
++                    value={keyInputs[source.id] ?? ""}
++                    onChange={(e) =>
++                      setKeyInputs((prev) => ({ ...prev, [source.id]: e.target.value }))
++                    }
++                    className="w-72"
++                    data-testid={`input-stock-key-${source.id}`}
++                  />
++                  <Button
++                    size="sm"
++                    onClick={() => handleSaveKey(source.id)}
++                    disabled={setKey.isPending || !(keyInputs[source.id] ?? "").trim()}
++                    data-testid={`button-save-stock-key-${source.id}`}
++                  >
++                    {setKey.isPending ? "Saving..." : "Save key"}
++                  </Button>
++                </div>
++              )}
+             </div>
+           ))
+         )}
+diff --git a/artifacts/socialforge/src/pages/studio.test.tsx b/artifacts/socialforge/src/pages/studio.test.tsx
+index 2deb587..ed7075e 100644
+--- a/artifacts/socialforge/src/pages/studio.test.tsx
++++ b/artifacts/socialforge/src/pages/studio.test.tsx
+@@ -517,6 +517,68 @@ describe("Studio campaign platform toggles gated by connection status", () => {
+   });
+ });
+ 
++describe("Studio Look pills", () => {
++  it("sends no recipe when nothing is picked", async () => {
++    await generateImage();
++    expect(mockState.lastImageVars.data.promptRecipe).toBeUndefined();
++  });
++
++  it("sends the picked preset and drops it again when unpicked", async () => {
++    const user = userEvent.setup();
++    renderPage();
++    fireEvent.change(screen.getByLabelText("Prompt"), {
++      target: { value: "A prompt long enough to pass validation" },
++    });
++
++    await user.click(screen.getByTestId("toggle-look-product"));
++    fireEvent.click(screen.getByTestId("button-generate-image"));
++    await waitFor(() =>
++      expect(mockState.lastImageVars.data.promptRecipe).toEqual({ preset: "product" }),
++    );
++
++    // Radix single toggles deselect on a second click; the request has to
++    // follow, or a tenant can never get back to an unstyled image.
++    await user.click(screen.getByTestId("toggle-look-product"));
++    fireEvent.click(screen.getByTestId("button-generate-image"));
++    await waitFor(() =>
++      expect(mockState.lastImageVars.data.promptRecipe).toBeUndefined(),
++    );
++  });
++
++  it("sends a camera override alongside the preset", async () => {
++    const user = userEvent.setup();
++    renderPage();
++    fireEvent.change(screen.getByLabelText("Prompt"), {
++      target: { value: "A prompt long enough to pass validation" },
++    });
++
++    await user.click(screen.getByTestId("toggle-look-food"));
++    await user.click(screen.getByTestId("button-toggle-look-gear"));
++    await user.click(screen.getByTestId("select-look-aperture"));
++    await user.click(screen.getByRole("option", { name: /f\/1\.4/ }));
++
++    fireEvent.click(screen.getByTestId("button-generate-image"));
++    await waitFor(() =>
++      expect(mockState.lastImageVars.data.promptRecipe).toEqual({
++        preset: "food",
++        aperture: "f1.4",
++      }),
++    );
++  });
++
++  it("counts set overrides on the collapsed details toggle", async () => {
++    const user = userEvent.setup();
++    renderPage();
++    await user.click(screen.getByTestId("button-toggle-look-gear"));
++    await user.click(screen.getByTestId("select-look-lighting"));
++    await user.click(screen.getByRole("option", { name: "Neon" }));
++    await user.click(screen.getByTestId("button-toggle-look-gear"));
++    expect(screen.getByTestId("button-toggle-look-gear").textContent).toBe(
++      "Camera details (1)",
++    );
++  });
++});
++
+ describe("Studio image buttons when the monthly image quota is exhausted", () => {
+   it("disables the Image button with a plan-limit hint when quota and credits are both zero", () => {
+     mockState.me = {
+diff --git a/artifacts/socialforge/src/pages/studio.tsx b/artifacts/socialforge/src/pages/studio.tsx
+index 19274c2..3762230 100644
+--- a/artifacts/socialforge/src/pages/studio.tsx
++++ b/artifacts/socialforge/src/pages/studio.tsx
+@@ -40,6 +40,12 @@ import {
+   type CaptionResult as CaptionResultType,
+   type CampaignResult as CampaignResultType,
+   type ImageRequest,
++  type ImagePromptRecipe,
++  type ImagePromptRecipePreset,
++  type ImagePromptRecipeCamera,
++  type ImagePromptRecipeLens,
++  type ImagePromptRecipeAperture,
++  type ImagePromptRecipeLighting,
+   type PlatformPackItem,
+ } from "@workspace/api-client-react";
+ import { streamCaptionRequest } from "@/lib/captionStream";
+@@ -58,7 +64,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+ import { useToast } from "@/hooks/use-toast";
+ import { ToastAction } from "@/components/ui/toast";
+-import { Wand2, Image as ImageIcon, Save, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd, Clapperboard, CalendarClock } from "lucide-react";
++import { Wand2, Image as ImageIcon, Save, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd, Clapperboard, CalendarClock, Camera } from "lucide-react";
+ import { VideoStudioPage } from "@/pages/video-studio";
+ import { navigate } from "wouter/use-browser-location";
+ import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
+@@ -114,6 +120,58 @@ const PLATFORM_IMAGE_SIZE: Record<string, "1024x1024" | "1536x1024" | "1024x1536
+   twitter: "1536x1024",
+ };
+ 
++// Look pills. The server owns the photographic wording; these are only the
++// short labels for it, and each map is keyed by the generated union, so adding
++// an id to the OpenAPI enum without labelling it here is a build error rather
++// than a pill that quietly never appears.
++const LOOK_PRESETS: Record<ImagePromptRecipePreset, string> = {
++  product: "Product",
++  food: "Food",
++  fashion: "Fashion",
++  lifestyle: "Lifestyle",
++  architecture: "Architecture",
++};
++const LOOK_CAMERAS: Record<ImagePromptRecipeCamera, string> = {
++  phone: "Phone",
++  mirrorless: "Mirrorless",
++  dslr: "DSLR",
++  "medium-format": "Medium format",
++  film35: "35mm film",
++};
++const LOOK_LENSES: Record<ImagePromptRecipeLens, string> = {
++  "wide-24": "24mm wide",
++  "reportage-35": "35mm",
++  "natural-50": "50mm",
++  "portrait-85": "85mm portrait",
++  "macro-100": "100mm macro",
++  "tele-135": "135mm tele",
++};
++const LOOK_APERTURES: Record<ImagePromptRecipeAperture, string> = {
++  "f1.4": "f/1.4 · dreamy blur",
++  "f2.8": "f/2.8 · soft blur",
++  "f5.6": "f/5.6 · balanced",
++  f8: "f/8 · all sharp",
++  f16: "f/16 · deep focus",
++};
++const LOOK_LIGHTING: Record<ImagePromptRecipeLighting, string> = {
++  softbox: "Softbox",
++  window: "Window light",
++  "golden-hour": "Golden hour",
++  flash: "Direct flash",
++  overcast: "Overcast",
++  neon: "Neon",
++};
++
++/** "auto" means "leave it to the preset", so it is never sent to the server. */
++const LOOK_AUTO = "auto";
++
++const LOOK_GEAR_AXES = [
++  { key: "camera", label: "Camera", options: LOOK_CAMERAS as Record<string, string> },
++  { key: "lens", label: "Lens", options: LOOK_LENSES as Record<string, string> },
++  { key: "aperture", label: "Depth of field", options: LOOK_APERTURES as Record<string, string> },
++  { key: "lighting", label: "Lighting", options: LOOK_LIGHTING as Record<string, string> },
++] as const;
++
+ const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+ 
+ function kitSwatches(kit: BrandKit, max = 4): string[] {
+@@ -424,6 +482,31 @@ function ImageStudio() {
+   const [referenceUploading, setReferenceUploading] = useState(false);
+   const [savedPickerOpen, setSavedPickerOpen] = useState(false);
+ 
++  // Look: a genre pill plus optional camera overrides. Deliberately not saved
++  // with the draft — it is a choice about this shot, not about this brief.
++  const [lookPreset, setLookPreset] = useState<string>("");
++  const [lookGearOpen, setLookGearOpen] = useState(false);
++  const [lookGear, setLookGear] = useState({
++    camera: LOOK_AUTO,
++    lens: LOOK_AUTO,
++    aperture: LOOK_AUTO,
++    lighting: LOOK_AUTO,
++  });
++  const lookGearSet = Object.values(lookGear).filter((v) => v !== LOOK_AUTO).length;
++
++  /** undefined when nothing is chosen, so the request looks exactly as it used to. */
++  const buildPromptRecipe = (): ImagePromptRecipe | undefined => {
++    const recipe: ImagePromptRecipe = {};
++    if (lookPreset) recipe.preset = lookPreset as ImagePromptRecipePreset;
++    if (lookGear.camera !== LOOK_AUTO) recipe.camera = lookGear.camera as ImagePromptRecipeCamera;
++    if (lookGear.lens !== LOOK_AUTO) recipe.lens = lookGear.lens as ImagePromptRecipeLens;
++    if (lookGear.aperture !== LOOK_AUTO)
++      recipe.aperture = lookGear.aperture as ImagePromptRecipeAperture;
++    if (lookGear.lighting !== LOOK_AUTO)
++      recipe.lighting = lookGear.lighting as ImagePromptRecipeLighting;
++    return Object.keys(recipe).length > 0 ? recipe : undefined;
++  };
++
+   const clearReferenceImage = () => {
+     setReferenceImagePath(null);
+     setReferencePreview((prev) => {
+@@ -1050,6 +1133,7 @@ function ImageStudio() {
+       : "";
+     const body: ImageRequest = {
+       prompt: `${data.prompt.trim()}${tweakInstruction}`,
++      promptRecipe: buildPromptRecipe(),
+       size: activeImageSize,
+       brandKitId: data.brandKitId || undefined,
+       referenceImagePath:
+@@ -2060,6 +2144,80 @@ function ImageStudio() {
+                     </div>
+                   )}
+ 
++                  <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
++                    <div className="flex items-center gap-2 text-sm font-medium">
++                      <Camera className="h-4 w-4" /> Look
++                    </div>
++                    <p className="text-xs text-muted-foreground">
++                      Optional, images only. Picks the shoot so the model gets real
++                      photographic direction instead of adjectives.
++                    </p>
++                    <ToggleGroup
++                      type="single"
++                      variant="outline"
++                      value={lookPreset}
++                      onValueChange={setLookPreset}
++                      className="flex flex-wrap justify-start gap-2"
++                    >
++                      {(Object.keys(LOOK_PRESETS) as ImagePromptRecipePreset[]).map((id) => (
++                        <ToggleGroupItem
++                          key={id}
++                          value={id}
++                          data-testid={`toggle-look-${id}`}
++                          className="text-xs px-3 cursor-pointer border-foreground/25 text-foreground shadow-sm hover:border-foreground/40 hover:bg-accent hover:text-accent-foreground data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90 data-[state=on]:hover:text-primary-foreground"
++                        >
++                          {LOOK_PRESETS[id]}
++                        </ToggleGroupItem>
++                      ))}
++                    </ToggleGroup>
++                    <button
++                      type="button"
++                      onClick={() => setLookGearOpen((open) => !open)}
++                      className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
++                      data-testid="button-toggle-look-gear"
++                    >
++                      {lookGearOpen
++                        ? "Hide camera details"
++                        : `Camera details${lookGearSet > 0 ? ` (${lookGearSet})` : ""}`}
++                    </button>
++                    {lookGearOpen && (
++                      <div className="grid grid-cols-2 gap-2 pt-1">
++                        {LOOK_GEAR_AXES.map((axis) => (
++                          <div key={axis.key} className="space-y-1">
++                            <Label
++                              htmlFor={`look-${axis.key}`}
++                              className="text-xs text-muted-foreground"
++                            >
++                              {axis.label}
++                            </Label>
++                            <Select
++                              value={lookGear[axis.key]}
++                              onValueChange={(value) =>
++                                setLookGear((prev) => ({ ...prev, [axis.key]: value }))
++                              }
++                            >
++                              <SelectTrigger
++                                id={`look-${axis.key}`}
++                                className="h-8 text-xs"
++                                data-testid={`select-look-${axis.key}`}
++                              >
++                                <SelectValue />
++                              </SelectTrigger>
++                              <SelectContent>
++                                <SelectItem value={LOOK_AUTO}>Auto</SelectItem>
++                                {Object.entries(axis.options).map(([id, label]) => (
++                                  <SelectItem key={id} value={id}>
++                                    {label}
++                                  </SelectItem>
++                                ))}
++                              </SelectContent>
++                            </Select>
++                          </div>
++                        ))}
++                      </div>
++                    )}
++                  </div>
++
+                   <div className="rounded-lg border border-border p-3 space-y-2">
+                     <div className="flex items-center gap-2 text-sm font-medium">
+                       <Layers className="h-4 w-4" /> Campaign platforms
+diff --git a/artifacts/socialforge/src/pages/video-studio.tsx b/artifacts/socialforge/src/pages/video-studio.tsx
+index f2a44db..2d15b02 100644
+--- a/artifacts/socialforge/src/pages/video-studio.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.tsx
+@@ -175,7 +175,9 @@ export function VideoStudioPage() {
+   const [slideDurationSec, setSlideDurationSec] = useState(3);
+   const [overlayText, setOverlayText] = useState("");
+   const [voice, setVoice] = useState<Voice>("alloy");
+-  const [stockSource, setStockSource] = useState<"auto" | "pexels" | "pixabay">("auto");
++  const [stockSource, setStockSource] = useState<"auto" | "pexels" | "pixabay" | "wikimedia">(
++    "auto",
++  );
+   const [paragraphCount, setParagraphCount] = useState(1);
+   const [subtitles, setSubtitles] = useState(true);
+   const [captionStyle, setCaptionStyle] = useState<"classic" | "dynamic">("dynamic");
+@@ -873,13 +875,14 @@ export function VideoStudioPage() {
+                       value={stockSource}
+                       onValueChange={(v) => setStockSource(v as typeof stockSource)}
+                     >
+-                      <SelectTrigger className="w-36" data-testid="select-stock-source">
++                      <SelectTrigger className="w-44" data-testid="select-stock-source">
+                         <SelectValue />
+                       </SelectTrigger>
+                       <SelectContent>
+                         <SelectItem value="auto">Auto</SelectItem>
+                         <SelectItem value="pexels">Pexels</SelectItem>
+                         <SelectItem value="pixabay">Pixabay</SelectItem>
++                        <SelectItem value="wikimedia">Commons (archival)</SelectItem>
+                       </SelectContent>
+                     </Select>
+                   </div>
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index 24660ed..f2f5033 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -2329,6 +2329,74 @@ export interface CaptionResult {
+   clarifyingQuestions?: string[];
+ }
+ 
++export type ImagePromptRecipePreset = typeof ImagePromptRecipePreset[keyof typeof ImagePromptRecipePreset];
++
++
++export const ImagePromptRecipePreset = {
++  product: 'product',
++  food: 'food',
++  fashion: 'fashion',
++  lifestyle: 'lifestyle',
++  architecture: 'architecture',
++} as const;
++
++export type ImagePromptRecipeCamera = typeof ImagePromptRecipeCamera[keyof typeof ImagePromptRecipeCamera];
++
++
++export const ImagePromptRecipeCamera = {
++  phone: 'phone',
++  mirrorless: 'mirrorless',
++  dslr: 'dslr',
++  'medium-format': 'medium-format',
++  film35: 'film35',
++} as const;
++
++export type ImagePromptRecipeLens = typeof ImagePromptRecipeLens[keyof typeof ImagePromptRecipeLens];
++
++
++export const ImagePromptRecipeLens = {
++  'wide-24': 'wide-24',
++  'reportage-35': 'reportage-35',
++  'natural-50': 'natural-50',
++  'portrait-85': 'portrait-85',
++  'macro-100': 'macro-100',
++  'tele-135': 'tele-135',
++} as const;
++
++export type ImagePromptRecipeAperture = typeof ImagePromptRecipeAperture[keyof typeof ImagePromptRecipeAperture];
++
++
++export const ImagePromptRecipeAperture = {
++  f14: 'f1.4',
++  f28: 'f2.8',
++  f56: 'f5.6',
++  f8: 'f8',
++  f16: 'f16',
++} as const;
++
++export type ImagePromptRecipeLighting = typeof ImagePromptRecipeLighting[keyof typeof ImagePromptRecipeLighting];
++
++
++export const ImagePromptRecipeLighting = {
++  softbox: 'softbox',
++  window: 'window',
++  'golden-hour': 'golden-hour',
++  flash: 'flash',
++  overcast: 'overcast',
++  neon: 'neon',
++} as const;
++
++/**
++ * Optional photographic direction picked from the studio's Look pills. The server compiles these ids together with the brief into a single prompt; each axis set here overrides the preset's default for that axis, and an axis is usable on its own without a preset.
++ */
++export interface ImagePromptRecipe {
++  preset?: ImagePromptRecipePreset;
++  camera?: ImagePromptRecipeCamera;
++  lens?: ImagePromptRecipeLens;
++  aperture?: ImagePromptRecipeAperture;
++  lighting?: ImagePromptRecipeLighting;
++}
++
+ export type ImageRequestSize = typeof ImageRequestSize[keyof typeof ImageRequestSize];
+ 
+ 
+@@ -2341,6 +2409,7 @@ export const ImageRequestSize = {
+ export interface ImageRequest {
+   /** @minLength 1 */
+   prompt: string;
++  promptRecipe?: ImagePromptRecipe;
+   size?: ImageRequestSize;
+   /** @nullable */
+   brandKitId?: number | null;
+@@ -2440,7 +2509,7 @@ export const VideoGenerateRequestVoice = {
+ } as const;
+ 
+ /**
+- * topic_to_video only; where stock footage comes from (auto = first configured source).
++ * topic_to_video only; where stock footage comes from (auto = healthiest configured library, with the keyless public-domain archive behind it).
+  */
+ export type VideoGenerateRequestStockSource = typeof VideoGenerateRequestStockSource[keyof typeof VideoGenerateRequestStockSource];
+ 
+@@ -2449,6 +2518,7 @@ export const VideoGenerateRequestStockSource = {
+   auto: 'auto',
+   pexels: 'pexels',
+   pixabay: 'pixabay',
++  wikimedia: 'wikimedia',
+ } as const;
+ 
+ /**
+@@ -2520,7 +2590,7 @@ export interface VideoGenerateRequest {
+   musicPrompt?: string | null;
+   /** topic_to_video only; the narration voice. */
+   voice?: VideoGenerateRequestVoice;
+-  /** topic_to_video only; where stock footage comes from (auto = first configured source). */
++  /** topic_to_video only; where stock footage comes from (auto = healthiest configured library, with the keyless public-domain archive behind it). */
+   stockSource?: VideoGenerateRequestStockSource;
+   /** topic_to_video only; burn per-sentence subtitles. */
+   subtitles?: boolean;
+@@ -2764,7 +2834,7 @@ export interface VideoGenProviderInfo {
+ }
+ 
+ /**
+- * Where the active key comes from (admin-entered key wins over the env secret).
++ * Where the active key comes from (admin-entered key wins over the env secret). "builtin" means the source needs no credential at all.
+  * @nullable
+  */
+ export type StockSourceInfoKeySource = typeof StockSourceInfoKeySource[keyof typeof StockSourceInfoKeySource] | null;
+@@ -2773,6 +2843,7 @@ export type StockSourceInfoKeySource = typeof StockSourceInfoKeySource[keyof typ
+ export const StockSourceInfoKeySource = {
+   database: 'database',
+   env: 'env',
++  builtin: 'builtin',
+ } as const;
+ 
+ export interface StockSourceInfo {
+@@ -2780,10 +2851,13 @@ export interface StockSourceInfo {
+   label: string;
+   /** Whether an API key for this source is set. */
+   configured: boolean;
+-  /** Secret name used as the fallback key. */
+-  envKey: string;
+   /**
+-     * Where the active key comes from (admin-entered key wins over the env secret).
++     * Secret name used as the fallback key, or null for a keyless source.
++     * @nullable
++     */
++  envKey: string | null;
++  /**
++     * Where the active key comes from (admin-entered key wins over the env secret). "builtin" means the source needs no credential at all.
+      * @nullable
+      */
+   keySource?: StockSourceInfoKeySource;
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index ea2f5ed..7d56df6 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -10152,6 +10152,29 @@ components:
+             when set, caption/hashtags are empty and nothing was charged.
+           items:
+             type: string
++    ImagePromptRecipe:
++      type: object
++      description: >-
++        Optional photographic direction picked from the studio's Look pills. The
++        server compiles these ids together with the brief into a single prompt;
++        each axis set here overrides the preset's default for that axis, and an
++        axis is usable on its own without a preset.
++      properties:
++        preset:
++          type: string
++          enum: [product, food, fashion, lifestyle, architecture]
++        camera:
++          type: string
++          enum: [phone, mirrorless, dslr, medium-format, film35]
++        lens:
++          type: string
++          enum: [wide-24, reportage-35, natural-50, portrait-85, macro-100, tele-135]
++        aperture:
++          type: string
++          enum: ["f1.4", "f2.8", "f5.6", "f8", "f16"]
++        lighting:
++          type: string
++          enum: [softbox, window, golden-hour, flash, overcast, neon]
+     ImageRequest:
+       type: object
+       required: [prompt]
+@@ -10159,6 +10182,8 @@ components:
+         prompt:
+           type: string
+           minLength: 1
++        promptRecipe:
++          $ref: "#/components/schemas/ImagePromptRecipe"
+         size:
+           type: string
+           enum: ["1024x1024", "1536x1024", "1024x1536"]
+@@ -10280,11 +10305,11 @@ components:
+           description: topic_to_video only; the narration voice.
+         stockSource:
+           type: string
+-          enum: [auto, pexels, pixabay]
++          enum: [auto, pexels, pixabay, wikimedia]
+           default: auto
+           description: >-
+-            topic_to_video only; where stock footage comes from (auto = first
+-            configured source).
++            topic_to_video only; where stock footage comes from (auto = healthiest
++            configured library, with the keyless public-domain archive behind it).
+         subtitles:
+           type: boolean
+           default: true
+@@ -10577,12 +10602,14 @@ components:
+           type: boolean
+           description: Whether an API key for this source is set.
+         envKey:
+-          type: string
+-          description: Secret name used as the fallback key.
++          type: ["string", "null"]
++          description: Secret name used as the fallback key, or null for a keyless source.
+         keySource:
+           type: ["string", "null"]
+-          enum: [database, env, null]
+-          description: Where the active key comes from (admin-entered key wins over the env secret).
++          enum: [database, env, builtin, null]
++          description: >-
++            Where the active key comes from (admin-entered key wins over the env secret).
++            "builtin" means the source needs no credential at all.
+     VideoGenProviderInfo:
+       type: object
+       required:
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index 1b48609..11d5f78 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -1150,8 +1150,8 @@ export const AdminGetVideoGenSettingsResponse = zod.object({
+   "id": zod.string(),
+   "label": zod.string(),
+   "configured": zod.boolean().describe('Whether an API key for this source is set.'),
+-  "envKey": zod.string().describe('Secret name used as the fallback key.'),
+-  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
++  "envKey": zod.string().nullable().describe('Secret name used as the fallback key, or null for a keyless source.'),
++  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal('builtin'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret). \"builtin\" means the source needs no credential at all.')
+ })).describe('Stock footage sources available to the Topic to Video engine.')
+ })
+ 
+@@ -1191,8 +1191,8 @@ export const AdminUpdateVideoGenSettingsResponse = zod.object({
+   "id": zod.string(),
+   "label": zod.string(),
+   "configured": zod.boolean().describe('Whether an API key for this source is set.'),
+-  "envKey": zod.string().describe('Secret name used as the fallback key.'),
+-  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
++  "envKey": zod.string().nullable().describe('Secret name used as the fallback key, or null for a keyless source.'),
++  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal('builtin'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret). \"builtin\" means the source needs no credential at all.')
+ })).describe('Stock footage sources available to the Topic to Video engine.')
+ })
+ 
+@@ -1237,8 +1237,8 @@ export const AdminSetVideoGenProviderKeyResponse = zod.object({
+   "id": zod.string(),
+   "label": zod.string(),
+   "configured": zod.boolean().describe('Whether an API key for this source is set.'),
+-  "envKey": zod.string().describe('Secret name used as the fallback key.'),
+-  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
++  "envKey": zod.string().nullable().describe('Secret name used as the fallback key, or null for a keyless source.'),
++  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal('builtin'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret). \"builtin\" means the source needs no credential at all.')
+ })).describe('Stock footage sources available to the Topic to Video engine.')
+ })
+ 
+@@ -1276,8 +1276,8 @@ export const AdminClearVideoGenProviderKeyResponse = zod.object({
+   "id": zod.string(),
+   "label": zod.string(),
+   "configured": zod.boolean().describe('Whether an API key for this source is set.'),
+-  "envKey": zod.string().describe('Secret name used as the fallback key.'),
+-  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
++  "envKey": zod.string().nullable().describe('Secret name used as the fallback key, or null for a keyless source.'),
++  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal('builtin'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret). \"builtin\" means the source needs no credential at all.')
+ })).describe('Stock footage sources available to the Topic to Video engine.')
+ })
+ 
+@@ -1427,8 +1427,8 @@ export const AdminSetStockSourceKeyResponse = zod.object({
+   "id": zod.string(),
+   "label": zod.string(),
+   "configured": zod.boolean().describe('Whether an API key for this source is set.'),
+-  "envKey": zod.string().describe('Secret name used as the fallback key.'),
+-  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
++  "envKey": zod.string().nullable().describe('Secret name used as the fallback key, or null for a keyless source.'),
++  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal('builtin'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret). \"builtin\" means the source needs no credential at all.')
+ })).describe('Stock footage sources available to the Topic to Video engine.')
+ })
+ 
+@@ -1466,8 +1466,8 @@ export const AdminClearStockSourceKeyResponse = zod.object({
+   "id": zod.string(),
+   "label": zod.string(),
+   "configured": zod.boolean().describe('Whether an API key for this source is set.'),
+-  "envKey": zod.string().describe('Secret name used as the fallback key.'),
+-  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
++  "envKey": zod.string().nullable().describe('Secret name used as the fallback key, or null for a keyless source.'),
++  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal('builtin'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret). \"builtin\" means the source needs no credential at all.')
+ })).describe('Stock footage sources available to the Topic to Video engine.')
+ })
+ 
+@@ -4959,6 +4959,13 @@ export const GenerateCaptionResponse = zod.object({
+ 
+ export const GenerateImageBody = zod.object({
+   "prompt": zod.string().min(1),
++  "promptRecipe": zod.object({
++  "preset": zod.enum(['product', 'food', 'fashion', 'lifestyle', 'architecture']).optional(),
++  "camera": zod.enum(['phone', 'mirrorless', 'dslr', 'medium-format', 'film35']).optional(),
++  "lens": zod.enum(['wide-24', 'reportage-35', 'natural-50', 'portrait-85', 'macro-100', 'tele-135']).optional(),
++  "aperture": zod.enum(['f1.4', 'f2.8', 'f5.6', 'f8', 'f16']).optional(),
++  "lighting": zod.enum(['softbox', 'window', 'golden-hour', 'flash', 'overcast', 'neon']).optional()
++}).optional().describe('Optional photographic direction picked from the studio\'s Look pills. The server compiles these ids together with the brief into a single prompt; each axis set here overrides the preset\'s default for that axis, and an axis is usable on its own without a preset.'),
+   "size": zod.enum(['1024x1024', '1536x1024', '1024x1536']).optional(),
+   "brandKitId": zod.number().nullish(),
+   "campaignId": zod.string().nullish().describe('Ties this image\'s data usage to a generated campaign'),
+@@ -4998,6 +5005,13 @@ export const StreamCaptionResponse = zod.unknown()
+ 
+ export const GenerateImageAsyncBody = zod.object({
+   "prompt": zod.string().min(1),
++  "promptRecipe": zod.object({
++  "preset": zod.enum(['product', 'food', 'fashion', 'lifestyle', 'architecture']).optional(),
++  "camera": zod.enum(['phone', 'mirrorless', 'dslr', 'medium-format', 'film35']).optional(),
++  "lens": zod.enum(['wide-24', 'reportage-35', 'natural-50', 'portrait-85', 'macro-100', 'tele-135']).optional(),
++  "aperture": zod.enum(['f1.4', 'f2.8', 'f5.6', 'f8', 'f16']).optional(),
++  "lighting": zod.enum(['softbox', 'window', 'golden-hour', 'flash', 'overcast', 'neon']).optional()
++}).optional().describe('Optional photographic direction picked from the studio\'s Look pills. The server compiles these ids together with the brief into a single prompt; each axis set here overrides the preset\'s default for that axis, and an axis is usable on its own without a preset.'),
+   "size": zod.enum(['1024x1024', '1536x1024', '1024x1536']).optional(),
+   "brandKitId": zod.number().nullish(),
+   "campaignId": zod.string().nullish().describe('Ties this image\'s data usage to a generated campaign'),
+@@ -5139,7 +5153,7 @@ export const GenerateVideoBody = zod.object({
+   "musicPath": zod.string().nullish().describe('Slideshow and topic_to_video; \/objects\/... path of an uploaded music track, faded out at the end of the video.'),
+   "musicPrompt": zod.string().max(generateVideoBodyMusicPromptMax).nullish().describe('Slideshow and topic_to_video; describe a mood\/style and an AI music bed is composed for the video (+1 video unit). Ignored when musicPath is set.'),
+   "voice": zod.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']).default(generateVideoBodyVoiceDefault).describe('topic_to_video only; the narration voice.'),
+-  "stockSource": zod.enum(['auto', 'pexels', 'pixabay']).default(generateVideoBodyStockSourceDefault).describe('topic_to_video only; where stock footage comes from (auto = first configured source).'),
++  "stockSource": zod.enum(['auto', 'pexels', 'pixabay', 'wikimedia']).default(generateVideoBodyStockSourceDefault).describe('topic_to_video only; where stock footage comes from (auto = healthiest configured library, with the keyless public-domain archive behind it).'),
+   "subtitles": zod.boolean().default(generateVideoBodySubtitlesDefault).describe('topic_to_video only; burn per-sentence subtitles.'),
+   "captionStyle": zod.enum(['classic', 'dynamic']).default(generateVideoBodyCaptionStyleDefault).describe('topic_to_video only; how burned subtitles look. \"classic\" shows one sentence at a time near the bottom. \"dynamic\" shows big 2-3 word groups timed to the narration (the short-form social style).'),
+   "paragraphCount": zod.number().min(1).max(generateVideoBodyParagraphCountMax).default(generateVideoBodyParagraphCountDefault).describe('topic_to_video only; script length in paragraphs (roughly 30 seconds of narration each).'),
+diff --git a/lib/api-zod/src/generated/types/imagePromptRecipe.ts b/lib/api-zod/src/generated/types/imagePromptRecipe.ts
+new file mode 100644
+index 0000000..880d7e3
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/imagePromptRecipe.ts
+@@ -0,0 +1,23 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { ImagePromptRecipeAperture } from './imagePromptRecipeAperture';
++import type { ImagePromptRecipeCamera } from './imagePromptRecipeCamera';
++import type { ImagePromptRecipeLens } from './imagePromptRecipeLens';
++import type { ImagePromptRecipeLighting } from './imagePromptRecipeLighting';
++import type { ImagePromptRecipePreset } from './imagePromptRecipePreset';
++
++/**
++ * Optional photographic direction picked from the studio's Look pills. The server compiles these ids together with the brief into a single prompt; each axis set here overrides the preset's default for that axis, and an axis is usable on its own without a preset.
++ */
++export interface ImagePromptRecipe {
++  preset?: ImagePromptRecipePreset;
++  camera?: ImagePromptRecipeCamera;
++  lens?: ImagePromptRecipeLens;
++  aperture?: ImagePromptRecipeAperture;
++  lighting?: ImagePromptRecipeLighting;
++}
+diff --git a/lib/api-zod/src/generated/types/imagePromptRecipeAperture.ts b/lib/api-zod/src/generated/types/imagePromptRecipeAperture.ts
+new file mode 100644
+index 0000000..71cf8ba
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/imagePromptRecipeAperture.ts
+@@ -0,0 +1,18 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type ImagePromptRecipeAperture = typeof ImagePromptRecipeAperture[keyof typeof ImagePromptRecipeAperture];
++
++
++export const ImagePromptRecipeAperture = {
++  f14: 'f1.4',
++  f28: 'f2.8',
++  f56: 'f5.6',
++  f8: 'f8',
++  f16: 'f16',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/imagePromptRecipeCamera.ts b/lib/api-zod/src/generated/types/imagePromptRecipeCamera.ts
+new file mode 100644
+index 0000000..0ec210b
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/imagePromptRecipeCamera.ts
+@@ -0,0 +1,18 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type ImagePromptRecipeCamera = typeof ImagePromptRecipeCamera[keyof typeof ImagePromptRecipeCamera];
++
++
++export const ImagePromptRecipeCamera = {
++  phone: 'phone',
++  mirrorless: 'mirrorless',
++  dslr: 'dslr',
++  'medium-format': 'medium-format',
++  film35: 'film35',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/imagePromptRecipeLens.ts b/lib/api-zod/src/generated/types/imagePromptRecipeLens.ts
+new file mode 100644
+index 0000000..f1cdf3f
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/imagePromptRecipeLens.ts
+@@ -0,0 +1,19 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type ImagePromptRecipeLens = typeof ImagePromptRecipeLens[keyof typeof ImagePromptRecipeLens];
++
++
++export const ImagePromptRecipeLens = {
++  'wide-24': 'wide-24',
++  'reportage-35': 'reportage-35',
++  'natural-50': 'natural-50',
++  'portrait-85': 'portrait-85',
++  'macro-100': 'macro-100',
++  'tele-135': 'tele-135',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/imagePromptRecipeLighting.ts b/lib/api-zod/src/generated/types/imagePromptRecipeLighting.ts
+new file mode 100644
+index 0000000..e48ac06
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/imagePromptRecipeLighting.ts
+@@ -0,0 +1,19 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type ImagePromptRecipeLighting = typeof ImagePromptRecipeLighting[keyof typeof ImagePromptRecipeLighting];
++
++
++export const ImagePromptRecipeLighting = {
++  softbox: 'softbox',
++  window: 'window',
++  'golden-hour': 'golden-hour',
++  flash: 'flash',
++  overcast: 'overcast',
++  neon: 'neon',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/imagePromptRecipePreset.ts b/lib/api-zod/src/generated/types/imagePromptRecipePreset.ts
+new file mode 100644
+index 0000000..493549d
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/imagePromptRecipePreset.ts
+@@ -0,0 +1,18 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type ImagePromptRecipePreset = typeof ImagePromptRecipePreset[keyof typeof ImagePromptRecipePreset];
++
++
++export const ImagePromptRecipePreset = {
++  product: 'product',
++  food: 'food',
++  fashion: 'fashion',
++  lifestyle: 'lifestyle',
++  architecture: 'architecture',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/imageRequest.ts b/lib/api-zod/src/generated/types/imageRequest.ts
+index e31c115..770fc49 100644
+--- a/lib/api-zod/src/generated/types/imageRequest.ts
++++ b/lib/api-zod/src/generated/types/imageRequest.ts
+@@ -5,11 +5,13 @@
+  * KOKAO API
+  * OpenAPI spec version: 0.1.0
+  */
++import type { ImagePromptRecipe } from './imagePromptRecipe';
+ import type { ImageRequestSize } from './imageRequestSize';
+ 
+ export interface ImageRequest {
+   /** @minLength 1 */
+   prompt: string;
++  promptRecipe?: ImagePromptRecipe;
+   size?: ImageRequestSize;
+   /** @nullable */
+   brandKitId?: number | null;
+diff --git a/lib/api-zod/src/generated/types/index.ts b/lib/api-zod/src/generated/types/index.ts
+index a472f5b..81ff780 100644
+--- a/lib/api-zod/src/generated/types/index.ts
++++ b/lib/api-zod/src/generated/types/index.ts
+@@ -248,6 +248,12 @@ export * from './imageGenProviderInfoKeySource';
+ export * from './imageGenSettingsView';
+ export * from './imageJob';
+ export * from './imageJobStatus';
++export * from './imagePromptRecipe';
++export * from './imagePromptRecipeAperture';
++export * from './imagePromptRecipeCamera';
++export * from './imagePromptRecipeLens';
++export * from './imagePromptRecipeLighting';
++export * from './imagePromptRecipePreset';
+ export * from './imageRequest';
+ export * from './imageRequestSize';
+ export * from './imageResult';
+diff --git a/lib/api-zod/src/generated/types/stockSourceInfo.ts b/lib/api-zod/src/generated/types/stockSourceInfo.ts
+index 9015df1..331cb07 100644
+--- a/lib/api-zod/src/generated/types/stockSourceInfo.ts
++++ b/lib/api-zod/src/generated/types/stockSourceInfo.ts
+@@ -12,10 +12,13 @@ export interface StockSourceInfo {
+   label: string;
+   /** Whether an API key for this source is set. */
+   configured: boolean;
+-  /** Secret name used as the fallback key. */
+-  envKey: string;
+   /**
+-     * Where the active key comes from (admin-entered key wins over the env secret).
++     * Secret name used as the fallback key, or null for a keyless source.
++     * @nullable
++     */
++  envKey: string | null;
++  /**
++     * Where the active key comes from (admin-entered key wins over the env secret). "builtin" means the source needs no credential at all.
+      * @nullable
+      */
+   keySource?: StockSourceInfoKeySource;
+diff --git a/lib/api-zod/src/generated/types/stockSourceInfoKeySource.ts b/lib/api-zod/src/generated/types/stockSourceInfoKeySource.ts
+index 3be16a0..f02b68c 100644
+--- a/lib/api-zod/src/generated/types/stockSourceInfoKeySource.ts
++++ b/lib/api-zod/src/generated/types/stockSourceInfoKeySource.ts
+@@ -7,7 +7,7 @@
+  */
+ 
+ /**
+- * Where the active key comes from (admin-entered key wins over the env secret).
++ * Where the active key comes from (admin-entered key wins over the env secret). "builtin" means the source needs no credential at all.
+  * @nullable
+  */
+ export type StockSourceInfoKeySource = typeof StockSourceInfoKeySource[keyof typeof StockSourceInfoKeySource] | null;
+@@ -16,4 +16,5 @@ export type StockSourceInfoKeySource = typeof StockSourceInfoKeySource[keyof typ
+ export const StockSourceInfoKeySource = {
+   database: 'database',
+   env: 'env',
++  builtin: 'builtin',
+ } as const;
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequest.ts b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+index 2b3928c..00b4a5e 100644
+--- a/lib/api-zod/src/generated/types/videoGenerateRequest.ts
++++ b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+@@ -58,7 +58,7 @@ export interface VideoGenerateRequest {
+   musicPrompt?: string | null;
+   /** topic_to_video only; the narration voice. */
+   voice?: VideoGenerateRequestVoice;
+-  /** topic_to_video only; where stock footage comes from (auto = first configured source). */
++  /** topic_to_video only; where stock footage comes from (auto = healthiest configured library, with the keyless public-domain archive behind it). */
+   stockSource?: VideoGenerateRequestStockSource;
+   /** topic_to_video only; burn per-sentence subtitles. */
+   subtitles?: boolean;
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequestStockSource.ts b/lib/api-zod/src/generated/types/videoGenerateRequestStockSource.ts
+index abfb6d8..b278621 100644
+--- a/lib/api-zod/src/generated/types/videoGenerateRequestStockSource.ts
++++ b/lib/api-zod/src/generated/types/videoGenerateRequestStockSource.ts
+@@ -7,7 +7,7 @@
+  */
+ 
+ /**
+- * topic_to_video only; where stock footage comes from (auto = first configured source).
++ * topic_to_video only; where stock footage comes from (auto = healthiest configured library, with the keyless public-domain archive behind it).
+  */
+ export type VideoGenerateRequestStockSource = typeof VideoGenerateRequestStockSource[keyof typeof VideoGenerateRequestStockSource];
+ 
+@@ -16,4 +16,5 @@ export const VideoGenerateRequestStockSource = {
+   auto: 'auto',
+   pexels: 'pexels',
+   pixabay: 'pixabay',
++  wikimedia: 'wikimedia',
+ } as const;
+diff --git a/lib/db/src/schema/videoGenerations.ts b/lib/db/src/schema/videoGenerations.ts
+index d00ca3f..ea1e761 100644
+--- a/lib/db/src/schema/videoGenerations.ts
++++ b/lib/db/src/schema/videoGenerations.ts
+@@ -35,7 +35,7 @@ export interface VideoJobOptions {
+   musicPrompt?: string | null;
+   /** topic_to_video: narration voice. */
+   voice?: string;
+-  /** topic_to_video: stock footage source ("auto" | "pexels" | "pixabay"). */
++  /** topic_to_video: stock footage source ("auto" | "pexels" | "pixabay" | "wikimedia"). */
+   stockSource?: string;
+   /** topic_to_video: burn per-sentence subtitles (default true). */
+   subtitles?: boolean;
+-- 
+2.43.0
+

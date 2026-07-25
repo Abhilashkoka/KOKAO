@@ -58,7 +58,7 @@ export interface VideoGenerateRequest {
   musicPrompt?: string | null;
   /** topic_to_video only; the narration voice. */
   voice?: VideoGenerateRequestVoice;
-  /** topic_to_video only; where stock footage comes from (auto = first configured source). */
+  /** topic_to_video only; where stock footage comes from (auto = healthiest configured library, with the keyless public-domain archive behind it). */
   stockSource?: VideoGenerateRequestStockSource;
   /** topic_to_video only; burn per-sentence subtitles. */
   subtitles?: boolean;

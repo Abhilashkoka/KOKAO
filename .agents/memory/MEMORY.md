@@ -66,3 +66,4 @@
 - [Provider resilience & preflight](provider-resilience.md) — pre-funding preflight reads breaker state only (no network); failover is transient-only; TTS failover is whole-track.
 - [ApiError message extraction](api-error-message-shape.md) — shared ApiError puts the parsed body on `.data`; axios-style `err.response.data.error` reads always miss and show generic fallbacks — use the apiErrorMessage helper.
 - [Reference styles](reference-styles.md) — analyze a reference video once into a saved profile; soft guidance only, styleProfileId dropped when the kill switch is off.
+- [Footage & prompt breadth](footage-and-prompt-breadth.md) — keyless stock sources are failover-only in auto; empty results fail over like errors; Look pills compile server-side into the stored prompt.

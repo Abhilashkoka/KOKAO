@@ -660,6 +660,7 @@ function StockSourcesCard() {
           API keys for the stock video libraries used by the Topic to Video
           engine. Free keys are available from both providers; configuring
           either one is enough (Pexels is preferred when both are set).
+          Wikimedia Commons needs no key and backs them up.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -671,7 +672,9 @@ function StockSourcesCard() {
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-medium">{source.label}</p>
-                  {source.configured ? (
+                  {source.keySource === "builtin" ? (
+                    <Badge variant="outline">No key needed</Badge>
+                  ) : source.configured ? (
                     <Badge variant="secondary">Ready</Badge>
                   ) : (
                     <Badge variant="destructive">Needs key</Badge>
@@ -695,7 +698,13 @@ function StockSourcesCard() {
                   </Button>
                 )}
               </div>
-              {source.keySource === "database" ? (
+              {source.keySource === "builtin" ? (
+                <p className="text-sm text-muted-foreground">
+                  Public domain and CC0 clips only — no account, no attribution.
+                  Used when the keyed libraries are down or have nothing for a
+                  topic, not instead of them.
+                </p>
+              ) : source.keySource === "database" ? (
                 <div className="flex items-center gap-3">
                   <p className="text-sm text-muted-foreground">
                     A key is saved (stored encrypted, never shown). Enter a new
@@ -721,27 +730,29 @@ function StockSourcesCard() {
                   No key set. Paste the provider's API key to enable it.
                 </p>
               )}
-              <div className="flex items-center gap-2">
-                <Input
-                  type="password"
-                  autoComplete="off"
-                  placeholder="Paste API key"
-                  value={keyInputs[source.id] ?? ""}
-                  onChange={(e) =>
-                    setKeyInputs((prev) => ({ ...prev, [source.id]: e.target.value }))
-                  }
-                  className="w-72"
-                  data-testid={`input-stock-key-${source.id}`}
-                />
-                <Button
-                  size="sm"
-                  onClick={() => handleSaveKey(source.id)}
-                  disabled={setKey.isPending || !(keyInputs[source.id] ?? "").trim()}
-                  data-testid={`button-save-stock-key-${source.id}`}
-                >
-                  {setKey.isPending ? "Saving..." : "Save key"}
-                </Button>
-              </div>
+              {source.keySource !== "builtin" && (
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="password"
+                    autoComplete="off"
+                    placeholder="Paste API key"
+                    value={keyInputs[source.id] ?? ""}
+                    onChange={(e) =>
+                      setKeyInputs((prev) => ({ ...prev, [source.id]: e.target.value }))
+                    }
+                    className="w-72"
+                    data-testid={`input-stock-key-${source.id}`}
+                  />
+                  <Button
+                    size="sm"
+                    onClick={() => handleSaveKey(source.id)}
+                    disabled={setKey.isPending || !(keyInputs[source.id] ?? "").trim()}
+                    data-testid={`button-save-stock-key-${source.id}`}
+                  >
+                    {setKey.isPending ? "Saving..." : "Save key"}
+                  </Button>
+                </div>
+              )}
             </div>
           ))
         )}

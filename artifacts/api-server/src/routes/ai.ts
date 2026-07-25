@@ -8,6 +8,7 @@ import {
   ImageGenNotConfiguredError,
   ImageGenProviderError,
 } from "../lib/imageGen";
+import { compileImagePrompt } from "../lib/imageGen/promptCompiler";
 import {
   GenerateCaptionBody,
   GenerateHooksBody,
@@ -665,7 +666,14 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
     const outcome = await performImageGeneration({
       tenantId: req.tenantId,
       tenant,
-      userPrompt: parsed.data.prompt,
+      userPrompt: compileImagePrompt(
+        parsed.data.prompt,
+        // Kill switch: when Image Look Presets is off, the recipe is dropped
+        // and the prompt goes out exactly as typed. Fail-open on flag reads.
+        (await isFeatureEnabled("imageLooks").catch(() => true))
+          ? parsed.data.promptRecipe
+          : undefined,
+      ),
       size,
       brandKitId: parsed.data.brandKitId ?? null,
       referenceImage,

@@ -2329,6 +2329,74 @@ export interface CaptionResult {
   clarifyingQuestions?: string[];
 }
 
+export type ImagePromptRecipePreset = typeof ImagePromptRecipePreset[keyof typeof ImagePromptRecipePreset];
+
+
+export const ImagePromptRecipePreset = {
+  product: 'product',
+  food: 'food',
+  fashion: 'fashion',
+  lifestyle: 'lifestyle',
+  architecture: 'architecture',
+} as const;
+
+export type ImagePromptRecipeCamera = typeof ImagePromptRecipeCamera[keyof typeof ImagePromptRecipeCamera];
+
+
+export const ImagePromptRecipeCamera = {
+  phone: 'phone',
+  mirrorless: 'mirrorless',
+  dslr: 'dslr',
+  'medium-format': 'medium-format',
+  film35: 'film35',
+} as const;
+
+export type ImagePromptRecipeLens = typeof ImagePromptRecipeLens[keyof typeof ImagePromptRecipeLens];
+
+
+export const ImagePromptRecipeLens = {
+  'wide-24': 'wide-24',
+  'reportage-35': 'reportage-35',
+  'natural-50': 'natural-50',
+  'portrait-85': 'portrait-85',
+  'macro-100': 'macro-100',
+  'tele-135': 'tele-135',
+} as const;
+
+export type ImagePromptRecipeAperture = typeof ImagePromptRecipeAperture[keyof typeof ImagePromptRecipeAperture];
+
+
+export const ImagePromptRecipeAperture = {
+  f14: 'f1.4',
+  f28: 'f2.8',
+  f56: 'f5.6',
+  f8: 'f8',
+  f16: 'f16',
+} as const;
+
+export type ImagePromptRecipeLighting = typeof ImagePromptRecipeLighting[keyof typeof ImagePromptRecipeLighting];
+
+
+export const ImagePromptRecipeLighting = {
+  softbox: 'softbox',
+  window: 'window',
+  'golden-hour': 'golden-hour',
+  flash: 'flash',
+  overcast: 'overcast',
+  neon: 'neon',
+} as const;
+
+/**
+ * Optional photographic direction picked from the studio's Look pills. The server compiles these ids together with the brief into a single prompt; each axis set here overrides the preset's default for that axis, and an axis is usable on its own without a preset.
+ */
+export interface ImagePromptRecipe {
+  preset?: ImagePromptRecipePreset;
+  camera?: ImagePromptRecipeCamera;
+  lens?: ImagePromptRecipeLens;
+  aperture?: ImagePromptRecipeAperture;
+  lighting?: ImagePromptRecipeLighting;
+}
+
 export type ImageRequestSize = typeof ImageRequestSize[keyof typeof ImageRequestSize];
 
 
@@ -2341,6 +2409,7 @@ export const ImageRequestSize = {
 export interface ImageRequest {
   /** @minLength 1 */
   prompt: string;
+  promptRecipe?: ImagePromptRecipe;
   size?: ImageRequestSize;
   /** @nullable */
   brandKitId?: number | null;
@@ -2440,7 +2509,7 @@ export const VideoGenerateRequestVoice = {
 } as const;
 
 /**
- * topic_to_video only; where stock footage comes from (auto = first configured source).
+ * topic_to_video only; where stock footage comes from (auto = healthiest configured library, with the keyless public-domain archive behind it).
  */
 export type VideoGenerateRequestStockSource = typeof VideoGenerateRequestStockSource[keyof typeof VideoGenerateRequestStockSource];
 
@@ -2449,6 +2518,7 @@ export const VideoGenerateRequestStockSource = {
   auto: 'auto',
   pexels: 'pexels',
   pixabay: 'pixabay',
+  wikimedia: 'wikimedia',
 } as const;
 
 /**
@@ -2520,7 +2590,7 @@ export interface VideoGenerateRequest {
   musicPrompt?: string | null;
   /** topic_to_video only; the narration voice. */
   voice?: VideoGenerateRequestVoice;
-  /** topic_to_video only; where stock footage comes from (auto = first configured source). */
+  /** topic_to_video only; where stock footage comes from (auto = healthiest configured library, with the keyless public-domain archive behind it). */
   stockSource?: VideoGenerateRequestStockSource;
   /** topic_to_video only; burn per-sentence subtitles. */
   subtitles?: boolean;
@@ -2764,7 +2834,7 @@ export interface VideoGenProviderInfo {
 }
 
 /**
- * Where the active key comes from (admin-entered key wins over the env secret).
+ * Where the active key comes from (admin-entered key wins over the env secret). "builtin" means the source needs no credential at all.
  * @nullable
  */
 export type StockSourceInfoKeySource = typeof StockSourceInfoKeySource[keyof typeof StockSourceInfoKeySource] | null;
@@ -2773,6 +2843,7 @@ export type StockSourceInfoKeySource = typeof StockSourceInfoKeySource[keyof typ
 export const StockSourceInfoKeySource = {
   database: 'database',
   env: 'env',
+  builtin: 'builtin',
 } as const;
 
 export interface StockSourceInfo {
@@ -2780,10 +2851,13 @@ export interface StockSourceInfo {
   label: string;
   /** Whether an API key for this source is set. */
   configured: boolean;
-  /** Secret name used as the fallback key. */
-  envKey: string;
   /**
-     * Where the active key comes from (admin-entered key wins over the env secret).
+     * Secret name used as the fallback key, or null for a keyless source.
+     * @nullable
+     */
+  envKey: string | null;
+  /**
+     * Where the active key comes from (admin-entered key wins over the env secret). "builtin" means the source needs no credential at all.
      * @nullable
      */
   keySource?: StockSourceInfoKeySource;
@@ -4401,6 +4475,8 @@ export interface FeatureFlags {
   referenceStyles: boolean;
   planGate: boolean;
   providerResilience: boolean;
+  archivalFootage: boolean;
+  imageLooks: boolean;
 }
 
 /**

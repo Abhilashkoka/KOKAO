@@ -198,6 +198,18 @@ export const FEATURES = [
       "Checks a video job's provider dependencies before any quota or credits are taken: a missing key refuses with a clear message, and a provider that is already failing asks the tenant to retry in a few minutes. When off, jobs fund immediately and rely on refunds if they fail.",
   },
   {
+    id: "archivalFootage",
+    label: "Archival Stock Footage",
+    description:
+      "Wikimedia Commons as a keyless, public-domain stock footage source for topic videos: selectable outright as Commons (archival) and used as failover when the keyed libraries are down or empty. When off, the picker option is hidden and only keyed libraries (Pexels, Pixabay) are used.",
+  },
+  {
+    id: "imageLooks",
+    label: "Image Look Presets",
+    description:
+      "The Look row in AI Studio image briefs: genre presets and camera detail pills that compile into photographic direction for the image model. When off, the row is hidden and prompts are sent exactly as typed.",
+  },
+  {
     id: "planGate",
     label: "Pre-render Plan Gate",
     description:

@@ -42,6 +42,8 @@ const ALL_ON: FeatureFlags = {
   referenceStyles: true,
   planGate: true,
   providerResilience: true,
+  archivalFootage: true,
+  imageLooks: true,
 };
 
 /**

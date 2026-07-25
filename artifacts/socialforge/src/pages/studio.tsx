@@ -40,6 +40,12 @@ import {
   type CaptionResult as CaptionResultType,
   type CampaignResult as CampaignResultType,
   type ImageRequest,
+  type ImagePromptRecipe,
+  type ImagePromptRecipePreset,
+  type ImagePromptRecipeCamera,
+  type ImagePromptRecipeLens,
+  type ImagePromptRecipeAperture,
+  type ImagePromptRecipeLighting,
   type PlatformPackItem,
 } from "@workspace/api-client-react";
 import { streamCaptionRequest } from "@/lib/captionStream";
@@ -58,7 +64,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
-import { Wand2, Image as ImageIcon, Save, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd, Clapperboard, CalendarClock } from "lucide-react";
+import { Wand2, Image as ImageIcon, Save, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd, Clapperboard, CalendarClock, Camera } from "lucide-react";
 import { VideoStudioPage } from "@/pages/video-studio";
 import { navigate } from "wouter/use-browser-location";
 import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
@@ -113,6 +119,58 @@ const PLATFORM_IMAGE_SIZE: Record<string, "1024x1024" | "1536x1024" | "1024x1536
   linkedin: "1536x1024",
   twitter: "1536x1024",
 };
+
+// Look pills. The server owns the photographic wording; these are only the
+// short labels for it, and each map is keyed by the generated union, so adding
+// an id to the OpenAPI enum without labelling it here is a build error rather
+// than a pill that quietly never appears.
+const LOOK_PRESETS: Record<ImagePromptRecipePreset, string> = {
+  product: "Product",
+  food: "Food",
+  fashion: "Fashion",
+  lifestyle: "Lifestyle",
+  architecture: "Architecture",
+};
+const LOOK_CAMERAS: Record<ImagePromptRecipeCamera, string> = {
+  phone: "Phone",
+  mirrorless: "Mirrorless",
+  dslr: "DSLR",
+  "medium-format": "Medium format",
+  film35: "35mm film",
+};
+const LOOK_LENSES: Record<ImagePromptRecipeLens, string> = {
+  "wide-24": "24mm wide",
+  "reportage-35": "35mm",
+  "natural-50": "50mm",
+  "portrait-85": "85mm portrait",
+  "macro-100": "100mm macro",
+  "tele-135": "135mm tele",
+};
+const LOOK_APERTURES: Record<ImagePromptRecipeAperture, string> = {
+  "f1.4": "f/1.4 · dreamy blur",
+  "f2.8": "f/2.8 · soft blur",
+  "f5.6": "f/5.6 · balanced",
+  f8: "f/8 · all sharp",
+  f16: "f/16 · deep focus",
+};
+const LOOK_LIGHTING: Record<ImagePromptRecipeLighting, string> = {
+  softbox: "Softbox",
+  window: "Window light",
+  "golden-hour": "Golden hour",
+  flash: "Direct flash",
+  overcast: "Overcast",
+  neon: "Neon",
+};
+
+/** "auto" means "leave it to the preset", so it is never sent to the server. */
+const LOOK_AUTO = "auto";
+
+const LOOK_GEAR_AXES = [
+  { key: "camera", label: "Camera", options: LOOK_CAMERAS as Record<string, string> },
+  { key: "lens", label: "Lens", options: LOOK_LENSES as Record<string, string> },
+  { key: "aperture", label: "Depth of field", options: LOOK_APERTURES as Record<string, string> },
+  { key: "lighting", label: "Lighting", options: LOOK_LIGHTING as Record<string, string> },
+] as const;
 
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
@@ -423,6 +481,31 @@ function ImageStudio() {
   const [referencePreview, setReferencePreview] = useState<string | null>(null);
   const [referenceUploading, setReferenceUploading] = useState(false);
   const [savedPickerOpen, setSavedPickerOpen] = useState(false);
+
+  // Look: a genre pill plus optional camera overrides. Deliberately not saved
+  // with the draft — it is a choice about this shot, not about this brief.
+  const [lookPreset, setLookPreset] = useState<string>("");
+  const [lookGearOpen, setLookGearOpen] = useState(false);
+  const [lookGear, setLookGear] = useState({
+    camera: LOOK_AUTO,
+    lens: LOOK_AUTO,
+    aperture: LOOK_AUTO,
+    lighting: LOOK_AUTO,
+  });
+  const lookGearSet = Object.values(lookGear).filter((v) => v !== LOOK_AUTO).length;
+
+  /** undefined when nothing is chosen, so the request looks exactly as it used to. */
+  const buildPromptRecipe = (): ImagePromptRecipe | undefined => {
+    const recipe: ImagePromptRecipe = {};
+    if (lookPreset) recipe.preset = lookPreset as ImagePromptRecipePreset;
+    if (lookGear.camera !== LOOK_AUTO) recipe.camera = lookGear.camera as ImagePromptRecipeCamera;
+    if (lookGear.lens !== LOOK_AUTO) recipe.lens = lookGear.lens as ImagePromptRecipeLens;
+    if (lookGear.aperture !== LOOK_AUTO)
+      recipe.aperture = lookGear.aperture as ImagePromptRecipeAperture;
+    if (lookGear.lighting !== LOOK_AUTO)
+      recipe.lighting = lookGear.lighting as ImagePromptRecipeLighting;
+    return Object.keys(recipe).length > 0 ? recipe : undefined;
+  };
 
   const clearReferenceImage = () => {
     setReferenceImagePath(null);
@@ -1050,6 +1133,7 @@ function ImageStudio() {
       : "";
     const body: ImageRequest = {
       prompt: `${data.prompt.trim()}${tweakInstruction}`,
+      promptRecipe: buildPromptRecipe(),
       size: activeImageSize,
       brandKitId: data.brandKitId || undefined,
       referenceImagePath:
@@ -2111,6 +2195,82 @@ function ImageStudio() {
                         }}
                       />
                     </div>
+                  )}
+
+                  {flags.imageLooks && (
+                  <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Camera className="h-4 w-4" /> Look
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Optional, images only. Picks the shoot so the model gets real
+                      photographic direction instead of adjectives.
+                    </p>
+                    <ToggleGroup
+                      type="single"
+                      variant="outline"
+                      value={lookPreset}
+                      onValueChange={setLookPreset}
+                      className="flex flex-wrap justify-start gap-2"
+                    >
+                      {(Object.keys(LOOK_PRESETS) as ImagePromptRecipePreset[]).map((id) => (
+                        <ToggleGroupItem
+                          key={id}
+                          value={id}
+                          data-testid={`toggle-look-${id}`}
+                          className="text-xs px-3 cursor-pointer border-foreground/25 text-foreground shadow-sm hover:border-foreground/40 hover:bg-accent hover:text-accent-foreground data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90 data-[state=on]:hover:text-primary-foreground"
+                        >
+                          {LOOK_PRESETS[id]}
+                        </ToggleGroupItem>
+                      ))}
+                    </ToggleGroup>
+                    <button
+                      type="button"
+                      onClick={() => setLookGearOpen((open) => !open)}
+                      className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                      data-testid="button-toggle-look-gear"
+                    >
+                      {lookGearOpen
+                        ? "Hide camera details"
+                        : `Camera details${lookGearSet > 0 ? ` (${lookGearSet})` : ""}`}
+                    </button>
+                    {lookGearOpen && (
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        {LOOK_GEAR_AXES.map((axis) => (
+                          <div key={axis.key} className="space-y-1">
+                            <Label
+                              htmlFor={`look-${axis.key}`}
+                              className="text-xs text-muted-foreground"
+                            >
+                              {axis.label}
+                            </Label>
+                            <Select
+                              value={lookGear[axis.key]}
+                              onValueChange={(value) =>
+                                setLookGear((prev) => ({ ...prev, [axis.key]: value }))
+                              }
+                            >
+                              <SelectTrigger
+                                id={`look-${axis.key}`}
+                                className="h-8 text-xs"
+                                data-testid={`select-look-${axis.key}`}
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={LOOK_AUTO}>Auto</SelectItem>
+                                {Object.entries(axis.options).map(([id, label]) => (
+                                  <SelectItem key={id} value={id}>
+                                    {label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   )}
 
                   <div className="rounded-lg border border-border p-3 space-y-2">

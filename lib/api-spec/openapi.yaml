@@ -10152,6 +10152,29 @@ components:
             when set, caption/hashtags are empty and nothing was charged.
           items:
             type: string
+    ImagePromptRecipe:
+      type: object
+      description: >-
+        Optional photographic direction picked from the studio's Look pills. The
+        server compiles these ids together with the brief into a single prompt;
+        each axis set here overrides the preset's default for that axis, and an
+        axis is usable on its own without a preset.
+      properties:
+        preset:
+          type: string
+          enum: [product, food, fashion, lifestyle, architecture]
+        camera:
+          type: string
+          enum: [phone, mirrorless, dslr, medium-format, film35]
+        lens:
+          type: string
+          enum: [wide-24, reportage-35, natural-50, portrait-85, macro-100, tele-135]
+        aperture:
+          type: string
+          enum: ["f1.4", "f2.8", "f5.6", "f8", "f16"]
+        lighting:
+          type: string
+          enum: [softbox, window, golden-hour, flash, overcast, neon]
     ImageRequest:
       type: object
       required: [prompt]
@@ -10159,6 +10182,8 @@ components:
         prompt:
           type: string
           minLength: 1
+        promptRecipe:
+          $ref: "#/components/schemas/ImagePromptRecipe"
         size:
           type: string
           enum: ["1024x1024", "1536x1024", "1024x1536"]
@@ -10280,11 +10305,11 @@ components:
           description: topic_to_video only; the narration voice.
         stockSource:
           type: string
-          enum: [auto, pexels, pixabay]
+          enum: [auto, pexels, pixabay, wikimedia]
           default: auto
           description: >-
-            topic_to_video only; where stock footage comes from (auto = first
-            configured source).
+            topic_to_video only; where stock footage comes from (auto = healthiest
+            configured library, with the keyless public-domain archive behind it).
         subtitles:
           type: boolean
           default: true
@@ -10577,12 +10602,14 @@ components:
           type: boolean
           description: Whether an API key for this source is set.
         envKey:
-          type: string
-          description: Secret name used as the fallback key.
+          type: ["string", "null"]
+          description: Secret name used as the fallback key, or null for a keyless source.
         keySource:
           type: ["string", "null"]
-          enum: [database, env, null]
-          description: Where the active key comes from (admin-entered key wins over the env secret).
+          enum: [database, env, builtin, null]
+          description: >-
+            Where the active key comes from (admin-entered key wins over the env secret).
+            "builtin" means the source needs no credential at all.
     VideoGenProviderInfo:
       type: object
       required:
@@ -12751,6 +12778,8 @@ components:
           referenceStyles,
           planGate,
           providerResilience,
+          archivalFootage,
+          imageLooks,
         ]
       properties:
         aiStudio:
@@ -12820,6 +12849,10 @@ components:
         planGate:
           type: boolean
         providerResilience:
+          type: boolean
+        archivalFootage:
+          type: boolean
+        imageLooks:
           type: boolean
     AiSpendSettingsView:
       type: object

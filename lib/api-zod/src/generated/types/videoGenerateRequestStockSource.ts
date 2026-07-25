@@ -7,7 +7,7 @@
  */
 
 /**
- * topic_to_video only; where stock footage comes from (auto = first configured source).
+ * topic_to_video only; where stock footage comes from (auto = healthiest configured library, with the keyless public-domain archive behind it).
  */
 export type VideoGenerateRequestStockSource = typeof VideoGenerateRequestStockSource[keyof typeof VideoGenerateRequestStockSource];
 
@@ -16,4 +16,5 @@ export const VideoGenerateRequestStockSource = {
   auto: 'auto',
   pexels: 'pexels',
   pixabay: 'pixabay',
+  wikimedia: 'wikimedia',
 } as const;

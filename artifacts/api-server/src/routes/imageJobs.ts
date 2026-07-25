@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { db, tenantsTable, imageGenerationsTable, type ImageGeneration } from "@workspace/db";
 import { and, eq, desc } from "drizzle-orm";
 import { GenerateImageAsyncBody } from "@workspace/api-zod";
+import { compileImagePrompt } from "../lib/imageGen/promptCompiler";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage } from "../lib/usage";
 import { spendCredit, refundCredits } from "../lib/credits";
@@ -93,7 +94,16 @@ router.post("/ai/generate-image-async", async (req: Request, res: Response) => {
         tenantId: req.tenantId,
         status: "queued",
         funding,
-        prompt: body.prompt,
+        // Compiled here, not in the runner: the stored prompt is what the
+        // gallery shows and what a re-run sends back, so it has to be the
+        // finished text rather than a brief plus a recipe the runner ate.
+        prompt: compileImagePrompt(
+          body.prompt,
+          // Kill switch: when Image Look Presets is off, the recipe is dropped.
+          (await isFeatureEnabled("imageLooks").catch(() => true))
+            ? body.promptRecipe
+            : undefined,
+        ),
         size: body.size ?? "1024x1024",
         brandKitId: body.brandKitId ?? null,
         referenceImagePath: body.referenceImagePath ?? null,

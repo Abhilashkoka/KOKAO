@@ -5,11 +5,13 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { ImagePromptRecipe } from './imagePromptRecipe';
 import type { ImageRequestSize } from './imageRequestSize';
 
 export interface ImageRequest {
   /** @minLength 1 */
   prompt: string;
+  promptRecipe?: ImagePromptRecipe;
   size?: ImageRequestSize;
   /** @nullable */
   brandKitId?: number | null;

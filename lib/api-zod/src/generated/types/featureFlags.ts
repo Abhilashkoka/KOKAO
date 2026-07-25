@@ -44,4 +44,6 @@ export interface FeatureFlags {
   referenceStyles: boolean;
   planGate: boolean;
   providerResilience: boolean;
+  archivalFootage: boolean;
+  imageLooks: boolean;
 }

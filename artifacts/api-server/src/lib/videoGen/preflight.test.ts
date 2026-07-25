@@ -127,15 +127,34 @@ describe("preflightVideoJob", () => {
     expect(issue?.message).toContain("stock footage source");
   });
 
-  it("refuses when every configured stock source is failing", async () => {
+  it("refuses when every stock source, archive included, is failing", async () => {
+    process.env.PEXELS_API_KEY = "test-pexels-key";
+    process.env.PIXABAY_API_KEY = "test-pixabay-key";
+    open("stock:pexels");
+    open("stock:pixabay");
+    open("stock:wikimedia");
+
+    const issue = await preflightVideoJob("topic_to_video", options());
+    expect(issue?.status).toBe(503);
+    expect(issue?.message).toContain("stock footage source");
+  });
+
+  it("passes on the keyless archive when both keyed libraries are down", async () => {
     process.env.PEXELS_API_KEY = "test-pexels-key";
     process.env.PIXABAY_API_KEY = "test-pixabay-key";
     open("stock:pexels");
     open("stock:pixabay");
 
-    const issue = await preflightVideoJob("topic_to_video", options());
-    expect(issue?.status).toBe(503);
-    expect(issue?.message).toContain("stock footage source");
+    // Public-domain footage beats a failed video; the runtime walks to it too.
+    expect(await preflightVideoJob("topic_to_video", options())).toBeNull();
+  });
+
+  it("does not let the archive stand in for a missing stock account", async () => {
+    // Commons needs no key, so it is always "configured" — but with no keyed
+    // library at all the operator must still hear about the missing key.
+    const issue = await preflightVideoJob("topic_to_video", options({ stockSource: "auto" }));
+    expect(issue?.status).toBe(400);
+    expect(issue?.message).toContain("Pexels");
   });
 
   it("passes when one stock source is still healthy", async () => {

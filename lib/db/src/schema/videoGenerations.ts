@@ -35,7 +35,7 @@ export interface VideoJobOptions {
   musicPrompt?: string | null;
   /** topic_to_video: narration voice. */
   voice?: string;
-  /** topic_to_video: stock footage source ("auto" | "pexels" | "pixabay"). */
+  /** topic_to_video: stock footage source ("auto" | "pexels" | "pixabay" | "wikimedia"). */
   stockSource?: string;
   /** topic_to_video: burn per-sentence subtitles (default true). */
   subtitles?: boolean;

@@ -7,7 +7,7 @@
  */
 
 /**
- * Where the active key comes from (admin-entered key wins over the env secret).
+ * Where the active key comes from (admin-entered key wins over the env secret). "builtin" means the source needs no credential at all.
  * @nullable
  */
 export type StockSourceInfoKeySource = typeof StockSourceInfoKeySource[keyof typeof StockSourceInfoKeySource] | null;
@@ -16,4 +16,5 @@ export type StockSourceInfoKeySource = typeof StockSourceInfoKeySource[keyof typ
 export const StockSourceInfoKeySource = {
   database: 'database',
   env: 'env',
+  builtin: 'builtin',
 } as const;

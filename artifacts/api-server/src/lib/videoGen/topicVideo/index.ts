@@ -5,8 +5,9 @@ import { VideoGenProviderError, type VideoAspect } from "../types";
 import { generateTopicScript } from "./script";
 import { splitIntoSentences, synthesizeNarration, type NarrationVoice } from "./narration";
 import {
-  resolveStockSource,
-  searchStockClips,
+  stockCandidates,
+  stockNotConfiguredError,
+  collectStockCandidates,
   downloadStockClip,
   type StockSourceChoice,
   type StockClip,
@@ -54,6 +55,8 @@ export const AI_BROLL_TOTAL_DEADLINE_MS = 15 * 60 * 1000;
 
 /** Distinct stock clips to download; scenes cycle through them. */
 const MAX_STOCK_CLIPS = 6;
+/** Other stock sources to try when the first one comes back empty. */
+const STOCK_FALLBACK_LIMIT = 2;
 
 export interface TopicVideoParams {
   tenantId: number;
@@ -115,33 +118,16 @@ async function gatherStockClips(
   startedAt: number,
   ranking: { tenantAiModel: string; topic: string; sceneTexts: string[] } | null,
 ): Promise<{ clips: Buffer[]; provider: string; sceneToClip: number[] | null }> {
-  const { def, apiKey } = await resolveStockSource(stockSource);
+  const sources = (await stockCandidates(stockSource)).slice(0, 1 + STOCK_FALLBACK_LIMIT);
+  if (sources.length === 0) throw stockNotConfiguredError(stockSource);
   const wanted = Math.max(1, Math.min(MAX_STOCK_CLIPS, neededScenes));
 
-  const perTerm: StockClip[][] = [];
-  for (const term of searchTerms) {
-    checkDeadline(startedAt);
-    try {
-      perTerm.push(await searchStockClips(def, apiKey, term, aspect));
-    } catch (err) {
-      logger.warn({ err, term, source: def.id }, "stock search failed for term");
-      perTerm.push([]);
-    }
-  }
-
-  // Interleave: first candidate of each term, then second of each, ...
-  const seenUrls = new Set<string>();
-  const candidates: StockClip[] = [];
-  const deepest = Math.max(0, ...perTerm.map((list) => list.length));
-  for (let depth = 0; depth < deepest; depth++) {
-    for (const list of perTerm) {
-      const clip = list[depth];
-      if (clip && !seenUrls.has(clip.url)) {
-        seenUrls.add(clip.url);
-        candidates.push(clip);
-      }
-    }
-  }
+  const { def, clips: candidates } = await collectStockCandidates(
+    sources,
+    searchTerms,
+    aspect,
+    () => checkDeadline(startedAt),
+  );
   if (candidates.length === 0) {
     throw new VideoGenProviderError(
       `No stock footage found on ${def.label} for this topic. Try rephrasing it.`,

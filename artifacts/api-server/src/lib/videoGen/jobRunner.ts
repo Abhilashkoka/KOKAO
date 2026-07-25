@@ -340,7 +340,7 @@ function isNarrationVoice(value: string | undefined): value is NarrationVoice {
 }
 
 function isStockSourceChoice(value: string | undefined): value is StockSourceChoice {
-  return value === "auto" || value === "pexels" || value === "pixabay";
+  return value === "auto" || value === "pexels" || value === "pixabay" || value === "wikimedia";
 }
 
 /**

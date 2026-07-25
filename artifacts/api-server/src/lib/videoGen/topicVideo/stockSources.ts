@@ -5,6 +5,8 @@ import {
   recordProviderFailure,
   recordProviderSuccess,
 } from "../../providerHealth";
+import { logger } from "../../logger";
+import { isFeatureEnabled } from "../../featureFlags";
 import { encryptJson, decryptJson } from "../../secretCrypto";
 import { assertPublicHost } from "../../webFetch";
 import {
@@ -27,19 +29,25 @@ import {
  * compositor scales and center-crops to the target aspect.
  */
 
-export type StockSourceId = "pexels" | "pixabay";
-/** "auto" = first configured source, Pexels preferred. */
+export type StockSourceId = "pexels" | "pixabay" | "wikimedia";
+/** "auto" = healthiest configured source, keyed libraries preferred. */
 export type StockSourceChoice = StockSourceId | "auto";
 
 export interface StockSourceDef {
   id: StockSourceId;
   label: string;
-  envKey: string;
+  /**
+   * Secret name holding the API key, or null for a source that needs no
+   * credential at all. Keyless sources are public, license-filtered archives:
+   * always "configured", but only reachable as failover (see stockCandidates).
+   */
+  envKey: string | null;
 }
 
 export const STOCK_SOURCES: readonly StockSourceDef[] = [
   { id: "pexels", label: "Pexels", envKey: "PEXELS_API_KEY" },
   { id: "pixabay", label: "Pixabay", envKey: "PIXABAY_API_KEY" },
+  { id: "wikimedia", label: "Wikimedia Commons", envKey: null },
 ] as const;
 
 export function getStockSourceDef(id: string): StockSourceDef | undefined {
@@ -92,17 +100,20 @@ export async function clearStoredStockKey(sourceId: string): Promise<void> {
     .where(eq(appCredentialsTable.provider, stockCredentialProvider(sourceId)));
 }
 
-export type StockKeySource = "database" | "env" | null;
+export type StockKeySource = "database" | "env" | "builtin" | null;
 
 /** Where the effective key comes from: admin-entered DB key wins, env is fallback. */
 export async function getStockKeySource(def: StockSourceDef): Promise<StockKeySource> {
+  if (def.envKey === null) return "builtin";
   if (await getStoredStockKey(def.id)) return "database";
   if (process.env[def.envKey]) return "env";
   return null;
 }
 
-/** The effective API key for a source (DB first, then env), or null. */
+/** The effective API key for a source (DB first, then env), or null.
+ * A keyless source resolves to "" — configured, with nothing to send. */
 export async function resolveStockApiKey(def: StockSourceDef): Promise<string | null> {
+  if (def.envKey === null) return "";
   const stored = await getStoredStockKey(def.id);
   if (stored) return stored;
   return process.env[def.envKey] ?? null;
@@ -116,21 +127,55 @@ export function stockHealthKey(id: StockSourceId): string {
   return `stock:${id}`;
 }
 
-/** Resolve "auto" to the first configured source; validate explicit choices.
- * In "auto" mode a source whose circuit breaker is open (recent consecutive
- * 429/5xx) is deprioritized so jobs land on the source that's actually up. */
-export async function resolveStockSource(
+/**
+ * Every source this choice may legitimately use, best first.
+ *
+ * For an explicit choice that is just the one source. For "auto" it is the
+ * configured keyed libraries, healthiest first (a source whose circuit breaker
+ * is open — recent consecutive 429/5xx — is deprioritized so jobs land on
+ * whatever is actually up), and then the keyless public-domain archives as
+ * failover behind them.
+ *
+ * The archives are deliberately NOT a substitute for a stock account: they are
+ * appended only once at least one keyed library is configured. A deployment
+ * with no stock key at all should hear "add a Pexels key", not quietly start
+ * shipping museum footage. But when Pexels and Pixabay are both down mid-job,
+ * Commons is a far better answer than a failed video.
+ */
+export async function stockCandidates(
   choice: StockSourceChoice,
-): Promise<{ def: StockSourceDef; apiKey: string }> {
-  const candidates =
-    choice === "auto"
-      ? orderByHealth([...STOCK_SOURCES], (s) => stockHealthKey(s.id))
-      : STOCK_SOURCES.filter((s) => s.id === choice);
-  for (const def of candidates) {
+): Promise<{ def: StockSourceDef; apiKey: string }[]> {
+  // Platform kill switch for the keyless public-domain archives. Fail-open:
+  // a flag-read hiccup must never take footage away from a running job.
+  const archivalEnabled = await isFeatureEnabled("archivalFootage").catch(() => true);
+
+  if (choice !== "auto") {
+    const def = STOCK_SOURCES.find((s) => s.id === choice);
+    if (!def) return [];
+    if (def.envKey === null && !archivalEnabled) return [];
     const apiKey = await resolveStockApiKey(def);
-    if (apiKey) return { def, apiKey };
+    return apiKey === null ? [] : [{ def, apiKey }];
   }
-  throw new VideoGenNotConfiguredError(
+
+  const keyed: { def: StockSourceDef; apiKey: string }[] = [];
+  for (const def of STOCK_SOURCES) {
+    if (def.envKey === null) continue;
+    const apiKey = await resolveStockApiKey(def);
+    if (apiKey !== null) keyed.push({ def, apiKey });
+  }
+  if (keyed.length === 0) return [];
+
+  const keyless = archivalEnabled
+    ? STOCK_SOURCES.filter((s) => s.envKey === null).map((def) => ({ def, apiKey: "" }))
+    : [];
+  // Health ordering spans both groups, so a healthy archive beats a broken
+  // Pexels while a healthy Pexels still wins outright.
+  return orderByHealth([...keyed, ...keyless], (c) => stockHealthKey(c.def.id));
+}
+
+/** What to tell the tenant when a choice has no usable source at all. */
+export function stockNotConfiguredError(choice: StockSourceChoice): VideoGenNotConfiguredError {
+  return new VideoGenNotConfiguredError(
     choice === "auto"
       ? "No stock footage source is configured. Add a Pexels or Pixabay API key " +
         "(free at pexels.com/api or pixabay.com/api/docs) in the admin settings, " +
@@ -272,6 +317,193 @@ async function searchPixabay(
   return clips;
 }
 
+/**
+ * Wikimedia Commons — a keyless, license-filtered archive.
+ *
+ * Commons is the deepest free source of regional footage (Indian streets,
+ * festivals, wildlife, archival film) where Pexels is thin. It is also a mixed
+ * licence pool, so the filter below is the whole point of this integration:
+ * only PUBLIC DOMAIN and CC0 files are accepted.
+ *
+ * CC BY and CC BY-SA are excluded on purpose. BY needs a credit KOKAO has
+ * nowhere to put inside a tenant's published post, and SA would arguably
+ * push its share-alike terms onto the finished video — a licence obligation
+ * we must not hand a paying customer by accident. Public domain and CC0 carry
+ * neither, so an accepted clip is unconditionally safe to composite.
+ *
+ * lessismore: no per-clip licence field on StockClip — the filter IS the audit
+ * trail. Nothing that reaches a video needs attribution, so there is nothing
+ * per-clip to record.
+ */
+const WIKIMEDIA_API = "https://commons.wikimedia.org/w/api.php";
+
+/** Commons asks every API client to identify itself; anonymous UAs are blocked. */
+const WIKIMEDIA_USER_AGENT =
+  "KOKAO/1.0 (social marketing video generator; https://github.com/Abhilashkoka/KOKAO)";
+
+/** Transcoded renditions come from `derivatives`, which only TimedMediaHandler
+ * serves. If this wiki rejects the prop we retry without it and fall back to
+ * the original file. */
+const WIKIMEDIA_VIPROPS = "url|size|dimensions|mime|extmetadata|derivatives";
+const WIKIMEDIA_VIPROPS_BASIC = "url|size|dimensions|mime|extmetadata";
+
+/**
+ * Licence codes that impose no condition on the finished video. Commons
+ * reports codes like "cc0", "pd", "pd-old-70", "pdm-owner"; anything else
+ * ("cc-by-4.0", "cc-by-sa-3.0", "attribution", "fair use") is rejected.
+ */
+const UNCONDITIONAL_LICENCES = ["cc0", "cc-zero", "pd", "pdm"];
+
+function isUnconditionalLicence(extmetadata: WikimediaExtMetadata | undefined): boolean {
+  const code = extmetadata?.License?.value?.toLowerCase().trim();
+  if (code) {
+    return UNCONDITIONAL_LICENCES.some((ok) => code === ok || code.startsWith(`${ok}-`));
+  }
+  // No machine-readable code: accept only an unambiguous human-readable one.
+  const short = extmetadata?.LicenseShortName?.value?.toLowerCase() ?? "";
+  return short.includes("public domain") || short.startsWith("cc0");
+}
+
+interface WikimediaExtMetadata {
+  License?: { value?: string };
+  LicenseShortName?: { value?: string };
+}
+
+interface WikimediaVideoInfo {
+  url?: string;
+  width?: number;
+  height?: number;
+  duration?: number;
+  mime?: string;
+  thumburl?: string;
+  extmetadata?: WikimediaExtMetadata;
+  derivatives?: { src?: string; width?: number; height?: number; type?: string }[];
+}
+
+interface WikimediaResponse {
+  error?: { code?: string; info?: string };
+  query?: { pages?: { title?: string; videoinfo?: WikimediaVideoInfo[] }[] };
+}
+
+async function queryWikimedia(term: string, viprop: string): Promise<WikimediaResponse> {
+  const params = new URLSearchParams({
+    action: "query",
+    format: "json",
+    formatversion: "2",
+    generator: "search",
+    gsrsearch: `filetype:video ${term}`,
+    gsrnamespace: "6",
+    gsrlimit: "20",
+    prop: "videoinfo",
+    viprop,
+    viurlwidth: "640",
+  });
+  const res = await videoGenFetch(`${WIKIMEDIA_API}?${params}`, {
+    headers: { "User-Agent": WIKIMEDIA_USER_AGENT, Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new VideoGenProviderError(
+      `Wikimedia Commons search failed (${res.status}): ${await errorDetail(res)}`,
+      res.status,
+    );
+  }
+  return (await res.json()) as WikimediaResponse;
+}
+
+async function searchWikimedia(term: string, aspect: VideoAspect): Promise<StockClip[]> {
+  let data = await queryWikimedia(term, WIKIMEDIA_VIPROPS);
+  if (data.error) {
+    data = await queryWikimedia(term, WIKIMEDIA_VIPROPS_BASIC);
+  }
+  if (data.error) {
+    throw new VideoGenProviderError(
+      `Wikimedia Commons search failed: ${data.error.info ?? data.error.code ?? "unknown error"}`,
+    );
+  }
+
+  const clips: StockClip[] = [];
+  for (const page of data.query?.pages ?? []) {
+    const info = page.videoinfo?.[0];
+    if (!info?.url || !info.duration || info.duration < MIN_CLIP_DURATION_SEC) continue;
+    if (!isUnconditionalLicence(info.extmetadata)) continue;
+
+    // Transcodes when the wiki offers them, else the original upload.
+    const renditions = (info.derivatives ?? [])
+      .filter((d) => d.src && d.width && d.height)
+      .map((d) => ({ url: d.src!, width: d.width!, height: d.height! }));
+    if (renditions.length === 0 && info.width && info.height) {
+      renditions.push({ url: info.url, width: info.width, height: info.height });
+    }
+    const rendition = pickRendition(renditions, aspect);
+    if (!rendition) continue;
+
+    clips.push({
+      url: rendition.url,
+      durationSec: info.duration,
+      width: rendition.width,
+      height: rendition.height,
+      provider: "wikimedia",
+      thumbnailUrl: typeof info.thumburl === "string" && info.thumburl ? info.thumburl : null,
+    });
+  }
+  return clips;
+}
+
+/**
+ * Search every term on each source in turn and stop at the first source that
+ * actually has footage, returning its interleaved candidates (first hit of each
+ * term, then second of each, ...) deduplicated by URL.
+ *
+ * A source contributes nothing either because it is down (every term threw) or
+ * because it simply has no clips for this topic. From here those are the same
+ * problem and the next source is the answer to both, so failover is on empty
+ * results rather than on errors alone. An explicit source choice arrives here as
+ * a one-element list, so it still fails loudly instead of quietly substituting a
+ * different library.
+ *
+ * `onTick` runs before every search call — the caller uses it to enforce the
+ * job's wall-clock deadline.
+ */
+export async function collectStockCandidates(
+  sources: { def: StockSourceDef; apiKey: string }[],
+  terms: string[],
+  aspect: VideoAspect,
+  onTick?: () => void,
+): Promise<{ def: StockSourceDef; clips: StockClip[] }> {
+  let lastDef = sources[0]!.def;
+  for (const { def, apiKey } of sources) {
+    lastDef = def;
+    const perTerm: StockClip[][] = [];
+    for (const term of terms) {
+      onTick?.();
+      try {
+        perTerm.push(await searchStockClips(def, apiKey, term, aspect));
+      } catch (err) {
+        logger.warn({ err, term, source: def.id }, "stock search failed for term");
+        perTerm.push([]);
+      }
+    }
+
+    const seenUrls = new Set<string>();
+    const clips: StockClip[] = [];
+    const deepest = Math.max(0, ...perTerm.map((list) => list.length));
+    for (let depth = 0; depth < deepest; depth++) {
+      for (const list of perTerm) {
+        const clip = list[depth];
+        if (clip && !seenUrls.has(clip.url)) {
+          seenUrls.add(clip.url);
+          clips.push(clip);
+        }
+      }
+    }
+    if (clips.length > 0) return { def, clips };
+    if (sources.length > 1) {
+      logger.warn({ source: def.id }, "stock source returned no candidates; trying the next");
+    }
+  }
+  return { def: lastDef, clips: [] };
+}
+
 export async function searchStockClips(
   def: StockSourceDef,
   apiKey: string,
@@ -283,7 +515,9 @@ export async function searchStockClips(
     const clips =
       def.id === "pexels"
         ? await searchPexels(term, aspect, apiKey)
-        : await searchPixabay(term, aspect, apiKey);
+        : def.id === "pixabay"
+          ? await searchPixabay(term, aspect, apiKey)
+          : await searchWikimedia(term, aspect);
     recordProviderSuccess(key);
     return clips;
   } catch (error) {

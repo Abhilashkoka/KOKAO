@@ -102,7 +102,9 @@ export const ListFeatureFlagsResponse = zod.object({
   "brandVideo": zod.boolean(),
   "referenceStyles": zod.boolean(),
   "planGate": zod.boolean(),
-  "providerResilience": zod.boolean()
+  "providerResilience": zod.boolean(),
+  "archivalFootage": zod.boolean(),
+  "imageLooks": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -1156,8 +1158,8 @@ export const AdminGetVideoGenSettingsResponse = zod.object({
   "id": zod.string(),
   "label": zod.string(),
   "configured": zod.boolean().describe('Whether an API key for this source is set.'),
-  "envKey": zod.string().describe('Secret name used as the fallback key.'),
-  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+  "envKey": zod.string().nullable().describe('Secret name used as the fallback key, or null for a keyless source.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal('builtin'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret). \"builtin\" means the source needs no credential at all.')
 })).describe('Stock footage sources available to the Topic to Video engine.')
 })
 
@@ -1197,8 +1199,8 @@ export const AdminUpdateVideoGenSettingsResponse = zod.object({
   "id": zod.string(),
   "label": zod.string(),
   "configured": zod.boolean().describe('Whether an API key for this source is set.'),
-  "envKey": zod.string().describe('Secret name used as the fallback key.'),
-  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+  "envKey": zod.string().nullable().describe('Secret name used as the fallback key, or null for a keyless source.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal('builtin'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret). \"builtin\" means the source needs no credential at all.')
 })).describe('Stock footage sources available to the Topic to Video engine.')
 })
 
@@ -1243,8 +1245,8 @@ export const AdminSetVideoGenProviderKeyResponse = zod.object({
   "id": zod.string(),
   "label": zod.string(),
   "configured": zod.boolean().describe('Whether an API key for this source is set.'),
-  "envKey": zod.string().describe('Secret name used as the fallback key.'),
-  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+  "envKey": zod.string().nullable().describe('Secret name used as the fallback key, or null for a keyless source.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal('builtin'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret). \"builtin\" means the source needs no credential at all.')
 })).describe('Stock footage sources available to the Topic to Video engine.')
 })
 
@@ -1282,8 +1284,8 @@ export const AdminClearVideoGenProviderKeyResponse = zod.object({
   "id": zod.string(),
   "label": zod.string(),
   "configured": zod.boolean().describe('Whether an API key for this source is set.'),
-  "envKey": zod.string().describe('Secret name used as the fallback key.'),
-  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+  "envKey": zod.string().nullable().describe('Secret name used as the fallback key, or null for a keyless source.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal('builtin'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret). \"builtin\" means the source needs no credential at all.')
 })).describe('Stock footage sources available to the Topic to Video engine.')
 })
 
@@ -1433,8 +1435,8 @@ export const AdminSetStockSourceKeyResponse = zod.object({
   "id": zod.string(),
   "label": zod.string(),
   "configured": zod.boolean().describe('Whether an API key for this source is set.'),
-  "envKey": zod.string().describe('Secret name used as the fallback key.'),
-  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+  "envKey": zod.string().nullable().describe('Secret name used as the fallback key, or null for a keyless source.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal('builtin'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret). \"builtin\" means the source needs no credential at all.')
 })).describe('Stock footage sources available to the Topic to Video engine.')
 })
 
@@ -1472,8 +1474,8 @@ export const AdminClearStockSourceKeyResponse = zod.object({
   "id": zod.string(),
   "label": zod.string(),
   "configured": zod.boolean().describe('Whether an API key for this source is set.'),
-  "envKey": zod.string().describe('Secret name used as the fallback key.'),
-  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+  "envKey": zod.string().nullable().describe('Secret name used as the fallback key, or null for a keyless source.'),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal('builtin'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret). \"builtin\" means the source needs no credential at all.')
 })).describe('Stock footage sources available to the Topic to Video engine.')
 })
 
@@ -4965,6 +4967,13 @@ export const GenerateCaptionResponse = zod.object({
 
 export const GenerateImageBody = zod.object({
   "prompt": zod.string().min(1),
+  "promptRecipe": zod.object({
+  "preset": zod.enum(['product', 'food', 'fashion', 'lifestyle', 'architecture']).optional(),
+  "camera": zod.enum(['phone', 'mirrorless', 'dslr', 'medium-format', 'film35']).optional(),
+  "lens": zod.enum(['wide-24', 'reportage-35', 'natural-50', 'portrait-85', 'macro-100', 'tele-135']).optional(),
+  "aperture": zod.enum(['f1.4', 'f2.8', 'f5.6', 'f8', 'f16']).optional(),
+  "lighting": zod.enum(['softbox', 'window', 'golden-hour', 'flash', 'overcast', 'neon']).optional()
+}).optional().describe('Optional photographic direction picked from the studio\'s Look pills. The server compiles these ids together with the brief into a single prompt; each axis set here overrides the preset\'s default for that axis, and an axis is usable on its own without a preset.'),
   "size": zod.enum(['1024x1024', '1536x1024', '1024x1536']).optional(),
   "brandKitId": zod.number().nullish(),
   "campaignId": zod.string().nullish().describe('Ties this image\'s data usage to a generated campaign'),
@@ -5004,6 +5013,13 @@ export const StreamCaptionResponse = zod.unknown()
 
 export const GenerateImageAsyncBody = zod.object({
   "prompt": zod.string().min(1),
+  "promptRecipe": zod.object({
+  "preset": zod.enum(['product', 'food', 'fashion', 'lifestyle', 'architecture']).optional(),
+  "camera": zod.enum(['phone', 'mirrorless', 'dslr', 'medium-format', 'film35']).optional(),
+  "lens": zod.enum(['wide-24', 'reportage-35', 'natural-50', 'portrait-85', 'macro-100', 'tele-135']).optional(),
+  "aperture": zod.enum(['f1.4', 'f2.8', 'f5.6', 'f8', 'f16']).optional(),
+  "lighting": zod.enum(['softbox', 'window', 'golden-hour', 'flash', 'overcast', 'neon']).optional()
+}).optional().describe('Optional photographic direction picked from the studio\'s Look pills. The server compiles these ids together with the brief into a single prompt; each axis set here overrides the preset\'s default for that axis, and an axis is usable on its own without a preset.'),
   "size": zod.enum(['1024x1024', '1536x1024', '1024x1536']).optional(),
   "brandKitId": zod.number().nullish(),
   "campaignId": zod.string().nullish().describe('Ties this image\'s data usage to a generated campaign'),
@@ -5145,7 +5161,7 @@ export const GenerateVideoBody = zod.object({
   "musicPath": zod.string().nullish().describe('Slideshow and topic_to_video; \/objects\/... path of an uploaded music track, faded out at the end of the video.'),
   "musicPrompt": zod.string().max(generateVideoBodyMusicPromptMax).nullish().describe('Slideshow and topic_to_video; describe a mood\/style and an AI music bed is composed for the video (+1 video unit). Ignored when musicPath is set.'),
   "voice": zod.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']).default(generateVideoBodyVoiceDefault).describe('topic_to_video only; the narration voice.'),
-  "stockSource": zod.enum(['auto', 'pexels', 'pixabay']).default(generateVideoBodyStockSourceDefault).describe('topic_to_video only; where stock footage comes from (auto = first configured source).'),
+  "stockSource": zod.enum(['auto', 'pexels', 'pixabay', 'wikimedia']).default(generateVideoBodyStockSourceDefault).describe('topic_to_video only; where stock footage comes from (auto = healthiest configured library, with the keyless public-domain archive behind it).'),
   "subtitles": zod.boolean().default(generateVideoBodySubtitlesDefault).describe('topic_to_video only; burn per-sentence subtitles.'),
   "captionStyle": zod.enum(['classic', 'dynamic']).default(generateVideoBodyCaptionStyleDefault).describe('topic_to_video only; how burned subtitles look. \"classic\" shows one sentence at a time near the bottom. \"dynamic\" shows big 2-3 word groups timed to the narration (the short-form social style).'),
   "paragraphCount": zod.number().min(1).max(generateVideoBodyParagraphCountMax).default(generateVideoBodyParagraphCountDefault).describe('topic_to_video only; script length in paragraphs (roughly 30 seconds of narration each).'),
