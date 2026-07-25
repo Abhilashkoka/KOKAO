@@ -192,6 +192,12 @@ export const FEATURES = [
       "Brand kits steering topic videos: brand voice in the script, brand colour on captions, and the brand logo watermarked on every frame. When off, the Brand kit picker is hidden and all videos render unbranded.",
   },
   {
+    id: "providerResilience",
+    label: "Provider Preflight",
+    description:
+      "Checks a video job's provider dependencies before any quota or credits are taken: a missing key refuses with a clear message, and a provider that is already failing asks the tenant to retry in a few minutes. When off, jobs fund immediately and rely on refunds if they fail.",
+  },
+  {
     id: "planGate",
     label: "Pre-render Plan Gate",
     description:

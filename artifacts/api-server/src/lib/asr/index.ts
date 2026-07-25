@@ -1,10 +1,13 @@
 import { db, asrSettingsTable, appCredentialsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { logger } from "../logger";
+import { orderByHealth, recordProviderFailure, recordProviderSuccess } from "../providerHealth";
 import { encryptJson, decryptJson } from "../secretCrypto";
 import { transcribeWithGroq, GROQ_MODEL } from "./providers/groq";
 import { transcribeWithOpenAI, OPENAI_ASR_MODEL } from "./providers/openaiWhisper";
 import { transcribeWithDeepgram, DEEPGRAM_MODEL } from "./providers/deepgram";
 import { transcribeWithAssemblyAI, ASSEMBLYAI_MODEL } from "./providers/assemblyai";
+import { AsrProviderError } from "./types";
 import type { TranscribeInput, TranscriptionResult } from "./types";
 
 export { AsrNotConfiguredError, AsrProviderError } from "./types";
@@ -145,10 +148,91 @@ export async function setSelectedAsrProviderId(id: string): Promise<void> {
     });
 }
 
-/** Transcribe a voice note using the currently selected provider. */
+export function asrHealthKey(providerId: string): string {
+  return `asr:${providerId}`;
+}
+
+/** Whether a transcription failure is the PROVIDER's fault (429/5xx/network),
+ * as opposed to unusable audio or a bad key that would fail anywhere. */
+function isTransientAsrError(error: unknown): boolean {
+  if (error instanceof AsrProviderError) {
+    if (error.status === undefined) return true; // timeout / network-shaped
+    return (
+      error.status === 429 ||
+      error.status === 500 ||
+      error.status === 502 ||
+      error.status === 503 ||
+      error.status === 504
+    );
+  }
+  // Raw fetch TypeError / socket resets — transient by nature.
+  return error instanceof Error;
+}
+
+/** How many OTHER configured providers to try after a transient failure. */
+const ASR_FALLBACK_LIMIT = 2;
+
+async function runAsrProvider(
+  def: AsrProviderDef,
+  input: TranscribeInput,
+): Promise<TranscriptionResult> {
+  const apiKey = await resolveAsrApiKey(def);
+  const key = asrHealthKey(def.id);
+  try {
+    const result = await def.transcribe(input, apiKey);
+    recordProviderSuccess(key);
+    return result;
+  } catch (error) {
+    if (isTransientAsrError(error)) {
+      recordProviderFailure(key, error instanceof Error ? error.message : undefined);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Transcribe a voice note using the currently selected provider.
+ *
+ * Reliability: the selected provider is always attempted first (that attempt
+ * doubles as the circuit breaker's half-open probe). If it fails with a
+ * TRANSIENT error, up to two other configured providers are tried —
+ * healthiest first — before the caller sees a failure. A permanent error
+ * (unusable audio, invalid key) never triggers fallback, because a second
+ * provider would reject the same bytes.
+ *
+ * A voice note the tenant just recorded cannot be re-recorded on demand, so a
+ * bad ten minutes at one vendor should not lose it.
+ */
 export async function transcribeAudio(input: TranscribeInput): Promise<TranscriptionResult> {
   const id = await getSelectedAsrProviderId();
   const def = getProviderDef(id) ?? getProviderDef(DEFAULT_ASR_PROVIDER)!;
-  const apiKey = await resolveAsrApiKey(def);
-  return def.transcribe(input, apiKey);
+
+  let primaryError: unknown;
+  try {
+    return await runAsrProvider(def, input);
+  } catch (error) {
+    primaryError = error;
+    if (!isTransientAsrError(error)) throw error;
+  }
+
+  const alternates: AsrProviderDef[] = [];
+  for (const candidate of ASR_PROVIDERS) {
+    if (candidate.id === def.id) continue;
+    if (await isProviderConfigured(candidate)) alternates.push(candidate);
+  }
+  const ordered = orderByHealth(alternates, (c) => asrHealthKey(c.id)).slice(0, ASR_FALLBACK_LIMIT);
+
+  for (const candidate of ordered) {
+    logger.warn(
+      { primary: def.id, fallback: candidate.id, err: primaryError },
+      "Speech-to-text provider failed transiently; trying fallback provider",
+    );
+    try {
+      return await runAsrProvider(candidate, input);
+    } catch (error) {
+      if (!isTransientAsrError(error)) throw error;
+    }
+  }
+
+  throw primaryError;
 }

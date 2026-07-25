@@ -41,6 +41,7 @@ const ALL_ON: FeatureFlags = {
   brandVideo: true,
   referenceStyles: true,
   planGate: true,
+  providerResilience: true,
 };
 
 /**

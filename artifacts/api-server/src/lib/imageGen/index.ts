@@ -260,7 +260,7 @@ export function effectiveModel(def: ImageGenProviderDef, override: string | null
   return def.defaultModel;
 }
 
-function imageGenHealthKey(providerId: string): string {
+export function imageGenHealthKey(providerId: string): string {
   return `imagegen:${providerId}`;
 }
 

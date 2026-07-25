@@ -112,7 +112,7 @@ export async function isStockSourceConfigured(def: StockSourceDef): Promise<bool
   return (await resolveStockApiKey(def)) !== null;
 }
 
-function stockHealthKey(id: StockSourceId): string {
+export function stockHealthKey(id: StockSourceId): string {
   return `stock:${id}`;
 }
 

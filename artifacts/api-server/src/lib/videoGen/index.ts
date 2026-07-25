@@ -1,11 +1,15 @@
 import { db, videoGenSettingsTable, appCredentialsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { logger } from "../logger";
+import { recordProviderFailure, recordProviderSuccess } from "../providerHealth";
 import { encryptJson, decryptJson } from "../secretCrypto";
 import {
   generateWithReplicate,
   REPLICATE_T2V_MODEL,
   REPLICATE_I2V_MODEL,
 } from "./providers/replicate";
+import { isTransientStatus } from "./retry";
+import { VideoGenProviderError } from "./types";
 import type { SourceImage, VideoAspect, VideoGenInput, VideoGenResult } from "./types";
 
 export { VideoGenNotConfiguredError, VideoGenProviderError } from "./types";
@@ -173,7 +177,56 @@ export function effectiveVideoModel(
   return mode === "text" ? def.defaultTextToVideoModel : def.defaultImageToVideoModel;
 }
 
-/** Generate a video using the currently selected provider. */
+export function videoGenHealthKey(providerId: string): string {
+  return `videogen:${providerId}`;
+}
+
+/** Whether a video failure is the UPSTREAM's fault (429/5xx/network/timeout),
+ * as opposed to a rejected prompt or bad key that would fail on any model. */
+function isTransientVideoGenError(error: unknown): boolean {
+  if (error instanceof VideoGenProviderError) {
+    if (error.status === undefined) return true; // timeout / network-shaped
+    return isTransientStatus(error.status);
+  }
+  // Raw fetch TypeError / socket resets — transient by nature.
+  return error instanceof Error;
+}
+
+/** How many OTHER models to try after a transient failure. */
+const VIDEO_GEN_FALLBACK_LIMIT = 2;
+
+/**
+ * The models to try, in order: the effective one first, then the provider's
+ * other catalog choices for this engine.
+ *
+ * There is exactly one AI video provider today, so failover happens at MODEL
+ * level rather than provider level. That is not a lesser fallback here: a
+ * queue backed up behind one hosted model is the common failure, and the same
+ * account's other models are usually fine.
+ */
+function videoModelChain(
+  def: VideoGenProviderDef,
+  mode: VideoGenMode,
+  override: string | null,
+): string[] {
+  const primary = effectiveVideoModel(def, mode, override);
+  const options = mode === "text" ? def.textModelOptions : def.imageModelOptions;
+  const alternates = (options ?? [])
+    .map((option) => option.value)
+    .filter((model) => model !== primary)
+    .slice(0, VIDEO_GEN_FALLBACK_LIMIT);
+  return [primary, ...alternates];
+}
+
+/**
+ * Generate a video using the currently selected provider.
+ *
+ * Reliability: a transient upstream failure (429/5xx/network/timeout) retries
+ * on the provider's next catalog model rather than failing a job the tenant
+ * has already paid a video unit for. Permanent failures — a prompt the safety
+ * filter rejected, a missing key — fail immediately, because another model
+ * would reject them too.
+ */
 export async function generateVideo(params: {
   mode: VideoGenMode;
   prompt: string;
@@ -188,14 +241,47 @@ export async function generateVideo(params: {
   const apiKey = await resolveVideoGenApiKey(def);
   const override =
     params.mode === "text" ? selection.textToVideoModel : selection.imageToVideoModel;
-  return def.generate(
-    {
-      prompt: params.prompt,
-      aspectRatio: params.aspectRatio,
-      durationSec: params.durationSec,
-      model: effectiveVideoModel(def, params.mode, override),
-      image: params.mode === "image" ? params.image : undefined,
-    },
-    apiKey,
-  );
+  const models = videoModelChain(def, params.mode, override);
+  const key = videoGenHealthKey(def.id);
+
+  let primaryError: unknown;
+  for (let i = 0; i < models.length; i++) {
+    const model = models[i]!;
+    try {
+      const result = await def.generate(
+        {
+          prompt: params.prompt,
+          aspectRatio: params.aspectRatio,
+          durationSec: params.durationSec,
+          model,
+          image: params.mode === "image" ? params.image : undefined,
+        },
+        apiKey,
+      );
+      recordProviderSuccess(key);
+      return result;
+    } catch (error) {
+      const transient = isTransientVideoGenError(error);
+      if (i === 0) {
+        primaryError = error;
+        // A rejected prompt or a missing key fails identically everywhere.
+        if (!transient) throw error;
+      }
+      if (transient) {
+        recordProviderFailure(key, error instanceof Error ? error.message : undefined);
+      }
+      // A fallback model this account cannot reach ("model not found", "no
+      // access") is that model's problem, not the tenant's — keep walking the
+      // chain, and report the model they actually configured if none works.
+      const next = models[i + 1];
+      if (next) {
+        logger.warn(
+          { provider: def.id, model, fallbackModel: next, err: error },
+          "Video model failed; retrying on the next model",
+        );
+      }
+    }
+  }
+
+  throw primaryError ?? new VideoGenProviderError("Video generation failed. Please try again.");
 }

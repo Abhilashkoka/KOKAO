@@ -12750,6 +12750,7 @@ components:
           brandVideo,
           referenceStyles,
           planGate,
+          providerResilience,
         ]
       properties:
         aiStudio:
@@ -12817,6 +12818,8 @@ components:
         referenceStyles:
           type: boolean
         planGate:
+          type: boolean
+        providerResilience:
           type: boolean
     AiSpendSettingsView:
       type: object

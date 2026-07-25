@@ -1,10 +1,14 @@
-import { textToSpeech } from "@workspace/integrations-openai-ai-server/audio";
+import { logger } from "../../logger";
+import { recordProviderFailure, recordProviderSuccess } from "../../providerHealth";
 import { VideoGenProviderError } from "../types";
-import { withRetries, withTimeout } from "../retry";
-
-/** A single sentence should never take this long to speak; a hung TTS call
- * must not stall the whole multi-minute job. */
-const TTS_TIMEOUT_MS = 90_000;
+import { withRetries, withTimeout, isTransientStatus } from "../retry";
+import {
+  TTS_TIMEOUT_MS,
+  orderedTtsProviders,
+  resolveTtsApiKey,
+  ttsHealthKey,
+  type TtsProviderDef,
+} from "./tts";
 
 /**
  * Narration for the Topic to Video engine.
@@ -15,6 +19,9 @@ const TTS_TIMEOUT_MS = 90_000;
  * calls — a deliberate simplification of MoneyPrinterTurbo's word-boundary
  * approach (MIT, app/services/voice.py + subtitle.py) that needs no
  * transcription model.
+ *
+ * Which engine speaks the words lives in ./tts. Failover between speakers is
+ * whole-track, not per sentence — see that file for why.
  */
 
 export type NarrationVoice = "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
@@ -173,9 +180,66 @@ export interface Narration {
 }
 
 /**
+ * Whether a narration failure is the SPEAKER's fault (429/5xx/network/timeout,
+ * or audio bytes that came back unusable), as opposed to something that would
+ * fail identically on every provider.
+ */
+function isTransientTtsError(error: unknown): boolean {
+  if (error instanceof VideoGenProviderError) {
+    // No status = timeout, network shape, or unusable audio from this upstream.
+    if (error.status === undefined) return true;
+    return isTransientStatus(error.status);
+  }
+  return error instanceof Error;
+}
+
+/**
+ * Speak the whole track on one provider. Throws unless every sentence came
+ * back as usable audio in a single consistent format — a half-spoken track is
+ * worth nothing to the caller, so partial results never escape this function.
+ */
+async function narrateWith(
+  def: TtsProviderDef,
+  sentences: string[],
+  voice: NarrationVoice,
+): Promise<ParsedWav[]> {
+  const apiKey = await resolveTtsApiKey(def);
+  const parts: ParsedWav[] = [];
+  for (const sentence of sentences) {
+    // Bounded + retried: the TTS call may have no abort support of its own,
+    // so a hung or transiently-failing upstream gets one clean second chance
+    // before the whole track moves to another provider.
+    const audio = await withRetries(
+      () => withTimeout(() => def.speak(sentence, voice, apiKey), TTS_TIMEOUT_MS, "Narration"),
+      { attempts: 2 },
+    );
+    if (audio.length === 0) {
+      throw new VideoGenProviderError("Text-to-speech returned no audio. Please try again.");
+    }
+    parts.push(parseWav(audio));
+  }
+  const first = parts[0]!.format;
+  for (const part of parts) {
+    if (
+      part.format.sampleRate !== first.sampleRate ||
+      part.format.channels !== first.channels ||
+      part.format.bitsPerSample !== first.bitsPerSample
+    ) {
+      throw new VideoGenProviderError("Text-to-speech returned inconsistent audio formats.");
+    }
+  }
+  return parts;
+}
+
+/**
  * Speak every sentence, then stitch one narration track with per-sentence
  * timings. Sentences are spoken sequentially — the TTS proxy is the
  * bottleneck and parallel calls would just trip rate limits.
+ *
+ * If the speaker fails transiently, the ENTIRE track is re-spoken on the next
+ * configured provider (healthiest first). Mixing two providers inside one
+ * track would produce inconsistent sample rates and be rejected below, and
+ * re-speaking costs seconds where failing costs the tenant a video unit.
  */
 export async function synthesizeNarration(
   sentences: string[],
@@ -184,31 +248,41 @@ export async function synthesizeNarration(
   if (sentences.length === 0) {
     throw new VideoGenProviderError("There is no narration to speak.");
   }
-  const parts: ParsedWav[] = [];
-  for (const sentence of sentences) {
-    // Bounded + retried: the TTS SDK call has no abort support of its own,
-    // so a hung or transiently-failing upstream gets one clean second chance
-    // instead of stalling (or instantly failing) the whole job.
-    const audio = await withRetries(
-      () =>
-        withTimeout(() => textToSpeech(sentence, voice, "wav"), TTS_TIMEOUT_MS, "Narration"),
-      { attempts: 2 },
-    );
-    if (audio.length === 0) {
-      throw new VideoGenProviderError("Text-to-speech returned no audio. Please try again.");
-    }
-    parts.push(parseWav(audio));
+  const providers = await orderedTtsProviders();
+  if (providers.length === 0) {
+    throw new VideoGenProviderError("No text-to-speech provider is configured.");
   }
+
+  let spoken: ParsedWav[] | null = null;
+  let lastError: unknown;
+  for (let i = 0; i < providers.length; i++) {
+    const def = providers[i]!;
+    try {
+      spoken = await narrateWith(def, sentences, voice);
+      recordProviderSuccess(ttsHealthKey(def.id));
+      break;
+    } catch (error) {
+      // A permanent failure (bad key, rejected text) will repeat everywhere.
+      if (!isTransientTtsError(error)) throw error;
+      recordProviderFailure(
+        ttsHealthKey(def.id),
+        error instanceof Error ? error.message : undefined,
+      );
+      lastError = error;
+      const next = providers[i + 1];
+      if (next) {
+        logger.warn(
+          { provider: def.id, fallback: next.id, err: error },
+          "Narration provider failed transiently; re-speaking the track on the fallback",
+        );
+      }
+    }
+  }
+  if (!spoken) {
+    throw lastError ?? new VideoGenProviderError("Text-to-speech failed. Please try again.");
+  }
+  const parts = spoken;
   const format = parts[0]!.format;
-  for (const part of parts) {
-    if (
-      part.format.sampleRate !== format.sampleRate ||
-      part.format.channels !== format.channels ||
-      part.format.bitsPerSample !== format.bitsPerSample
-    ) {
-      throw new VideoGenProviderError("Text-to-speech returned inconsistent audio formats.");
-    }
-  }
 
   const gap = silence(format, SENTENCE_GAP_SEC);
   const tail = silence(format, TAIL_SILENCE_SEC);

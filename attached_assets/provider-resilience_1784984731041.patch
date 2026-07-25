@@ -1,0 +1,1639 @@
+From 1419b01c1ccfcab6c5b543233812ddb5d798b438 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 25 Jul 2026 07:32:47 +0000
+Subject: [PATCH] Make every provider dependency survive a bad ten minutes
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Four failure paths shared one shape: a job the tenant paid for died
+because a single vendor was having a bad ten minutes. Each is now the
+same failover the image pipeline already runs.
+
+Preflight before funding: a video job's dependencies are checked while
+refusing is still free. 400 when a capability has nothing configured,
+503 when everything configured has an open circuit breaker. No network
+calls — it reads the in-process breaker state real jobs already
+maintain, so it never refuses a job that would have worked.
+
+Narration failover: TTS is a provider registry now (built-in OpenAI,
+Deepgram Aura as fallback, reusing the Deepgram key the admin already
+saved for speech-to-text). Failover is whole-track, because cue timings
+require one consistent audio format across the take.
+
+Speech-to-text failover: a voice note the tenant just recorded cannot
+be re-recorded, so a transient failure tries up to two other configured
+providers, healthiest first.
+
+Video model failover: there is one AI video provider, so the chain walks
+that provider's other catalog models for the engine mode — a queue
+backed up behind one hosted model is the common failure. A fallback
+model this account cannot reach never masks the configured model's error.
+
+Permanent failures (rejected prompt, bad key, unusable audio) fail
+immediately everywhere: another candidate would reject them too.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EJdoZ8bk1pWTrmbMVQJZ7G
+---
+ .../api-server/src/lib/asr/fallback.test.ts   | 132 ++++++++++
+ artifacts/api-server/src/lib/asr/index.ts     |  90 ++++++-
+ .../api-server/src/lib/imageGen/index.ts      |   2 +-
+ .../api-server/src/lib/videoGen/index.ts      | 108 +++++++-
+ .../src/lib/videoGen/preflight.test.ts        | 240 ++++++++++++++++++
+ .../api-server/src/lib/videoGen/preflight.ts  | 179 +++++++++++++
+ .../src/lib/videoGen/topicVideo/narration.ts  | 118 +++++++--
+ .../lib/videoGen/topicVideo/stockSources.ts   |   2 +-
+ .../src/lib/videoGen/topicVideo/tts.test.ts   | 185 ++++++++++++++
+ .../src/lib/videoGen/topicVideo/tts.ts        | 148 +++++++++++
+ .../src/lib/videoGen/videoFallback.test.ts    | 153 +++++++++++
+ .../api-server/src/routes/videos.test.ts      |  19 ++
+ artifacts/api-server/src/routes/videos.ts     |  10 +
+ 13 files changed, 1348 insertions(+), 38 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/asr/fallback.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/preflight.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/preflight.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/tts.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/tts.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/videoFallback.test.ts
+
+diff --git a/artifacts/api-server/src/lib/asr/fallback.test.ts b/artifacts/api-server/src/lib/asr/fallback.test.ts
+new file mode 100644
+index 0000000..4d2052f
+--- /dev/null
++++ b/artifacts/api-server/src/lib/asr/fallback.test.ts
+@@ -0,0 +1,132 @@
++import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
++import { like } from "drizzle-orm";
++import { db, appCredentialsTable, asrSettingsTable } from "@workspace/db";
++import {
++  getProviderHealth,
++  recordProviderFailure,
++  resetProviderHealthForTests,
++} from "../providerHealth";
++import { transcribeAudio, setSelectedAsrProviderId } from "./index";
++import { AsrProviderError, type TranscriptionResult } from "./types";
++
++vi.mock("./providers/groq", () => ({
++  GROQ_MODEL: "whisper-large-v3-turbo",
++  transcribeWithGroq: vi.fn(),
++}));
++vi.mock("./providers/openaiWhisper", () => ({
++  OPENAI_ASR_MODEL: "whisper-1",
++  transcribeWithOpenAI: vi.fn(),
++}));
++vi.mock("./providers/deepgram", () => ({
++  DEEPGRAM_MODEL: "nova-2",
++  transcribeWithDeepgram: vi.fn(),
++}));
++vi.mock("./providers/assemblyai", () => ({
++  ASSEMBLYAI_MODEL: "best",
++  transcribeWithAssemblyAI: vi.fn(),
++}));
++
++import { transcribeWithGroq } from "./providers/groq";
++import { transcribeWithOpenAI } from "./providers/openaiWhisper";
++import { transcribeWithDeepgram } from "./providers/deepgram";
++import { transcribeWithAssemblyAI } from "./providers/assemblyai";
++
++const ENV_KEYS = ["GROQ_API_KEY", "DEEPGRAM_API_KEY", "ASSEMBLYAI_API_KEY"] as const;
++const savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
++
++const audio = { buffer: Buffer.from("voice note"), mimeType: "audio/webm", filename: "note.webm" };
++
++function result(provider: string): TranscriptionResult {
++  return { text: `${provider} heard it`, provider, model: `${provider}-model` };
++}
++
++describe("transcribeAudio provider fallback", () => {
++  beforeEach(async () => {
++    vi.mocked(transcribeWithGroq).mockReset();
++    vi.mocked(transcribeWithOpenAI).mockReset();
++    vi.mocked(transcribeWithDeepgram).mockReset();
++    vi.mocked(transcribeWithAssemblyAI).mockReset();
++    resetProviderHealthForTests();
++    for (const key of ENV_KEYS) delete process.env[key];
++    // Stored admin keys would override env config; clear them for determinism.
++    await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "asr_%"));
++    await db.delete(asrSettingsTable);
++    await setSelectedAsrProviderId("groq");
++    process.env.GROQ_API_KEY = "test-groq-key";
++  });
++
++  afterAll(() => {
++    for (const key of ENV_KEYS) {
++      if (savedEnv[key] === undefined) delete process.env[key];
++      else process.env[key] = savedEnv[key];
++    }
++  });
++
++  it("falls back to another configured provider on a transient failure", async () => {
++    vi.mocked(transcribeWithGroq).mockRejectedValue(new AsrProviderError("upstream down", 503));
++    vi.mocked(transcribeWithOpenAI).mockResolvedValue(result("openai"));
++
++    const out = await transcribeAudio(audio);
++    expect(out.provider).toBe("openai");
++    expect(transcribeWithGroq).toHaveBeenCalledTimes(1);
++  });
++
++  it("does not fall back on a permanent error", async () => {
++    vi.mocked(transcribeWithGroq).mockRejectedValue(
++      new AsrProviderError("unsupported audio format", 400),
++    );
++
++    await expect(transcribeAudio(audio)).rejects.toThrow("unsupported audio format");
++    expect(transcribeWithOpenAI).not.toHaveBeenCalled();
++  });
++
++  it("prefers the healthiest alternate when a breaker is open", async () => {
++    process.env.DEEPGRAM_API_KEY = "test-dg-key";
++    for (let i = 0; i < 3; i++) recordProviderFailure("asr:openai");
++    vi.mocked(transcribeWithGroq).mockRejectedValue(new AsrProviderError("rate limited", 429));
++    vi.mocked(transcribeWithDeepgram).mockResolvedValue(result("deepgram"));
++
++    const out = await transcribeAudio(audio);
++    expect(out.provider).toBe("deepgram");
++    expect(transcribeWithOpenAI).not.toHaveBeenCalled();
++  });
++
++  it("tries the second alternate when the first also fails transiently", async () => {
++    process.env.DEEPGRAM_API_KEY = "test-dg-key";
++    vi.mocked(transcribeWithGroq).mockRejectedValue(new AsrProviderError("down", 502));
++    vi.mocked(transcribeWithOpenAI).mockRejectedValue(new AsrProviderError("also down", 503));
++    vi.mocked(transcribeWithDeepgram).mockResolvedValue(result("deepgram"));
++
++    const out = await transcribeAudio(audio);
++    expect(out.provider).toBe("deepgram");
++  });
++
++  it("stops after two alternates and rethrows the primary error", async () => {
++    process.env.DEEPGRAM_API_KEY = "test-dg-key";
++    process.env.ASSEMBLYAI_API_KEY = "test-aai-key";
++    vi.mocked(transcribeWithGroq).mockRejectedValue(new AsrProviderError("primary down", 503));
++    vi.mocked(transcribeWithOpenAI).mockRejectedValue(new AsrProviderError("second down", 503));
++    vi.mocked(transcribeWithDeepgram).mockRejectedValue(new AsrProviderError("third down", 503));
++
++    await expect(transcribeAudio(audio)).rejects.toThrow("primary down");
++    expect(transcribeWithAssemblyAI).not.toHaveBeenCalled();
++  });
++
++  it("records transient failures and clears them on success", async () => {
++    vi.mocked(transcribeWithGroq).mockRejectedValueOnce(new AsrProviderError("down", 503));
++    vi.mocked(transcribeWithOpenAI).mockResolvedValue(result("openai"));
++    await transcribeAudio(audio);
++    expect(getProviderHealth("asr:groq")?.consecutiveFailures).toBe(1);
++    expect(getProviderHealth("asr:openai")?.consecutiveFailures).toBe(0);
++
++    vi.mocked(transcribeWithGroq).mockResolvedValue(result("groq"));
++    await transcribeAudio(audio);
++    expect(getProviderHealth("asr:groq")?.consecutiveFailures).toBe(0);
++  });
++
++  it("does not count a permanent error against provider health", async () => {
++    vi.mocked(transcribeWithGroq).mockRejectedValue(new AsrProviderError("bad key", 401));
++    await expect(transcribeAudio(audio)).rejects.toThrow("bad key");
++    expect(getProviderHealth("asr:groq")).toBeNull();
++  });
++});
+diff --git a/artifacts/api-server/src/lib/asr/index.ts b/artifacts/api-server/src/lib/asr/index.ts
+index c40318f..805a197 100644
+--- a/artifacts/api-server/src/lib/asr/index.ts
++++ b/artifacts/api-server/src/lib/asr/index.ts
+@@ -1,10 +1,13 @@
+ import { db, asrSettingsTable, appCredentialsTable } from "@workspace/db";
+ import { eq } from "drizzle-orm";
++import { logger } from "../logger";
++import { orderByHealth, recordProviderFailure, recordProviderSuccess } from "../providerHealth";
+ import { encryptJson, decryptJson } from "../secretCrypto";
+ import { transcribeWithGroq, GROQ_MODEL } from "./providers/groq";
+ import { transcribeWithOpenAI, OPENAI_ASR_MODEL } from "./providers/openaiWhisper";
+ import { transcribeWithDeepgram, DEEPGRAM_MODEL } from "./providers/deepgram";
+ import { transcribeWithAssemblyAI, ASSEMBLYAI_MODEL } from "./providers/assemblyai";
++import { AsrProviderError } from "./types";
+ import type { TranscribeInput, TranscriptionResult } from "./types";
+ 
+ export { AsrNotConfiguredError, AsrProviderError } from "./types";
+@@ -145,10 +148,91 @@ export async function setSelectedAsrProviderId(id: string): Promise<void> {
+     });
+ }
+ 
+-/** Transcribe a voice note using the currently selected provider. */
++export function asrHealthKey(providerId: string): string {
++  return `asr:${providerId}`;
++}
++
++/** Whether a transcription failure is the PROVIDER's fault (429/5xx/network),
++ * as opposed to unusable audio or a bad key that would fail anywhere. */
++function isTransientAsrError(error: unknown): boolean {
++  if (error instanceof AsrProviderError) {
++    if (error.status === undefined) return true; // timeout / network-shaped
++    return (
++      error.status === 429 ||
++      error.status === 500 ||
++      error.status === 502 ||
++      error.status === 503 ||
++      error.status === 504
++    );
++  }
++  // Raw fetch TypeError / socket resets — transient by nature.
++  return error instanceof Error;
++}
++
++/** How many OTHER configured providers to try after a transient failure. */
++const ASR_FALLBACK_LIMIT = 2;
++
++async function runAsrProvider(
++  def: AsrProviderDef,
++  input: TranscribeInput,
++): Promise<TranscriptionResult> {
++  const apiKey = await resolveAsrApiKey(def);
++  const key = asrHealthKey(def.id);
++  try {
++    const result = await def.transcribe(input, apiKey);
++    recordProviderSuccess(key);
++    return result;
++  } catch (error) {
++    if (isTransientAsrError(error)) {
++      recordProviderFailure(key, error instanceof Error ? error.message : undefined);
++    }
++    throw error;
++  }
++}
++
++/**
++ * Transcribe a voice note using the currently selected provider.
++ *
++ * Reliability: the selected provider is always attempted first (that attempt
++ * doubles as the circuit breaker's half-open probe). If it fails with a
++ * TRANSIENT error, up to two other configured providers are tried —
++ * healthiest first — before the caller sees a failure. A permanent error
++ * (unusable audio, invalid key) never triggers fallback, because a second
++ * provider would reject the same bytes.
++ *
++ * A voice note the tenant just recorded cannot be re-recorded on demand, so a
++ * bad ten minutes at one vendor should not lose it.
++ */
+ export async function transcribeAudio(input: TranscribeInput): Promise<TranscriptionResult> {
+   const id = await getSelectedAsrProviderId();
+   const def = getProviderDef(id) ?? getProviderDef(DEFAULT_ASR_PROVIDER)!;
+-  const apiKey = await resolveAsrApiKey(def);
+-  return def.transcribe(input, apiKey);
++
++  let primaryError: unknown;
++  try {
++    return await runAsrProvider(def, input);
++  } catch (error) {
++    primaryError = error;
++    if (!isTransientAsrError(error)) throw error;
++  }
++
++  const alternates: AsrProviderDef[] = [];
++  for (const candidate of ASR_PROVIDERS) {
++    if (candidate.id === def.id) continue;
++    if (await isProviderConfigured(candidate)) alternates.push(candidate);
++  }
++  const ordered = orderByHealth(alternates, (c) => asrHealthKey(c.id)).slice(0, ASR_FALLBACK_LIMIT);
++
++  for (const candidate of ordered) {
++    logger.warn(
++      { primary: def.id, fallback: candidate.id, err: primaryError },
++      "Speech-to-text provider failed transiently; trying fallback provider",
++    );
++    try {
++      return await runAsrProvider(candidate, input);
++    } catch (error) {
++      if (!isTransientAsrError(error)) throw error;
++    }
++  }
++
++  throw primaryError;
+ }
+diff --git a/artifacts/api-server/src/lib/imageGen/index.ts b/artifacts/api-server/src/lib/imageGen/index.ts
+index e2c9a4b..5e1e348 100644
+--- a/artifacts/api-server/src/lib/imageGen/index.ts
++++ b/artifacts/api-server/src/lib/imageGen/index.ts
+@@ -260,7 +260,7 @@ export function effectiveModel(def: ImageGenProviderDef, override: string | null
+   return def.defaultModel;
+ }
+ 
+-function imageGenHealthKey(providerId: string): string {
++export function imageGenHealthKey(providerId: string): string {
+   return `imagegen:${providerId}`;
+ }
+ 
+diff --git a/artifacts/api-server/src/lib/videoGen/index.ts b/artifacts/api-server/src/lib/videoGen/index.ts
+index 5a211da..caca79a 100644
+--- a/artifacts/api-server/src/lib/videoGen/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/index.ts
+@@ -1,11 +1,15 @@
+ import { db, videoGenSettingsTable, appCredentialsTable } from "@workspace/db";
+ import { eq } from "drizzle-orm";
++import { logger } from "../logger";
++import { recordProviderFailure, recordProviderSuccess } from "../providerHealth";
+ import { encryptJson, decryptJson } from "../secretCrypto";
+ import {
+   generateWithReplicate,
+   REPLICATE_T2V_MODEL,
+   REPLICATE_I2V_MODEL,
+ } from "./providers/replicate";
++import { isTransientStatus } from "./retry";
++import { VideoGenProviderError } from "./types";
+ import type { SourceImage, VideoAspect, VideoGenInput, VideoGenResult } from "./types";
+ 
+ export { VideoGenNotConfiguredError, VideoGenProviderError } from "./types";
+@@ -173,7 +177,56 @@ export function effectiveVideoModel(
+   return mode === "text" ? def.defaultTextToVideoModel : def.defaultImageToVideoModel;
+ }
+ 
+-/** Generate a video using the currently selected provider. */
++export function videoGenHealthKey(providerId: string): string {
++  return `videogen:${providerId}`;
++}
++
++/** Whether a video failure is the UPSTREAM's fault (429/5xx/network/timeout),
++ * as opposed to a rejected prompt or bad key that would fail on any model. */
++function isTransientVideoGenError(error: unknown): boolean {
++  if (error instanceof VideoGenProviderError) {
++    if (error.status === undefined) return true; // timeout / network-shaped
++    return isTransientStatus(error.status);
++  }
++  // Raw fetch TypeError / socket resets — transient by nature.
++  return error instanceof Error;
++}
++
++/** How many OTHER models to try after a transient failure. */
++const VIDEO_GEN_FALLBACK_LIMIT = 2;
++
++/**
++ * The models to try, in order: the effective one first, then the provider's
++ * other catalog choices for this engine.
++ *
++ * There is exactly one AI video provider today, so failover happens at MODEL
++ * level rather than provider level. That is not a lesser fallback here: a
++ * queue backed up behind one hosted model is the common failure, and the same
++ * account's other models are usually fine.
++ */
++function videoModelChain(
++  def: VideoGenProviderDef,
++  mode: VideoGenMode,
++  override: string | null,
++): string[] {
++  const primary = effectiveVideoModel(def, mode, override);
++  const options = mode === "text" ? def.textModelOptions : def.imageModelOptions;
++  const alternates = (options ?? [])
++    .map((option) => option.value)
++    .filter((model) => model !== primary)
++    .slice(0, VIDEO_GEN_FALLBACK_LIMIT);
++  return [primary, ...alternates];
++}
++
++/**
++ * Generate a video using the currently selected provider.
++ *
++ * Reliability: a transient upstream failure (429/5xx/network/timeout) retries
++ * on the provider's next catalog model rather than failing a job the tenant
++ * has already paid a video unit for. Permanent failures — a prompt the safety
++ * filter rejected, a missing key — fail immediately, because another model
++ * would reject them too.
++ */
+ export async function generateVideo(params: {
+   mode: VideoGenMode;
+   prompt: string;
+@@ -188,14 +241,47 @@ export async function generateVideo(params: {
+   const apiKey = await resolveVideoGenApiKey(def);
+   const override =
+     params.mode === "text" ? selection.textToVideoModel : selection.imageToVideoModel;
+-  return def.generate(
+-    {
+-      prompt: params.prompt,
+-      aspectRatio: params.aspectRatio,
+-      durationSec: params.durationSec,
+-      model: effectiveVideoModel(def, params.mode, override),
+-      image: params.mode === "image" ? params.image : undefined,
+-    },
+-    apiKey,
+-  );
++  const models = videoModelChain(def, params.mode, override);
++  const key = videoGenHealthKey(def.id);
++
++  let primaryError: unknown;
++  for (let i = 0; i < models.length; i++) {
++    const model = models[i]!;
++    try {
++      const result = await def.generate(
++        {
++          prompt: params.prompt,
++          aspectRatio: params.aspectRatio,
++          durationSec: params.durationSec,
++          model,
++          image: params.mode === "image" ? params.image : undefined,
++        },
++        apiKey,
++      );
++      recordProviderSuccess(key);
++      return result;
++    } catch (error) {
++      const transient = isTransientVideoGenError(error);
++      if (i === 0) {
++        primaryError = error;
++        // A rejected prompt or a missing key fails identically everywhere.
++        if (!transient) throw error;
++      }
++      if (transient) {
++        recordProviderFailure(key, error instanceof Error ? error.message : undefined);
++      }
++      // A fallback model this account cannot reach ("model not found", "no
++      // access") is that model's problem, not the tenant's — keep walking the
++      // chain, and report the model they actually configured if none works.
++      const next = models[i + 1];
++      if (next) {
++        logger.warn(
++          { provider: def.id, model, fallbackModel: next, err: error },
++          "Video model failed; retrying on the next model",
++        );
++      }
++    }
++  }
++
++  throw primaryError ?? new VideoGenProviderError("Video generation failed. Please try again.");
+ }
+diff --git a/artifacts/api-server/src/lib/videoGen/preflight.test.ts b/artifacts/api-server/src/lib/videoGen/preflight.test.ts
+new file mode 100644
+index 0000000..54e280e
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/preflight.test.ts
+@@ -0,0 +1,240 @@
++import { describe, it, expect, beforeEach, afterAll } from "vitest";
++import { like } from "drizzle-orm";
++import { db, appCredentialsTable, type VideoJobOptions } from "@workspace/db";
++import { recordProviderFailure, resetProviderHealthForTests } from "../providerHealth";
++import { preflightVideoJob } from "./preflight";
++
++const ENV_KEYS = [
++  "REPLICATE_API_TOKEN",
++  "PEXELS_API_KEY",
++  "PIXABAY_API_KEY",
++  "GEMINI_API_KEY",
++  "ARK_API_KEY",
++  "BFL_API_KEY",
++  "STABILITY_API_KEY",
++  "OPENROUTER_API_KEY",
++  "CUSTOM_IMAGE_API_KEY",
++  "DEEPGRAM_API_KEY",
++] as const;
++const savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
++
++function options(extra: Partial<VideoJobOptions> = {}): VideoJobOptions {
++  return { aspectRatio: "9:16", ...extra };
++}
++
++/** Trip a circuit breaker the way three real consecutive failures would. */
++function open(key: string): void {
++  for (let i = 0; i < 3; i++) recordProviderFailure(key);
++}
++
++describe("preflightVideoJob", () => {
++  beforeEach(async () => {
++    resetProviderHealthForTests();
++    for (const key of ENV_KEYS) delete process.env[key];
++    // Stored admin keys count as configured; clear them so env alone decides.
++    await db
++      .delete(appCredentialsTable)
++      .where(like(appCredentialsTable.provider, "videogen_%"));
++    await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "imagegen_%"));
++    await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "stock_%"));
++    await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "asr_%"));
++  });
++
++  afterAll(() => {
++    for (const key of ENV_KEYS) {
++      if (savedEnv[key] === undefined) delete process.env[key];
++      else process.env[key] = savedEnv[key];
++    }
++  });
++
++  // -------------------------------------------------------------------------
++  // AI video generation
++
++  it("refuses a text-to-video job with no video token as a misconfiguration", async () => {
++    const issue = await preflightVideoJob("text_to_video", options());
++    expect(issue?.status).toBe(400);
++    expect(issue?.message).toContain("REPLICATE_API_TOKEN");
++  });
++
++  it("refuses a text-to-video job while the video provider is failing", async () => {
++    process.env.REPLICATE_API_TOKEN = "test-token";
++    open("videogen:replicate");
++
++    const issue = await preflightVideoJob("text_to_video", options());
++    expect(issue?.status).toBe(503);
++    expect(issue?.message).toContain("Nothing was charged");
++  });
++
++  it("passes a healthy text-to-video job", async () => {
++    process.env.REPLICATE_API_TOKEN = "test-token";
++    expect(await preflightVideoJob("text_to_video", options())).toBeNull();
++  });
++
++  it("checks video generation for character-visuals topic videos", async () => {
++    process.env.PEXELS_API_KEY = "test-pexels-key";
++    const issue = await preflightVideoJob(
++      "topic_to_video",
++      options({ visualsSource: "character", characterId: 1 }),
++    );
++    expect(issue?.status).toBe(400);
++    expect(issue?.message).toContain("AI video generation");
++  });
++
++  // -------------------------------------------------------------------------
++  // Image generation
++
++  it("refuses an AI-visuals topic video while every image provider is failing", async () => {
++    // The built-in OpenAI provider needs no key, so it is the only candidate.
++    open("imagegen:openai");
++
++    const issue = await preflightVideoJob("topic_to_video", options({ visualsSource: "ai" }));
++    expect(issue?.status).toBe(503);
++    expect(issue?.message).toContain("image provider");
++  });
++
++  it("passes when one image provider is healthy even though another is down", async () => {
++    process.env.GEMINI_API_KEY = "test-gemini-key";
++    open("imagegen:openai");
++
++    expect(await preflightVideoJob("topic_to_video", options({ visualsSource: "ai" }))).toBeNull();
++  });
++
++  it("checks image generation for a character clip on the text engine", async () => {
++    process.env.REPLICATE_API_TOKEN = "test-token";
++    // The same token configures Replicate as an IMAGE provider too, so both
++    // image candidates have to be down for this to reach the image check.
++    open("imagegen:openai");
++    open("imagegen:replicate");
++
++    const issue = await preflightVideoJob("text_to_video", options({ characterId: 7 }));
++    expect(issue?.status).toBe(503);
++    expect(issue?.message).toContain("image provider");
++  });
++
++  it("does not check image generation for a plain text-to-video clip", async () => {
++    process.env.REPLICATE_API_TOKEN = "test-token";
++    open("imagegen:openai");
++
++    expect(await preflightVideoJob("text_to_video", options())).toBeNull();
++  });
++
++  // -------------------------------------------------------------------------
++  // Stock footage
++
++  it("refuses a stock topic video with no stock source configured", async () => {
++    const issue = await preflightVideoJob("topic_to_video", options());
++    expect(issue?.status).toBe(400);
++    expect(issue?.message).toContain("stock footage source");
++  });
++
++  it("refuses when every configured stock source is failing", async () => {
++    process.env.PEXELS_API_KEY = "test-pexels-key";
++    process.env.PIXABAY_API_KEY = "test-pixabay-key";
++    open("stock:pexels");
++    open("stock:pixabay");
++
++    const issue = await preflightVideoJob("topic_to_video", options());
++    expect(issue?.status).toBe(503);
++    expect(issue?.message).toContain("stock footage source");
++  });
++
++  it("passes when one stock source is still healthy", async () => {
++    process.env.PEXELS_API_KEY = "test-pexels-key";
++    process.env.PIXABAY_API_KEY = "test-pixabay-key";
++    open("stock:pexels");
++
++    expect(await preflightVideoJob("topic_to_video", options())).toBeNull();
++  });
++
++  it("honours an explicit stock source instead of falling back to the other", async () => {
++    process.env.PEXELS_API_KEY = "test-pexels-key";
++
++    const issue = await preflightVideoJob("topic_to_video", options({ stockSource: "pixabay" }));
++    expect(issue?.status).toBe(400);
++    expect(issue?.message).toContain("pixabay");
++  });
++
++  it("reports an explicitly chosen source that is failing", async () => {
++    process.env.PEXELS_API_KEY = "test-pexels-key";
++    process.env.PIXABAY_API_KEY = "test-pixabay-key";
++    open("stock:pixabay");
++
++    const issue = await preflightVideoJob("topic_to_video", options({ stockSource: "pixabay" }));
++    expect(issue?.status).toBe(503);
++    expect(issue?.message).toContain("pixabay");
++  });
++
++  // -------------------------------------------------------------------------
++  // Narration
++
++  it("checks narration for every topic video", async () => {
++    process.env.PEXELS_API_KEY = "test-pexels-key";
++    open("tts:openai");
++
++    const issue = await preflightVideoJob("topic_to_video", options());
++    expect(issue?.status).toBe(503);
++    expect(issue?.message).toContain("narration voice");
++  });
++
++  it("passes narration when a fallback voice provider is healthy", async () => {
++    process.env.PEXELS_API_KEY = "test-pexels-key";
++    process.env.DEEPGRAM_API_KEY = "test-dg-key";
++    open("tts:openai");
++
++    expect(await preflightVideoJob("topic_to_video", options())).toBeNull();
++  });
++
++  // -------------------------------------------------------------------------
++  // AI music
++
++  it("needs nothing at all for a plain slideshow", async () => {
++    expect(await preflightVideoJob("slideshow", options({ slideDurationSec: 3 }))).toBeNull();
++  });
++
++  it("refuses a slideshow with an AI music bed and no video token", async () => {
++    const issue = await preflightVideoJob(
++      "slideshow",
++      options({ musicPrompt: "soft pastel lo-fi" }),
++    );
++    expect(issue?.status).toBe(400);
++    expect(issue?.message).toContain("AI music");
++  });
++
++  it("ignores the music prompt when the tenant uploaded their own track", async () => {
++    const issue = await preflightVideoJob(
++      "slideshow",
++      options({ musicPrompt: "soft pastel lo-fi", musicPath: "/objects/1/uploads/track.mp3" }),
++    );
++    expect(issue).toBeNull();
++  });
++
++  it("refuses an AI music bed while the music provider is failing", async () => {
++    process.env.REPLICATE_API_TOKEN = "test-token";
++    open("videogen:replicate");
++
++    const issue = await preflightVideoJob(
++      "slideshow",
++      options({ musicPrompt: "soft pastel lo-fi" }),
++    );
++    expect(issue?.status).toBe(503);
++    expect(issue?.message).toContain("Uploading your own track");
++  });
++
++  it("treats a blank music prompt as no music at all", async () => {
++    expect(await preflightVideoJob("slideshow", options({ musicPrompt: "   " }))).toBeNull();
++  });
++
++  // -------------------------------------------------------------------------
++  // Shape
++
++  it("passes a fully configured stock topic video", async () => {
++    process.env.PEXELS_API_KEY = "test-pexels-key";
++    expect(await preflightVideoJob("topic_to_video", options())).toBeNull();
++  });
++
++  it("treats missing options as a stock topic video", async () => {
++    const issue = await preflightVideoJob("topic_to_video", null);
++    expect(issue?.status).toBe(400);
++    expect(issue?.message).toContain("stock footage source");
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/preflight.ts b/artifacts/api-server/src/lib/videoGen/preflight.ts
+new file mode 100644
+index 0000000..8354329
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/preflight.ts
+@@ -0,0 +1,179 @@
++import type { VideoJobOptions } from "@workspace/db";
++import { isProviderHealthy } from "../providerHealth";
++import {
++  IMAGE_GEN_PROVIDERS,
++  imageGenHealthKey,
++  isImageGenProviderConfigured,
++} from "../imageGen";
++import {
++  VIDEO_GEN_PROVIDERS,
++  getVideoGenProviderDef,
++  isVideoGenProviderConfigured,
++  videoGenHealthKey,
++} from "./index";
++import { STOCK_SOURCES, isStockSourceConfigured, stockHealthKey } from "./topicVideo/stockSources";
++import { TTS_PROVIDERS, isTtsProviderConfigured, ttsHealthKey } from "./topicVideo/tts";
++
++/**
++ * Dependency preflight for video jobs.
++ *
++ * A topic video is a chain of six or seven provider calls that runs for
++ * minutes. Discovering at minute four that the platform has no stock-footage
++ * key — or that every image provider has been 503-ing for the last two —
++ * costs the tenant a queued job, a failure notification, and a refund that
++ * only returns the credits, never the wait.
++ *
++ * So the dependencies are checked BEFORE funding, where refusing is free:
++ *  - nothing configured for a capability the job needs  → 400, a platform
++ *    misconfiguration the tenant cannot fix but should be told about plainly;
++ *  - configured but every candidate's circuit breaker is open → 503, a
++ *    "come back in a few minutes" that never touches quota or credits.
++ *
++ * Deliberately NOT a health probe: no network calls, no latency added to the
++ * request. It reads the same in-process breaker state the failover paths
++ * already maintain, so it only ever knows what real jobs have already learned.
++ *
++ * A capability passes as soon as ONE of its interchangeable candidates is
++ * healthy — the same bar the runtime failover uses, so preflight never refuses
++ * a job that would actually have succeeded.
++ */
++
++export interface PreflightIssue {
++  /** 400 = a key is missing; 503 = configured but currently failing. */
++  status: 400 | 503;
++  message: string;
++}
++
++/** No configured candidate → 400. All configured, none healthy → 503. */
++function evaluate(
++  healthKeys: string[],
++  unconfigured: string,
++  unavailable: string,
++): PreflightIssue | null {
++  if (healthKeys.length === 0) return { status: 400, message: unconfigured };
++  if (healthKeys.some(isProviderHealthy)) return null;
++  return { status: 503, message: unavailable };
++}
++
++async function videoGenKeys(): Promise<string[]> {
++  const keys: string[] = [];
++  for (const def of VIDEO_GEN_PROVIDERS) {
++    if (await isVideoGenProviderConfigured(def)) keys.push(videoGenHealthKey(def.id));
++  }
++  return keys;
++}
++
++/**
++ * Every configured image provider, since `generateImage` falls back across
++ * them. Reference-image support is not filtered here: a provider that cannot
++ * take a reference still renders the scene from prompt text, so it affects
++ * likeness, not availability.
++ */
++async function imageGenKeys(): Promise<string[]> {
++  const keys: string[] = [];
++  for (const def of IMAGE_GEN_PROVIDERS) {
++    if (await isImageGenProviderConfigured(def)) keys.push(imageGenHealthKey(def.id));
++  }
++  return keys;
++}
++
++async function stockKeys(choice: string): Promise<string[]> {
++  const keys: string[] = [];
++  for (const def of STOCK_SOURCES) {
++    // An explicit source choice is not interchangeable; "auto" tries all.
++    if (choice !== "auto" && def.id !== choice) continue;
++    if (await isStockSourceConfigured(def)) keys.push(stockHealthKey(def.id));
++  }
++  return keys;
++}
++
++async function ttsKeys(): Promise<string[]> {
++  const keys: string[] = [];
++  for (const def of TTS_PROVIDERS) {
++    if (await isTtsProviderConfigured(def)) keys.push(ttsHealthKey(def.id));
++  }
++  return keys;
++}
++
++const TRY_AGAIN = "Nothing was charged — please try again in a few minutes.";
++
++/**
++ * Check that everything this job will reach is configured and not currently
++ * in a failing state. Returns null when the job is safe to fund.
++ */
++export async function preflightVideoJob(
++  engine: string,
++  options: VideoJobOptions | null,
++): Promise<PreflightIssue | null> {
++  const visualsSource = options?.visualsSource ?? "stock";
++  const wantsAiMusic = !options?.musicPath && Boolean(options?.musicPrompt?.trim());
++
++  // 1) AI video generation: the two clip engines, and character scenes, which
++  //    animate every keyframe.
++  const needsVideoGen =
++    engine === "text_to_video" ||
++    engine === "image_to_video" ||
++    (engine === "topic_to_video" && visualsSource === "character");
++  if (needsVideoGen) {
++    const issue = evaluate(
++      await videoGenKeys(),
++      "AI video generation is not configured: save a Replicate API token in the admin dashboard or set the REPLICATE_API_TOKEN secret.",
++      `The AI video provider is not responding right now. ${TRY_AGAIN}`,
++    );
++    if (issue) return issue;
++  }
++
++  // 2) Image generation: AI b-roll scenes, and character keyframes (which are
++  //    edits of the locked outfit reference).
++  const needsImageGen =
++    (engine === "topic_to_video" && (visualsSource === "ai" || visualsSource === "character")) ||
++    (engine === "text_to_video" && options?.characterId != null);
++  if (needsImageGen) {
++    const issue = evaluate(
++      await imageGenKeys(),
++      "AI image generation is not configured: pick a provider and save its API key in the admin dashboard.",
++      `Every configured image provider is failing right now. ${TRY_AGAIN}`,
++    );
++    if (issue) return issue;
++  }
++
++  // 3) Stock footage for a stock-visuals topic video.
++  if (engine === "topic_to_video" && visualsSource === "stock") {
++    const choice = options?.stockSource ?? "auto";
++    const issue = evaluate(
++      await stockKeys(choice),
++      choice === "auto"
++        ? "No stock footage source is configured. Add a Pexels or Pixabay API key (free at pexels.com/api or pixabay.com/api/docs) in the admin settings."
++        : `The ${choice} stock source is not configured. Add its API key in the admin settings or pick a different source.`,
++      choice === "auto"
++        ? `Every configured stock footage source is failing right now. ${TRY_AGAIN}`
++        : `The ${choice} stock source is failing right now. ${TRY_AGAIN}`,
++    );
++    if (issue) return issue;
++  }
++
++  // 4) Narration: every topic video is spoken.
++  if (engine === "topic_to_video") {
++    const issue = evaluate(
++      await ttsKeys(),
++      "Narration is not configured: no text-to-speech provider is available.",
++      `Every narration voice provider is failing right now. ${TRY_AGAIN}`,
++    );
++    if (issue) return issue;
++  }
++
++  // 5) An AI music bed runs on Replicate's MusicGen, which shares the video
++  //    token — checked separately because a slideshow needs nothing else.
++  if (wantsAiMusic && (engine === "topic_to_video" || engine === "slideshow")) {
++    const replicate = getVideoGenProviderDef("replicate");
++    const configured = replicate ? await isVideoGenProviderConfigured(replicate) : false;
++    const issue = evaluate(
++      configured ? [videoGenHealthKey("replicate")] : [],
++      "AI music needs Replicate: save an API token in the admin dashboard or set the REPLICATE_API_TOKEN secret (uploading a track works without it).",
++      `The AI music provider is not responding right now. ${TRY_AGAIN} Uploading your own track works either way.`,
++    );
++    if (issue) return issue;
++  }
++
++  return null;
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts
+index b924ddb..1ed2f10 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/narration.ts
+@@ -1,10 +1,14 @@
+-import { textToSpeech } from "@workspace/integrations-openai-ai-server/audio";
++import { logger } from "../../logger";
++import { recordProviderFailure, recordProviderSuccess } from "../../providerHealth";
+ import { VideoGenProviderError } from "../types";
+-import { withRetries, withTimeout } from "../retry";
+-
+-/** A single sentence should never take this long to speak; a hung TTS call
+- * must not stall the whole multi-minute job. */
+-const TTS_TIMEOUT_MS = 90_000;
++import { withRetries, withTimeout, isTransientStatus } from "../retry";
++import {
++  TTS_TIMEOUT_MS,
++  orderedTtsProviders,
++  resolveTtsApiKey,
++  ttsHealthKey,
++  type TtsProviderDef,
++} from "./tts";
+ 
+ /**
+  * Narration for the Topic to Video engine.
+@@ -15,6 +19,9 @@ const TTS_TIMEOUT_MS = 90_000;
+  * calls — a deliberate simplification of MoneyPrinterTurbo's word-boundary
+  * approach (MIT, app/services/voice.py + subtitle.py) that needs no
+  * transcription model.
++ *
++ * Which engine speaks the words lives in ./tts. Failover between speakers is
++ * whole-track, not per sentence — see that file for why.
+  */
+ 
+ export type NarrationVoice = "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
+@@ -173,25 +180,37 @@ export interface Narration {
+ }
+ 
+ /**
+- * Speak every sentence, then stitch one narration track with per-sentence
+- * timings. Sentences are spoken sequentially — the TTS proxy is the
+- * bottleneck and parallel calls would just trip rate limits.
++ * Whether a narration failure is the SPEAKER's fault (429/5xx/network/timeout,
++ * or audio bytes that came back unusable), as opposed to something that would
++ * fail identically on every provider.
+  */
+-export async function synthesizeNarration(
++function isTransientTtsError(error: unknown): boolean {
++  if (error instanceof VideoGenProviderError) {
++    // No status = timeout, network shape, or unusable audio from this upstream.
++    if (error.status === undefined) return true;
++    return isTransientStatus(error.status);
++  }
++  return error instanceof Error;
++}
++
++/**
++ * Speak the whole track on one provider. Throws unless every sentence came
++ * back as usable audio in a single consistent format — a half-spoken track is
++ * worth nothing to the caller, so partial results never escape this function.
++ */
++async function narrateWith(
++  def: TtsProviderDef,
+   sentences: string[],
+   voice: NarrationVoice,
+-): Promise<Narration> {
+-  if (sentences.length === 0) {
+-    throw new VideoGenProviderError("There is no narration to speak.");
+-  }
++): Promise<ParsedWav[]> {
++  const apiKey = await resolveTtsApiKey(def);
+   const parts: ParsedWav[] = [];
+   for (const sentence of sentences) {
+-    // Bounded + retried: the TTS SDK call has no abort support of its own,
++    // Bounded + retried: the TTS call may have no abort support of its own,
+     // so a hung or transiently-failing upstream gets one clean second chance
+-    // instead of stalling (or instantly failing) the whole job.
++    // before the whole track moves to another provider.
+     const audio = await withRetries(
+-      () =>
+-        withTimeout(() => textToSpeech(sentence, voice, "wav"), TTS_TIMEOUT_MS, "Narration"),
++      () => withTimeout(() => def.speak(sentence, voice, apiKey), TTS_TIMEOUT_MS, "Narration"),
+       { attempts: 2 },
+     );
+     if (audio.length === 0) {
+@@ -199,16 +218,71 @@ export async function synthesizeNarration(
+     }
+     parts.push(parseWav(audio));
+   }
+-  const format = parts[0]!.format;
++  const first = parts[0]!.format;
+   for (const part of parts) {
+     if (
+-      part.format.sampleRate !== format.sampleRate ||
+-      part.format.channels !== format.channels ||
+-      part.format.bitsPerSample !== format.bitsPerSample
++      part.format.sampleRate !== first.sampleRate ||
++      part.format.channels !== first.channels ||
++      part.format.bitsPerSample !== first.bitsPerSample
+     ) {
+       throw new VideoGenProviderError("Text-to-speech returned inconsistent audio formats.");
+     }
+   }
++  return parts;
++}
++
++/**
++ * Speak every sentence, then stitch one narration track with per-sentence
++ * timings. Sentences are spoken sequentially — the TTS proxy is the
++ * bottleneck and parallel calls would just trip rate limits.
++ *
++ * If the speaker fails transiently, the ENTIRE track is re-spoken on the next
++ * configured provider (healthiest first). Mixing two providers inside one
++ * track would produce inconsistent sample rates and be rejected below, and
++ * re-speaking costs seconds where failing costs the tenant a video unit.
++ */
++export async function synthesizeNarration(
++  sentences: string[],
++  voice: NarrationVoice,
++): Promise<Narration> {
++  if (sentences.length === 0) {
++    throw new VideoGenProviderError("There is no narration to speak.");
++  }
++  const providers = await orderedTtsProviders();
++  if (providers.length === 0) {
++    throw new VideoGenProviderError("No text-to-speech provider is configured.");
++  }
++
++  let spoken: ParsedWav[] | null = null;
++  let lastError: unknown;
++  for (let i = 0; i < providers.length; i++) {
++    const def = providers[i]!;
++    try {
++      spoken = await narrateWith(def, sentences, voice);
++      recordProviderSuccess(ttsHealthKey(def.id));
++      break;
++    } catch (error) {
++      // A permanent failure (bad key, rejected text) will repeat everywhere.
++      if (!isTransientTtsError(error)) throw error;
++      recordProviderFailure(
++        ttsHealthKey(def.id),
++        error instanceof Error ? error.message : undefined,
++      );
++      lastError = error;
++      const next = providers[i + 1];
++      if (next) {
++        logger.warn(
++          { provider: def.id, fallback: next.id, err: error },
++          "Narration provider failed transiently; re-speaking the track on the fallback",
++        );
++      }
++    }
++  }
++  if (!spoken) {
++    throw lastError ?? new VideoGenProviderError("Text-to-speech failed. Please try again.");
++  }
++  const parts = spoken;
++  const format = parts[0]!.format;
+ 
+   const gap = silence(format, SENTENCE_GAP_SEC);
+   const tail = silence(format, TAIL_SILENCE_SEC);
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts
+index cd86eed..a071f20 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/stockSources.ts
+@@ -112,7 +112,7 @@ export async function isStockSourceConfigured(def: StockSourceDef): Promise<bool
+   return (await resolveStockApiKey(def)) !== null;
+ }
+ 
+-function stockHealthKey(id: StockSourceId): string {
++export function stockHealthKey(id: StockSourceId): string {
+   return `stock:${id}`;
+ }
+ 
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/tts.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/tts.test.ts
+new file mode 100644
+index 0000000..bd28a72
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/tts.test.ts
+@@ -0,0 +1,185 @@
++import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from "vitest";
++import { like } from "drizzle-orm";
++import { db, appCredentialsTable } from "@workspace/db";
++import {
++  getProviderHealth,
++  recordProviderFailure,
++  resetProviderHealthForTests,
++} from "../../providerHealth";
++import { VideoGenProviderError } from "../types";
++import { orderedTtsProviders, resolveTtsApiKey, TTS_PROVIDERS } from "./tts";
++import { buildWav, synthesizeNarration } from "./narration";
++
++vi.mock("@workspace/integrations-openai-ai-server/audio", () => ({
++  textToSpeech: vi.fn(),
++}));
++
++import { textToSpeech } from "@workspace/integrations-openai-ai-server/audio";
++
++const savedKey = process.env.DEEPGRAM_API_KEY;
++const realFetch = globalThis.fetch;
++
++/** Mono pcm16 WAV of the given length, matching what both providers return. */
++function wav(durationSec: number, sampleRate = 24_000): Buffer {
++  const byteRate = sampleRate * 2;
++  return buildWav(
++    { channels: 1, sampleRate, bitsPerSample: 16, byteRate, blockAlign: 2 },
++    Buffer.alloc(Math.round(byteRate * durationSec)),
++  );
++}
++
++function okAudio(buffer: Buffer): Response {
++  return { ok: true, status: 200, arrayBuffer: async () => buffer } as unknown as Response;
++}
++
++describe("tts provider registry", () => {
++  beforeEach(async () => {
++    vi.mocked(textToSpeech).mockReset();
++    resetProviderHealthForTests();
++    delete process.env.DEEPGRAM_API_KEY;
++    // A stored Deepgram ASR key doubles as the TTS key; clear it for determinism.
++    await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "asr_%"));
++  });
++
++  afterEach(() => {
++    globalThis.fetch = realFetch;
++  });
++
++  afterAll(() => {
++    if (savedKey === undefined) delete process.env.DEEPGRAM_API_KEY;
++    else process.env.DEEPGRAM_API_KEY = savedKey;
++  });
++
++  it("offers the built-in provider with no key configured", async () => {
++    const ordered = await orderedTtsProviders();
++    expect(ordered.map((p) => p.id)).toEqual(["openai"]);
++  });
++
++  it("adds Deepgram once its key is available, built-in still first", async () => {
++    process.env.DEEPGRAM_API_KEY = "test-dg-key";
++    const ordered = await orderedTtsProviders();
++    expect(ordered.map((p) => p.id)).toEqual(["openai", "deepgram"]);
++  });
++
++  it("puts Deepgram first when the built-in provider's breaker is open", async () => {
++    process.env.DEEPGRAM_API_KEY = "test-dg-key";
++    for (let i = 0; i < 3; i++) recordProviderFailure("tts:openai");
++    const ordered = await orderedTtsProviders();
++    expect(ordered.map((p) => p.id)).toEqual(["deepgram", "openai"]);
++  });
++
++  it("reuses the stored Deepgram speech-to-text key", async () => {
++    const { setStoredAsrKey } = await import("../../asr");
++    await setStoredAsrKey("deepgram", "stored-dg-key");
++    const def = TTS_PROVIDERS.find((p) => p.id === "deepgram")!;
++    expect(await resolveTtsApiKey(def)).toBe("stored-dg-key");
++  });
++
++  it("asks Deepgram for WAV bytes the narration parser can read", async () => {
++    const fetchMock = vi.fn(async () => okAudio(wav(1)));
++    globalThis.fetch = fetchMock as unknown as typeof fetch;
++    const def = TTS_PROVIDERS.find((p) => p.id === "deepgram")!;
++
++    await def.speak("Hello there.", "nova", "test-dg-key");
++
++    const [url, init] = fetchMock.mock.calls[0]! as unknown as [string, RequestInit];
++    const params = new URL(url).searchParams;
++    expect(params.get("model")).toBe("aura-asteria-en");
++    expect(params.get("encoding")).toBe("linear16");
++    expect(params.get("container")).toBe("wav");
++    expect(params.get("sample_rate")).toBe("24000");
++    expect((init.headers as Record<string, string>).Authorization).toBe("Token test-dg-key");
++    expect(JSON.parse(init.body as string)).toEqual({ text: "Hello there." });
++  });
++
++  it("surfaces a Deepgram HTTP failure as a provider error with its status", async () => {
++    globalThis.fetch = vi.fn(async () => ({
++      ok: false,
++      status: 503,
++      text: async () => "upstream unavailable",
++    })) as unknown as typeof fetch;
++    const def = TTS_PROVIDERS.find((p) => p.id === "deepgram")!;
++
++    await expect(def.speak("Hi.", "alloy", "test-dg-key")).rejects.toMatchObject({
++      name: "VideoGenProviderError",
++      status: 503,
++    });
++  });
++
++  it("refuses to speak without a key rather than calling Deepgram anonymously", async () => {
++    const fetchMock = vi.fn();
++    globalThis.fetch = fetchMock as unknown as typeof fetch;
++    const def = TTS_PROVIDERS.find((p) => p.id === "deepgram")!;
++
++    await expect(def.speak("Hi.", "alloy", null)).rejects.toThrow("not configured");
++    expect(fetchMock).not.toHaveBeenCalled();
++  });
++});
++
++describe("synthesizeNarration provider failover", () => {
++  beforeEach(async () => {
++    vi.mocked(textToSpeech).mockReset();
++    resetProviderHealthForTests();
++    delete process.env.DEEPGRAM_API_KEY;
++    await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "asr_%"));
++  });
++
++  afterEach(() => {
++    globalThis.fetch = realFetch;
++  });
++
++  afterAll(() => {
++    if (savedKey === undefined) delete process.env.DEEPGRAM_API_KEY;
++    else process.env.DEEPGRAM_API_KEY = savedKey;
++  });
++
++  it("re-speaks the whole track on the fallback provider", async () => {
++    process.env.DEEPGRAM_API_KEY = "test-dg-key";
++    vi.mocked(textToSpeech).mockRejectedValue(new VideoGenProviderError("voice down", 503));
++    const fetchMock = vi.fn(async () => okAudio(wav(1)));
++    globalThis.fetch = fetchMock as unknown as typeof fetch;
++
++    const out = await synthesizeNarration(["First line.", "Second line."], "nova");
++
++    // Both sentences came from Deepgram — a mixed track would be rejected.
++    expect(fetchMock).toHaveBeenCalledTimes(2);
++    expect(out.cues).toHaveLength(2);
++    expect(out.totalDurationSec).toBeCloseTo(1 + 0.25 + 1 + 0.6, 2);
++    expect(getProviderHealth("tts:openai")?.consecutiveFailures).toBe(1);
++    expect(getProviderHealth("tts:deepgram")?.consecutiveFailures).toBe(0);
++  }, 20_000);
++
++  it("fails without a fallback when nothing else is configured", async () => {
++    vi.mocked(textToSpeech).mockRejectedValue(new VideoGenProviderError("voice down", 503));
++
++    await expect(synthesizeNarration(["Only line."], "alloy")).rejects.toThrow("voice down");
++  }, 20_000);
++
++  it("does not re-speak the track on a permanent failure", async () => {
++    process.env.DEEPGRAM_API_KEY = "test-dg-key";
++    vi.mocked(textToSpeech).mockRejectedValue(
++      new VideoGenProviderError("that text cannot be spoken", 400),
++    );
++    const fetchMock = vi.fn(async () => okAudio(wav(1)));
++    globalThis.fetch = fetchMock as unknown as typeof fetch;
++
++    await expect(synthesizeNarration(["Only line."], "alloy")).rejects.toThrow("cannot be spoken");
++    expect(fetchMock).not.toHaveBeenCalled();
++    expect(getProviderHealth("tts:openai")).toBeNull();
++  });
++
++  it("rejects a track whose sentences came back in different formats", async () => {
++    vi.mocked(textToSpeech)
++      .mockResolvedValueOnce(wav(1, 24_000))
++      .mockResolvedValueOnce(wav(1, 16_000));
++
++    await expect(synthesizeNarration(["One.", "Two."], "alloy")).rejects.toThrow(
++      "inconsistent audio formats",
++    );
++  });
++
++  it("refuses an empty script before reaching any provider", async () => {
++    await expect(synthesizeNarration([], "alloy")).rejects.toThrow("no narration to speak");
++    expect(textToSpeech).not.toHaveBeenCalled();
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/tts.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/tts.ts
+new file mode 100644
+index 0000000..28b1676
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/tts.ts
+@@ -0,0 +1,148 @@
++import { textToSpeech } from "@workspace/integrations-openai-ai-server/audio";
++import { getStoredAsrKey } from "../../asr";
++import { orderByHealth } from "../../providerHealth";
++import { VideoGenProviderError, errorDetail } from "../types";
++import type { NarrationVoice } from "./narration";
++
++/**
++ * Text-to-speech provider registry for narration.
++ *
++ * Narration used to have exactly one path: the built-in OpenAI audio proxy. A
++ * bad ten minutes upstream failed every topic video on the platform, after the
++ * script had already been written and paid for. This registry makes narration
++ * survive that — same shape as the image-gen and stock-source registries, and
++ * the same in-process circuit breaker orders the candidates.
++ *
++ * Failover is at TRACK level, not per sentence. `synthesizeNarration` derives
++ * cue timings from each sentence's WAV header and requires one consistent
++ * audio format across the whole track, so half a track from OpenAI and half
++ * from Deepgram would be rejected as inconsistent. Re-speaking the track on
++ * the next provider costs a few seconds of TTS; failing the job costs the
++ * tenant a video unit.
++ */
++
++/** A single sentence should never take this long to speak. */
++export const TTS_TIMEOUT_MS = 90_000;
++
++export interface TtsProviderDef {
++  id: string;
++  label: string;
++  /** Secret required to use this provider; null = built-in OpenAI integration. */
++  envKey: string | null;
++  speak: (text: string, voice: NarrationVoice, apiKey: string | null) => Promise<Buffer>;
++}
++
++/**
++ * Deepgram Aura voices closest in character to each OpenAI voice, so a
++ * failover changes the narrator as little as the two catalogs allow.
++ * https://developers.deepgram.com/docs/tts-models
++ */
++const DEEPGRAM_VOICES: Record<NarrationVoice, string> = {
++  alloy: "aura-arcas-en", // natural, smooth, clear
++  echo: "aura-orion-en", // approachable, calm
++  fable: "aura-angus-en", // warm, friendly
++  onyx: "aura-zeus-en", // deep, trustworthy
++  nova: "aura-asteria-en", // clear, confident, energetic
++  shimmer: "aura-luna-en", // friendly, engaging
++};
++
++async function speakWithOpenAI(text: string, voice: NarrationVoice): Promise<Buffer> {
++  return textToSpeech(text, voice, "wav");
++}
++
++/**
++ * Deepgram Aura. Asked for linear16 in a WAV container at 24kHz so the bytes
++ * parse with the same header reader as the built-in provider's output.
++ */
++async function speakWithDeepgram(
++  text: string,
++  voice: NarrationVoice,
++  apiKey: string | null,
++): Promise<Buffer> {
++  if (!apiKey) {
++    throw new VideoGenProviderError("Deepgram text-to-speech is not configured.");
++  }
++  const params = new URLSearchParams({
++    model: DEEPGRAM_VOICES[voice],
++    encoding: "linear16",
++    container: "wav",
++    sample_rate: "24000",
++  });
++  const controller = new AbortController();
++  const timer = setTimeout(() => controller.abort(), TTS_TIMEOUT_MS);
++  let res: Response;
++  try {
++    res = await fetch(`https://api.deepgram.com/v1/speak?${params.toString()}`, {
++      method: "POST",
++      headers: { Authorization: `Token ${apiKey}`, "Content-Type": "application/json" },
++      body: JSON.stringify({ text }),
++      signal: controller.signal,
++    });
++  } catch (error) {
++    if (error instanceof Error && error.name === "AbortError") {
++      throw new VideoGenProviderError(`Narration timed out after ${TTS_TIMEOUT_MS / 1000}s.`);
++    }
++    throw error;
++  } finally {
++    clearTimeout(timer);
++  }
++  if (!res.ok) {
++    throw new VideoGenProviderError(
++      `Deepgram text-to-speech failed (${res.status}): ${await errorDetail(res)}`,
++      res.status,
++    );
++  }
++  return Buffer.from(await res.arrayBuffer());
++}
++
++/**
++ * Catalog of narration voices providers, best-first. The built-in OpenAI proxy
++ * stays the primary: no key to configure and it is the voice tenants have
++ * already heard.
++ */
++export const TTS_PROVIDERS: readonly TtsProviderDef[] = [
++  {
++    id: "openai",
++    label: "OpenAI (built in, no key needed)",
++    envKey: null,
++    speak: (text, voice) => speakWithOpenAI(text, voice),
++  },
++  {
++    id: "deepgram",
++    label: "Deepgram Aura",
++    envKey: "DEEPGRAM_API_KEY",
++    speak: speakWithDeepgram,
++  },
++] as const;
++
++export function ttsHealthKey(providerId: string): string {
++  return `tts:${providerId}`;
++}
++
++/**
++ * The effective key for a provider. Deepgram deliberately reuses the key the
++ * admin already saved for speech-to-text: it is the same Deepgram account, and
++ * asking for it twice would be a worse admin screen, not a safer one.
++ */
++export async function resolveTtsApiKey(def: TtsProviderDef): Promise<string | null> {
++  if (def.envKey === null) return null;
++  const stored = await getStoredAsrKey(def.id);
++  if (stored) return stored;
++  return process.env[def.envKey] ?? null;
++}
++
++export async function isTtsProviderConfigured(def: TtsProviderDef): Promise<boolean> {
++  return def.envKey === null || (await resolveTtsApiKey(def)) !== null;
++}
++
++/**
++ * Configured providers, healthiest first, catalog order preserved within each
++ * health class — so the built-in provider leads unless its breaker is open.
++ */
++export async function orderedTtsProviders(): Promise<TtsProviderDef[]> {
++  const configured: TtsProviderDef[] = [];
++  for (const def of TTS_PROVIDERS) {
++    if (await isTtsProviderConfigured(def)) configured.push(def);
++  }
++  return orderByHealth(configured, (def) => ttsHealthKey(def.id));
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/videoFallback.test.ts b/artifacts/api-server/src/lib/videoGen/videoFallback.test.ts
+new file mode 100644
+index 0000000..0107ae8
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/videoFallback.test.ts
+@@ -0,0 +1,153 @@
++import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
++import { like } from "drizzle-orm";
++import { db, appCredentialsTable, videoGenSettingsTable } from "@workspace/db";
++import { getProviderHealth, resetProviderHealthForTests } from "../providerHealth";
++import { generateVideo, setVideoGenSelection } from "./index";
++import { VideoGenProviderError, type VideoGenResult } from "./types";
++
++vi.mock("./providers/replicate", () => ({
++  REPLICATE_T2V_MODEL: "wan-video/wan-2.2-t2v-fast",
++  REPLICATE_I2V_MODEL: "wan-video/wan-2.2-i2v-fast",
++  generateWithReplicate: vi.fn(),
++}));
++
++import { generateWithReplicate } from "./providers/replicate";
++
++const savedToken = process.env.REPLICATE_API_TOKEN;
++
++function result(model: string): VideoGenResult {
++  return { buffer: Buffer.from(model), provider: "replicate", model };
++}
++
++/** The models a call actually reached, in order. */
++function attemptedModels(): string[] {
++  return vi.mocked(generateWithReplicate).mock.calls.map((call) => call[0].model);
++}
++
++const params = {
++  mode: "text" as const,
++  prompt: "a pastel sunrise over still water",
++  aspectRatio: "9:16" as const,
++  durationSec: 5,
++};
++
++describe("generateVideo model fallback", () => {
++  beforeEach(async () => {
++    vi.mocked(generateWithReplicate).mockReset();
++    resetProviderHealthForTests();
++    // Stored admin keys would override env config; clear them for determinism.
++    await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "videogen_%"));
++    await db.delete(videoGenSettingsTable);
++    process.env.REPLICATE_API_TOKEN = "test-replicate-token";
++  });
++
++  afterAll(() => {
++    if (savedToken === undefined) delete process.env.REPLICATE_API_TOKEN;
++    else process.env.REPLICATE_API_TOKEN = savedToken;
++  });
++
++  it("retries on the next catalog model after a transient failure", async () => {
++    vi.mocked(generateWithReplicate)
++      .mockRejectedValueOnce(new VideoGenProviderError("queue backed up", 503))
++      .mockResolvedValueOnce(result("google/veo-3-fast"));
++
++    const out = await generateVideo(params);
++    expect(out.model).toBe("google/veo-3-fast");
++    expect(attemptedModels()).toEqual(["wan-video/wan-2.2-t2v-fast", "google/veo-3-fast"]);
++  });
++
++  it("does not advance the chain on a permanent failure", async () => {
++    vi.mocked(generateWithReplicate).mockRejectedValue(
++      new VideoGenProviderError("prompt rejected by the safety filter", 400),
++    );
++
++    await expect(generateVideo(params)).rejects.toThrow("prompt rejected");
++    expect(generateWithReplicate).toHaveBeenCalledTimes(1);
++  });
++
++  it("tries at most two other models, then reports the configured one's failure", async () => {
++    vi.mocked(generateWithReplicate)
++      .mockRejectedValueOnce(new VideoGenProviderError("configured model down", 503))
++      .mockRejectedValueOnce(new VideoGenProviderError("second down", 502))
++      .mockRejectedValueOnce(new VideoGenProviderError("third down", 429));
++
++    await expect(generateVideo(params)).rejects.toThrow("configured model down");
++    expect(attemptedModels()).toEqual([
++      "wan-video/wan-2.2-t2v-fast",
++      "google/veo-3-fast",
++      "minimax/video-01",
++    ]);
++  });
++
++  it("keeps walking the chain when a fallback model is unreachable on this account", async () => {
++    // A 404 on a fallback is permanent for THAT model but says nothing about
++    // the job — it must not surface instead of the real failure.
++    vi.mocked(generateWithReplicate)
++      .mockRejectedValueOnce(new VideoGenProviderError("configured model down", 503))
++      .mockRejectedValueOnce(new VideoGenProviderError("model not found", 404))
++      .mockResolvedValueOnce(result("minimax/video-01"));
++
++    const out = await generateVideo(params);
++    expect(out.model).toBe("minimax/video-01");
++  });
++
++  it("reports the configured model's error when every fallback is unreachable", async () => {
++    vi.mocked(generateWithReplicate)
++      .mockRejectedValueOnce(new VideoGenProviderError("configured model down", 503))
++      .mockRejectedValueOnce(new VideoGenProviderError("model not found", 404))
++      .mockRejectedValueOnce(new VideoGenProviderError("no access", 402));
++
++    await expect(generateVideo(params)).rejects.toThrow("configured model down");
++  });
++
++  it("starts the chain at the admin's model override", async () => {
++    await setVideoGenSelection({
++      provider: "replicate",
++      textToVideoModel: "google/veo-3-fast",
++      imageToVideoModel: null,
++    });
++    vi.mocked(generateWithReplicate)
++      .mockRejectedValueOnce(new VideoGenProviderError("down", 503))
++      .mockResolvedValueOnce(result("wan-video/wan-2.2-t2v-fast"));
++
++    await generateVideo(params);
++    expect(attemptedModels()).toEqual(["google/veo-3-fast", "wan-video/wan-2.2-t2v-fast"]);
++  });
++
++  it("uses the image-to-video chain in image mode", async () => {
++    vi.mocked(generateWithReplicate)
++      .mockRejectedValueOnce(new VideoGenProviderError("down", 503))
++      .mockResolvedValueOnce(result("minimax/video-01"));
++
++    await generateVideo({
++      ...params,
++      mode: "image",
++      image: { buffer: Buffer.from("png"), mimeType: "image/png" },
++    });
++    expect(attemptedModels()).toEqual(["wan-video/wan-2.2-i2v-fast", "minimax/video-01"]);
++    expect(vi.mocked(generateWithReplicate).mock.calls[1]![0].image).toBeDefined();
++  });
++
++  it("records transient failures against the provider and clears them on success", async () => {
++    vi.mocked(generateWithReplicate)
++      .mockRejectedValueOnce(new VideoGenProviderError("down", 503))
++      .mockRejectedValueOnce(new VideoGenProviderError("down", 503))
++      .mockRejectedValueOnce(new VideoGenProviderError("down", 503));
++
++    await expect(generateVideo(params)).rejects.toThrow();
++    expect(getProviderHealth("videogen:replicate")?.consecutiveFailures).toBe(3);
++
++    vi.mocked(generateWithReplicate).mockResolvedValue(result("wan-video/wan-2.2-t2v-fast"));
++    await generateVideo(params);
++    expect(getProviderHealth("videogen:replicate")?.consecutiveFailures).toBe(0);
++  });
++
++  it("does not count a permanent failure against provider health", async () => {
++    vi.mocked(generateWithReplicate).mockRejectedValue(
++      new VideoGenProviderError("prompt rejected", 400),
++    );
++
++    await expect(generateVideo(params)).rejects.toThrow();
++    expect(getProviderHealth("videogen:replicate")).toBeNull();
++  });
++});
+diff --git a/artifacts/api-server/src/routes/videos.test.ts b/artifacts/api-server/src/routes/videos.test.ts
+index 0c84f72..4c56d31 100644
+--- a/artifacts/api-server/src/routes/videos.test.ts
++++ b/artifacts/api-server/src/routes/videos.test.ts
+@@ -121,9 +121,24 @@ async function newTenant(plan = "free"): Promise<TestTenant> {
+   return tenant;
+ }
+ 
++/**
++ * The route preflights job dependencies before it funds anything, so the test
++ * deployment needs the keys a real one has. The providers themselves are never
++ * called here — the runner is mocked — but a job with no configured video or
++ * stock source is refused before funding, which is the point of the preflight.
++ */
++const PROVIDER_ENV: Record<string, string> = {
++  REPLICATE_API_TOKEN: "test-replicate-token",
++  PEXELS_API_KEY: "test-pexels-key",
++};
++const savedProviderEnv = Object.fromEntries(
++  Object.keys(PROVIDER_ENV).map((k) => [k, process.env[k]]),
++);
++
+ beforeEach(() => {
+   resetAuthState();
+   runnerState.calls.length = 0;
++  for (const [key, value] of Object.entries(PROVIDER_ENV)) process.env[key] = value;
+ });
+ 
+ async function seedCharacter(tenantId: number): Promise<{ characterId: number; outfitId: number; gymOutfitId: number }> {
+@@ -168,6 +183,10 @@ async function seedCharacter(tenantId: number): Promise<{ characterId: number; o
+ }
+ 
+ afterAll(async () => {
++  for (const [key, value] of Object.entries(savedProviderEnv)) {
++    if (value === undefined) delete process.env[key];
++    else process.env[key] = value;
++  }
+   await waitForPendingJobs();
+   for (const tenant of createdTenants) {
+     await db
+diff --git a/artifacts/api-server/src/routes/videos.ts b/artifacts/api-server/src/routes/videos.ts
+index 5f8c962..282cbc5 100644
+--- a/artifacts/api-server/src/routes/videos.ts
++++ b/artifacts/api-server/src/routes/videos.ts
+@@ -19,6 +19,7 @@ import { enqueueBackgroundJob } from "../lib/backgroundJobs";
+ import { runVideoGenerationJob } from "../lib/videoGen/jobRunner";
+ import { MAX_SLIDESHOW_IMAGES } from "../lib/videoGen/slideshow";
+ import { videoJobUnits } from "../lib/videoGen/units";
++import { preflightVideoJob } from "../lib/videoGen/preflight";
+ import { getCharacterDetail, resolveOutfit } from "../lib/characters";
+ import { serializeContent } from "../lib/serializers";
+ import type { VideoGeneration } from "@workspace/db";
+@@ -218,6 +219,15 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+       body.engine === "topic_to_video" ? (body.styleProfileId ?? null) : null,
+   };
+ 
++  // Dependency preflight BEFORE funding: a job that will die four minutes in
++  // on a missing key or a provider that is already failing should never take
++  // the tenant's quota in the first place. Refunds return credits, not time.
++  const preflight = await preflightVideoJob(body.engine, options);
++  if (preflight) {
++    res.status(preflight.status).json({ error: preflight.message });
++    return;
++  }
++
+   // Fund like every metered generation: monthly plan quota first, then
+   // atomically reserved credits (refunded by the job runner on failure).
+   // Character story videos cost one unit PER SCENE — every scene is a real
+-- 
+2.43.0
+

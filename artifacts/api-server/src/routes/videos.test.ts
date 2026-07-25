@@ -121,9 +121,24 @@ async function newTenant(plan = "free"): Promise<TestTenant> {
   return tenant;
 }
 
+/**
+ * The route preflights job dependencies before it funds anything, so the test
+ * deployment needs the keys a real one has. The providers themselves are never
+ * called here — the runner is mocked — but a job with no configured video or
+ * stock source is refused before funding, which is the point of the preflight.
+ */
+const PROVIDER_ENV: Record<string, string> = {
+  REPLICATE_API_TOKEN: "test-replicate-token",
+  PEXELS_API_KEY: "test-pexels-key",
+};
+const savedProviderEnv = Object.fromEntries(
+  Object.keys(PROVIDER_ENV).map((k) => [k, process.env[k]]),
+);
+
 beforeEach(() => {
   resetAuthState();
   runnerState.calls.length = 0;
+  for (const [key, value] of Object.entries(PROVIDER_ENV)) process.env[key] = value;
 });
 
 async function seedCharacter(tenantId: number): Promise<{ characterId: number; outfitId: number; gymOutfitId: number }> {
@@ -168,6 +183,10 @@ async function seedCharacter(tenantId: number): Promise<{ characterId: number; o
 }
 
 afterAll(async () => {
+  for (const [key, value] of Object.entries(savedProviderEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
   await waitForPendingJobs();
   for (const tenant of createdTenants) {
     await db

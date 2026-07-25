@@ -19,6 +19,7 @@ import { enqueueBackgroundJob } from "../lib/backgroundJobs";
 import { runVideoGenerationJob } from "../lib/videoGen/jobRunner";
 import { MAX_SLIDESHOW_IMAGES } from "../lib/videoGen/slideshow";
 import { videoJobUnits } from "../lib/videoGen/units";
+import { preflightVideoJob } from "../lib/videoGen/preflight";
 import { getCharacterDetail, resolveOutfit } from "../lib/characters";
 import { isFeatureEnabled } from "../lib/featureFlags";
 import { serializeContent } from "../lib/serializers";
@@ -225,6 +226,20 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
         ? (body.styleProfileId ?? null)
         : null,
   };
+
+  // Dependency preflight BEFORE funding: a job that will die four minutes in
+  // on a missing key or a provider that is already failing should never take
+  // the tenant's quota in the first place. Refunds return credits, not time.
+  // Platform kill switch (fail-open): when off, jobs fund and run exactly as
+  // they did before preflight existed.
+  const preflightEnabled = await isFeatureEnabled("providerResilience").catch(() => true);
+  if (preflightEnabled) {
+    const preflight = await preflightVideoJob(body.engine, options);
+    if (preflight) {
+      res.status(preflight.status).json({ error: preflight.message });
+      return;
+    }
+  }
 
   // Fund like every metered generation: monthly plan quota first, then
   // atomically reserved credits (refunded by the job runner on failure).

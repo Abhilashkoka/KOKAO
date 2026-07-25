@@ -4400,6 +4400,7 @@ export interface FeatureFlags {
   brandVideo: boolean;
   referenceStyles: boolean;
   planGate: boolean;
+  providerResilience: boolean;
 }
 
 /**
