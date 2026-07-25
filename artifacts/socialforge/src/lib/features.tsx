@@ -39,6 +39,7 @@ const ALL_ON: FeatureFlags = {
   composer: true,
   viralToolkit: true,
   brandVideo: true,
+  referenceStyles: true,
 };
 
 /**

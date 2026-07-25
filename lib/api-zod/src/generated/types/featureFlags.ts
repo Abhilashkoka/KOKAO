@@ -41,4 +41,5 @@ export interface FeatureFlags {
   composer: boolean;
   viralToolkit: boolean;
   brandVideo: boolean;
+  referenceStyles: boolean;
 }

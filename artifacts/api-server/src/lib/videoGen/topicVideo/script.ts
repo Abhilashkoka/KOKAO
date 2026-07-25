@@ -27,10 +27,16 @@ export function buildTopicScriptPrompt(
   topic: string,
   paragraphCount: number,
   brandVoice?: string | null,
+  referenceStyle?: string | null,
 ): string {
   const paragraphs = Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), MAX_PARAGRAPHS);
   const brandBlock = brandVoice?.trim()
     ? `\n\n## Brand voice (write in this brand's voice):\n${brandVoice.trim()}`
+    : "";
+  // Structure borrowed from a reference video the user pointed at: pacing and
+  // shape only, never its subject matter.
+  const styleBlock = referenceStyle?.trim()
+    ? `\n\n## Reference style (match this structure and pacing, not its topic):\n${referenceStyle.trim()}`
     : "";
   return `# Role: Short Video Script Writer
 
@@ -43,7 +49,7 @@ Write the narration script for a short vertical video about the given subject, p
 3. No markdown, no titles, no formatting — only the raw spoken words.
 4. Never include "voiceover", "narrator" or similar speaker indicators.
 5. Never mention this prompt, the script itself, or the paragraph count.
-6. Write the script in the same language as the video subject.${brandBlock}
+6. Write the script in the same language as the video subject.${brandBlock}${styleBlock}
 
 ## Search term constraints:
 1. Return 5 stock-video search terms that follow the order of topics in the script; earlier terms must describe earlier visual moments.
@@ -86,6 +92,8 @@ export async function generateTopicScript(params: {
   paragraphCount: number;
   /** Optional brand-voice hint (traits, audience, terms to avoid). */
   brandVoice?: string | null;
+  /** Optional structural guidance derived from a reference video. */
+  referenceStyle?: string | null;
 }): Promise<TopicScript & { model: string }> {
   const textGen = await getTextGenClient(params.tenantAiModel);
   const completion = await textGen.client.chat.completions.create({
@@ -102,6 +110,7 @@ export async function generateTopicScript(params: {
           params.topic,
           params.paragraphCount,
           params.brandVoice ?? null,
+          params.referenceStyle ?? null,
         ),
       },
     ],

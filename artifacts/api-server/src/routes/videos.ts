@@ -217,6 +217,13 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       body.engine === "topic_to_video" && (await isFeatureEnabled("brandVideo"))
         ? (body.brandKitId ?? null)
         : null,
+    // Same story for the style profile: tenant-scoped at load time, so a
+    // foreign or deleted id just renders without reference styling. Dropped
+    // entirely when the Reference Styles kill switch is off.
+    styleProfileId:
+      body.engine === "topic_to_video" && (await isFeatureEnabled("referenceStyles"))
+        ? (body.styleProfileId ?? null)
+        : null,
   };
 
   // Fund like every metered generation: monthly plan quota first, then

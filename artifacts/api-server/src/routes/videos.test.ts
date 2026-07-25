@@ -328,6 +328,43 @@ describe("POST /api/ai/generate-video", () => {
     expect(tenant.tenantId).toBeGreaterThan(0);
   });
 
+  it("stores a style profile on a topic video and drops it on other engines", async () => {
+    const tenant = await newTenant();
+    const topic = await request(app).post("/api/ai/generate-video").send({
+      engine: "topic_to_video",
+      prompt: "Why your morning routine keeps failing",
+      styleProfileId: 99,
+    });
+    expect(topic.status).toBe(201);
+    await waitForPendingJobs();
+    const topicRow = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, topic.body.id))
+    )[0];
+    // Stored as-is; the job runner resolves it tenant-scoped and renders
+    // without reference styling when it does not match.
+    expect(topicRow?.options?.styleProfileId).toBe(99);
+
+    const slideshow = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "slideshow",
+        sourceImagePaths: [`/objects/${tenant.tenantId}/uploads/a.png`],
+        styleProfileId: 99,
+      });
+    expect(slideshow.status).toBe(201);
+    await waitForPendingJobs();
+    const slideshowRow = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, slideshow.body.id))
+    )[0];
+    expect(slideshowRow?.options?.styleProfileId).toBeNull();
+  });
+
   it("rejects a topic-to-video music path outside the caller's workspace", async () => {
     const tenant = await newTenant();
     const res = await request(app)

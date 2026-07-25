@@ -1,0 +1,2898 @@
+From 9acf9dc2ff40026ecc38069bd0c77d262f2cdddd Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 25 Jul 2026 05:44:46 +0000
+Subject: [PATCH] feat(video): reference videos become reusable style profiles
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+"Make one like this" is how most short-form briefs actually start, and the
+reference is usually a video the user can point at. Uploading one now yields
+a saved style profile that steers topic videos.
+
+The analysis separates what can be measured from what must be described:
+ffmpeg and the transcript give duration and narration speed, and one vision
+call over six evenly-sampled frames describes hook shape, scene count,
+caption treatment, energy, and framing. The model never supplies the
+numbers, so a profile cannot drift into invention.
+
+What a profile deliberately does not carry: the reference's footage, audio,
+music, or wording. The analysis prompt asks for structure only and forbids
+describing the subject matter, so applying a profile cannot reproduce
+someone else's content. References are uploads only — there is no URL
+ingestion, so nothing is fetched from a third-party host.
+
+Fail-soft where a blank is better than an error: a silent reference just
+yields a visual-only profile (0 wpm), and a deleted or foreign profile id
+renders the video without reference styling. Hard-fail where a blank is
+worse than nothing: an unreadable video or an unusable vision reply is a
+422 and the reserved caption unit is refunded.
+
+Analysis is metered as one caption unit — it is a single text-model
+completion. The upload is downloaded before funding is reserved so a bad
+path never burns a unit, and the 8-per-workspace cap is re-checked under a
+tenant row lock.
+
+In the studio, the topic engine gains a reference-style picker next to the
+brand kit; picking a profile adopts its caption treatment as a starting
+point, and a captions-free reference turns subtitles off.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EJdoZ8bk1pWTrmbMVQJZ7G
+---
+ .../api-server/src/lib/videoGen/jobRunner.ts  |  12 +
+ .../lib/videoGen/referenceAnalyzer.test.ts    | 187 +++++++++
+ .../src/lib/videoGen/referenceAnalyzer.ts     | 393 ++++++++++++++++++
+ .../src/lib/videoGen/topicVideo/index.ts      |   3 +
+ .../src/lib/videoGen/topicVideo/script.ts     |  11 +-
+ .../videoGen/topicVideo/topicVideo.test.ts    |  28 ++
+ artifacts/api-server/src/routes/index.ts      |   3 +
+ .../api-server/src/routes/videoStyles.test.ts | 348 ++++++++++++++++
+ .../api-server/src/routes/videoStyles.ts      | 227 ++++++++++
+ .../api-server/src/routes/videos.test.ts      |  37 ++
+ artifacts/api-server/src/routes/videos.ts     |   4 +
+ .../src/pages/video-studio.test.tsx           |  91 ++++
+ .../socialforge/src/pages/video-studio.tsx    | 323 ++++++++++++++
+ .../src/generated/api.schemas.ts              |  66 +++
+ lib/api-client-react/src/generated/api.ts     | 220 ++++++++++
+ lib/api-spec/openapi.yaml                     | 161 +++++++
+ lib/api-zod/src/generated/api.ts              |  76 ++++
+ .../types/analyzeVideoStyleRequest.ts         |  17 +
+ lib/api-zod/src/generated/types/index.ts      |   5 +
+ .../generated/types/videoGenerateRequest.ts   |   5 +
+ .../src/generated/types/videoStylePacing.ts   |  16 +
+ .../src/generated/types/videoStylePayload.ts  |  26 ++
+ .../types/videoStylePayloadCaptionStyle.ts    |  19 +
+ .../src/generated/types/videoStyleProfile.ts  |  21 +
+ lib/db/src/schema/index.ts                    |   1 +
+ lib/db/src/schema/videoGenerations.ts         |   2 +
+ lib/db/src/schema/videoStyleProfiles.ts       |  59 +++
+ 27 files changed, 2360 insertions(+), 1 deletion(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/referenceAnalyzer.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/referenceAnalyzer.ts
+ create mode 100644 artifacts/api-server/src/routes/videoStyles.test.ts
+ create mode 100644 artifacts/api-server/src/routes/videoStyles.ts
+ create mode 100644 lib/api-zod/src/generated/types/analyzeVideoStyleRequest.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoStylePacing.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoStylePayload.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoStylePayloadCaptionStyle.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoStyleProfile.ts
+ create mode 100644 lib/db/src/schema/videoStyleProfiles.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index 5085769..e7922ce 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -9,6 +9,7 @@ import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } fro
+ import { normalizeVideo } from "./postprocess";
+ import { generateMusicBed } from "./musicGen";
+ import { loadVideoBranding } from "./branding";
++import { loadStyleGuidance } from "./referenceAnalyzer";
+ import { verifyRenderedVideo, type VideoQaExpectations } from "./qaGate";
+ import {
+   generateTopicVideo,
+@@ -267,6 +268,16 @@ async function produceVideo(
+       }
+     }
+ 
++    // Reference style (opt-in, fail-soft): a saved profile's pacing and hook
++    // shape steer the script writer. A deleted or foreign profile is ignored.
++    const referenceStyle = await loadStyleGuidance(
++      job.tenantId,
++      options.styleProfileId ?? null,
++    ).catch((err) => {
++      logger.warn({ err, jobId: job.id }, "Style profile lookup failed; ignoring it");
++      return null;
++    });
++
+     const result = await generateTopicVideo({
+       tenantId: job.tenantId,
+       topic: job.prompt ?? "",
+@@ -287,6 +298,7 @@ async function produceVideo(
+       outfitId: options.outfitId ?? null,
+       wardrobeNotes: options.wardrobeNotes ?? null,
+       brandVoice: branding?.voiceHint ?? null,
++      referenceStyle,
+       accentColor: branding?.accentColor ?? null,
+       watermark,
+       onStage,
+diff --git a/artifacts/api-server/src/lib/videoGen/referenceAnalyzer.test.ts b/artifacts/api-server/src/lib/videoGen/referenceAnalyzer.test.ts
+new file mode 100644
+index 0000000..1889c1b
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/referenceAnalyzer.test.ts
+@@ -0,0 +1,187 @@
++import { describe, it, expect, afterAll, vi } from "vitest";
++import {
++  frameTimestamps,
++  wordsPerMinute,
++  parseStyleProfile,
++  buildStyleGuidance,
++  loadStyleGuidance,
++  REFERENCE_FRAME_COUNT,
++  type ReferenceMeasurements,
++} from "./referenceAnalyzer";
++
++// ffmpeg, ASR, and the vision call have their own coverage; this file pins the
++// pure logic that decides what a style profile is allowed to say.
++vi.mock("../textGen", () => ({ getTextGenClient: vi.fn() }));
++
++const measured = (over: Partial<ReferenceMeasurements> = {}): ReferenceMeasurements => ({
++  durationSec: 30,
++  wordsPerMinute: 160,
++  transcript: "Here is the thing nobody tells you about morning routines.",
++  ...over,
++});
++
++describe("frameTimestamps", () => {
++  it("samples slice midpoints so fades and end cards never dominate", () => {
++    // 12s over 6 frames: midpoints of 2s slices -> 1, 3, 5, 7, 9, 11.
++    expect(frameTimestamps(12, 6)).toEqual([1, 3, 5, 7, 9, 11]);
++  });
++
++  it("never samples at 0 or at the very last frame", () => {
++    const stamps = frameTimestamps(45.5, REFERENCE_FRAME_COUNT);
++    expect(stamps).toHaveLength(REFERENCE_FRAME_COUNT);
++    expect(stamps[0]).toBeGreaterThan(0);
++    expect(stamps.at(-1)!).toBeLessThan(45.5);
++    // Chronological order is what the prompt promises the model.
++    expect([...stamps].sort((a, b) => a - b)).toEqual(stamps);
++  });
++
++  it("degrades to a single frame for empty or nonsense durations", () => {
++    expect(frameTimestamps(0, 6)).toEqual([0]);
++    expect(frameTimestamps(-4, 6)).toEqual([0]);
++    expect(frameTimestamps(Number.NaN, 6)).toEqual([0]);
++  });
++
++  it("asks for at least one frame however low the count", () => {
++    expect(frameTimestamps(10, 0)).toHaveLength(1);
++    expect(frameTimestamps(10, -3)).toHaveLength(1);
++  });
++});
++
++describe("wordsPerMinute", () => {
++  it("measures narration speed from the transcript and analyzed window", () => {
++    // 8 words in 4s -> 120 wpm.
++    expect(wordsPerMinute("one two three four five six seven eight", 4)).toBe(120);
++  });
++
++  it("returns 0 for silent references instead of a misleading number", () => {
++    expect(wordsPerMinute("", 30)).toBe(0);
++    expect(wordsPerMinute("   \n  ", 30)).toBe(0);
++  });
++
++  it("returns 0 rather than dividing by an unusable duration", () => {
++    expect(wordsPerMinute("some words here", 0)).toBe(0);
++    expect(wordsPerMinute("some words here", Number.NaN)).toBe(0);
++  });
++});
++
++describe("parseStyleProfile", () => {
++  const reply = {
++    hookShape: "question straight to camera",
++    sceneCount: 5,
++    captionStyle: "karaoke",
++    energy: "punchy",
++    visualNotes: ["handheld framing", "warm grade", ""],
++    scriptGuidance: "Short sentences. End on a question.",
++  };
++
++  it("keeps the measured numbers even when the model contradicts them", () => {
++    const payload = parseStyleProfile(
++      { ...reply, wordsPerMinute: 9999, sourceDurationSec: 600 },
++      measured(),
++    )!;
++    expect(payload.pacing.wordsPerMinute).toBe(160);
++    expect(payload.sourceDurationSec).toBe(30);
++    // 30s over 5 scenes.
++    expect(payload.pacing.avgSceneSec).toBe(6);
++  });
++
++  it("maps caption vocabulary onto the studio's three treatments", () => {
++    const style = (captionStyle: unknown) =>
++      parseStyleProfile({ ...reply, captionStyle }, measured())!.captionStyle;
++    expect(style("karaoke")).toBe("dynamic");
++    expect(style("word")).toBe("dynamic");
++    expect(style("DYNAMIC")).toBe("dynamic");
++    expect(style("none")).toBe("none");
++    expect(style("off")).toBe("none");
++    expect(style("full sentence subtitles")).toBe("classic");
++    expect(style(undefined)).toBe("classic");
++  });
++
++  it("clamps the scene count and drops empty visual notes", () => {
++    expect(parseStyleProfile({ ...reply, sceneCount: 900 }, measured())!.pacing.sceneCount).toBe(60);
++    expect(parseStyleProfile({ ...reply, sceneCount: 0 }, measured())!.pacing.sceneCount).toBe(1);
++    expect(parseStyleProfile({ ...reply, sceneCount: "many" }, measured())!.pacing.sceneCount).toBe(
++      1,
++    );
++    expect(parseStyleProfile(reply, measured())!.visualNotes).toEqual([
++      "handheld framing",
++      "warm grade",
++    ]);
++  });
++
++  it("caps the note list and the transcript excerpt", () => {
++    const payload = parseStyleProfile(
++      { ...reply, visualNotes: Array.from({ length: 20 }, (_, i) => `note ${i}`) },
++      measured({ transcript: "x".repeat(2000) }),
++    )!;
++    expect(payload.visualNotes).toHaveLength(6);
++    expect(payload.transcriptExcerpt).toHaveLength(400);
++  });
++
++  it("rejects a reply with neither a hook nor guidance", () => {
++    expect(parseStyleProfile({ energy: "calm", sceneCount: 4 }, measured())).toBeNull();
++    expect(parseStyleProfile({ hookShape: "  ", scriptGuidance: "" }, measured())).toBeNull();
++    expect(parseStyleProfile(null, measured())).toBeNull();
++    expect(parseStyleProfile("classic captions", measured())).toBeNull();
++  });
++
++  it("falls back to the hook when the model skips the guidance", () => {
++    const payload = parseStyleProfile(
++      { hookShape: "bold claim over a fast pan", sceneCount: 3 },
++      measured(),
++    )!;
++    expect(payload.scriptGuidance).toBe("bold claim over a fast pan");
++    expect(payload.version).toBe(1);
++  });
++
++  it("reports 0s scenes for a zero-length window instead of dividing by it", () => {
++    const payload = parseStyleProfile(reply, measured({ durationSec: 0 }))!;
++    expect(payload.pacing.avgSceneSec).toBe(0);
++    expect(payload.sourceDurationSec).toBe(0);
++  });
++});
++
++describe("buildStyleGuidance", () => {
++  const payload = parseStyleProfile(
++    {
++      hookShape: "question straight to camera",
++      sceneCount: 5,
++      captionStyle: "dynamic",
++      energy: "punchy",
++      visualNotes: ["handheld framing"],
++      scriptGuidance: "Short sentences. End on a question.",
++    },
++    measured(),
++  )!;
++
++  it("describes structure the script writer can act on", () => {
++    const guidance = buildStyleGuidance(payload);
++    expect(guidance).toContain("Open the same way: question straight to camera.");
++    expect(guidance).toContain("Energy: punchy.");
++    expect(guidance).toContain("160 words per minute");
++    expect(guidance).toContain("cuts about every 6s");
++    expect(guidance).toContain("Short sentences. End on a question.");
++  });
++
++  it("never leaks the reference's own words into the guidance", () => {
++    expect(buildStyleGuidance(payload)).not.toContain(measured().transcript);
++  });
++
++  it("drops the narration pace for a silent reference", () => {
++    const silent = { ...payload, pacing: { ...payload.pacing, wordsPerMinute: 0 } };
++    expect(buildStyleGuidance(silent)).not.toContain("words per minute");
++    expect(buildStyleGuidance(silent)).toContain("Open the same way");
++  });
++});
++
++describe("loadStyleGuidance", () => {
++  it("returns null without touching the database when no profile is requested", async () => {
++    expect(await loadStyleGuidance(1, null)).toBeNull();
++    expect(await loadStyleGuidance(1, undefined)).toBeNull();
++    expect(await loadStyleGuidance(1, 0)).toBeNull();
++  });
++});
++
++afterAll(() => {
++  vi.restoreAllMocks();
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/referenceAnalyzer.ts b/artifacts/api-server/src/lib/videoGen/referenceAnalyzer.ts
+new file mode 100644
+index 0000000..c79046f
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/referenceAnalyzer.ts
+@@ -0,0 +1,393 @@
++import { writeFile, readFile, mkdtemp, rm } from "fs/promises";
++import { tmpdir } from "os";
++import { join } from "path";
++import { db, videoStyleProfilesTable } from "@workspace/db";
++import type { VideoStyleProfilePayload, VideoStyleCaptionStyle } from "@workspace/db";
++import { and, eq } from "drizzle-orm";
++import { getTextGenClient } from "../textGen";
++import { usageAccountingParams } from "../aiCost";
++import { logger } from "../logger";
++import { transcribeAudio } from "../asr";
++import { withTimeout } from "./retry";
++import { probeDurationSec, runFfmpeg } from "./slideshow";
++
++/**
++ * Reference video → reusable style profile.
++ *
++ * "Make one like this" is the request behind most short-form briefs, and the
++ * reference the user has in mind is usually a video they can point at. This
++ * module turns that video into a small structural description: what is
++ * measurable is measured with ffmpeg and the transcript (duration, narration
++ * speed), and the rest — hook shape, caption treatment, energy, framing — is
++ * described by one vision call over evenly-sampled frames.
++ *
++ * What is deliberately NOT extracted: the reference's footage, audio, music,
++ * or wording. A style profile describes *how* a video is built, never *what*
++ * it says, so applying one cannot reproduce someone else's content.
++ */
++
++/** One vision call, bounded — analysis is interactive, the user is waiting. */
++const VISION_TIMEOUT_MS = 90_000;
++
++/** Frames shown to the vision model. Enough to read pacing, cheap enough to
++ * stay a single call. */
++export const REFERENCE_FRAME_COUNT = 6;
++
++/** Frame height sent to the model; style is legible well below source res. */
++const FRAME_HEIGHT = 360;
++
++/** Only the first few minutes are analyzed — style is established early, and
++ * ASR providers charge by audio length. */
++export const MAX_ANALYZED_SEC = 180;
++
++/** Longest reference we accept at all (a feature-length upload is a mistake). */
++export const MAX_REFERENCE_SEC = 60 * 60;
++
++/** Transcript kept for the UI preview. */
++const TRANSCRIPT_EXCERPT_CHARS = 400;
++
++export class ReferenceAnalysisError extends Error {}
++
++/**
++ * Evenly-spaced sample timestamps across a clip, pulled in from both ends so
++ * the first and last frames (fades, end cards) don't dominate the sample.
++ */
++export function frameTimestamps(durationSec: number, count: number): number[] {
++  const total = Number.isFinite(durationSec) ? Math.max(0, durationSec) : 0;
++  const n = Math.max(1, Math.trunc(count));
++  if (total <= 0) return [0];
++  // Sample at the midpoint of n equal slices: for n=6 that is 1/12, 3/12, ...
++  const step = total / n;
++  return Array.from({ length: n }, (_, i) =>
++    Math.min(total, Number((step * (i + 0.5)).toFixed(3))),
++  );
++}
++
++/** Narration speed from a transcript. 0 when there is nothing to measure. */
++export function wordsPerMinute(text: string, durationSec: number): number {
++  const words = text.trim().split(/\s+/).filter(Boolean).length;
++  if (words === 0 || !Number.isFinite(durationSec) || durationSec <= 0) return 0;
++  return Math.round((words / durationSec) * 60);
++}
++
++function clampString(value: unknown, max: number, fallback: string): string {
++  if (typeof value !== "string") return fallback;
++  const trimmed = value.trim().replace(/\s+/g, " ");
++  return trimmed ? trimmed.slice(0, max) : fallback;
++}
++
++function toCaptionStyle(value: unknown): VideoStyleCaptionStyle {
++  const text = typeof value === "string" ? value.trim().toLowerCase() : "";
++  if (text === "none" || text === "no" || text === "off") return "none";
++  // Word-by-word / karaoke / kinetic captions all map to our dynamic style;
++  // anything else legible becomes sentence subtitles.
++  if (text === "dynamic" || text === "word" || text === "karaoke" || text === "kinetic") {
++    return "dynamic";
++  }
++  return "classic";
++}
++
++/** Measurements the model must not be allowed to invent. */
++export interface ReferenceMeasurements {
++  durationSec: number;
++  wordsPerMinute: number;
++  transcript: string;
++}
++
++/**
++ * Validate a vision reply into a payload, with the measured numbers layered on
++ * top of anything the model said about them. Returns null when the reply is
++ * unusable, so callers can treat analysis as failed rather than save noise.
++ */
++export function parseStyleProfile(
++  raw: unknown,
++  measured: ReferenceMeasurements,
++): VideoStyleProfilePayload | null {
++  if (!raw || typeof raw !== "object") return null;
++  const reply = raw as Record<string, unknown>;
++  const hookShape = clampString(reply.hookShape, 200, "");
++  const scriptGuidance = clampString(reply.scriptGuidance, 800, "");
++  // A profile with neither a hook nor guidance has nothing to steer with.
++  if (!hookShape && !scriptGuidance) return null;
++
++  const rawScenes = Number(reply.sceneCount);
++  const sceneCount =
++    Number.isFinite(rawScenes) && rawScenes >= 1 ? Math.min(60, Math.trunc(rawScenes)) : 1;
++  const duration = Math.max(0, Math.round(measured.durationSec * 10) / 10);
++  const avgSceneSec = duration > 0 ? Math.round((duration / sceneCount) * 10) / 10 : 0;
++
++  const notes = Array.isArray(reply.visualNotes) ? reply.visualNotes : [];
++  const visualNotes = notes
++    .map((note) => clampString(note, 160, ""))
++    .filter((note): note is string => note.length > 0)
++    .slice(0, 6);
++
++  return {
++    version: 1,
++    hookShape: hookShape || "opens straight on the subject",
++    pacing: { sceneCount, avgSceneSec, wordsPerMinute: measured.wordsPerMinute },
++    captionStyle: toCaptionStyle(reply.captionStyle),
++    energy: clampString(reply.energy, 60, "neutral"),
++    visualNotes,
++    scriptGuidance: scriptGuidance || hookShape,
++    sourceDurationSec: duration,
++    transcriptExcerpt: measured.transcript.trim().slice(0, TRANSCRIPT_EXCERPT_CHARS),
++  };
++}
++
++/**
++ * The block injected into the script prompt when a job carries a style
++ * profile. Describes structure only — pacing, hook, sentence length — never
++ * the reference's subject matter.
++ */
++export function buildStyleGuidance(payload: VideoStyleProfilePayload): string {
++  const parts: string[] = [];
++  if (payload.hookShape) parts.push(`Open the same way: ${payload.hookShape}.`);
++  if (payload.energy) parts.push(`Energy: ${payload.energy}.`);
++  if (payload.pacing.wordsPerMinute > 0) {
++    parts.push(
++      `Pace the narration at roughly ${payload.pacing.wordsPerMinute} words per minute.`,
++    );
++  }
++  if (payload.pacing.avgSceneSec > 0) {
++    parts.push(
++      `The reference cuts about every ${payload.pacing.avgSceneSec}s, so keep sentences short enough to land inside one shot.`,
++    );
++  }
++  if (payload.scriptGuidance) parts.push(payload.scriptGuidance);
++  return parts.join(" ");
++}
++
++/**
++ * Resolve a saved style profile into a script-prompt guidance block, or null.
++ * Tenant-scoped, so a foreign id simply yields no guidance.
++ */
++export async function loadStyleGuidance(
++  tenantId: number,
++  styleProfileId: number | null | undefined,
++): Promise<string | null> {
++  if (!styleProfileId) return null;
++  const row = (
++    await db
++      .select()
++      .from(videoStyleProfilesTable)
++      .where(
++        and(
++          eq(videoStyleProfilesTable.id, styleProfileId),
++          eq(videoStyleProfilesTable.tenantId, tenantId),
++        ),
++      )
++      .limit(1)
++  )[0];
++  if (!row) return null;
++  const guidance = buildStyleGuidance(row.payload);
++  return guidance.trim() ? guidance : null;
++}
++
++/** Extract a mono 16 kHz mp3 of the first MAX_ANALYZED_SEC. Null on failure. */
++async function extractAudio(dir: string, input: string): Promise<Buffer | null> {
++  try {
++    await runFfmpeg(
++      [
++        "-y",
++        "-i",
++        input,
++        "-t",
++        String(MAX_ANALYZED_SEC),
++        "-vn",
++        "-ac",
++        "1",
++        "-ar",
++        "16000",
++        "-b:a",
++        "64k",
++        "audio.mp3",
++      ],
++      dir,
++    );
++    return await readFile(join(dir, "audio.mp3"));
++  } catch (err) {
++    // A reference with no audio track is normal (silent b-roll edits).
++    logger.warn({ err }, "Reference audio extraction failed; analyzing visuals only");
++    return null;
++  }
++}
++
++/** Grab one downscaled JPEG per timestamp. Frames that fail are skipped. */
++async function extractFrames(
++  dir: string,
++  input: string,
++  timestamps: number[],
++): Promise<Buffer[]> {
++  const frames: Buffer[] = [];
++  for (const [index, seconds] of timestamps.entries()) {
++    const name = `frame_${String(index).padStart(2, "0")}.jpg`;
++    try {
++      await runFfmpeg(
++        [
++          "-y",
++          "-ss",
++          seconds.toFixed(3),
++          "-i",
++          input,
++          "-frames:v",
++          "1",
++          "-vf",
++          `scale=-2:${FRAME_HEIGHT}`,
++          "-q:v",
++          "4",
++          name,
++        ],
++        dir,
++      );
++      frames.push(await readFile(join(dir, name)));
++    } catch (err) {
++      logger.warn({ err, seconds }, "Reference frame extraction failed; skipping frame");
++    }
++  }
++  return frames;
++}
++
++function buildAnalysisPrompt(measured: ReferenceMeasurements, frameCount: number): string {
++  const transcriptBlock = measured.transcript.trim()
++    ? `\n\n## Transcript of the narration:\n${measured.transcript.trim().slice(0, 4000)}`
++    : "\n\n## Transcript: none (no speech detected).";
++  return `# Role: Short-form video editor reverse-engineering a style
++
++You are shown ${frameCount} frames sampled evenly across a ${measured.durationSec.toFixed(1)}s short-form video, in chronological order.
++
++Describe the video's STYLE so another video on a completely different subject can be built the same way. Describe structure, pacing, framing, and caption treatment only — never the subject matter, brand, or wording of this specific video.${transcriptBlock}
++
++## Rules:
++1. Reply with strict JSON only, exactly this shape:
++{"hookShape": "...", "sceneCount": <number>, "captionStyle": "classic" | "dynamic" | "none", "energy": "...", "visualNotes": ["...", "..."], "scriptGuidance": "..."}
++2. "hookShape": how the opening seconds grab attention, as a reusable pattern ("question straight to camera", "bold claim over a fast pan").
++3. "sceneCount": how many DISTINCT visual scenes you can see across the frames (a lower bound is fine).
++4. "captionStyle": "dynamic" if captions appear a word or few words at a time (karaoke/kinetic), "classic" for full-sentence subtitles, "none" if there is no burned-in text.
++5. "energy": one or two words ("calm", "high-energy", "punchy and dry").
++6. "visualNotes": up to 6 short observations about framing, colour, motion, and text placement.
++7. "scriptGuidance": 2-3 sentences telling a script writer how to write for this style — sentence length, tone, how to end. Do not mention this video's topic.`;
++}
++
++export interface AnalyzeReferenceParams {
++  videoBytes: Buffer;
++  /** The tenant's selected text model (must be vision-capable). */
++  tenantAiModel: string;
++}
++
++/**
++ * Analyze a reference video into a style profile.
++ *
++ * Throws ReferenceAnalysisError when the video is unreadable or the vision
++ * model gives nothing usable — the caller refunds and reports it, because a
++ * blank profile is worse than no profile. Transcription is fail-soft: a silent
++ * reference just yields a visual-only profile with wordsPerMinute 0.
++ */
++export async function analyzeReferenceVideo(
++  params: AnalyzeReferenceParams,
++): Promise<VideoStyleProfilePayload> {
++  const dir = await mkdtemp(join(tmpdir(), "kokao-reference-"));
++  try {
++    const input = "reference";
++    await writeFile(join(dir, input), params.videoBytes);
++
++    const probed = await probeDurationSec(input, dir);
++    if (!probed) {
++      throw new ReferenceAnalysisError(
++        "That file could not be read as a video. Try an MP4 or MOV export.",
++      );
++    }
++    if (probed > MAX_REFERENCE_SEC) {
++      throw new ReferenceAnalysisError(
++        "That video is too long to analyze. Use a short-form cut (under an hour).",
++      );
++    }
++    // Style lives in the opening minutes; everything downstream measures the
++    // analyzed window, not the full file.
++    const analyzedSec = Math.min(probed, MAX_ANALYZED_SEC);
++
++    const audio = await extractAudio(dir, input);
++    let transcript = "";
++    if (audio && audio.length > 0) {
++      try {
++        const result = await transcribeAudio({
++          buffer: audio,
++          mimeType: "audio/mpeg",
++          filename: "reference.mp3",
++        });
++        transcript = result.text ?? "";
++      } catch (err) {
++        // No ASR provider configured, or the provider refused: keep going.
++        logger.warn({ err }, "Reference transcription failed; analyzing visuals only");
++      }
++    }
++
++    const frames = await extractFrames(
++      dir,
++      input,
++      frameTimestamps(analyzedSec, REFERENCE_FRAME_COUNT),
++    );
++    if (frames.length === 0) {
++      throw new ReferenceAnalysisError(
++        "No frames could be read from that video. Try re-exporting it as MP4.",
++      );
++    }
++
++    const measured: ReferenceMeasurements = {
++      durationSec: analyzedSec,
++      wordsPerMinute: wordsPerMinute(transcript, analyzedSec),
++      transcript,
++    };
++
++    const textGen = await getTextGenClient(params.tenantAiModel);
++    const content: (
++      | { type: "text"; text: string }
++      | { type: "image_url"; image_url: { url: string } }
++    )[] = [
++      { type: "text", text: buildAnalysisPrompt(measured, frames.length) },
++      ...frames.map((frame) => ({
++        type: "image_url" as const,
++        image_url: { url: `data:image/jpeg;base64,${frame.toString("base64")}` },
++      })),
++    ];
++
++    let raw: unknown;
++    try {
++      const completion = await withTimeout(
++        () =>
++          textGen.client.chat.completions.create({
++            model: textGen.model,
++            messages: [
++              {
++                role: "system",
++                content:
++                  "You reverse-engineer the style of short-form videos and reply with strict JSON only.",
++              },
++              { role: "user", content },
++            ],
++            max_completion_tokens: 2048,
++            response_format: { type: "json_object" },
++            ...usageAccountingParams(textGen.provider),
++          }),
++        VISION_TIMEOUT_MS,
++        "Reference analysis",
++      );
++      raw = JSON.parse(completion.choices[0]?.message?.content ?? "");
++    } catch (err) {
++      logger.warn({ err }, "Reference style analysis call failed");
++      throw new ReferenceAnalysisError(
++        "The AI could not read that video's style. Make sure your text model supports images, then try again.",
++      );
++    }
++
++    const payload = parseStyleProfile(raw, measured);
++    if (!payload) {
++      throw new ReferenceAnalysisError(
++        "The AI returned an unusable style description. Please try again.",
++      );
++    }
++    return payload;
++  } finally {
++    await rm(dir, { recursive: true, force: true }).catch(() => {});
++  }
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+index 3b0ce95..f994fd5 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+@@ -72,6 +72,8 @@ export interface TopicVideoParams {
+   wardrobeNotes?: string | null;
+   /** Brand-voice hint injected into the script prompt (brand kit). */
+   brandVoice?: string | null;
++  /** Structural guidance from a reference video (style profile). */
++  referenceStyle?: string | null;
+   /** Caption stroke accent ("0xRRGGBB") from the brand kit. */
+   accentColor?: string | null;
+   /** Brand logo bytes to watermark top-right. */
+@@ -226,6 +228,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+     topic,
+     paragraphCount: params.paragraphCount,
+     brandVoice: params.brandVoice ?? null,
++    referenceStyle: params.referenceStyle ?? null,
+   });
+   checkDeadline(startedAt, deadlineMs);
+ 
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/script.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/script.ts
+index d3e3603..f922127 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/script.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/script.ts
+@@ -27,11 +27,17 @@ export function buildTopicScriptPrompt(
+   topic: string,
+   paragraphCount: number,
+   brandVoice?: string | null,
++  referenceStyle?: string | null,
+ ): string {
+   const paragraphs = Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), MAX_PARAGRAPHS);
+   const brandBlock = brandVoice?.trim()
+     ? `\n\n## Brand voice (write in this brand's voice):\n${brandVoice.trim()}`
+     : "";
++  // Structure borrowed from a reference video the user pointed at: pacing and
++  // shape only, never its subject matter.
++  const styleBlock = referenceStyle?.trim()
++    ? `\n\n## Reference style (match this structure and pacing, not its topic):\n${referenceStyle.trim()}`
++    : "";
+   return `# Role: Short Video Script Writer
+ 
+ ## Goals:
+@@ -43,7 +49,7 @@ Write the narration script for a short vertical video about the given subject, p
+ 3. No markdown, no titles, no formatting — only the raw spoken words.
+ 4. Never include "voiceover", "narrator" or similar speaker indicators.
+ 5. Never mention this prompt, the script itself, or the paragraph count.
+-6. Write the script in the same language as the video subject.${brandBlock}
++6. Write the script in the same language as the video subject.${brandBlock}${styleBlock}
+ 
+ ## Search term constraints:
+ 1. Return 5 stock-video search terms that follow the order of topics in the script; earlier terms must describe earlier visual moments.
+@@ -86,6 +92,8 @@ export async function generateTopicScript(params: {
+   paragraphCount: number;
+   /** Optional brand-voice hint (traits, audience, terms to avoid). */
+   brandVoice?: string | null;
++  /** Optional structural guidance derived from a reference video. */
++  referenceStyle?: string | null;
+ }): Promise<TopicScript & { model: string }> {
+   const textGen = await getTextGenClient(params.tenantAiModel);
+   const completion = await textGen.client.chat.completions.create({
+@@ -102,6 +110,7 @@ export async function generateTopicScript(params: {
+           params.topic,
+           params.paragraphCount,
+           params.brandVoice ?? null,
++          params.referenceStyle ?? null,
+         ),
+       },
+     ],
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts
+index 2f3142c..d39aa16 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts
+@@ -133,6 +133,34 @@ describe("script generation helpers", () => {
+     expect(branded).toContain("searchTerms");
+   });
+ 
++  it("injects a reference style block only when guidance is supplied", () => {
++    const plain = buildTopicScriptPrompt("morning chai", 1);
++    expect(plain).not.toContain("Reference style");
++    const styled = buildTopicScriptPrompt(
++      "morning chai",
++      1,
++      null,
++      "Open the same way: question straight to camera. Pace the narration at roughly 160 words per minute.",
++    );
++    expect(styled).toContain("Reference style");
++    expect(styled).toContain("question straight to camera");
++    // Style steers structure; it must not change the output contract.
++    expect(styled).toContain("exactly 1 paragraph");
++    expect(styled).toContain("searchTerms");
++  });
++
++  it("carries a brand voice and a reference style together", () => {
++    const both = buildTopicScriptPrompt(
++      "morning chai",
++      2,
++      "Voice: warm, practical.",
++      "Energy: punchy.",
++    );
++    expect(both).toContain("Brand voice");
++    expect(both).toContain("Reference style");
++    expect(both).toContain("exactly 2 paragraphs");
++  });
++
+   it("cleans markdown remnants out of a script", () => {
+     expect(cleanScript("**Bold** start. [pause] The # real content.")).toBe(
+       "Bold start.  The  real content.",
+diff --git a/artifacts/api-server/src/routes/index.ts b/artifacts/api-server/src/routes/index.ts
+index 03fc51f..cfa85dd 100644
+--- a/artifacts/api-server/src/routes/index.ts
++++ b/artifacts/api-server/src/routes/index.ts
+@@ -12,6 +12,7 @@ import aiRouter from "./ai";
+ import videosRouter from "./videos";
+ import imageJobsRouter from "./imageJobs";
+ import charactersRouter from "./characters";
++import videoStylesRouter from "./videoStyles";
+ import assetsRouter from "./assets";
+ import googleDriveRouter, { googleDriveCallbackRouter } from "./googleDrive";
+ import gamificationRouter from "./gamification";
+@@ -93,6 +94,7 @@ router.use("/ai/generate-carousel", requireFeature("carousel"));
+ // import exists solely for it, so it shares the switch.
+ router.use("/ai/generate-video", requireFeature("videoGen"));
+ router.use("/ai/video-jobs", requireFeature("videoGen"));
++router.use("/ai/video-styles", requireFeature("videoGen"));
+ // Async image jobs: own kill switch on top of the /ai gate; when off, the
+ // studio falls back to the synchronous generate-image route.
+ router.use("/ai/generate-image-async", requireFeature("imageJobs"));
+@@ -153,6 +155,7 @@ router.use(aiRouter);
+ router.use(imageJobsRouter);
+ router.use(videosRouter);
+ router.use(charactersRouter);
++router.use(videoStylesRouter);
+ router.use(assetsRouter);
+ router.use(googleDriveRouter);
+ router.use(gamificationRouter);
+diff --git a/artifacts/api-server/src/routes/videoStyles.test.ts b/artifacts/api-server/src/routes/videoStyles.test.ts
+new file mode 100644
+index 0000000..b02f45d
+--- /dev/null
++++ b/artifacts/api-server/src/routes/videoStyles.test.ts
+@@ -0,0 +1,348 @@
++import { describe, it, expect, afterAll, beforeEach, vi } from "vitest";
++import request from "supertest";
++import express, { type Express } from "express";
++
++vi.mock("@clerk/express", async () => {
++  const { authState } = await import("../test/authState");
++  return {
++    getAuth: () =>
++      authState.userId
++        ? {
++            userId: authState.userId,
++            sessionClaims: { userId: authState.userId },
++          }
++        : {},
++    clerkClient: {
++      users: {
++        getUser: async (id: string) => {
++          const u = authState.users[id];
++          if (!u) throw new Error("user not found");
++          return u;
++        },
++      },
++    },
++    clerkMiddleware: () => (_req: unknown, _res: unknown, next: () => void) =>
++      next(),
++  };
++});
++
++// ffmpeg, ASR, and the vision call are covered by referenceAnalyzer.test.ts.
++// Here the analyzer is captured so route behavior (tenancy, funding, caps) is
++// deterministic.
++const analyzerState = vi.hoisted(() => ({
++  calls: [] as { bytes: number; model: string }[],
++  failNext: null as null | { kind: "analysis" | "notConfigured" | "unknown" },
++}));
++vi.mock("../lib/videoGen/referenceAnalyzer", async (importOriginal) => {
++  const actual = await importOriginal<typeof import("../lib/videoGen/referenceAnalyzer")>();
++  const { TextGenNotConfiguredError } = await import("../lib/textGen");
++  return {
++    ...actual,
++    analyzeReferenceVideo: vi.fn(
++      async (params: { videoBytes: Buffer; tenantAiModel: string }) => {
++        const failure = analyzerState.failNext;
++        analyzerState.failNext = null;
++        if (failure?.kind === "analysis") {
++          throw new actual.ReferenceAnalysisError("That file could not be read as a video.");
++        }
++        if (failure?.kind === "notConfigured") {
++          throw new TextGenNotConfiguredError("no provider");
++        }
++        if (failure?.kind === "unknown") throw new Error("socket hang up");
++        analyzerState.calls.push({
++          bytes: params.videoBytes.length,
++          model: params.tenantAiModel,
++        });
++        return {
++          version: 1 as const,
++          hookShape: "question straight to camera",
++          pacing: { sceneCount: 5, avgSceneSec: 6, wordsPerMinute: 160 },
++          captionStyle: "dynamic" as const,
++          energy: "punchy",
++          visualNotes: ["handheld framing"],
++          scriptGuidance: "Short sentences. End on a question.",
++          sourceDurationSec: 30,
++          transcriptExcerpt: "Here is the thing nobody tells you.",
++        };
++      },
++    ),
++  };
++});
++
++// Storage: a fake bucket whose behavior is keyed off the requested path, so the
++// route's "load before funding" ordering is testable without a real bucket.
++const storageState = vi.hoisted(() => ({ downloads: [] as string[] }));
++vi.mock("../lib/objectStorage", async (importOriginal) => {
++  const actual = await importOriginal<typeof import("../lib/objectStorage")>();
++  class FakeObjectStorageService {
++    async getObjectEntityFile(objectPath: string, _tenantId: number) {
++      if (objectPath.includes("missing")) {
++        throw new actual.ObjectNotFoundError();
++      }
++      return {
++        async getMetadata() {
++          return [{ size: objectPath.includes("huge") ? 300 * 1024 * 1024 : 2048 }];
++        },
++        async download() {
++          storageState.downloads.push(objectPath);
++          return [Buffer.alloc(2048, 7)];
++        },
++      };
++    }
++  }
++  return { ...actual, ObjectStorageService: FakeObjectStorageService };
++});
++
++import { db, videoStyleProfilesTable, tenantsTable, creditBalancesTable, creditLedgerTable } from "@workspace/db";
++import type { VideoStyleProfilePayload } from "@workspace/db";
++import { eq } from "drizzle-orm";
++import { requireTenant } from "../middlewares/requireTenant";
++import videoStylesRouter, { MAX_STYLE_PROFILES } from "./videoStyles";
++import { actAs, resetAuthState } from "../test/authState";
++import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
++import { grantCredits, getCreditBalances } from "../lib/credits";
++
++function createStylesTestApp(): Express {
++  const app = express();
++  app.use(express.json());
++  app.use((req, _res, next) => {
++    (req as unknown as { log: Record<string, () => void> }).log = {
++      info() {},
++      error() {},
++      warn() {},
++      debug() {},
++    };
++    next();
++  });
++  app.use("/api", requireTenant, videoStylesRouter);
++  return app;
++}
++
++const app = createStylesTestApp();
++const createdTenants: TestTenant[] = [];
++
++async function newTenant(plan = "free"): Promise<TestTenant> {
++  const tenant = await createTenant();
++  if (plan !== "free") {
++    await db.update(tenantsTable).set({ plan }).where(eq(tenantsTable.id, tenant.tenantId));
++  }
++  createdTenants.push(tenant);
++  actAs(tenant.clerkUserId);
++  return tenant;
++}
++
++const samplePayload: VideoStyleProfilePayload = {
++  version: 1,
++  hookShape: "bold claim over a fast pan",
++  pacing: { sceneCount: 4, avgSceneSec: 7.5, wordsPerMinute: 140 },
++  captionStyle: "classic",
++  energy: "calm",
++  visualNotes: [],
++  scriptGuidance: "Two short sentences per shot.",
++  sourceDurationSec: 30,
++  transcriptExcerpt: "",
++};
++
++async function seedProfiles(tenantId: number, count: number): Promise<void> {
++  await db.insert(videoStyleProfilesTable).values(
++    Array.from({ length: count }, (_, i) => ({
++      tenantId,
++      name: `Seeded ${i}`,
++      sourceVideoPath: `/objects/${tenantId}/uploads/seed-${i}.mp4`,
++      payload: samplePayload,
++    })),
++  );
++}
++
++beforeEach(() => {
++  resetAuthState();
++  analyzerState.calls.length = 0;
++  analyzerState.failNext = null;
++  storageState.downloads.length = 0;
++});
++
++afterAll(async () => {
++  for (const tenant of createdTenants) {
++    await db
++      .delete(videoStyleProfilesTable)
++      .where(eq(videoStyleProfilesTable.tenantId, tenant.tenantId));
++    await db
++      .delete(creditBalancesTable)
++      .where(eq(creditBalancesTable.tenantId, tenant.tenantId));
++    await db
++      .delete(creditLedgerTable)
++      .where(eq(creditLedgerTable.tenantId, tenant.tenantId));
++    await deleteTenant(tenant.tenantId);
++  }
++});
++
++describe("POST /api/ai/video-styles", () => {
++  it("analyzes an uploaded reference and saves the profile", async () => {
++    const tenant = await newTenant();
++    const sourceVideoPath = `/objects/${tenant.tenantId}/uploads/reference.mp4`;
++    const res = await request(app)
++      .post("/api/ai/video-styles")
++      .send({ name: "  Fast-cut explainer  ", sourceVideoPath });
++    expect(res.status).toBe(201);
++    expect(res.body.name).toBe("Fast-cut explainer");
++    expect(res.body.sourceVideoPath).toBe(sourceVideoPath);
++    expect(res.body.payload.pacing.wordsPerMinute).toBe(160);
++    expect(res.body.payload.captionStyle).toBe("dynamic");
++    expect(analyzerState.calls).toEqual([{ bytes: 2048, model: expect.any(String) }]);
++    expect(storageState.downloads).toEqual([sourceVideoPath]);
++  });
++
++  it("rejects a reference outside the caller's workspace before spending anything", async () => {
++    const tenant = await newTenant();
++    const res = await request(app)
++      .post("/api/ai/video-styles")
++      .send({
++        name: "Stolen",
++        sourceVideoPath: `/objects/${tenant.tenantId + 1}/uploads/theirs.mp4`,
++      });
++    expect(res.status).toBe(400);
++    expect(analyzerState.calls).toHaveLength(0);
++    expect(storageState.downloads).toHaveLength(0);
++  });
++
++  it("requires a name that is more than whitespace", async () => {
++    const tenant = await newTenant();
++    const res = await request(app)
++      .post("/api/ai/video-styles")
++      .send({ name: "   ", sourceVideoPath: `/objects/${tenant.tenantId}/uploads/r.mp4` });
++    expect(res.status).toBe(400);
++    expect(analyzerState.calls).toHaveLength(0);
++  });
++
++  it("rejects a missing upload without burning a unit", async () => {
++    const tenant = await newTenant();
++    const res = await request(app)
++      .post("/api/ai/video-styles")
++      .send({ name: "Gone", sourceVideoPath: `/objects/${tenant.tenantId}/uploads/missing.mp4` });
++    expect(res.status).toBe(400);
++    expect(analyzerState.calls).toHaveLength(0);
++  });
++
++  it("rejects an oversized reference before analysis", async () => {
++    const tenant = await newTenant();
++    const res = await request(app)
++      .post("/api/ai/video-styles")
++      .send({ name: "Feature film", sourceVideoPath: `/objects/${tenant.tenantId}/uploads/huge.mp4` });
++    expect(res.status).toBe(400);
++    expect(res.body.error).toMatch(/too large/i);
++    expect(analyzerState.calls).toHaveLength(0);
++    expect(storageState.downloads).toHaveLength(0);
++  });
++
++  it("402s when the caption quota is spent and no caption credits remain", async () => {
++    const tenant = await newTenant("payg"); // 0 captions/month, credit-funded only
++    const res = await request(app)
++      .post("/api/ai/video-styles")
++      .send({ name: "No funding", sourceVideoPath: `/objects/${tenant.tenantId}/uploads/r.mp4` });
++    expect(res.status).toBe(402);
++    expect(analyzerState.calls).toHaveLength(0);
++  });
++
++  it("refunds the reserved caption credit when the video is unusable", async () => {
++    const tenant = await newTenant("payg");
++    await grantCredits({
++      tenantId: tenant.tenantId,
++      captionCredits: 1,
++      imageCredits: 0,
++      videoCredits: 0,
++      kind: "admin_grant",
++      note: "test",
++    });
++    analyzerState.failNext = { kind: "analysis" };
++    const res = await request(app)
++      .post("/api/ai/video-styles")
++      .send({ name: "Broken", sourceVideoPath: `/objects/${tenant.tenantId}/uploads/r.mov` });
++    expect(res.status).toBe(422);
++    expect(res.body.error).toMatch(/could not be read as a video/);
++    expect((await getCreditBalances(tenant.tenantId)).captionCredits).toBe(1);
++    // Nothing was saved, so the user can retry with a different file.
++    const saved = await db
++      .select()
++      .from(videoStyleProfilesTable)
++      .where(eq(videoStyleProfilesTable.tenantId, tenant.tenantId));
++    expect(saved).toHaveLength(0);
++  });
++
++  it("503s when the tenant has no text model configured", async () => {
++    const tenant = await newTenant();
++    analyzerState.failNext = { kind: "notConfigured" };
++    const res = await request(app)
++      .post("/api/ai/video-styles")
++      .send({ name: "No model", sourceVideoPath: `/objects/${tenant.tenantId}/uploads/r.mp4` });
++    expect(res.status).toBe(503);
++  });
++
++  it("502s on an unexpected analyzer failure", async () => {
++    const tenant = await newTenant();
++    analyzerState.failNext = { kind: "unknown" };
++    const res = await request(app)
++      .post("/api/ai/video-styles")
++      .send({ name: "Flaky", sourceVideoPath: `/objects/${tenant.tenantId}/uploads/r.mp4` });
++    expect(res.status).toBe(502);
++  });
++
++  it("caps saved styles per workspace", async () => {
++    const tenant = await newTenant();
++    await seedProfiles(tenant.tenantId, MAX_STYLE_PROFILES);
++    const res = await request(app)
++      .post("/api/ai/video-styles")
++      .send({ name: "One too many", sourceVideoPath: `/objects/${tenant.tenantId}/uploads/r.mp4` });
++    expect(res.status).toBe(400);
++    expect(res.body.error).toMatch(new RegExp(`${MAX_STYLE_PROFILES} styles`));
++    expect(analyzerState.calls).toHaveLength(0);
++  });
++});
++
++describe("GET /api/ai/video-styles", () => {
++  it("lists only the caller's styles, oldest first", async () => {
++    const other = await newTenant();
++    await seedProfiles(other.tenantId, 1);
++    const tenant = await newTenant();
++    await seedProfiles(tenant.tenantId, 2);
++    const res = await request(app).get("/api/ai/video-styles");
++    expect(res.status).toBe(200);
++    expect(res.body.map((p: { name: string }) => p.name)).toEqual(["Seeded 0", "Seeded 1"]);
++    expect(res.body[0].payload.hookShape).toBe(samplePayload.hookShape);
++  });
++});
++
++describe("DELETE /api/ai/video-styles/:styleId", () => {
++  it("deletes the caller's style", async () => {
++    const tenant = await newTenant();
++    await seedProfiles(tenant.tenantId, 1);
++    const [profile] = await db
++      .select()
++      .from(videoStyleProfilesTable)
++      .where(eq(videoStyleProfilesTable.tenantId, tenant.tenantId));
++    const res = await request(app).delete(`/api/ai/video-styles/${profile!.id}`);
++    expect(res.status).toBe(204);
++    const remaining = await db
++      .select()
++      .from(videoStyleProfilesTable)
++      .where(eq(videoStyleProfilesTable.tenantId, tenant.tenantId));
++    expect(remaining).toHaveLength(0);
++  });
++
++  it("404s for another workspace's style and for a bad id", async () => {
++    const other = await newTenant();
++    await seedProfiles(other.tenantId, 1);
++    const [theirs] = await db
++      .select()
++      .from(videoStyleProfilesTable)
++      .where(eq(videoStyleProfilesTable.tenantId, other.tenantId));
++    await newTenant();
++    expect((await request(app).delete(`/api/ai/video-styles/${theirs!.id}`)).status).toBe(404);
++    expect((await request(app).delete("/api/ai/video-styles/abc")).status).toBe(400);
++    // The other workspace still has it.
++    const still = await db
++      .select()
++      .from(videoStyleProfilesTable)
++      .where(eq(videoStyleProfilesTable.tenantId, other.tenantId));
++    expect(still).toHaveLength(1);
++  });
++});
+diff --git a/artifacts/api-server/src/routes/videoStyles.ts b/artifacts/api-server/src/routes/videoStyles.ts
+new file mode 100644
+index 0000000..3fb2124
+--- /dev/null
++++ b/artifacts/api-server/src/routes/videoStyles.ts
+@@ -0,0 +1,227 @@
++import { Router, type IRouter, type Request, type Response } from "express";
++import { db, tenantsTable, videoStyleProfilesTable } from "@workspace/db";
++import type { VideoStyleProfile } from "@workspace/db";
++import { and, eq, asc } from "drizzle-orm";
++import { AnalyzeVideoStyleBody } from "@workspace/api-zod";
++import { getPlanLimits } from "../lib/plans";
++import { getUsage, recordUsage } from "../lib/usage";
++import { spendCredit, refundCredits } from "../lib/credits";
++import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
++import {
++  analyzeReferenceVideo,
++  ReferenceAnalysisError,
++} from "../lib/videoGen/referenceAnalyzer";
++import { TextGenNotConfiguredError } from "../lib/textGen";
++
++const router: IRouter = Router();
++
++/**
++ * Video style profiles: "make one like this" as a saved, reusable setting.
++ *
++ * A tenant uploads a reference video, we analyze its structure once (transcript
++ * + sampled frames → one vision call) and store the description. Topic videos
++ * can then be generated against a profile instead of the user re-describing
++ * the pacing they want every time.
++ *
++ * Analysis costs one caption unit: it is a single text-model completion, the
++ * same shape of call the caption endpoints meter. References are uploads only —
++ * there is no URL ingestion, so nothing is ever fetched from a third-party host.
++ */
++
++/** Per-tenant cap: profiles are curated presets, not a media library. */
++export const MAX_STYLE_PROFILES = 8;
++
++/** Reference uploads: generous enough for a 3-minute phone export. */
++const MAX_REFERENCE_BYTES = 200 * 1024 * 1024;
++
++const objectStorageService = new ObjectStorageService();
++
++function serializeProfile(profile: VideoStyleProfile) {
++  return {
++    id: profile.id,
++    name: profile.name,
++    sourceVideoPath: profile.sourceVideoPath,
++    payload: profile.payload,
++    createdAt: profile.createdAt.toISOString(),
++    updatedAt: profile.updatedAt.toISOString(),
++  };
++}
++
++type Funding = "quota" | "credit";
++
++/** Reserve caption funding (monthly quota first, then a credit). */
++async function reserveCaptionFunding(tenantId: number, plan: string): Promise<Funding | null> {
++  const limits = await getPlanLimits(plan);
++  const usage = await getUsage(tenantId);
++  if (limits.captions === -1 || usage.captions < limits.captions) return "quota";
++  if (await spendCredit(tenantId, "caption")) return "credit";
++  return null;
++}
++
++async function releaseCaptionFunding(req: Request, funding: Funding): Promise<void> {
++  if (funding !== "credit") return;
++  await refundCredits(req.tenantId, "caption", 1, "reference video analysis failed").catch(
++    (err) => req.log.error({ err }, "Failed to refund style analysis credit"),
++  );
++}
++
++router.get("/ai/video-styles", async (req: Request, res: Response) => {
++  const profiles = await db
++    .select()
++    .from(videoStyleProfilesTable)
++    .where(eq(videoStyleProfilesTable.tenantId, req.tenantId))
++    .orderBy(asc(videoStyleProfilesTable.id));
++  res.json(profiles.map(serializeProfile));
++});
++
++router.post("/ai/video-styles", async (req: Request, res: Response) => {
++  const parsed = AnalyzeVideoStyleBody.safeParse(req.body);
++  if (!parsed.success) {
++    res.status(400).json({ error: "Invalid input" });
++    return;
++  }
++  const name = parsed.data.name.trim();
++  const sourceVideoPath = parsed.data.sourceVideoPath;
++  if (!name) {
++    res.status(400).json({ error: "Give this style a name." });
++    return;
++  }
++  // The tenant prefix is asserted again by the storage layer below; rejecting
++  // here gives a clear message instead of a confusing 404.
++  if (!sourceVideoPath.startsWith(`/objects/${req.tenantId}/`)) {
++    res.status(400).json({ error: "Invalid reference video path." });
++    return;
++  }
++
++  const existing = await db
++    .select({ id: videoStyleProfilesTable.id })
++    .from(videoStyleProfilesTable)
++    .where(eq(videoStyleProfilesTable.tenantId, req.tenantId));
++  if (existing.length >= MAX_STYLE_PROFILES) {
++    res.status(400).json({
++      error: `You can save up to ${MAX_STYLE_PROFILES} styles. Delete one to add another.`,
++    });
++    return;
++  }
++
++  const tenant = (
++    await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId)).limit(1)
++  )[0];
++  if (!tenant) {
++    res.status(401).json({ error: "Unauthorized" });
++    return;
++  }
++
++  // Load the upload BEFORE funding so a bad path never burns a unit.
++  let videoBytes: Buffer;
++  try {
++    const file = await objectStorageService.getObjectEntityFile(sourceVideoPath, req.tenantId);
++    const [metadata] = await file.getMetadata();
++    if (Number(metadata.size ?? 0) > MAX_REFERENCE_BYTES) {
++      res.status(400).json({
++        error: `That video is too large (max ${Math.round(MAX_REFERENCE_BYTES / (1024 * 1024))} MB).`,
++      });
++      return;
++    }
++    [videoBytes] = await file.download();
++  } catch (err) {
++    if (err instanceof ObjectNotFoundError) {
++      res.status(400).json({ error: "That reference video could not be found." });
++      return;
++    }
++    throw err;
++  }
++
++  const funding = await reserveCaptionFunding(req.tenantId, tenant.plan);
++  if (!funding) {
++    res.status(402).json({
++      error:
++        "Monthly caption quota reached and no caption credits left. Upgrade your plan or buy a credit pack.",
++    });
++    return;
++  }
++
++  const startedAt = Date.now();
++  let payload;
++  try {
++    payload = await analyzeReferenceVideo({
++      videoBytes,
++      tenantAiModel: tenant.aiModel,
++    });
++  } catch (err) {
++    await releaseCaptionFunding(req, funding);
++    if (err instanceof ReferenceAnalysisError) {
++      res.status(422).json({ error: err.message });
++      return;
++    }
++    if (err instanceof TextGenNotConfiguredError) {
++      res.status(503).json({
++        error: "AI text generation is not configured. Contact your admin.",
++      });
++      return;
++    }
++    req.log.error({ err }, "Reference video analysis failed");
++    res.status(502).json({ error: "Analyzing that video failed. Please try again." });
++    return;
++  }
++
++  await recordUsage(req.tenantId, "caption", {
++    durationMs: Date.now() - startedAt,
++    responseBytes: JSON.stringify(payload).length,
++    model: tenant.aiModel,
++    provider: "video-style-analysis",
++    funding,
++  });
++
++  // Re-check the cap under a tenant row lock so parallel analyses cannot both
++  // slip past the count check. The analysis is already paid for either way.
++  const created = await db.transaction(async (tx) => {
++    await tx
++      .select({ id: tenantsTable.id })
++      .from(tenantsTable)
++      .where(eq(tenantsTable.id, req.tenantId))
++      .for("update");
++    const count = await tx
++      .select({ id: videoStyleProfilesTable.id })
++      .from(videoStyleProfilesTable)
++      .where(eq(videoStyleProfilesTable.tenantId, req.tenantId));
++    if (count.length >= MAX_STYLE_PROFILES) return null;
++    return (
++      await tx
++        .insert(videoStyleProfilesTable)
++        .values({ tenantId: req.tenantId, name, sourceVideoPath, payload })
++        .returning()
++    )[0]!;
++  });
++  if (!created) {
++    res.status(400).json({
++      error: `You can save up to ${MAX_STYLE_PROFILES} styles. Delete one to add another.`,
++    });
++    return;
++  }
++  res.status(201).json(serializeProfile(created));
++});
++
++router.delete("/ai/video-styles/:styleId", async (req: Request, res: Response) => {
++  const styleId = Number(req.params.styleId);
++  if (!Number.isInteger(styleId) || styleId <= 0) {
++    res.status(400).json({ error: "Invalid id" });
++    return;
++  }
++  const deleted = await db
++    .delete(videoStyleProfilesTable)
++    .where(
++      and(
++        eq(videoStyleProfilesTable.id, styleId),
++        eq(videoStyleProfilesTable.tenantId, req.tenantId),
++      ),
++    )
++    .returning({ id: videoStyleProfilesTable.id });
++  if (deleted.length === 0) {
++    res.status(404).json({ error: "Not found" });
++    return;
++  }
++  res.status(204).end();
++});
++
++export default router;
+diff --git a/artifacts/api-server/src/routes/videos.test.ts b/artifacts/api-server/src/routes/videos.test.ts
+index cc03267..0c84f72 100644
+--- a/artifacts/api-server/src/routes/videos.test.ts
++++ b/artifacts/api-server/src/routes/videos.test.ts
+@@ -328,6 +328,43 @@ describe("POST /api/ai/generate-video", () => {
+     expect(tenant.tenantId).toBeGreaterThan(0);
+   });
+ 
++  it("stores a style profile on a topic video and drops it on other engines", async () => {
++    const tenant = await newTenant();
++    const topic = await request(app).post("/api/ai/generate-video").send({
++      engine: "topic_to_video",
++      prompt: "Why your morning routine keeps failing",
++      styleProfileId: 99,
++    });
++    expect(topic.status).toBe(201);
++    await waitForPendingJobs();
++    const topicRow = (
++      await db
++        .select()
++        .from(videoGenerationsTable)
++        .where(eq(videoGenerationsTable.id, topic.body.id))
++    )[0];
++    // Stored as-is; the job runner resolves it tenant-scoped and renders
++    // without reference styling when it does not match.
++    expect(topicRow?.options?.styleProfileId).toBe(99);
++
++    const slideshow = await request(app)
++      .post("/api/ai/generate-video")
++      .send({
++        engine: "slideshow",
++        sourceImagePaths: [`/objects/${tenant.tenantId}/uploads/a.png`],
++        styleProfileId: 99,
++      });
++    expect(slideshow.status).toBe(201);
++    await waitForPendingJobs();
++    const slideshowRow = (
++      await db
++        .select()
++        .from(videoGenerationsTable)
++        .where(eq(videoGenerationsTable.id, slideshow.body.id))
++    )[0];
++    expect(slideshowRow?.options?.styleProfileId).toBeNull();
++  });
++
+   it("rejects a topic-to-video music path outside the caller's workspace", async () => {
+     const tenant = await newTenant();
+     const res = await request(app)
+diff --git a/artifacts/api-server/src/routes/videos.ts b/artifacts/api-server/src/routes/videos.ts
+index 9c51352..5f8c962 100644
+--- a/artifacts/api-server/src/routes/videos.ts
++++ b/artifacts/api-server/src/routes/videos.ts
+@@ -212,6 +212,10 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+     // Brand kit is tenant-scoped at load time in the job runner; storing a
+     // foreign id just renders unbranded.
+     brandKitId: body.engine === "topic_to_video" ? (body.brandKitId ?? null) : null,
++    // Same story for the style profile: tenant-scoped at load time, so a
++    // foreign or deleted id just renders without reference styling.
++    styleProfileId:
++      body.engine === "topic_to_video" ? (body.styleProfileId ?? null) : null,
+   };
+ 
+   // Fund like every metered generation: monthly plan quota first, then
+diff --git a/artifacts/socialforge/src/pages/video-studio.test.tsx b/artifacts/socialforge/src/pages/video-studio.test.tsx
+index 67f765c..e357895 100644
+--- a/artifacts/socialforge/src/pages/video-studio.test.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.test.tsx
+@@ -29,6 +29,7 @@ const mockState: {
+   activeJob: any;
+   characters: any[];
+   brandKits: any[];
++  styleProfiles: any[];
+ } = {
+   lastGenerateVars: null,
+   generateError: null,
+@@ -36,6 +37,7 @@ const mockState: {
+   activeJob: undefined,
+   characters: [],
+   brandKits: [],
++  styleProfiles: [],
+ };
+ 
+ const toastSpy = vi.fn();
+@@ -80,11 +82,38 @@ vi.mock("@workspace/api-client-react", async () => {
+     useListContent: () => ({ data: [], isLoading: false }),
+     useListCharacters: () => ({ data: mockState.characters }),
+     useListBrandKits: () => ({ data: mockState.brandKits }),
++    useListVideoStyles: () => ({ data: mockState.styleProfiles }),
+   });
+ });
+ 
+ import { VideoStudioPage } from "./video-studio";
+ 
++/** A saved style profile as the API returns it. */
++function styleProfile(over: {
++  id: number;
++  name: string;
++  captionStyle: "classic" | "dynamic" | "none";
++}) {
++  return {
++    id: over.id,
++    name: over.name,
++    sourceVideoPath: `/objects/1/uploads/ref-${over.id}.mp4`,
++    payload: {
++      version: 1,
++      hookShape: "question straight to camera",
++      pacing: { sceneCount: 5, avgSceneSec: 6, wordsPerMinute: 160 },
++      captionStyle: over.captionStyle,
++      energy: "punchy",
++      visualNotes: ["handheld framing"],
++      scriptGuidance: "Short sentences. End on a question.",
++      sourceDurationSec: 30,
++      transcriptExcerpt: "",
++    },
++    createdAt: "2026-01-01T00:00:00Z",
++    updatedAt: "2026-01-01T00:00:00Z",
++  };
++}
++
+ function renderPage() {
+   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+   return render(
+@@ -103,6 +132,7 @@ beforeEach(() => {
+   mockState.activeJob = undefined;
+   mockState.characters = [];
+   mockState.brandKits = [];
++  mockState.styleProfiles = [];
+   toastSpy.mockClear();
+   cleanup();
+ });
+@@ -271,6 +301,67 @@ describe("Video Studio", () => {
+     expect(screen.queryByTestId("select-brand-kit")).toBeNull();
+   });
+ 
++  it("sends the picked reference style and adopts its caption treatment", async () => {
++    mockState.styleProfiles = [
++      styleProfile({ id: 5, name: "Fast-cut explainer", captionStyle: "classic" }),
++      styleProfile({ id: 6, name: "Silent b-roll", captionStyle: "none" }),
++    ];
++    renderPage();
++    const user = userEvent.setup();
++    await user.click(screen.getByTestId("tab-topic-to-video"));
++    fireEvent.change(screen.getByTestId("input-video-prompt"), {
++      target: { value: "5 morning habits that transform your day" },
++    });
++
++    // Reference styling is opt-in.
++    fireEvent.click(screen.getByTestId("button-generate-video"));
++    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
++    expect(mockState.lastGenerateVars.data.styleProfileId).toBeNull();
++    expect(mockState.lastGenerateVars.data.captionStyle).toBe("dynamic");
++
++    mockState.lastGenerateVars = null;
++    await user.click(screen.getByTestId("select-style-profile"));
++    await user.click(screen.getByRole("option", { name: "Fast-cut explainer" }));
++    fireEvent.click(screen.getByTestId("button-generate-video"));
++    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
++    expect(mockState.lastGenerateVars.data.styleProfileId).toBe(5);
++    // The reference's caption treatment becomes the starting point.
++    expect(mockState.lastGenerateVars.data.captionStyle).toBe("classic");
++
++    // A reference with no burned-in captions turns subtitles off entirely.
++    mockState.lastGenerateVars = null;
++    await user.click(screen.getByTestId("select-style-profile"));
++    await user.click(screen.getByRole("option", { name: "Silent b-roll" }));
++    expect(screen.queryByTestId("select-caption-style")).toBeNull();
++    fireEvent.click(screen.getByTestId("button-generate-video"));
++    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
++    expect(mockState.lastGenerateVars.data.styleProfileId).toBe(6);
++    expect(mockState.lastGenerateVars.data.subtitles).toBe(false);
++  });
++
++  it("keeps the reference style picker on the topic engine only", async () => {
++    renderPage();
++    const user = userEvent.setup();
++    expect(screen.queryByTestId("select-style-profile")).toBeNull();
++    await user.click(screen.getByTestId("tab-topic-to-video"));
++    expect(screen.getByTestId("select-style-profile")).toBeTruthy();
++    await user.click(screen.getByTestId("tab-slideshow"));
++    expect(screen.queryByTestId("select-style-profile")).toBeNull();
++  });
++
++  it("opens the reference style manager and blocks analysis until a video is uploaded", async () => {
++    renderPage();
++    const user = userEvent.setup();
++    await user.click(screen.getByTestId("tab-topic-to-video"));
++    await user.click(screen.getByTestId("button-manage-styles"));
++    expect(screen.getByTestId("button-upload-reference")).toBeTruthy();
++    // A name alone is not enough — the reference itself is what gets analyzed.
++    fireEvent.change(screen.getByTestId("input-style-name"), {
++      target: { value: "Fast-cut explainer" },
++    });
++    expect((screen.getByTestId("button-analyze-style") as HTMLButtonElement).disabled).toBe(true);
++  });
++
+   it("hides the caption style picker when subtitles are off", async () => {
+     renderPage();
+     const user = userEvent.setup();
+diff --git a/artifacts/socialforge/src/pages/video-studio.tsx b/artifacts/socialforge/src/pages/video-studio.tsx
+index 1b977de..f2a44db 100644
+--- a/artifacts/socialforge/src/pages/video-studio.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.tsx
+@@ -19,6 +19,10 @@ import {
+   useImportLibraryMusic,
+   useGenerateHooks,
+   useListBrandKits,
++  useListVideoStyles,
++  useAnalyzeVideoStyle,
++  useDeleteVideoStyle,
++  getListVideoStylesQueryKey,
+   getSearchMusicLibraryQueryKey,
+   getGoogleDriveAuthUrl,
+   getListVideoJobsQueryKey,
+@@ -32,6 +36,7 @@ import {
+   type Character,
+   type MusicTrack,
+   type HookIdea,
++  type VideoStyleProfile,
+ } from "@workspace/api-client-react";
+ import { useQueryClient } from "@tanstack/react-query";
+ import { Button } from "@/components/ui/button";
+@@ -81,6 +86,7 @@ import {
+   UserRound,
+   Shirt,
+   Trash2,
++  Gauge,
+ } from "lucide-react";
+ import { navigate } from "wouter/use-browser-location";
+ import { SavedVisualPickerDialog } from "@/components/saved-visuals";
+@@ -100,6 +106,9 @@ const VOICES: { value: Voice; label: string }[] = [
+ ];
+ 
+ const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
++/** Reference-video uploads for style analysis. */
++const REFERENCE_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
++const MAX_REFERENCE_MB = 200;
+ const MUSIC_TYPES = ["audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/aac", "audio/wav"];
+ const MAX_PHOTOS = 20;
+ 
+@@ -184,6 +193,8 @@ export function VideoStudioPage() {
+   const [hooksOpen, setHooksOpen] = useState(false);
+   const [hookIdeas, setHookIdeas] = useState<HookIdea[]>([]);
+   const [brandKitId, setBrandKitId] = useState<number | null>(null);
++  const [styleProfileId, setStyleProfileId] = useState<number | null>(null);
++  const [stylesOpen, setStylesOpen] = useState(false);
+   const [uploading, setUploading] = useState(false);
+   const [activeJobId, setActiveJobId] = useState<number | null>(null);
+ 
+@@ -210,6 +221,7 @@ export function VideoStudioPage() {
+     query: { queryKey: getListCharactersQueryKey() },
+   });
+   const { data: brandKits } = useListBrandKits();
++  const { data: styleProfiles } = useListVideoStyles();
+   const activeCharacter = characters?.find((c) => c.id === characterId) ?? null;
+ 
+   // Poll the active job until it settles; the server does the heavy lifting.
+@@ -404,6 +416,7 @@ export function VideoStudioPage() {
+               ? wardrobeNotes.trim()
+               : null,
+           brandKitId: engine === "topic_to_video" ? brandKitId : null,
++          styleProfileId: engine === "topic_to_video" ? styleProfileId : null,
+         },
+       },
+       {
+@@ -650,6 +663,53 @@ export function VideoStudioPage() {
+                   your brand colour, and stamps your logo on every frame.
+                 </p>
+               </div>
++
++              <div className="space-y-2">
++                <Label htmlFor="style-profile">Reference style (optional)</Label>
++                <div className="flex gap-2">
++                  <Select
++                    value={styleProfileId === null ? "none" : String(styleProfileId)}
++                    onValueChange={(v) => {
++                      const id = v === "none" ? null : Number(v);
++                      setStyleProfileId(id);
++                      // Adopt the reference's caption treatment as a starting
++                      // point; the switch above stays yours to change.
++                      const picked = styleProfiles?.find((s) => s.id === id);
++                      if (!picked) return;
++                      if (picked.payload.captionStyle === "none") {
++                        setSubtitles(false);
++                      } else {
++                        setSubtitles(true);
++                        setCaptionStyle(picked.payload.captionStyle);
++                      }
++                    }}
++                  >
++                    <SelectTrigger id="style-profile" data-testid="select-style-profile">
++                      <SelectValue />
++                    </SelectTrigger>
++                    <SelectContent>
++                      <SelectItem value="none">No reference</SelectItem>
++                      {styleProfiles?.map((s) => (
++                        <SelectItem key={s.id} value={String(s.id)}>
++                          {s.name}
++                        </SelectItem>
++                      ))}
++                    </SelectContent>
++                  </Select>
++                  <Button
++                    type="button"
++                    variant="outline"
++                    onClick={() => setStylesOpen(true)}
++                    data-testid="button-manage-styles"
++                  >
++                    <Gauge className="h-4 w-4 mr-1.5" /> Styles
++                  </Button>
++                </div>
++                <p className="text-xs text-muted-foreground">
++                  Upload a video whose rhythm you like — its pacing, hook shape, and
++                  caption treatment steer the script. Never its footage or wording.
++                </p>
++              </div>
+             </div>
+           )}
+ 
+@@ -1216,6 +1276,13 @@ export function VideoStudioPage() {
+ 
+       <CharacterManagerDialog open={charactersOpen} onOpenChange={setCharactersOpen} />
+ 
++      <ReferenceStyleDialog
++        open={stylesOpen}
++        onOpenChange={setStylesOpen}
++        onAnalyzed={(id) => setStyleProfileId(id)}
++        onDeleted={(id) => setStyleProfileId((current) => (current === id ? null : current))}
++      />
++
+       <MusicLibraryDialog
+         open={musicLibraryOpen}
+         onOpenChange={setMusicLibraryOpen}
+@@ -1816,6 +1883,262 @@ function CharacterManagerDialog({
+   );
+ }
+ 
++/**
++ * "Make one like this": upload a reference video, analyze its structure once,
++ * reuse the result as a style profile. Only the shape is stored — the reference
++ * itself never appears in a generated video.
++ */
++function ReferenceStyleDialog({
++  open,
++  onOpenChange,
++  onAnalyzed,
++  onDeleted,
++}: {
++  open: boolean;
++  onOpenChange: (open: boolean) => void;
++  onAnalyzed: (styleId: number) => void;
++  onDeleted: (styleId: number) => void;
++}) {
++  const { toast } = useToast();
++  const queryClient = useQueryClient();
++  const requestUploadUrl = useRequestUploadUrl();
++  const { data: profiles } = useListVideoStyles({
++    query: { queryKey: getListVideoStylesQueryKey(), enabled: open },
++  });
++  const analyzeStyle = useAnalyzeVideoStyle();
++  const deleteStyle = useDeleteVideoStyle();
++
++  const [name, setName] = useState("");
++  const [videoPath, setVideoPath] = useState<string | null>(null);
++  const [videoName, setVideoName] = useState("");
++  const [uploading, setUploading] = useState(false);
++  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
++  const videoRef = useRef<HTMLInputElement>(null);
++
++  const invalidate = () =>
++    void queryClient.invalidateQueries({ queryKey: getListVideoStylesQueryKey() });
++
++  const handleVideo = async (files: FileList | null) => {
++    const file = files?.[0];
++    if (!file) return;
++    if (!REFERENCE_VIDEO_TYPES.includes(file.type)) {
++      toast({
++        title: "Not a supported video",
++        description: "Use an MP4, MOV, or WebM file.",
++        variant: "destructive",
++      });
++      return;
++    }
++    if (file.size > MAX_REFERENCE_MB * 1024 * 1024) {
++      toast({
++        title: "Video too large",
++        description: `Reference videos must be under ${MAX_REFERENCE_MB} MB.`,
++        variant: "destructive",
++      });
++      return;
++    }
++    setUploading(true);
++    try {
++      const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
++        data: { name: file.name, size: file.size, contentType: file.type },
++      });
++      const put = await fetch(uploadURL, {
++        method: "PUT",
++        body: file,
++        headers: { "Content-Type": file.type },
++      });
++      if (!put.ok) throw new Error(`Upload failed (${put.status})`);
++      setVideoPath(objectPath);
++      setVideoName(file.name);
++      if (!name.trim()) setName(file.name.replace(/\.[^.]+$/, "").slice(0, 80));
++    } catch {
++      toast({ title: "Upload failed", description: "Please try again.", variant: "destructive" });
++    } finally {
++      setUploading(false);
++      if (videoRef.current) videoRef.current.value = "";
++    }
++  };
++
++  const onAnalyze = () => {
++    if (!videoPath) return;
++    analyzeStyle.mutate(
++      { data: { name: name.trim(), sourceVideoPath: videoPath } },
++      {
++        onSuccess: (profile) => {
++          setName("");
++          setVideoPath(null);
++          setVideoName("");
++          invalidate();
++          onAnalyzed(profile.id);
++          toast({
++            title: "Style saved",
++            description: `${profile.name} is now steering your topic videos.`,
++          });
++        },
++        onError: (error: any) => {
++          toast({
++            title: error?.status === 402 ? "Caption quota reached" : "Could not analyze that video",
++            description:
++              error?.message ||
++              "Analysis costs one caption unit. Try a shorter, clearer reference.",
++            variant: "destructive",
++          });
++        },
++      },
++    );
++  };
++
++  const canAnalyze = videoPath !== null && name.trim().length >= 1 && !analyzeStyle.isPending;
++
++  return (
++    <Dialog open={open} onOpenChange={onOpenChange}>
++      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
++        <DialogHeader>
++          <DialogTitle>Reference styles</DialogTitle>
++          <DialogDescription>
++            Upload a video whose rhythm you want to borrow. We read its pacing, hook
++            shape, and caption treatment — never its footage, audio, or wording — and
++            save that as a reusable style. One caption unit per analysis.
++          </DialogDescription>
++        </DialogHeader>
++
++        <div className="space-y-3 border border-border rounded-lg p-4">
++          <div className="grid gap-3 sm:grid-cols-2">
++            <div className="space-y-2">
++              <Label htmlFor="style-name">Name</Label>
++              <Input
++                id="style-name"
++                data-testid="input-style-name"
++                maxLength={80}
++                placeholder="Fast-cut explainer"
++                value={name}
++                onChange={(e) => setName(e.target.value)}
++              />
++            </div>
++            <div className="space-y-2">
++              <Label>Reference video</Label>
++              {videoPath ? (
++                <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
++                  <Film className="h-4 w-4 text-primary shrink-0" />
++                  <span className="truncate">{videoName}</span>
++                  <button
++                    type="button"
++                    aria-label="Remove reference video"
++                    onClick={() => setVideoPath(null)}
++                    className="ml-auto"
++                  >
++                    <X className="h-4 w-4" />
++                  </button>
++                </div>
++              ) : (
++                <Button
++                  type="button"
++                  variant="outline"
++                  size="sm"
++                  disabled={uploading}
++                  onClick={() => videoRef.current?.click()}
++                  data-testid="button-upload-reference"
++                >
++                  {uploading ? (
++                    <>
++                      <RippleSpinner className="mr-2 h-4 w-4" /> Uploading…
++                    </>
++                  ) : (
++                    <>
++                      <Upload className="h-4 w-4 mr-1.5" /> Upload video
++                    </>
++                  )}
++                </Button>
++              )}
++              <input
++                ref={videoRef}
++                type="file"
++                accept={REFERENCE_VIDEO_TYPES.join(",")}
++                className="hidden"
++                onChange={(e) => void handleVideo(e.target.files)}
++              />
++            </div>
++          </div>
++          <Button onClick={onAnalyze} disabled={!canAnalyze} data-testid="button-analyze-style">
++            {analyzeStyle.isPending ? (
++              <>
++                <RippleSpinner className="mr-2 h-4 w-4" /> Reading the reference…
++              </>
++            ) : (
++              <>
++                <Gauge className="h-4 w-4 mr-2" /> Analyze style
++              </>
++            )}
++          </Button>
++          <p className="text-xs text-muted-foreground">
++            We look at the first 3 minutes: the spoken pace, how many cuts, and how
++            captions are handled.
++          </p>
++        </div>
++
++        {profiles && profiles.length > 0 && (
++          <div className="space-y-3">
++            {profiles.map((profile) => (
++              <div
++                key={profile.id}
++                className="border border-border rounded-lg p-3 space-y-2"
++                data-testid={`style-card-${profile.id}`}
++              >
++                <div className="flex items-center gap-2">
++                  <p className="font-medium truncate">{profile.name}</p>
++                  <Badge variant="secondary">
++                    {profile.payload.pacing.wordsPerMinute > 0
++                      ? `${profile.payload.pacing.wordsPerMinute} wpm`
++                      : "No narration"}
++                  </Badge>
++                  <Badge variant="outline">
++                    {profile.payload.captionStyle === "none"
++                      ? "No captions"
++                      : `${profile.payload.captionStyle} captions`}
++                  </Badge>
++                  <button
++                    type="button"
++                    aria-label={`Delete ${profile.name}`}
++                    data-testid={`button-delete-style-${profile.id}`}
++                    className="ml-auto text-muted-foreground hover:text-destructive shrink-0"
++                    onClick={() => {
++                      if (confirmDeleteId === profile.id) {
++                        deleteStyle.mutate(
++                          { styleId: profile.id },
++                          {
++                            onSuccess: () => {
++                              invalidate();
++                              onDeleted(profile.id);
++                            },
++                          },
++                        );
++                        setConfirmDeleteId(null);
++                      } else {
++                        setConfirmDeleteId(profile.id);
++                      }
++                    }}
++                  >
++                    {confirmDeleteId === profile.id ? (
++                      <span className="text-xs text-destructive">Tap again to delete</span>
++                    ) : (
++                      <Trash2 className="h-4 w-4" />
++                    )}
++                  </button>
++                </div>
++                <p className="text-sm text-muted-foreground">{profile.payload.hookShape}</p>
++                <p className="text-xs text-muted-foreground">
++                  About {profile.payload.pacing.sceneCount} shots, ~
++                  {profile.payload.pacing.avgSceneSec}s each · {profile.payload.energy}
++                </p>
++              </div>
++            ))}
++          </div>
++        )}
++      </DialogContent>
++    </Dialog>
++  );
++}
++
+ /** Pick previously generated/saved images from the content library. */
+ function LibraryPickerDialog({
+   open,
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index fe4a150..24660ed 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -2549,6 +2549,11 @@ export interface VideoGenerateRequest {
+      * @nullable
+      */
+   brandKitId?: number | null;
++  /**
++     * topic_to_video only; write and cut the video like the reference video this saved style profile was analyzed from (hook shape, pacing, caption treatment).
++     * @nullable
++     */
++  styleProfileId?: number | null;
+   /**
+      * topic_to_video character mode; costume-change instructions (e.g. "switch to gym wear for the workout scenes").
+      * @maxLength 500
+@@ -2802,6 +2807,67 @@ export interface VideoGenSettingsView {
+   stockSources: StockSourceInfo[];
+ }
+ 
++export interface VideoStylePacing {
++  /** Distinct visual scenes counted across the sampled frames. */
++  sceneCount: number;
++  /** Mean seconds per scene (analyzed duration / sceneCount). */
++  avgSceneSec: number;
++  /** Narration speed measured from the transcript; 0 when no speech was found. */
++  wordsPerMinute: number;
++}
++
++/**
++ * Caption treatment observed in the reference.
++ */
++export type VideoStylePayloadCaptionStyle = typeof VideoStylePayloadCaptionStyle[keyof typeof VideoStylePayloadCaptionStyle];
++
++
++export const VideoStylePayloadCaptionStyle = {
++  classic: 'classic',
++  dynamic: 'dynamic',
++  none: 'none',
++} as const;
++
++export interface VideoStylePayload {
++  /** Payload schema version. */
++  version: number;
++  /** How the opening seconds grab attention, as a reusable pattern. */
++  hookShape: string;
++  pacing: VideoStylePacing;
++  /** Caption treatment observed in the reference. */
++  captionStyle: VideoStylePayloadCaptionStyle;
++  energy: string;
++  visualNotes: string[];
++  /** How to write for this style (structure only, never the reference's topic). */
++  scriptGuidance: string;
++  /** Length of the analyzed window (the first 3 minutes at most). */
++  sourceDurationSec: number;
++  transcriptExcerpt: string;
++}
++
++export interface VideoStyleProfile {
++  id: number;
++  name: string;
++  /**
++     * /objects/... path of the analyzed reference.
++     * @nullable
++     */
++  sourceVideoPath: string | null;
++  payload: VideoStylePayload;
++  createdAt: string;
++  updatedAt: string;
++}
++
++export interface AnalyzeVideoStyleRequest {
++  /**
++     * @minLength 1
++     * @maxLength 80
++     */
++  name: string;
++  /** Uploaded reference video (/objects/... path). */
++  sourceVideoPath: string;
++}
++
+ export interface CharacterOutfit {
+   id: number;
+   name: string;
+diff --git a/lib/api-client-react/src/generated/api.ts b/lib/api-client-react/src/generated/api.ts
+index c7381d6..b15a6e1 100644
+--- a/lib/api-client-react/src/generated/api.ts
++++ b/lib/api-client-react/src/generated/api.ts
+@@ -64,6 +64,7 @@ import type {
+   AiSpendSettingsView,
+   AnalyticsIngestInput,
+   AnalyticsIngestResult,
++  AnalyzeVideoStyleRequest,
+   AppBrand,
+   AppBrandInput,
+   AppBrandUploadUrlBody,
+@@ -270,6 +271,7 @@ import type {
+   VideoGenSettingsView,
+   VideoGenerateRequest,
+   VideoJob,
++  VideoStyleProfile,
+   VisualAsset,
+   YoutubeAppCredentialInput,
+   YoutubeAppCredentialStatus,
+@@ -4497,6 +4499,224 @@ export const useDeleteCharacterOutfit = <TError = ErrorType<ErrorEnvelope>,
+       return useMutation(getDeleteCharacterOutfitMutationOptions(options));
+     }
+ 
++export const getListVideoStylesUrl = () => {
++
++
++
++
++  return `/api/ai/video-styles`
++}
++
++/**
++ * @summary List saved video style profiles
++ */
++export const listVideoStyles = async ( options?: RequestInit): Promise<VideoStyleProfile[]> => {
++
++  return customFetch<VideoStyleProfile[]>(getListVideoStylesUrl(),
++  {
++    ...options,
++    method: 'GET'
++
++
++  }
++);}
++
++
++
++
++
++export const getListVideoStylesQueryKey = () => {
++    return [
++    `/api/ai/video-styles`
++    ] as const;
++    }
++
++
++export const getListVideoStylesQueryOptions = <TData = Awaited<ReturnType<typeof listVideoStyles>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoStyles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++) => {
++
++const {query: queryOptions, request: requestOptions} = options ?? {};
++
++  const queryKey =  queryOptions?.queryKey ?? getListVideoStylesQueryKey();
++
++
++
++    const queryFn: QueryFunction<Awaited<ReturnType<typeof listVideoStyles>>> = ({ signal }) => listVideoStyles({ signal, ...requestOptions });
++
++
++
++
++
++   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listVideoStyles>>, TError, TData> & { queryKey: QueryKey }
++}
++
++export type ListVideoStylesQueryResult = NonNullable<Awaited<ReturnType<typeof listVideoStyles>>>
++export type ListVideoStylesQueryError = ErrorType<unknown>
++
++
++/**
++ * @summary List saved video style profiles
++ */
++
++export function useListVideoStyles<TData = Awaited<ReturnType<typeof listVideoStyles>>, TError = ErrorType<unknown>>(
++  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoStyles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++
++ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
++
++  const queryOptions = getListVideoStylesQueryOptions(options)
++
++  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
++
++  return withQueryKey(query, queryOptions.queryKey);
++}
++
++
++
++
++
++
++
++export const getAnalyzeVideoStyleUrl = () => {
++
++
++
++
++  return `/api/ai/video-styles`
++}
++
++/**
++ * Measures the reference (duration, scene count, narration speed) and describes its structure with one vision call over sampled frames. Costs one caption unit. References are uploads only; nothing is fetched from a third-party host, and no footage, audio, or wording from the reference is stored or reused.
++ * @summary Analyze an uploaded reference video into a reusable style profile
++ */
++export const analyzeVideoStyle = async (analyzeVideoStyleRequest: AnalyzeVideoStyleRequest, options?: RequestInit): Promise<VideoStyleProfile> => {
++
++  return customFetch<VideoStyleProfile>(getAnalyzeVideoStyleUrl(),
++  {
++    ...options,
++    method: 'POST',
++    headers: { 'Content-Type': 'application/json', ...options?.headers },
++    body: JSON.stringify(analyzeVideoStyleRequest)
++  }
++);}
++
++
++
++
++export const getAnalyzeVideoStyleMutationOptions = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeVideoStyle>>, TError,{data: BodyType<AnalyzeVideoStyleRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof analyzeVideoStyle>>, TError,{data: BodyType<AnalyzeVideoStyleRequest>}, TContext> => {
++
++const mutationKey = ['analyzeVideoStyle'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof analyzeVideoStyle>>, {data: BodyType<AnalyzeVideoStyleRequest>}> = (props) => {
++          const {data} = props ?? {};
++
++          return  analyzeVideoStyle(data,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type AnalyzeVideoStyleMutationResult = NonNullable<Awaited<ReturnType<typeof analyzeVideoStyle>>>
++    export type AnalyzeVideoStyleMutationBody = BodyType<AnalyzeVideoStyleRequest>
++    export type AnalyzeVideoStyleMutationError = ErrorType<ErrorEnvelope>
++
++    /**
++ * @summary Analyze an uploaded reference video into a reusable style profile
++ */
++export const useAnalyzeVideoStyle = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeVideoStyle>>, TError,{data: BodyType<AnalyzeVideoStyleRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof analyzeVideoStyle>>,
++        TError,
++        {data: BodyType<AnalyzeVideoStyleRequest>},
++        TContext
++      > => {
++      return useMutation(getAnalyzeVideoStyleMutationOptions(options));
++    }
++
++export const getDeleteVideoStyleUrl = (styleId: number,) => {
++
++
++
++
++  return `/api/ai/video-styles/${styleId}`
++}
++
++/**
++ * @summary Delete a saved video style profile
++ */
++export const deleteVideoStyle = async (styleId: number, options?: RequestInit): Promise<void> => {
++
++  return customFetch<void>(getDeleteVideoStyleUrl(styleId),
++  {
++    ...options,
++    method: 'DELETE'
++
++
++  }
++);}
++
++
++
++
++export const getDeleteVideoStyleMutationOptions = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteVideoStyle>>, TError,{styleId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof deleteVideoStyle>>, TError,{styleId: number}, TContext> => {
++
++const mutationKey = ['deleteVideoStyle'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteVideoStyle>>, {styleId: number}> = (props) => {
++          const {styleId} = props ?? {};
++
++          return  deleteVideoStyle(styleId,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type DeleteVideoStyleMutationResult = NonNullable<Awaited<ReturnType<typeof deleteVideoStyle>>>
++
++    export type DeleteVideoStyleMutationError = ErrorType<ErrorEnvelope>
++
++    /**
++ * @summary Delete a saved video style profile
++ */
++export const useDeleteVideoStyle = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteVideoStyle>>, TError,{styleId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof deleteVideoStyle>>,
++        TError,
++        {styleId: number},
++        TContext
++      > => {
++      return useMutation(getDeleteVideoStyleMutationOptions(options));
++    }
++
+ export const getGetAiSpendRatesUrl = () => {
+ 
+ 
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index 31adf6b..ea2f5ed 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -1625,6 +1625,87 @@ paths:
+             application/json:
+               schema:
+                 $ref: "#/components/schemas/ErrorEnvelope"
++  /ai/video-styles:
++    get:
++      operationId: listVideoStyles
++      tags: [ai]
++      summary: List saved video style profiles
++      responses:
++        "200":
++          description: Style profiles
++          content:
++            application/json:
++              schema:
++                type: array
++                items:
++                  $ref: "#/components/schemas/VideoStyleProfile"
++    post:
++      operationId: analyzeVideoStyle
++      tags: [ai]
++      summary: Analyze an uploaded reference video into a reusable style profile
++      description: >-
++        Measures the reference (duration, scene count, narration speed) and
++        describes its structure with one vision call over sampled frames. Costs
++        one caption unit. References are uploads only; nothing is fetched from
++        a third-party host, and no footage, audio, or wording from the
++        reference is stored or reused.
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              $ref: "#/components/schemas/AnalyzeVideoStyleRequest"
++      responses:
++        "201":
++          description: Created
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/VideoStyleProfile"
++        "400":
++          description: Invalid input or style limit reached
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++        "402":
++          description: Caption quota exceeded
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++        "422":
++          description: The video could not be analyzed (unreadable, too long, or no usable reply)
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++        "503":
++          description: Text generation is not configured
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++  /ai/video-styles/{styleId}:
++    parameters:
++      - name: styleId
++        in: path
++        required: true
++        schema:
++          type: integer
++    delete:
++      operationId: deleteVideoStyle
++      tags: [ai]
++      summary: Delete a saved video style profile
++      responses:
++        "204":
++          description: Deleted
++        "404":
++          description: Not found
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
+   /ai-spend/rates:
+     get:
+       operationId: getAiSpendRates
+@@ -10249,6 +10330,12 @@ components:
+             topic_to_video only; apply this brand kit — its voice steers the
+             script, its primary color tints the caption stroke, and its logo
+             is watermarked top-right.
++        styleProfileId:
++          type: ["integer", "null"]
++          description: >-
++            topic_to_video only; write and cut the video like the reference
++            video this saved style profile was analyzed from (hook shape,
++            pacing, caption treatment).
+         wardrobeNotes:
+           type: ["string", "null"]
+           maxLength: 500
+@@ -10536,6 +10623,80 @@ components:
+           type: ["string", "null"]
+           enum: [database, env, null]
+           description: Where the active key comes from (admin-entered key wins over the env secret).
++    VideoStylePacing:
++      type: object
++      required: [sceneCount, avgSceneSec, wordsPerMinute]
++      properties:
++        sceneCount:
++          type: integer
++          description: Distinct visual scenes counted across the sampled frames.
++        avgSceneSec:
++          type: number
++          description: Mean seconds per scene (analyzed duration / sceneCount).
++        wordsPerMinute:
++          type: integer
++          description: Narration speed measured from the transcript; 0 when no speech was found.
++    VideoStylePayload:
++      type: object
++      required:
++        [version, hookShape, pacing, captionStyle, energy, visualNotes, scriptGuidance, sourceDurationSec, transcriptExcerpt]
++      properties:
++        version:
++          type: integer
++          description: Payload schema version.
++        hookShape:
++          type: string
++          description: How the opening seconds grab attention, as a reusable pattern.
++        pacing:
++          $ref: "#/components/schemas/VideoStylePacing"
++        captionStyle:
++          type: string
++          enum: [classic, dynamic, none]
++          description: Caption treatment observed in the reference.
++        energy:
++          type: string
++        visualNotes:
++          type: array
++          items:
++            type: string
++        scriptGuidance:
++          type: string
++          description: How to write for this style (structure only, never the reference's topic).
++        sourceDurationSec:
++          type: number
++          description: Length of the analyzed window (the first 3 minutes at most).
++        transcriptExcerpt:
++          type: string
++    VideoStyleProfile:
++      type: object
++      required: [id, name, sourceVideoPath, payload, createdAt, updatedAt]
++      properties:
++        id:
++          type: integer
++        name:
++          type: string
++        sourceVideoPath:
++          type: ["string", "null"]
++          description: /objects/... path of the analyzed reference.
++        payload:
++          $ref: "#/components/schemas/VideoStylePayload"
++        createdAt:
++          type: string
++          format: date-time
++        updatedAt:
++          type: string
++          format: date-time
++    AnalyzeVideoStyleRequest:
++      type: object
++      required: [name, sourceVideoPath]
++      properties:
++        name:
++          type: string
++          minLength: 1
++          maxLength: 80
++        sourceVideoPath:
++          type: string
++          description: Uploaded reference video (/objects/... path).
+     Character:
+       type: object
+       required:
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index eb08c88..1b48609 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -1623,6 +1623,81 @@ export const DeleteCharacterOutfitParams = zod.object({
+ export const DeleteCharacterOutfitResponse = zod.void()
+ 
+ 
++/**
++ * @summary List saved video style profiles
++ */
++export const ListVideoStylesResponseItem = zod.object({
++  "id": zod.number(),
++  "name": zod.string(),
++  "sourceVideoPath": zod.string().nullable().describe('\/objects\/... path of the analyzed reference.'),
++  "payload": zod.object({
++  "version": zod.number().describe('Payload schema version.'),
++  "hookShape": zod.string().describe('How the opening seconds grab attention, as a reusable pattern.'),
++  "pacing": zod.object({
++  "sceneCount": zod.number().describe('Distinct visual scenes counted across the sampled frames.'),
++  "avgSceneSec": zod.number().describe('Mean seconds per scene (analyzed duration \/ sceneCount).'),
++  "wordsPerMinute": zod.number().describe('Narration speed measured from the transcript; 0 when no speech was found.')
++}),
++  "captionStyle": zod.enum(['classic', 'dynamic', 'none']).describe('Caption treatment observed in the reference.'),
++  "energy": zod.string(),
++  "visualNotes": zod.array(zod.string()),
++  "scriptGuidance": zod.string().describe('How to write for this style (structure only, never the reference\'s topic).'),
++  "sourceDurationSec": zod.number().describe('Length of the analyzed window (the first 3 minutes at most).'),
++  "transcriptExcerpt": zod.string()
++}),
++  "createdAt": zod.coerce.date(),
++  "updatedAt": zod.coerce.date()
++})
++export const ListVideoStylesResponse = zod.array(ListVideoStylesResponseItem)
++
++
++/**
++ * Measures the reference (duration, scene count, narration speed) and describes its structure with one vision call over sampled frames. Costs one caption unit. References are uploads only; nothing is fetched from a third-party host, and no footage, audio, or wording from the reference is stored or reused.
++ * @summary Analyze an uploaded reference video into a reusable style profile
++ */
++export const analyzeVideoStyleBodyNameMax = 80;
++
++
++
++export const AnalyzeVideoStyleBody = zod.object({
++  "name": zod.string().min(1).max(analyzeVideoStyleBodyNameMax),
++  "sourceVideoPath": zod.string().describe('Uploaded reference video (\/objects\/... path).')
++})
++
++export const AnalyzeVideoStyleResponse = zod.object({
++  "id": zod.number(),
++  "name": zod.string(),
++  "sourceVideoPath": zod.string().nullable().describe('\/objects\/... path of the analyzed reference.'),
++  "payload": zod.object({
++  "version": zod.number().describe('Payload schema version.'),
++  "hookShape": zod.string().describe('How the opening seconds grab attention, as a reusable pattern.'),
++  "pacing": zod.object({
++  "sceneCount": zod.number().describe('Distinct visual scenes counted across the sampled frames.'),
++  "avgSceneSec": zod.number().describe('Mean seconds per scene (analyzed duration \/ sceneCount).'),
++  "wordsPerMinute": zod.number().describe('Narration speed measured from the transcript; 0 when no speech was found.')
++}),
++  "captionStyle": zod.enum(['classic', 'dynamic', 'none']).describe('Caption treatment observed in the reference.'),
++  "energy": zod.string(),
++  "visualNotes": zod.array(zod.string()),
++  "scriptGuidance": zod.string().describe('How to write for this style (structure only, never the reference\'s topic).'),
++  "sourceDurationSec": zod.number().describe('Length of the analyzed window (the first 3 minutes at most).'),
++  "transcriptExcerpt": zod.string()
++}),
++  "createdAt": zod.coerce.date(),
++  "updatedAt": zod.coerce.date()
++})
++
++
++/**
++ * @summary Delete a saved video style profile
++ */
++export const DeleteVideoStyleParams = zod.object({
++  "styleId": zod.coerce.number()
++})
++
++export const DeleteVideoStyleResponse = zod.void()
++
++
+ /**
+  * @summary Effective per-caption/per-image display amounts (fee included)
+  */
+@@ -5072,6 +5147,7 @@ export const GenerateVideoBody = zod.object({
+   "characterId": zod.number().nullish().describe('Character lock: the character featured in the video (text_to_video and topic_to_video character mode).'),
+   "outfitId": zod.number().nullish().describe('Costume lock: the outfit the character wears. Defaults to the character\'s default outfit.'),
+   "brandKitId": zod.number().nullish().describe('topic_to_video only; apply this brand kit — its voice steers the script, its primary color tints the caption stroke, and its logo is watermarked top-right.'),
++  "styleProfileId": zod.number().nullish().describe('topic_to_video only; write and cut the video like the reference video this saved style profile was analyzed from (hook shape, pacing, caption treatment).'),
+   "wardrobeNotes": zod.string().max(generateVideoBodyWardrobeNotesMax).nullish().describe('topic_to_video character mode; costume-change instructions (e.g. \"switch to gym wear for the workout scenes\").')
+ })
+ 
+diff --git a/lib/api-zod/src/generated/types/analyzeVideoStyleRequest.ts b/lib/api-zod/src/generated/types/analyzeVideoStyleRequest.ts
+new file mode 100644
+index 0000000..c89ec9d
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/analyzeVideoStyleRequest.ts
+@@ -0,0 +1,17 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface AnalyzeVideoStyleRequest {
++  /**
++     * @minLength 1
++     * @maxLength 80
++     */
++  name: string;
++  /** Uploaded reference video (/objects/... path). */
++  sourceVideoPath: string;
++}
+diff --git a/lib/api-zod/src/generated/types/index.ts b/lib/api-zod/src/generated/types/index.ts
+index bc2363c..a472f5b 100644
+--- a/lib/api-zod/src/generated/types/index.ts
++++ b/lib/api-zod/src/generated/types/index.ts
+@@ -88,6 +88,7 @@ export * from './analyticsIngestInput';
+ export * from './analyticsIngestResult';
+ export * from './analyticsTenantIdParameter';
+ export * from './analyticsToParameter';
++export * from './analyzeVideoStyleRequest';
+ export * from './appBrand';
+ export * from './appBrandInput';
+ export * from './appBrandUploadUrlBody';
+@@ -429,6 +430,10 @@ export * from './videoGenSettingsView';
+ export * from './videoJob';
+ export * from './videoJobEngine';
+ export * from './videoJobStatus';
++export * from './videoStylePacing';
++export * from './videoStylePayload';
++export * from './videoStylePayloadCaptionStyle';
++export * from './videoStyleProfile';
+ export * from './visualAsset';
+ export * from './youtubeAppCredentialInput';
+ export * from './youtubeAppCredentialStatus';
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequest.ts b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+index 1d36122..2b3928c 100644
+--- a/lib/api-zod/src/generated/types/videoGenerateRequest.ts
++++ b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+@@ -87,6 +87,11 @@ export interface VideoGenerateRequest {
+      * @nullable
+      */
+   brandKitId?: number | null;
++  /**
++     * topic_to_video only; write and cut the video like the reference video this saved style profile was analyzed from (hook shape, pacing, caption treatment).
++     * @nullable
++     */
++  styleProfileId?: number | null;
+   /**
+      * topic_to_video character mode; costume-change instructions (e.g. "switch to gym wear for the workout scenes").
+      * @maxLength 500
+diff --git a/lib/api-zod/src/generated/types/videoStylePacing.ts b/lib/api-zod/src/generated/types/videoStylePacing.ts
+new file mode 100644
+index 0000000..5486313
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoStylePacing.ts
+@@ -0,0 +1,16 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface VideoStylePacing {
++  /** Distinct visual scenes counted across the sampled frames. */
++  sceneCount: number;
++  /** Mean seconds per scene (analyzed duration / sceneCount). */
++  avgSceneSec: number;
++  /** Narration speed measured from the transcript; 0 when no speech was found. */
++  wordsPerMinute: number;
++}
+diff --git a/lib/api-zod/src/generated/types/videoStylePayload.ts b/lib/api-zod/src/generated/types/videoStylePayload.ts
+new file mode 100644
+index 0000000..e309733
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoStylePayload.ts
+@@ -0,0 +1,26 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { VideoStylePacing } from './videoStylePacing';
++import type { VideoStylePayloadCaptionStyle } from './videoStylePayloadCaptionStyle';
++
++export interface VideoStylePayload {
++  /** Payload schema version. */
++  version: number;
++  /** How the opening seconds grab attention, as a reusable pattern. */
++  hookShape: string;
++  pacing: VideoStylePacing;
++  /** Caption treatment observed in the reference. */
++  captionStyle: VideoStylePayloadCaptionStyle;
++  energy: string;
++  visualNotes: string[];
++  /** How to write for this style (structure only, never the reference's topic). */
++  scriptGuidance: string;
++  /** Length of the analyzed window (the first 3 minutes at most). */
++  sourceDurationSec: number;
++  transcriptExcerpt: string;
++}
+diff --git a/lib/api-zod/src/generated/types/videoStylePayloadCaptionStyle.ts b/lib/api-zod/src/generated/types/videoStylePayloadCaptionStyle.ts
+new file mode 100644
+index 0000000..0f35596
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoStylePayloadCaptionStyle.ts
+@@ -0,0 +1,19 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++/**
++ * Caption treatment observed in the reference.
++ */
++export type VideoStylePayloadCaptionStyle = typeof VideoStylePayloadCaptionStyle[keyof typeof VideoStylePayloadCaptionStyle];
++
++
++export const VideoStylePayloadCaptionStyle = {
++  classic: 'classic',
++  dynamic: 'dynamic',
++  none: 'none',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/videoStyleProfile.ts b/lib/api-zod/src/generated/types/videoStyleProfile.ts
+new file mode 100644
+index 0000000..52e56a0
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoStyleProfile.ts
+@@ -0,0 +1,21 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { VideoStylePayload } from './videoStylePayload';
++
++export interface VideoStyleProfile {
++  id: number;
++  name: string;
++  /**
++     * /objects/... path of the analyzed reference.
++     * @nullable
++     */
++  sourceVideoPath: string | null;
++  payload: VideoStylePayload;
++  createdAt: Date;
++  updatedAt: Date;
++}
+diff --git a/lib/db/src/schema/index.ts b/lib/db/src/schema/index.ts
+index 4dc6363..25d7824 100644
+--- a/lib/db/src/schema/index.ts
++++ b/lib/db/src/schema/index.ts
+@@ -14,6 +14,7 @@ export * from "./asrSettings";
+ export * from "./imageGenSettings";
+ export * from "./videoGenSettings";
+ export * from "./videoGenerations";
++export * from "./videoStyleProfiles";
+ export * from "./imageGenerations";
+ export * from "./textGenSettings";
+ export * from "./emailSettings";
+diff --git a/lib/db/src/schema/videoGenerations.ts b/lib/db/src/schema/videoGenerations.ts
+index a9e5f1a..d00ca3f 100644
+--- a/lib/db/src/schema/videoGenerations.ts
++++ b/lib/db/src/schema/videoGenerations.ts
+@@ -53,6 +53,8 @@ export interface VideoJobOptions {
+   wardrobeNotes?: string | null;
+   /** topic_to_video: brand kit steering voice, caption accent, watermark. */
+   brandKitId?: number | null;
++  /** topic_to_video: reference-derived style profile steering pacing + hook. */
++  styleProfileId?: number | null;
+ }
+ 
+ export const videoGenerationsTable = pgTable("video_generations", {
+diff --git a/lib/db/src/schema/videoStyleProfiles.ts b/lib/db/src/schema/videoStyleProfiles.ts
+new file mode 100644
+index 0000000..197cca7
+--- /dev/null
++++ b/lib/db/src/schema/videoStyleProfiles.ts
+@@ -0,0 +1,59 @@
++import { pgTable, text, serial, integer, jsonb, timestamp } from "drizzle-orm/pg-core";
++
++/**
++ * Reusable "make it like this" style profiles for the Video Studio.
++ *
++ * A tenant uploads a reference video they like; the analyzer measures what is
++ * measurable (duration, scene count, words per minute) and asks a vision model
++ * to describe the rest (hook shape, energy, caption treatment). The result is
++ * a small versioned JSON payload that a topic video can be generated against —
++ * so "same pacing and hook as that video that worked" becomes a picklist entry
++ * instead of a prompt the user has to rewrite every time.
++ *
++ * Style profiles never carry the reference's footage, audio, or wording into a
++ * generated video: only the structural description is stored and reused.
++ */
++
++/** Caption treatment observed in the reference, mapped to our composer. */
++export type VideoStyleCaptionStyle = "classic" | "dynamic" | "none";
++
++/** Versioned analysis payload. Bump `version` when the shape changes. */
++export interface VideoStyleProfilePayload {
++  version: 1;
++  /** How the first ~3 seconds grab attention ("question to camera", ...). */
++  hookShape: string;
++  pacing: {
++    /** Distinct visual scenes counted across the sampled frames. */
++    sceneCount: number;
++    /** Mean seconds per scene, derived from duration / sceneCount. */
++    avgSceneSec: number;
++    /** Narration speed, measured from the transcript (0 = no speech found). */
++    wordsPerMinute: number;
++  };
++  captionStyle: VideoStyleCaptionStyle;
++  /** Overall feel in a word or two ("calm", "high-energy", ...). */
++  energy: string;
++  /** Short observations about framing, colour, motion, text placement. */
++  visualNotes: string[];
++  /** Instructions for the script writer, in the analyzer's own words. */
++  scriptGuidance: string;
++  sourceDurationSec: number;
++  /** First few hundred characters of the transcript, for the UI preview. */
++  transcriptExcerpt: string;
++}
++
++export const videoStyleProfilesTable = pgTable("video_style_profiles", {
++  id: serial("id").primaryKey(),
++  tenantId: integer("tenant_id").notNull(),
++  name: text("name").notNull(),
++  /** /objects/... path of the analyzed reference, if it is still around. */
++  sourceVideoPath: text("source_video_path"),
++  payload: jsonb("payload").$type<VideoStyleProfilePayload>().notNull(),
++  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
++  updatedAt: timestamp("updated_at", { withTimezone: true })
++    .notNull()
++    .defaultNow()
++    .$onUpdate(() => new Date()),
++});
++
++export type VideoStyleProfile = typeof videoStyleProfilesTable.$inferSelect;
+-- 
+2.43.0
+

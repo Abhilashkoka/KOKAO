@@ -64,6 +64,7 @@ import type {
   AiSpendSettingsView,
   AnalyticsIngestInput,
   AnalyticsIngestResult,
+  AnalyzeVideoStyleRequest,
   AppBrand,
   AppBrandInput,
   AppBrandUploadUrlBody,
@@ -270,6 +271,7 @@ import type {
   VideoGenSettingsView,
   VideoGenerateRequest,
   VideoJob,
+  VideoStyleProfile,
   VisualAsset,
   YoutubeAppCredentialInput,
   YoutubeAppCredentialStatus,
@@ -4495,6 +4497,224 @@ export const useDeleteCharacterOutfit = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getDeleteCharacterOutfitMutationOptions(options));
+    }
+
+export const getListVideoStylesUrl = () => {
+
+
+
+
+  return `/api/ai/video-styles`
+}
+
+/**
+ * @summary List saved video style profiles
+ */
+export const listVideoStyles = async ( options?: RequestInit): Promise<VideoStyleProfile[]> => {
+
+  return customFetch<VideoStyleProfile[]>(getListVideoStylesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListVideoStylesQueryKey = () => {
+    return [
+    `/api/ai/video-styles`
+    ] as const;
+    }
+
+
+export const getListVideoStylesQueryOptions = <TData = Awaited<ReturnType<typeof listVideoStyles>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoStyles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListVideoStylesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listVideoStyles>>> = ({ signal }) => listVideoStyles({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listVideoStyles>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListVideoStylesQueryResult = NonNullable<Awaited<ReturnType<typeof listVideoStyles>>>
+export type ListVideoStylesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List saved video style profiles
+ */
+
+export function useListVideoStyles<TData = Awaited<ReturnType<typeof listVideoStyles>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoStyles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListVideoStylesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAnalyzeVideoStyleUrl = () => {
+
+
+
+
+  return `/api/ai/video-styles`
+}
+
+/**
+ * Measures the reference (duration, scene count, narration speed) and describes its structure with one vision call over sampled frames. Costs one caption unit. References are uploads only; nothing is fetched from a third-party host, and no footage, audio, or wording from the reference is stored or reused.
+ * @summary Analyze an uploaded reference video into a reusable style profile
+ */
+export const analyzeVideoStyle = async (analyzeVideoStyleRequest: AnalyzeVideoStyleRequest, options?: RequestInit): Promise<VideoStyleProfile> => {
+
+  return customFetch<VideoStyleProfile>(getAnalyzeVideoStyleUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(analyzeVideoStyleRequest)
+  }
+);}
+
+
+
+
+export const getAnalyzeVideoStyleMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeVideoStyle>>, TError,{data: BodyType<AnalyzeVideoStyleRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof analyzeVideoStyle>>, TError,{data: BodyType<AnalyzeVideoStyleRequest>}, TContext> => {
+
+const mutationKey = ['analyzeVideoStyle'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof analyzeVideoStyle>>, {data: BodyType<AnalyzeVideoStyleRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  analyzeVideoStyle(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AnalyzeVideoStyleMutationResult = NonNullable<Awaited<ReturnType<typeof analyzeVideoStyle>>>
+    export type AnalyzeVideoStyleMutationBody = BodyType<AnalyzeVideoStyleRequest>
+    export type AnalyzeVideoStyleMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Analyze an uploaded reference video into a reusable style profile
+ */
+export const useAnalyzeVideoStyle = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeVideoStyle>>, TError,{data: BodyType<AnalyzeVideoStyleRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof analyzeVideoStyle>>,
+        TError,
+        {data: BodyType<AnalyzeVideoStyleRequest>},
+        TContext
+      > => {
+      return useMutation(getAnalyzeVideoStyleMutationOptions(options));
+    }
+
+export const getDeleteVideoStyleUrl = (styleId: number,) => {
+
+
+
+
+  return `/api/ai/video-styles/${styleId}`
+}
+
+/**
+ * @summary Delete a saved video style profile
+ */
+export const deleteVideoStyle = async (styleId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteVideoStyleUrl(styleId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteVideoStyleMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteVideoStyle>>, TError,{styleId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteVideoStyle>>, TError,{styleId: number}, TContext> => {
+
+const mutationKey = ['deleteVideoStyle'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteVideoStyle>>, {styleId: number}> = (props) => {
+          const {styleId} = props ?? {};
+
+          return  deleteVideoStyle(styleId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteVideoStyleMutationResult = NonNullable<Awaited<ReturnType<typeof deleteVideoStyle>>>
+
+    export type DeleteVideoStyleMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Delete a saved video style profile
+ */
+export const useDeleteVideoStyle = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteVideoStyle>>, TError,{styleId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteVideoStyle>>,
+        TError,
+        {styleId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteVideoStyleMutationOptions(options));
     }
 
 export const getGetAiSpendRatesUrl = () => {

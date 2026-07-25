@@ -12,6 +12,7 @@ import aiRouter from "./ai";
 import videosRouter from "./videos";
 import imageJobsRouter from "./imageJobs";
 import charactersRouter from "./characters";
+import videoStylesRouter from "./videoStyles";
 import assetsRouter from "./assets";
 import googleDriveRouter, { googleDriveCallbackRouter } from "./googleDrive";
 import gamificationRouter from "./gamification";
@@ -93,6 +94,9 @@ router.use("/ai/generate-carousel", requireFeature("carousel"));
 // import exists solely for it, so it shares the switch.
 router.use("/ai/generate-video", requireFeature("videoGen"));
 router.use("/ai/video-jobs", requireFeature("videoGen"));
+// Reference styles: own kill switch on top of the video studio gate.
+router.use("/ai/video-styles", requireFeature("videoGen"));
+router.use("/ai/video-styles", requireFeature("referenceStyles"));
 // Async image jobs: own kill switch on top of the /ai gate; when off, the
 // studio falls back to the synchronous generate-image route.
 // Viral toolkit: hook writer + platform pack, own switch on top of /ai.
@@ -156,6 +160,7 @@ router.use(aiRouter);
 router.use(imageJobsRouter);
 router.use(videosRouter);
 router.use(charactersRouter);
+router.use(videoStylesRouter);
 router.use(assetsRouter);
 router.use(googleDriveRouter);
 router.use(gamificationRouter);

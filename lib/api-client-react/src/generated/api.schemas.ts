@@ -2550,6 +2550,11 @@ export interface VideoGenerateRequest {
      */
   brandKitId?: number | null;
   /**
+     * topic_to_video only; write and cut the video like the reference video this saved style profile was analyzed from (hook shape, pacing, caption treatment).
+     * @nullable
+     */
+  styleProfileId?: number | null;
+  /**
      * topic_to_video character mode; costume-change instructions (e.g. "switch to gym wear for the workout scenes").
      * @maxLength 500
      * @nullable
@@ -2800,6 +2805,67 @@ export interface VideoGenSettingsView {
   providers: VideoGenProviderInfo[];
   /** Stock footage sources available to the Topic to Video engine. */
   stockSources: StockSourceInfo[];
+}
+
+export interface VideoStylePacing {
+  /** Distinct visual scenes counted across the sampled frames. */
+  sceneCount: number;
+  /** Mean seconds per scene (analyzed duration / sceneCount). */
+  avgSceneSec: number;
+  /** Narration speed measured from the transcript; 0 when no speech was found. */
+  wordsPerMinute: number;
+}
+
+/**
+ * Caption treatment observed in the reference.
+ */
+export type VideoStylePayloadCaptionStyle = typeof VideoStylePayloadCaptionStyle[keyof typeof VideoStylePayloadCaptionStyle];
+
+
+export const VideoStylePayloadCaptionStyle = {
+  classic: 'classic',
+  dynamic: 'dynamic',
+  none: 'none',
+} as const;
+
+export interface VideoStylePayload {
+  /** Payload schema version. */
+  version: number;
+  /** How the opening seconds grab attention, as a reusable pattern. */
+  hookShape: string;
+  pacing: VideoStylePacing;
+  /** Caption treatment observed in the reference. */
+  captionStyle: VideoStylePayloadCaptionStyle;
+  energy: string;
+  visualNotes: string[];
+  /** How to write for this style (structure only, never the reference's topic). */
+  scriptGuidance: string;
+  /** Length of the analyzed window (the first 3 minutes at most). */
+  sourceDurationSec: number;
+  transcriptExcerpt: string;
+}
+
+export interface VideoStyleProfile {
+  id: number;
+  name: string;
+  /**
+     * /objects/... path of the analyzed reference.
+     * @nullable
+     */
+  sourceVideoPath: string | null;
+  payload: VideoStylePayload;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AnalyzeVideoStyleRequest {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name: string;
+  /** Uploaded reference video (/objects/... path). */
+  sourceVideoPath: string;
 }
 
 export interface CharacterOutfit {
@@ -4332,6 +4398,7 @@ export interface FeatureFlags {
   composer: boolean;
   viralToolkit: boolean;
   brandVideo: boolean;
+  referenceStyles: boolean;
 }
 
 /**

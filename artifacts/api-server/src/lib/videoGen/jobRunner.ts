@@ -9,6 +9,7 @@ import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } fro
 import { normalizeVideo, mixMusicIntoVideo } from "./postprocess";
 import { generateMusicBed } from "./musicGen";
 import { loadVideoBranding } from "./branding";
+import { loadStyleGuidance } from "./referenceAnalyzer";
 import { isFeatureEnabled } from "../featureFlags";
 import { verifyRenderedVideo, type VideoQaExpectations } from "./qaGate";
 import {
@@ -282,6 +283,18 @@ async function produceVideo(
       }
     }
 
+    // Reference style (opt-in, fail-soft): a saved profile's pacing and hook
+    // shape steer the script writer. A deleted or foreign profile is ignored.
+    // Gated by the Reference Styles kill switch so already-queued jobs render
+    // unstyled when the feature is turned off.
+    const referenceStylesEnabled = await isFeatureEnabled("referenceStyles").catch(() => true);
+    const referenceStyle = referenceStylesEnabled
+      ? await loadStyleGuidance(job.tenantId, options.styleProfileId ?? null).catch((err) => {
+          logger.warn({ err, jobId: job.id }, "Style profile lookup failed; ignoring it");
+          return null;
+        })
+      : null;
+
     const result = await generateTopicVideo({
       tenantId: job.tenantId,
       topic: job.prompt ?? "",
@@ -302,6 +315,7 @@ async function produceVideo(
       outfitId: options.outfitId ?? null,
       wardrobeNotes: options.wardrobeNotes ?? null,
       brandVoice: branding?.voiceHint ?? null,
+      referenceStyle,
       accentColor: branding?.accentColor ?? null,
       watermark,
       onStage,

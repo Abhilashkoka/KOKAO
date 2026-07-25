@@ -72,6 +72,8 @@ export interface TopicVideoParams {
   wardrobeNotes?: string | null;
   /** Brand-voice hint injected into the script prompt (brand kit). */
   brandVoice?: string | null;
+  /** Structural guidance from a reference video (style profile). */
+  referenceStyle?: string | null;
   /** Caption stroke accent ("0xRRGGBB") from the brand kit. */
   accentColor?: string | null;
   /** Brand logo bytes to watermark top-right. */
@@ -226,6 +228,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     topic,
     paragraphCount: params.paragraphCount,
     brandVoice: params.brandVoice ?? null,
+    referenceStyle: params.referenceStyle ?? null,
   });
   checkDeadline(startedAt, deadlineMs);
 

@@ -53,6 +53,8 @@ export interface VideoJobOptions {
   wardrobeNotes?: string | null;
   /** topic_to_video: brand kit steering voice, caption accent, watermark. */
   brandKitId?: number | null;
+  /** topic_to_video: reference-derived style profile steering pacing + hook. */
+  styleProfileId?: number | null;
 }
 
 export const videoGenerationsTable = pgTable("video_generations", {

@@ -133,6 +133,34 @@ describe("script generation helpers", () => {
     expect(branded).toContain("searchTerms");
   });
 
+  it("injects a reference style block only when guidance is supplied", () => {
+    const plain = buildTopicScriptPrompt("morning chai", 1);
+    expect(plain).not.toContain("Reference style");
+    const styled = buildTopicScriptPrompt(
+      "morning chai",
+      1,
+      null,
+      "Open the same way: question straight to camera. Pace the narration at roughly 160 words per minute.",
+    );
+    expect(styled).toContain("Reference style");
+    expect(styled).toContain("question straight to camera");
+    // Style steers structure; it must not change the output contract.
+    expect(styled).toContain("exactly 1 paragraph");
+    expect(styled).toContain("searchTerms");
+  });
+
+  it("carries a brand voice and a reference style together", () => {
+    const both = buildTopicScriptPrompt(
+      "morning chai",
+      2,
+      "Voice: warm, practical.",
+      "Energy: punchy.",
+    );
+    expect(both).toContain("Brand voice");
+    expect(both).toContain("Reference style");
+    expect(both).toContain("exactly 2 paragraphs");
+  });
+
   it("cleans markdown remnants out of a script", () => {
     expect(cleanScript("**Bold** start. [pause] The # real content.")).toBe(
       "Bold start.  The  real content.",

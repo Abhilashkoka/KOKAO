@@ -19,6 +19,10 @@ import {
   useImportLibraryMusic,
   useGenerateHooks,
   useListBrandKits,
+  useListVideoStyles,
+  useAnalyzeVideoStyle,
+  useDeleteVideoStyle,
+  getListVideoStylesQueryKey,
   getSearchMusicLibraryQueryKey,
   getGoogleDriveAuthUrl,
   getListVideoJobsQueryKey,
@@ -32,6 +36,7 @@ import {
   type Character,
   type MusicTrack,
   type HookIdea,
+  type VideoStyleProfile,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -82,6 +87,7 @@ import {
   UserRound,
   Shirt,
   Trash2,
+  Gauge,
 } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { SavedVisualPickerDialog } from "@/components/saved-visuals";
@@ -102,6 +108,9 @@ const VOICES: { value: Voice; label: string }[] = [
 ];
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+/** Reference-video uploads for style analysis. */
+const REFERENCE_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
+const MAX_REFERENCE_MB = 200;
 const MUSIC_TYPES = ["audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/aac", "audio/wav"];
 const MAX_PHOTOS = 20;
 
@@ -187,6 +196,8 @@ export function VideoStudioPage() {
   const [hooksOpen, setHooksOpen] = useState(false);
   const [hookIdeas, setHookIdeas] = useState<HookIdea[]>([]);
   const [brandKitId, setBrandKitId] = useState<number | null>(null);
+  const [styleProfileId, setStyleProfileId] = useState<number | null>(null);
+  const [stylesOpen, setStylesOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
 
@@ -214,6 +225,9 @@ export function VideoStudioPage() {
     query: { queryKey: getListCharactersQueryKey() },
   });
   const { data: brandKits } = useListBrandKits();
+  const { data: styleProfiles } = useListVideoStyles({
+    query: { queryKey: getListVideoStylesQueryKey(), enabled: flags.referenceStyles },
+  });
   const activeCharacter = characters?.find((c) => c.id === characterId) ?? null;
 
   // Poll the active job until it settles; the server does the heavy lifting.
@@ -400,6 +414,7 @@ export function VideoStudioPage() {
               ? wardrobeNotes.trim()
               : null,
           brandKitId: engine === "topic_to_video" ? brandKitId : null,
+          styleProfileId: engine === "topic_to_video" ? styleProfileId : null,
         },
       },
       {
@@ -776,6 +791,55 @@ export function VideoStudioPage() {
                 <p className="text-xs text-muted-foreground">
                   Writes the script in your brand voice, tints caption outlines with
                   your brand colour, and stamps your logo on every frame.
+                </p>
+              </div>
+              )}
+
+              {flags.referenceStyles && (
+              <div className="space-y-2">
+                <Label htmlFor="style-profile">Reference style (optional)</Label>
+                <div className="flex gap-2">
+                  <Select
+                    value={styleProfileId === null ? "none" : String(styleProfileId)}
+                    onValueChange={(v) => {
+                      const id = v === "none" ? null : Number(v);
+                      setStyleProfileId(id);
+                      // Adopt the reference's caption treatment as a starting
+                      // point; the switch above stays yours to change.
+                      const picked = styleProfiles?.find((s) => s.id === id);
+                      if (!picked) return;
+                      if (picked.payload.captionStyle === "none") {
+                        setSubtitles(false);
+                      } else {
+                        setSubtitles(true);
+                        setCaptionStyle(picked.payload.captionStyle);
+                      }
+                    }}
+                  >
+                    <SelectTrigger id="style-profile" data-testid="select-style-profile">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No reference</SelectItem>
+                      {styleProfiles?.map((s) => (
+                        <SelectItem key={s.id} value={String(s.id)}>
+                          {s.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setStylesOpen(true)}
+                    data-testid="button-manage-styles"
+                  >
+                    <Gauge className="h-4 w-4 mr-1.5" /> Styles
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Upload a video whose rhythm you like — its pacing, hook shape, and
+                  caption treatment steer the script. Never its footage or wording.
                 </p>
               </div>
               )}
@@ -1294,6 +1358,13 @@ export function VideoStudioPage() {
       />
 
       <CharacterManagerDialog open={charactersOpen} onOpenChange={setCharactersOpen} />
+
+      <ReferenceStyleDialog
+        open={stylesOpen}
+        onOpenChange={setStylesOpen}
+        onAnalyzed={(id) => setStyleProfileId(id)}
+        onDeleted={(id) => setStyleProfileId((current) => (current === id ? null : current))}
+      />
 
       <MusicLibraryDialog
         open={musicLibraryOpen}
@@ -1886,6 +1957,262 @@ function CharacterManagerDialog({
                     </Button>
                   )}
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * "Make one like this": upload a reference video, analyze its structure once,
+ * reuse the result as a style profile. Only the shape is stored — the reference
+ * itself never appears in a generated video.
+ */
+function ReferenceStyleDialog({
+  open,
+  onOpenChange,
+  onAnalyzed,
+  onDeleted,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onAnalyzed: (styleId: number) => void;
+  onDeleted: (styleId: number) => void;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const requestUploadUrl = useRequestUploadUrl();
+  const { data: profiles } = useListVideoStyles({
+    query: { queryKey: getListVideoStylesQueryKey(), enabled: open },
+  });
+  const analyzeStyle = useAnalyzeVideoStyle();
+  const deleteStyle = useDeleteVideoStyle();
+
+  const [name, setName] = useState("");
+  const [videoPath, setVideoPath] = useState<string | null>(null);
+  const [videoName, setVideoName] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const videoRef = useRef<HTMLInputElement>(null);
+
+  const invalidate = () =>
+    void queryClient.invalidateQueries({ queryKey: getListVideoStylesQueryKey() });
+
+  const handleVideo = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    if (!REFERENCE_VIDEO_TYPES.includes(file.type)) {
+      toast({
+        title: "Not a supported video",
+        description: "Use an MP4, MOV, or WebM file.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (file.size > MAX_REFERENCE_MB * 1024 * 1024) {
+      toast({
+        title: "Video too large",
+        description: `Reference videos must be under ${MAX_REFERENCE_MB} MB.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    setUploading(true);
+    try {
+      const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
+        data: { name: file.name, size: file.size, contentType: file.type },
+      });
+      const put = await fetch(uploadURL, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type },
+      });
+      if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+      setVideoPath(objectPath);
+      setVideoName(file.name);
+      if (!name.trim()) setName(file.name.replace(/\.[^.]+$/, "").slice(0, 80));
+    } catch {
+      toast({ title: "Upload failed", description: "Please try again.", variant: "destructive" });
+    } finally {
+      setUploading(false);
+      if (videoRef.current) videoRef.current.value = "";
+    }
+  };
+
+  const onAnalyze = () => {
+    if (!videoPath) return;
+    analyzeStyle.mutate(
+      { data: { name: name.trim(), sourceVideoPath: videoPath } },
+      {
+        onSuccess: (profile) => {
+          setName("");
+          setVideoPath(null);
+          setVideoName("");
+          invalidate();
+          onAnalyzed(profile.id);
+          toast({
+            title: "Style saved",
+            description: `${profile.name} is now steering your topic videos.`,
+          });
+        },
+        onError: (error: any) => {
+          toast({
+            title: error?.status === 402 ? "Caption quota reached" : "Could not analyze that video",
+            description:
+              error?.message ||
+              "Analysis costs one caption unit. Try a shorter, clearer reference.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const canAnalyze = videoPath !== null && name.trim().length >= 1 && !analyzeStyle.isPending;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Reference styles</DialogTitle>
+          <DialogDescription>
+            Upload a video whose rhythm you want to borrow. We read its pacing, hook
+            shape, and caption treatment — never its footage, audio, or wording — and
+            save that as a reusable style. One caption unit per analysis.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 border border-border rounded-lg p-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="style-name">Name</Label>
+              <Input
+                id="style-name"
+                data-testid="input-style-name"
+                maxLength={80}
+                placeholder="Fast-cut explainer"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Reference video</Label>
+              {videoPath ? (
+                <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
+                  <Film className="h-4 w-4 text-primary shrink-0" />
+                  <span className="truncate">{videoName}</span>
+                  <button
+                    type="button"
+                    aria-label="Remove reference video"
+                    onClick={() => setVideoPath(null)}
+                    className="ml-auto"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={uploading}
+                  onClick={() => videoRef.current?.click()}
+                  data-testid="button-upload-reference"
+                >
+                  {uploading ? (
+                    <>
+                      <RippleSpinner className="mr-2 h-4 w-4" /> Uploading…
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4 mr-1.5" /> Upload video
+                    </>
+                  )}
+                </Button>
+              )}
+              <input
+                ref={videoRef}
+                type="file"
+                accept={REFERENCE_VIDEO_TYPES.join(",")}
+                className="hidden"
+                onChange={(e) => void handleVideo(e.target.files)}
+              />
+            </div>
+          </div>
+          <Button onClick={onAnalyze} disabled={!canAnalyze} data-testid="button-analyze-style">
+            {analyzeStyle.isPending ? (
+              <>
+                <RippleSpinner className="mr-2 h-4 w-4" /> Reading the reference…
+              </>
+            ) : (
+              <>
+                <Gauge className="h-4 w-4 mr-2" /> Analyze style
+              </>
+            )}
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            We look at the first 3 minutes: the spoken pace, how many cuts, and how
+            captions are handled.
+          </p>
+        </div>
+
+        {profiles && profiles.length > 0 && (
+          <div className="space-y-3">
+            {profiles.map((profile) => (
+              <div
+                key={profile.id}
+                className="border border-border rounded-lg p-3 space-y-2"
+                data-testid={`style-card-${profile.id}`}
+              >
+                <div className="flex items-center gap-2">
+                  <p className="font-medium truncate">{profile.name}</p>
+                  <Badge variant="secondary">
+                    {profile.payload.pacing.wordsPerMinute > 0
+                      ? `${profile.payload.pacing.wordsPerMinute} wpm`
+                      : "No narration"}
+                  </Badge>
+                  <Badge variant="outline">
+                    {profile.payload.captionStyle === "none"
+                      ? "No captions"
+                      : `${profile.payload.captionStyle} captions`}
+                  </Badge>
+                  <button
+                    type="button"
+                    aria-label={`Delete ${profile.name}`}
+                    data-testid={`button-delete-style-${profile.id}`}
+                    className="ml-auto text-muted-foreground hover:text-destructive shrink-0"
+                    onClick={() => {
+                      if (confirmDeleteId === profile.id) {
+                        deleteStyle.mutate(
+                          { styleId: profile.id },
+                          {
+                            onSuccess: () => {
+                              invalidate();
+                              onDeleted(profile.id);
+                            },
+                          },
+                        );
+                        setConfirmDeleteId(null);
+                      } else {
+                        setConfirmDeleteId(profile.id);
+                      }
+                    }}
+                  >
+                    {confirmDeleteId === profile.id ? (
+                      <span className="text-xs text-destructive">Tap again to delete</span>
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+                <p className="text-sm text-muted-foreground">{profile.payload.hookShape}</p>
+                <p className="text-xs text-muted-foreground">
+                  About {profile.payload.pacing.sceneCount} shots, ~
+                  {profile.payload.pacing.avgSceneSec}s each · {profile.payload.energy}
+                </p>
               </div>
             ))}
           </div>

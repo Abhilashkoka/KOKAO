@@ -1625,6 +1625,87 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-styles:
+    get:
+      operationId: listVideoStyles
+      tags: [ai]
+      summary: List saved video style profiles
+      responses:
+        "200":
+          description: Style profiles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VideoStyleProfile"
+    post:
+      operationId: analyzeVideoStyle
+      tags: [ai]
+      summary: Analyze an uploaded reference video into a reusable style profile
+      description: >-
+        Measures the reference (duration, scene count, narration speed) and
+        describes its structure with one vision call over sampled frames. Costs
+        one caption unit. References are uploads only; nothing is fetched from
+        a third-party host, and no footage, audio, or wording from the
+        reference is stored or reused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalyzeVideoStyleRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoStyleProfile"
+        "400":
+          description: Invalid input or style limit reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Caption quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: The video could not be analyzed (unreadable, too long, or no usable reply)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Text generation is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-styles/{styleId}:
+    parameters:
+      - name: styleId
+        in: path
+        required: true
+        schema:
+          type: integer
+    delete:
+      operationId: deleteVideoStyle
+      tags: [ai]
+      summary: Delete a saved video style profile
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai-spend/rates:
     get:
       operationId: getAiSpendRates
@@ -10249,6 +10330,12 @@ components:
             topic_to_video only; apply this brand kit — its voice steers the
             script, its primary color tints the caption stroke, and its logo
             is watermarked top-right.
+        styleProfileId:
+          type: ["integer", "null"]
+          description: >-
+            topic_to_video only; write and cut the video like the reference
+            video this saved style profile was analyzed from (hook shape,
+            pacing, caption treatment).
         wardrobeNotes:
           type: ["string", "null"]
           maxLength: 500
@@ -10536,6 +10623,80 @@ components:
           type: ["string", "null"]
           enum: [database, env, null]
           description: Where the active key comes from (admin-entered key wins over the env secret).
+    VideoStylePacing:
+      type: object
+      required: [sceneCount, avgSceneSec, wordsPerMinute]
+      properties:
+        sceneCount:
+          type: integer
+          description: Distinct visual scenes counted across the sampled frames.
+        avgSceneSec:
+          type: number
+          description: Mean seconds per scene (analyzed duration / sceneCount).
+        wordsPerMinute:
+          type: integer
+          description: Narration speed measured from the transcript; 0 when no speech was found.
+    VideoStylePayload:
+      type: object
+      required:
+        [version, hookShape, pacing, captionStyle, energy, visualNotes, scriptGuidance, sourceDurationSec, transcriptExcerpt]
+      properties:
+        version:
+          type: integer
+          description: Payload schema version.
+        hookShape:
+          type: string
+          description: How the opening seconds grab attention, as a reusable pattern.
+        pacing:
+          $ref: "#/components/schemas/VideoStylePacing"
+        captionStyle:
+          type: string
+          enum: [classic, dynamic, none]
+          description: Caption treatment observed in the reference.
+        energy:
+          type: string
+        visualNotes:
+          type: array
+          items:
+            type: string
+        scriptGuidance:
+          type: string
+          description: How to write for this style (structure only, never the reference's topic).
+        sourceDurationSec:
+          type: number
+          description: Length of the analyzed window (the first 3 minutes at most).
+        transcriptExcerpt:
+          type: string
+    VideoStyleProfile:
+      type: object
+      required: [id, name, sourceVideoPath, payload, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        sourceVideoPath:
+          type: ["string", "null"]
+          description: /objects/... path of the analyzed reference.
+        payload:
+          $ref: "#/components/schemas/VideoStylePayload"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AnalyzeVideoStyleRequest:
+      type: object
+      required: [name, sourceVideoPath]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        sourceVideoPath:
+          type: string
+          description: Uploaded reference video (/objects/... path).
     Character:
       type: object
       required:
@@ -12587,6 +12748,7 @@ components:
           composer,
           viralToolkit,
           brandVideo,
+          referenceStyles,
         ]
       properties:
         aiStudio:
@@ -12650,6 +12812,8 @@ components:
         viralToolkit:
           type: boolean
         brandVideo:
+          type: boolean
+        referenceStyles:
           type: boolean
     AiSpendSettingsView:
       type: object

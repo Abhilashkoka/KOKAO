@@ -88,6 +88,11 @@ export interface VideoGenerateRequest {
      */
   brandKitId?: number | null;
   /**
+     * topic_to_video only; write and cut the video like the reference video this saved style profile was analyzed from (hook shape, pacing, caption treatment).
+     * @nullable
+     */
+  styleProfileId?: number | null;
+  /**
      * topic_to_video character mode; costume-change instructions (e.g. "switch to gym wear for the workout scenes").
      * @maxLength 500
      * @nullable

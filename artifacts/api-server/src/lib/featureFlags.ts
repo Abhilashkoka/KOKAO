@@ -192,6 +192,12 @@ export const FEATURES = [
       "Brand kits steering topic videos: brand voice in the script, brand colour on captions, and the brand logo watermarked on every frame. When off, the Brand kit picker is hidden and all videos render unbranded.",
   },
   {
+    id: "referenceStyles",
+    label: "Reference Styles",
+    description:
+      "Reference-video style profiles for topic videos: upload a video, analyze its pacing and hook shape once, and reuse it to steer scripts. When off, the picker and manager are hidden and all videos render without reference styling.",
+  },
+  {
     id: "progressMeter",
     label: "Upgrade Progress Meter",
     description:

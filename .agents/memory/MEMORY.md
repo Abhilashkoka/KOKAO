@@ -64,3 +64,4 @@
 - [Campaign SSE streaming](campaign-streaming.md) — prompt must order platform-before-caption for partial-JSON attribution; disconnect close handler claims funding flag synchronously; kill-switch tests need real DB flag rows, not module mocks.
 - [Mobile billing e2e](mobile-billing-e2e.md) — Razorpay mock server + dev base-URL env; expo-router web needs full goto (popstate blanks); seed team invites BEFORE first sign-in.
 - [ApiError message extraction](api-error-message-shape.md) — shared ApiError puts the parsed body on `.data`; axios-style `err.response.data.error` reads always miss and show generic fallbacks — use the apiErrorMessage helper.
+- [Reference styles](reference-styles.md) — analyze a reference video once into a saved profile; soft guidance only, styleProfileId dropped when the kill switch is off.

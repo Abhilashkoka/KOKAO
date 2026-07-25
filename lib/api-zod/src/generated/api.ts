@@ -99,7 +99,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "campaignStreaming": zod.boolean(),
   "composer": zod.boolean(),
   "viralToolkit": zod.boolean(),
-  "brandVideo": zod.boolean()
+  "brandVideo": zod.boolean(),
+  "referenceStyles": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -1624,6 +1625,81 @@ export const DeleteCharacterOutfitParams = zod.object({
 })
 
 export const DeleteCharacterOutfitResponse = zod.void()
+
+
+/**
+ * @summary List saved video style profiles
+ */
+export const ListVideoStylesResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "sourceVideoPath": zod.string().nullable().describe('\/objects\/... path of the analyzed reference.'),
+  "payload": zod.object({
+  "version": zod.number().describe('Payload schema version.'),
+  "hookShape": zod.string().describe('How the opening seconds grab attention, as a reusable pattern.'),
+  "pacing": zod.object({
+  "sceneCount": zod.number().describe('Distinct visual scenes counted across the sampled frames.'),
+  "avgSceneSec": zod.number().describe('Mean seconds per scene (analyzed duration \/ sceneCount).'),
+  "wordsPerMinute": zod.number().describe('Narration speed measured from the transcript; 0 when no speech was found.')
+}),
+  "captionStyle": zod.enum(['classic', 'dynamic', 'none']).describe('Caption treatment observed in the reference.'),
+  "energy": zod.string(),
+  "visualNotes": zod.array(zod.string()),
+  "scriptGuidance": zod.string().describe('How to write for this style (structure only, never the reference\'s topic).'),
+  "sourceDurationSec": zod.number().describe('Length of the analyzed window (the first 3 minutes at most).'),
+  "transcriptExcerpt": zod.string()
+}),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+export const ListVideoStylesResponse = zod.array(ListVideoStylesResponseItem)
+
+
+/**
+ * Measures the reference (duration, scene count, narration speed) and describes its structure with one vision call over sampled frames. Costs one caption unit. References are uploads only; nothing is fetched from a third-party host, and no footage, audio, or wording from the reference is stored or reused.
+ * @summary Analyze an uploaded reference video into a reusable style profile
+ */
+export const analyzeVideoStyleBodyNameMax = 80;
+
+
+
+export const AnalyzeVideoStyleBody = zod.object({
+  "name": zod.string().min(1).max(analyzeVideoStyleBodyNameMax),
+  "sourceVideoPath": zod.string().describe('Uploaded reference video (\/objects\/... path).')
+})
+
+export const AnalyzeVideoStyleResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "sourceVideoPath": zod.string().nullable().describe('\/objects\/... path of the analyzed reference.'),
+  "payload": zod.object({
+  "version": zod.number().describe('Payload schema version.'),
+  "hookShape": zod.string().describe('How the opening seconds grab attention, as a reusable pattern.'),
+  "pacing": zod.object({
+  "sceneCount": zod.number().describe('Distinct visual scenes counted across the sampled frames.'),
+  "avgSceneSec": zod.number().describe('Mean seconds per scene (analyzed duration \/ sceneCount).'),
+  "wordsPerMinute": zod.number().describe('Narration speed measured from the transcript; 0 when no speech was found.')
+}),
+  "captionStyle": zod.enum(['classic', 'dynamic', 'none']).describe('Caption treatment observed in the reference.'),
+  "energy": zod.string(),
+  "visualNotes": zod.array(zod.string()),
+  "scriptGuidance": zod.string().describe('How to write for this style (structure only, never the reference\'s topic).'),
+  "sourceDurationSec": zod.number().describe('Length of the analyzed window (the first 3 minutes at most).'),
+  "transcriptExcerpt": zod.string()
+}),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Delete a saved video style profile
+ */
+export const DeleteVideoStyleParams = zod.object({
+  "styleId": zod.coerce.number()
+})
+
+export const DeleteVideoStyleResponse = zod.void()
 
 
 /**
@@ -5075,6 +5151,7 @@ export const GenerateVideoBody = zod.object({
   "characterId": zod.number().nullish().describe('Character lock: the character featured in the video (text_to_video and topic_to_video character mode).'),
   "outfitId": zod.number().nullish().describe('Costume lock: the outfit the character wears. Defaults to the character\'s default outfit.'),
   "brandKitId": zod.number().nullish().describe('topic_to_video only; apply this brand kit — its voice steers the script, its primary color tints the caption stroke, and its logo is watermarked top-right.'),
+  "styleProfileId": zod.number().nullish().describe('topic_to_video only; write and cut the video like the reference video this saved style profile was analyzed from (hook shape, pacing, caption treatment).'),
   "wardrobeNotes": zod.string().max(generateVideoBodyWardrobeNotesMax).nullish().describe('topic_to_video character mode; costume-change instructions (e.g. \"switch to gym wear for the workout scenes\").')
 })
 

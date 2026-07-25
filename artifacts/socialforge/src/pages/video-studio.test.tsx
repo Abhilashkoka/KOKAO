@@ -29,6 +29,7 @@ const mockState: {
   activeJob: any;
   characters: any[];
   brandKits: any[];
+  styleProfiles: any[];
 } = {
   lastGenerateVars: null,
   generateError: null,
@@ -36,6 +37,7 @@ const mockState: {
   activeJob: undefined,
   characters: [],
   brandKits: [],
+  styleProfiles: [],
 };
 
 const toastSpy = vi.fn();
@@ -80,10 +82,37 @@ vi.mock("@workspace/api-client-react", async () => {
     useListContent: () => ({ data: [], isLoading: false }),
     useListCharacters: () => ({ data: mockState.characters }),
     useListBrandKits: () => ({ data: mockState.brandKits }),
+    useListVideoStyles: () => ({ data: mockState.styleProfiles }),
   });
 });
 
 import { VideoStudioPage } from "./video-studio";
+
+/** A saved style profile as the API returns it. */
+function styleProfile(over: {
+  id: number;
+  name: string;
+  captionStyle: "classic" | "dynamic" | "none";
+}) {
+  return {
+    id: over.id,
+    name: over.name,
+    sourceVideoPath: `/objects/1/uploads/ref-${over.id}.mp4`,
+    payload: {
+      version: 1,
+      hookShape: "question straight to camera",
+      pacing: { sceneCount: 5, avgSceneSec: 6, wordsPerMinute: 160 },
+      captionStyle: over.captionStyle,
+      energy: "punchy",
+      visualNotes: ["handheld framing"],
+      scriptGuidance: "Short sentences. End on a question.",
+      sourceDurationSec: 30,
+      transcriptExcerpt: "",
+    },
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+  };
+}
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -103,6 +132,7 @@ beforeEach(() => {
   mockState.activeJob = undefined;
   mockState.characters = [];
   mockState.brandKits = [];
+  mockState.styleProfiles = [];
   toastSpy.mockClear();
   cleanup();
 });
@@ -315,6 +345,67 @@ describe("Video Studio", () => {
     expect(screen.getByTestId("select-brand-kit")).toBeTruthy();
     await user.click(screen.getByTestId("tab-slideshow"));
     expect(screen.queryByTestId("select-brand-kit")).toBeNull();
+  });
+
+  it("sends the picked reference style and adopts its caption treatment", async () => {
+    mockState.styleProfiles = [
+      styleProfile({ id: 5, name: "Fast-cut explainer", captionStyle: "classic" }),
+      styleProfile({ id: 6, name: "Silent b-roll", captionStyle: "none" }),
+    ];
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "5 morning habits that transform your day" },
+    });
+
+    // Reference styling is opt-in.
+    fireEvent.click(screen.getByTestId("button-generate-video"));
+    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+    expect(mockState.lastGenerateVars.data.styleProfileId).toBeNull();
+    expect(mockState.lastGenerateVars.data.captionStyle).toBe("dynamic");
+
+    mockState.lastGenerateVars = null;
+    await user.click(screen.getByTestId("select-style-profile"));
+    await user.click(screen.getByRole("option", { name: "Fast-cut explainer" }));
+    fireEvent.click(screen.getByTestId("button-generate-video"));
+    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+    expect(mockState.lastGenerateVars.data.styleProfileId).toBe(5);
+    // The reference's caption treatment becomes the starting point.
+    expect(mockState.lastGenerateVars.data.captionStyle).toBe("classic");
+
+    // A reference with no burned-in captions turns subtitles off entirely.
+    mockState.lastGenerateVars = null;
+    await user.click(screen.getByTestId("select-style-profile"));
+    await user.click(screen.getByRole("option", { name: "Silent b-roll" }));
+    expect(screen.queryByTestId("select-caption-style")).toBeNull();
+    fireEvent.click(screen.getByTestId("button-generate-video"));
+    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+    expect(mockState.lastGenerateVars.data.styleProfileId).toBe(6);
+    expect(mockState.lastGenerateVars.data.subtitles).toBe(false);
+  });
+
+  it("keeps the reference style picker on the topic engine only", async () => {
+    renderPage();
+    const user = userEvent.setup();
+    expect(screen.queryByTestId("select-style-profile")).toBeNull();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    expect(screen.getByTestId("select-style-profile")).toBeTruthy();
+    await user.click(screen.getByTestId("tab-slideshow"));
+    expect(screen.queryByTestId("select-style-profile")).toBeNull();
+  });
+
+  it("opens the reference style manager and blocks analysis until a video is uploaded", async () => {
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    await user.click(screen.getByTestId("button-manage-styles"));
+    expect(screen.getByTestId("button-upload-reference")).toBeTruthy();
+    // A name alone is not enough — the reference itself is what gets analyzed.
+    fireEvent.change(screen.getByTestId("input-style-name"), {
+      target: { value: "Fast-cut explainer" },
+    });
+    expect((screen.getByTestId("button-analyze-style") as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("hides the caption style picker when subtitles are off", async () => {
