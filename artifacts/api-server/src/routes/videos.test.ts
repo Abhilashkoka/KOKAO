@@ -38,6 +38,42 @@ vi.mock("../lib/videoGen/jobRunner", () => ({
   }),
 }));
 
+// Music library: the Openverse client + SSRF guard have their own tests
+// (lib/musicLibrary.test.ts); routes are tested with stubs.
+vi.mock("../lib/musicLibrary", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/musicLibrary")>();
+  return {
+    ...actual,
+    searchLibraryMusic: vi.fn(async () => [
+      {
+        id: "trk1",
+        title: "Sunny Drive",
+        creator: "Jane",
+        license: "by",
+        licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
+        durationSec: 154,
+        audioUrl: "https://cdn.example.com/sunny.mp3",
+      },
+    ]),
+    downloadLibraryTrack: vi.fn(async (url: string) => {
+      if (url.includes("bad")) throw new actual.MusicLibraryError("Track downloads must use https.");
+      return Buffer.from("audio-bytes");
+    }),
+  };
+});
+vi.mock("../lib/objectStorage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/objectStorage")>();
+  class FakeObjectStorageService {
+    async getObjectEntityUploadURL(tenantId: number): Promise<string> {
+      return `https://storage.example.com/objects/${tenantId}/uploads/music-uuid`;
+    }
+    normalizeObjectEntityPath(uploadURL: string): string {
+      return new URL(uploadURL).pathname;
+    }
+  }
+  return { ...actual, ObjectStorageService: FakeObjectStorageService };
+});
+
 import {
   db,
   videoGenerationsTable,
@@ -497,5 +533,94 @@ describe("POST /api/ai/video-jobs/:jobId/save-to-library", () => {
     )[0];
     expect(row?.tenantId).toBe(tenant.tenantId);
     expect(row?.videoPath).toBe(job.videoPath);
+  });
+});
+
+describe("music library routes", () => {
+  it("searches the library and returns license-tagged tracks", async () => {
+    await newTenant();
+    const res = await request(app).get("/api/ai/music/search").query({ q: "sunny pop" });
+    expect(res.status).toBe(200);
+    expect(res.body.tracks).toHaveLength(1);
+    expect(res.body.tracks[0]).toMatchObject({
+      id: "trk1",
+      title: "Sunny Drive",
+      license: "by",
+      audioUrl: "https://cdn.example.com/sunny.mp3",
+    });
+  });
+
+  it("rejects a too-short query", async () => {
+    await newTenant();
+    const res = await request(app).get("/api/ai/music/search").query({ q: "x" });
+    expect(res.status).toBe(400);
+  });
+
+  it("imports a track into tenant storage and returns its musicPath", async () => {
+    const tenant = await newTenant();
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => new Response(null, { status: 200 })) as typeof fetch;
+    try {
+      const res = await request(app)
+        .post("/api/ai/music/import")
+        .send({ audioUrl: "https://cdn.example.com/sunny.mp3", title: "Sunny Drive" });
+      expect(res.status).toBe(200);
+      expect(res.body.title).toBe("Sunny Drive");
+      expect(res.body.musicPath).toBe(`/objects/${tenant.tenantId}/uploads/music-uuid`);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("surfaces guarded download failures as a 400", async () => {
+    await newTenant();
+    const res = await request(app)
+      .post("/api/ai/music/import")
+      .send({ audioUrl: "https://bad.example.com/a.mp3", title: "Nope" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/https/);
+  });
+});
+
+describe("AI music funding", () => {
+  it("charges one extra unit for an AI-composed bed and persists the prompt", async () => {
+    const tenant = await newTenant(); // free plan quota covers it
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "slideshow",
+        sourceImagePaths: [`/objects/${tenant.tenantId}/uploads/a.png`],
+        aspectRatio: "9:16",
+        musicPrompt: "warm lofi chill beat",
+      });
+    expect(res.status).toBe(201);
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+    expect(row?.options).toMatchObject({ musicPrompt: "warm lofi chill beat" });
+  });
+
+  it("ignores musicPrompt when an uploaded track is provided", async () => {
+    const tenant = await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "slideshow",
+        sourceImagePaths: [`/objects/${tenant.tenantId}/uploads/a.png`],
+        aspectRatio: "9:16",
+        musicPath: `/objects/${tenant.tenantId}/uploads/track.mp3`,
+        musicPrompt: "should be ignored",
+      });
+    expect(res.status).toBe(201);
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+    expect(row?.options?.musicPrompt ?? null).toBeNull();
   });
 });

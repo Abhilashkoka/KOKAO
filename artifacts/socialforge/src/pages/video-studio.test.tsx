@@ -183,6 +183,28 @@ describe("Video Studio", () => {
     });
   });
 
+  it("sends an AI music prompt with the job (+1 unit chip shown)", async () => {
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "5 morning habits that transform your day" },
+    });
+    await user.click(screen.getByTestId("button-ai-music"));
+    fireEvent.change(screen.getByTestId("input-ai-music"), {
+      target: { value: "warm lofi chill beat" },
+    });
+    await user.click(screen.getByTestId("button-set-ai-music"));
+    expect(screen.getByTestId("chip-ai-music").textContent).toContain("warm lofi chill beat");
+    fireEvent.click(screen.getByTestId("button-generate-video"));
+    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+    expect(mockState.lastGenerateVars.data).toMatchObject({
+      engine: "topic_to_video",
+      musicPath: null,
+      musicPrompt: "warm lofi chill beat",
+    });
+  });
+
   it("hides the caption style picker when subtitles are off", async () => {
     renderPage();
     const user = userEvent.setup();

@@ -1,0 +1,1965 @@
+From 4caddc65df8105d381655b3f25208a749d39d383 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 24 Jul 2026 19:56:05 +0000
+Subject: [PATCH] Music suite: built-in CC library + AI-composed beds for
+ videos
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Solves "I don't have a music file" — the background-music section now has
+three paths instead of one:
+
+1. Upload (unchanged).
+2. Library: lib/musicLibrary.ts searches Openverse (the Creative-Commons
+   aggregator over Jamendo/Freesound/Wikimedia) filtered to
+   commercially-usable licenses; license + attribution travel with every
+   result. GET /ai/music/search returns tracks with in-dialog audio preview;
+   POST /ai/music/import downloads the pick server-side (https-only,
+   public-host SSRF guard re-checked per redirect hop, 15 MB cap) into
+   tenant storage and returns a normal musicPath. No API key needed.
+3. AI compose: describe a mood ("warm lofi chill beat") and
+   videoGen/musicGen.ts generates an instrumental bed via Replicate
+   MusicGen (meta/musicgen) using the SAME Replicate token the video engine
+   already has — no new secrets. Beds are steered instrumental/loopable;
+   MusicGen's 30s ceiling is fine because both composers loop the bed with
+   a fade. Priced at +1 video unit (reserved up front, refunded on failure,
+   ignored when an uploaded track wins). Job progress shows "Composing the
+   music".
+
+Contract: musicPrompt on generate-video, /ai/music/search + /ai/music/import
+paths, MusicTrack/MusicSearchResults/LibraryMusicImportResult schemas.
+
+Verified: 80 videoGen tests green (musicGen create/poll/download, clamping,
+not-configured), musicLibrary SSRF + parsing suite, 34 route tests incl.
+import round-trip and +1-unit funding, 13 studio page tests, root typecheck,
+spec lint, codegen committed. No schema change.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EJdoZ8bk1pWTrmbMVQJZ7G
+---
+ .../api-server/src/lib/musicLibrary.test.ts   | 117 +++++++++
+ artifacts/api-server/src/lib/musicLibrary.ts  | 170 +++++++++++++
+ .../api-server/src/lib/videoGen/jobRunner.ts  |  49 ++--
+ .../src/lib/videoGen/musicGen.test.ts         |  82 +++++++
+ .../api-server/src/lib/videoGen/musicGen.ts   | 141 +++++++++++
+ .../lib/videoGen/topicVideo/aiBroll.test.ts   |  18 ++
+ .../api-server/src/lib/videoGen/units.ts      |  23 +-
+ .../api-server/src/routes/videos.test.ts      | 125 ++++++++++
+ artifacts/api-server/src/routes/videos.ts     |  66 +++++-
+ .../src/pages/video-studio.test.tsx           |  22 ++
+ .../socialforge/src/pages/video-studio.tsx    | 224 +++++++++++++++++-
+ .../src/generated/api.schemas.ts              |  52 ++++
+ lib/api-client-react/src/generated/api.ts     | 160 +++++++++++++
+ lib/api-spec/openapi.yaml                     | 114 +++++++++
+ lib/api-zod/src/generated/api.ts              |  51 ++++
+ .../types/importLibraryMusicRequest.ts        |  20 ++
+ lib/api-zod/src/generated/types/index.ts      |   5 +
+ .../types/libraryMusicImportResult.ts         |  13 +
+ .../src/generated/types/musicSearchResults.ts |  12 +
+ lib/api-zod/src/generated/types/musicTrack.ts |  22 ++
+ .../types/searchMusicLibraryParams.ts         |  15 ++
+ .../generated/types/videoGenerateRequest.ts   |   6 +
+ lib/db/src/schema/videoGenerations.ts         |   3 +
+ 23 files changed, 1472 insertions(+), 38 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/musicLibrary.test.ts
+ create mode 100644 artifacts/api-server/src/lib/musicLibrary.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/musicGen.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/musicGen.ts
+ create mode 100644 lib/api-zod/src/generated/types/importLibraryMusicRequest.ts
+ create mode 100644 lib/api-zod/src/generated/types/libraryMusicImportResult.ts
+ create mode 100644 lib/api-zod/src/generated/types/musicSearchResults.ts
+ create mode 100644 lib/api-zod/src/generated/types/musicTrack.ts
+ create mode 100644 lib/api-zod/src/generated/types/searchMusicLibraryParams.ts
+
+diff --git a/artifacts/api-server/src/lib/musicLibrary.test.ts b/artifacts/api-server/src/lib/musicLibrary.test.ts
+new file mode 100644
+index 0000000..b7fb7bb
+--- /dev/null
++++ b/artifacts/api-server/src/lib/musicLibrary.test.ts
+@@ -0,0 +1,117 @@
++import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
++import { searchLibraryMusic, downloadLibraryTrack, MusicLibraryError } from "./musicLibrary";
++
++vi.mock("./webFetch", () => ({
++  assertPublicHost: vi.fn(async (host: string) => {
++    if (host === "blocked.internal") throw new Error("private host");
++  }),
++}));
++
++const realFetch = globalThis.fetch;
++
++function jsonResponse(body: unknown, status = 200): Response {
++  return new Response(JSON.stringify(body), {
++    status,
++    headers: { "Content-Type": "application/json" },
++  });
++}
++
++describe("searchLibraryMusic", () => {
++  beforeEach(() => {
++    globalThis.fetch = vi.fn();
++  });
++  afterEach(() => {
++    globalThis.fetch = realFetch;
++  });
++
++  it("maps Openverse results and keeps only https tracks", async () => {
++    vi.mocked(globalThis.fetch).mockResolvedValue(
++      jsonResponse({
++        results: [
++          {
++            id: "abc",
++            title: "Sunny Drive",
++            creator: "Jane",
++            license: "by",
++            license_url: "https://creativecommons.org/licenses/by/4.0/",
++            duration: 154_000,
++            url: "https://cdn.example.com/sunny.mp3",
++          },
++          { id: "bad", title: "Insecure", license: "by", url: "http://cdn.example.com/x.mp3" },
++          { id: "noise", url: 42 },
++        ],
++      }),
++    );
++    const tracks = await searchLibraryMusic("sunny pop");
++    expect(tracks).toEqual([
++      {
++        id: "abc",
++        title: "Sunny Drive",
++        creator: "Jane",
++        license: "by",
++        licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
++        durationSec: 154,
++        audioUrl: "https://cdn.example.com/sunny.mp3",
++      },
++    ]);
++    const searchUrl = String(vi.mocked(globalThis.fetch).mock.calls[0]![0]);
++    expect(searchUrl).toContain("license_type=commercial");
++    expect(searchUrl).toContain("category=music");
++  });
++
++  it("surfaces upstream failures as MusicLibraryError", async () => {
++    vi.mocked(globalThis.fetch).mockResolvedValue(jsonResponse({}, 503));
++    await expect(searchLibraryMusic("x y")).rejects.toThrow(MusicLibraryError);
++  });
++});
++
++describe("downloadLibraryTrack", () => {
++  beforeEach(() => {
++    globalThis.fetch = vi.fn();
++  });
++  afterEach(() => {
++    globalThis.fetch = realFetch;
++  });
++
++  it("rejects non-https URLs without fetching", async () => {
++    await expect(downloadLibraryTrack("http://cdn.example.com/a.mp3")).rejects.toThrow(/https/);
++    expect(globalThis.fetch).not.toHaveBeenCalled();
++  });
++
++  it("rejects blocked/private hosts without fetching", async () => {
++    await expect(downloadLibraryTrack("https://blocked.internal/a.mp3")).rejects.toThrow(
++      /blocked or private/,
++    );
++    expect(globalThis.fetch).not.toHaveBeenCalled();
++  });
++
++  it("downloads a valid track", async () => {
++    const bytes = Buffer.from("audio-bytes");
++    vi.mocked(globalThis.fetch).mockResolvedValue(
++      new Response(new Uint8Array(bytes), { status: 200 }),
++    );
++    const out = await downloadLibraryTrack("https://cdn.example.com/a.mp3");
++    expect(out.equals(bytes)).toBe(true);
++  });
++
++  it("re-validates every redirect hop", async () => {
++    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
++      new Response(null, { status: 302, headers: { location: "https://blocked.internal/b.mp3" } }),
++    );
++    await expect(downloadLibraryTrack("https://cdn.example.com/a.mp3")).rejects.toThrow(
++      /blocked or private/,
++    );
++  });
++
++  it("rejects oversized tracks", async () => {
++    vi.mocked(globalThis.fetch).mockResolvedValue(
++      new Response(new Uint8Array(Buffer.alloc(10)), {
++        status: 200,
++        headers: { "content-length": String(50 * 1024 * 1024) },
++      }),
++    );
++    await expect(downloadLibraryTrack("https://cdn.example.com/a.mp3")).rejects.toThrow(
++      /too large/,
++    );
++  });
++});
+diff --git a/artifacts/api-server/src/lib/musicLibrary.ts b/artifacts/api-server/src/lib/musicLibrary.ts
+new file mode 100644
+index 0000000..f1868e3
+--- /dev/null
++++ b/artifacts/api-server/src/lib/musicLibrary.ts
+@@ -0,0 +1,170 @@
++import { assertPublicHost } from "./webFetch";
++
++/**
++ * Built-in background-music library: searches Openverse
++ * (https://api.openverse.org — the Creative-Commons aggregator over
++ * Jamendo, Freesound, Wikimedia and more), filtered to commercially-usable
++ * licenses so tracks are safe in customers' published marketing posts. No
++ * API key needed; the license and attribution travel with every result.
++ */
++
++const OPENVERSE_AUDIO_URL = "https://api.openverse.org/v1/audio/";
++const SEARCH_TIMEOUT_MS = 15_000;
++const PAGE_SIZE = 12;
++/** Track downloads: same ceiling as uploaded music. */
++export const MAX_LIBRARY_TRACK_BYTES = 15 * 1024 * 1024;
++const MAX_REDIRECTS = 3;
++const DOWNLOAD_TIMEOUT_MS = 60_000;
++
++export class MusicLibraryError extends Error {
++  constructor(
++    message: string,
++    public readonly status?: number,
++  ) {
++    super(message);
++    this.name = "MusicLibraryError";
++  }
++}
++
++export interface LibraryTrack {
++  id: string;
++  title: string;
++  creator: string | null;
++  /** SPDX-ish license slug, e.g. "by", "by-sa", "cc0". */
++  license: string;
++  licenseUrl: string | null;
++  durationSec: number | null;
++  /** Direct audio file URL (validated again server-side before download). */
++  audioUrl: string;
++}
++
++async function libraryFetch(url: string, init: RequestInit = {}): Promise<Response> {
++  const controller = new AbortController();
++  const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
++  try {
++    return await fetch(url, { ...init, signal: controller.signal });
++  } catch (err) {
++    if (err instanceof Error && err.name === "AbortError") {
++      throw new MusicLibraryError("Music search timed out. Please try again.");
++    }
++    throw err;
++  } finally {
++    clearTimeout(timer);
++  }
++}
++
++/** Search commercially-licensed music. Returns [] on no results. */
++export async function searchLibraryMusic(query: string): Promise<LibraryTrack[]> {
++  const params = new URLSearchParams({
++    q: query,
++    license_type: "commercial",
++    category: "music",
++    page_size: String(PAGE_SIZE),
++    filter_dead: "true",
++  });
++  const res = await libraryFetch(`${OPENVERSE_AUDIO_URL}?${params}`, {
++    headers: { Accept: "application/json" },
++  });
++  if (!res.ok) {
++    throw new MusicLibraryError(
++      `Music search failed (${res.status}). Please try again in a moment.`,
++      res.status,
++    );
++  }
++  const data = (await res.json()) as {
++    results?: {
++      id?: unknown;
++      title?: unknown;
++      creator?: unknown;
++      license?: unknown;
++      license_url?: unknown;
++      duration?: unknown; // milliseconds
++      url?: unknown;
++    }[];
++  };
++  const tracks: LibraryTrack[] = [];
++  for (const item of data.results ?? []) {
++    if (typeof item.id !== "string" || typeof item.url !== "string") continue;
++    let audioUrl: URL;
++    try {
++      audioUrl = new URL(item.url);
++    } catch {
++      continue;
++    }
++    if (audioUrl.protocol !== "https:") continue;
++    tracks.push({
++      id: item.id,
++      title: typeof item.title === "string" && item.title ? item.title : "Untitled track",
++      creator: typeof item.creator === "string" && item.creator ? item.creator : null,
++      license: typeof item.license === "string" ? item.license : "cc",
++      licenseUrl: typeof item.license_url === "string" ? item.license_url : null,
++      durationSec:
++        typeof item.duration === "number" && item.duration > 0
++          ? Math.round(item.duration / 1000)
++          : null,
++      audioUrl: audioUrl.toString(),
++    });
++  }
++  return tracks;
++}
++
++/** SSRF guard: https + public host, re-checked on every redirect hop. */
++async function assertSafeTrackUrl(rawUrl: string): Promise<URL> {
++  let url: URL;
++  try {
++    url = new URL(rawUrl);
++  } catch {
++    throw new MusicLibraryError("That track URL is not valid.");
++  }
++  if (url.protocol !== "https:") {
++    throw new MusicLibraryError("Track downloads must use https.");
++  }
++  try {
++    await assertPublicHost(url.hostname);
++  } catch {
++    throw new MusicLibraryError("That track URL points at a blocked or private host.");
++  }
++  return url;
++}
++
++/** Download a library track server-side (bounded size, validated hops). */
++export async function downloadLibraryTrack(rawUrl: string): Promise<Buffer> {
++  let url = await assertSafeTrackUrl(rawUrl);
++  let res: Response | null = null;
++  const controller = new AbortController();
++  const timer = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
++  try {
++    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
++      res = await fetch(url.toString(), { redirect: "manual", signal: controller.signal });
++      if (res.status < 300 || res.status >= 400) break;
++      const location = res.headers.get("location");
++      if (!location) throw new MusicLibraryError("Track download redirect had no destination.");
++      if (hop === MAX_REDIRECTS) {
++        throw new MusicLibraryError("Track download followed too many redirects.");
++      }
++      url = await assertSafeTrackUrl(new URL(location, url).toString());
++    }
++  } catch (err) {
++    if (err instanceof Error && err.name === "AbortError") {
++      throw new MusicLibraryError("Track download timed out. Please try another track.");
++    }
++    throw err;
++  } finally {
++    clearTimeout(timer);
++  }
++  if (!res || !res.ok) {
++    throw new MusicLibraryError(`Track download failed (${res?.status ?? "network"}).`);
++  }
++  const declared = Number(res.headers.get("content-length") ?? 0);
++  if (declared > MAX_LIBRARY_TRACK_BYTES) {
++    throw new MusicLibraryError("That track is too large (max 15 MB).");
++  }
++  const buffer = Buffer.from(await res.arrayBuffer());
++  if (buffer.length > MAX_LIBRARY_TRACK_BYTES) {
++    throw new MusicLibraryError("That track is too large (max 15 MB).");
++  }
++  if (buffer.length === 0) {
++    throw new MusicLibraryError("The track file was empty. Please try another track.");
++  }
++  return buffer;
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index e7cdc54..5d12f38 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -7,6 +7,7 @@ import { logger } from "../logger";
+ import { generateVideo, VideoGenNotConfiguredError, VideoGenProviderError } from "./index";
+ import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
+ import { normalizeVideo } from "./postprocess";
++import { generateMusicBed } from "./musicGen";
+ import { verifyRenderedVideo, type VideoQaExpectations } from "./qaGate";
+ import {
+   generateTopicVideo,
+@@ -114,6 +115,26 @@ async function setJob(
+     .where(eq(videoGenerationsTable.id, jobId));
+ }
+ 
++/** The video's music bed: an uploaded track wins; otherwise an AI-composed
++ * bed when a musicPrompt was given (already funded as +1 unit). */
++async function resolveMusic(
++  job: VideoGeneration,
++  options: NonNullable<VideoGeneration["options"]>,
++  approxDurationSec: number,
++  onStage: (stage: string) => void,
++): Promise<Buffer | null> {
++  if (options.musicPath) {
++    return (
++      await loadTenantObject(options.musicPath, job.tenantId, MAX_MUSIC_BYTES, "Music track")
++    ).buffer;
++  }
++  if (options.musicPrompt?.trim()) {
++    onStage("Composing the music");
++    return generateMusicBed(options.musicPrompt, approxDurationSec);
++  }
++  return null;
++}
++
+ async function produceVideo(
+   job: VideoGeneration,
+   onStage: (stage: string) => void,
+@@ -191,17 +212,13 @@ async function produceVideo(
+     for (const path of paths) {
+       images.push((await loadSourceImage(path, job.tenantId)).buffer);
+     }
+-    const music = options.musicPath
+-      ? (
+-          await loadTenantObject(
+-            options.musicPath,
+-            job.tenantId,
+-            MAX_MUSIC_BYTES,
+-            "Music track",
+-          )
+-        ).buffer
+-      : null;
+     const slideDurationSec = options.slideDurationSec ?? 3;
++    const music = await resolveMusic(
++      job,
++      options,
++      expectedSlideshowDurationSec(images.length, slideDurationSec),
++      onStage,
++    );
+     onStage("Composing the slideshow");
+     const buffer = await renderSlideshow({
+       images,
+@@ -222,16 +239,8 @@ async function produceVideo(
+   }
+ 
+   if (job.engine === "topic_to_video") {
+-    const music = options.musicPath
+-      ? (
+-          await loadTenantObject(
+-            options.musicPath,
+-            job.tenantId,
+-            MAX_MUSIC_BYTES,
+-            "Music track",
+-          )
+-        ).buffer
+-      : null;
++    // MusicGen tops out at 30s; the composer loops the bed, so 30 is enough.
++    const music = await resolveMusic(job, options, 30, onStage);
+     const result = await generateTopicVideo({
+       tenantId: job.tenantId,
+       topic: job.prompt ?? "",
+diff --git a/artifacts/api-server/src/lib/videoGen/musicGen.test.ts b/artifacts/api-server/src/lib/videoGen/musicGen.test.ts
+new file mode 100644
+index 0000000..ed0540e
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/musicGen.test.ts
+@@ -0,0 +1,82 @@
++import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
++import { eq } from "drizzle-orm";
++import { db, appCredentialsTable } from "@workspace/db";
++import { generateMusicBed } from "./musicGen";
++import { VideoGenNotConfiguredError } from "./types";
++
++const realFetch = globalThis.fetch;
++const savedToken = process.env.REPLICATE_API_TOKEN;
++
++function jsonResponse(body: unknown, status = 200): Response {
++  return new Response(JSON.stringify(body), {
++    status,
++    headers: { "Content-Type": "application/json" },
++  });
++}
++
++describe("generateMusicBed", () => {
++  beforeEach(async () => {
++    globalThis.fetch = vi.fn();
++    delete process.env.REPLICATE_API_TOKEN;
++    await db
++      .delete(appCredentialsTable)
++      .where(eq(appCredentialsTable.provider, "videogen_replicate"));
++  });
++  afterEach(() => {
++    globalThis.fetch = realFetch;
++    if (savedToken === undefined) delete process.env.REPLICATE_API_TOKEN;
++    else process.env.REPLICATE_API_TOKEN = savedToken;
++  });
++
++  it("fails with a clear message when Replicate is not configured", async () => {
++    await expect(generateMusicBed("lofi beat", 30)).rejects.toThrow(VideoGenNotConfiguredError);
++    expect(globalThis.fetch).not.toHaveBeenCalled();
++  });
++
++  it("creates a prediction, waits, and downloads the audio", async () => {
++    process.env.REPLICATE_API_TOKEN = "test-token";
++    const audio = Buffer.from("mp3-bytes-here");
++    vi.mocked(globalThis.fetch).mockImplementation(async (url) => {
++      const target = String(url);
++      if (target.includes("api.replicate.com")) {
++        return jsonResponse({
++          status: "succeeded",
++          output: "https://replicate.delivery/out.mp3",
++        });
++      }
++      return new Response(new Uint8Array(audio), { status: 200 });
++    });
++
++    const out = await generateMusicBed("warm lofi chill beat", 22);
++    expect(out.equals(audio)).toBe(true);
++
++    const createCall = vi.mocked(globalThis.fetch).mock.calls[0]!;
++    expect(String(createCall[0])).toContain("/models/meta/musicgen/predictions");
++    const body = JSON.parse((createCall[1] as RequestInit).body as string);
++    expect(body.input.duration).toBe(22);
++    expect(body.input.prompt).toContain("warm lofi chill beat");
++    expect(body.input.prompt).toContain("no vocals");
++  });
++
++  it("clamps the requested duration to MusicGen's 30s ceiling", async () => {
++    process.env.REPLICATE_API_TOKEN = "test-token";
++    vi.mocked(globalThis.fetch).mockImplementation(async (url) =>
++      String(url).includes("api.replicate.com")
++        ? jsonResponse({ status: "succeeded", output: ["https://replicate.delivery/out.mp3"] })
++        : new Response(new Uint8Array(Buffer.from("x")), { status: 200 }),
++    );
++    await generateMusicBed("epic cinematic", 95);
++    const body = JSON.parse(
++      (vi.mocked(globalThis.fetch).mock.calls[0]![1] as RequestInit).body as string,
++    );
++    expect(body.input.duration).toBe(30);
++  });
++
++  it("surfaces a failed prediction as a provider error", async () => {
++    process.env.REPLICATE_API_TOKEN = "test-token";
++    vi.mocked(globalThis.fetch).mockImplementation(async () =>
++      jsonResponse({ status: "failed", error: "NSFW prompt" }),
++    );
++    await expect(generateMusicBed("x", 10)).rejects.toThrow(/did not succeed/);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/musicGen.ts b/artifacts/api-server/src/lib/videoGen/musicGen.ts
+new file mode 100644
+index 0000000..1655f69
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/musicGen.ts
+@@ -0,0 +1,141 @@
++import {
++  videoGenFetch,
++  errorDetail,
++  VideoGenNotConfiguredError,
++  VideoGenProviderError,
++} from "./types";
++import { withRetries, isTransientStatus } from "./retry";
++import { getVideoGenProviderDef, resolveVideoGenApiKey } from "./index";
++
++/**
++ * AI background-music beds via Replicate's MusicGen (meta/musicgen), using
++ * the SAME Replicate token the video engine already has — no new secrets.
++ * MusicGen tops out at 30 seconds; the composers loop the bed with a
++ * fade-out, so 30s covers any video length.
++ */
++
++export const MUSICGEN_MODEL = "meta/musicgen";
++const MIN_DURATION_SEC = 5;
++const MAX_DURATION_SEC = 30;
++/** MusicGen usually finishes in ~1-2 min; bound the wait. */
++const MUSICGEN_DEADLINE_MS = 5 * 60 * 1000;
++
++interface ReplicatePrediction {
++  id?: string;
++  status?: string;
++  output?: unknown;
++  error?: unknown;
++  urls?: { get?: string };
++}
++
++function firstUrl(output: unknown): string | null {
++  if (typeof output === "string") return output;
++  if (Array.isArray(output) && typeof output[0] === "string") return output[0];
++  return null;
++}
++
++/** Generate an instrumental bed for the given mood/style description. */
++export async function generateMusicBed(
++  prompt: string,
++  videoDurationSec: number,
++): Promise<Buffer> {
++  const def = getVideoGenProviderDef("replicate");
++  const apiKey = def ? await resolveVideoGenApiKey(def) : null;
++  if (!apiKey) {
++    throw new VideoGenNotConfiguredError(
++      "AI music needs Replicate: save an API token in the admin dashboard or set the REPLICATE_API_TOKEN secret (uploading a track works without it).",
++    );
++  }
++
++  const duration = Math.min(
++    MAX_DURATION_SEC,
++    Math.max(MIN_DURATION_SEC, Math.ceil(videoDurationSec)),
++  );
++  const headers = {
++    Authorization: `Bearer ${apiKey}`,
++    "Content-Type": "application/json",
++  };
++  const input = {
++    // Steer toward a loopable instrumental bed rather than a song.
++    prompt: `${prompt.trim()}. Instrumental background music, no vocals, steady consistent energy, loopable.`,
++    duration,
++    model_version: "stereo-large",
++    output_format: "mp3",
++    normalization_strategy: "loudness",
++  };
++
++  let prediction = await withRetries(
++    async (): Promise<ReplicatePrediction> => {
++      const res = await videoGenFetch(
++        `https://api.replicate.com/v1/models/${MUSICGEN_MODEL}/predictions`,
++        {
++          method: "POST",
++          headers: { ...headers, Prefer: "wait=60" },
++          body: JSON.stringify({ input }),
++        },
++      );
++      if (!res.ok) {
++        throw new VideoGenProviderError(
++          `Music generation failed (${res.status}): ${await errorDetail(res)}`,
++          res.status,
++        );
++      }
++      return (await res.json()) as ReplicatePrediction;
++    },
++    { attempts: 3 },
++  );
++
++  const deadline = Date.now() + MUSICGEN_DEADLINE_MS;
++  let consecutivePollFailures = 0;
++  while (
++    prediction.status &&
++    ["starting", "processing"].includes(prediction.status) &&
++    prediction.urls?.get &&
++    Date.now() < deadline
++  ) {
++    await new Promise((r) => setTimeout(r, 4000));
++    try {
++      const poll = await videoGenFetch(prediction.urls.get, { method: "GET", headers });
++      if (!poll.ok) {
++        throw new VideoGenProviderError(
++          `Music generation polling failed (${poll.status}): ${await errorDetail(poll)}`,
++          poll.status,
++        );
++      }
++      prediction = (await poll.json()) as ReplicatePrediction;
++      consecutivePollFailures = 0;
++    } catch (error) {
++      const transient =
++        !(error instanceof VideoGenProviderError) || isTransientStatus(error.status);
++      consecutivePollFailures += 1;
++      if (!transient || consecutivePollFailures >= 3) throw error;
++    }
++  }
++
++  if (prediction.status !== "succeeded") {
++    const detail =
++      typeof prediction.error === "string" ? prediction.error.slice(0, 300) : prediction.status;
++    throw new VideoGenProviderError(`Music generation did not succeed: ${detail}`);
++  }
++  const url = firstUrl(prediction.output);
++  if (!url) {
++    throw new VideoGenProviderError("Music generation returned no audio.");
++  }
++  const buffer = await withRetries(
++    async () => {
++      const audio = await videoGenFetch(url, { method: "GET" });
++      if (!audio.ok) {
++        throw new VideoGenProviderError(
++          `Music download failed (${audio.status}).`,
++          audio.status,
++        );
++      }
++      return Buffer.from(await audio.arrayBuffer());
++    },
++    { attempts: 3 },
++  );
++  if (buffer.length === 0) {
++    throw new VideoGenProviderError("Music generation returned an empty file.");
++  }
++  return buffer;
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.test.ts
+index 6b249ad..fcdf682 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.test.ts
+@@ -32,6 +32,24 @@ describe("videoJobUnits for AI b-roll", () => {
+     ).toBe(4);
+     expect(videoJobUnits("topic_to_video", { ...base, visualsSource: "stock", paragraphCount: 3 })).toBe(1);
+   });
++
++  it("adds one unit for an AI-composed music bed (unless a track is uploaded)", () => {
++    const base = { aspectRatio: "9:16" as const };
++    expect(videoJobUnits("topic_to_video", { ...base, musicPrompt: "lofi" })).toBe(2);
++    expect(videoJobUnits("slideshow", { ...base, musicPrompt: "lofi" })).toBe(2);
++    expect(
++      videoJobUnits("slideshow", { ...base, musicPrompt: "lofi", musicPath: "/objects/1/u/t.mp3" }),
++    ).toBe(1);
++    expect(
++      videoJobUnits("topic_to_video", {
++        ...base,
++        visualsSource: "ai",
++        paragraphCount: 2,
++        musicPrompt: "epic",
++      }),
++    ).toBe(5);
++    expect(videoJobUnits("text_to_video", { ...base, musicPrompt: "lofi" })).toBe(1);
++  });
+ });
+ 
+ describe("assignClipsToScenes fail-soft guarantees", () => {
+diff --git a/artifacts/api-server/src/lib/videoGen/units.ts b/artifacts/api-server/src/lib/videoGen/units.ts
+index 02a0e39..8cffe46 100644
+--- a/artifacts/api-server/src/lib/videoGen/units.ts
++++ b/artifacts/api-server/src/lib/videoGen/units.ts
+@@ -11,15 +11,24 @@ import { CHARACTER_SCENES_PER_PARAGRAPH } from "./topicVideo/characterScenes";
+  * the job runner refunds the same amount if the job fails.
+  */
+ export function videoJobUnits(engine: string, options: VideoJobOptions | null): number {
++  let units = 1;
+   if (engine === "topic_to_video" && options?.visualsSource === "character") {
+     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
+-    return CHARACTER_SCENES_PER_PARAGRAPH * paragraphs;
+-  }
+-  // AI b-roll: every scene is a generated image (no image-to-video calls),
+-  // so it prices at half the character rate: Short = 2, Medium = 4, Long = 6.
+-  if (engine === "topic_to_video" && options?.visualsSource === "ai") {
++    units = CHARACTER_SCENES_PER_PARAGRAPH * paragraphs;
++  } else if (engine === "topic_to_video" && options?.visualsSource === "ai") {
++    // AI b-roll: every scene is a generated image (no image-to-video calls),
++    // so it prices at half the character rate: Short = 2, Medium = 4, Long = 6.
+     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
+-    return 2 * paragraphs;
++    units = 2 * paragraphs;
++  }
++  // An AI-composed music bed is its own real generation: +1 unit. Only
++  // charged when no uploaded track takes precedence.
++  if (
++    (engine === "topic_to_video" || engine === "slideshow") &&
++    !options?.musicPath &&
++    options?.musicPrompt?.trim()
++  ) {
++    units += 1;
+   }
+-  return 1;
++  return units;
+ }
+diff --git a/artifacts/api-server/src/routes/videos.test.ts b/artifacts/api-server/src/routes/videos.test.ts
+index 4dc7744..3ca66c5 100644
+--- a/artifacts/api-server/src/routes/videos.test.ts
++++ b/artifacts/api-server/src/routes/videos.test.ts
+@@ -38,6 +38,42 @@ vi.mock("../lib/videoGen/jobRunner", () => ({
+   }),
+ }));
+ 
++// Music library: the Openverse client + SSRF guard have their own tests
++// (lib/musicLibrary.test.ts); routes are tested with stubs.
++vi.mock("../lib/musicLibrary", async (importOriginal) => {
++  const actual = await importOriginal<typeof import("../lib/musicLibrary")>();
++  return {
++    ...actual,
++    searchLibraryMusic: vi.fn(async () => [
++      {
++        id: "trk1",
++        title: "Sunny Drive",
++        creator: "Jane",
++        license: "by",
++        licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
++        durationSec: 154,
++        audioUrl: "https://cdn.example.com/sunny.mp3",
++      },
++    ]),
++    downloadLibraryTrack: vi.fn(async (url: string) => {
++      if (url.includes("bad")) throw new actual.MusicLibraryError("Track downloads must use https.");
++      return Buffer.from("audio-bytes");
++    }),
++  };
++});
++vi.mock("../lib/objectStorage", async (importOriginal) => {
++  const actual = await importOriginal<typeof import("../lib/objectStorage")>();
++  class FakeObjectStorageService {
++    async getObjectEntityUploadURL(tenantId: number): Promise<string> {
++      return `https://storage.example.com/objects/${tenantId}/uploads/music-uuid`;
++    }
++    normalizeObjectEntityPath(uploadURL: string): string {
++      return new URL(uploadURL).pathname;
++    }
++  }
++  return { ...actual, ObjectStorageService: FakeObjectStorageService };
++});
++
+ import {
+   db,
+   videoGenerationsTable,
+@@ -499,3 +535,92 @@ describe("POST /api/ai/video-jobs/:jobId/save-to-library", () => {
+     expect(row?.videoPath).toBe(job.videoPath);
+   });
+ });
++
++describe("music library routes", () => {
++  it("searches the library and returns license-tagged tracks", async () => {
++    await newTenant();
++    const res = await request(app).get("/api/ai/music/search").query({ q: "sunny pop" });
++    expect(res.status).toBe(200);
++    expect(res.body.tracks).toHaveLength(1);
++    expect(res.body.tracks[0]).toMatchObject({
++      id: "trk1",
++      title: "Sunny Drive",
++      license: "by",
++      audioUrl: "https://cdn.example.com/sunny.mp3",
++    });
++  });
++
++  it("rejects a too-short query", async () => {
++    await newTenant();
++    const res = await request(app).get("/api/ai/music/search").query({ q: "x" });
++    expect(res.status).toBe(400);
++  });
++
++  it("imports a track into tenant storage and returns its musicPath", async () => {
++    const tenant = await newTenant();
++    const realFetch = globalThis.fetch;
++    globalThis.fetch = vi.fn(async () => new Response(null, { status: 200 })) as typeof fetch;
++    try {
++      const res = await request(app)
++        .post("/api/ai/music/import")
++        .send({ audioUrl: "https://cdn.example.com/sunny.mp3", title: "Sunny Drive" });
++      expect(res.status).toBe(200);
++      expect(res.body.title).toBe("Sunny Drive");
++      expect(res.body.musicPath).toBe(`/objects/${tenant.tenantId}/uploads/music-uuid`);
++    } finally {
++      globalThis.fetch = realFetch;
++    }
++  });
++
++  it("surfaces guarded download failures as a 400", async () => {
++    await newTenant();
++    const res = await request(app)
++      .post("/api/ai/music/import")
++      .send({ audioUrl: "https://bad.example.com/a.mp3", title: "Nope" });
++    expect(res.status).toBe(400);
++    expect(res.body.error).toMatch(/https/);
++  });
++});
++
++describe("AI music funding", () => {
++  it("charges one extra unit for an AI-composed bed and persists the prompt", async () => {
++    const tenant = await newTenant(); // free plan quota covers it
++    const res = await request(app)
++      .post("/api/ai/generate-video")
++      .send({
++        engine: "slideshow",
++        sourceImagePaths: [`/objects/${tenant.tenantId}/uploads/a.png`],
++        aspectRatio: "9:16",
++        musicPrompt: "warm lofi chill beat",
++      });
++    expect(res.status).toBe(201);
++    const row = (
++      await db
++        .select()
++        .from(videoGenerationsTable)
++        .where(eq(videoGenerationsTable.id, res.body.id))
++    )[0];
++    expect(row?.options).toMatchObject({ musicPrompt: "warm lofi chill beat" });
++  });
++
++  it("ignores musicPrompt when an uploaded track is provided", async () => {
++    const tenant = await newTenant();
++    const res = await request(app)
++      .post("/api/ai/generate-video")
++      .send({
++        engine: "slideshow",
++        sourceImagePaths: [`/objects/${tenant.tenantId}/uploads/a.png`],
++        aspectRatio: "9:16",
++        musicPath: `/objects/${tenant.tenantId}/uploads/track.mp3`,
++        musicPrompt: "should be ignored",
++      });
++    expect(res.status).toBe(201);
++    const row = (
++      await db
++        .select()
++        .from(videoGenerationsTable)
++        .where(eq(videoGenerationsTable.id, res.body.id))
++    )[0];
++    expect(row?.options?.musicPrompt ?? null).toBeNull();
++  });
++});
+diff --git a/artifacts/api-server/src/routes/videos.ts b/artifacts/api-server/src/routes/videos.ts
+index 1c8cd05..ef66474 100644
+--- a/artifacts/api-server/src/routes/videos.ts
++++ b/artifacts/api-server/src/routes/videos.ts
+@@ -1,7 +1,17 @@
+ import { Router, type IRouter, type Request, type Response } from "express";
+ import { db, tenantsTable, contentItemsTable, videoGenerationsTable } from "@workspace/db";
+ import { and, eq, desc } from "drizzle-orm";
+-import { GenerateVideoBody, SaveVideoToLibraryBody } from "@workspace/api-zod";
++import {
++  GenerateVideoBody,
++  ImportLibraryMusicBody,
++  SaveVideoToLibraryBody,
++} from "@workspace/api-zod";
++import {
++  searchLibraryMusic,
++  downloadLibraryTrack,
++  MusicLibraryError,
++} from "../lib/musicLibrary";
++import { ObjectStorageService } from "../lib/objectStorage";
+ import { getPlanLimits } from "../lib/plans";
+ import { getUsage } from "../lib/usage";
+ import { spendCredit, refundCredits } from "../lib/credits";
+@@ -42,6 +52,59 @@ function serializeVideoJob(job: VideoGeneration) {
+   };
+ }
+ 
++const musicStorage = new ObjectStorageService();
++
++/** Built-in background-music library: search commercially-usable CC tracks. */
++router.get("/ai/music/search", async (req: Request, res: Response) => {
++  const q = String(req.query.q ?? "").trim();
++  if (q.length < 2 || q.length > 80) {
++    res.status(400).json({ error: "Search for 2-80 characters." });
++    return;
++  }
++  try {
++    res.json({ tracks: await searchLibraryMusic(q) });
++  } catch (error) {
++    req.log.warn({ err: error }, "Music library search failed");
++    const message =
++      error instanceof MusicLibraryError ? error.message : "Music search failed. Please try again.";
++    res.status(502).json({ error: message });
++  }
++});
++
++/** Import a chosen library track into tenant storage → musicPath. */
++router.post("/ai/music/import", async (req: Request, res: Response) => {
++  const parsed = ImportLibraryMusicBody.safeParse(req.body);
++  if (!parsed.success) {
++    res.status(400).json({ error: "Invalid input" });
++    return;
++  }
++  try {
++    const bytes = await downloadLibraryTrack(parsed.data.audioUrl);
++    const uploadURL = await musicStorage.getObjectEntityUploadURL(req.tenantId);
++    const putRes = await fetch(uploadURL, {
++      method: "PUT",
++      headers: { "Content-Type": "audio/mpeg" },
++      body: new Uint8Array(bytes),
++      signal: AbortSignal.timeout(60_000),
++    });
++    if (!putRes.ok) {
++      res.status(502).json({ error: "Saving the track to storage failed." });
++      return;
++    }
++    res.json({
++      musicPath: musicStorage.normalizeObjectEntityPath(uploadURL),
++      title: parsed.data.title,
++    });
++  } catch (error) {
++    req.log.warn({ err: error }, "Music library import failed");
++    const message =
++      error instanceof MusicLibraryError
++        ? error.message
++        : "Importing the track failed. Please try again.";
++    res.status(400).json({ error: message });
++  }
++});
++
+ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+   const parsed = GenerateVideoBody.safeParse(req.body);
+   if (!parsed.success) {
+@@ -136,6 +199,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+     slideDurationSec: body.slideDurationSec ?? 3,
+     overlayText: body.overlayText ?? null,
+     musicPath: body.musicPath ?? null,
++    musicPrompt: body.musicPath ? null : (body.musicPrompt?.trim() || null),
+     voice: body.voice ?? "alloy",
+     stockSource: body.stockSource ?? "auto",
+     subtitles: body.subtitles ?? true,
+diff --git a/artifacts/socialforge/src/pages/video-studio.test.tsx b/artifacts/socialforge/src/pages/video-studio.test.tsx
+index 608a3aa..42a21b7 100644
+--- a/artifacts/socialforge/src/pages/video-studio.test.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.test.tsx
+@@ -183,6 +183,28 @@ describe("Video Studio", () => {
+     });
+   });
+ 
++  it("sends an AI music prompt with the job (+1 unit chip shown)", async () => {
++    renderPage();
++    const user = userEvent.setup();
++    await user.click(screen.getByTestId("tab-topic-to-video"));
++    fireEvent.change(screen.getByTestId("input-video-prompt"), {
++      target: { value: "5 morning habits that transform your day" },
++    });
++    await user.click(screen.getByTestId("button-ai-music"));
++    fireEvent.change(screen.getByTestId("input-ai-music"), {
++      target: { value: "warm lofi chill beat" },
++    });
++    await user.click(screen.getByTestId("button-set-ai-music"));
++    expect(screen.getByTestId("chip-ai-music").textContent).toContain("warm lofi chill beat");
++    fireEvent.click(screen.getByTestId("button-generate-video"));
++    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
++    expect(mockState.lastGenerateVars.data).toMatchObject({
++      engine: "topic_to_video",
++      musicPath: null,
++      musicPrompt: "warm lofi chill beat",
++    });
++  });
++
+   it("hides the caption style picker when subtitles are off", async () => {
+     renderPage();
+     const user = userEvent.setup();
+diff --git a/artifacts/socialforge/src/pages/video-studio.tsx b/artifacts/socialforge/src/pages/video-studio.tsx
+index fd2583e..0f9d06a 100644
+--- a/artifacts/socialforge/src/pages/video-studio.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.tsx
+@@ -15,6 +15,9 @@ import {
+   useDeleteCharacter,
+   useCreateCharacterOutfit,
+   useDeleteCharacterOutfit,
++  useSearchMusicLibrary,
++  useImportLibraryMusic,
++  getSearchMusicLibraryQueryKey,
+   getGoogleDriveAuthUrl,
+   getListVideoJobsQueryKey,
+   getGetVideoJobQueryKey,
+@@ -25,6 +28,7 @@ import {
+   type VideoJob,
+   type GoogleDriveFile,
+   type Character,
++  type MusicTrack,
+ } from "@workspace/api-client-react";
+ import { useQueryClient } from "@tanstack/react-query";
+ import { Button } from "@/components/ui/button";
+@@ -169,6 +173,10 @@ export function VideoStudioPage() {
+   const [charactersOpen, setCharactersOpen] = useState(false);
+   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
+   const [music, setMusic] = useState<{ objectPath: string; name: string } | null>(null);
++  const [musicPrompt, setMusicPrompt] = useState("");
++  const [aiMusicDraft, setAiMusicDraft] = useState("");
++  const [aiMusicOpen, setAiMusicOpen] = useState(false);
++  const [musicLibraryOpen, setMusicLibraryOpen] = useState(false);
+   const [uploading, setUploading] = useState(false);
+   const [activeJobId, setActiveJobId] = useState<number | null>(null);
+ 
+@@ -315,6 +323,7 @@ export function VideoStudioPage() {
+     try {
+       const objectPath = await uploadFile(file);
+       setMusic({ objectPath, name: file.name });
++      setMusicPrompt("");
+     } catch {
+       toast({ title: "Upload failed", description: "Could not upload the track. Please try again.", variant: "destructive" });
+     } finally {
+@@ -359,6 +368,12 @@ export function VideoStudioPage() {
+             engine === "slideshow" || engine === "topic_to_video"
+               ? (music?.objectPath ?? null)
+               : null,
++          musicPrompt:
++            (engine === "slideshow" || engine === "topic_to_video") &&
++            !music &&
++            musicPrompt.trim()
++              ? musicPrompt.trim()
++              : null,
+           voice,
+           stockSource,
+           subtitles,
+@@ -799,17 +814,78 @@ export function VideoStudioPage() {
+                       <X className="h-4 w-4" />
+                     </button>
+                   </div>
+-                ) : (
+-                  <Button
+-                    type="button"
+-                    variant="outline"
+-                    size="sm"
+-                    disabled={uploading}
+-                    onClick={() => musicInputRef.current?.click()}
+-                    data-testid="button-upload-music"
++                ) : musicPrompt ? (
++                  <div
++                    className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2"
++                    data-testid="chip-ai-music"
+                   >
+-                    <Music className="h-4 w-4 mr-1.5" /> Add a track
+-                  </Button>
++                    <Sparkles className="h-4 w-4 text-primary shrink-0" />
++                    <span className="truncate">AI: {musicPrompt}</span>
++                    <Badge variant="secondary" className="shrink-0">+1 unit</Badge>
++                    <button
++                      type="button"
++                      aria-label="Remove AI music"
++                      onClick={() => setMusicPrompt("")}
++                      className="ml-auto"
++                    >
++                      <X className="h-4 w-4" />
++                    </button>
++                  </div>
++                ) : aiMusicOpen ? (
++                  <div className="flex gap-2">
++                    <Input
++                      autoFocus
++                      placeholder="lofi chill beat, warm and mellow"
++                      maxLength={200}
++                      value={aiMusicDraft}
++                      onChange={(e) => setAiMusicDraft(e.target.value)}
++                      data-testid="input-ai-music"
++                    />
++                    <Button
++                      type="button"
++                      size="sm"
++                      disabled={!aiMusicDraft.trim()}
++                      onClick={() => {
++                        setMusicPrompt(aiMusicDraft.trim());
++                        setAiMusicOpen(false);
++                        setAiMusicDraft("");
++                      }}
++                      data-testid="button-set-ai-music"
++                    >
++                      Set
++                    </Button>
++                  </div>
++                ) : (
++                  <div className="flex flex-wrap gap-2">
++                    <Button
++                      type="button"
++                      variant="outline"
++                      size="sm"
++                      disabled={uploading}
++                      onClick={() => musicInputRef.current?.click()}
++                      data-testid="button-upload-music"
++                    >
++                      <Upload className="h-4 w-4 mr-1.5" /> Upload
++                    </Button>
++                    <Button
++                      type="button"
++                      variant="outline"
++                      size="sm"
++                      onClick={() => setMusicLibraryOpen(true)}
++                      data-testid="button-music-library"
++                    >
++                      <Library className="h-4 w-4 mr-1.5" /> Library
++                    </Button>
++                    <Button
++                      type="button"
++                      variant="outline"
++                      size="sm"
++                      onClick={() => setAiMusicOpen(true)}
++                      data-testid="button-ai-music"
++                    >
++                      <Sparkles className="h-4 w-4 mr-1.5" /> AI compose
++                    </Button>
++                  </div>
+                 )}
+                 <input
+                   ref={musicInputRef}
+@@ -1052,10 +1128,138 @@ export function VideoStudioPage() {
+       />
+ 
+       <CharacterManagerDialog open={charactersOpen} onOpenChange={setCharactersOpen} />
++
++      <MusicLibraryDialog
++        open={musicLibraryOpen}
++        onOpenChange={setMusicLibraryOpen}
++        onPick={(musicPath, title) => {
++          setMusic({ objectPath: musicPath, name: title });
++          setMusicPrompt("");
++          setMusicLibraryOpen(false);
++        }}
++      />
+     </div>
+   );
+ }
+ 
++/** Search the built-in CC-licensed music library and import a pick. */
++function MusicLibraryDialog({
++  open,
++  onOpenChange,
++  onPick,
++}: {
++  open: boolean;
++  onOpenChange: (open: boolean) => void;
++  onPick: (musicPath: string, title: string) => void;
++}) {
++  const { toast } = useToast();
++  const [draft, setDraft] = useState("");
++  const [query, setQuery] = useState("");
++  const importMusic = useImportLibraryMusic();
++  const { data, isFetching } = useSearchMusicLibrary(
++    { q: query },
++    {
++      query: {
++        queryKey: getSearchMusicLibraryQueryKey({ q: query }),
++        enabled: open && query.length >= 2,
++      },
++    },
++  );
++  const tracks: MusicTrack[] = data?.tracks ?? [];
++
++  const pick = (track: MusicTrack) => {
++    importMusic.mutate(
++      { data: { audioUrl: track.audioUrl, title: track.title } },
++      {
++        onSuccess: (res) => onPick(res.musicPath, res.title),
++        onError: () =>
++          toast({
++            title: "Import failed",
++            description: "That track couldn't be imported. Try another one.",
++            variant: "destructive",
++          }),
++      },
++    );
++  };
++
++  return (
++    <Dialog open={open} onOpenChange={onOpenChange}>
++      <DialogContent className="sm:max-w-lg">
++        <DialogHeader>
++          <DialogTitle>Music library</DialogTitle>
++          <DialogDescription>
++            Free Creative-Commons tracks, licensed for commercial use. The license travels
++            with your pick.
++          </DialogDescription>
++        </DialogHeader>
++        <form
++          className="flex gap-2"
++          onSubmit={(e) => {
++            e.preventDefault();
++            setQuery(draft.trim());
++          }}
++        >
++          <Input
++            autoFocus
++            placeholder="upbeat pop, lofi, cinematic…"
++            value={draft}
++            onChange={(e) => setDraft(e.target.value)}
++            data-testid="input-music-search"
++          />
++          <Button type="submit" size="sm" disabled={draft.trim().length < 2}>
++            Search
++          </Button>
++        </form>
++        <div className="max-h-80 overflow-y-auto space-y-2">
++          {isFetching && (
++            <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
++              <RippleSpinner className="h-4 w-4" /> Searching…
++            </div>
++          )}
++          {!isFetching && query && tracks.length === 0 && (
++            <p className="text-sm text-muted-foreground py-4">No tracks found — try another mood.</p>
++          )}
++          {tracks.map((track) => (
++            <div
++              key={track.id}
++              className="border border-border rounded-md px-3 py-2 space-y-1.5"
++              data-testid={`track-${track.id}`}
++            >
++              <div className="flex items-center gap-2 text-sm">
++                <span className="truncate font-medium">{track.title}</span>
++                {track.creator && (
++                  <span className="text-muted-foreground truncate">· {track.creator}</span>
++                )}
++                <Badge variant="secondary" className="ml-auto shrink-0 uppercase">
++                  {track.license}
++                </Badge>
++                {track.durationSec != null && (
++                  <span className="text-xs text-muted-foreground shrink-0">
++                    {Math.floor(track.durationSec / 60)}:
++                    {String(track.durationSec % 60).padStart(2, "0")}
++                  </span>
++                )}
++              </div>
++              <div className="flex items-center gap-2">
++                <audio controls preload="none" src={track.audioUrl} className="h-8 w-full" />
++                <Button
++                  type="button"
++                  size="sm"
++                  disabled={importMusic.isPending}
++                  onClick={() => pick(track)}
++                  data-testid={`button-pick-track-${track.id}`}
++                >
++                  Use
++                </Button>
++              </div>
++            </div>
++          ))}
++        </div>
++      </DialogContent>
++    </Dialog>
++  );
++}
++
+ /** Pick a locked character (and outfit) for identity-consistent videos. */
+ function CharacterPicker({
+   characters,
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index 7f3b627..ba5b025 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -2512,6 +2512,12 @@ export interface VideoGenerateRequest {
+      * @nullable
+      */
+   musicPath?: string | null;
++  /**
++     * Slideshow and topic_to_video; describe a mood/style and an AI music bed is composed for the video (+1 video unit). Ignored when musicPath is set.
++     * @maxLength 200
++     * @nullable
++     */
++  musicPrompt?: string | null;
+   /** topic_to_video only; the narration voice. */
+   voice?: VideoGenerateRequestVoice;
+   /** topic_to_video only; where stock footage comes from (auto = first configured source). */
+@@ -2604,6 +2610,44 @@ export interface VideoJob {
+   updatedAt: string;
+ }
+ 
++export interface MusicTrack {
++  id: string;
++  title: string;
++  /** @nullable */
++  creator?: string | null;
++  /** License slug (e.g. "by", "by-sa", "cc0"). */
++  license: string;
++  /** @nullable */
++  licenseUrl?: string | null;
++  /** @nullable */
++  durationSec?: number | null;
++  /** Direct https audio URL (also usable for preview). */
++  audioUrl: string;
++}
++
++export interface MusicSearchResults {
++  tracks: MusicTrack[];
++}
++
++export interface ImportLibraryMusicRequest {
++  /**
++     * @minLength 12
++     * @maxLength 2000
++     */
++  audioUrl: string;
++  /**
++     * @minLength 1
++     * @maxLength 200
++     */
++  title: string;
++}
++
++export interface LibraryMusicImportResult {
++  /** /objects/... path usable as generate-video musicPath. */
++  musicPath: string;
++  title: string;
++}
++
+ export interface SaveVideoToLibraryRequest {
+   /**
+      * @minLength 1
+@@ -4579,6 +4623,14 @@ export type ListBrandKitsParams = {
+ includeArchived?: boolean;
+ };
+ 
++export type SearchMusicLibraryParams = {
++/**
++ * @minLength 2
++ * @maxLength 80
++ */
++q: string;
++};
++
+ export type ListNotificationsParams = {
+ /**
+  * When true, include recently read notifications too.
+diff --git a/lib/api-client-react/src/generated/api.ts b/lib/api-client-react/src/generated/api.ts
+index 35a9079..00c8514 100644
+--- a/lib/api-client-react/src/generated/api.ts
++++ b/lib/api-client-react/src/generated/api.ts
+@@ -155,8 +155,10 @@ import type {
+   ImageResult,
+   ImportDriveFilesRequest,
+   ImportDriveFilesResult,
++  ImportLibraryMusicRequest,
+   InstagramCredentialInput,
+   LeaveTeamResult,
++  LibraryMusicImportResult,
+   LinkedInAuthUrlResult,
+   LinkedInStatus,
+   LinkedinAppCredentialInput,
+@@ -169,6 +171,7 @@ import type {
+   MeProfile,
+   MetaAppCredentialInput,
+   MetaAppCredentialStatus,
++  MusicSearchResults,
+   Notification,
+   NotificationPolicy,
+   NotificationSettings,
+@@ -210,6 +213,7 @@ import type {
+   ScheduledPost,
+   SearchLinkedinGeoTargetsParams,
+   SearchLinkedinTargetingParams,
++  SearchMusicLibraryParams,
+   SeatRequestCreateInput,
+   SeatRequestDecisionInput,
+   SendTestEmailInput,
+@@ -8238,6 +8242,162 @@ export const useGenerateVideo = <TError = ErrorType<ErrorEnvelope>,
+       return useMutation(getGenerateVideoMutationOptions(options));
+     }
+ 
++export const getSearchMusicLibraryUrl = (params: SearchMusicLibraryParams,) => {
++  const normalizedParams = new URLSearchParams();
++
++  Object.entries(params || {}).forEach(([key, value]) => {
++
++    if (value !== undefined) {
++      normalizedParams.append(key, value === null ? 'null' : String(value))
++    }
++  });
++
++  const stringifiedParams = normalizedParams.toString();
++
++  return stringifiedParams.length > 0 ? `/api/ai/music/search?${stringifiedParams}` : `/api/ai/music/search`
++}
++
++/**
++ * Searches Openverse for commercially-usable Creative-Commons music. License and attribution travel with every result; pick a track and import it with POST /ai/music/import.
++ * @summary Search the built-in background-music library (CC-licensed)
++ */
++export const searchMusicLibrary = async (params: SearchMusicLibraryParams, options?: RequestInit): Promise<MusicSearchResults> => {
++
++  return customFetch<MusicSearchResults>(getSearchMusicLibraryUrl(params),
++  {
++    ...options,
++    method: 'GET'
++
++
++  }
++);}
++
++
++
++
++
++export const getSearchMusicLibraryQueryKey = (params?: SearchMusicLibraryParams,) => {
++    return [
++    `/api/ai/music/search`, ...(params ? [params] : [])
++    ] as const;
++    }
++
++
++export const getSearchMusicLibraryQueryOptions = <TData = Awaited<ReturnType<typeof searchMusicLibrary>>, TError = ErrorType<ErrorEnvelope>>(params: SearchMusicLibraryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchMusicLibrary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++) => {
++
++const {query: queryOptions, request: requestOptions} = options ?? {};
++
++  const queryKey =  queryOptions?.queryKey ?? getSearchMusicLibraryQueryKey(params);
++
++
++
++    const queryFn: QueryFunction<Awaited<ReturnType<typeof searchMusicLibrary>>> = ({ signal }) => searchMusicLibrary(params, { signal, ...requestOptions });
++
++
++
++
++
++   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof searchMusicLibrary>>, TError, TData> & { queryKey: QueryKey }
++}
++
++export type SearchMusicLibraryQueryResult = NonNullable<Awaited<ReturnType<typeof searchMusicLibrary>>>
++export type SearchMusicLibraryQueryError = ErrorType<ErrorEnvelope>
++
++
++/**
++ * @summary Search the built-in background-music library (CC-licensed)
++ */
++
++export function useSearchMusicLibrary<TData = Awaited<ReturnType<typeof searchMusicLibrary>>, TError = ErrorType<ErrorEnvelope>>(
++ params: SearchMusicLibraryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchMusicLibrary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++
++ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
++
++  const queryOptions = getSearchMusicLibraryQueryOptions(params,options)
++
++  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
++
++  return withQueryKey(query, queryOptions.queryKey);
++}
++
++
++
++
++
++
++
++export const getImportLibraryMusicUrl = () => {
++
++
++
++
++  return `/api/ai/music/import`
++}
++
++/**
++ * Downloads the chosen track server-side (https-only, size-capped) and stores it in the workspace, returning a musicPath usable in generate-video.
++ * @summary Import a library track into this workspace's storage
++ */
++export const importLibraryMusic = async (importLibraryMusicRequest: ImportLibraryMusicRequest, options?: RequestInit): Promise<LibraryMusicImportResult> => {
++
++  return customFetch<LibraryMusicImportResult>(getImportLibraryMusicUrl(),
++  {
++    ...options,
++    method: 'POST',
++    headers: { 'Content-Type': 'application/json', ...options?.headers },
++    body: JSON.stringify(importLibraryMusicRequest)
++  }
++);}
++
++
++
++
++export const getImportLibraryMusicMutationOptions = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importLibraryMusic>>, TError,{data: BodyType<ImportLibraryMusicRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof importLibraryMusic>>, TError,{data: BodyType<ImportLibraryMusicRequest>}, TContext> => {
++
++const mutationKey = ['importLibraryMusic'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importLibraryMusic>>, {data: BodyType<ImportLibraryMusicRequest>}> = (props) => {
++          const {data} = props ?? {};
++
++          return  importLibraryMusic(data,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type ImportLibraryMusicMutationResult = NonNullable<Awaited<ReturnType<typeof importLibraryMusic>>>
++    export type ImportLibraryMusicMutationBody = BodyType<ImportLibraryMusicRequest>
++    export type ImportLibraryMusicMutationError = ErrorType<ErrorEnvelope>
++
++    /**
++ * @summary Import a library track into this workspace's storage
++ */
++export const useImportLibraryMusic = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importLibraryMusic>>, TError,{data: BodyType<ImportLibraryMusicRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof importLibraryMusic>>,
++        TError,
++        {data: BodyType<ImportLibraryMusicRequest>},
++        TContext
++      > => {
++      return useMutation(getImportLibraryMusicMutationOptions(options));
++    }
++
+ export const getListVideoJobsUrl = () => {
+ 
+ 
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index c5ab194..b9fdad4 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -3012,6 +3012,64 @@ paths:
+             application/json:
+               schema:
+                 $ref: "#/components/schemas/ErrorEnvelope"
++  /ai/music/search:
++    get:
++      operationId: searchMusicLibrary
++      tags: [ai]
++      summary: Search the built-in background-music library (CC-licensed)
++      description: >-
++        Searches Openverse for commercially-usable Creative-Commons music.
++        License and attribution travel with every result; pick a track and
++        import it with POST /ai/music/import.
++      parameters:
++        - name: q
++          in: query
++          required: true
++          schema:
++            type: string
++            minLength: 2
++            maxLength: 80
++      responses:
++        "200":
++          description: Matching tracks
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/MusicSearchResults"
++        "400":
++          description: Invalid query
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++  /ai/music/import:
++    post:
++      operationId: importLibraryMusic
++      tags: [ai]
++      summary: Import a library track into this workspace's storage
++      description: >-
++        Downloads the chosen track server-side (https-only, size-capped) and
++        stores it in the workspace, returning a musicPath usable in
++        generate-video.
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              $ref: "#/components/schemas/ImportLibraryMusicRequest"
++      responses:
++        "200":
++          description: Track imported
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/LibraryMusicImportResult"
++        "400":
++          description: Invalid or oversized track
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
+   /ai/video-jobs:
+     get:
+       operationId: listVideoJobs
+@@ -10064,6 +10122,13 @@ components:
+           description: >-
+             Slideshow and topic_to_video; /objects/... path of an uploaded
+             music track, faded out at the end of the video.
++        musicPrompt:
++          type: ["string", "null"]
++          maxLength: 200
++          description: >-
++            Slideshow and topic_to_video; describe a mood/style and an AI
++            music bed is composed for the video (+1 video unit). Ignored
++            when musicPath is set.
+         voice:
+           type: string
+           enum: [alloy, echo, fable, onyx, nova, shimmer]
+@@ -10169,6 +10234,55 @@ components:
+         updatedAt:
+           type: string
+           format: date-time
++    MusicTrack:
++      type: object
++      required: [id, title, license, audioUrl]
++      properties:
++        id:
++          type: string
++        title:
++          type: string
++        creator:
++          type: ["string", "null"]
++        license:
++          type: string
++          description: License slug (e.g. "by", "by-sa", "cc0").
++        licenseUrl:
++          type: ["string", "null"]
++        durationSec:
++          type: ["integer", "null"]
++        audioUrl:
++          type: string
++          description: Direct https audio URL (also usable for preview).
++    MusicSearchResults:
++      type: object
++      required: [tracks]
++      properties:
++        tracks:
++          type: array
++          items:
++            $ref: "#/components/schemas/MusicTrack"
++    ImportLibraryMusicRequest:
++      type: object
++      required: [audioUrl, title]
++      properties:
++        audioUrl:
++          type: string
++          minLength: 12
++          maxLength: 2000
++        title:
++          type: string
++          minLength: 1
++          maxLength: 200
++    LibraryMusicImportResult:
++      type: object
++      required: [musicPath, title]
++      properties:
++        musicPath:
++          type: string
++          description: /objects/... path usable as generate-video musicPath.
++        title:
++          type: string
+     SaveVideoToLibraryRequest:
+       type: object
+       required: [title]
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index 6e1306a..9385ee4 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -5039,6 +5039,8 @@ export const generateVideoBodySlideDurationSecMax = 10;
+ 
+ export const generateVideoBodyOverlayTextMax = 120;
+ 
++export const generateVideoBodyMusicPromptMax = 200;
++
+ export const generateVideoBodyVoiceDefault = `alloy`;
+ export const generateVideoBodyStockSourceDefault = `auto`;
+ export const generateVideoBodySubtitlesDefault = true;
+@@ -5060,6 +5062,7 @@ export const GenerateVideoBody = zod.object({
+   "slideDurationSec": zod.number().min(1).max(generateVideoBodySlideDurationSecMax).default(generateVideoBodySlideDurationSecDefault).describe('Slideshow only; seconds each photo is on screen.'),
+   "overlayText": zod.string().max(generateVideoBodyOverlayTextMax).nullish().describe('Slideshow only; caption burned into the video.'),
+   "musicPath": zod.string().nullish().describe('Slideshow and topic_to_video; \/objects\/... path of an uploaded music track, faded out at the end of the video.'),
++  "musicPrompt": zod.string().max(generateVideoBodyMusicPromptMax).nullish().describe('Slideshow and topic_to_video; describe a mood\/style and an AI music bed is composed for the video (+1 video unit). Ignored when musicPath is set.'),
+   "voice": zod.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']).default(generateVideoBodyVoiceDefault).describe('topic_to_video only; the narration voice.'),
+   "stockSource": zod.enum(['auto', 'pexels', 'pixabay']).default(generateVideoBodyStockSourceDefault).describe('topic_to_video only; where stock footage comes from (auto = first configured source).'),
+   "subtitles": zod.boolean().default(generateVideoBodySubtitlesDefault).describe('topic_to_video only; burn per-sentence subtitles.'),
+@@ -5090,6 +5093,54 @@ export const GenerateVideoResponse = zod.object({
+ })
+ 
+ 
++/**
++ * Searches Openverse for commercially-usable Creative-Commons music. License and attribution travel with every result; pick a track and import it with POST /ai/music/import.
++ * @summary Search the built-in background-music library (CC-licensed)
++ */
++export const searchMusicLibraryQueryQMin = 2;
++export const searchMusicLibraryQueryQMax = 80;
++
++
++
++export const SearchMusicLibraryQueryParams = zod.object({
++  "q": zod.coerce.string().min(searchMusicLibraryQueryQMin).max(searchMusicLibraryQueryQMax)
++})
++
++export const SearchMusicLibraryResponse = zod.object({
++  "tracks": zod.array(zod.object({
++  "id": zod.string(),
++  "title": zod.string(),
++  "creator": zod.string().nullish(),
++  "license": zod.string().describe('License slug (e.g. \"by\", \"by-sa\", \"cc0\").'),
++  "licenseUrl": zod.string().nullish(),
++  "durationSec": zod.number().nullish(),
++  "audioUrl": zod.string().describe('Direct https audio URL (also usable for preview).')
++}))
++})
++
++
++/**
++ * Downloads the chosen track server-side (https-only, size-capped) and stores it in the workspace, returning a musicPath usable in generate-video.
++ * @summary Import a library track into this workspace's storage
++ */
++export const importLibraryMusicBodyAudioUrlMin = 12;
++export const importLibraryMusicBodyAudioUrlMax = 2000;
++
++export const importLibraryMusicBodyTitleMax = 200;
++
++
++
++export const ImportLibraryMusicBody = zod.object({
++  "audioUrl": zod.string().min(importLibraryMusicBodyAudioUrlMin).max(importLibraryMusicBodyAudioUrlMax),
++  "title": zod.string().min(1).max(importLibraryMusicBodyTitleMax)
++})
++
++export const ImportLibraryMusicResponse = zod.object({
++  "musicPath": zod.string().describe('\/objects\/... path usable as generate-video musicPath.'),
++  "title": zod.string()
++})
++
++
+ /**
+  * @summary List this workspace's recent video generation jobs (newest first)
+  */
+diff --git a/lib/api-zod/src/generated/types/importLibraryMusicRequest.ts b/lib/api-zod/src/generated/types/importLibraryMusicRequest.ts
+new file mode 100644
+index 0000000..fa324ef
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/importLibraryMusicRequest.ts
+@@ -0,0 +1,20 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface ImportLibraryMusicRequest {
++  /**
++     * @minLength 12
++     * @maxLength 2000
++     */
++  audioUrl: string;
++  /**
++     * @minLength 1
++     * @maxLength 200
++     */
++  title: string;
++}
+diff --git a/lib/api-zod/src/generated/types/index.ts b/lib/api-zod/src/generated/types/index.ts
+index 7cfa6bf..0d8542c 100644
+--- a/lib/api-zod/src/generated/types/index.ts
++++ b/lib/api-zod/src/generated/types/index.ts
+@@ -251,8 +251,10 @@ export * from './importDriveFilesRequest';
+ export * from './importDriveFilesResult';
+ export * from './importDriveFilesResultFailedItem';
+ export * from './importDriveFilesResultImportedItem';
++export * from './importLibraryMusicRequest';
+ export * from './instagramCredentialInput';
+ export * from './leaveTeamResult';
++export * from './libraryMusicImportResult';
+ export * from './linkedinAppCredentialInput';
+ export * from './linkedinAppCredentialStatus';
+ export * from './linkedInAuthUrlResult';
+@@ -265,6 +267,8 @@ export * from './listNotificationsParams';
+ export * from './meProfile';
+ export * from './metaAppCredentialInput';
+ export * from './metaAppCredentialStatus';
++export * from './musicSearchResults';
++export * from './musicTrack';
+ export * from './nameCount';
+ export * from './notification';
+ export * from './notificationChannelPreference';
+@@ -331,6 +335,7 @@ export * from './scheduleUpdateStatus';
+ export * from './searchLinkedinGeoTargetsParams';
+ export * from './searchLinkedinTargetingFacet';
+ export * from './searchLinkedinTargetingParams';
++export * from './searchMusicLibraryParams';
+ export * from './seatRequest';
+ export * from './seatRequestCreateInput';
+ export * from './seatRequestDecisionInput';
+diff --git a/lib/api-zod/src/generated/types/libraryMusicImportResult.ts b/lib/api-zod/src/generated/types/libraryMusicImportResult.ts
+new file mode 100644
+index 0000000..8140278
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/libraryMusicImportResult.ts
+@@ -0,0 +1,13 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface LibraryMusicImportResult {
++  /** /objects/... path usable as generate-video musicPath. */
++  musicPath: string;
++  title: string;
++}
+diff --git a/lib/api-zod/src/generated/types/musicSearchResults.ts b/lib/api-zod/src/generated/types/musicSearchResults.ts
+new file mode 100644
+index 0000000..c0d357f
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/musicSearchResults.ts
+@@ -0,0 +1,12 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { MusicTrack } from './musicTrack';
++
++export interface MusicSearchResults {
++  tracks: MusicTrack[];
++}
+diff --git a/lib/api-zod/src/generated/types/musicTrack.ts b/lib/api-zod/src/generated/types/musicTrack.ts
+new file mode 100644
+index 0000000..1e8f3ed
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/musicTrack.ts
+@@ -0,0 +1,22 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface MusicTrack {
++  id: string;
++  title: string;
++  /** @nullable */
++  creator?: string | null;
++  /** License slug (e.g. "by", "by-sa", "cc0"). */
++  license: string;
++  /** @nullable */
++  licenseUrl?: string | null;
++  /** @nullable */
++  durationSec?: number | null;
++  /** Direct https audio URL (also usable for preview). */
++  audioUrl: string;
++}
+diff --git a/lib/api-zod/src/generated/types/searchMusicLibraryParams.ts b/lib/api-zod/src/generated/types/searchMusicLibraryParams.ts
+new file mode 100644
+index 0000000..b290313
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/searchMusicLibraryParams.ts
+@@ -0,0 +1,15 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type SearchMusicLibraryParams = {
++/**
++ * @minLength 2
++ * @maxLength 80
++ */
++q: string;
++};
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequest.ts b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+index 58b39d3..f9a0449 100644
+--- a/lib/api-zod/src/generated/types/videoGenerateRequest.ts
++++ b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+@@ -50,6 +50,12 @@ export interface VideoGenerateRequest {
+      * @nullable
+      */
+   musicPath?: string | null;
++  /**
++     * Slideshow and topic_to_video; describe a mood/style and an AI music bed is composed for the video (+1 video unit). Ignored when musicPath is set.
++     * @maxLength 200
++     * @nullable
++     */
++  musicPrompt?: string | null;
+   /** topic_to_video only; the narration voice. */
+   voice?: VideoGenerateRequestVoice;
+   /** topic_to_video only; where stock footage comes from (auto = first configured source). */
+diff --git a/lib/db/src/schema/videoGenerations.ts b/lib/db/src/schema/videoGenerations.ts
+index 3d1d0c4..29ec8c8 100644
+--- a/lib/db/src/schema/videoGenerations.ts
++++ b/lib/db/src/schema/videoGenerations.ts
+@@ -30,6 +30,9 @@ export interface VideoJobOptions {
+   overlayText?: string | null;
+   /** Slideshow + topic_to_video: optional /objects/... path of a music track. */
+   musicPath?: string | null;
++  /** Slideshow + topic_to_video: AI-composed music bed description (used
++   * only when musicPath is null; costs one extra video unit). */
++  musicPrompt?: string | null;
+   /** topic_to_video: narration voice. */
+   voice?: string;
+   /** topic_to_video: stock footage source ("auto" | "pexels" | "pixabay"). */
+-- 
+2.43.0
+

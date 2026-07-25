@@ -2512,6 +2512,12 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   musicPath?: string | null;
+  /**
+     * Slideshow and topic_to_video; describe a mood/style and an AI music bed is composed for the video (+1 video unit). Ignored when musicPath is set.
+     * @maxLength 200
+     * @nullable
+     */
+  musicPrompt?: string | null;
   /** topic_to_video only; the narration voice. */
   voice?: VideoGenerateRequestVoice;
   /** topic_to_video only; where stock footage comes from (auto = first configured source). */
@@ -2602,6 +2608,44 @@ export interface VideoJob {
   durationMs?: number | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface MusicTrack {
+  id: string;
+  title: string;
+  /** @nullable */
+  creator?: string | null;
+  /** License slug (e.g. "by", "by-sa", "cc0"). */
+  license: string;
+  /** @nullable */
+  licenseUrl?: string | null;
+  /** @nullable */
+  durationSec?: number | null;
+  /** Direct https audio URL (also usable for preview). */
+  audioUrl: string;
+}
+
+export interface MusicSearchResults {
+  tracks: MusicTrack[];
+}
+
+export interface ImportLibraryMusicRequest {
+  /**
+     * @minLength 12
+     * @maxLength 2000
+     */
+  audioUrl: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title: string;
+}
+
+export interface LibraryMusicImportResult {
+  /** /objects/... path usable as generate-video musicPath. */
+  musicPath: string;
+  title: string;
 }
 
 export interface SaveVideoToLibraryRequest {
@@ -4578,6 +4622,14 @@ export const AdminExportAuditLogsAction = {
 
 export type ListBrandKitsParams = {
 includeArchived?: boolean;
+};
+
+export type SearchMusicLibraryParams = {
+/**
+ * @minLength 2
+ * @maxLength 80
+ */
+q: string;
 };
 
 export type ListNotificationsParams = {

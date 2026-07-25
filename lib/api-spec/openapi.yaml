@@ -3012,6 +3012,64 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/music/search:
+    get:
+      operationId: searchMusicLibrary
+      tags: [ai]
+      summary: Search the built-in background-music library (CC-licensed)
+      description: >-
+        Searches Openverse for commercially-usable Creative-Commons music.
+        License and attribution travel with every result; pick a track and
+        import it with POST /ai/music/import.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 80
+      responses:
+        "200":
+          description: Matching tracks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MusicSearchResults"
+        "400":
+          description: Invalid query
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/music/import:
+    post:
+      operationId: importLibraryMusic
+      tags: [ai]
+      summary: Import a library track into this workspace's storage
+      description: >-
+        Downloads the chosen track server-side (https-only, size-capped) and
+        stores it in the workspace, returning a musicPath usable in
+        generate-video.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportLibraryMusicRequest"
+      responses:
+        "200":
+          description: Track imported
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryMusicImportResult"
+        "400":
+          description: Invalid or oversized track
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/video-jobs:
     get:
       operationId: listVideoJobs
@@ -10064,6 +10122,13 @@ components:
           description: >-
             Slideshow and topic_to_video; /objects/... path of an uploaded
             music track, faded out at the end of the video.
+        musicPrompt:
+          type: ["string", "null"]
+          maxLength: 200
+          description: >-
+            Slideshow and topic_to_video; describe a mood/style and an AI
+            music bed is composed for the video (+1 video unit). Ignored
+            when musicPath is set.
         voice:
           type: string
           enum: [alloy, echo, fable, onyx, nova, shimmer]
@@ -10169,6 +10234,55 @@ components:
         updatedAt:
           type: string
           format: date-time
+    MusicTrack:
+      type: object
+      required: [id, title, license, audioUrl]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        creator:
+          type: ["string", "null"]
+        license:
+          type: string
+          description: License slug (e.g. "by", "by-sa", "cc0").
+        licenseUrl:
+          type: ["string", "null"]
+        durationSec:
+          type: ["integer", "null"]
+        audioUrl:
+          type: string
+          description: Direct https audio URL (also usable for preview).
+    MusicSearchResults:
+      type: object
+      required: [tracks]
+      properties:
+        tracks:
+          type: array
+          items:
+            $ref: "#/components/schemas/MusicTrack"
+    ImportLibraryMusicRequest:
+      type: object
+      required: [audioUrl, title]
+      properties:
+        audioUrl:
+          type: string
+          minLength: 12
+          maxLength: 2000
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+    LibraryMusicImportResult:
+      type: object
+      required: [musicPath, title]
+      properties:
+        musicPath:
+          type: string
+          description: /objects/... path usable as generate-video musicPath.
+        title:
+          type: string
     SaveVideoToLibraryRequest:
       type: object
       required: [title]

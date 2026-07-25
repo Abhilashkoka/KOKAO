@@ -5040,6 +5040,8 @@ export const generateVideoBodySlideDurationSecMax = 10;
 
 export const generateVideoBodyOverlayTextMax = 120;
 
+export const generateVideoBodyMusicPromptMax = 200;
+
 export const generateVideoBodyVoiceDefault = `alloy`;
 export const generateVideoBodyStockSourceDefault = `auto`;
 export const generateVideoBodySubtitlesDefault = true;
@@ -5061,6 +5063,7 @@ export const GenerateVideoBody = zod.object({
   "slideDurationSec": zod.number().min(1).max(generateVideoBodySlideDurationSecMax).default(generateVideoBodySlideDurationSecDefault).describe('Slideshow only; seconds each photo is on screen.'),
   "overlayText": zod.string().max(generateVideoBodyOverlayTextMax).nullish().describe('Slideshow only; caption burned into the video.'),
   "musicPath": zod.string().nullish().describe('Slideshow and topic_to_video; \/objects\/... path of an uploaded music track, faded out at the end of the video.'),
+  "musicPrompt": zod.string().max(generateVideoBodyMusicPromptMax).nullish().describe('Slideshow and topic_to_video; describe a mood\/style and an AI music bed is composed for the video (+1 video unit). Ignored when musicPath is set.'),
   "voice": zod.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']).default(generateVideoBodyVoiceDefault).describe('topic_to_video only; the narration voice.'),
   "stockSource": zod.enum(['auto', 'pexels', 'pixabay']).default(generateVideoBodyStockSourceDefault).describe('topic_to_video only; where stock footage comes from (auto = first configured source).'),
   "subtitles": zod.boolean().default(generateVideoBodySubtitlesDefault).describe('topic_to_video only; burn per-sentence subtitles.'),
@@ -5088,6 +5091,54 @@ export const GenerateVideoResponse = zod.object({
   "durationMs": zod.number().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * Searches Openverse for commercially-usable Creative-Commons music. License and attribution travel with every result; pick a track and import it with POST /ai/music/import.
+ * @summary Search the built-in background-music library (CC-licensed)
+ */
+export const searchMusicLibraryQueryQMin = 2;
+export const searchMusicLibraryQueryQMax = 80;
+
+
+
+export const SearchMusicLibraryQueryParams = zod.object({
+  "q": zod.coerce.string().min(searchMusicLibraryQueryQMin).max(searchMusicLibraryQueryQMax)
+})
+
+export const SearchMusicLibraryResponse = zod.object({
+  "tracks": zod.array(zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "creator": zod.string().nullish(),
+  "license": zod.string().describe('License slug (e.g. \"by\", \"by-sa\", \"cc0\").'),
+  "licenseUrl": zod.string().nullish(),
+  "durationSec": zod.number().nullish(),
+  "audioUrl": zod.string().describe('Direct https audio URL (also usable for preview).')
+}))
+})
+
+
+/**
+ * Downloads the chosen track server-side (https-only, size-capped) and stores it in the workspace, returning a musicPath usable in generate-video.
+ * @summary Import a library track into this workspace's storage
+ */
+export const importLibraryMusicBodyAudioUrlMin = 12;
+export const importLibraryMusicBodyAudioUrlMax = 2000;
+
+export const importLibraryMusicBodyTitleMax = 200;
+
+
+
+export const ImportLibraryMusicBody = zod.object({
+  "audioUrl": zod.string().min(importLibraryMusicBodyAudioUrlMin).max(importLibraryMusicBodyAudioUrlMax),
+  "title": zod.string().min(1).max(importLibraryMusicBodyTitleMax)
+})
+
+export const ImportLibraryMusicResponse = zod.object({
+  "musicPath": zod.string().describe('\/objects\/... path usable as generate-video musicPath.'),
+  "title": zod.string()
 })
 
 

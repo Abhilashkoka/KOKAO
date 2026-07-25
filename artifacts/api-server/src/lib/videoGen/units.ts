@@ -11,15 +11,24 @@ import { CHARACTER_SCENES_PER_PARAGRAPH } from "./topicVideo/characterScenes";
  * the job runner refunds the same amount if the job fails.
  */
 export function videoJobUnits(engine: string, options: VideoJobOptions | null): number {
+  let units = 1;
   if (engine === "topic_to_video" && options?.visualsSource === "character") {
     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
-    return CHARACTER_SCENES_PER_PARAGRAPH * paragraphs;
-  }
-  // AI b-roll: every scene is a generated image (no image-to-video calls),
-  // so it prices at half the character rate: Short = 2, Medium = 4, Long = 6.
-  if (engine === "topic_to_video" && options?.visualsSource === "ai") {
+    units = CHARACTER_SCENES_PER_PARAGRAPH * paragraphs;
+  } else if (engine === "topic_to_video" && options?.visualsSource === "ai") {
+    // AI b-roll: every scene is a generated image (no image-to-video calls),
+    // so it prices at half the character rate: Short = 2, Medium = 4, Long = 6.
     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
-    return 2 * paragraphs;
+    units = 2 * paragraphs;
   }
-  return 1;
+  // An AI-composed music bed is its own real generation: +1 unit. Only
+  // charged when no uploaded track takes precedence.
+  if (
+    (engine === "topic_to_video" || engine === "slideshow") &&
+    !options?.musicPath &&
+    options?.musicPrompt?.trim()
+  ) {
+    units += 1;
+  }
+  return units;
 }

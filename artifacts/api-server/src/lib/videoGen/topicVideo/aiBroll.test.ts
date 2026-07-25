@@ -32,6 +32,24 @@ describe("videoJobUnits for AI b-roll", () => {
     ).toBe(4);
     expect(videoJobUnits("topic_to_video", { ...base, visualsSource: "stock", paragraphCount: 3 })).toBe(1);
   });
+
+  it("adds one unit for an AI-composed music bed (unless a track is uploaded)", () => {
+    const base = { aspectRatio: "9:16" as const };
+    expect(videoJobUnits("topic_to_video", { ...base, musicPrompt: "lofi" })).toBe(2);
+    expect(videoJobUnits("slideshow", { ...base, musicPrompt: "lofi" })).toBe(2);
+    expect(
+      videoJobUnits("slideshow", { ...base, musicPrompt: "lofi", musicPath: "/objects/1/u/t.mp3" }),
+    ).toBe(1);
+    expect(
+      videoJobUnits("topic_to_video", {
+        ...base,
+        visualsSource: "ai",
+        paragraphCount: 2,
+        musicPrompt: "epic",
+      }),
+    ).toBe(5);
+    expect(videoJobUnits("text_to_video", { ...base, musicPrompt: "lofi" })).toBe(1);
+  });
 });
 
 describe("assignClipsToScenes fail-soft guarantees", () => {

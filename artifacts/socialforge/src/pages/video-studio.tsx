@@ -15,6 +15,9 @@ import {
   useDeleteCharacter,
   useCreateCharacterOutfit,
   useDeleteCharacterOutfit,
+  useSearchMusicLibrary,
+  useImportLibraryMusic,
+  getSearchMusicLibraryQueryKey,
   getGoogleDriveAuthUrl,
   getListVideoJobsQueryKey,
   getGetVideoJobQueryKey,
@@ -25,6 +28,7 @@ import {
   type VideoJob,
   type GoogleDriveFile,
   type Character,
+  type MusicTrack,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -170,6 +174,10 @@ export function VideoStudioPage() {
   const [charactersOpen, setCharactersOpen] = useState(false);
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [music, setMusic] = useState<{ objectPath: string; name: string } | null>(null);
+  const [musicPrompt, setMusicPrompt] = useState("");
+  const [aiMusicDraft, setAiMusicDraft] = useState("");
+  const [aiMusicOpen, setAiMusicOpen] = useState(false);
+  const [musicLibraryOpen, setMusicLibraryOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
 
@@ -316,6 +324,7 @@ export function VideoStudioPage() {
     try {
       const objectPath = await uploadFile(file);
       setMusic({ objectPath, name: file.name });
+      setMusicPrompt("");
     } catch {
       toast({ title: "Upload failed", description: "Could not upload the track. Please try again.", variant: "destructive" });
     } finally {
@@ -359,6 +368,12 @@ export function VideoStudioPage() {
           musicPath:
             engine === "slideshow" || engine === "topic_to_video"
               ? (music?.objectPath ?? null)
+              : null,
+          musicPrompt:
+            (engine === "slideshow" || engine === "topic_to_video") &&
+            !music &&
+            musicPrompt.trim()
+              ? musicPrompt.trim()
               : null,
           voice,
           stockSource,
@@ -836,17 +851,78 @@ export function VideoStudioPage() {
                       <X className="h-4 w-4" />
                     </button>
                   </div>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={uploading}
-                    onClick={() => musicInputRef.current?.click()}
-                    data-testid="button-upload-music"
+                ) : musicPrompt ? (
+                  <div
+                    className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2"
+                    data-testid="chip-ai-music"
                   >
-                    <Music className="h-4 w-4 mr-1.5" /> Add a track
-                  </Button>
+                    <Sparkles className="h-4 w-4 text-primary shrink-0" />
+                    <span className="truncate">AI: {musicPrompt}</span>
+                    <Badge variant="secondary" className="shrink-0">+1 unit</Badge>
+                    <button
+                      type="button"
+                      aria-label="Remove AI music"
+                      onClick={() => setMusicPrompt("")}
+                      className="ml-auto"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : aiMusicOpen ? (
+                  <div className="flex gap-2">
+                    <Input
+                      autoFocus
+                      placeholder="lofi chill beat, warm and mellow"
+                      maxLength={200}
+                      value={aiMusicDraft}
+                      onChange={(e) => setAiMusicDraft(e.target.value)}
+                      data-testid="input-ai-music"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={!aiMusicDraft.trim()}
+                      onClick={() => {
+                        setMusicPrompt(aiMusicDraft.trim());
+                        setAiMusicOpen(false);
+                        setAiMusicDraft("");
+                      }}
+                      data-testid="button-set-ai-music"
+                    >
+                      Set
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={uploading}
+                      onClick={() => musicInputRef.current?.click()}
+                      data-testid="button-upload-music"
+                    >
+                      <Upload className="h-4 w-4 mr-1.5" /> Upload
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setMusicLibraryOpen(true)}
+                      data-testid="button-music-library"
+                    >
+                      <Library className="h-4 w-4 mr-1.5" /> Library
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setAiMusicOpen(true)}
+                      data-testid="button-ai-music"
+                    >
+                      <Sparkles className="h-4 w-4 mr-1.5" /> AI compose
+                    </Button>
+                  </div>
                 )}
                 <input
                   ref={musicInputRef}
@@ -1100,7 +1176,135 @@ export function VideoStudioPage() {
       />
 
       <CharacterManagerDialog open={charactersOpen} onOpenChange={setCharactersOpen} />
+
+      <MusicLibraryDialog
+        open={musicLibraryOpen}
+        onOpenChange={setMusicLibraryOpen}
+        onPick={(musicPath, title) => {
+          setMusic({ objectPath: musicPath, name: title });
+          setMusicPrompt("");
+          setMusicLibraryOpen(false);
+        }}
+      />
     </div>
+  );
+}
+
+/** Search the built-in CC-licensed music library and import a pick. */
+function MusicLibraryDialog({
+  open,
+  onOpenChange,
+  onPick,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onPick: (musicPath: string, title: string) => void;
+}) {
+  const { toast } = useToast();
+  const [draft, setDraft] = useState("");
+  const [query, setQuery] = useState("");
+  const importMusic = useImportLibraryMusic();
+  const { data, isFetching } = useSearchMusicLibrary(
+    { q: query },
+    {
+      query: {
+        queryKey: getSearchMusicLibraryQueryKey({ q: query }),
+        enabled: open && query.length >= 2,
+      },
+    },
+  );
+  const tracks: MusicTrack[] = data?.tracks ?? [];
+
+  const pick = (track: MusicTrack) => {
+    importMusic.mutate(
+      { data: { audioUrl: track.audioUrl, title: track.title } },
+      {
+        onSuccess: (res) => onPick(res.musicPath, res.title),
+        onError: () =>
+          toast({
+            title: "Import failed",
+            description: "That track couldn't be imported. Try another one.",
+            variant: "destructive",
+          }),
+      },
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Music library</DialogTitle>
+          <DialogDescription>
+            Free Creative-Commons tracks, licensed for commercial use. The license travels
+            with your pick.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setQuery(draft.trim());
+          }}
+        >
+          <Input
+            autoFocus
+            placeholder="upbeat pop, lofi, cinematic…"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            data-testid="input-music-search"
+          />
+          <Button type="submit" size="sm" disabled={draft.trim().length < 2}>
+            Search
+          </Button>
+        </form>
+        <div className="max-h-80 overflow-y-auto space-y-2">
+          {isFetching && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+              <RippleSpinner className="h-4 w-4" /> Searching…
+            </div>
+          )}
+          {!isFetching && query && tracks.length === 0 && (
+            <p className="text-sm text-muted-foreground py-4">No tracks found — try another mood.</p>
+          )}
+          {tracks.map((track) => (
+            <div
+              key={track.id}
+              className="border border-border rounded-md px-3 py-2 space-y-1.5"
+              data-testid={`track-${track.id}`}
+            >
+              <div className="flex items-center gap-2 text-sm">
+                <span className="truncate font-medium">{track.title}</span>
+                {track.creator && (
+                  <span className="text-muted-foreground truncate">· {track.creator}</span>
+                )}
+                <Badge variant="secondary" className="ml-auto shrink-0 uppercase">
+                  {track.license}
+                </Badge>
+                {track.durationSec != null && (
+                  <span className="text-xs text-muted-foreground shrink-0">
+                    {Math.floor(track.durationSec / 60)}:
+                    {String(track.durationSec % 60).padStart(2, "0")}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <audio controls preload="none" src={track.audioUrl} className="h-8 w-full" />
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={importMusic.isPending}
+                  onClick={() => pick(track)}
+                  data-testid={`button-pick-track-${track.id}`}
+                >
+                  Use
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

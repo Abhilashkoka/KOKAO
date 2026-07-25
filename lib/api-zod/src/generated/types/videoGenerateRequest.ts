@@ -50,6 +50,12 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   musicPath?: string | null;
+  /**
+     * Slideshow and topic_to_video; describe a mood/style and an AI music bed is composed for the video (+1 video unit). Ignored when musicPath is set.
+     * @maxLength 200
+     * @nullable
+     */
+  musicPrompt?: string | null;
   /** topic_to_video only; the narration voice. */
   voice?: VideoGenerateRequestVoice;
   /** topic_to_video only; where stock footage comes from (auto = first configured source). */

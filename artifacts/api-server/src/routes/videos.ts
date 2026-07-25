@@ -1,7 +1,17 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, tenantsTable, contentItemsTable, videoGenerationsTable } from "@workspace/db";
 import { and, eq, desc } from "drizzle-orm";
-import { GenerateVideoBody, SaveVideoToLibraryBody } from "@workspace/api-zod";
+import {
+  GenerateVideoBody,
+  ImportLibraryMusicBody,
+  SaveVideoToLibraryBody,
+} from "@workspace/api-zod";
+import {
+  searchLibraryMusic,
+  downloadLibraryTrack,
+  MusicLibraryError,
+} from "../lib/musicLibrary";
+import { ObjectStorageService } from "../lib/objectStorage";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage } from "../lib/usage";
 import { spendCredit, refundCredits } from "../lib/credits";
@@ -41,6 +51,59 @@ function serializeVideoJob(job: VideoGeneration) {
     updatedAt: job.updatedAt.toISOString(),
   };
 }
+
+const musicStorage = new ObjectStorageService();
+
+/** Built-in background-music library: search commercially-usable CC tracks. */
+router.get("/ai/music/search", async (req: Request, res: Response) => {
+  const q = String(req.query.q ?? "").trim();
+  if (q.length < 2 || q.length > 80) {
+    res.status(400).json({ error: "Search for 2-80 characters." });
+    return;
+  }
+  try {
+    res.json({ tracks: await searchLibraryMusic(q) });
+  } catch (error) {
+    req.log.warn({ err: error }, "Music library search failed");
+    const message =
+      error instanceof MusicLibraryError ? error.message : "Music search failed. Please try again.";
+    res.status(502).json({ error: message });
+  }
+});
+
+/** Import a chosen library track into tenant storage → musicPath. */
+router.post("/ai/music/import", async (req: Request, res: Response) => {
+  const parsed = ImportLibraryMusicBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  try {
+    const bytes = await downloadLibraryTrack(parsed.data.audioUrl);
+    const uploadURL = await musicStorage.getObjectEntityUploadURL(req.tenantId);
+    const putRes = await fetch(uploadURL, {
+      method: "PUT",
+      headers: { "Content-Type": "audio/mpeg" },
+      body: new Uint8Array(bytes),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!putRes.ok) {
+      res.status(502).json({ error: "Saving the track to storage failed." });
+      return;
+    }
+    res.json({
+      musicPath: musicStorage.normalizeObjectEntityPath(uploadURL),
+      title: parsed.data.title,
+    });
+  } catch (error) {
+    req.log.warn({ err: error }, "Music library import failed");
+    const message =
+      error instanceof MusicLibraryError
+        ? error.message
+        : "Importing the track failed. Please try again.";
+    res.status(400).json({ error: message });
+  }
+});
 
 router.post("/ai/generate-video", async (req: Request, res: Response) => {
   const parsed = GenerateVideoBody.safeParse(req.body);
@@ -136,6 +199,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     slideDurationSec: body.slideDurationSec ?? 3,
     overlayText: body.overlayText ?? null,
     musicPath: body.musicPath ?? null,
+    musicPrompt: body.musicPath ? null : (body.musicPrompt?.trim() || null),
     voice: body.voice ?? "alloy",
     stockSource: body.stockSource ?? "auto",
     subtitles: body.subtitles ?? true,

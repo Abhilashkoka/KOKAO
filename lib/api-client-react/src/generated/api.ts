@@ -155,8 +155,10 @@ import type {
   ImageResult,
   ImportDriveFilesRequest,
   ImportDriveFilesResult,
+  ImportLibraryMusicRequest,
   InstagramCredentialInput,
   LeaveTeamResult,
+  LibraryMusicImportResult,
   LinkedInAuthUrlResult,
   LinkedInStatus,
   LinkedinAppCredentialInput,
@@ -169,6 +171,7 @@ import type {
   MeProfile,
   MetaAppCredentialInput,
   MetaAppCredentialStatus,
+  MusicSearchResults,
   Notification,
   NotificationPolicy,
   NotificationSettings,
@@ -210,6 +213,7 @@ import type {
   ScheduledPost,
   SearchLinkedinGeoTargetsParams,
   SearchLinkedinTargetingParams,
+  SearchMusicLibraryParams,
   SeatRequestCreateInput,
   SeatRequestDecisionInput,
   SendTestEmailInput,
@@ -8236,6 +8240,162 @@ export const useGenerateVideo = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getGenerateVideoMutationOptions(options));
+    }
+
+export const getSearchMusicLibraryUrl = (params: SearchMusicLibraryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ai/music/search?${stringifiedParams}` : `/api/ai/music/search`
+}
+
+/**
+ * Searches Openverse for commercially-usable Creative-Commons music. License and attribution travel with every result; pick a track and import it with POST /ai/music/import.
+ * @summary Search the built-in background-music library (CC-licensed)
+ */
+export const searchMusicLibrary = async (params: SearchMusicLibraryParams, options?: RequestInit): Promise<MusicSearchResults> => {
+
+  return customFetch<MusicSearchResults>(getSearchMusicLibraryUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getSearchMusicLibraryQueryKey = (params?: SearchMusicLibraryParams,) => {
+    return [
+    `/api/ai/music/search`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getSearchMusicLibraryQueryOptions = <TData = Awaited<ReturnType<typeof searchMusicLibrary>>, TError = ErrorType<ErrorEnvelope>>(params: SearchMusicLibraryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchMusicLibrary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getSearchMusicLibraryQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof searchMusicLibrary>>> = ({ signal }) => searchMusicLibrary(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof searchMusicLibrary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type SearchMusicLibraryQueryResult = NonNullable<Awaited<ReturnType<typeof searchMusicLibrary>>>
+export type SearchMusicLibraryQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Search the built-in background-music library (CC-licensed)
+ */
+
+export function useSearchMusicLibrary<TData = Awaited<ReturnType<typeof searchMusicLibrary>>, TError = ErrorType<ErrorEnvelope>>(
+ params: SearchMusicLibraryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchMusicLibrary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getSearchMusicLibraryQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getImportLibraryMusicUrl = () => {
+
+
+
+
+  return `/api/ai/music/import`
+}
+
+/**
+ * Downloads the chosen track server-side (https-only, size-capped) and stores it in the workspace, returning a musicPath usable in generate-video.
+ * @summary Import a library track into this workspace's storage
+ */
+export const importLibraryMusic = async (importLibraryMusicRequest: ImportLibraryMusicRequest, options?: RequestInit): Promise<LibraryMusicImportResult> => {
+
+  return customFetch<LibraryMusicImportResult>(getImportLibraryMusicUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(importLibraryMusicRequest)
+  }
+);}
+
+
+
+
+export const getImportLibraryMusicMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importLibraryMusic>>, TError,{data: BodyType<ImportLibraryMusicRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importLibraryMusic>>, TError,{data: BodyType<ImportLibraryMusicRequest>}, TContext> => {
+
+const mutationKey = ['importLibraryMusic'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importLibraryMusic>>, {data: BodyType<ImportLibraryMusicRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  importLibraryMusic(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ImportLibraryMusicMutationResult = NonNullable<Awaited<ReturnType<typeof importLibraryMusic>>>
+    export type ImportLibraryMusicMutationBody = BodyType<ImportLibraryMusicRequest>
+    export type ImportLibraryMusicMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Import a library track into this workspace's storage
+ */
+export const useImportLibraryMusic = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importLibraryMusic>>, TError,{data: BodyType<ImportLibraryMusicRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof importLibraryMusic>>,
+        TError,
+        {data: BodyType<ImportLibraryMusicRequest>},
+        TContext
+      > => {
+      return useMutation(getImportLibraryMusicMutationOptions(options));
     }
 
 export const getListVideoJobsUrl = () => {

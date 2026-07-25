@@ -7,6 +7,7 @@ import { logger } from "../logger";
 import { generateVideo, VideoGenNotConfiguredError, VideoGenProviderError } from "./index";
 import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
 import { normalizeVideo } from "./postprocess";
+import { generateMusicBed } from "./musicGen";
 import { verifyRenderedVideo, type VideoQaExpectations } from "./qaGate";
 import {
   generateTopicVideo,
@@ -114,6 +115,26 @@ async function setJob(
     .where(eq(videoGenerationsTable.id, jobId));
 }
 
+/** The video's music bed: an uploaded track wins; otherwise an AI-composed
+ * bed when a musicPrompt was given (already funded as +1 unit). */
+async function resolveMusic(
+  job: VideoGeneration,
+  options: NonNullable<VideoGeneration["options"]>,
+  approxDurationSec: number,
+  onStage: (stage: string) => void,
+): Promise<Buffer | null> {
+  if (options.musicPath) {
+    return (
+      await loadTenantObject(options.musicPath, job.tenantId, MAX_MUSIC_BYTES, "Music track")
+    ).buffer;
+  }
+  if (options.musicPrompt?.trim()) {
+    onStage("Composing the music");
+    return generateMusicBed(options.musicPrompt, approxDurationSec);
+  }
+  return null;
+}
+
 async function produceVideo(
   job: VideoGeneration,
   onStage: (stage: string) => void,
@@ -191,17 +212,13 @@ async function produceVideo(
     for (const path of paths) {
       images.push((await loadSourceImage(path, job.tenantId)).buffer);
     }
-    const music = options.musicPath
-      ? (
-          await loadTenantObject(
-            options.musicPath,
-            job.tenantId,
-            MAX_MUSIC_BYTES,
-            "Music track",
-          )
-        ).buffer
-      : null;
     const slideDurationSec = options.slideDurationSec ?? 3;
+    const music = await resolveMusic(
+      job,
+      options,
+      expectedSlideshowDurationSec(images.length, slideDurationSec),
+      onStage,
+    );
     onStage("Composing the slideshow");
     const buffer = await renderSlideshow({
       images,
@@ -222,16 +239,8 @@ async function produceVideo(
   }
 
   if (job.engine === "topic_to_video") {
-    const music = options.musicPath
-      ? (
-          await loadTenantObject(
-            options.musicPath,
-            job.tenantId,
-            MAX_MUSIC_BYTES,
-            "Music track",
-          )
-        ).buffer
-      : null;
+    // MusicGen tops out at 30s; the composer loops the bed, so 30 is enough.
+    const music = await resolveMusic(job, options, 30, onStage);
     const result = await generateTopicVideo({
       tenantId: job.tenantId,
       topic: job.prompt ?? "",

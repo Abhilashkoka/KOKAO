@@ -30,6 +30,9 @@ export interface VideoJobOptions {
   overlayText?: string | null;
   /** Slideshow + topic_to_video: optional /objects/... path of a music track. */
   musicPath?: string | null;
+  /** Slideshow + topic_to_video: AI-composed music bed description (used
+   * only when musicPath is null; costs one extra video unit). */
+  musicPrompt?: string | null;
   /** topic_to_video: narration voice. */
   voice?: string;
   /** topic_to_video: stock footage source ("auto" | "pexels" | "pixabay"). */
