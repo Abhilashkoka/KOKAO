@@ -281,7 +281,15 @@ const IMAGE_GEN_KEY_PAGES: Record<string, string> = {
   replicate: "https://replicate.com/account/api-tokens",
 };
 
-function ImageGenProviderCard() {
+/**
+ * Sentinel stored in the provider column when the scorer should choose per
+ * request. It is not a catalog id, so it never appears in `settings.providers`
+ * and none of the model/key sections render for it.
+ */
+const IMAGE_GEN_AUTO = "auto";
+
+/** Exported for its own test; rendered only from AiTab. */
+export function ImageGenProviderCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: settings, isLoading } = useAdminGetImageGenSettings();
@@ -318,9 +326,12 @@ function ImageGenProviderCard() {
           const chosen = result.providers.find((p) => p.id === result.provider);
           toast({
             title: "Image provider updated",
-            description: chosen
-              ? `Images are now generated with ${chosen.label}.`
-              : "Provider selection saved.",
+            description:
+              result.provider === IMAGE_GEN_AUTO
+                ? "Each image now goes to the best-scoring provider available."
+                : chosen
+                  ? `Images are now generated with ${chosen.label}.`
+                  : "Provider selection saved.",
           });
         },
         onError: (err: unknown) => {
@@ -356,7 +367,9 @@ function ImageGenProviderCard() {
   };
 
   const [draftProvider, setDraftProvider] = useState<string | null>(null);
+  const { flags } = useFeatureFlags();
   const effectiveProvider = draftProvider ?? settings?.provider ?? "openai";
+  const isAuto = effectiveProvider === IMAGE_GEN_AUTO && flags.providerScoring;
   const shown = settings?.providers.find((p) => p.id === effectiveProvider);
 
   const handleSaveKey = (providerId: string) => {
@@ -411,10 +424,11 @@ function ImageGenProviderCard() {
       <CardHeader>
         <CardTitle>Image Generation Provider</CardTitle>
         <CardDescription>
-          Which service creates images in the Studio. The built-in OpenAI option
-          needs no key. Other providers use your own API key (stored encrypted).
-          The Custom option works with any OpenAI-compatible provider — enter its
-          base URL and model name.
+          Which service creates images in the Studio. Auto scores every
+          configured provider per request and falls back down the ranking when
+          one fails. The built-in OpenAI option needs no key. Other providers use
+          your own API key (stored encrypted). The Custom option works with any
+          OpenAI-compatible provider — enter its base URL and model name.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -432,6 +446,11 @@ function ImageGenProviderCard() {
                   <SelectValue placeholder="Select a provider" />
                 </SelectTrigger>
                 <SelectContent>
+                  {flags.providerScoring && (
+                    <SelectItem value={IMAGE_GEN_AUTO}>
+                      Auto — best scoring provider
+                    </SelectItem>
+                  )}
                   {settings.providers.map((p) => (
                     <SelectItem key={p.id} value={p.id}>
                       {p.label}
@@ -439,15 +458,62 @@ function ImageGenProviderCard() {
                   ))}
                 </SelectContent>
               </Select>
-              {shown &&
+              {isAuto ? (
+                <Badge variant="secondary">Ranked per request</Badge>
+              ) : (
+                shown &&
                 (isDraft ? (
                   <Badge variant="outline">Not saved yet</Badge>
                 ) : shown.configured ? (
                   <Badge variant="secondary">Ready</Badge>
                 ) : (
                   <Badge variant="destructive">Needs key</Badge>
-                ))}
+                ))
+              )}
             </div>
+            {isAuto && (
+              <div className="space-y-2 rounded-md border p-3" data-testid="image-gen-auto-ranking">
+                <p className="text-sm font-medium">Current ranking</p>
+                {settings.autoRanking.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No provider is configured yet, so there is nothing to rank.
+                    Add a key to any provider above.
+                  </p>
+                ) : (
+                  <>
+                    <ul className="space-y-1.5">
+                      {settings.autoRanking.map((r, i) => (
+                        <li
+                          key={r.id}
+                          className="flex items-baseline justify-between gap-3 text-sm"
+                          data-testid={`ranking-row-${r.id}`}
+                        >
+                          <span className="flex items-baseline gap-2">
+                            <span className="text-muted-foreground tabular-nums">
+                              {i + 1}.
+                            </span>
+                            <span className="font-medium">{r.label}</span>
+                            {!r.healthy && (
+                              <Badge variant="outline" className="text-xs">
+                                Cooling off
+                              </Badge>
+                            )}
+                          </span>
+                          <span className="text-right text-xs text-muted-foreground">
+                            {r.reason} · {Math.round(r.score * 100)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="text-xs text-muted-foreground">
+                      Scored on recent success rate, observed speed, price, and
+                      picture quality. Recomputed on every generation, so this
+                      order shifts as providers succeed or fail.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
             {shown && (shown.supportsModelOverride || shown.requiresBaseUrl) && (
               <div className="space-y-2 rounded-md border p-3">
                 {shown.requiresBaseUrl && (

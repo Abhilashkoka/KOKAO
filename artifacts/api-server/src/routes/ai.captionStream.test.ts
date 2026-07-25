@@ -33,8 +33,21 @@ vi.mock("../lib/plans", async (importOriginal) => {
 // Controllable fake model stream. Each test sets `streamScript` to an async
 // generator factory; the abort signal passed by the route is honored so a
 // blocked stream terminates when the route aborts it on disconnect.
-type Chunk = { choices: Array<{ delta: { content?: string } }> };
+//
+// A real streamed completion ends with a content-free chunk carrying the usage
+// block, so the fake stream has to be able to produce one too.
+type Chunk = {
+  choices: Array<{ delta: { content?: string } }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number } | null;
+    completion_tokens_details?: { reasoning_tokens?: number } | null;
+  };
+};
 let streamScript: (signal: AbortSignal | undefined) => AsyncGenerator<Chunk>;
+/** The request body the route handed the model on the last call. */
+let lastCreateBody: Record<string, unknown> | null = null;
 
 vi.mock("../lib/textGen", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/textGen")>();
@@ -47,8 +60,10 @@ vi.mock("../lib/textGen", async (importOriginal) => {
         chat: {
           completions: {
             create: vi.fn(
-              async (_body: unknown, opts?: { signal?: AbortSignal }) =>
-                streamScript(opts?.signal),
+              async (body: unknown, opts?: { signal?: AbortSignal }) => {
+                lastCreateBody = body as Record<string, unknown>;
+                return streamScript(opts?.signal);
+              },
             ),
           },
         },
@@ -65,6 +80,11 @@ import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
 
 function delta(content: string): Chunk {
   return { choices: [{ delta: { content } }] };
+}
+
+/** The trailing content-free chunk a provider uses to report token usage. */
+function usageChunk(usage: NonNullable<Chunk["usage"]>): Chunk {
+  return { choices: [], usage };
 }
 
 /** A promise gate the test resolves to let the fake stream proceed/end. */
@@ -103,6 +123,7 @@ let tenant: TestTenant;
 beforeEach(async () => {
   tenant = await createTenant();
   planState.captions = 0;
+  lastCreateBody = null;
 
   const app = express();
   app.use(express.json());
@@ -340,5 +361,81 @@ describe("caption stream disconnect billing", () => {
     const kinds = (await ledgerRows()).map((r) => r.kind).sort();
     expect(kinds).toEqual(["admin_grant", "refund", "spend"]);
     expect(await usageRows()).toHaveLength(0);
+  });
+});
+
+/**
+ * A streamed completion reports no tokens at all unless the request asks for
+ * them, which is why every streamed caption used to be metered with NULL
+ * tokens and a NULL cost. These tests pin the ask and the recording.
+ *
+ * The cost figure itself is asserted in aiCost.test.ts rather than here: it
+ * reads the shared model-price table and the shared USD rate, both of which
+ * that suite legitimately mutates while running alongside this one.
+ */
+describe("caption stream telemetry", () => {
+  it("asks the model to report usage on a streamed completion", async () => {
+    planState.captions = 100;
+    streamScript = async function* () {
+      yield delta('{"caption":"hi"}');
+    };
+
+    const stream = openStream();
+    await stream.done;
+
+    expect(lastCreateBody?.stream_options).toEqual({ include_usage: true });
+  });
+
+  it("records the token split and TTFT reported by the provider", async () => {
+    planState.captions = 100;
+    streamScript = async function* () {
+      // The first token is quick; the rest of the generation is slow. TTFT
+      // exists precisely to tell those two numbers apart.
+      await new Promise((r) => setTimeout(r, 30));
+      yield delta('{"caption":"Morning brew ');
+      await new Promise((r) => setTimeout(r, 250));
+      yield delta('magic","hashtags":["coffee"]}');
+      yield usageChunk({
+        prompt_tokens: 1_200,
+        completion_tokens: 300,
+        prompt_tokens_details: { cached_tokens: 400 },
+        completion_tokens_details: { reasoning_tokens: 120 },
+      });
+    };
+
+    const stream = openStream();
+    expect(await stream.headers).toBe(200);
+    await stream.done;
+
+    await waitFor(async () => (await usageRows()).length > 0);
+    const [row] = await usageRows();
+    expect(row.inputTokens).toBe(1_200);
+    expect(row.outputTokens).toBe(300);
+    // Subsets of the two above, not additions to them.
+    expect(row.cachedInputTokens).toBe(400);
+    expect(row.reasoningTokens).toBe(120);
+    // Measured at the first delta, so it must sit well under the total.
+    expect(row.ttftMs).not.toBeNull();
+    expect(row.ttftMs!).toBeGreaterThanOrEqual(25);
+    expect(row.ttftMs!).toBeLessThan(row.durationMs! - 100);
+  });
+
+  it("leaves the split unset rather than zero when the provider is silent", async () => {
+    planState.captions = 100;
+    streamScript = async function* () {
+      yield delta('{"caption":"quiet"}');
+      // A usage block with no details: many providers report only totals.
+      yield usageChunk({ prompt_tokens: 40, completion_tokens: 9 });
+    };
+
+    const stream = openStream();
+    await stream.done;
+
+    await waitFor(async () => (await usageRows()).length > 0);
+    const [row] = await usageRows();
+    expect(row.inputTokens).toBe(40);
+    // A stored 0 would read as "measured, and there was no caching".
+    expect(row.cachedInputTokens).toBeNull();
+    expect(row.reasoningTokens).toBeNull();
   });
 });

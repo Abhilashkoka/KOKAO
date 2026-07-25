@@ -45,6 +45,8 @@ import {
   buildTextCostMeta,
   buildImageCostMeta,
   usageAccountingParams,
+  streamUsageParams,
+  type CompletionUsageLike,
 } from "../lib/aiCost";
 import multer from "multer";
 import {
@@ -511,6 +513,11 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
   const startedAt = Date.now();
   let raw = "";
   let sent = 0;
+  // Streamed usage arrives on a final chunk that carries no content, and TTFT
+  // can only be measured here — by the time the stream is drained the number
+  // is gone. Both stay unset if the client disconnects first.
+  let streamUsage: CompletionUsageLike = {};
+  let ttftMs: number | null = null;
   const settleOnce = async () => {
     if (fundingResolved) return;
     fundingResolved = true;
@@ -520,6 +527,8 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
       durationMs: Date.now() - startedAt,
       model: textGen.model,
       platform,
+      ...(ttftMs === null ? {} : { ttftMs }),
+      ...(await buildTextCostMeta(streamUsage, textGen)),
     });
   };
 
@@ -552,13 +561,16 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
         response_format: { type: "json_object" },
         stream: true,
         ...usageAccountingParams(textGen.provider),
+        ...streamUsageParams(),
       },
       { signal: abort.signal },
     );
 
     for await (const chunk of stream) {
+      if (chunk.usage) streamUsage = { usage: chunk.usage };
       const delta = chunk.choices[0]?.delta?.content ?? "";
       if (!delta) continue;
+      if (ttftMs === null) ttftMs = Date.now() - startedAt;
       raw += delta;
       const partial = extractPartialCaption(raw);
       if (partial.text.length > sent) {
@@ -1643,6 +1655,8 @@ router.post(
     const startedAt = Date.now();
     let raw = "";
     let sentTotal = 0;
+    /** Measured on the first content delta; null if none ever arrived. */
+    let ttftMs: number | null = null;
     // Exactly one funding settlement per request (settle = usage rows are
     // recorded; refund = reserved credits go back), no matter how the stream
     // ends (result, clarify, error, or the client going away mid-stream).
@@ -1685,6 +1699,12 @@ router.post(
               inputTokens: splitAcross(costMeta.inputTokens ?? undefined, i),
               outputTokens: splitAcross(costMeta.outputTokens ?? undefined, i),
               costPaise: splitAcross(costMeta.costPaise ?? undefined, i),
+              // Subsets of the token counts, so they are apportioned the same
+              // way. TTFT is not: it is one measured latency the whole
+              // campaign shared, and dividing it would be meaningless.
+              cachedInputTokens: splitAcross(costMeta.cachedInputTokens ?? undefined, i),
+              reasoningTokens: splitAcross(costMeta.reasoningTokens ?? undefined, i),
+              ...(ttftMs === null ? {} : { ttftMs }),
             }),
           ),
         );
@@ -1722,7 +1742,7 @@ router.post(
     };
 
     const abort = new AbortController();
-    let lastUsage: { usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number } | null } = {};
+    let lastUsage: CompletionUsageLike = {};
     res.on("close", () => {
       if (!res.writableEnded) {
         // Client disconnected mid-stream: stop paying the model. If caption
@@ -1760,6 +1780,7 @@ router.post(
           response_format: { type: "json_object" },
           stream: true,
           ...usageAccountingParams(textGen.provider),
+          ...streamUsageParams(),
         },
         { signal: abort.signal },
       );
@@ -1768,10 +1789,10 @@ router.post(
       // carry only new text.
       const sentByPlatform = new Map<string, number>();
       for await (const chunk of stream) {
-        const c = chunk as typeof chunk & { usage?: typeof lastUsage.usage };
-        if (c.usage) lastUsage = { usage: c.usage };
+        if (chunk.usage) lastUsage = { usage: chunk.usage };
         const delta = chunk.choices[0]?.delta?.content ?? "";
         if (!delta) continue;
+        if (ttftMs === null) ttftMs = Date.now() - startedAt;
         raw += delta;
         for (const p of extractPartialCampaign(raw)) {
           const sent = sentByPlatform.get(p.platform) ?? 0;

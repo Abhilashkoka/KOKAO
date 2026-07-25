@@ -7,7 +7,7 @@
  */
 
 export interface UpdateImageGenSettingsRequest {
-  /** Provider id from the catalog. */
+  /** Provider id from the catalog, or "auto" to let the scorer pick per request. With "auto" the model and customBaseUrl fields are ignored. */
   provider: string;
   /**
      * Optional model override (empty/null = provider default).

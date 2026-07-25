@@ -6,9 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ImageGenProviderInfo } from './imageGenProviderInfo';
+import type { ImageGenRankedProvider } from './imageGenRankedProvider';
 
 export interface ImageGenSettingsView {
-  /** Currently selected image generation provider id. */
+  /** Currently selected image generation provider id, or "auto" to let the scorer choose per generation. */
   provider: string;
   /**
      * Admin model override (null = provider default).
@@ -21,4 +22,6 @@ export interface ImageGenSettingsView {
      */
   customBaseUrl: string | null;
   providers: ImageGenProviderInfo[];
+  /** How automatic routing currently ranks the configured providers, best first. Shown whether or not "auto" is selected, so the effect of switching to it is visible in advance. Empty when nothing is configured. */
+  autoRanking: ImageGenRankedProvider[];
 }

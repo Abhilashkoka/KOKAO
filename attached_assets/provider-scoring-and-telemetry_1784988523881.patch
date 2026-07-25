@@ -1,0 +1,2660 @@
+From a7b170eba2cebe5eaa42231e6c77839d30778600 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 25 Jul 2026 09:07:41 +0000
+Subject: [PATCH] Pick the image provider on evidence, and say what it cost
+
+Image generation had one static default and a fallback list ordered only by
+circuit-breaker state. It now scores every configured provider per request on
+recent success rate, observed latency, relative price and an editorial quality
+tier, and logs why the winner won. Health stays a hard partition rather than a
+weight, so an open breaker can never outrank a working provider no matter how
+the weights are tuned later. Admins get "Auto" in the provider picker plus the
+live ranking, visible before they commit to it.
+
+The metering side was worse than under-detailed: streamed text asked for no
+usage block at all, so every streamed caption and campaign was recorded with
+NULL tokens and NULL cost. Streaming now asks for usage, and usage_events
+carries time-to-first-token, the cached-prompt and reasoning-token subsets, and
+which link in the fallback chain served the request with a sentence explaining
+why.
+
+ASR fallbacks are ranked by the same scorer instead of merely partitioned.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EJdoZ8bk1pWTrmbMVQJZ7G
+---
+ artifacts/api-server/src/lib/aiCost.test.ts   | 129 ++++++++++
+ artifacts/api-server/src/lib/aiCost.ts        |  78 +++++-
+ artifacts/api-server/src/lib/asr/index.ts     |  34 ++-
+ .../api-server/src/lib/imageGen/index.ts      | 216 +++++++++++++---
+ .../src/lib/imageGen/routing.test.ts          | 237 ++++++++++++++++++
+ .../api-server/src/lib/imageGen/types.ts      |  12 +
+ .../api-server/src/lib/imageGeneration.ts     |   4 +
+ .../api-server/src/lib/providerHealth.test.ts |  70 ++++++
+ .../api-server/src/lib/providerHealth.ts      |  81 +++++-
+ .../api-server/src/lib/providerScore.test.ts  | 204 +++++++++++++++
+ artifacts/api-server/src/lib/providerScore.ts | 186 ++++++++++++++
+ artifacts/api-server/src/lib/usage.ts         |  15 ++
+ artifacts/api-server/src/routes/admin.ts      |  37 +++
+ .../src/routes/ai.captionStream.test.ts       | 103 +++++++-
+ artifacts/api-server/src/routes/ai.ts         |  27 +-
+ .../src/pages/admin/ai-tab.test.tsx           | 182 ++++++++++++++
+ .../socialforge/src/pages/admin/ai-tab.tsx    |  83 +++++-
+ .../src/generated/api.schemas.ts              |  17 +-
+ lib/api-spec/openapi.yaml                     |  36 ++-
+ lib/api-zod/src/generated/api.ts              |  46 +++-
+ .../generated/types/imageGenRankedProvider.ts |  18 ++
+ .../generated/types/imageGenSettingsView.ts   |   5 +-
+ lib/api-zod/src/generated/types/index.ts      |   1 +
+ .../types/updateImageGenSettingsRequest.ts    |   2 +-
+ lib/db/src/schema/usageEvents.ts              |  19 ++
+ 25 files changed, 1758 insertions(+), 84 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/imageGen/routing.test.ts
+ create mode 100644 artifacts/api-server/src/lib/providerScore.test.ts
+ create mode 100644 artifacts/api-server/src/lib/providerScore.ts
+ create mode 100644 artifacts/socialforge/src/pages/admin/ai-tab.test.tsx
+ create mode 100644 lib/api-zod/src/generated/types/imageGenRankedProvider.ts
+
+diff --git a/artifacts/api-server/src/lib/aiCost.test.ts b/artifacts/api-server/src/lib/aiCost.test.ts
+index 7f4db92..2493482 100644
+--- a/artifacts/api-server/src/lib/aiCost.test.ts
++++ b/artifacts/api-server/src/lib/aiCost.test.ts
+@@ -10,6 +10,8 @@ import {
+   computeTextCostPaise,
+   computeImageCostPaise,
+   usageAccountingParams,
++  streamUsageParams,
++  imageUnitCostsPaise,
+   buildTextCostMeta,
+   buildImageCostMeta,
+ } from "./aiCost";
+@@ -62,6 +64,14 @@ describe("usageAccountingParams", () => {
+   });
+ });
+ 
++describe("streamUsageParams", () => {
++  it("asks for a final usage chunk on every streaming backend", () => {
++    // Both text backends are OpenAI-compatible and honour this, which is why
++    // it is not conditional on the provider the way usage accounting is.
++    expect(streamUsageParams()).toEqual({ stream_options: { include_usage: true } });
++  });
++});
++
+ describe("cost computation with catalog + rate", () => {
+   it("computes token-based text cost and flat image cost", async () => {
+     await setAiCostConfig({ usdToInrPaise: 8600 }); // ₹86 per USD
+@@ -199,6 +209,51 @@ describe("buildTextCostMeta", () => {
+     expect(meta.inputTokens).toBeUndefined();
+     expect(meta.costPaise).toBeUndefined();
+   });
++
++  it("records the cached and reasoning subsets when the provider reports them", async () => {
++    const meta = await buildTextCostMeta(
++      {
++        usage: {
++          prompt_tokens: 1_000_000,
++          completion_tokens: 0,
++          prompt_tokens_details: { cached_tokens: 400 },
++          completion_tokens_details: { reasoning_tokens: 250 },
++        },
++      },
++      { provider: "builtin", model: TEXT_MODEL },
++    );
++    expect(meta.cachedInputTokens).toBe(400);
++    expect(meta.reasoningTokens).toBe(250);
++    // The split is recorded, not discounted: cost is still the full 1M input
++    // tokens at $4/Mtok. Discounting would need its own price column.
++    expect(meta.costPaise).toBe(34400);
++  });
++
++  it("leaves the subsets unset rather than zero when the provider is silent", async () => {
++    const meta = await buildTextCostMeta(
++      { usage: { prompt_tokens: 10, completion_tokens: 20 } },
++      { provider: "builtin", model: TEXT_MODEL },
++    );
++    // undefined means "not reported"; 0 would claim the provider cached nothing.
++    expect(meta.cachedInputTokens).toBeUndefined();
++    expect(meta.reasoningTokens).toBeUndefined();
++  });
++
++  it("ignores a null details block", async () => {
++    const meta = await buildTextCostMeta(
++      {
++        usage: {
++          prompt_tokens: 10,
++          completion_tokens: 20,
++          prompt_tokens_details: null,
++          completion_tokens_details: null,
++        },
++      },
++      { provider: "builtin", model: TEXT_MODEL },
++    );
++    expect(meta.cachedInputTokens).toBeUndefined();
++    expect(meta.reasoningTokens).toBeUndefined();
++  });
+ });
+ 
+ describe("token-based image costing", () => {
+@@ -286,6 +341,80 @@ describe("buildImageCostMeta", () => {
+   });
+ });
+ 
++describe("imageUnitCostsPaise", () => {
++  const CHEAP = `${RUN}-cheap-image`;
++  const DEAR = `${RUN}-dear-image`;
++  const TOKENS_ONLY = `${RUN}-tokens-only-image`;
++
++  beforeAll(async () => {
++    await setAiCostConfig({ usdToInrPaise: 8600 });
++    for (const [model, usd] of [
++      [CHEAP, 0.02],
++      [DEAR, 0.04],
++    ] as const) {
++      const row = await upsertModelPrice({
++        kind: "image",
++        provider: "bfl",
++        model,
++        inputUsdPerMtok: null,
++        outputUsdPerMtok: null,
++        usdPerImage: usd,
++      });
++      createdPriceIds.push(row.id);
++    }
++    const tokensOnly = await upsertModelPrice({
++      kind: "image",
++      provider: "bfl",
++      model: TOKENS_ONLY,
++      inputUsdPerMtok: 10,
++      outputUsdPerMtok: 40,
++      usdPerImage: null,
++    });
++    createdPriceIds.push(tokensOnly.id);
++  });
++
++  it("prices each candidate by its id", async () => {
++    const costs = await imageUnitCostsPaise([
++      { id: "a", provider: "bfl", model: CHEAP },
++      { id: "b", provider: "bfl", model: DEAR },
++    ]);
++    expect(costs.get("a")).toBe(172); // $0.02 at ₹86
++    expect(costs.get("b")).toBe(344); // $0.04 at ₹86
++  });
++
++  it("matches a model priced under another provider", async () => {
++    // One price row can cover a model reachable directly and via a gateway.
++    const costs = await imageUnitCostsPaise([
++      { id: "via-gateway", provider: "openrouter", model: CHEAP },
++    ]);
++    expect(costs.get("via-gateway")).toBe(172);
++  });
++
++  it("omits candidates with no usable per-image price", async () => {
++    const costs = await imageUnitCostsPaise([
++      { id: "unknown", provider: "bfl", model: `${RUN}-never-priced` },
++      { id: "token-priced", provider: "bfl", model: TOKENS_ONLY },
++      { id: "known", provider: "bfl", model: CHEAP },
++    ]);
++    // An unpriced candidate is absent, not zero — free would win every time.
++    expect(costs.has("unknown")).toBe(false);
++    expect(costs.has("token-priced")).toBe(false);
++    expect(costs.get("known")).toBe(172);
++  });
++
++  it("does not query at all for an empty candidate list", async () => {
++    expect(await imageUnitCostsPaise([])).toEqual(new Map());
++  });
++
++  it("prices nothing while the USD rate is unset", async () => {
++    await setAiCostConfig({ usdToInrPaise: 0 });
++    expect(await imageUnitCostsPaise([{ id: "a", provider: "bfl", model: CHEAP }])).toEqual(
++      new Map(),
++    );
++    await setAiCostConfig({ usdToInrPaise: 8600 });
++  });
++});
++
+ describe("deleteModelPrice", () => {
+   it("removes a row and reports missing ids", async () => {
+     const price = await upsertModelPrice({
+diff --git a/artifacts/api-server/src/lib/aiCost.ts b/artifacts/api-server/src/lib/aiCost.ts
+index ec89f0f..cc7b816 100644
+--- a/artifacts/api-server/src/lib/aiCost.ts
++++ b/artifacts/api-server/src/lib/aiCost.ts
+@@ -156,16 +156,63 @@ export async function computeImageCostPaise(args: {
+   return usdToPaise(price.usdPerImage, usdToInrPaise);
+ }
+ 
+-/** Shape of the usage block on a chat completion (OpenRouter adds `cost`). */
+-interface CompletionUsageLike {
++/**
++ * Best-effort flat per-image price in paise for each candidate, keyed by the
++ * caller's id. One query for the whole price table rather than one per
++ * candidate, because this runs while choosing a provider.
++ *
++ * Deliberately NOT gated on the `aiCostTracking` flag: that switch governs
++ * what gets *reported* to superadmins, and turning reporting off should not
++ * quietly make the router blind to price. Unknown prices are simply absent
++ * from the map — never a guessed number.
++ */
++export async function imageUnitCostsPaise(
++  candidates: { id: string; provider: string; model: string }[],
++): Promise<Map<string, number>> {
++  const out = new Map<string, number>();
++  if (candidates.length === 0) return out;
++  const [rows, { usdToInrPaise }] = await Promise.all([
++    db.select().from(aiModelPricesTable).where(eq(aiModelPricesTable.kind, "image")),
++    getAiCostConfig(),
++  ]);
++  if (rows.length === 0 || usdToInrPaise <= 0) return out;
++  for (const candidate of candidates) {
++    // Same precedence as findPrice(): an exact provider+model row wins, then
++    // any provider offering that model (one price row can cover a model
++    // reachable both directly and through a gateway).
++    const price =
++      rows.find((r) => r.provider === candidate.provider && r.model === candidate.model) ??
++      rows.find((r) => r.model === candidate.model);
++    if (!price || price.usdPerImage === null) continue;
++    const paise = usdToPaise(price.usdPerImage, usdToInrPaise);
++    if (paise !== null) out.set(candidate.id, paise);
++  }
++  return out;
++}
++
++/**
++ * Shape of the usage block on a chat completion (OpenRouter adds `cost`).
++ * Exported because the streaming routes accumulate one of these by hand from
++ * the final chunk, and two hand-written copies of the shape would drift.
++ */
++export interface CompletionUsageLike {
+   usage?: {
+     prompt_tokens?: number;
+     completion_tokens?: number;
+     /** OpenRouter: exact request cost in USD when usage accounting is on. */
+     cost?: number;
++    /** Subset of prompt_tokens the provider served from its own cache. */
++    prompt_tokens_details?: { cached_tokens?: number } | null;
++    /** Subset of completion_tokens spent thinking rather than answering. */
++    completion_tokens_details?: { reasoning_tokens?: number } | null;
+   } | null;
+ }
+ 
++/** A reported token count, or null when the provider said nothing. */
++function reportedCount(value: unknown): number | null {
++  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
++}
++
+ /**
+  * Extra request params that ask OpenRouter to report the exact request cost
+  * in the response usage block. Empty for other providers.
+@@ -174,9 +221,24 @@ export function usageAccountingParams(provider: string): Record<string, unknown>
+   return provider === "openrouter" ? { usage: { include: true } } : {};
+ }
+ 
++/**
++ * Extra request params that ask for a usage block on a STREAMED completion.
++ * Without this a streaming response reports no tokens at all, which is why
++ * every streamed generation used to be recorded with a NULL cost. Both
++ * supported text backends (built-in OpenAI and OpenRouter) honour it.
++ */
++export function streamUsageParams(): Record<string, unknown> {
++  return { stream_options: { include_usage: true } };
++}
++
+ export type TextCostMeta = Pick<
+   UsageMeta,
+-  "provider" | "inputTokens" | "outputTokens" | "costPaise"
++  | "provider"
++  | "inputTokens"
++  | "outputTokens"
++  | "costPaise"
++  | "cachedInputTokens"
++  | "reasoningTokens"
+ >;
+ 
+ /**
+@@ -186,6 +248,12 @@ export type TextCostMeta = Pick<
+  *
+  * When OpenRouter reports its exact per-request USD cost, that number is
+  * used instead of the price-table estimate.
++ *
++ * The cached/reasoning split is recorded but deliberately does NOT change the
++ * cost formula: discounting cached prompt tokens needs its own price column
++ * per model, and inventing a discount would be worse than a known
++ * overstatement. Recording the split is what makes that overstatement
++ * visible — and quantifiable — instead of invisible.
+  */
+ export async function buildTextCostMeta(
+   completion: CompletionUsageLike,
+@@ -210,11 +278,15 @@ export async function buildTextCostMeta(
+         outputTokens,
+       });
+     }
++    const cachedInputTokens = reportedCount(usage?.prompt_tokens_details?.cached_tokens);
++    const reasoningTokens = reportedCount(usage?.completion_tokens_details?.reasoning_tokens);
+     return {
+       provider: textGen.provider,
+       inputTokens: inputTokens ?? undefined,
+       outputTokens: outputTokens ?? undefined,
+       costPaise: costPaise ?? undefined,
++      cachedInputTokens: cachedInputTokens ?? undefined,
++      reasoningTokens: reasoningTokens ?? undefined,
+     };
+   } catch {
+     return {};
+diff --git a/artifacts/api-server/src/lib/asr/index.ts b/artifacts/api-server/src/lib/asr/index.ts
+index 805a197..18a4760 100644
+--- a/artifacts/api-server/src/lib/asr/index.ts
++++ b/artifacts/api-server/src/lib/asr/index.ts
+@@ -1,7 +1,8 @@
+ import { db, asrSettingsTable, appCredentialsTable } from "@workspace/db";
+ import { eq } from "drizzle-orm";
+ import { logger } from "../logger";
+-import { orderByHealth, recordProviderFailure, recordProviderSuccess } from "../providerHealth";
++import { recordProviderFailure, recordProviderSuccess } from "../providerHealth";
++import { rankProviders } from "../providerScore";
+ import { encryptJson, decryptJson } from "../secretCrypto";
+ import { transcribeWithGroq, GROQ_MODEL } from "./providers/groq";
+ import { transcribeWithOpenAI, OPENAI_ASR_MODEL } from "./providers/openaiWhisper";
+@@ -172,15 +173,23 @@ function isTransientAsrError(error: unknown): boolean {
+ /** How many OTHER configured providers to try after a transient failure. */
+ const ASR_FALLBACK_LIMIT = 2;
+ 
++/**
++ * Latency that scores neutrally for transcription. Speech models take roughly
++ * as long as the audio is long, and a KOKAO voice note is a caption brief
++ * rather than a podcast, so twenty seconds is the middle of the real range.
++ */
++const ASR_LATENCY_REFERENCE_MS = 20_000;
++
+ async function runAsrProvider(
+   def: AsrProviderDef,
+   input: TranscribeInput,
+ ): Promise<TranscriptionResult> {
+   const apiKey = await resolveAsrApiKey(def);
+   const key = asrHealthKey(def.id);
++  const startedAt = Date.now();
+   try {
+     const result = await def.transcribe(input, apiKey);
+-    recordProviderSuccess(key);
++    recordProviderSuccess(key, Date.now() - startedAt);
+     return result;
+   } catch (error) {
+     if (isTransientAsrError(error)) {
+@@ -195,10 +204,15 @@ async function runAsrProvider(
+  *
+  * Reliability: the selected provider is always attempted first (that attempt
+  * doubles as the circuit breaker's half-open probe). If it fails with a
+- * TRANSIENT error, up to two other configured providers are tried —
+- * healthiest first — before the caller sees a failure. A permanent error
+- * (unusable audio, invalid key) never triggers fallback, because a second
+- * provider would reject the same bytes.
++ * TRANSIENT error, up to two other configured providers are tried before the
++ * caller sees a failure. A permanent error (unusable audio, invalid key) never
++ * triggers fallback, because a second provider would reject the same bytes.
++ *
++ * Fallbacks are ranked rather than merely partitioned by breaker state: with
++ * no per-second price for any of these vendors and no editorial tier worth
++ * defending, that comes down to recent success rate and observed speed — which
++ * is exactly what matters when the alternative is a tenant watching a spinner
++ * for a second full transcription.
+  *
+  * A voice note the tenant just recorded cannot be re-recorded on demand, so a
+  * bad ten minutes at one vendor should not lose it.
+@@ -220,7 +234,13 @@ export async function transcribeAudio(input: TranscribeInput): Promise<Transcrip
+     if (candidate.id === def.id) continue;
+     if (await isProviderConfigured(candidate)) alternates.push(candidate);
+   }
+-  const ordered = orderByHealth(alternates, (c) => asrHealthKey(c.id)).slice(0, ASR_FALLBACK_LIMIT);
++  const ranked = rankProviders(
++    alternates.map((c) => ({ id: c.id, key: asrHealthKey(c.id) })),
++    { latencyReferenceMs: ASR_LATENCY_REFERENCE_MS },
++  );
++  const ordered = ranked
++    .slice(0, ASR_FALLBACK_LIMIT)
++    .map((r) => alternates.find((c) => c.id === r.id)!);
+ 
+   for (const candidate of ordered) {
+     logger.warn(
+diff --git a/artifacts/api-server/src/lib/imageGen/index.ts b/artifacts/api-server/src/lib/imageGen/index.ts
+index 5e1e348..50ecdc3 100644
+--- a/artifacts/api-server/src/lib/imageGen/index.ts
++++ b/artifacts/api-server/src/lib/imageGen/index.ts
+@@ -1,7 +1,9 @@
+ import { db, imageGenSettingsTable, appCredentialsTable } from "@workspace/db";
+ import { eq } from "drizzle-orm";
+ import { logger } from "../logger";
+-import { orderByHealth, recordProviderFailure, recordProviderSuccess } from "../providerHealth";
++import { recordProviderFailure, recordProviderSuccess } from "../providerHealth";
++import { rankProviders, explainWinner, type ScoredProvider } from "../providerScore";
++import { imageUnitCostsPaise } from "../aiCost";
+ import { encryptJson, decryptJson } from "../secretCrypto";
+ import { generateWithOpenAIBuiltin, OPENAI_BUILTIN_MODEL } from "./providers/openaiBuiltin";
+ import { generateWithGemini, GEMINI_IMAGE_MODEL } from "./providers/gemini";
+@@ -17,13 +19,31 @@ import {
+   type ImageGenResult,
+   type ImageSize,
+   type ReferenceImage,
++  type RoutedImageGenResult,
+ } from "./types";
+ 
+ export { ImageGenNotConfiguredError, ImageGenProviderError } from "./types";
+-export type { ImageGenInput, ImageGenResult, ImageSize, ReferenceImage } from "./types";
++export type {
++  ImageGenInput,
++  ImageGenResult,
++  ImageSize,
++  ReferenceImage,
++  RoutedImageGenResult,
++} from "./types";
+ 
+ export const DEFAULT_IMAGE_GEN_PROVIDER = "openai";
+ 
++/**
++ * Sentinel provider id meaning "let the scorer pick, per generation".
++ *
++ * It lives in the same free-text `provider` settings column as a real catalog
++ * id rather than in a second column, because the two are mutually exclusive
++ * choices about the same thing — a boolean beside the id would let the
++ * settings row express "auto, but also pinned to bfl", which has no meaning.
++ * A test asserts no catalog id ever collides with it.
++ */
++export const IMAGE_GEN_AUTO = "auto";
++
+ export interface ImageGenProviderDef {
+   id: string;
+   label: string;
+@@ -39,6 +59,16 @@ export interface ImageGenProviderDef {
+   /** Whether this provider accepts a reference image (image-to-image). When
+    * false, reference guidance reaches the provider as prompt text only. */
+   supportsImageInput: boolean;
++  /**
++   * Editorial output-quality tier in 0..1, used only when automatic routing is
++   * on. A judgement about this model family for the kind of work KOKAO does —
++   * brand and product imagery with legible text — not a benchmark score.
++   * Deliberately coarse: three or four distinct values is all the resolution
++   * this deserves, because pretending to two decimals of accuracy would invite
++   * arguments the number cannot settle. Omitted means "no opinion", which
++   * scores neutrally rather than badly.
++   */
++  quality?: number;
+   generate: (input: ImageGenInput, apiKey: string | null) => Promise<ImageGenResult>;
+ }
+ 
+@@ -52,6 +82,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
+     supportsModelOverride: false,
+     requiresBaseUrl: false,
+     supportsImageInput: true,
++    quality: 0.85,
+     generate: generateWithOpenAIBuiltin,
+   },
+   {
+@@ -66,6 +97,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
+       { value: "gemini-3-pro-image-preview", label: "Nano Banana Pro (gemini-3-pro-image-preview)" },
+     ],
+     supportsImageInput: true,
++    quality: 0.9,
+     generate: generateWithGemini,
+   },
+   {
+@@ -83,6 +115,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
+       { value: "flux-dev", label: "FLUX Dev (flux-dev)" },
+     ],
+     supportsImageInput: false,
++    quality: 0.9,
+     generate: generateWithBfl,
+   },
+   {
+@@ -99,6 +132,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
+       { value: "seedream-4-0", label: "Seedream 4.0 (seedream-4-0)" },
+     ],
+     supportsImageInput: true,
++    quality: 0.8,
+     generate: generateWithSeedream,
+   },
+   {
+@@ -109,6 +143,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
+     supportsModelOverride: true,
+     requiresBaseUrl: false,
+     supportsImageInput: false,
++    quality: 0.7,
+     generate: generateWithStability,
+   },
+   {
+@@ -119,6 +154,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
+     supportsModelOverride: true,
+     requiresBaseUrl: false,
+     supportsImageInput: false,
++    quality: 0.7,
+     generate: generateWithReplicate,
+   },
+   {
+@@ -134,6 +170,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
+       { value: "openai/gpt-image-1", label: "OpenAI GPT Image (openai/gpt-image-1)" },
+     ],
+     supportsImageInput: true,
++    quality: 0.85,
+     generate: generateWithOpenRouter,
+   },
+   {
+@@ -232,6 +269,12 @@ export interface ImageGenSelection {
+ export async function getImageGenSelection(): Promise<ImageGenSelection> {
+   const row = (await db.select().from(imageGenSettingsTable).limit(1))[0];
+   const id = row?.provider ?? DEFAULT_IMAGE_GEN_PROVIDER;
++  // Automatic routing has no single provider, so it also has no model override
++  // and no base URL — reported as null rather than as whatever a previously
++  // pinned provider left behind in those columns.
++  if (id === IMAGE_GEN_AUTO) {
++    return { provider: IMAGE_GEN_AUTO, model: null, customBaseUrl: null };
++  }
+   if (!getImageGenProviderDef(id)) {
+     return { provider: DEFAULT_IMAGE_GEN_PROVIDER, model: null, customBaseUrl: null };
+   }
+@@ -284,6 +327,13 @@ function isTransientImageGenError(error: unknown): boolean {
+ /** How many OTHER configured providers to try after a transient failure. */
+ const IMAGE_GEN_FALLBACK_LIMIT = 2;
+ 
++/**
++ * Latency that scores neutrally for image work. Image models routinely take
++ * ten to thirty seconds, so the text-shaped default would rate every one of
++ * them as slow and make the axis useless.
++ */
++const IMAGE_LATENCY_REFERENCE_MS = 15_000;
++
+ async function runImageGenProvider(
+   def: ImageGenProviderDef,
+   input: Omit<ImageGenInput, "model" | "baseUrl" | "referenceImage">,
+@@ -293,6 +343,7 @@ async function runImageGenProvider(
+ ): Promise<ImageGenResult> {
+   const apiKey = await resolveImageGenApiKey(def);
+   const key = imageGenHealthKey(def.id);
++  const startedAt = Date.now();
+   try {
+     const result = await def.generate(
+       {
+@@ -306,7 +357,9 @@ async function runImageGenProvider(
+       },
+       apiKey,
+     );
+-    recordProviderSuccess(key);
++    // Only successes are timed. A failure's duration says how fast the vendor
++    // said no, which is not the number routing wants to know.
++    recordProviderSuccess(key, Date.now() - startedAt);
+     return result;
+   } catch (error) {
+     if (isTransientImageGenError(error)) {
+@@ -316,57 +369,148 @@ async function runImageGenProvider(
+   }
+ }
+ 
++/**
++ * Providers eligible to be chosen automatically: configured, not dependent on
++ * an admin-entered base URL, and able to take a reference image when one is
++ * present. Task fit is a filter here rather than a low score in the scorer,
++ * because a provider that cannot accept the reference image is not a worse
++ * answer to this request — it is not an answer to it.
++ */
++async function autoCandidates(
++  referenceImage: ReferenceImage | undefined,
++): Promise<ImageGenProviderDef[]> {
++  const out: ImageGenProviderDef[] = [];
++  for (const candidate of IMAGE_GEN_PROVIDERS) {
++    if (candidate.requiresBaseUrl) continue;
++    if (referenceImage && !candidate.supportsImageInput) continue;
++    if (await isImageGenProviderConfigured(candidate)) out.push(candidate);
++  }
++  return out;
++}
++
++/**
++ * The current automatic-routing ranking. Exported because the admin screen
++ * shows exactly what the router would do, from the same call — a ranking the
++ * UI computed its own way would eventually disagree with the one that runs.
++ */
++export async function rankImageGenProviders(
++  referenceImage?: ReferenceImage,
++): Promise<ScoredProvider[]> {
++  const defs = await autoCandidates(referenceImage);
++  // Priced against each provider's DEFAULT model: under auto routing that is
++  // the model that will actually run, since a model override belongs to an
++  // explicitly pinned provider.
++  const costs = await imageUnitCostsPaise(
++    defs.map((d) => ({ id: d.id, provider: d.id, model: d.defaultModel })),
++  );
++  return rankProviders(
++    defs.map((d) => ({
++      id: d.id,
++      key: imageGenHealthKey(d.id),
++      quality: d.quality,
++      costPaise: costs.get(d.id) ?? null,
++    })),
++    { latencyReferenceMs: IMAGE_LATENCY_REFERENCE_MS },
++  );
++}
++
++function shortMessage(error: unknown): string {
++  return error instanceof Error ? error.message.slice(0, 120) : "an unknown error";
++}
++
+ /** Generate an image using the currently selected provider. The reference
+  * image is only forwarded to providers that support image input; callers
+  * should bake reference guidance into the prompt text either way.
+  *
+- * Reliability: the selected provider is always attempted first (that attempt
+- * doubles as the circuit breaker's half-open probe). If it fails with a
+- * TRANSIENT error (429/5xx/network/timeout), up to two other configured
+- * providers are tried — healthiest first — before the job is failed. A
+- * permanent error (bad prompt, invalid key) never triggers fallback. */
++ * Reliability: the first provider is always attempted (that attempt doubles as
++ * the circuit breaker's half-open probe). If it fails with a TRANSIENT error
++ * (429/5xx/network/timeout), up to two other configured providers are tried
++ * before the job is failed. A permanent error (bad prompt, invalid key) never
++ * triggers fallback.
++ *
++ * Selection: a pinned provider goes first, always. With `auto` the scorer
++ * picks per generation and the whole chain comes from the ranking. */
+ export async function generateImage(
+   prompt: string,
+   size: ImageSize,
+   referenceImage?: ReferenceImage,
+-): Promise<ImageGenResult> {
++): Promise<RoutedImageGenResult> {
+   const selection = await getImageGenSelection();
+-  const def =
+-    getImageGenProviderDef(selection.provider) ??
+-    getImageGenProviderDef(DEFAULT_IMAGE_GEN_PROVIDER)!;
++  const auto = selection.provider === IMAGE_GEN_AUTO;
+   const input = { prompt, size };
+ 
+-  let primaryError: unknown;
+-  try {
+-    return await runImageGenProvider(def, input, selection, referenceImage, true);
+-  } catch (error) {
+-    primaryError = error;
+-    if (!isTransientImageGenError(error)) throw error;
++  // Under auto the ranking IS the decision, so it is computed up front. With a
++  // pinned provider the chain is extended only after a failure, so the happy
++  // path costs exactly the queries it did before this existed.
++  const chain: ImageGenProviderDef[] = [];
++  let firstReason: string | undefined;
++  if (auto) {
++    const ranked = await rankImageGenProviders(referenceImage);
++    logger.info(
++      { ranking: ranked.map((r) => ({ id: r.id, score: r.score, why: r.reason })) },
++      "Image provider ranking",
++    );
++    for (const scored of ranked.slice(0, 1 + IMAGE_GEN_FALLBACK_LIMIT)) {
++      const candidate = getImageGenProviderDef(scored.id);
++      if (candidate) chain.push(candidate);
++    }
++    firstReason = explainWinner(ranked);
+   }
+-
+-  // Transient primary failure: try alternates that are actually configured.
+-  // "custom" is excluded — its base URL belongs to the admin's selection.
+-  const alternates: ImageGenProviderDef[] = [];
+-  for (const candidate of IMAGE_GEN_PROVIDERS) {
+-    if (candidate.id === def.id || candidate.requiresBaseUrl) continue;
+-    if (referenceImage && !candidate.supportsImageInput) continue;
+-    if (await isImageGenProviderConfigured(candidate)) alternates.push(candidate);
++  if (chain.length === 0) {
++    // Pinned, or auto with nothing configured to rank. Falling through to the
++    // built-in provider means an unconfigured deployment fails with that
++    // provider's own error rather than a routing-flavoured one.
++    chain.push(
++      getImageGenProviderDef(selection.provider) ??
++        getImageGenProviderDef(DEFAULT_IMAGE_GEN_PROVIDER)!,
++    );
++    firstReason = undefined;
+   }
+-  const ordered = orderByHealth(alternates, (c) => imageGenHealthKey(c.id)).slice(
+-    0,
+-    IMAGE_GEN_FALLBACK_LIMIT,
+-  );
+ 
+-  for (const candidate of ordered) {
+-    logger.warn(
+-      { primary: def.id, fallback: candidate.id, err: primaryError },
+-      "Image provider failed transiently; trying fallback provider",
+-    );
++  let primaryError: unknown;
++  let extended = auto;
++  for (let step = 0; step < chain.length; step += 1) {
++    const def = chain[step];
++    if (step > 0) {
++      logger.warn(
++        { primary: chain[0].id, fallback: def.id, err: primaryError },
++        "Image provider failed transiently; trying fallback provider",
++      );
++    }
+     try {
+-      return await runImageGenProvider(candidate, input, selection, referenceImage, false);
++      const result = await runImageGenProvider(
++        def,
++        input,
++        selection,
++        referenceImage,
++        // Model and base-URL overrides belong to an explicitly pinned
++        // provider in first position, and to nothing else.
++        !auto && step === 0,
++      );
++      return {
++        ...result,
++        fallbackStep: step,
++        routingReason:
++          step === 0
++            ? firstReason
++            : `${def.id} served after ${chain[0].id} failed: ${shortMessage(primaryError)}`,
++      };
+     } catch (error) {
++      if (step === 0) primaryError = error;
++      // A permanent error would fail at every provider, so trying more of them
++      // just costs the tenant time.
+       if (!isTransientImageGenError(error)) throw error;
+     }
++    if (step === chain.length - 1 && !extended) {
++      extended = true;
++      const ranked = await rankImageGenProviders(referenceImage);
++      for (const scored of ranked) {
++        if (scored.id === chain[0].id) continue;
++        const candidate = getImageGenProviderDef(scored.id);
++        if (candidate) chain.push(candidate);
++        if (chain.length > IMAGE_GEN_FALLBACK_LIMIT) break;
++      }
++    }
+   }
+ 
+   throw primaryError;
+diff --git a/artifacts/api-server/src/lib/imageGen/routing.test.ts b/artifacts/api-server/src/lib/imageGen/routing.test.ts
+new file mode 100644
+index 0000000..9ca34fb
+--- /dev/null
++++ b/artifacts/api-server/src/lib/imageGen/routing.test.ts
+@@ -0,0 +1,237 @@
++import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
++import { like } from "drizzle-orm";
++import { db, appCredentialsTable, imageGenSettingsTable } from "@workspace/db";
++import { recordProviderFailure, resetProviderHealthForTests } from "../providerHealth";
++import {
++  generateImage,
++  rankImageGenProviders,
++  setImageGenSelection,
++  getImageGenSelection,
++  IMAGE_GEN_AUTO,
++  IMAGE_GEN_PROVIDERS,
++} from "./index";
++import { ImageGenProviderError, type ImageGenResult } from "./types";
++
++/**
++ * Unit prices are injected rather than seeded, so these tests state the price
++ * situation they are about instead of inheriting whatever the shared price
++ * table happens to hold while other suites run against it.
++ */
++const { unitCosts } = vi.hoisted(() => ({ unitCosts: new Map<string, number>() }));
++
++vi.mock("../aiCost", async (importOriginal) => ({
++  ...(await importOriginal<typeof import("../aiCost")>()),
++  imageUnitCostsPaise: vi.fn(async () => new Map(unitCosts)),
++}));
++
++vi.mock("./providers/openaiBuiltin", () => ({
++  OPENAI_BUILTIN_MODEL: "gpt-image-1",
++  generateWithOpenAIBuiltin: vi.fn(),
++}));
++vi.mock("./providers/gemini", () => ({
++  GEMINI_IMAGE_MODEL: "gemini-2.5-flash-image",
++  generateWithGemini: vi.fn(),
++}));
++vi.mock("./providers/bfl", () => ({
++  BFL_MODEL: "flux-2-pro",
++  generateWithBfl: vi.fn(),
++}));
++
++import { generateWithOpenAIBuiltin } from "./providers/openaiBuiltin";
++import { generateWithGemini } from "./providers/gemini";
++import { generateWithBfl } from "./providers/bfl";
++
++const ENV_KEYS = [
++  "GEMINI_API_KEY",
++  "ARK_API_KEY",
++  "BFL_API_KEY",
++  "STABILITY_API_KEY",
++  "REPLICATE_API_TOKEN",
++  "OPENROUTER_API_KEY",
++  "CUSTOM_IMAGE_API_KEY",
++] as const;
++const savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
++
++function result(provider: string): ImageGenResult {
++  return { buffer: Buffer.from(provider), provider, model: `${provider}-model` };
++}
++
++const REFERENCE = { buffer: Buffer.from("ref"), mimeType: "image/png" };
++
++describe("the auto sentinel", () => {
++  it("collides with no provider id in the catalog", () => {
++    // It shares the free-text `provider` settings column with real ids, so a
++    // catalog entry called "auto" would silently become unreachable.
++    expect(IMAGE_GEN_PROVIDERS.map((p) => p.id)).not.toContain(IMAGE_GEN_AUTO);
++  });
++});
++
++describe("automatic image provider routing", () => {
++  beforeEach(async () => {
++    vi.mocked(generateWithOpenAIBuiltin).mockReset();
++    vi.mocked(generateWithGemini).mockReset();
++    vi.mocked(generateWithBfl).mockReset();
++    resetProviderHealthForTests();
++    unitCosts.clear();
++    for (const key of ENV_KEYS) delete process.env[key];
++    await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "imagegen_%"));
++    await db.delete(imageGenSettingsTable);
++  });
++
++  afterAll(() => {
++    for (const key of ENV_KEYS) {
++      if (savedEnv[key] === undefined) delete process.env[key];
++      else process.env[key] = savedEnv[key];
++    }
++  });
++
++  it("reports auto with no model or base URL of its own", async () => {
++    await setImageGenSelection({
++      provider: IMAGE_GEN_AUTO,
++      model: "left-over-model",
++      customBaseUrl: "https://left-over.example.com",
++    });
++    // A previously pinned provider's leftovers must not describe auto routing.
++    expect(await getImageGenSelection()).toEqual({
++      provider: IMAGE_GEN_AUTO,
++      model: null,
++      customBaseUrl: null,
++    });
++  });
++
++  it("sends the work to the top-ranked provider and records why it won", async () => {
++    process.env.GEMINI_API_KEY = "test-gemini-key";
++    await setImageGenSelection({ provider: IMAGE_GEN_AUTO, model: null, customBaseUrl: null });
++    vi.mocked(generateWithGemini).mockResolvedValue(result("gemini"));
++
++    const out = await generateImage("a calm pastel skyline", "1024x1024");
++    // Nothing has been tried, so the editorial quality tier decides: 0.9 to 0.85.
++    expect(out.provider).toBe("gemini");
++    expect(out.fallbackStep).toBe(0);
++    expect(out.routingReason).toContain("gemini won on");
++    expect(out.routingReason).toContain("ahead of openai");
++    expect(generateWithOpenAIBuiltin).not.toHaveBeenCalled();
++  });
++
++  it("ignores an admin model override once routing is automatic", async () => {
++    process.env.GEMINI_API_KEY = "test-gemini-key";
++    await setImageGenSelection({
++      provider: IMAGE_GEN_AUTO,
++      model: "some-pinned-model",
++      customBaseUrl: null,
++    });
++    vi.mocked(generateWithGemini).mockResolvedValue(result("gemini"));
++
++    await generateImage("p", "1024x1024");
++    expect(vi.mocked(generateWithGemini).mock.calls[0][0].model).toBe("gemini-2.5-flash-image");
++  });
++
++  it("breaks a quality tie on price", async () => {
++    process.env.GEMINI_API_KEY = "test-gemini-key";
++    process.env.BFL_API_KEY = "test-bfl-key";
++    // gemini and bfl are both rated 0.9, so cost is the only axis left.
++    unitCosts.set("gemini", 900);
++    unitCosts.set("bfl", 100);
++    await setImageGenSelection({ provider: IMAGE_GEN_AUTO, model: null, customBaseUrl: null });
++    vi.mocked(generateWithBfl).mockResolvedValue(result("bfl"));
++
++    const out = await generateImage("p", "1024x1024");
++    expect(out.provider).toBe("bfl");
++    expect(out.routingReason).toContain("₹1.00");
++    expect(generateWithGemini).not.toHaveBeenCalled();
++  });
++
++  it("attributes a fallback to the provider that failed", async () => {
++    process.env.GEMINI_API_KEY = "test-gemini-key";
++    await setImageGenSelection({ provider: IMAGE_GEN_AUTO, model: null, customBaseUrl: null });
++    vi.mocked(generateWithGemini).mockRejectedValue(
++      new ImageGenProviderError("upstream down", 503),
++    );
++    vi.mocked(generateWithOpenAIBuiltin).mockResolvedValue(result("openai"));
++
++    const out = await generateImage("p", "1024x1024");
++    expect(out.provider).toBe("openai");
++    expect(out.fallbackStep).toBe(1);
++    expect(out.routingReason).toBe("openai served after gemini failed: upstream down");
++  });
++
++  it("leaves a provider with an open breaker for last", async () => {
++    process.env.GEMINI_API_KEY = "test-gemini-key";
++    for (let i = 0; i < 3; i++) recordProviderFailure("imagegen:gemini", "503");
++    await setImageGenSelection({ provider: IMAGE_GEN_AUTO, model: null, customBaseUrl: null });
++    vi.mocked(generateWithOpenAIBuiltin).mockResolvedValue(result("openai"));
++
++    const out = await generateImage("p", "1024x1024");
++    // gemini is still the better-rated model; it is also currently broken.
++    expect(out.provider).toBe("openai");
++    expect(out.fallbackStep).toBe(0);
++    expect(generateWithGemini).not.toHaveBeenCalled();
++  });
++
++  it("still fails permanently on a permanent error", async () => {
++    process.env.GEMINI_API_KEY = "test-gemini-key";
++    await setImageGenSelection({ provider: IMAGE_GEN_AUTO, model: null, customBaseUrl: null });
++    vi.mocked(generateWithGemini).mockRejectedValue(
++      new ImageGenProviderError("prompt rejected", 400),
++    );
++
++    await expect(generateImage("p", "1024x1024")).rejects.toThrow("prompt rejected");
++    expect(generateWithOpenAIBuiltin).not.toHaveBeenCalled();
++  });
++
++  it("falls through to the built-in provider when nothing can be ranked", async () => {
++    // Auto with only the keyless built-in available: it must still generate.
++    await setImageGenSelection({ provider: IMAGE_GEN_AUTO, model: null, customBaseUrl: null });
++    vi.mocked(generateWithOpenAIBuiltin).mockResolvedValue(result("openai"));
++
++    const out = await generateImage("p", "1024x1024");
++    expect(out.provider).toBe("openai");
++    expect(out.fallbackStep).toBe(0);
++  });
++
++  it("leaves a pinned provider's happy path unexplained", async () => {
++    await setImageGenSelection({ provider: "openai", model: null, customBaseUrl: null });
++    vi.mocked(generateWithOpenAIBuiltin).mockResolvedValue(result("openai"));
++
++    const out = await generateImage("p", "1024x1024");
++    // There was no choice to explain, so there is no reason to store.
++    expect(out.fallbackStep).toBe(0);
++    expect(out.routingReason).toBeUndefined();
++  });
++});
++
++describe("rankImageGenProviders", () => {
++  beforeEach(async () => {
++    resetProviderHealthForTests();
++    unitCosts.clear();
++    for (const key of ENV_KEYS) delete process.env[key];
++    await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "imagegen_%"));
++  });
++
++  afterAll(() => {
++    for (const key of ENV_KEYS) {
++      if (savedEnv[key] === undefined) delete process.env[key];
++      else process.env[key] = savedEnv[key];
++    }
++  });
++
++  it("ranks every configured provider with its evidence", async () => {
++    process.env.GEMINI_API_KEY = "test-gemini-key";
++    const ranked = await rankImageGenProviders();
++    expect(ranked.map((r) => r.id)).toEqual(["gemini", "openai"]);
++    expect(ranked.every((r) => r.reason.length > 0)).toBe(true);
++    expect(ranked.every((r) => r.healthy)).toBe(true);
++  });
++
++  it("omits providers that cannot take a reference image", async () => {
++    process.env.BFL_API_KEY = "test-bfl-key";
++    const ranked = await rankImageGenProviders(REFERENCE);
++    // bfl is text-to-image only, so it is not a candidate for this request.
++    expect(ranked.map((r) => r.id)).toEqual(["openai"]);
++  });
++
++  it("omits providers with no key configured", async () => {
++    const ranked = await rankImageGenProviders();
++    expect(ranked.map((r) => r.id)).toEqual(["openai"]);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/imageGen/types.ts b/artifacts/api-server/src/lib/imageGen/types.ts
+index 2651866..22393eb 100644
+--- a/artifacts/api-server/src/lib/imageGen/types.ts
++++ b/artifacts/api-server/src/lib/imageGen/types.ts
+@@ -36,6 +36,18 @@ export interface ImageGenResult {
+   };
+ }
+ 
++/**
++ * An image result plus how the router arrived at it. Separate from
++ * `ImageGenResult` because a provider adapter has no idea it was one of
++ * several candidates — only the router does.
++ */
++export interface RoutedImageGenResult extends ImageGenResult {
++  /** 0 = the first provider tried, 1 = the first fallback, and so on. */
++  fallbackStep: number;
++  /** Human-readable "why this provider"; undefined when there was no choice. */
++  routingReason?: string;
++}
++
+ /** Thrown when the selected provider is missing its API key or base URL. */
+ export class ImageGenNotConfiguredError extends Error {
+   constructor(message: string) {
+diff --git a/artifacts/api-server/src/lib/imageGeneration.ts b/artifacts/api-server/src/lib/imageGeneration.ts
+index fd59b57..ebd0f75 100644
+--- a/artifacts/api-server/src/lib/imageGeneration.ts
++++ b/artifacts/api-server/src/lib/imageGeneration.ts
+@@ -164,6 +164,8 @@ export async function performImageGeneration(
+     model: imageModel,
+     provider: imageProvider,
+     usage: imageUsage,
++    fallbackStep,
++    routingReason,
+   } = await generateImage(prompt, input.size, input.referenceImage ?? undefined);
+ 
+   // Free-plan workspaces get a "Made with KOKAO.in" stamp, platform-wide
+@@ -195,6 +197,8 @@ export async function performImageGeneration(
+       responseBytes: buffer.length + Buffer.byteLength(b64Json),
+       durationMs: Date.now() - startedAt,
+       model: imageModel,
++      fallbackStep,
++      ...(routingReason ? { routingReason } : {}),
+       ...(await buildImageCostMeta({
+         provider: imageProvider,
+         model: imageModel,
+diff --git a/artifacts/api-server/src/lib/providerHealth.test.ts b/artifacts/api-server/src/lib/providerHealth.test.ts
+index 0492f45..4579311 100644
+--- a/artifacts/api-server/src/lib/providerHealth.test.ts
++++ b/artifacts/api-server/src/lib/providerHealth.test.ts
+@@ -4,6 +4,7 @@ import {
+   recordProviderSuccess,
+   isProviderHealthy,
+   getProviderHealth,
++  getProviderStats,
+   orderByHealth,
+   resetProviderHealthForTests,
+ } from "./providerHealth";
+@@ -64,3 +65,72 @@ describe("providerHealth circuit breaker", () => {
+     expect(orderByHealth(items, (x) => `p:${x}`)).toEqual(["b", "c", "a"]);
+   });
+ });
++
++describe("providerHealth observed stats", () => {
++  beforeEach(() => {
++    resetProviderHealthForTests();
++    vi.useFakeTimers();
++  });
++  afterEach(() => {
++    vi.useRealTimers();
++  });
++
++  it("reports nothing known for a provider that was never called", () => {
++    expect(getProviderStats("imagegen:unseen")).toEqual({
++      samples: 0,
++      successes: 0,
++      typicalLatencyMs: null,
++      healthy: true,
++    });
++  });
++
++  it("counts successes and failures within the window", () => {
++    recordProviderSuccess("imagegen:bfl");
++    recordProviderFailure("imagegen:bfl");
++    recordProviderSuccess("imagegen:bfl");
++    const stats = getProviderStats("imagegen:bfl");
++    expect(stats.samples).toBe(3);
++    expect(stats.successes).toBe(2);
++  });
++
++  it("keeps only the 20 most recent outcomes", () => {
++    // 5 failures then 20 successes: the failures must fall out of the window.
++    // They are recorded first so the breaker is closed again by the end.
++    for (let i = 0; i < 5; i++) recordProviderFailure("imagegen:bfl");
++    for (let i = 0; i < 20; i++) recordProviderSuccess("imagegen:bfl");
++    expect(getProviderStats("imagegen:bfl")).toMatchObject({
++      samples: 20,
++      successes: 20,
++    });
++  });
++
++  it("smooths latency rather than taking the last measurement", () => {
++    recordProviderSuccess("imagegen:bfl", 1_000);
++    expect(getProviderStats("imagegen:bfl").typicalLatencyMs).toBe(1_000);
++    // alpha 0.3: 1000 * 0.7 + 11000 * 0.3 = 4000.
++    recordProviderSuccess("imagegen:bfl", 11_000);
++    expect(getProviderStats("imagegen:bfl").typicalLatencyMs).toBe(4_000);
++  });
++
++  it("does not treat an untimed success as an instant one", () => {
++    recordProviderSuccess("imagegen:bfl", 5_000);
++    recordProviderSuccess("imagegen:bfl");
++    expect(getProviderStats("imagegen:bfl").typicalLatencyMs).toBe(5_000);
++  });
++
++  it("reports unhealthy while the breaker is open and healthy after cooldown", () => {
++    for (let i = 0; i < 3; i++) recordProviderFailure("imagegen:bfl");
++    expect(getProviderStats("imagegen:bfl").healthy).toBe(false);
++    vi.advanceTimersByTime(61_000);
++    expect(getProviderStats("imagegen:bfl").healthy).toBe(true);
++  });
++
++  it("does not leak internal bookkeeping through getProviderHealth", () => {
++    recordProviderSuccess("imagegen:bfl", 1_234);
++    expect(Object.keys(getProviderHealth("imagegen:bfl") ?? {}).sort()).toEqual([
++      "consecutiveFailures",
++      "lastFailureMessage",
++      "openUntil",
++    ]);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/providerHealth.ts b/artifacts/api-server/src/lib/providerHealth.ts
+index 5e84d03..16ce776 100644
+--- a/artifacts/api-server/src/lib/providerHealth.ts
++++ b/artifacts/api-server/src/lib/providerHealth.ts
+@@ -25,22 +25,51 @@ const FAILURES_TO_OPEN = 3;
+ const BASE_OPEN_MS = 60_000;
+ const MAX_OPEN_MS = 10 * 60 * 1000;
+ 
+-const state = new Map<string, ProviderHealthState>();
++/**
++ * How many recent outcomes the success rate is computed over. Short on
++ * purpose: the question scoring asks is "is this vendor working right now",
++ * and a month of history would keep answering "yes" through an outage.
++ */
++const OUTCOME_WINDOW = 20;
++
++/** Weight of the newest sample in the latency average. */
++const LATENCY_ALPHA = 0.3;
++
++interface Entry extends ProviderHealthState {
++  /** Newest last, at most OUTCOME_WINDOW long. true = success. */
++  outcomes: boolean[];
++  /** Exponentially-weighted mean of timed successes; null until one arrives. */
++  emaLatencyMs: number | null;
++}
+ 
+-function entry(key: string): ProviderHealthState {
++const state = new Map<string, Entry>();
++
++function entry(key: string): Entry {
+   let current = state.get(key);
+   if (!current) {
+-    current = { consecutiveFailures: 0, openUntil: 0, lastFailureMessage: null };
++    current = {
++      consecutiveFailures: 0,
++      openUntil: 0,
++      lastFailureMessage: null,
++      outcomes: [],
++      emaLatencyMs: null,
++    };
+     state.set(key, current);
+   }
+   return current;
+ }
+ 
++function pushOutcome(current: Entry, ok: boolean): void {
++  current.outcomes.push(ok);
++  if (current.outcomes.length > OUTCOME_WINDOW) current.outcomes.shift();
++}
++
+ /** Record a TRANSIENT failure (429/5xx/network/timeout). */
+ export function recordProviderFailure(key: string, message?: string): void {
+   const current = entry(key);
+   current.consecutiveFailures += 1;
+   current.lastFailureMessage = message?.slice(0, 200) ?? null;
++  pushOutcome(current, false);
+   if (current.consecutiveFailures >= FAILURES_TO_OPEN) {
+     const backoff = Math.min(
+       MAX_OPEN_MS,
+@@ -50,12 +79,24 @@ export function recordProviderFailure(key: string, message?: string): void {
+   }
+ }
+ 
+-/** Record a success: closes the breaker and resets the count. */
+-export function recordProviderSuccess(key: string): void {
++/**
++ * Record a success: closes the breaker and resets the count.
++ *
++ * `latencyMs` is optional because not every call site times itself, and a
++ * missing measurement must not be recorded as a fast one.
++ */
++export function recordProviderSuccess(key: string, latencyMs?: number): void {
+   const current = entry(key);
+   current.consecutiveFailures = 0;
+   current.openUntil = 0;
+   current.lastFailureMessage = null;
++  pushOutcome(current, true);
++  if (typeof latencyMs === "number" && Number.isFinite(latencyMs) && latencyMs >= 0) {
++    current.emaLatencyMs =
++      current.emaLatencyMs === null
++        ? latencyMs
++        : current.emaLatencyMs * (1 - LATENCY_ALPHA) + latencyMs * LATENCY_ALPHA;
++  }
+ }
+ 
+ /**
+@@ -73,7 +114,35 @@ export function isProviderHealthy(key: string): boolean {
+ export function getProviderHealth(key: string): ProviderHealthState | null {
+   const current = state.get(key);
+   if (!current) return null;
+-  return { ...current };
++  const { consecutiveFailures, openUntil, lastFailureMessage } = current;
++  return { consecutiveFailures, openUntil, lastFailureMessage };
++}
++
++/** What scoring reads: observed behaviour rather than breaker mechanics. */
++export interface ProviderStats {
++  /** Recent calls this is based on. 0 = never called; nothing is known. */
++  samples: number;
++  successes: number;
++  /** Observed typical latency in ms, or null when no success was ever timed. */
++  typicalLatencyMs: number | null;
++  /** False only while the breaker is open. */
++  healthy: boolean;
++}
++
++/**
++ * Observed stats for a provider key. An unseen provider comes back with zero
++ * samples and a null latency — deliberately NOT with a flattering default, so
++ * the scorer can treat "unknown" as its own case instead of as "perfect".
++ */
++export function getProviderStats(key: string): ProviderStats {
++  const current = state.get(key);
++  if (!current) return { samples: 0, successes: 0, typicalLatencyMs: null, healthy: true };
++  return {
++    samples: current.outcomes.length,
++    successes: current.outcomes.filter(Boolean).length,
++    typicalLatencyMs: current.emaLatencyMs === null ? null : Math.round(current.emaLatencyMs),
++    healthy: Date.now() >= current.openUntil,
++  };
+ }
+ 
+ /** Test-only: wipe all breaker state. */
+diff --git a/artifacts/api-server/src/lib/providerScore.test.ts b/artifacts/api-server/src/lib/providerScore.test.ts
+new file mode 100644
+index 0000000..4b0823b
+--- /dev/null
++++ b/artifacts/api-server/src/lib/providerScore.test.ts
+@@ -0,0 +1,204 @@
++import { describe, it, expect, beforeEach } from "vitest";
++import {
++  recordProviderSuccess,
++  recordProviderFailure,
++  resetProviderHealthForTests,
++} from "./providerHealth";
++import { rankProviders, explainWinner } from "./providerScore";
++
++/**
++ * The arithmetic is asserted with literal numbers on purpose. Re-deriving the
++ * weights inside the test would make it pass for any weights at all, which is
++ * exactly the change these tests exist to catch.
++ *
++ * Baseline for an unseen, unpriced, unrated candidate:
++ *   reliability (0 + 3*0.8)/(0+3) = 0.8, everything else neutral at 0.5
++ *   0.8*0.4 + 0.5*0.15 + 0.5*0.2 + 0.5*0.25 = 0.62
++ */
++const BASELINE = 0.62;
++
++describe("rankProviders scoring", () => {
++  beforeEach(() => {
++    resetProviderHealthForTests();
++  });
++
++  it("scores an unseen candidate at the neutral baseline", () => {
++    const [only] = rankProviders([{ id: "a", key: "imagegen:a" }]);
++    expect(only?.score).toBe(BASELINE);
++    expect(only?.parts.reliability).toBeCloseTo(0.8, 6);
++    expect(only?.parts).toMatchObject({ latency: 0.5, cost: 0.5, quality: 0.5 });
++  });
++
++  it("keeps the caller's order when scores tie", () => {
++    const ranked = rankProviders([
++      { id: "second", key: "imagegen:second" },
++      { id: "first", key: "imagegen:first" },
++    ]);
++    expect(ranked.map((r) => r.id)).toEqual(["second", "first"]);
++    expect(ranked.every((r) => r.score === BASELINE)).toBe(true);
++  });
++
++  it("rewards a good recent record and punishes a bad one", () => {
++    for (let i = 0; i < 9; i++) recordProviderSuccess("imagegen:good");
++    for (let i = 0; i < 9; i++) recordProviderFailure("imagegen:bad");
++    // Both breakers matter: "bad" is open, so compare parts, not order.
++    const ranked = rankProviders([
++      { id: "bad", key: "imagegen:bad" },
++      { id: "good", key: "imagegen:good" },
++    ]);
++    const good = ranked.find((r) => r.id === "good")!;
++    const bad = ranked.find((r) => r.id === "bad")!;
++    // (9 + 2.4) / (9 + 3) = 0.95
++    expect(good.parts.reliability).toBeCloseTo(0.95, 4);
++    // (0 + 2.4) / (9 + 3) = 0.2
++    expect(bad.parts.reliability).toBeCloseTo(0.2, 4);
++  });
++
++  it("does not brand a provider unusable after a single failure", () => {
++    recordProviderFailure("imagegen:unlucky");
++    const [only] = rankProviders([{ id: "unlucky", key: "imagegen:unlucky" }]);
++    // (0 + 2.4) / (1 + 3) = 0.6 — worse than the 0.8 prior, not catastrophic.
++    expect(only?.parts.reliability).toBeCloseTo(0.6, 4);
++  });
++
++  it("scores cost only relative to the other candidates", () => {
++    const ranked = rankProviders([
++      { id: "dear", key: "imagegen:dear", costPaise: 500 },
++      { id: "cheap", key: "imagegen:cheap", costPaise: 100 },
++    ]);
++    expect(ranked.map((r) => r.id)).toEqual(["cheap", "dear"]);
++    expect(ranked[0]?.parts.cost).toBe(1);
++    expect(ranked[1]?.parts.cost).toBe(0);
++    // 0.62 baseline shifted by the cost axis (weight 0.2) alone.
++    expect(ranked[0]?.score).toBe(0.72);
++    expect(ranked[1]?.score).toBe(0.52);
++  });
++
++  it("drops cost entirely when only one candidate is priced", () => {
++    const ranked = rankProviders([
++      { id: "priced", key: "imagegen:priced", costPaise: 100 },
++      { id: "unpriced", key: "imagegen:unpriced" },
++    ]);
++    // The one priced provider must not win just for having a price on file.
++    expect(ranked.every((r) => r.parts.cost === 0.5)).toBe(true);
++    expect(ranked.every((r) => r.score === BASELINE)).toBe(true);
++  });
++
++  it("scores equal prices neutrally instead of dividing by zero", () => {
++    const ranked = rankProviders([
++      { id: "a", key: "imagegen:a", costPaise: 250 },
++      { id: "b", key: "imagegen:b", costPaise: 250 },
++    ]);
++    expect(ranked.every((r) => Number.isFinite(r.score))).toBe(true);
++    expect(ranked.every((r) => r.parts.cost === 0.5)).toBe(true);
++  });
++
++  it("treats the latency reference as the neutral point", () => {
++    recordProviderSuccess("imagegen:a", 10_000);
++    const [atReference] = rankProviders([{ id: "a", key: "imagegen:a" }], {
++      latencyReferenceMs: 10_000,
++    });
++    expect(atReference?.parts.latency).toBeCloseTo(0.5, 4);
++
++    resetProviderHealthForTests();
++    recordProviderSuccess("imagegen:a", 10_000);
++    const [underReference] = rankProviders([{ id: "a", key: "imagegen:a" }], {
++      latencyReferenceMs: 30_000,
++    });
++    // The same 10s is fast for image work: 30000 / 40000 = 0.75.
++    expect(underReference?.parts.latency).toBeCloseTo(0.75, 4);
++  });
++
++  it("passes an editorial quality tier straight through", () => {
++    const ranked = rankProviders([
++      { id: "meh", key: "imagegen:meh", quality: 0.7 },
++      { id: "great", key: "imagegen:great", quality: 0.9 },
++    ]);
++    expect(ranked.map((r) => r.id)).toEqual(["great", "meh"]);
++    expect(ranked[0]?.parts.quality).toBe(0.9);
++  });
++
++  it("never ranks an open breaker above a working provider", () => {
++    // "star" is cheap, fast, flawless and top-rated. It is also broken.
++    for (let i = 0; i < 10; i++) recordProviderSuccess("imagegen:star", 100);
++    for (let i = 0; i < 3; i++) recordProviderFailure("imagegen:star", "503");
++    const ranked = rankProviders([
++      { id: "star", key: "imagegen:star", quality: 1, costPaise: 1 },
++      { id: "plain", key: "imagegen:plain", costPaise: 900 },
++    ]);
++    expect(ranked.map((r) => r.id)).toEqual(["plain", "star"]);
++    expect(ranked[1]?.healthy).toBe(false);
++  });
++
++  it("recovers a provider's place once its cooldown lapses", () => {
++    for (let i = 0; i < 3; i++) recordProviderFailure("imagegen:star");
++    expect(rankProviders([{ id: "star", key: "imagegen:star" }])[0]?.healthy).toBe(false);
++    recordProviderSuccess("imagegen:star");
++    expect(rankProviders([{ id: "star", key: "imagegen:star" }])[0]?.healthy).toBe(true);
++  });
++
++  it("returns an empty ranking for no candidates", () => {
++    expect(rankProviders([])).toEqual([]);
++  });
++});
++
++describe("rankProviders reasons", () => {
++  beforeEach(() => {
++    resetProviderHealthForTests();
++  });
++
++  it("says so plainly when a provider has never been called", () => {
++    const [only] = rankProviders([{ id: "a", key: "imagegen:a" }]);
++    expect(only?.reason).toBe("not tried yet");
++  });
++
++  it("reports the record, speed, price and quality it used", () => {
++    recordProviderSuccess("imagegen:a", 2_000);
++    recordProviderSuccess("imagegen:a", 2_000);
++    const [only] = rankProviders([
++      { id: "a", key: "imagegen:a", quality: 0.9, costPaise: 350 },
++    ]);
++    expect(only?.reason).toBe("2/2 ok · ~2.0s · ₹3.50 · quality 0.90");
++  });
++
++  it("leads with the breaker when it is open", () => {
++    for (let i = 0; i < 3; i++) recordProviderFailure("imagegen:a");
++    const [only] = rankProviders([{ id: "a", key: "imagegen:a" }]);
++    expect(only?.reason.startsWith("breaker open · ")).toBe(true);
++  });
++});
++
++describe("explainWinner", () => {
++  beforeEach(() => {
++    resetProviderHealthForTests();
++  });
++
++  it("has nothing to say about an empty ranking", () => {
++    expect(explainWinner([])).toBeUndefined();
++  });
++
++  it("names the winner and its evidence with no rival to cite", () => {
++    const ranked = rankProviders([{ id: "solo", key: "imagegen:solo" }]);
++    expect(explainWinner(ranked)).toBe("solo won on not tried yet (0.62)");
++  });
++
++  it("contrasts the winner with the runner-up", () => {
++    const ranked = rankProviders([
++      { id: "cheap", key: "imagegen:cheap", costPaise: 100 },
++      { id: "dear", key: "imagegen:dear", costPaise: 500 },
++    ]);
++    expect(explainWinner(ranked)).toBe(
++      "cheap won on not tried yet · ₹1.00 (0.72), ahead of dear (0.52)",
++    );
++  });
++
++  it("truncates to fit the usage-row column", () => {
++    const ranked = rankProviders([
++      { id: "x".repeat(300), key: "imagegen:long" },
++      { id: "y", key: "imagegen:y" },
++    ]);
++    const text = explainWinner(ranked)!;
++    expect(text.length).toBe(200);
++    expect(text.endsWith("…")).toBe(true);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/providerScore.ts b/artifacts/api-server/src/lib/providerScore.ts
+new file mode 100644
+index 0000000..483890b
+--- /dev/null
++++ b/artifacts/api-server/src/lib/providerScore.ts
+@@ -0,0 +1,186 @@
++import { getProviderStats } from "./providerHealth";
++
++/**
++ * Scored provider selection.
++ *
++ * The circuit breaker answers one question — is this vendor broken right now —
++ * and for a long time that was the only input to which provider ran. That is
++ * enough to survive an outage and not enough to route well: between two
++ * working vendors it has no opinion, so a static default keeps winning even
++ * when it is four times the price and twice as slow.
++ *
++ * This ranks the candidates instead, on four axes with an explicit weight
++ * each, and hands back a sentence saying what drove the decision. Task fit
++ * stays a hard filter at the call site (a provider that cannot take a
++ * reference image is not a worse candidate, it is not a candidate), and health
++ * stays a hard partition rather than a weight, so the breaker's promise —
++ * an open provider never gets preferred over a working one — survives
++ * unchanged no matter how the weights are tuned.
++ *
++ * Idea from OpenMontage's scoring pass and OmniRoute's cost-optimized routing;
++ * both reimplemented from the described behaviour.
++ */
++
++export interface ScoreCandidate {
++  /** Provider id as it appears in the catalog and in logs. */
++  id: string;
++  /** Circuit-breaker key, e.g. "imagegen:gemini". */
++  key: string;
++  /**
++   * Editorial quality tier in 0..1. A judgement about the model family, not a
++   * measurement — undefined means "no opinion", which scores neutrally rather
++   * than badly.
++   */
++  quality?: number;
++  /** Known cost per call in paise; null/undefined = unpriced. */
++  costPaise?: number | null;
++}
++
++export interface ScoreParts {
++  reliability: number;
++  latency: number;
++  cost: number;
++  quality: number;
++}
++
++export interface ScoredProvider {
++  id: string;
++  key: string;
++  /** Weighted total in 0..1; higher wins. */
++  score: number;
++  parts: ScoreParts;
++  /** Whether the circuit breaker is closed. Healthy candidates rank first. */
++  healthy: boolean;
++  /** The evidence behind this candidate's score, for logs and the admin UI. */
++  reason: string;
++}
++
++export interface RankOptions {
++  /**
++   * Latency that should score neutrally for this kind of work. Image models
++   * take tens of seconds and speech models take as long as the audio, so a
++   * single global reference would flatter one and punish the other.
++   */
++  latencyReferenceMs?: number;
++}
++
++const WEIGHTS: ScoreParts = {
++  reliability: 0.4,
++  quality: 0.25,
++  cost: 0.2,
++  latency: 0.15,
++};
++
++/** What an unknown axis scores: no evidence must not read as bad evidence. */
++const NEUTRAL = 0.5;
++
++/**
++ * Shrinkage for the success rate. Three notional prior calls at 0.8 means one
++ * unlucky failure out of one call does not brand a provider unusable, while a
++ * genuine run of failures still drags the rate down quickly.
++ */
++const PRIOR_CALLS = 3;
++const PRIOR_RATE = 0.8;
++
++const DEFAULT_LATENCY_REFERENCE_MS = 10_000;
++
++/** Monotone 0..1 curve: the reference latency scores exactly neutral. */
++function latencyScore(latencyMs: number | null, referenceMs: number): number {
++  if (latencyMs === null) return NEUTRAL;
++  return referenceMs / (referenceMs + Math.max(0, latencyMs));
++}
++
++/**
++ * Cost is only ever scored relative to the other candidates, because a number
++ * of paise means nothing on its own. With fewer than two priced candidates
++ * there is nothing to compare, so cost drops out for everybody instead of
++ * handing a free win to whichever provider the admin happened to price.
++ */
++function costScores(candidates: ScoreCandidate[]): Map<string, number> {
++  const scores = new Map<string, number>();
++  const priced = candidates.filter(
++    (c) => typeof c.costPaise === "number" && Number.isFinite(c.costPaise),
++  );
++  if (priced.length < 2) return scores;
++  const values = priced.map((c) => c.costPaise as number);
++  const min = Math.min(...values);
++  const max = Math.max(...values);
++  for (const c of priced) {
++    const cost = c.costPaise as number;
++    scores.set(c.id, max === min ? NEUTRAL : (max - cost) / (max - min));
++  }
++  return scores;
++}
++
++function rupees(paise: number): string {
++  return `₹${(paise / 100).toFixed(2)}`;
++}
++
++function seconds(ms: number): string {
++  return `~${(ms / 1000).toFixed(1)}s`;
++}
++
++/** Score every candidate and rank them: healthy first, then by score. */
++export function rankProviders(
++  candidates: ScoreCandidate[],
++  options: RankOptions = {},
++): ScoredProvider[] {
++  const referenceMs = options.latencyReferenceMs ?? DEFAULT_LATENCY_REFERENCE_MS;
++  const relativeCost = costScores(candidates);
++
++  const scored = candidates.map((candidate): ScoredProvider => {
++    const stats = getProviderStats(candidate.key);
++    const parts: ScoreParts = {
++      reliability:
++        (stats.successes + PRIOR_CALLS * PRIOR_RATE) / (stats.samples + PRIOR_CALLS),
++      latency: latencyScore(stats.typicalLatencyMs, referenceMs),
++      cost: relativeCost.get(candidate.id) ?? NEUTRAL,
++      quality: candidate.quality ?? NEUTRAL,
++    };
++    const score =
++      parts.reliability * WEIGHTS.reliability +
++      parts.latency * WEIGHTS.latency +
++      parts.cost * WEIGHTS.cost +
++      parts.quality * WEIGHTS.quality;
++
++    const evidence: string[] = [];
++    if (!stats.healthy) evidence.push("breaker open");
++    evidence.push(stats.samples === 0 ? "not tried yet" : `${stats.successes}/${stats.samples} ok`);
++    if (stats.typicalLatencyMs !== null) evidence.push(seconds(stats.typicalLatencyMs));
++    if (typeof candidate.costPaise === "number") evidence.push(rupees(candidate.costPaise));
++    if (candidate.quality !== undefined) evidence.push(`quality ${candidate.quality.toFixed(2)}`);
++
++    return {
++      id: candidate.id,
++      key: candidate.key,
++      score: Number(score.toFixed(4)),
++      parts,
++      healthy: stats.healthy,
++      reason: evidence.join(" · "),
++    };
++  });
++
++  // Health is a partition, not a weight: no combination of cheap, fast and
++  // well-regarded may promote a provider whose breaker is open above one that
++  // is answering. Array.prototype.sort is stable, so equal scores keep the
++  // caller's order — which is how an explicit admin choice stays first.
++  const healthy = scored.filter((s) => s.healthy).sort((a, b) => b.score - a.score);
++  const unhealthy = scored.filter((s) => !s.healthy).sort((a, b) => b.score - a.score);
++  return [...healthy, ...unhealthy];
++}
++
++/** Cap for the routing reason stored on a usage row. */
++const MAX_REASON_LENGTH = 200;
++
++/**
++ * One line saying why the front-runner is the front-runner, with the nearest
++ * rival for contrast — a score on its own is unfalsifiable, a score next to
++ * the one it beat is an argument.
++ */
++export function explainWinner(ranked: ScoredProvider[]): string | undefined {
++  const [winner, runnerUp] = ranked;
++  if (!winner) return undefined;
++  let text = `${winner.id} won on ${winner.reason} (${winner.score})`;
++  if (runnerUp) text += `, ahead of ${runnerUp.id} (${runnerUp.score})`;
++  return text.length > MAX_REASON_LENGTH ? `${text.slice(0, MAX_REASON_LENGTH - 1)}…` : text;
++}
+diff --git a/artifacts/api-server/src/lib/usage.ts b/artifacts/api-server/src/lib/usage.ts
+index ca134df..20ee07a 100644
+--- a/artifacts/api-server/src/lib/usage.ts
++++ b/artifacts/api-server/src/lib/usage.ts
+@@ -47,6 +47,16 @@ export interface UsageMeta {
+   inputTokens?: number;
+   outputTokens?: number;
+   costPaise?: number;
++  // Richer telemetry (best-effort; omitted rather than zeroed when unknown).
++  // cachedInputTokens/reasoningTokens are SUBSETS of inputTokens/outputTokens.
++  cachedInputTokens?: number;
++  reasoningTokens?: number;
++  /** Time to first token, streaming text only. */
++  ttftMs?: number;
++  /** 0 = the first provider tried, 1 = the first fallback, and so on. */
++  fallbackStep?: number;
++  /** Human-readable "why this provider"; for debugging, never parsed. */
++  routingReason?: string;
+ }
+ 
+ export async function recordUsage(
+@@ -86,6 +96,11 @@ export async function recordUsage(
+     inputTokens: meta.inputTokens ?? null,
+     outputTokens: meta.outputTokens ?? null,
+     costPaise: meta.costPaise ?? null,
++    cachedInputTokens: meta.cachedInputTokens ?? null,
++    reasoningTokens: meta.reasoningTokens ?? null,
++    ttftMs: meta.ttftMs ?? null,
++    fallbackStep: meta.fallbackStep ?? null,
++    routingReason: meta.routingReason ?? null,
+     displayPaise,
+   });
+ }
+diff --git a/artifacts/api-server/src/routes/admin.ts b/artifacts/api-server/src/routes/admin.ts
+index 9b94bd0..8a89fcf 100644
+--- a/artifacts/api-server/src/routes/admin.ts
++++ b/artifacts/api-server/src/routes/admin.ts
+@@ -29,6 +29,7 @@ import {
+ } from "../lib/asr";
+ import {
+   IMAGE_GEN_PROVIDERS,
++  IMAGE_GEN_AUTO,
+   getImageGenProviderDef,
+   isImageGenProviderConfigured,
+   getImageGenSelection,
+@@ -36,6 +37,7 @@ import {
+   getImageGenKeySource,
+   setStoredImageGenKey,
+   clearStoredImageGenKey,
++  rankImageGenProviders,
+ } from "../lib/imageGen";
+ import {
+   VIDEO_GEN_PROVIDERS,
+@@ -751,10 +753,21 @@ router.delete("/admin/asr-providers/:providerId/key", async (req: Request, res:
+ /** Serialize the image generation settings view (selection + catalog). */
+ async function serializeImageGenSettings() {
+   const selection = await getImageGenSelection();
++  // The ranking the router would use RIGHT NOW, from the same function the
++  // router calls. Shown whether or not auto is on, so an admin can see what
++  // switching to it would pick before committing to it.
++  const ranking = await rankImageGenProviders().catch(() => []);
+   return {
+     provider: selection.provider,
+     model: selection.model,
+     customBaseUrl: selection.customBaseUrl,
++    autoRanking: ranking.map((r) => ({
++      id: r.id,
++      label: getImageGenProviderDef(r.id)?.label ?? r.id,
++      score: r.score,
++      reason: r.reason,
++      healthy: r.healthy,
++    })),
+     providers: await Promise.all(
+       IMAGE_GEN_PROVIDERS.map(async (p) => ({
+         id: p.id,
+@@ -789,6 +802,30 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
+     res.status(400).json({ error: "Invalid input" });
+     return;
+   }
++  // Automatic routing is a valid choice but not a catalog entry: it has no
++  // model to override and no base URL to enter, so both are forced to null
++  // rather than trusting the client to omit them.
++  if (parsed.data.provider === IMAGE_GEN_AUTO) {
++    const before = await getImageGenSelection();
++    await setImageGenSelection({ provider: IMAGE_GEN_AUTO, model: null, customBaseUrl: null });
++    if (before.provider !== IMAGE_GEN_AUTO) {
++      try {
++        await recordAdminAction({
++          action: "imagegen_provider_change",
++          actorTenantId: req.tenantId,
++          actorEmail: req.tenantEmail,
++          targetTenantId: null,
++          targetEmail: null,
++          oldValue: `${before.provider}${before.model ? `:${before.model}` : ""}`,
++          newValue: IMAGE_GEN_AUTO,
++        });
++      } catch (error) {
++        req.log.error({ err: error }, "Failed to write image-gen settings audit log");
++      }
++    }
++    res.json(await serializeImageGenSettings());
++    return;
++  }
+   const def = getImageGenProviderDef(parsed.data.provider);
+   if (!def) {
+     res.status(400).json({ error: "Unknown image generation provider" });
+diff --git a/artifacts/api-server/src/routes/ai.captionStream.test.ts b/artifacts/api-server/src/routes/ai.captionStream.test.ts
+index cd9436f..08cf841 100644
+--- a/artifacts/api-server/src/routes/ai.captionStream.test.ts
++++ b/artifacts/api-server/src/routes/ai.captionStream.test.ts
+@@ -33,8 +33,21 @@ vi.mock("../lib/plans", async (importOriginal) => {
+ // Controllable fake model stream. Each test sets `streamScript` to an async
+ // generator factory; the abort signal passed by the route is honored so a
+ // blocked stream terminates when the route aborts it on disconnect.
+-type Chunk = { choices: Array<{ delta: { content?: string } }> };
++//
++// A real streamed completion ends with a content-free chunk carrying the usage
++// block, so the fake stream has to be able to produce one too.
++type Chunk = {
++  choices: Array<{ delta: { content?: string } }>;
++  usage?: {
++    prompt_tokens?: number;
++    completion_tokens?: number;
++    prompt_tokens_details?: { cached_tokens?: number } | null;
++    completion_tokens_details?: { reasoning_tokens?: number } | null;
++  };
++};
+ let streamScript: (signal: AbortSignal | undefined) => AsyncGenerator<Chunk>;
++/** The request body the route handed the model on the last call. */
++let lastCreateBody: Record<string, unknown> | null = null;
+ 
+ vi.mock("../lib/textGen", async (importOriginal) => {
+   const actual = await importOriginal<typeof import("../lib/textGen")>();
+@@ -47,8 +60,10 @@ vi.mock("../lib/textGen", async (importOriginal) => {
+         chat: {
+           completions: {
+             create: vi.fn(
+-              async (_body: unknown, opts?: { signal?: AbortSignal }) =>
+-                streamScript(opts?.signal),
++              async (body: unknown, opts?: { signal?: AbortSignal }) => {
++                lastCreateBody = body as Record<string, unknown>;
++                return streamScript(opts?.signal);
++              },
+             ),
+           },
+         },
+@@ -67,6 +82,11 @@ function delta(content: string): Chunk {
+   return { choices: [{ delta: { content } }] };
+ }
+ 
++/** The trailing content-free chunk a provider uses to report token usage. */
++function usageChunk(usage: NonNullable<Chunk["usage"]>): Chunk {
++  return { choices: [], usage };
++}
++
+ /** A promise gate the test resolves to let the fake stream proceed/end. */
+ function makeGate() {
+   let open!: () => void;
+@@ -103,6 +123,7 @@ let tenant: TestTenant;
+ beforeEach(async () => {
+   tenant = await createTenant();
+   planState.captions = 0;
++  lastCreateBody = null;
+ 
+   const app = express();
+   app.use(express.json());
+@@ -342,3 +363,79 @@ describe("caption stream disconnect billing", () => {
+     expect(await usageRows()).toHaveLength(0);
+   });
+ });
++
++/**
++ * A streamed completion reports no tokens at all unless the request asks for
++ * them, which is why every streamed caption used to be metered with NULL
++ * tokens and a NULL cost. These tests pin the ask and the recording.
++ *
++ * The cost figure itself is asserted in aiCost.test.ts rather than here: it
++ * reads the shared model-price table and the shared USD rate, both of which
++ * that suite legitimately mutates while running alongside this one.
++ */
++describe("caption stream telemetry", () => {
++  it("asks the model to report usage on a streamed completion", async () => {
++    planState.captions = 100;
++    streamScript = async function* () {
++      yield delta('{"caption":"hi"}');
++    };
++
++    const stream = openStream();
++    await stream.done;
++
++    expect(lastCreateBody?.stream_options).toEqual({ include_usage: true });
++  });
++
++  it("records the token split and TTFT reported by the provider", async () => {
++    planState.captions = 100;
++    streamScript = async function* () {
++      // The first token is quick; the rest of the generation is slow. TTFT
++      // exists precisely to tell those two numbers apart.
++      await new Promise((r) => setTimeout(r, 30));
++      yield delta('{"caption":"Morning brew ');
++      await new Promise((r) => setTimeout(r, 250));
++      yield delta('magic","hashtags":["coffee"]}');
++      yield usageChunk({
++        prompt_tokens: 1_200,
++        completion_tokens: 300,
++        prompt_tokens_details: { cached_tokens: 400 },
++        completion_tokens_details: { reasoning_tokens: 120 },
++      });
++    };
++
++    const stream = openStream();
++    expect(await stream.headers).toBe(200);
++    await stream.done;
++
++    await waitFor(async () => (await usageRows()).length > 0);
++    const [row] = await usageRows();
++    expect(row.inputTokens).toBe(1_200);
++    expect(row.outputTokens).toBe(300);
++    // Subsets of the two above, not additions to them.
++    expect(row.cachedInputTokens).toBe(400);
++    expect(row.reasoningTokens).toBe(120);
++    // Measured at the first delta, so it must sit well under the total.
++    expect(row.ttftMs).not.toBeNull();
++    expect(row.ttftMs!).toBeGreaterThanOrEqual(25);
++    expect(row.ttftMs!).toBeLessThan(row.durationMs! - 100);
++  });
++
++  it("leaves the split unset rather than zero when the provider is silent", async () => {
++    planState.captions = 100;
++    streamScript = async function* () {
++      yield delta('{"caption":"quiet"}');
++      // A usage block with no details: many providers report only totals.
++      yield usageChunk({ prompt_tokens: 40, completion_tokens: 9 });
++    };
++
++    const stream = openStream();
++    await stream.done;
++
++    await waitFor(async () => (await usageRows()).length > 0);
++    const [row] = await usageRows();
++    expect(row.inputTokens).toBe(40);
++    // A stored 0 would read as "measured, and there was no caching".
++    expect(row.cachedInputTokens).toBeNull();
++    expect(row.reasoningTokens).toBeNull();
++  });
++});
+diff --git a/artifacts/api-server/src/routes/ai.ts b/artifacts/api-server/src/routes/ai.ts
+index 3e5c4fb..62de479 100644
+--- a/artifacts/api-server/src/routes/ai.ts
++++ b/artifacts/api-server/src/routes/ai.ts
+@@ -45,6 +45,8 @@ import {
+   buildTextCostMeta,
+   buildImageCostMeta,
+   usageAccountingParams,
++  streamUsageParams,
++  type CompletionUsageLike,
+ } from "../lib/aiCost";
+ import multer from "multer";
+ import {
+@@ -511,6 +513,11 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
+   const startedAt = Date.now();
+   let raw = "";
+   let sent = 0;
++  // Streamed usage arrives on a final chunk that carries no content, and TTFT
++  // can only be measured here — by the time the stream is drained the number
++  // is gone. Both stay unset if the client disconnects first.
++  let streamUsage: CompletionUsageLike = {};
++  let ttftMs: number | null = null;
+   const settleOnce = async () => {
+     if (fundingResolved) return;
+     fundingResolved = true;
+@@ -520,6 +527,8 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
+       durationMs: Date.now() - startedAt,
+       model: textGen.model,
+       platform,
++      ...(ttftMs === null ? {} : { ttftMs }),
++      ...(await buildTextCostMeta(streamUsage, textGen)),
+     });
+   };
+ 
+@@ -552,13 +561,16 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
+         response_format: { type: "json_object" },
+         stream: true,
+         ...usageAccountingParams(textGen.provider),
++        ...streamUsageParams(),
+       },
+       { signal: abort.signal },
+     );
+ 
+     for await (const chunk of stream) {
++      if (chunk.usage) streamUsage = { usage: chunk.usage };
+       const delta = chunk.choices[0]?.delta?.content ?? "";
+       if (!delta) continue;
++      if (ttftMs === null) ttftMs = Date.now() - startedAt;
+       raw += delta;
+       const partial = extractPartialCaption(raw);
+       if (partial.text.length > sent) {
+@@ -1636,6 +1648,8 @@ router.post(
+     const startedAt = Date.now();
+     let raw = "";
+     let sentTotal = 0;
++    /** Measured on the first content delta; null if none ever arrived. */
++    let ttftMs: number | null = null;
+     // Exactly one funding settlement per request (settle = usage rows are
+     // recorded; refund = reserved credits go back), no matter how the stream
+     // ends (result, clarify, error, or the client going away mid-stream).
+@@ -1678,6 +1692,12 @@ router.post(
+               inputTokens: splitAcross(costMeta.inputTokens ?? undefined, i),
+               outputTokens: splitAcross(costMeta.outputTokens ?? undefined, i),
+               costPaise: splitAcross(costMeta.costPaise ?? undefined, i),
++              // Subsets of the token counts, so they are apportioned the same
++              // way. TTFT is not: it is one measured latency the whole
++              // campaign shared, and dividing it would be meaningless.
++              cachedInputTokens: splitAcross(costMeta.cachedInputTokens ?? undefined, i),
++              reasoningTokens: splitAcross(costMeta.reasoningTokens ?? undefined, i),
++              ...(ttftMs === null ? {} : { ttftMs }),
+             }),
+           ),
+         );
+@@ -1715,7 +1735,7 @@ router.post(
+     };
+ 
+     const abort = new AbortController();
+-    let lastUsage: { usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number } | null } = {};
++    let lastUsage: CompletionUsageLike = {};
+     res.on("close", () => {
+       if (!res.writableEnded) {
+         // Client disconnected mid-stream: stop paying the model. If caption
+@@ -1753,6 +1773,7 @@ router.post(
+           response_format: { type: "json_object" },
+           stream: true,
+           ...usageAccountingParams(textGen.provider),
++          ...streamUsageParams(),
+         },
+         { signal: abort.signal },
+       );
+@@ -1761,10 +1782,10 @@ router.post(
+       // carry only new text.
+       const sentByPlatform = new Map<string, number>();
+       for await (const chunk of stream) {
+-        const c = chunk as typeof chunk & { usage?: typeof lastUsage.usage };
+-        if (c.usage) lastUsage = { usage: c.usage };
++        if (chunk.usage) lastUsage = { usage: chunk.usage };
+         const delta = chunk.choices[0]?.delta?.content ?? "";
+         if (!delta) continue;
++        if (ttftMs === null) ttftMs = Date.now() - startedAt;
+         raw += delta;
+         for (const p of extractPartialCampaign(raw)) {
+           const sent = sentByPlatform.get(p.platform) ?? 0;
+diff --git a/artifacts/socialforge/src/pages/admin/ai-tab.test.tsx b/artifacts/socialforge/src/pages/admin/ai-tab.test.tsx
+new file mode 100644
+index 0000000..4f28229
+--- /dev/null
++++ b/artifacts/socialforge/src/pages/admin/ai-tab.test.tsx
+@@ -0,0 +1,182 @@
++/**
++ * The image provider card's automatic-routing surface.
++ *
++ * "Auto" is not a provider — it is a sentinel that hands the choice to the
++ * scorer. So the card has to do two things a normal provider row never does:
++ * hide the model/key fields for it, and show the admin what the scorer would
++ * currently decide, before they commit to it.
++ */
++import { describe, it, expect, vi, beforeEach } from "vitest";
++import { render, screen, cleanup, waitFor } from "@testing-library/react";
++import userEvent from "@testing-library/user-event";
++import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
++import type {
++  ImageGenSettingsView,
++  ImageGenRankedProvider,
++} from "@workspace/api-client-react";
++
++// Radix needs a few APIs jsdom doesn't implement.
++if (!Element.prototype.hasPointerCapture) {
++  Element.prototype.hasPointerCapture = () => false;
++}
++if (!Element.prototype.releasePointerCapture) {
++  Element.prototype.releasePointerCapture = () => {};
++}
++if (!Element.prototype.scrollIntoView) {
++  Element.prototype.scrollIntoView = () => {};
++}
++
++const mockState: {
++  settings: ImageGenSettingsView;
++  lastUpdateVars: { data: Record<string, unknown> } | null;
++} = { settings: baseSettings("openai", []), lastUpdateVars: null };
++
++const updateMutate = vi.fn((vars: { data: Record<string, unknown> }) => {
++  mockState.lastUpdateVars = vars;
++});
++
++vi.mock("@workspace/api-client-react", async () => {
++  const { createApiClientMock } = await import("../../test/apiClientMock");
++  return createApiClientMock({
++    useAdminGetImageGenSettings: () => ({
++      data: mockState.settings,
++      isLoading: false,
++    }),
++    useAdminUpdateImageGenSettings: () => ({ mutate: updateMutate, isPending: false }),
++  });
++});
++
++vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
++
++import { ImageGenProviderCard } from "./ai-tab";
++
++function ranked(
++  id: string,
++  label: string,
++  score: number,
++  reason: string,
++  healthy = true,
++): ImageGenRankedProvider {
++  return { id, label, score, reason, healthy };
++}
++
++function baseSettings(
++  provider: string,
++  autoRanking: ImageGenRankedProvider[],
++): ImageGenSettingsView {
++  return {
++    provider,
++    model: null,
++    customBaseUrl: null,
++    providers: [
++      {
++        id: "openai",
++        label: "OpenAI (built-in)",
++        defaultModel: "gpt-image-1",
++        configured: true,
++        supportsModelOverride: false,
++        requiresBaseUrl: false,
++      },
++      {
++        id: "gemini",
++        label: "Google Gemini",
++        defaultModel: "gemini-2.5-flash-image",
++        configured: true,
++        supportsModelOverride: true,
++        requiresBaseUrl: false,
++      },
++    ],
++    autoRanking,
++  };
++}
++
++function renderCard() {
++  return render(
++    <QueryClientProvider client={new QueryClient()}>
++      <ImageGenProviderCard />
++    </QueryClientProvider>,
++  );
++}
++
++beforeEach(() => {
++  cleanup();
++  updateMutate.mockClear();
++  mockState.lastUpdateVars = null;
++  mockState.settings = baseSettings("openai", []);
++});
++
++describe("image provider card ranking", () => {
++  it("keeps the ranking out of the way while a provider is pinned", () => {
++    mockState.settings = baseSettings("openai", [
++      ranked("gemini", "Google Gemini", 0.71, "not tried yet"),
++    ]);
++    renderCard();
++    // A pinned provider ignores the score, so showing its table would imply
++    // the choice is being made for them.
++    expect(screen.queryByTestId("image-gen-auto-ranking")).toBeNull();
++  });
++
++  it("lists the ranking best first with its evidence and score", async () => {
++    mockState.settings = baseSettings("auto", [
++      ranked("gemini", "Google Gemini", 0.7123, "4/4 ok · ~3.2s · ₹2.50"),
++      ranked("openai", "OpenAI (built-in)", 0.62, "not tried yet"),
++    ]);
++    renderCard();
++
++    const rows = screen.getByTestId("image-gen-auto-ranking");
++    expect(rows.textContent).toContain("Current ranking");
++    const order = Array.from(rows.querySelectorAll("li")).map((li) => li.textContent ?? "");
++    expect(order[0]).toContain("Google Gemini");
++    expect(order[1]).toContain("OpenAI (built-in)");
++    // Numbered so "best first" is readable without comparing the scores.
++    expect(order[0]).toContain("1.");
++    expect(order[0]).toContain("4/4 ok · ~3.2s · ₹2.50");
++    // 0..1 is the scorer's unit, not a useful one to read: shown as 0-100.
++    expect(order[0]).toContain("71");
++    expect(screen.getByText(/Ranked per request/)).toBeTruthy();
++  });
++
++  it("marks a provider whose breaker is open", () => {
++    mockState.settings = baseSettings("auto", [
++      ranked("openai", "OpenAI (built-in)", 0.62, "not tried yet"),
++      ranked("gemini", "Google Gemini", 0.44, "breaker open · 0/3 ok", false),
++    ]);
++    renderCard();
++    expect(screen.getByTestId("ranking-row-gemini").textContent).toContain("Cooling off");
++    expect(screen.getByTestId("ranking-row-openai").textContent).not.toContain("Cooling off");
++  });
++
++  it("says why the ranking is empty instead of showing a blank box", () => {
++    mockState.settings = baseSettings("auto", []);
++    renderCard();
++    expect(screen.getByTestId("image-gen-auto-ranking").textContent).toContain(
++      "No provider is configured yet",
++    );
++  });
++
++  it("saves auto with no model or base URL of its own", async () => {
++    mockState.settings = baseSettings("gemini", []);
++    renderCard();
++    const user = userEvent.setup();
++
++    await user.click(screen.getByTestId("select-image-gen-provider"));
++    await user.click(screen.getByRole("option", { name: /Auto/ }));
++
++    await waitFor(() => expect(mockState.lastUpdateVars).toBeTruthy());
++    // Any model override left over from the pinned provider must not travel
++    // with the switch — under auto each provider uses its own default.
++    expect(mockState.lastUpdateVars!.data).toEqual({
++      provider: "auto",
++      model: null,
++      customBaseUrl: null,
++    });
++  });
++
++  it("hides the model field under auto", async () => {
++    mockState.settings = baseSettings("auto", []);
++    renderCard();
++    // "auto" is not in the catalog, so there is no provider whose model or key
++    // could be edited here.
++    expect(screen.queryByTestId("input-image-gen-model")).toBeNull();
++  });
++});
+diff --git a/artifacts/socialforge/src/pages/admin/ai-tab.tsx b/artifacts/socialforge/src/pages/admin/ai-tab.tsx
+index 93f1a4e..c5a8696 100644
+--- a/artifacts/socialforge/src/pages/admin/ai-tab.tsx
++++ b/artifacts/socialforge/src/pages/admin/ai-tab.tsx
+@@ -281,7 +281,15 @@ const IMAGE_GEN_KEY_PAGES: Record<string, string> = {
+   replicate: "https://replicate.com/account/api-tokens",
+ };
+ 
+-function ImageGenProviderCard() {
++/**
++ * Sentinel stored in the provider column when the scorer should choose per
++ * request. It is not a catalog id, so it never appears in `settings.providers`
++ * and none of the model/key sections render for it.
++ */
++const IMAGE_GEN_AUTO = "auto";
++
++/** Exported for its own test; rendered only from AiTab. */
++export function ImageGenProviderCard() {
+   const { toast } = useToast();
+   const queryClient = useQueryClient();
+   const { data: settings, isLoading } = useAdminGetImageGenSettings();
+@@ -318,9 +326,12 @@ function ImageGenProviderCard() {
+           const chosen = result.providers.find((p) => p.id === result.provider);
+           toast({
+             title: "Image provider updated",
+-            description: chosen
+-              ? `Images are now generated with ${chosen.label}.`
+-              : "Provider selection saved.",
++            description:
++              result.provider === IMAGE_GEN_AUTO
++                ? "Each image now goes to the best-scoring provider available."
++                : chosen
++                  ? `Images are now generated with ${chosen.label}.`
++                  : "Provider selection saved.",
+           });
+         },
+         onError: (err: unknown) => {
+@@ -357,6 +368,7 @@ function ImageGenProviderCard() {
+ 
+   const [draftProvider, setDraftProvider] = useState<string | null>(null);
+   const effectiveProvider = draftProvider ?? settings?.provider ?? "openai";
++  const isAuto = effectiveProvider === IMAGE_GEN_AUTO;
+   const shown = settings?.providers.find((p) => p.id === effectiveProvider);
+ 
+   const handleSaveKey = (providerId: string) => {
+@@ -411,10 +423,11 @@ function ImageGenProviderCard() {
+       <CardHeader>
+         <CardTitle>Image Generation Provider</CardTitle>
+         <CardDescription>
+-          Which service creates images in the Studio. The built-in OpenAI option
+-          needs no key. Other providers use your own API key (stored encrypted).
+-          The Custom option works with any OpenAI-compatible provider — enter its
+-          base URL and model name.
++          Which service creates images in the Studio. Auto scores every
++          configured provider per request and falls back down the ranking when
++          one fails. The built-in OpenAI option needs no key. Other providers use
++          your own API key (stored encrypted). The Custom option works with any
++          OpenAI-compatible provider — enter its base URL and model name.
+         </CardDescription>
+       </CardHeader>
+       <CardContent className="space-y-3">
+@@ -432,6 +445,9 @@ function ImageGenProviderCard() {
+                   <SelectValue placeholder="Select a provider" />
+                 </SelectTrigger>
+                 <SelectContent>
++                  <SelectItem value={IMAGE_GEN_AUTO}>
++                    Auto — best scoring provider
++                  </SelectItem>
+                   {settings.providers.map((p) => (
+                     <SelectItem key={p.id} value={p.id}>
+                       {p.label}
+@@ -439,15 +455,62 @@ function ImageGenProviderCard() {
+                   ))}
+                 </SelectContent>
+               </Select>
+-              {shown &&
++              {isAuto ? (
++                <Badge variant="secondary">Ranked per request</Badge>
++              ) : (
++                shown &&
+                 (isDraft ? (
+                   <Badge variant="outline">Not saved yet</Badge>
+                 ) : shown.configured ? (
+                   <Badge variant="secondary">Ready</Badge>
+                 ) : (
+                   <Badge variant="destructive">Needs key</Badge>
+-                ))}
++                ))
++              )}
+             </div>
++            {isAuto && (
++              <div className="space-y-2 rounded-md border p-3" data-testid="image-gen-auto-ranking">
++                <p className="text-sm font-medium">Current ranking</p>
++                {settings.autoRanking.length === 0 ? (
++                  <p className="text-sm text-muted-foreground">
++                    No provider is configured yet, so there is nothing to rank.
++                    Add a key to any provider above.
++                  </p>
++                ) : (
++                  <>
++                    <ul className="space-y-1.5">
++                      {settings.autoRanking.map((r, i) => (
++                        <li
++                          key={r.id}
++                          className="flex items-baseline justify-between gap-3 text-sm"
++                          data-testid={`ranking-row-${r.id}`}
++                        >
++                          <span className="flex items-baseline gap-2">
++                            <span className="text-muted-foreground tabular-nums">
++                              {i + 1}.
++                            </span>
++                            <span className="font-medium">{r.label}</span>
++                            {!r.healthy && (
++                              <Badge variant="outline" className="text-xs">
++                                Cooling off
++                              </Badge>
++                            )}
++                          </span>
++                          <span className="text-right text-xs text-muted-foreground">
++                            {r.reason} · {Math.round(r.score * 100)}
++                          </span>
++                        </li>
++                      ))}
++                    </ul>
++                    <p className="text-xs text-muted-foreground">
++                      Scored on recent success rate, observed speed, price, and
++                      picture quality. Recomputed on every generation, so this
++                      order shifts as providers succeed or fail.
++                    </p>
++                  </>
++                )}
++              </div>
++            )}
+             {shown && (shown.supportsModelOverride || shown.requiresBaseUrl) && (
+               <div className="space-y-2 rounded-md border p-3">
+                 {shown.requiresBaseUrl && (
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index f2f5033..8573062 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -969,8 +969,19 @@ export interface ImageGenProviderInfo {
+   keySource?: ImageGenProviderInfoKeySource;
+ }
+ 
++export interface ImageGenRankedProvider {
++  id: string;
++  label: string;
++  /** Weighted score in 0..1; higher wins. */
++  score: number;
++  /** The evidence behind the score, for humans only. */
++  reason: string;
++  /** False while this provider's circuit breaker is open. */
++  healthy: boolean;
++}
++
+ export interface ImageGenSettingsView {
+-  /** Currently selected image generation provider id. */
++  /** Currently selected image generation provider id, or "auto" to let the scorer choose per generation. */
+   provider: string;
+   /**
+      * Admin model override (null = provider default).
+@@ -983,6 +994,8 @@ export interface ImageGenSettingsView {
+      */
+   customBaseUrl: string | null;
+   providers: ImageGenProviderInfo[];
++  /** How automatic routing currently ranks the configured providers, best first. Shown whether or not "auto" is selected, so the effect of switching to it is visible in advance. Empty when nothing is configured. */
++  autoRanking: ImageGenRankedProvider[];
+ }
+ 
+ export interface SetImageGenProviderKeyRequest {
+@@ -994,7 +1007,7 @@ export interface SetImageGenProviderKeyRequest {
+ }
+ 
+ export interface UpdateImageGenSettingsRequest {
+-  /** Provider id from the catalog. */
++  /** Provider id from the catalog, or "auto" to let the scorer pick per request. With "auto" the model and customBaseUrl fields are ignored. */
+   provider: string;
+   /**
+      * Optional model override (empty/null = provider default).
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index 7d56df6..7547287 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -8445,11 +8445,13 @@ components:
+           description: Provider id from the catalog.
+     ImageGenSettingsView:
+       type: object
+-      required: [provider, model, customBaseUrl, providers]
++      required: [provider, model, customBaseUrl, providers, autoRanking]
+       properties:
+         provider:
+           type: string
+-          description: Currently selected image generation provider id.
++          description: >-
++            Currently selected image generation provider id, or "auto" to let
++            the scorer choose per generation.
+         model:
+           type: ["string", "null"]
+           description: Admin model override (null = provider default).
+@@ -8460,6 +8462,32 @@ components:
+           type: array
+           items:
+             $ref: "#/components/schemas/ImageGenProviderInfo"
++        autoRanking:
++          type: array
++          description: >-
++            How automatic routing currently ranks the configured providers,
++            best first. Shown whether or not "auto" is selected, so the effect
++            of switching to it is visible in advance. Empty when nothing is
++            configured.
++          items:
++            $ref: "#/components/schemas/ImageGenRankedProvider"
++    ImageGenRankedProvider:
++      type: object
++      required: [id, label, score, reason, healthy]
++      properties:
++        id:
++          type: string
++        label:
++          type: string
++        score:
++          type: number
++          description: Weighted score in 0..1; higher wins.
++        reason:
++          type: string
++          description: The evidence behind the score, for humans only.
++        healthy:
++          type: boolean
++          description: False while this provider's circuit breaker is open.
+     ImageGenProviderInfo:
+       type: object
+       required: [id, label, defaultModel, configured, supportsModelOverride, requiresBaseUrl]
+@@ -8513,7 +8541,9 @@ components:
+       properties:
+         provider:
+           type: string
+-          description: Provider id from the catalog.
++          description: >-
++            Provider id from the catalog, or "auto" to let the scorer pick per
++            request. With "auto" the model and customBaseUrl fields are ignored.
+         model:
+           type: ["string", "null"]
+           description: Optional model override (empty/null = provider default).
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index 11d5f78..0620034 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -1008,7 +1008,7 @@ export const AdminClearAsrProviderKeyResponse = zod.object({
+  * @summary Get the image generation provider selection (superadmin only)
+  */
+ export const AdminGetImageGenSettingsResponse = zod.object({
+-  "provider": zod.string().describe('Currently selected image generation provider id.'),
++  "provider": zod.string().describe('Currently selected image generation provider id, or \"auto\" to let the scorer choose per generation.'),
+   "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
+   "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
+   "providers": zod.array(zod.object({
+@@ -1024,7 +1024,14 @@ export const AdminGetImageGenSettingsResponse = zod.object({
+ })).optional().describe('Suggested model choices for this provider (free text still allowed).'),
+   "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
+   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+-}))
++})),
++  "autoRanking": zod.array(zod.object({
++  "id": zod.string(),
++  "label": zod.string(),
++  "score": zod.number().describe('Weighted score in 0..1; higher wins.'),
++  "reason": zod.string().describe('The evidence behind the score, for humans only.'),
++  "healthy": zod.boolean().describe('False while this provider\'s circuit breaker is open.')
++})).describe('How automatic routing currently ranks the configured providers, best first. Shown whether or not \"auto\" is selected, so the effect of switching to it is visible in advance. Empty when nothing is configured.')
+ })
+ 
+ 
+@@ -1032,13 +1039,13 @@ export const AdminGetImageGenSettingsResponse = zod.object({
+  * @summary Select the image generation provider for the whole app (superadmin only)
+  */
+ export const AdminUpdateImageGenSettingsBody = zod.object({
+-  "provider": zod.string().describe('Provider id from the catalog.'),
++  "provider": zod.string().describe('Provider id from the catalog, or \"auto\" to let the scorer pick per request. With \"auto\" the model and customBaseUrl fields are ignored.'),
+   "model": zod.string().nullish().describe('Optional model override (empty\/null = provider default).'),
+   "customBaseUrl": zod.string().nullish().describe('Base URL for the custom provider (https only).')
+ })
+ 
+ export const AdminUpdateImageGenSettingsResponse = zod.object({
+-  "provider": zod.string().describe('Currently selected image generation provider id.'),
++  "provider": zod.string().describe('Currently selected image generation provider id, or \"auto\" to let the scorer choose per generation.'),
+   "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
+   "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
+   "providers": zod.array(zod.object({
+@@ -1054,7 +1061,14 @@ export const AdminUpdateImageGenSettingsResponse = zod.object({
+ })).optional().describe('Suggested model choices for this provider (free text still allowed).'),
+   "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
+   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+-}))
++})),
++  "autoRanking": zod.array(zod.object({
++  "id": zod.string(),
++  "label": zod.string(),
++  "score": zod.number().describe('Weighted score in 0..1; higher wins.'),
++  "reason": zod.string().describe('The evidence behind the score, for humans only.'),
++  "healthy": zod.boolean().describe('False while this provider\'s circuit breaker is open.')
++})).describe('How automatic routing currently ranks the configured providers, best first. Shown whether or not \"auto\" is selected, so the effect of switching to it is visible in advance. Empty when nothing is configured.')
+ })
+ 
+ 
+@@ -1073,7 +1087,7 @@ export const AdminSetImageGenProviderKeyBody = zod.object({
+ })
+ 
+ export const AdminSetImageGenProviderKeyResponse = zod.object({
+-  "provider": zod.string().describe('Currently selected image generation provider id.'),
++  "provider": zod.string().describe('Currently selected image generation provider id, or \"auto\" to let the scorer choose per generation.'),
+   "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
+   "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
+   "providers": zod.array(zod.object({
+@@ -1089,7 +1103,14 @@ export const AdminSetImageGenProviderKeyResponse = zod.object({
+ })).optional().describe('Suggested model choices for this provider (free text still allowed).'),
+   "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
+   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+-}))
++})),
++  "autoRanking": zod.array(zod.object({
++  "id": zod.string(),
++  "label": zod.string(),
++  "score": zod.number().describe('Weighted score in 0..1; higher wins.'),
++  "reason": zod.string().describe('The evidence behind the score, for humans only.'),
++  "healthy": zod.boolean().describe('False while this provider\'s circuit breaker is open.')
++})).describe('How automatic routing currently ranks the configured providers, best first. Shown whether or not \"auto\" is selected, so the effect of switching to it is visible in advance. Empty when nothing is configured.')
+ })
+ 
+ 
+@@ -1101,7 +1122,7 @@ export const AdminClearImageGenProviderKeyParams = zod.object({
+ })
+ 
+ export const AdminClearImageGenProviderKeyResponse = zod.object({
+-  "provider": zod.string().describe('Currently selected image generation provider id.'),
++  "provider": zod.string().describe('Currently selected image generation provider id, or \"auto\" to let the scorer choose per generation.'),
+   "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
+   "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
+   "providers": zod.array(zod.object({
+@@ -1117,7 +1138,14 @@ export const AdminClearImageGenProviderKeyResponse = zod.object({
+ })).optional().describe('Suggested model choices for this provider (free text still allowed).'),
+   "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
+   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
+-}))
++})),
++  "autoRanking": zod.array(zod.object({
++  "id": zod.string(),
++  "label": zod.string(),
++  "score": zod.number().describe('Weighted score in 0..1; higher wins.'),
++  "reason": zod.string().describe('The evidence behind the score, for humans only.'),
++  "healthy": zod.boolean().describe('False while this provider\'s circuit breaker is open.')
++})).describe('How automatic routing currently ranks the configured providers, best first. Shown whether or not \"auto\" is selected, so the effect of switching to it is visible in advance. Empty when nothing is configured.')
+ })
+ 
+ 
+diff --git a/lib/api-zod/src/generated/types/imageGenRankedProvider.ts b/lib/api-zod/src/generated/types/imageGenRankedProvider.ts
+new file mode 100644
+index 0000000..a45dd56
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/imageGenRankedProvider.ts
+@@ -0,0 +1,18 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface ImageGenRankedProvider {
++  id: string;
++  label: string;
++  /** Weighted score in 0..1; higher wins. */
++  score: number;
++  /** The evidence behind the score, for humans only. */
++  reason: string;
++  /** False while this provider's circuit breaker is open. */
++  healthy: boolean;
++}
+diff --git a/lib/api-zod/src/generated/types/imageGenSettingsView.ts b/lib/api-zod/src/generated/types/imageGenSettingsView.ts
+index d283a4e..a670785 100644
+--- a/lib/api-zod/src/generated/types/imageGenSettingsView.ts
++++ b/lib/api-zod/src/generated/types/imageGenSettingsView.ts
+@@ -6,9 +6,10 @@
+  * OpenAPI spec version: 0.1.0
+  */
+ import type { ImageGenProviderInfo } from './imageGenProviderInfo';
++import type { ImageGenRankedProvider } from './imageGenRankedProvider';
+ 
+ export interface ImageGenSettingsView {
+-  /** Currently selected image generation provider id. */
++  /** Currently selected image generation provider id, or "auto" to let the scorer choose per generation. */
+   provider: string;
+   /**
+      * Admin model override (null = provider default).
+@@ -21,4 +22,6 @@ export interface ImageGenSettingsView {
+      */
+   customBaseUrl: string | null;
+   providers: ImageGenProviderInfo[];
++  /** How automatic routing currently ranks the configured providers, best first. Shown whether or not "auto" is selected, so the effect of switching to it is visible in advance. Empty when nothing is configured. */
++  autoRanking: ImageGenRankedProvider[];
+ }
+diff --git a/lib/api-zod/src/generated/types/index.ts b/lib/api-zod/src/generated/types/index.ts
+index 81ff780..fb701e8 100644
+--- a/lib/api-zod/src/generated/types/index.ts
++++ b/lib/api-zod/src/generated/types/index.ts
+@@ -245,6 +245,7 @@ export * from './hookIdeas';
+ export * from './imageGenModelOption';
+ export * from './imageGenProviderInfo';
+ export * from './imageGenProviderInfoKeySource';
++export * from './imageGenRankedProvider';
+ export * from './imageGenSettingsView';
+ export * from './imageJob';
+ export * from './imageJobStatus';
+diff --git a/lib/api-zod/src/generated/types/updateImageGenSettingsRequest.ts b/lib/api-zod/src/generated/types/updateImageGenSettingsRequest.ts
+index 7856d09..bdbcc63 100644
+--- a/lib/api-zod/src/generated/types/updateImageGenSettingsRequest.ts
++++ b/lib/api-zod/src/generated/types/updateImageGenSettingsRequest.ts
+@@ -7,7 +7,7 @@
+  */
+ 
+ export interface UpdateImageGenSettingsRequest {
+-  /** Provider id from the catalog. */
++  /** Provider id from the catalog, or "auto" to let the scorer pick per request. With "auto" the model and customBaseUrl fields are ignored. */
+   provider: string;
+   /**
+      * Optional model override (empty/null = provider default).
+diff --git a/lib/db/src/schema/usageEvents.ts b/lib/db/src/schema/usageEvents.ts
+index 548b517..490ba8c 100644
+--- a/lib/db/src/schema/usageEvents.ts
++++ b/lib/db/src/schema/usageEvents.ts
+@@ -27,6 +27,25 @@ export const usageEventsTable = pgTable("usage_events", {
+   outputTokens: integer("output_tokens"),
+   // Computed real cost in PAISE; NULL = unknown (never a guessed number).
+   costPaise: integer("cost_paise"),
++  // Richer generation telemetry (all nullable and best-effort; a provider that
++  // does not report a figure leaves it NULL rather than storing a zero that
++  // would read as "measured, and it was none").
++  //
++  // Subsets of input_tokens / output_tokens respectively, not additions to
++  // them: cached_input_tokens are prompt tokens the provider served from its
++  // own cache, reasoning_tokens are thinking tokens billed inside the
++  // completion. Splitting them out is what makes a cost figure explainable.
++  cachedInputTokens: integer("cached_input_tokens"),
++  reasoningTokens: integer("reasoning_tokens"),
++  // Time to first token, streaming text only. The number a tenant actually
++  // experiences as "did it hang?", which duration_ms cannot show.
++  ttftMs: integer("ttft_ms"),
++  // Which link in the fallback chain served this: 0 = the first choice, 1 = the
++  // first fallback, and so on. NULL = the path does not fall back.
++  fallbackStep: integer("fallback_step"),
++  // Short human-readable "why this provider won" for the routed choice.
++  // Debugging and cost governance; never parsed.
++  routingReason: text("routing_reason"),
+   // Tenant-facing display amount in PAISE snapshotted at record time (per-unit
+   // rate with fee folded in, at the rates in effect when the event happened).
+   // NULL = row predates snapshotting; reports fall back to current rates.
+-- 
+2.43.0
+

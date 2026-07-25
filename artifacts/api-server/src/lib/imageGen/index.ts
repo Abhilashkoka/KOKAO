@@ -1,7 +1,10 @@
 import { db, imageGenSettingsTable, appCredentialsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "../logger";
-import { orderByHealth, recordProviderFailure, recordProviderSuccess } from "../providerHealth";
+import { recordProviderFailure, recordProviderSuccess, orderByHealth } from "../providerHealth";
+import { isFeatureEnabled } from "../featureFlags";
+import { rankProviders, explainWinner, type ScoredProvider } from "../providerScore";
+import { imageUnitCostsPaise } from "../aiCost";
 import { encryptJson, decryptJson } from "../secretCrypto";
 import { generateWithOpenAIBuiltin, OPENAI_BUILTIN_MODEL } from "./providers/openaiBuiltin";
 import { generateWithGemini, GEMINI_IMAGE_MODEL } from "./providers/gemini";
@@ -17,12 +20,30 @@ import {
   type ImageGenResult,
   type ImageSize,
   type ReferenceImage,
+  type RoutedImageGenResult,
 } from "./types";
 
 export { ImageGenNotConfiguredError, ImageGenProviderError } from "./types";
-export type { ImageGenInput, ImageGenResult, ImageSize, ReferenceImage } from "./types";
+export type {
+  ImageGenInput,
+  ImageGenResult,
+  ImageSize,
+  ReferenceImage,
+  RoutedImageGenResult,
+} from "./types";
 
 export const DEFAULT_IMAGE_GEN_PROVIDER = "openai";
+
+/**
+ * Sentinel provider id meaning "let the scorer pick, per generation".
+ *
+ * It lives in the same free-text `provider` settings column as a real catalog
+ * id rather than in a second column, because the two are mutually exclusive
+ * choices about the same thing — a boolean beside the id would let the
+ * settings row express "auto, but also pinned to bfl", which has no meaning.
+ * A test asserts no catalog id ever collides with it.
+ */
+export const IMAGE_GEN_AUTO = "auto";
 
 export interface ImageGenProviderDef {
   id: string;
@@ -39,6 +60,16 @@ export interface ImageGenProviderDef {
   /** Whether this provider accepts a reference image (image-to-image). When
    * false, reference guidance reaches the provider as prompt text only. */
   supportsImageInput: boolean;
+  /**
+   * Editorial output-quality tier in 0..1, used only when automatic routing is
+   * on. A judgement about this model family for the kind of work KOKAO does —
+   * brand and product imagery with legible text — not a benchmark score.
+   * Deliberately coarse: three or four distinct values is all the resolution
+   * this deserves, because pretending to two decimals of accuracy would invite
+   * arguments the number cannot settle. Omitted means "no opinion", which
+   * scores neutrally rather than badly.
+   */
+  quality?: number;
   generate: (input: ImageGenInput, apiKey: string | null) => Promise<ImageGenResult>;
 }
 
@@ -52,6 +83,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     supportsModelOverride: false,
     requiresBaseUrl: false,
     supportsImageInput: true,
+    quality: 0.85,
     generate: generateWithOpenAIBuiltin,
   },
   {
@@ -66,6 +98,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
       { value: "gemini-3-pro-image-preview", label: "Nano Banana Pro (gemini-3-pro-image-preview)" },
     ],
     supportsImageInput: true,
+    quality: 0.9,
     generate: generateWithGemini,
   },
   {
@@ -83,6 +116,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
       { value: "flux-dev", label: "FLUX Dev (flux-dev)" },
     ],
     supportsImageInput: false,
+    quality: 0.9,
     generate: generateWithBfl,
   },
   {
@@ -99,6 +133,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
       { value: "seedream-4-0", label: "Seedream 4.0 (seedream-4-0)" },
     ],
     supportsImageInput: true,
+    quality: 0.8,
     generate: generateWithSeedream,
   },
   {
@@ -109,6 +144,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     supportsModelOverride: true,
     requiresBaseUrl: false,
     supportsImageInput: false,
+    quality: 0.7,
     generate: generateWithStability,
   },
   {
@@ -119,6 +155,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     supportsModelOverride: true,
     requiresBaseUrl: false,
     supportsImageInput: false,
+    quality: 0.7,
     generate: generateWithReplicate,
   },
   {
@@ -134,6 +171,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
       { value: "openai/gpt-image-1", label: "OpenAI GPT Image (openai/gpt-image-1)" },
     ],
     supportsImageInput: true,
+    quality: 0.85,
     generate: generateWithOpenRouter,
   },
   {
@@ -232,6 +270,12 @@ export interface ImageGenSelection {
 export async function getImageGenSelection(): Promise<ImageGenSelection> {
   const row = (await db.select().from(imageGenSettingsTable).limit(1))[0];
   const id = row?.provider ?? DEFAULT_IMAGE_GEN_PROVIDER;
+  // Automatic routing has no single provider, so it also has no model override
+  // and no base URL — reported as null rather than as whatever a previously
+  // pinned provider left behind in those columns.
+  if (id === IMAGE_GEN_AUTO) {
+    return { provider: IMAGE_GEN_AUTO, model: null, customBaseUrl: null };
+  }
   if (!getImageGenProviderDef(id)) {
     return { provider: DEFAULT_IMAGE_GEN_PROVIDER, model: null, customBaseUrl: null };
   }
@@ -284,6 +328,13 @@ function isTransientImageGenError(error: unknown): boolean {
 /** How many OTHER configured providers to try after a transient failure. */
 const IMAGE_GEN_FALLBACK_LIMIT = 2;
 
+/**
+ * Latency that scores neutrally for image work. Image models routinely take
+ * ten to thirty seconds, so the text-shaped default would rate every one of
+ * them as slow and make the axis useless.
+ */
+const IMAGE_LATENCY_REFERENCE_MS = 15_000;
+
 async function runImageGenProvider(
   def: ImageGenProviderDef,
   input: Omit<ImageGenInput, "model" | "baseUrl" | "referenceImage">,
@@ -293,6 +344,7 @@ async function runImageGenProvider(
 ): Promise<ImageGenResult> {
   const apiKey = await resolveImageGenApiKey(def);
   const key = imageGenHealthKey(def.id);
+  const startedAt = Date.now();
   try {
     const result = await def.generate(
       {
@@ -306,7 +358,9 @@ async function runImageGenProvider(
       },
       apiKey,
     );
-    recordProviderSuccess(key);
+    // Only successes are timed. A failure's duration says how fast the vendor
+    // said no, which is not the number routing wants to know.
+    recordProviderSuccess(key, Date.now() - startedAt);
     return result;
   } catch (error) {
     if (isTransientImageGenError(error)) {
@@ -316,56 +370,163 @@ async function runImageGenProvider(
   }
 }
 
+/**
+ * Providers eligible to be chosen automatically: configured, not dependent on
+ * an admin-entered base URL, and able to take a reference image when one is
+ * present. Task fit is a filter here rather than a low score in the scorer,
+ * because a provider that cannot accept the reference image is not a worse
+ * answer to this request — it is not an answer to it.
+ */
+async function autoCandidates(
+  referenceImage: ReferenceImage | undefined,
+): Promise<ImageGenProviderDef[]> {
+  const out: ImageGenProviderDef[] = [];
+  for (const candidate of IMAGE_GEN_PROVIDERS) {
+    if (candidate.requiresBaseUrl) continue;
+    if (referenceImage && !candidate.supportsImageInput) continue;
+    if (await isImageGenProviderConfigured(candidate)) out.push(candidate);
+  }
+  return out;
+}
+
+/**
+ * The current automatic-routing ranking. Exported because the admin screen
+ * shows exactly what the router would do, from the same call — a ranking the
+ * UI computed its own way would eventually disagree with the one that runs.
+ */
+export async function rankImageGenProviders(
+  referenceImage?: ReferenceImage,
+): Promise<ScoredProvider[]> {
+  const defs = await autoCandidates(referenceImage);
+  // Priced against each provider's DEFAULT model: under auto routing that is
+  // the model that will actually run, since a model override belongs to an
+  // explicitly pinned provider.
+  const costs = await imageUnitCostsPaise(
+    defs.map((d) => ({ id: d.id, provider: d.id, model: d.defaultModel })),
+  );
+  return rankProviders(
+    defs.map((d) => ({
+      id: d.id,
+      key: imageGenHealthKey(d.id),
+      quality: d.quality,
+      costPaise: costs.get(d.id) ?? null,
+    })),
+    { latencyReferenceMs: IMAGE_LATENCY_REFERENCE_MS },
+  );
+}
+
+function shortMessage(error: unknown): string {
+  return error instanceof Error ? error.message.slice(0, 120) : "an unknown error";
+}
+
 /** Generate an image using the currently selected provider. The reference
  * image is only forwarded to providers that support image input; callers
  * should bake reference guidance into the prompt text either way.
  *
- * Reliability: the selected provider is always attempted first (that attempt
- * doubles as the circuit breaker's half-open probe). If it fails with a
- * TRANSIENT error (429/5xx/network/timeout), up to two other configured
- * providers are tried — healthiest first — before the job is failed. A
- * permanent error (bad prompt, invalid key) never triggers fallback. */
+ * Reliability: the first provider is always attempted (that attempt doubles as
+ * the circuit breaker's half-open probe). If it fails with a TRANSIENT error
+ * (429/5xx/network/timeout), up to two other configured providers are tried
+ * before the job is failed. A permanent error (bad prompt, invalid key) never
+ * triggers fallback.
+ *
+ * Selection: a pinned provider goes first, always. With `auto` the scorer
+ * picks per generation and the whole chain comes from the ranking. */
 export async function generateImage(
   prompt: string,
   size: ImageSize,
   referenceImage?: ReferenceImage,
-): Promise<ImageGenResult> {
+): Promise<RoutedImageGenResult> {
   const selection = await getImageGenSelection();
-  const def =
-    getImageGenProviderDef(selection.provider) ??
-    getImageGenProviderDef(DEFAULT_IMAGE_GEN_PROVIDER)!;
+  // Kill switch (fail-open): with providerScoring off, an `auto` selection is
+  // treated as unconfigured and falls through to the built-in default below.
+  const auto =
+    selection.provider === IMAGE_GEN_AUTO &&
+    (await isFeatureEnabled("providerScoring").catch(() => true));
   const input = { prompt, size };
 
-  let primaryError: unknown;
-  try {
-    return await runImageGenProvider(def, input, selection, referenceImage, true);
-  } catch (error) {
-    primaryError = error;
-    if (!isTransientImageGenError(error)) throw error;
-  }
-
-  // Transient primary failure: try alternates that are actually configured.
-  // "custom" is excluded — its base URL belongs to the admin's selection.
-  const alternates: ImageGenProviderDef[] = [];
-  for (const candidate of IMAGE_GEN_PROVIDERS) {
-    if (candidate.id === def.id || candidate.requiresBaseUrl) continue;
-    if (referenceImage && !candidate.supportsImageInput) continue;
-    if (await isImageGenProviderConfigured(candidate)) alternates.push(candidate);
-  }
-  const ordered = orderByHealth(alternates, (c) => imageGenHealthKey(c.id)).slice(
-    0,
-    IMAGE_GEN_FALLBACK_LIMIT,
-  );
-
-  for (const candidate of ordered) {
-    logger.warn(
-      { primary: def.id, fallback: candidate.id, err: primaryError },
-      "Image provider failed transiently; trying fallback provider",
+  // Under auto the ranking IS the decision, so it is computed up front. With a
+  // pinned provider the chain is extended only after a failure, so the happy
+  // path costs exactly the queries it did before this existed.
+  const chain: ImageGenProviderDef[] = [];
+  let firstReason: string | undefined;
+  if (auto) {
+    const ranked = await rankImageGenProviders(referenceImage);
+    logger.info(
+      { ranking: ranked.map((r) => ({ id: r.id, score: r.score, why: r.reason })) },
+      "Image provider ranking",
     );
+    for (const scored of ranked.slice(0, 1 + IMAGE_GEN_FALLBACK_LIMIT)) {
+      const candidate = getImageGenProviderDef(scored.id);
+      if (candidate) chain.push(candidate);
+    }
+    firstReason = explainWinner(ranked);
+  }
+  if (chain.length === 0) {
+    // Pinned, or auto with nothing configured to rank. Falling through to the
+    // built-in provider means an unconfigured deployment fails with that
+    // provider's own error rather than a routing-flavoured one.
+    chain.push(
+      getImageGenProviderDef(selection.provider) ??
+        getImageGenProviderDef(DEFAULT_IMAGE_GEN_PROVIDER)!,
+    );
+    firstReason = undefined;
+  }
+
+  let primaryError: unknown;
+  let extended = auto;
+  for (let step = 0; step < chain.length; step += 1) {
+    const def = chain[step];
+    if (step > 0) {
+      logger.warn(
+        { primary: chain[0].id, fallback: def.id, err: primaryError },
+        "Image provider failed transiently; trying fallback provider",
+      );
+    }
     try {
-      return await runImageGenProvider(candidate, input, selection, referenceImage, false);
+      const result = await runImageGenProvider(
+        def,
+        input,
+        selection,
+        referenceImage,
+        // Model and base-URL overrides belong to an explicitly pinned
+        // provider in first position, and to nothing else.
+        !auto && step === 0,
+      );
+      return {
+        ...result,
+        fallbackStep: step,
+        routingReason:
+          step === 0
+            ? firstReason
+            : `${def.id} served after ${chain[0].id} failed: ${shortMessage(primaryError)}`,
+      };
     } catch (error) {
+      if (step === 0) primaryError = error;
+      // A permanent error would fail at every provider, so trying more of them
+      // just costs the tenant time.
       if (!isTransientImageGenError(error)) throw error;
+    }
+    if (step === chain.length - 1 && !extended) {
+      extended = true;
+      if (await isFeatureEnabled("providerScoring").catch(() => true)) {
+        const ranked = await rankImageGenProviders(referenceImage);
+        for (const scored of ranked) {
+          if (scored.id === chain[0].id) continue;
+          const candidate = getImageGenProviderDef(scored.id);
+          if (candidate) chain.push(candidate);
+          if (chain.length > IMAGE_GEN_FALLBACK_LIMIT) break;
+        }
+      } else {
+        // Kill switch off: fallbacks ordered by circuit-breaker health only.
+        const candidates = orderByHealth(await autoCandidates(referenceImage), (d) =>
+          imageGenHealthKey(d.id),
+        );
+        for (const candidate of candidates) {
+          if (candidate.id === chain[0].id) continue;
+          chain.push(candidate);
+          if (chain.length > IMAGE_GEN_FALLBACK_LIMIT) break;
+        }
+      }
     }
   }
 

@@ -47,6 +47,16 @@ export interface UsageMeta {
   inputTokens?: number;
   outputTokens?: number;
   costPaise?: number;
+  // Richer telemetry (best-effort; omitted rather than zeroed when unknown).
+  // cachedInputTokens/reasoningTokens are SUBSETS of inputTokens/outputTokens.
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
+  /** Time to first token, streaming text only. */
+  ttftMs?: number;
+  /** 0 = the first provider tried, 1 = the first fallback, and so on. */
+  fallbackStep?: number;
+  /** Human-readable "why this provider"; for debugging, never parsed. */
+  routingReason?: string;
 }
 
 export async function recordUsage(
@@ -86,6 +96,11 @@ export async function recordUsage(
     inputTokens: meta.inputTokens ?? null,
     outputTokens: meta.outputTokens ?? null,
     costPaise: meta.costPaise ?? null,
+    cachedInputTokens: meta.cachedInputTokens ?? null,
+    reasoningTokens: meta.reasoningTokens ?? null,
+    ttftMs: meta.ttftMs ?? null,
+    fallbackStep: meta.fallbackStep ?? null,
+    routingReason: meta.routingReason ?? null,
     displayPaise,
   });
 }

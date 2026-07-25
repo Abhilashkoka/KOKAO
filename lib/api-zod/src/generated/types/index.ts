@@ -245,6 +245,7 @@ export * from './hookIdeas';
 export * from './imageGenModelOption';
 export * from './imageGenProviderInfo';
 export * from './imageGenProviderInfoKeySource';
+export * from './imageGenRankedProvider';
 export * from './imageGenSettingsView';
 export * from './imageJob';
 export * from './imageJobStatus';

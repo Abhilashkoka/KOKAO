@@ -36,6 +36,18 @@ export interface ImageGenResult {
   };
 }
 
+/**
+ * An image result plus how the router arrived at it. Separate from
+ * `ImageGenResult` because a provider adapter has no idea it was one of
+ * several candidates — only the router does.
+ */
+export interface RoutedImageGenResult extends ImageGenResult {
+  /** 0 = the first provider tried, 1 = the first fallback, and so on. */
+  fallbackStep: number;
+  /** Human-readable "why this provider"; undefined when there was no choice. */
+  routingReason?: string;
+}
+
 /** Thrown when the selected provider is missing its API key or base URL. */
 export class ImageGenNotConfiguredError extends Error {
   constructor(message: string) {

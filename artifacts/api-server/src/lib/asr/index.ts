@@ -1,7 +1,9 @@
 import { db, asrSettingsTable, appCredentialsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "../logger";
-import { orderByHealth, recordProviderFailure, recordProviderSuccess } from "../providerHealth";
+import { recordProviderFailure, recordProviderSuccess, orderByHealth } from "../providerHealth";
+import { isFeatureEnabled } from "../featureFlags";
+import { rankProviders } from "../providerScore";
 import { encryptJson, decryptJson } from "../secretCrypto";
 import { transcribeWithGroq, GROQ_MODEL } from "./providers/groq";
 import { transcribeWithOpenAI, OPENAI_ASR_MODEL } from "./providers/openaiWhisper";
@@ -172,15 +174,23 @@ function isTransientAsrError(error: unknown): boolean {
 /** How many OTHER configured providers to try after a transient failure. */
 const ASR_FALLBACK_LIMIT = 2;
 
+/**
+ * Latency that scores neutrally for transcription. Speech models take roughly
+ * as long as the audio is long, and a KOKAO voice note is a caption brief
+ * rather than a podcast, so twenty seconds is the middle of the real range.
+ */
+const ASR_LATENCY_REFERENCE_MS = 20_000;
+
 async function runAsrProvider(
   def: AsrProviderDef,
   input: TranscribeInput,
 ): Promise<TranscriptionResult> {
   const apiKey = await resolveAsrApiKey(def);
   const key = asrHealthKey(def.id);
+  const startedAt = Date.now();
   try {
     const result = await def.transcribe(input, apiKey);
-    recordProviderSuccess(key);
+    recordProviderSuccess(key, Date.now() - startedAt);
     return result;
   } catch (error) {
     if (isTransientAsrError(error)) {
@@ -195,10 +205,15 @@ async function runAsrProvider(
  *
  * Reliability: the selected provider is always attempted first (that attempt
  * doubles as the circuit breaker's half-open probe). If it fails with a
- * TRANSIENT error, up to two other configured providers are tried —
- * healthiest first — before the caller sees a failure. A permanent error
- * (unusable audio, invalid key) never triggers fallback, because a second
- * provider would reject the same bytes.
+ * TRANSIENT error, up to two other configured providers are tried before the
+ * caller sees a failure. A permanent error (unusable audio, invalid key) never
+ * triggers fallback, because a second provider would reject the same bytes.
+ *
+ * Fallbacks are ranked rather than merely partitioned by breaker state: with
+ * no per-second price for any of these vendors and no editorial tier worth
+ * defending, that comes down to recent success rate and observed speed — which
+ * is exactly what matters when the alternative is a tenant watching a spinner
+ * for a second full transcription.
  *
  * A voice note the tenant just recorded cannot be re-recorded on demand, so a
  * bad ten minutes at one vendor should not lose it.
@@ -220,7 +235,17 @@ export async function transcribeAudio(input: TranscribeInput): Promise<Transcrip
     if (candidate.id === def.id) continue;
     if (await isProviderConfigured(candidate)) alternates.push(candidate);
   }
-  const ordered = orderByHealth(alternates, (c) => asrHealthKey(c.id)).slice(0, ASR_FALLBACK_LIMIT);
+  // Kill switch (fail-open): with providerScoring off, fallbacks are ordered
+  // by circuit-breaker health only, as they were before scoring existed.
+  const scoringOn = await isFeatureEnabled("providerScoring").catch(() => true);
+  const ordered = scoringOn
+    ? rankProviders(
+        alternates.map((c) => ({ id: c.id, key: asrHealthKey(c.id) })),
+        { latencyReferenceMs: ASR_LATENCY_REFERENCE_MS },
+      )
+        .slice(0, ASR_FALLBACK_LIMIT)
+        .map((r) => alternates.find((c) => c.id === r.id)!)
+    : orderByHealth(alternates, (c) => asrHealthKey(c.id)).slice(0, ASR_FALLBACK_LIMIT);
 
   for (const candidate of ordered) {
     logger.warn(

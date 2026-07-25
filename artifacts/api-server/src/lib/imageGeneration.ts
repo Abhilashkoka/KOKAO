@@ -164,6 +164,8 @@ export async function performImageGeneration(
     model: imageModel,
     provider: imageProvider,
     usage: imageUsage,
+    fallbackStep,
+    routingReason,
   } = await generateImage(prompt, input.size, input.referenceImage ?? undefined);
 
   // Free-plan workspaces get a "Made with KOKAO.in" stamp, platform-wide
@@ -195,6 +197,8 @@ export async function performImageGeneration(
       responseBytes: buffer.length + Buffer.byteLength(b64Json),
       durationMs: Date.now() - startedAt,
       model: imageModel,
+      fallbackStep,
+      ...(routingReason ? { routingReason } : {}),
       ...(await buildImageCostMeta({
         provider: imageProvider,
         model: imageModel,

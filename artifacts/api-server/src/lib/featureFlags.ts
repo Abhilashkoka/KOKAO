@@ -210,6 +210,12 @@ export const FEATURES = [
       "The Look row in AI Studio image briefs: genre presets and camera detail pills that compile into photographic direction for the image model. When off, the row is hidden and prompts are sent exactly as typed.",
   },
   {
+    id: "providerScoring",
+    label: "Provider Auto-Scoring",
+    description:
+      "Evidence-based routing for image generation and speech-to-text fallbacks: providers are scored per request on recent success rate, speed, price, and quality, and the Auto option in the admin picker follows that ranking. When off, an Auto selection falls back to the built-in default provider and fallbacks are ordered by circuit-breaker health only.",
+  },
+  {
     id: "planGate",
     label: "Pre-render Plan Gate",
     description:

@@ -29,6 +29,7 @@ import {
 } from "../lib/asr";
 import {
   IMAGE_GEN_PROVIDERS,
+  IMAGE_GEN_AUTO,
   getImageGenProviderDef,
   isImageGenProviderConfigured,
   getImageGenSelection,
@@ -36,6 +37,7 @@ import {
   getImageGenKeySource,
   setStoredImageGenKey,
   clearStoredImageGenKey,
+  rankImageGenProviders,
 } from "../lib/imageGen";
 import {
   VIDEO_GEN_PROVIDERS,
@@ -751,10 +753,21 @@ router.delete("/admin/asr-providers/:providerId/key", async (req: Request, res: 
 /** Serialize the image generation settings view (selection + catalog). */
 async function serializeImageGenSettings() {
   const selection = await getImageGenSelection();
+  // The ranking the router would use RIGHT NOW, from the same function the
+  // router calls. Shown whether or not auto is on, so an admin can see what
+  // switching to it would pick before committing to it.
+  const ranking = await rankImageGenProviders().catch(() => []);
   return {
     provider: selection.provider,
     model: selection.model,
     customBaseUrl: selection.customBaseUrl,
+    autoRanking: ranking.map((r) => ({
+      id: r.id,
+      label: getImageGenProviderDef(r.id)?.label ?? r.id,
+      score: r.score,
+      reason: r.reason,
+      healthy: r.healthy,
+    })),
     providers: await Promise.all(
       IMAGE_GEN_PROVIDERS.map(async (p) => ({
         id: p.id,
@@ -787,6 +800,30 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
   const parsed = AdminUpdateImageGenSettingsBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  // Automatic routing is a valid choice but not a catalog entry: it has no
+  // model to override and no base URL to enter, so both are forced to null
+  // rather than trusting the client to omit them.
+  if (parsed.data.provider === IMAGE_GEN_AUTO) {
+    const before = await getImageGenSelection();
+    await setImageGenSelection({ provider: IMAGE_GEN_AUTO, model: null, customBaseUrl: null });
+    if (before.provider !== IMAGE_GEN_AUTO) {
+      try {
+        await recordAdminAction({
+          action: "imagegen_provider_change",
+          actorTenantId: req.tenantId,
+          actorEmail: req.tenantEmail,
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: `${before.provider}${before.model ? `:${before.model}` : ""}`,
+          newValue: IMAGE_GEN_AUTO,
+        });
+      } catch (error) {
+        req.log.error({ err: error }, "Failed to write image-gen settings audit log");
+      }
+    }
+    res.json(await serializeImageGenSettings());
     return;
   }
   const def = getImageGenProviderDef(parsed.data.provider);

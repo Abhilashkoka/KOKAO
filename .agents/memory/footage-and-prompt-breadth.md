@@ -1,5 +1,5 @@
 ---
-name: Footage & prompt breadth (Patch 8)
+name: Footage & prompt breadth
 description: Keyless stock sources (Wikimedia Commons) and the deterministic image Look/prompt compiler — durable rules.
 ---
 

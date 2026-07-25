@@ -10,6 +10,8 @@ import {
   computeTextCostPaise,
   computeImageCostPaise,
   usageAccountingParams,
+  streamUsageParams,
+  imageUnitCostsPaise,
   buildTextCostMeta,
   buildImageCostMeta,
 } from "./aiCost";
@@ -59,6 +61,14 @@ describe("usageAccountingParams", () => {
   it("only asks OpenRouter for usage cost accounting", () => {
     expect(usageAccountingParams("openrouter")).toEqual({ usage: { include: true } });
     expect(usageAccountingParams("builtin")).toEqual({});
+  });
+});
+
+describe("streamUsageParams", () => {
+  it("asks for a final usage chunk on every streaming backend", () => {
+    // Both text backends are OpenAI-compatible and honour this, which is why
+    // it is not conditional on the provider the way usage accounting is.
+    expect(streamUsageParams()).toEqual({ stream_options: { include_usage: true } });
   });
 });
 
@@ -199,6 +209,51 @@ describe("buildTextCostMeta", () => {
     expect(meta.inputTokens).toBeUndefined();
     expect(meta.costPaise).toBeUndefined();
   });
+
+  it("records the cached and reasoning subsets when the provider reports them", async () => {
+    const meta = await buildTextCostMeta(
+      {
+        usage: {
+          prompt_tokens: 1_000_000,
+          completion_tokens: 0,
+          prompt_tokens_details: { cached_tokens: 400 },
+          completion_tokens_details: { reasoning_tokens: 250 },
+        },
+      },
+      { provider: "builtin", model: TEXT_MODEL },
+    );
+    expect(meta.cachedInputTokens).toBe(400);
+    expect(meta.reasoningTokens).toBe(250);
+    // The split is recorded, not discounted: cost is still the full 1M input
+    // tokens at $4/Mtok. Discounting would need its own price column.
+    expect(meta.costPaise).toBe(34400);
+  });
+
+  it("leaves the subsets unset rather than zero when the provider is silent", async () => {
+    const meta = await buildTextCostMeta(
+      { usage: { prompt_tokens: 10, completion_tokens: 20 } },
+      { provider: "builtin", model: TEXT_MODEL },
+    );
+    // undefined means "not reported"; 0 would claim the provider cached nothing.
+    expect(meta.cachedInputTokens).toBeUndefined();
+    expect(meta.reasoningTokens).toBeUndefined();
+  });
+
+  it("ignores a null details block", async () => {
+    const meta = await buildTextCostMeta(
+      {
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 20,
+          prompt_tokens_details: null,
+          completion_tokens_details: null,
+        },
+      },
+      { provider: "builtin", model: TEXT_MODEL },
+    );
+    expect(meta.cachedInputTokens).toBeUndefined();
+    expect(meta.reasoningTokens).toBeUndefined();
+  });
 });
 
 describe("token-based image costing", () => {
@@ -283,6 +338,80 @@ describe("buildImageCostMeta", () => {
     const meta = await buildImageCostMeta({ provider: "builtin", model: `${RUN}-unknown` });
     expect(meta.provider).toBe("builtin");
     expect(meta.costPaise).toBeUndefined();
+  });
+});
+
+describe("imageUnitCostsPaise", () => {
+  const CHEAP = `${RUN}-cheap-image`;
+  const DEAR = `${RUN}-dear-image`;
+  const TOKENS_ONLY = `${RUN}-tokens-only-image`;
+
+  beforeAll(async () => {
+    await setAiCostConfig({ usdToInrPaise: 8600 });
+    for (const [model, usd] of [
+      [CHEAP, 0.02],
+      [DEAR, 0.04],
+    ] as const) {
+      const row = await upsertModelPrice({
+        kind: "image",
+        provider: "bfl",
+        model,
+        inputUsdPerMtok: null,
+        outputUsdPerMtok: null,
+        usdPerImage: usd,
+      });
+      createdPriceIds.push(row.id);
+    }
+    const tokensOnly = await upsertModelPrice({
+      kind: "image",
+      provider: "bfl",
+      model: TOKENS_ONLY,
+      inputUsdPerMtok: 10,
+      outputUsdPerMtok: 40,
+      usdPerImage: null,
+    });
+    createdPriceIds.push(tokensOnly.id);
+  });
+
+  it("prices each candidate by its id", async () => {
+    const costs = await imageUnitCostsPaise([
+      { id: "a", provider: "bfl", model: CHEAP },
+      { id: "b", provider: "bfl", model: DEAR },
+    ]);
+    expect(costs.get("a")).toBe(172); // $0.02 at ₹86
+    expect(costs.get("b")).toBe(344); // $0.04 at ₹86
+  });
+
+  it("matches a model priced under another provider", async () => {
+    // One price row can cover a model reachable directly and via a gateway.
+    const costs = await imageUnitCostsPaise([
+      { id: "via-gateway", provider: "openrouter", model: CHEAP },
+    ]);
+    expect(costs.get("via-gateway")).toBe(172);
+  });
+
+  it("omits candidates with no usable per-image price", async () => {
+    const costs = await imageUnitCostsPaise([
+      { id: "unknown", provider: "bfl", model: `${RUN}-never-priced` },
+      { id: "token-priced", provider: "bfl", model: TOKENS_ONLY },
+      { id: "known", provider: "bfl", model: CHEAP },
+    ]);
+    // An unpriced candidate is absent, not zero — free would win every time.
+    expect(costs.has("unknown")).toBe(false);
+    expect(costs.has("token-priced")).toBe(false);
+    expect(costs.get("known")).toBe(172);
+  });
+
+  it("does not query at all for an empty candidate list", async () => {
+    expect(await imageUnitCostsPaise([])).toEqual(new Map());
+  });
+
+  it("prices nothing while the USD rate is unset", async () => {
+    await setAiCostConfig({ usdToInrPaise: 0 });
+    expect(await imageUnitCostsPaise([{ id: "a", provider: "bfl", model: CHEAP }])).toEqual(
+      new Map(),
+    );
+    await setAiCostConfig({ usdToInrPaise: 8600 });
   });
 });
 

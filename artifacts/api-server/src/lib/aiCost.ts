@@ -156,14 +156,61 @@ export async function computeImageCostPaise(args: {
   return usdToPaise(price.usdPerImage, usdToInrPaise);
 }
 
-/** Shape of the usage block on a chat completion (OpenRouter adds `cost`). */
-interface CompletionUsageLike {
+/**
+ * Best-effort flat per-image price in paise for each candidate, keyed by the
+ * caller's id. One query for the whole price table rather than one per
+ * candidate, because this runs while choosing a provider.
+ *
+ * Deliberately NOT gated on the `aiCostTracking` flag: that switch governs
+ * what gets *reported* to superadmins, and turning reporting off should not
+ * quietly make the router blind to price. Unknown prices are simply absent
+ * from the map — never a guessed number.
+ */
+export async function imageUnitCostsPaise(
+  candidates: { id: string; provider: string; model: string }[],
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (candidates.length === 0) return out;
+  const [rows, { usdToInrPaise }] = await Promise.all([
+    db.select().from(aiModelPricesTable).where(eq(aiModelPricesTable.kind, "image")),
+    getAiCostConfig(),
+  ]);
+  if (rows.length === 0 || usdToInrPaise <= 0) return out;
+  for (const candidate of candidates) {
+    // Same precedence as findPrice(): an exact provider+model row wins, then
+    // any provider offering that model (one price row can cover a model
+    // reachable both directly and through a gateway).
+    const price =
+      rows.find((r) => r.provider === candidate.provider && r.model === candidate.model) ??
+      rows.find((r) => r.model === candidate.model);
+    if (!price || price.usdPerImage === null) continue;
+    const paise = usdToPaise(price.usdPerImage, usdToInrPaise);
+    if (paise !== null) out.set(candidate.id, paise);
+  }
+  return out;
+}
+
+/**
+ * Shape of the usage block on a chat completion (OpenRouter adds `cost`).
+ * Exported because the streaming routes accumulate one of these by hand from
+ * the final chunk, and two hand-written copies of the shape would drift.
+ */
+export interface CompletionUsageLike {
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
     /** OpenRouter: exact request cost in USD when usage accounting is on. */
     cost?: number;
+    /** Subset of prompt_tokens the provider served from its own cache. */
+    prompt_tokens_details?: { cached_tokens?: number } | null;
+    /** Subset of completion_tokens spent thinking rather than answering. */
+    completion_tokens_details?: { reasoning_tokens?: number } | null;
   } | null;
+}
+
+/** A reported token count, or null when the provider said nothing. */
+function reportedCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
 /**
@@ -174,9 +221,24 @@ export function usageAccountingParams(provider: string): Record<string, unknown>
   return provider === "openrouter" ? { usage: { include: true } } : {};
 }
 
+/**
+ * Extra request params that ask for a usage block on a STREAMED completion.
+ * Without this a streaming response reports no tokens at all, which is why
+ * every streamed generation used to be recorded with a NULL cost. Both
+ * supported text backends (built-in OpenAI and OpenRouter) honour it.
+ */
+export function streamUsageParams(): Record<string, unknown> {
+  return { stream_options: { include_usage: true } };
+}
+
 export type TextCostMeta = Pick<
   UsageMeta,
-  "provider" | "inputTokens" | "outputTokens" | "costPaise"
+  | "provider"
+  | "inputTokens"
+  | "outputTokens"
+  | "costPaise"
+  | "cachedInputTokens"
+  | "reasoningTokens"
 >;
 
 /**
@@ -186,6 +248,12 @@ export type TextCostMeta = Pick<
  *
  * When OpenRouter reports its exact per-request USD cost, that number is
  * used instead of the price-table estimate.
+ *
+ * The cached/reasoning split is recorded but deliberately does NOT change the
+ * cost formula: discounting cached prompt tokens needs its own price column
+ * per model, and inventing a discount would be worse than a known
+ * overstatement. Recording the split is what makes that overstatement
+ * visible — and quantifiable — instead of invisible.
  */
 export async function buildTextCostMeta(
   completion: CompletionUsageLike,
@@ -210,11 +278,15 @@ export async function buildTextCostMeta(
         outputTokens,
       });
     }
+    const cachedInputTokens = reportedCount(usage?.prompt_tokens_details?.cached_tokens);
+    const reasoningTokens = reportedCount(usage?.completion_tokens_details?.reasoning_tokens);
     return {
       provider: textGen.provider,
       inputTokens: inputTokens ?? undefined,
       outputTokens: outputTokens ?? undefined,
       costPaise: costPaise ?? undefined,
+      cachedInputTokens: cachedInputTokens ?? undefined,
+      reasoningTokens: reasoningTokens ?? undefined,
     };
   } catch {
     return {};

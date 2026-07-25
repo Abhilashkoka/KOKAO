@@ -969,8 +969,19 @@ export interface ImageGenProviderInfo {
   keySource?: ImageGenProviderInfoKeySource;
 }
 
+export interface ImageGenRankedProvider {
+  id: string;
+  label: string;
+  /** Weighted score in 0..1; higher wins. */
+  score: number;
+  /** The evidence behind the score, for humans only. */
+  reason: string;
+  /** False while this provider's circuit breaker is open. */
+  healthy: boolean;
+}
+
 export interface ImageGenSettingsView {
-  /** Currently selected image generation provider id. */
+  /** Currently selected image generation provider id, or "auto" to let the scorer choose per generation. */
   provider: string;
   /**
      * Admin model override (null = provider default).
@@ -983,6 +994,8 @@ export interface ImageGenSettingsView {
      */
   customBaseUrl: string | null;
   providers: ImageGenProviderInfo[];
+  /** How automatic routing currently ranks the configured providers, best first. Shown whether or not "auto" is selected, so the effect of switching to it is visible in advance. Empty when nothing is configured. */
+  autoRanking: ImageGenRankedProvider[];
 }
 
 export interface SetImageGenProviderKeyRequest {
@@ -994,7 +1007,7 @@ export interface SetImageGenProviderKeyRequest {
 }
 
 export interface UpdateImageGenSettingsRequest {
-  /** Provider id from the catalog. */
+  /** Provider id from the catalog, or "auto" to let the scorer pick per request. With "auto" the model and customBaseUrl fields are ignored. */
   provider: string;
   /**
      * Optional model override (empty/null = provider default).
@@ -4477,6 +4490,7 @@ export interface FeatureFlags {
   providerResilience: boolean;
   archivalFootage: boolean;
   imageLooks: boolean;
+  providerScoring: boolean;
 }
 
 /**

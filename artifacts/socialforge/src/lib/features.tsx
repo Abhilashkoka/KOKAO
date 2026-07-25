@@ -44,6 +44,7 @@ const ALL_ON: FeatureFlags = {
   providerResilience: true,
   archivalFootage: true,
   imageLooks: true,
+  providerScoring: true,
 };
 
 /**

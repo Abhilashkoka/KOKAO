@@ -46,4 +46,5 @@ export interface FeatureFlags {
   providerResilience: boolean;
   archivalFootage: boolean;
   imageLooks: boolean;
+  providerScoring: boolean;
 }

@@ -4,6 +4,7 @@ import {
   recordProviderSuccess,
   isProviderHealthy,
   getProviderHealth,
+  getProviderStats,
   orderByHealth,
   resetProviderHealthForTests,
 } from "./providerHealth";
@@ -62,5 +63,74 @@ describe("providerHealth circuit breaker", () => {
 
     for (let i = 0; i < 3; i++) recordProviderFailure("p:a");
     expect(orderByHealth(items, (x) => `p:${x}`)).toEqual(["b", "c", "a"]);
+  });
+});
+
+describe("providerHealth observed stats", () => {
+  beforeEach(() => {
+    resetProviderHealthForTests();
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reports nothing known for a provider that was never called", () => {
+    expect(getProviderStats("imagegen:unseen")).toEqual({
+      samples: 0,
+      successes: 0,
+      typicalLatencyMs: null,
+      healthy: true,
+    });
+  });
+
+  it("counts successes and failures within the window", () => {
+    recordProviderSuccess("imagegen:bfl");
+    recordProviderFailure("imagegen:bfl");
+    recordProviderSuccess("imagegen:bfl");
+    const stats = getProviderStats("imagegen:bfl");
+    expect(stats.samples).toBe(3);
+    expect(stats.successes).toBe(2);
+  });
+
+  it("keeps only the 20 most recent outcomes", () => {
+    // 5 failures then 20 successes: the failures must fall out of the window.
+    // They are recorded first so the breaker is closed again by the end.
+    for (let i = 0; i < 5; i++) recordProviderFailure("imagegen:bfl");
+    for (let i = 0; i < 20; i++) recordProviderSuccess("imagegen:bfl");
+    expect(getProviderStats("imagegen:bfl")).toMatchObject({
+      samples: 20,
+      successes: 20,
+    });
+  });
+
+  it("smooths latency rather than taking the last measurement", () => {
+    recordProviderSuccess("imagegen:bfl", 1_000);
+    expect(getProviderStats("imagegen:bfl").typicalLatencyMs).toBe(1_000);
+    // alpha 0.3: 1000 * 0.7 + 11000 * 0.3 = 4000.
+    recordProviderSuccess("imagegen:bfl", 11_000);
+    expect(getProviderStats("imagegen:bfl").typicalLatencyMs).toBe(4_000);
+  });
+
+  it("does not treat an untimed success as an instant one", () => {
+    recordProviderSuccess("imagegen:bfl", 5_000);
+    recordProviderSuccess("imagegen:bfl");
+    expect(getProviderStats("imagegen:bfl").typicalLatencyMs).toBe(5_000);
+  });
+
+  it("reports unhealthy while the breaker is open and healthy after cooldown", () => {
+    for (let i = 0; i < 3; i++) recordProviderFailure("imagegen:bfl");
+    expect(getProviderStats("imagegen:bfl").healthy).toBe(false);
+    vi.advanceTimersByTime(61_000);
+    expect(getProviderStats("imagegen:bfl").healthy).toBe(true);
+  });
+
+  it("does not leak internal bookkeeping through getProviderHealth", () => {
+    recordProviderSuccess("imagegen:bfl", 1_234);
+    expect(Object.keys(getProviderHealth("imagegen:bfl") ?? {}).sort()).toEqual([
+      "consecutiveFailures",
+      "lastFailureMessage",
+      "openUntil",
+    ]);
   });
 });

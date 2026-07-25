@@ -8445,11 +8445,13 @@ components:
           description: Provider id from the catalog.
     ImageGenSettingsView:
       type: object
-      required: [provider, model, customBaseUrl, providers]
+      required: [provider, model, customBaseUrl, providers, autoRanking]
       properties:
         provider:
           type: string
-          description: Currently selected image generation provider id.
+          description: >-
+            Currently selected image generation provider id, or "auto" to let
+            the scorer choose per generation.
         model:
           type: ["string", "null"]
           description: Admin model override (null = provider default).
@@ -8460,6 +8462,32 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ImageGenProviderInfo"
+        autoRanking:
+          type: array
+          description: >-
+            How automatic routing currently ranks the configured providers,
+            best first. Shown whether or not "auto" is selected, so the effect
+            of switching to it is visible in advance. Empty when nothing is
+            configured.
+          items:
+            $ref: "#/components/schemas/ImageGenRankedProvider"
+    ImageGenRankedProvider:
+      type: object
+      required: [id, label, score, reason, healthy]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        score:
+          type: number
+          description: Weighted score in 0..1; higher wins.
+        reason:
+          type: string
+          description: The evidence behind the score, for humans only.
+        healthy:
+          type: boolean
+          description: False while this provider's circuit breaker is open.
     ImageGenProviderInfo:
       type: object
       required: [id, label, defaultModel, configured, supportsModelOverride, requiresBaseUrl]
@@ -8513,7 +8541,9 @@ components:
       properties:
         provider:
           type: string
-          description: Provider id from the catalog.
+          description: >-
+            Provider id from the catalog, or "auto" to let the scorer pick per
+            request. With "auto" the model and customBaseUrl fields are ignored.
         model:
           type: ["string", "null"]
           description: Optional model override (empty/null = provider default).
@@ -12780,6 +12810,7 @@ components:
           providerResilience,
           archivalFootage,
           imageLooks,
+          providerScoring,
         ]
       properties:
         aiStudio:
@@ -12853,6 +12884,8 @@ components:
         archivalFootage:
           type: boolean
         imageLooks:
+          type: boolean
+        providerScoring:
           type: boolean
     AiSpendSettingsView:
       type: object

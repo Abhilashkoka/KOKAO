@@ -104,7 +104,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "planGate": zod.boolean(),
   "providerResilience": zod.boolean(),
   "archivalFootage": zod.boolean(),
-  "imageLooks": zod.boolean()
+  "imageLooks": zod.boolean(),
+  "providerScoring": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -1016,7 +1017,7 @@ export const AdminClearAsrProviderKeyResponse = zod.object({
  * @summary Get the image generation provider selection (superadmin only)
  */
 export const AdminGetImageGenSettingsResponse = zod.object({
-  "provider": zod.string().describe('Currently selected image generation provider id.'),
+  "provider": zod.string().describe('Currently selected image generation provider id, or \"auto\" to let the scorer choose per generation.'),
   "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
   "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
   "providers": zod.array(zod.object({
@@ -1032,7 +1033,14 @@ export const AdminGetImageGenSettingsResponse = zod.object({
 })).optional().describe('Suggested model choices for this provider (free text still allowed).'),
   "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
-}))
+})),
+  "autoRanking": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "score": zod.number().describe('Weighted score in 0..1; higher wins.'),
+  "reason": zod.string().describe('The evidence behind the score, for humans only.'),
+  "healthy": zod.boolean().describe('False while this provider\'s circuit breaker is open.')
+})).describe('How automatic routing currently ranks the configured providers, best first. Shown whether or not \"auto\" is selected, so the effect of switching to it is visible in advance. Empty when nothing is configured.')
 })
 
 
@@ -1040,13 +1048,13 @@ export const AdminGetImageGenSettingsResponse = zod.object({
  * @summary Select the image generation provider for the whole app (superadmin only)
  */
 export const AdminUpdateImageGenSettingsBody = zod.object({
-  "provider": zod.string().describe('Provider id from the catalog.'),
+  "provider": zod.string().describe('Provider id from the catalog, or \"auto\" to let the scorer pick per request. With \"auto\" the model and customBaseUrl fields are ignored.'),
   "model": zod.string().nullish().describe('Optional model override (empty\/null = provider default).'),
   "customBaseUrl": zod.string().nullish().describe('Base URL for the custom provider (https only).')
 })
 
 export const AdminUpdateImageGenSettingsResponse = zod.object({
-  "provider": zod.string().describe('Currently selected image generation provider id.'),
+  "provider": zod.string().describe('Currently selected image generation provider id, or \"auto\" to let the scorer choose per generation.'),
   "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
   "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
   "providers": zod.array(zod.object({
@@ -1062,7 +1070,14 @@ export const AdminUpdateImageGenSettingsResponse = zod.object({
 })).optional().describe('Suggested model choices for this provider (free text still allowed).'),
   "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
-}))
+})),
+  "autoRanking": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "score": zod.number().describe('Weighted score in 0..1; higher wins.'),
+  "reason": zod.string().describe('The evidence behind the score, for humans only.'),
+  "healthy": zod.boolean().describe('False while this provider\'s circuit breaker is open.')
+})).describe('How automatic routing currently ranks the configured providers, best first. Shown whether or not \"auto\" is selected, so the effect of switching to it is visible in advance. Empty when nothing is configured.')
 })
 
 
@@ -1081,7 +1096,7 @@ export const AdminSetImageGenProviderKeyBody = zod.object({
 })
 
 export const AdminSetImageGenProviderKeyResponse = zod.object({
-  "provider": zod.string().describe('Currently selected image generation provider id.'),
+  "provider": zod.string().describe('Currently selected image generation provider id, or \"auto\" to let the scorer choose per generation.'),
   "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
   "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
   "providers": zod.array(zod.object({
@@ -1097,7 +1112,14 @@ export const AdminSetImageGenProviderKeyResponse = zod.object({
 })).optional().describe('Suggested model choices for this provider (free text still allowed).'),
   "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
-}))
+})),
+  "autoRanking": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "score": zod.number().describe('Weighted score in 0..1; higher wins.'),
+  "reason": zod.string().describe('The evidence behind the score, for humans only.'),
+  "healthy": zod.boolean().describe('False while this provider\'s circuit breaker is open.')
+})).describe('How automatic routing currently ranks the configured providers, best first. Shown whether or not \"auto\" is selected, so the effect of switching to it is visible in advance. Empty when nothing is configured.')
 })
 
 
@@ -1109,7 +1131,7 @@ export const AdminClearImageGenProviderKeyParams = zod.object({
 })
 
 export const AdminClearImageGenProviderKeyResponse = zod.object({
-  "provider": zod.string().describe('Currently selected image generation provider id.'),
+  "provider": zod.string().describe('Currently selected image generation provider id, or \"auto\" to let the scorer choose per generation.'),
   "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
   "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
   "providers": zod.array(zod.object({
@@ -1125,7 +1147,14 @@ export const AdminClearImageGenProviderKeyResponse = zod.object({
 })).optional().describe('Suggested model choices for this provider (free text still allowed).'),
   "envKey": zod.string().nullish().describe('Secret name required by this provider (null when built-in).'),
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullish().describe('Where the active key comes from (admin-entered key wins over the env secret).')
-}))
+})),
+  "autoRanking": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "score": zod.number().describe('Weighted score in 0..1; higher wins.'),
+  "reason": zod.string().describe('The evidence behind the score, for humans only.'),
+  "healthy": zod.boolean().describe('False while this provider\'s circuit breaker is open.')
+})).describe('How automatic routing currently ranks the configured providers, best first. Shown whether or not \"auto\" is selected, so the effect of switching to it is visible in advance. Empty when nothing is configured.')
 })
 
 
