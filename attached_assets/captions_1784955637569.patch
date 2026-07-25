@@ -1,0 +1,655 @@
+From 1eff16acc4ab0fb930606da19e7c7ea68bfb88ae Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 24 Jul 2026 19:43:25 +0000
+Subject: [PATCH] Dynamic word-timed captions for topic videos (short-form
+ social style)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The A1 item from the open-source study: captions that pop in big 2-3 word
+groups in sync with the narration — the style every high-performing
+short-form video uses — next to the existing classic sentence subtitles.
+
+- wordTimings.ts: per-word timing WITHOUT a transcription model. Every
+  sentence's boundaries are already measured exactly (per-sentence TTS with
+  WAV-header timing), so distributing each sentence's duration across its
+  words proportionally to length lands within a frame or two of the voice.
+  Deterministic, zero extra AI cost. CJK runs split into 4-char groups so
+  the style works in every script.
+- buildCaptionChunks(): groups words into <=3-word / ~16-char captions that
+  never cross a sentence boundary; each holds until the next appears.
+- compose.ts: captionStyle "classic" | "dynamic". Dynamic renders bigger
+  type (h/13), heavier stroke, positioned at the short-form focal point
+  (72% height), one drawtext per chunk via the existing textfile mechanism.
+- Contract: GenerateVideo captionStyle enum + VideoJobOptions.captionStyle;
+  studio offers Dynamic (default for new videos) / Classic under the
+  subtitles switch.
+
+Verified: 62 topicVideo+routes tests green (incl. a real-ffmpeg dynamic
+render), 12 studio page tests, root typecheck, spec lint, codegen committed.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EJdoZ8bk1pWTrmbMVQJZ7G
+---
+ .../api-server/src/lib/videoGen/jobRunner.ts  |   1 +
+ .../src/lib/videoGen/topicVideo/compose.ts    |  44 +++++--
+ .../src/lib/videoGen/topicVideo/index.ts      |   3 +
+ .../videoGen/topicVideo/topicVideo.test.ts    |  23 ++++
+ .../videoGen/topicVideo/wordTimings.test.ts   |  79 +++++++++++++
+ .../lib/videoGen/topicVideo/wordTimings.ts    | 108 ++++++++++++++++++
+ .../api-server/src/routes/videos.test.ts      |   2 +
+ artifacts/api-server/src/routes/videos.ts     |   1 +
+ .../src/pages/video-studio.test.tsx           |  11 ++
+ .../socialforge/src/pages/video-studio.tsx    |  16 +++
+ .../src/generated/api.schemas.ts              |  13 +++
+ lib/api-spec/openapi.yaml                     |   8 ++
+ lib/api-zod/src/generated/api.ts              |   2 +
+ lib/api-zod/src/generated/types/index.ts      |   1 +
+ .../generated/types/videoGenerateRequest.ts   |   3 +
+ .../types/videoGenerateRequestCaptionStyle.ts |  18 +++
+ lib/db/src/schema/videoGenerations.ts         |   2 +
+ 17 files changed, 325 insertions(+), 10 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/wordTimings.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/topicVideo/wordTimings.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoGenerateRequestCaptionStyle.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index a6802cb..e7cdc54 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -239,6 +239,7 @@ async function produceVideo(
+       voice: isNarrationVoice(options.voice) ? options.voice : "alloy",
+       stockSource: isStockSourceChoice(options.stockSource) ? options.stockSource : "auto",
+       subtitles: options.subtitles ?? true,
++      captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
+       paragraphCount: options.paragraphCount ?? 1,
+       music,
+       visualsSource:
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts
+index 67d46c5..979c434 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts
+@@ -5,6 +5,7 @@ import { pickMusicStartOffsetSec } from "../musicOffset";
+ import { runFfmpeg, findFontFile, probeDurationSec } from "../slideshow";
+ import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
+ import type { NarrationCue } from "./narration";
++import { buildCaptionChunks } from "./wordTimings";
+ 
+ /**
+  * Final assembly for the Topic to Video engine, on the same system ffmpeg the
+@@ -50,6 +51,12 @@ export interface ComposeInput {
+   aspectRatio: VideoAspect;
+   /** Burn per-sentence subtitles (skipped if no usable font is installed). */
+   subtitles: boolean;
++  /**
++   * "classic" (default): one sentence at a time near the bottom.
++   * "dynamic": big 2-3 word groups timed to the narration — the short-form
++   * social style. Ignored when `subtitles` is false.
++   */
++  captionStyle?: "classic" | "dynamic";
+   /** Optional background music bytes. */
+   music?: Buffer | null;
+   /**
+@@ -233,31 +240,48 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
+ 
+     // 2) Final pass: concat scenes, burn subtitles, mix narration + music.
+     const fontFile = input.subtitles ? await findFontFile() : null;
+-    const fontSize = Math.round(height / 18);
++    const dynamicCaptions = input.captionStyle === "dynamic";
++    // Dynamic captions are the big short-form style: larger type, heavier
++    // stroke, sitting higher so they read as the focal point.
++    const fontSize = Math.round(height / (dynamicCaptions ? 13 : 18));
+     const maxCharsPerLine = Math.max(Math.floor((width * 0.88) / (fontSize * 0.56)), 8);
+-    const strokeWidth = Math.max(2, Math.round(fontSize / 24));
++    const strokeWidth = Math.max(2, Math.round(fontSize / (dynamicCaptions ? 14 : 24)));
++    const yExpr = dynamicCaptions
++      ? `(h-text_h)*0.72`
++      : `h-text_h-${Math.round(height / 8)}`;
++
++    // One drawtext per caption entry: whole sentences (classic) or timed
++    // 2-3 word groups (dynamic).
++    const captionEntries: { text: string; startSec: number }[] = dynamicCaptions
++      ? buildCaptionChunks(input.cues).map((chunk) => ({
++          text: chunk.text,
++          startSec: chunk.startSec,
++        }))
++      : input.cues.map((cue) => ({ text: cue.text, startSec: cue.startSec }));
+ 
+     const videoFilters: string[] = [];
+     if (fontFile) {
+-      for (let i = 0; i < input.cues.length; i++) {
+-        const cue = input.cues[i]!;
++      for (let i = 0; i < captionEntries.length; i++) {
++        const entry = captionEntries[i]!;
+         // textfile= sidesteps drawtext's brittle inline-escaping rules (same
+         // trick as the slideshow caption).
+         await writeFile(
+           join(dir, `cue_${String(i).padStart(3, "0")}.txt`),
+-          wrapSubtitleText(cue.text, maxCharsPerLine),
++          wrapSubtitleText(entry.text, maxCharsPerLine),
+         );
+-        const start = cue.startSec.toFixed(3);
+-        // Hold each subtitle until the next one appears so text never
+-        // flickers off during the inter-sentence pause.
++        const start = entry.startSec.toFixed(3);
++        // Hold each caption until the next one appears so text never
++        // flickers off during pauses.
+         const end = (
+-          i + 1 < input.cues.length ? input.cues[i + 1]!.startSec : input.totalDurationSec
++          i + 1 < captionEntries.length
++            ? captionEntries[i + 1]!.startSec
++            : input.totalDurationSec
+         ).toFixed(3);
+         videoFilters.push(
+           `drawtext=fontfile=${fontFile}:textfile=cue_${String(i).padStart(3, "0")}.txt:` +
+             `fontcolor=white:fontsize=${fontSize}:borderw=${strokeWidth}:bordercolor=black:` +
+             `line_spacing=${Math.round(fontSize / 5)}:` +
+-            `x=(w-text_w)/2:y=h-text_h-${Math.round(height / 8)}:` +
++            `x=(w-text_w)/2:y=${yExpr}:` +
+             `enable='between(t,${start},${end})'`,
+         );
+       }
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+index 7b70da3..fe0d580 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+@@ -60,6 +60,8 @@ export interface TopicVideoParams {
+   voice: NarrationVoice;
+   stockSource: StockSourceChoice;
+   subtitles: boolean;
++  /** "classic" sentence subtitles (default) or "dynamic" word-group captions. */
++  captionStyle?: "classic" | "dynamic";
+   paragraphCount: number;
+   music?: Buffer | null;
+   /** "stock" (default), "character" (locked-character AI scenes), or "ai"
+@@ -306,6 +308,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+     totalDurationSec: narration.totalDurationSec,
+     aspectRatio: params.aspectRatio,
+     subtitles: params.subtitles,
++    captionStyle: params.captionStyle ?? "classic",
+     music: params.music ?? null,
+     sceneMap,
+   });
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts
+index 330d406..4ce6c4b 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts
+@@ -258,6 +258,29 @@ describe("composeTopicVideo (real ffmpeg)", () => {
+     120_000,
+   );
+ 
++  it(
++    "renders dynamic word-group captions",
++    async () => {
++      const clip = await makeTestClip(2);
++      const out = await composeTopicVideo({
++        clips: [clip],
++        narrationWav: makeTestWav(3.6),
++        cues: [
++          { text: "First scene of the story.", startSec: 0, endSec: 1.4 },
++          { text: "Second scene wraps it up.", startSec: 1.65, endSec: 3.05 },
++        ],
++        totalDurationSec: 3.65,
++        aspectRatio: "9:16",
++        subtitles: true,
++        captionStyle: "dynamic",
++        music: null,
++      });
++      expect(out.toString("ascii", 4, 8)).toBe("ftyp");
++      expect(out.length).toBeGreaterThan(1000);
++    },
++    120_000,
++  );
++
+   it(
+     "loops a short source clip to cover a longer scene",
+     async () => {
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/wordTimings.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/wordTimings.test.ts
+new file mode 100644
+index 0000000..8425ce2
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/wordTimings.test.ts
+@@ -0,0 +1,79 @@
++import { describe, it, expect } from "vitest";
++import { tokenizeCueText, cueWordTimings, buildCaptionChunks } from "./wordTimings";
++import type { NarrationCue } from "./narration";
++
++describe("tokenizeCueText", () => {
++  it("splits space-separated text into words", () => {
++    expect(tokenizeCueText("Start your day with intent.")).toEqual([
++      "Start",
++      "your",
++      "day",
++      "with",
++      "intent.",
++    ]);
++  });
++
++  it("breaks long CJK runs into short groups", () => {
++    const tokens = tokenizeCueText("每天早上五点起床锻炼身体");
++    expect(tokens.length).toBeGreaterThan(1);
++    for (const token of tokens) expect(token.length).toBeLessThanOrEqual(4);
++    expect(tokens.join("")).toBe("每天早上五点起床锻炼身体");
++  });
++
++  it("returns empty for whitespace", () => {
++    expect(tokenizeCueText("   ")).toEqual([]);
++  });
++});
++
++describe("cueWordTimings", () => {
++  const cue: NarrationCue = { text: "Start your morning right", startSec: 2, endSec: 5 };
++
++  it("covers the cue exactly, in order, with no gaps", () => {
++    const words = cueWordTimings(cue);
++    expect(words[0]!.startSec).toBe(2);
++    expect(words[words.length - 1]!.endSec).toBe(5);
++    for (let i = 1; i < words.length; i++) {
++      expect(words[i]!.startSec).toBeCloseTo(words[i - 1]!.endSec, 6);
++    }
++  });
++
++  it("gives longer words more time", () => {
++    const words = cueWordTimings({ text: "a extraordinary", startSec: 0, endSec: 3 });
++    const short = words[0]!.endSec - words[0]!.startSec;
++    const long = words[1]!.endSec - words[1]!.startSec;
++    expect(long).toBeGreaterThan(short * 3);
++  });
++});
++
++describe("buildCaptionChunks", () => {
++  const cues: NarrationCue[] = [
++    { text: "Start your morning with one clear intention.", startSec: 0, endSec: 3 },
++    { text: "Write it down.", startSec: 3.25, endSec: 4.5 },
++  ];
++
++  it("groups at most 3 words / ~16 chars per chunk", () => {
++    const chunks = buildCaptionChunks(cues);
++    for (const chunk of chunks) {
++      expect(chunk.text.split(" ").length).toBeLessThanOrEqual(3);
++      expect(chunk.text.length).toBeLessThanOrEqual(20); // 16 + slack for a long word
++    }
++  });
++
++  it("never crosses a sentence boundary and stays in order", () => {
++    const chunks = buildCaptionChunks(cues);
++    const boundary = chunks.findIndex((c) => c.startSec >= 3.25);
++    expect(boundary).toBeGreaterThan(0);
++    // Every chunk before the boundary ends by the first cue's end.
++    for (const chunk of chunks.slice(0, boundary)) expect(chunk.endSec).toBeLessThanOrEqual(3);
++    for (let i = 1; i < chunks.length; i++) {
++      expect(chunks[i]!.startSec).toBeGreaterThanOrEqual(chunks[i - 1]!.startSec);
++    }
++  });
++
++  it("reassembles the full text in order", () => {
++    const text = buildCaptionChunks(cues)
++      .map((c) => c.text)
++      .join(" ");
++    expect(text).toBe("Start your morning with one clear intention. Write it down.");
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/wordTimings.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/wordTimings.ts
+new file mode 100644
+index 0000000..a8d356d
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/wordTimings.ts
+@@ -0,0 +1,108 @@
++import type { NarrationCue } from "./narration";
++
++/**
++ * Word-level timing for dynamic captions — the short-form social style where
++ * big 2-3 word groups pop in sync with the voice.
++ *
++ * The narration pipeline already knows each SENTENCE's exact boundaries (every
++ * sentence is spoken separately and measured from its WAV header). Within a
++ * sentence, TTS pacing is steady, so distributing the sentence's duration
++ * across its words proportionally to their length lands within a frame or two
++ * of the spoken word — no transcription model, no extra cost, fully
++ * deterministic. (OpenMontage reaches the same effect with ASR timestamps;
++ * exact sentence anchors make that unnecessary here.)
++ */
++
++export interface WordTiming {
++  text: string;
++  /** Seconds from the start of the narration track. */
++  startSec: number;
++  endSec: number;
++}
++
++export interface CaptionChunk {
++  /** 1-3 words shown together. */
++  text: string;
++  startSec: number;
++  endSec: number;
++}
++
++/** Target width of one dynamic caption (characters). */
++const CHUNK_MAX_CHARS = 16;
++/** At most this many words per dynamic caption. */
++const CHUNK_MAX_WORDS = 3;
++/** CJK scripts have no spaces; runs are split into groups this long. */
++const CJK_GROUP_CHARS = 4;
++
++const CJK_RE = /[぀-ヿ㐀-䶿一-鿿가-힯]/;
++
++/** Split a cue's text into caption-word tokens (CJK runs become short groups). */
++export function tokenizeCueText(text: string): string[] {
++  const rough = text.trim().split(/\s+/).filter(Boolean);
++  const tokens: string[] = [];
++  for (const token of rough) {
++    if (token.length > CJK_GROUP_CHARS * 2 && CJK_RE.test(token)) {
++      for (let i = 0; i < token.length; i += CJK_GROUP_CHARS) {
++        tokens.push(token.slice(i, i + CJK_GROUP_CHARS));
++      }
++    } else {
++      tokens.push(token);
++    }
++  }
++  return tokens;
++}
++
++/**
++ * Per-word timings within one cue: the cue's measured duration is split
++ * across its words proportionally to length (+1 for the following pause).
++ */
++export function cueWordTimings(cue: NarrationCue): WordTiming[] {
++  const tokens = tokenizeCueText(cue.text);
++  if (tokens.length === 0) return [];
++  const span = Math.max(cue.endSec - cue.startSec, 0.05);
++  const weights = tokens.map((token) => token.length + 1);
++  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
++
++  const timings: WordTiming[] = [];
++  let cursor = cue.startSec;
++  for (let i = 0; i < tokens.length; i++) {
++    const width = (span * weights[i]!) / totalWeight;
++    timings.push({ text: tokens[i]!, startSec: cursor, endSec: cursor + width });
++    cursor += width;
++  }
++  // Absorb float drift so the last word ends exactly on the cue boundary.
++  timings[timings.length - 1]!.endSec = cue.endSec;
++  return timings;
++}
++
++/**
++ * Group word timings into display chunks: up to 3 words / ~16 characters,
++ * never spanning a sentence boundary. Each chunk runs from its first word's
++ * start to its last word's end; the renderer holds it until the next chunk
++ * appears so text never flickers off mid-pause.
++ */
++export function buildCaptionChunks(cues: NarrationCue[]): CaptionChunk[] {
++  const chunks: CaptionChunk[] = [];
++  for (const cue of cues) {
++    const words = cueWordTimings(cue);
++    let group: WordTiming[] = [];
++    const flush = () => {
++      if (group.length === 0) return;
++      chunks.push({
++        text: group.map((w) => w.text).join(" "),
++        startSec: group[0]!.startSec,
++        endSec: group[group.length - 1]!.endSec,
++      });
++      group = [];
++    };
++    for (const word of words) {
++      const joined = [...group.map((w) => w.text), word.text].join(" ");
++      if (group.length > 0 && (group.length >= CHUNK_MAX_WORDS || joined.length > CHUNK_MAX_CHARS)) {
++        flush();
++      }
++      group.push(word);
++    }
++    flush();
++  }
++  return chunks;
++}
+diff --git a/artifacts/api-server/src/routes/videos.test.ts b/artifacts/api-server/src/routes/videos.test.ts
+index 7fa69b2..4dc7744 100644
+--- a/artifacts/api-server/src/routes/videos.test.ts
++++ b/artifacts/api-server/src/routes/videos.test.ts
+@@ -229,6 +229,7 @@ describe("POST /api/ai/generate-video", () => {
+         voice: "nova",
+         paragraphCount: 2,
+         subtitles: false,
++        captionStyle: "dynamic",
+         stockSource: "pexels",
+         musicPath: `/objects/${tenant.tenantId}/uploads/track.mp3`,
+       });
+@@ -249,6 +250,7 @@ describe("POST /api/ai/generate-video", () => {
+       voice: "nova",
+       paragraphCount: 2,
+       subtitles: false,
++      captionStyle: "dynamic",
+       stockSource: "pexels",
+       musicPath: `/objects/${tenant.tenantId}/uploads/track.mp3`,
+     });
+diff --git a/artifacts/api-server/src/routes/videos.ts b/artifacts/api-server/src/routes/videos.ts
+index 47ba316..1c8cd05 100644
+--- a/artifacts/api-server/src/routes/videos.ts
++++ b/artifacts/api-server/src/routes/videos.ts
+@@ -139,6 +139,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+     voice: body.voice ?? "alloy",
+     stockSource: body.stockSource ?? "auto",
+     subtitles: body.subtitles ?? true,
++    captionStyle: body.captionStyle ?? "classic",
+     paragraphCount: body.paragraphCount ?? 1,
+     visualsSource,
+     characterId,
+diff --git a/artifacts/socialforge/src/pages/video-studio.test.tsx b/artifacts/socialforge/src/pages/video-studio.test.tsx
+index b9bdb38..608a3aa 100644
+--- a/artifacts/socialforge/src/pages/video-studio.test.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.test.tsx
+@@ -163,6 +163,8 @@ describe("Video Studio", () => {
+     expect(screen.getByTestId("select-video-length")).toBeTruthy();
+     expect(screen.getByTestId("select-video-voice")).toBeTruthy();
+     expect(screen.getByTestId("switch-subtitles")).toBeTruthy();
++    // Caption style is offered while subtitles are on (dynamic is the default).
++    expect(screen.getByTestId("select-caption-style")).toBeTruthy();
+     fireEvent.change(screen.getByTestId("input-video-prompt"), {
+       target: { value: "5 morning habits that transform your day" },
+     });
+@@ -176,10 +178,19 @@ describe("Video Studio", () => {
+       voice: "alloy",
+       stockSource: "auto",
+       subtitles: true,
++      captionStyle: "dynamic",
+       paragraphCount: 1,
+     });
+   });
+ 
++  it("hides the caption style picker when subtitles are off", async () => {
++    renderPage();
++    const user = userEvent.setup();
++    await user.click(screen.getByTestId("tab-topic-to-video"));
++    await user.click(screen.getByTestId("switch-subtitles"));
++    expect(screen.queryByTestId("select-caption-style")).toBeNull();
++  });
++
+   it("blocks character-mode topic videos until a character is picked", async () => {
+     renderPage();
+     const user = userEvent.setup();
+diff --git a/artifacts/socialforge/src/pages/video-studio.tsx b/artifacts/socialforge/src/pages/video-studio.tsx
+index c2d9629..fd2583e 100644
+--- a/artifacts/socialforge/src/pages/video-studio.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.tsx
+@@ -161,6 +161,7 @@ export function VideoStudioPage() {
+   const [stockSource, setStockSource] = useState<"auto" | "pexels" | "pixabay">("auto");
+   const [paragraphCount, setParagraphCount] = useState(1);
+   const [subtitles, setSubtitles] = useState(true);
++  const [captionStyle, setCaptionStyle] = useState<"classic" | "dynamic">("dynamic");
+   const [visuals, setVisuals] = useState<"stock" | "character" | "ai">("stock");
+   const [characterId, setCharacterId] = useState<number | null>(null);
+   const [outfitId, setOutfitId] = useState<number | null>(null);
+@@ -361,6 +362,7 @@ export function VideoStudioPage() {
+           voice,
+           stockSource,
+           subtitles,
++          captionStyle,
+           paragraphCount,
+           visualsSource: engine === "topic_to_video" ? visuals : "stock",
+           characterId:
+@@ -771,6 +773,20 @@ export function VideoStudioPage() {
+                       Burn captions into the video
+                     </span>
+                   </div>
++                  {subtitles && (
++                    <Select
++                      value={captionStyle}
++                      onValueChange={(v) => setCaptionStyle(v as typeof captionStyle)}
++                    >
++                      <SelectTrigger className="w-full" data-testid="select-caption-style">
++                        <SelectValue />
++                      </SelectTrigger>
++                      <SelectContent>
++                        <SelectItem value="dynamic">Dynamic — big word groups in sync</SelectItem>
++                        <SelectItem value="classic">Classic — one sentence at a time</SelectItem>
++                      </SelectContent>
++                    </Select>
++                  )}
+                 </div>
+               )}
+               <div className="space-y-2">
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index af6e5ba..7f3b627 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -2451,6 +2451,17 @@ export const VideoGenerateRequestStockSource = {
+   pixabay: 'pixabay',
+ } as const;
+ 
++/**
++ * topic_to_video only; how burned subtitles look. "classic" shows one sentence at a time near the bottom. "dynamic" shows big 2-3 word groups timed to the narration (the short-form social style).
++ */
++export type VideoGenerateRequestCaptionStyle = typeof VideoGenerateRequestCaptionStyle[keyof typeof VideoGenerateRequestCaptionStyle];
++
++
++export const VideoGenerateRequestCaptionStyle = {
++  classic: 'classic',
++  dynamic: 'dynamic',
++} as const;
++
+ /**
+  * topic_to_video only. "character" generates every scene with the locked character (one video unit per scene, 4 per paragraph). "ai" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph.
+  */
+@@ -2507,6 +2518,8 @@ export interface VideoGenerateRequest {
+   stockSource?: VideoGenerateRequestStockSource;
+   /** topic_to_video only; burn per-sentence subtitles. */
+   subtitles?: boolean;
++  /** topic_to_video only; how burned subtitles look. "classic" shows one sentence at a time near the bottom. "dynamic" shows big 2-3 word groups timed to the narration (the short-form social style). */
++  captionStyle?: VideoGenerateRequestCaptionStyle;
+   /**
+      * topic_to_video only; script length in paragraphs (roughly 30 seconds of narration each).
+      * @minimum 1
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index abd8573..c5ab194 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -10080,6 +10080,14 @@ components:
+           type: boolean
+           default: true
+           description: topic_to_video only; burn per-sentence subtitles.
++        captionStyle:
++          type: string
++          enum: [classic, dynamic]
++          default: classic
++          description: >-
++            topic_to_video only; how burned subtitles look. "classic" shows
++            one sentence at a time near the bottom. "dynamic" shows big 2-3
++            word groups timed to the narration (the short-form social style).
+         paragraphCount:
+           type: integer
+           minimum: 1
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index 31b87ec..6e1306a 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -5042,6 +5042,7 @@ export const generateVideoBodyOverlayTextMax = 120;
+ export const generateVideoBodyVoiceDefault = `alloy`;
+ export const generateVideoBodyStockSourceDefault = `auto`;
+ export const generateVideoBodySubtitlesDefault = true;
++export const generateVideoBodyCaptionStyleDefault = `classic`;
+ export const generateVideoBodyParagraphCountDefault = 1;
+ export const generateVideoBodyParagraphCountMax = 3;
+ 
+@@ -5062,6 +5063,7 @@ export const GenerateVideoBody = zod.object({
+   "voice": zod.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']).default(generateVideoBodyVoiceDefault).describe('topic_to_video only; the narration voice.'),
+   "stockSource": zod.enum(['auto', 'pexels', 'pixabay']).default(generateVideoBodyStockSourceDefault).describe('topic_to_video only; where stock footage comes from (auto = first configured source).'),
+   "subtitles": zod.boolean().default(generateVideoBodySubtitlesDefault).describe('topic_to_video only; burn per-sentence subtitles.'),
++  "captionStyle": zod.enum(['classic', 'dynamic']).default(generateVideoBodyCaptionStyleDefault).describe('topic_to_video only; how burned subtitles look. \"classic\" shows one sentence at a time near the bottom. \"dynamic\" shows big 2-3 word groups timed to the narration (the short-form social style).'),
+   "paragraphCount": zod.number().min(1).max(generateVideoBodyParagraphCountMax).default(generateVideoBodyParagraphCountDefault).describe('topic_to_video only; script length in paragraphs (roughly 30 seconds of narration each).'),
+   "visualsSource": zod.enum(['stock', 'character', 'ai']).default(generateVideoBodyVisualsSourceDefault).describe('topic_to_video only. \"character\" generates every scene with the locked character (one video unit per scene, 4 per paragraph). \"ai\" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph.'),
+   "characterId": zod.number().nullish().describe('Character lock: the character featured in the video (text_to_video and topic_to_video character mode).'),
+diff --git a/lib/api-zod/src/generated/types/index.ts b/lib/api-zod/src/generated/types/index.ts
+index cce2ec2..7cfa6bf 100644
+--- a/lib/api-zod/src/generated/types/index.ts
++++ b/lib/api-zod/src/generated/types/index.ts
+@@ -406,6 +406,7 @@ export * from './upsertAiModelPriceRequestKind';
+ export * from './usage';
+ export * from './videoGenerateRequest';
+ export * from './videoGenerateRequestAspectRatio';
++export * from './videoGenerateRequestCaptionStyle';
+ export * from './videoGenerateRequestEngine';
+ export * from './videoGenerateRequestStockSource';
+ export * from './videoGenerateRequestVisualsSource';
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequest.ts b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+index 6f09ced..58b39d3 100644
+--- a/lib/api-zod/src/generated/types/videoGenerateRequest.ts
++++ b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+@@ -6,6 +6,7 @@
+  * OpenAPI spec version: 0.1.0
+  */
+ import type { VideoGenerateRequestAspectRatio } from './videoGenerateRequestAspectRatio';
++import type { VideoGenerateRequestCaptionStyle } from './videoGenerateRequestCaptionStyle';
+ import type { VideoGenerateRequestEngine } from './videoGenerateRequestEngine';
+ import type { VideoGenerateRequestStockSource } from './videoGenerateRequestStockSource';
+ import type { VideoGenerateRequestVisualsSource } from './videoGenerateRequestVisualsSource';
+@@ -55,6 +56,8 @@ export interface VideoGenerateRequest {
+   stockSource?: VideoGenerateRequestStockSource;
+   /** topic_to_video only; burn per-sentence subtitles. */
+   subtitles?: boolean;
++  /** topic_to_video only; how burned subtitles look. "classic" shows one sentence at a time near the bottom. "dynamic" shows big 2-3 word groups timed to the narration (the short-form social style). */
++  captionStyle?: VideoGenerateRequestCaptionStyle;
+   /**
+      * topic_to_video only; script length in paragraphs (roughly 30 seconds of narration each).
+      * @minimum 1
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequestCaptionStyle.ts b/lib/api-zod/src/generated/types/videoGenerateRequestCaptionStyle.ts
+new file mode 100644
+index 0000000..a47c60b
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoGenerateRequestCaptionStyle.ts
+@@ -0,0 +1,18 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++/**
++ * topic_to_video only; how burned subtitles look. "classic" shows one sentence at a time near the bottom. "dynamic" shows big 2-3 word groups timed to the narration (the short-form social style).
++ */
++export type VideoGenerateRequestCaptionStyle = typeof VideoGenerateRequestCaptionStyle[keyof typeof VideoGenerateRequestCaptionStyle];
++
++
++export const VideoGenerateRequestCaptionStyle = {
++  classic: 'classic',
++  dynamic: 'dynamic',
++} as const;
+diff --git a/lib/db/src/schema/videoGenerations.ts b/lib/db/src/schema/videoGenerations.ts
+index 67d6cb0..3d1d0c4 100644
+--- a/lib/db/src/schema/videoGenerations.ts
++++ b/lib/db/src/schema/videoGenerations.ts
+@@ -36,6 +36,8 @@ export interface VideoJobOptions {
+   stockSource?: string;
+   /** topic_to_video: burn per-sentence subtitles (default true). */
+   subtitles?: boolean;
++  /** topic_to_video: "classic" sentence subtitles or "dynamic" word groups. */
++  captionStyle?: string;
+   /** topic_to_video: script length in paragraphs (~30s each, 1-3). */
+   paragraphCount?: number;
+   /** topic_to_video: "stock" footage (default) or AI "character" scenes. */
+-- 
+2.43.0
+

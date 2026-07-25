@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { VideoGenerateRequestAspectRatio } from './videoGenerateRequestAspectRatio';
+import type { VideoGenerateRequestCaptionStyle } from './videoGenerateRequestCaptionStyle';
 import type { VideoGenerateRequestEngine } from './videoGenerateRequestEngine';
 import type { VideoGenerateRequestStockSource } from './videoGenerateRequestStockSource';
 import type { VideoGenerateRequestVisualsSource } from './videoGenerateRequestVisualsSource';
@@ -55,6 +56,8 @@ export interface VideoGenerateRequest {
   stockSource?: VideoGenerateRequestStockSource;
   /** topic_to_video only; burn per-sentence subtitles. */
   subtitles?: boolean;
+  /** topic_to_video only; how burned subtitles look. "classic" shows one sentence at a time near the bottom. "dynamic" shows big 2-3 word groups timed to the narration (the short-form social style). */
+  captionStyle?: VideoGenerateRequestCaptionStyle;
   /**
      * topic_to_video only; script length in paragraphs (roughly 30 seconds of narration each).
      * @minimum 1

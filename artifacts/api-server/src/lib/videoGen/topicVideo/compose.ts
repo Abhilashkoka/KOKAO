@@ -5,6 +5,7 @@ import { pickMusicStartOffsetSec } from "../musicOffset";
 import { runFfmpeg, findFontFile, probeDurationSec } from "../slideshow";
 import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
 import type { NarrationCue } from "./narration";
+import { buildCaptionChunks } from "./wordTimings";
 
 /**
  * Final assembly for the Topic to Video engine, on the same system ffmpeg the
@@ -50,6 +51,12 @@ export interface ComposeInput {
   aspectRatio: VideoAspect;
   /** Burn per-sentence subtitles (skipped if no usable font is installed). */
   subtitles: boolean;
+  /**
+   * "classic" (default): one sentence at a time near the bottom.
+   * "dynamic": big 2-3 word groups timed to the narration — the short-form
+   * social style. Ignored when `subtitles` is false.
+   */
+  captionStyle?: "classic" | "dynamic";
   /** Optional background music bytes. */
   music?: Buffer | null;
   /**
@@ -233,31 +240,48 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
 
     // 2) Final pass: concat scenes, burn subtitles, mix narration + music.
     const fontFile = input.subtitles ? await findFontFile() : null;
-    const fontSize = Math.round(height / 18);
+    const dynamicCaptions = input.captionStyle === "dynamic";
+    // Dynamic captions are the big short-form style: larger type, heavier
+    // stroke, sitting higher so they read as the focal point.
+    const fontSize = Math.round(height / (dynamicCaptions ? 13 : 18));
     const maxCharsPerLine = Math.max(Math.floor((width * 0.88) / (fontSize * 0.56)), 8);
-    const strokeWidth = Math.max(2, Math.round(fontSize / 24));
+    const strokeWidth = Math.max(2, Math.round(fontSize / (dynamicCaptions ? 14 : 24)));
+    const yExpr = dynamicCaptions
+      ? `(h-text_h)*0.72`
+      : `h-text_h-${Math.round(height / 8)}`;
+
+    // One drawtext per caption entry: whole sentences (classic) or timed
+    // 2-3 word groups (dynamic).
+    const captionEntries: { text: string; startSec: number }[] = dynamicCaptions
+      ? buildCaptionChunks(input.cues).map((chunk) => ({
+          text: chunk.text,
+          startSec: chunk.startSec,
+        }))
+      : input.cues.map((cue) => ({ text: cue.text, startSec: cue.startSec }));
 
     const videoFilters: string[] = [];
     if (fontFile) {
-      for (let i = 0; i < input.cues.length; i++) {
-        const cue = input.cues[i]!;
+      for (let i = 0; i < captionEntries.length; i++) {
+        const entry = captionEntries[i]!;
         // textfile= sidesteps drawtext's brittle inline-escaping rules (same
         // trick as the slideshow caption).
         await writeFile(
           join(dir, `cue_${String(i).padStart(3, "0")}.txt`),
-          wrapSubtitleText(cue.text, maxCharsPerLine),
+          wrapSubtitleText(entry.text, maxCharsPerLine),
         );
-        const start = cue.startSec.toFixed(3);
-        // Hold each subtitle until the next one appears so text never
-        // flickers off during the inter-sentence pause.
+        const start = entry.startSec.toFixed(3);
+        // Hold each caption until the next one appears so text never
+        // flickers off during pauses.
         const end = (
-          i + 1 < input.cues.length ? input.cues[i + 1]!.startSec : input.totalDurationSec
+          i + 1 < captionEntries.length
+            ? captionEntries[i + 1]!.startSec
+            : input.totalDurationSec
         ).toFixed(3);
         videoFilters.push(
           `drawtext=fontfile=${fontFile}:textfile=cue_${String(i).padStart(3, "0")}.txt:` +
             `fontcolor=white:fontsize=${fontSize}:borderw=${strokeWidth}:bordercolor=black:` +
             `line_spacing=${Math.round(fontSize / 5)}:` +
-            `x=(w-text_w)/2:y=h-text_h-${Math.round(height / 8)}:` +
+            `x=(w-text_w)/2:y=${yExpr}:` +
             `enable='between(t,${start},${end})'`,
         );
       }

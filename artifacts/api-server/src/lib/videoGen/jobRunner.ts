@@ -239,6 +239,7 @@ async function produceVideo(
       voice: isNarrationVoice(options.voice) ? options.voice : "alloy",
       stockSource: isStockSourceChoice(options.stockSource) ? options.stockSource : "auto",
       subtitles: options.subtitles ?? true,
+      captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
       paragraphCount: options.paragraphCount ?? 1,
       music,
       visualsSource:

@@ -229,6 +229,7 @@ describe("POST /api/ai/generate-video", () => {
         voice: "nova",
         paragraphCount: 2,
         subtitles: false,
+        captionStyle: "dynamic",
         stockSource: "pexels",
         musicPath: `/objects/${tenant.tenantId}/uploads/track.mp3`,
       });
@@ -249,6 +250,7 @@ describe("POST /api/ai/generate-video", () => {
       voice: "nova",
       paragraphCount: 2,
       subtitles: false,
+      captionStyle: "dynamic",
       stockSource: "pexels",
       musicPath: `/objects/${tenant.tenantId}/uploads/track.mp3`,
     });

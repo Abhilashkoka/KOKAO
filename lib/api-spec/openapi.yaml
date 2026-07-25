@@ -10080,6 +10080,14 @@ components:
           type: boolean
           default: true
           description: topic_to_video only; burn per-sentence subtitles.
+        captionStyle:
+          type: string
+          enum: [classic, dynamic]
+          default: classic
+          description: >-
+            topic_to_video only; how burned subtitles look. "classic" shows
+            one sentence at a time near the bottom. "dynamic" shows big 2-3
+            word groups timed to the narration (the short-form social style).
         paragraphCount:
           type: integer
           minimum: 1

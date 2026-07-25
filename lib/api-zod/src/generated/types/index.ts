@@ -406,6 +406,7 @@ export * from './upsertAiModelPriceRequestKind';
 export * from './usage';
 export * from './videoGenerateRequest';
 export * from './videoGenerateRequestAspectRatio';
+export * from './videoGenerateRequestCaptionStyle';
 export * from './videoGenerateRequestEngine';
 export * from './videoGenerateRequestStockSource';
 export * from './videoGenerateRequestVisualsSource';

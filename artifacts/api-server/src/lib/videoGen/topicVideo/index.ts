@@ -60,6 +60,8 @@ export interface TopicVideoParams {
   voice: NarrationVoice;
   stockSource: StockSourceChoice;
   subtitles: boolean;
+  /** "classic" sentence subtitles (default) or "dynamic" word-group captions. */
+  captionStyle?: "classic" | "dynamic";
   paragraphCount: number;
   music?: Buffer | null;
   /** "stock" (default), "character" (locked-character AI scenes), or "ai"
@@ -306,6 +308,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     totalDurationSec: narration.totalDurationSec,
     aspectRatio: params.aspectRatio,
     subtitles: params.subtitles,
+    captionStyle: params.captionStyle ?? "classic",
     music: params.music ?? null,
     sceneMap,
   });

@@ -36,6 +36,8 @@ export interface VideoJobOptions {
   stockSource?: string;
   /** topic_to_video: burn per-sentence subtitles (default true). */
   subtitles?: boolean;
+  /** topic_to_video: "classic" sentence subtitles or "dynamic" word groups. */
+  captionStyle?: string;
   /** topic_to_video: script length in paragraphs (~30s each, 1-3). */
   paragraphCount?: number;
   /** topic_to_video: "stock" footage (default) or AI "character" scenes. */

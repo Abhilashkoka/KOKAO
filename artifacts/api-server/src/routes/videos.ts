@@ -139,6 +139,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     voice: body.voice ?? "alloy",
     stockSource: body.stockSource ?? "auto",
     subtitles: body.subtitles ?? true,
+    captionStyle: body.captionStyle ?? "classic",
     paragraphCount: body.paragraphCount ?? 1,
     visualsSource,
     characterId,

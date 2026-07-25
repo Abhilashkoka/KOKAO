@@ -259,6 +259,29 @@ describe("composeTopicVideo (real ffmpeg)", () => {
   );
 
   it(
+    "renders dynamic word-group captions",
+    async () => {
+      const clip = await makeTestClip(2);
+      const out = await composeTopicVideo({
+        clips: [clip],
+        narrationWav: makeTestWav(3.6),
+        cues: [
+          { text: "First scene of the story.", startSec: 0, endSec: 1.4 },
+          { text: "Second scene wraps it up.", startSec: 1.65, endSec: 3.05 },
+        ],
+        totalDurationSec: 3.65,
+        aspectRatio: "9:16",
+        subtitles: true,
+        captionStyle: "dynamic",
+        music: null,
+      });
+      expect(out.toString("ascii", 4, 8)).toBe("ftyp");
+      expect(out.length).toBeGreaterThan(1000);
+    },
+    120_000,
+  );
+
+  it(
     "loops a short source clip to cover a longer scene",
     async () => {
       const clip = await makeTestClip(1);

@@ -163,6 +163,8 @@ describe("Video Studio", () => {
     expect(screen.getByTestId("select-video-length")).toBeTruthy();
     expect(screen.getByTestId("select-video-voice")).toBeTruthy();
     expect(screen.getByTestId("switch-subtitles")).toBeTruthy();
+    // Caption style is offered while subtitles are on (dynamic is the default).
+    expect(screen.getByTestId("select-caption-style")).toBeTruthy();
     fireEvent.change(screen.getByTestId("input-video-prompt"), {
       target: { value: "5 morning habits that transform your day" },
     });
@@ -176,8 +178,17 @@ describe("Video Studio", () => {
       voice: "alloy",
       stockSource: "auto",
       subtitles: true,
+      captionStyle: "dynamic",
       paragraphCount: 1,
     });
+  });
+
+  it("hides the caption style picker when subtitles are off", async () => {
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    await user.click(screen.getByTestId("switch-subtitles"));
+    expect(screen.queryByTestId("select-caption-style")).toBeNull();
   });
 
   it("blocks character-mode topic videos until a character is picked", async () => {

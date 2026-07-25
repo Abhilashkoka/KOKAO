@@ -2452,6 +2452,17 @@ export const VideoGenerateRequestStockSource = {
 } as const;
 
 /**
+ * topic_to_video only; how burned subtitles look. "classic" shows one sentence at a time near the bottom. "dynamic" shows big 2-3 word groups timed to the narration (the short-form social style).
+ */
+export type VideoGenerateRequestCaptionStyle = typeof VideoGenerateRequestCaptionStyle[keyof typeof VideoGenerateRequestCaptionStyle];
+
+
+export const VideoGenerateRequestCaptionStyle = {
+  classic: 'classic',
+  dynamic: 'dynamic',
+} as const;
+
+/**
  * topic_to_video only. "character" generates every scene with the locked character (one video unit per scene, 4 per paragraph). "ai" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph.
  */
 export type VideoGenerateRequestVisualsSource = typeof VideoGenerateRequestVisualsSource[keyof typeof VideoGenerateRequestVisualsSource];
@@ -2507,6 +2518,8 @@ export interface VideoGenerateRequest {
   stockSource?: VideoGenerateRequestStockSource;
   /** topic_to_video only; burn per-sentence subtitles. */
   subtitles?: boolean;
+  /** topic_to_video only; how burned subtitles look. "classic" shows one sentence at a time near the bottom. "dynamic" shows big 2-3 word groups timed to the narration (the short-form social style). */
+  captionStyle?: VideoGenerateRequestCaptionStyle;
   /**
      * topic_to_video only; script length in paragraphs (roughly 30 seconds of narration each).
      * @minimum 1

@@ -162,6 +162,7 @@ export function VideoStudioPage() {
   const [stockSource, setStockSource] = useState<"auto" | "pexels" | "pixabay">("auto");
   const [paragraphCount, setParagraphCount] = useState(1);
   const [subtitles, setSubtitles] = useState(true);
+  const [captionStyle, setCaptionStyle] = useState<"classic" | "dynamic">("dynamic");
   const [visuals, setVisuals] = useState<"stock" | "character" | "ai">("stock");
   const [characterId, setCharacterId] = useState<number | null>(null);
   const [outfitId, setOutfitId] = useState<number | null>(null);
@@ -362,6 +363,7 @@ export function VideoStudioPage() {
           voice,
           stockSource,
           subtitles,
+          captionStyle,
           paragraphCount,
           visualsSource: engine === "topic_to_video" ? visuals : "stock",
           characterId:
@@ -808,6 +810,20 @@ export function VideoStudioPage() {
                       Burn captions into the video
                     </span>
                   </div>
+                  {subtitles && (
+                    <Select
+                      value={captionStyle}
+                      onValueChange={(v) => setCaptionStyle(v as typeof captionStyle)}
+                    >
+                      <SelectTrigger className="w-full" data-testid="select-caption-style">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="dynamic">Dynamic — big word groups in sync</SelectItem>
+                        <SelectItem value="classic">Classic — one sentence at a time</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
               )}
               <div className="space-y-2">
