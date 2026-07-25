@@ -1,0 +1,775 @@
+From 819ca79473f723bad4cdf3406c1af518cef89993 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 25 Jul 2026 06:58:58 +0000
+Subject: [PATCH] feat(video): score the cut plan before paying to render it
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The post-render QA gate catches broken output — black picture, silent
+audio, truncated encode. It cannot catch boring, because boring encodes
+perfectly. A topic video that lands as one still held over the whole
+narration passes every existing check and still is not worth publishing.
+
+So judge the scene layout before the encode, while the cut rhythm is
+still free to change. planGate.ts scores five dimensions off data the
+pipeline already has (scene durations, distinct source clips, narration
+cue starts, stills vs footage) and returns a repaired layout plus what it
+could not fix.
+
+Order of preference is repair, then warn, then refuse:
+
+- repair: any scene held past 8s is split into equal cuts that rotate
+  through the other available clips, preserving total scene time exactly
+  so the composition still lines up with the narration
+- warn: a cut rate slower than the format allows (5s for stills under a
+  Ken Burns move, 9s for real footage), a visual carrying more than four
+  spoken sentences, or a slideshow risk at or above 0.5 goes to the job
+  log with the reasons ranked worst first
+- refuse: only at risk 0.85, which arithmetically needs stills AND a
+  single clip AND long holds AND repetition all at once — nothing
+  recutting can rescue. The tenant is refunded through the existing
+  VideoGenProviderError path.
+
+The gate scores the layout the composer will actually render, not the raw
+one: composeTopicVideo diversifies adjacent repeats itself, so scoring
+before that would flag an already-fixed problem.
+
+Slideshow rendering is deliberately not gated — a user who uploaded their
+own photos must not be told their slideshow is too much like a slideshow.
+
+Concepts read from OpenMontage (AGPLv3); no code, prompts, or thresholds
+copied — every weight and ceiling here is written for this pipeline.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EJdoZ8bk1pWTrmbMVQJZ7G
+---
+ .../src/lib/videoGen/planGate.test.ts         | 363 ++++++++++++++++++
+ .../api-server/src/lib/videoGen/planGate.ts   | 282 ++++++++++++++
+ .../src/lib/videoGen/topicVideo/index.ts      |  37 +-
+ 3 files changed, 681 insertions(+), 1 deletion(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/planGate.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/planGate.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/planGate.test.ts b/artifacts/api-server/src/lib/videoGen/planGate.test.ts
+new file mode 100644
+index 0000000..14690df
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/planGate.test.ts
+@@ -0,0 +1,363 @@
++import { describe, it, expect } from "vitest";
++import {
++  scoreSlideshowRisk,
++  checkDeliveryPromise,
++  verifyScenePacing,
++  resplitLongHolds,
++  gateRenderPlan,
++  LONG_HOLD_SEC,
++  MAX_SECONDS_PER_CUT_STILLS,
++  MAX_SECONDS_PER_CUT_FOOTAGE,
++  BLOCK_RISK,
++  type PlanGateInput,
++} from "./planGate";
++import type { SceneSegment } from "./topicVideo/compose";
++
++const scenes = (spec: [number, number][]): SceneSegment[] =>
++  spec.map(([clipIndex, durationSec]) => ({ clipIndex, durationSec }));
++
++const plan = (over: Partial<PlanGateInput> = {}): PlanGateInput => ({
++  scenes: scenes([
++    [0, 3],
++    [1, 3],
++    [2, 3],
++    [3, 3],
++  ]),
++  clipCount: 4,
++  stillImagery: false,
++  cueStartsSec: [0, 3, 6, 9],
++  totalDurationSec: 12,
++  subtitles: true,
++  ...over,
++});
++
++const totalSceneSec = (list: SceneSegment[]): number =>
++  Math.round(list.reduce((total, scene) => total + scene.durationSec, 0) * 1000) / 1000;
++
++describe("scoreSlideshowRisk", () => {
++  it("scores a varied, well-cut video at zero", () => {
++    const risk = scoreSlideshowRisk(plan());
++    expect(risk.score).toBe(0);
++    expect(risk.reasons).toEqual([]);
++  });
++
++  it("scores one still held over the whole narration at the maximum", () => {
++    const risk = scoreSlideshowRisk(
++      plan({
++        scenes: scenes([
++          [0, 12],
++          [0, 12],
++          [0, 12],
++          [0, 12],
++        ]),
++        clipCount: 1,
++        stillImagery: true,
++        totalDurationSec: 48,
++      }),
++    );
++    expect(risk.score).toBe(1);
++    // Worst contribution first, so a log line leads with the real problem.
++    expect(risk.reasons[0]).toContain("held shot");
++    expect(risk.reasons).toHaveLength(5);
++  });
++
++  it("charges for repeated visuals even when every cut is short", () => {
++    const risk = scoreSlideshowRisk(
++      plan({
++        scenes: scenes([
++          [0, 3],
++          [0, 3],
++          [0, 3],
++          [0, 3],
++        ]),
++        clipCount: 1,
++      }),
++    );
++    // Repetition (0.25) + one-visual poverty (0.2) + caption reliance (0.1).
++    expect(risk.score).toBe(0.55);
++    expect(risk.reasons).toContain("only 1 distinct visual across the video");
++  });
++
++  it("stops charging for poverty once there are four distinct visuals", () => {
++    const three = scoreSlideshowRisk(
++      plan({ scenes: scenes([[0, 3], [1, 3], [2, 3]]), clipCount: 3, cueStartsSec: [0, 3, 6] }),
++    );
++    // 3 distinct -> a third of the poverty weight; 4 distinct -> none.
++    expect(three.score).toBe(0.067);
++    expect(scoreSlideshowRisk(plan()).score).toBe(0);
++  });
++
++  it("does not blame captions when the picture is doing its job", () => {
++    const risk = scoreSlideshowRisk(plan({ subtitles: true }));
++    expect(risk.reasons).not.toContain(
++      "captions are carrying a video with almost no visual change",
++    );
++  });
++
++  it("scores an empty plan as harmless rather than dividing by nothing", () => {
++    expect(scoreSlideshowRisk(plan({ scenes: [] }))).toEqual({ score: 0, reasons: [] });
++  });
++});
++
++describe("checkDeliveryPromise", () => {
++  it("holds stills to a stricter cut rate than footage", () => {
++    const layout = scenes([
++      [0, 6],
++      [1, 6],
++      [2, 6],
++      [3, 6],
++    ]);
++    const stills = checkDeliveryPromise(
++      plan({ scenes: layout, stillImagery: true, totalDurationSec: 24 }),
++    );
++    const footage = checkDeliveryPromise(
++      plan({ scenes: layout, stillImagery: false, totalDurationSec: 24 }),
++    );
++    // Identical cut rate, different verdict: a Ken Burns push is not motion.
++    expect(stills.secondsPerCut).toBe(6);
++    expect(footage.secondsPerCut).toBe(6);
++    expect(stills.ok).toBe(false);
++    expect(stills.allowedSecondsPerCut).toBe(MAX_SECONDS_PER_CUT_STILLS);
++    expect(footage.ok).toBe(true);
++    expect(footage.allowedSecondsPerCut).toBe(MAX_SECONDS_PER_CUT_FOOTAGE);
++    expect(stills.reason).toContain("every 6s");
++    expect(footage.reason).toBeNull();
++  });
++
++  it("measures the cut rate from planned scene time, not the narration field", () => {
++    const promise = checkDeliveryPromise(
++      plan({ scenes: scenes([[0, 20], [1, 20]]), totalDurationSec: 4 }),
++    );
++    expect(promise.secondsPerCut).toBe(20);
++    expect(promise.ok).toBe(false);
++  });
++
++  it("treats an empty plan as one long hold instead of crashing", () => {
++    const promise = checkDeliveryPromise(plan({ scenes: [], totalDurationSec: 30 }));
++    expect(promise.secondsPerCut).toBe(30);
++    expect(promise.ok).toBe(false);
++  });
++});
++
++describe("verifyScenePacing", () => {
++  it("flags a visual that has to carry too many spoken sentences", () => {
++    const pacing = verifyScenePacing(
++      plan({
++        scenes: scenes([
++          [0, 10],
++          [1, 10],
++        ]),
++        cueStartsSec: [0, 2, 4, 6, 8, 12],
++        totalDurationSec: 20,
++      }),
++    );
++    expect(pacing.ok).toBe(false);
++    expect(pacing.worstCuesPerScene).toBe(5);
++    expect(pacing.reason).toContain("5 spoken sentences");
++  });
++
++  it("passes when sentences are spread across the cuts", () => {
++    const pacing = verifyScenePacing(
++      plan({
++        scenes: scenes([
++          [0, 10],
++          [1, 10],
++        ]),
++        cueStartsSec: [0, 5, 12],
++        totalDurationSec: 20,
++      }),
++    );
++    expect(pacing).toEqual({ ok: true, worstCuesPerScene: 2, reason: null });
++  });
++
++  it("keeps trailing narration inside the last scene rather than losing it", () => {
++    const pacing = verifyScenePacing(
++      plan({
++        scenes: scenes([
++          [0, 5],
++          [1, 5],
++        ]),
++        // 9.5s starts inside the last scene; 40s is past the planned end but
++        // still belongs to it — a dropped cue would understate the problem.
++        cueStartsSec: [0, 6, 9.5, 40],
++        totalDurationSec: 10,
++      }),
++    );
++    expect(pacing.worstCuesPerScene).toBe(3);
++  });
++
++  it("says nothing about pacing with no narration to pace against", () => {
++    expect(verifyScenePacing(plan({ cueStartsSec: [] })).ok).toBe(true);
++    expect(verifyScenePacing(plan({ scenes: [] })).worstCuesPerScene).toBe(0);
++  });
++});
++
++describe("resplitLongHolds", () => {
++  it("splits a held shot into cuts that rotate through the other clips", () => {
++    const out = resplitLongHolds(scenes([[0, 20]]), 3);
++    expect(out.map((s) => s.clipIndex)).toEqual([0, 1, 2]);
++    // Scene time is preserved exactly, so the composition still lines up.
++    expect(totalSceneSec(out)).toBe(20);
++  });
++
++  it("keeps the ranked pick on the first piece", () => {
++    const out = resplitLongHolds(scenes([[2, 18]]), 4);
++    expect(out[0]!.clipIndex).toBe(2);
++    expect(out.map((s) => s.clipIndex)).toEqual([2, 3, 0]);
++  });
++
++  it("leaves short scenes untouched and returns the same array", () => {
++    const layout = scenes([
++      [0, 4],
++      [1, LONG_HOLD_SEC],
++    ]);
++    expect(resplitLongHolds(layout, 3)).toBe(layout);
++  });
++
++  it("does not split when there is nothing to cut to", () => {
++    const layout = scenes([[0, 40]]);
++    // One clip means every "cut" would land on the same picture.
++    expect(resplitLongHolds(layout, 1)).toBe(layout);
++    expect(resplitLongHolds(layout, 3, 0)).toBe(layout);
++  });
++
++  it("preserves total scene time across a mixed layout", () => {
++    const layout = scenes([
++      [0, 3.4],
++      [1, 21.7],
++      [2, 9.1],
++    ]);
++    expect(totalSceneSec(resplitLongHolds(layout, 3))).toBe(totalSceneSec(layout));
++  });
++});
++
++describe("gateRenderPlan", () => {
++  it("passes a healthy plan through untouched and silently", () => {
++    const result = gateRenderPlan(plan());
++    expect(result.blocked).toBeNull();
++    expect(result.warnings).toEqual([]);
++    expect(result.revised).toBe(false);
++    expect(result.risk).toBe(0);
++  });
++
++  it("repairs a held shot instead of complaining about it", () => {
++    const result = gateRenderPlan(
++      plan({
++        scenes: scenes([
++          [0, 20],
++          [1, 4],
++        ]),
++        clipCount: 3,
++        cueStartsSec: [0, 20],
++        totalDurationSec: 24,
++      }),
++    );
++    expect(result.scenes).toHaveLength(4);
++    expect(result.revised).toBe(true);
++    expect(totalSceneSec(result.scenes)).toBe(24);
++    // Repaired below every threshold, so the job log stays quiet.
++    expect(result.warnings).toEqual([]);
++    expect(result.blocked).toBeNull();
++  });
++
++  it("scores the layout the composer will render, not the raw one", () => {
++    // Adjacent repeats are fixed by the composer's diversifier, so the gate
++    // must not charge repetition for a problem that is already handled.
++    const result = gateRenderPlan(
++      plan({
++        scenes: scenes([
++          [0, 3],
++          [0, 3],
++          [1, 3],
++          [1, 3],
++        ]),
++        clipCount: 4,
++      }),
++    );
++    expect(result.risk).toBe(0);
++    expect(result.revised).toBe(true);
++    expect(result.warnings).toEqual([]);
++  });
++
++  it("reports the cut rate it could not repair all the way down", () => {
++    const result = gateRenderPlan(
++      plan({
++        scenes: scenes([
++          [0, 12],
++          [1, 12],
++        ]),
++        clipCount: 2,
++        stillImagery: true,
++        cueStartsSec: [0, 4, 8, 12, 16, 20],
++        totalDurationSec: 24,
++      }),
++    );
++    expect(result.blocked).toBeNull();
++    // Repaired from 12s holds to 6s ones — better, but stills owe a cut every
++    // 5s, so the shortfall is logged instead of silently accepted.
++    expect(result.scenes.length).toBeGreaterThan(2);
++    expect(result.warnings.join(" ")).toContain("the picture changes every 6s");
++    expect(result.risk).toBeGreaterThan(0);
++    expect(result.risk).toBeLessThan(BLOCK_RISK);
++  });
++
++  it("warns about slideshow risk when there is nothing left to repair", () => {
++    const result = gateRenderPlan(
++      plan({
++        scenes: scenes([
++          [0, 3],
++          [0, 3],
++          [0, 3],
++          [0, 3],
++        ]),
++        clipCount: 1,
++        stillImagery: true,
++      }),
++    );
++    // Cuts are fast enough and no hold is long, so only the repetition,
++    // one-visual poverty, stillness and caption reliance score.
++    expect(result.blocked).toBeNull();
++    expect(result.risk).toBe(0.7);
++    expect(result.warnings.join(" ")).toContain("slideshow risk 0.7");
++    expect(result.revised).toBe(false);
++  });
++
++  it("refuses one still held over the whole narration", () => {
++    const result = gateRenderPlan(
++      plan({
++        scenes: scenes([
++          [0, 12],
++          [0, 12],
++          [0, 12],
++          [0, 12],
++        ]),
++        clipCount: 1,
++        stillImagery: true,
++        cueStartsSec: [0, 4, 8, 12, 16, 20, 24, 28],
++        totalDurationSec: 48,
++      }),
++    );
++    expect(result.risk).toBeGreaterThanOrEqual(BLOCK_RISK);
++    expect(result.blocked).toContain("not worth publishing");
++    expect(result.blocked).toContain("You were not charged");
++    // Nothing could be repaired with a single clip, so the layout is unchanged.
++    expect(result.revised).toBe(false);
++    expect(result.warnings.length).toBeGreaterThan(0);
++  });
++
++  it("never invents or loses scene time, whatever it decides", () => {
++    for (const clipCount of [1, 2, 5]) {
++      for (const stillImagery of [true, false]) {
++        const layout = scenes([
++          [0, 17.3],
++          [1 % clipCount, 2.4],
++          [0, 30],
++        ]);
++        const result = gateRenderPlan(
++          plan({ scenes: layout, clipCount, stillImagery, totalDurationSec: 49.7 }),
++        );
++        expect(totalSceneSec(result.scenes)).toBe(49.7);
++      }
++    }
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/planGate.ts b/artifacts/api-server/src/lib/videoGen/planGate.ts
+new file mode 100644
+index 0000000..d69fc8e
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/planGate.ts
+@@ -0,0 +1,282 @@
++import type { SceneSegment } from "./topicVideo/compose";
++import { diversifySceneClips } from "./topicVideo/compose";
++
++/**
++ * Pre-render plan gate: the scene layout is scored BEFORE the expensive encode,
++ * so a video that would land as an "animated PowerPoint" is either repaired or
++ * refused rather than delivered.
++ *
++ * The post-render QA gate (qaGate.ts) catches broken output — black picture,
++ * silent audio, truncated encode. It cannot catch boring, because boring
++ * encodes perfectly. That judgement has to happen on the plan, which is the
++ * only place the cut rhythm is still cheap to change.
++ *
++ * Ideas here come from OpenMontage's slideshow-risk and delivery-promise gates
++ * (AGPLv3 — read for the concepts, no code, prompts, or thresholds copied).
++ * Every dimension below is scored off data this pipeline actually has: scene
++ * durations, distinct source clips, narration cue starts, and whether the
++ * visuals are moving footage or stills under a Ken Burns move.
++ *
++ * The order of preference is repair, then warn, then refuse. Refusing costs the
++ * tenant their script and narration spend (refunded through the normal failure
++ * path), so it is reserved for plans no amount of recutting can save.
++ */
++
++/** A scene holding longer than this reads as a frozen frame, not a shot. */
++export const LONG_HOLD_SEC = 8;
++/**
++ * Average seconds per cut the plan must beat. Stills are held to the stricter
++ * number on purpose: a Ken Burns push is not motion, so a still has to be
++ * replaced more often than footage to carry the same energy.
++ */
++export const MAX_SECONDS_PER_CUT_STILLS = 5;
++export const MAX_SECONDS_PER_CUT_FOOTAGE = 9;
++/** One visual spanning more than this many narrated sentences is a dead frame. */
++export const MAX_CUES_PER_SCENE = 4;
++/** Risk at or above this cannot be recut into a watchable video. */
++export const BLOCK_RISK = 0.85;
++
++export interface PlanGateInput {
++  /** Planned scenes, in order. */
++  scenes: SceneSegment[];
++  /** Number of distinct source clips available to the plan. */
++  clipCount: number;
++  /** True when the sources are generated stills animated with Ken Burns. */
++  stillImagery: boolean;
++  /** Narration sentence start times, for the pacing check. */
++  cueStartsSec: number[];
++  totalDurationSec: number;
++  subtitles: boolean;
++}
++
++export interface SlideshowRisk {
++  /** 0 (varied, well-cut) to 1 (one still held over the whole narration). */
++  score: number;
++  /** Human-readable contributions, worst first. Empty when nothing scored. */
++  reasons: string[];
++}
++
++function clamp01(value: number): number {
++  if (!Number.isFinite(value)) return 0;
++  return Math.min(1, Math.max(0, value));
++}
++
++/** Total planned scene time, falling back to the narration length. */
++function plannedDurationSec(input: PlanGateInput): number {
++  const summed = input.scenes.reduce((total, scene) => total + Math.max(scene.durationSec, 0), 0);
++  if (summed > 0) return summed;
++  return Math.max(input.totalDurationSec, 0);
++}
++
++function distinctClips(scenes: SceneSegment[]): number {
++  return new Set(scenes.map((scene) => scene.clipIndex)).size;
++}
++
++/**
++ * Score how much the plan resembles a slideshow rather than an edited video.
++ * Five weighted dimensions, each 0..1, summing to at most 1.
++ */
++export function scoreSlideshowRisk(input: PlanGateInput): SlideshowRisk {
++  const scenes = input.scenes;
++  if (scenes.length === 0) return { score: 0, reasons: [] };
++  const totalSec = plannedDurationSec(input);
++  const distinct = distinctClips(scenes);
++
++  // 1) Back-to-back repeats of the same source.
++  let repeats = 0;
++  for (let i = 1; i < scenes.length; i++) {
++    if (scenes[i]!.clipIndex === scenes[i - 1]!.clipIndex) repeats++;
++  }
++  const repetition = scenes.length > 1 ? repeats / (scenes.length - 1) : 0;
++
++  // 2) Too few distinct visuals to build an edit from. Four is the point at
++  // which cuts stop feeling like the same picture coming back.
++  const poverty = clamp01(1 - (distinct - 1) / 3);
++
++  // 3) Share of the runtime spent inside a single held shot.
++  const heldSec = scenes
++    .filter((scene) => scene.durationSec > LONG_HOLD_SEC)
++    .reduce((total, scene) => total + scene.durationSec, 0);
++  const longHold = totalSec > 0 ? clamp01(heldSec / totalSec) : 0;
++
++  // 4) Stills carry less on their own than footage does.
++  const stillness = input.stillImagery ? 1 : 0;
++
++  // 5) Captions doing the work the picture should be doing.
++  const captionReliance = input.subtitles && distinct <= 2 ? 1 : 0;
++
++  const weighted: [number, number, string][] = [
++    [repetition, 0.25, `${repeats} of ${scenes.length - 1} cuts repeat the previous visual`],
++    [poverty, 0.2, `only ${distinct} distinct visual${distinct === 1 ? "" : "s"} across the video`],
++    [longHold, 0.3, `${Math.round(longHold * 100)}% of the runtime sits in one held shot`],
++    [stillness, 0.15, "visuals are stills under a Ken Burns move, not moving footage"],
++    [captionReliance, 0.1, "captions are carrying a video with almost no visual change"],
++  ];
++  const score = clamp01(
++    weighted.reduce((total, [value, weight]) => total + clamp01(value) * weight, 0),
++  );
++  const reasons = weighted
++    .filter(([value]) => value > 0)
++    .sort((a, b) => b[0] * b[1] - a[0] * a[1])
++    .map(([, , reason]) => reason);
++  return { score: Math.round(score * 1000) / 1000, reasons };
++}
++
++export interface DeliveryPromise {
++  ok: boolean;
++  /** Average seconds the picture holds between cuts. */
++  secondsPerCut: number;
++  /** The ceiling this plan had to beat. */
++  allowedSecondsPerCut: number;
++  reason: string | null;
++}
++
++/**
++ * The motion contract: whatever the engine, the picture has to change often
++ * enough for the format. Stills get the stricter ceiling because their movement
++ * is synthetic.
++ */
++export function checkDeliveryPromise(input: PlanGateInput): DeliveryPromise {
++  const allowed = input.stillImagery ? MAX_SECONDS_PER_CUT_STILLS : MAX_SECONDS_PER_CUT_FOOTAGE;
++  const cuts = Math.max(1, input.scenes.length);
++  const totalSec = plannedDurationSec(input);
++  const secondsPerCut = Math.round((totalSec / cuts) * 100) / 100;
++  const ok = secondsPerCut <= allowed;
++  return {
++    ok,
++    secondsPerCut,
++    allowedSecondsPerCut: allowed,
++    reason: ok
++      ? null
++      : `the picture changes every ${secondsPerCut}s; this format needs a cut at least every ${allowed}s`,
++  };
++}
++
++export interface ScenePacing {
++  ok: boolean;
++  /** The most narrated sentences any single visual has to cover. */
++  worstCuesPerScene: number;
++  reason: string | null;
++}
++
++/**
++ * Narration-pacing verifier: no single visual should have to carry more than a
++ * handful of spoken sentences. Counts how many narration cue starts land inside
++ * each scene window.
++ */
++export function verifyScenePacing(input: PlanGateInput): ScenePacing {
++  const starts = input.cueStartsSec.filter((start) => Number.isFinite(start));
++  if (input.scenes.length === 0 || starts.length === 0) {
++    return { ok: true, worstCuesPerScene: 0, reason: null };
++  }
++  let worst = 0;
++  let elapsed = 0;
++  for (let i = 0; i < input.scenes.length; i++) {
++    const scene = input.scenes[i]!;
++    const start = elapsed;
++    elapsed += Math.max(scene.durationSec, 0);
++    const isLast = i === input.scenes.length - 1;
++    // Cue starts inside [start, end); the final scene keeps the tail.
++    const inScene = starts.filter((cue) => cue >= start && (isLast || cue < elapsed)).length;
++    if (inScene > worst) worst = inScene;
++  }
++  const ok = worst <= MAX_CUES_PER_SCENE;
++  return {
++    ok,
++    worstCuesPerScene: worst,
++    reason: ok ? null : `one visual has to cover ${worst} spoken sentences without changing`,
++  };
++}
++
++/**
++ * Repair pass: split any scene held longer than `maxHoldSec` into equal cuts,
++ * rotating through the other available clips so the split actually shows
++ * something new. Scene time is preserved exactly, so the composition still
++ * lines up with the narration track.
++ *
++ * A no-op — returning the same array — when there is nothing to split or only
++ * one clip to split between (cutting to the same picture is not a cut).
++ */
++export function resplitLongHolds(
++  scenes: SceneSegment[],
++  clipCount: number,
++  maxHoldSec: number = LONG_HOLD_SEC,
++): SceneSegment[] {
++  if (clipCount <= 1 || maxHoldSec <= 0) return scenes;
++  if (!scenes.some((scene) => scene.durationSec > maxHoldSec)) return scenes;
++  const out: SceneSegment[] = [];
++  for (const scene of scenes) {
++    if (scene.durationSec <= maxHoldSec) {
++      out.push({ ...scene });
++      continue;
++    }
++    const parts = Math.ceil(scene.durationSec / maxHoldSec);
++    const piece = Math.round((scene.durationSec / parts) * 1000) / 1000;
++    for (let p = 0; p < parts; p++) {
++      out.push({
++        // Rotate forward from this scene's own clip so the first piece keeps
++        // the ranked pick and later pieces bring in something else.
++        clipIndex: (scene.clipIndex + p) % clipCount,
++        // The last piece absorbs the rounding remainder, so the summed scene
++        // time still equals what the narration expects.
++        durationSec:
++          p === parts - 1
++            ? Math.round((scene.durationSec - piece * (parts - 1)) * 1000) / 1000
++            : piece,
++      });
++    }
++  }
++  return out;
++}
++
++export interface PlanGateResult {
++  /** The scene layout to render — repaired when a repair was possible. */
++  scenes: SceneSegment[];
++  /** True when the gate changed the layout. */
++  revised: boolean;
++  risk: number;
++  /** Everything the gate noticed, for the job log. */
++  warnings: string[];
++  /** User-facing failure message when the plan cannot be saved; else null. */
++  blocked: string | null;
++}
++
++/**
++ * Run the gate over a planned scene layout. Repairs first, scores what is left,
++ * and only refuses a plan that recutting cannot rescue.
++ */
++export function gateRenderPlan(input: PlanGateInput): PlanGateResult {
++  const original = input.scenes;
++  // Score the plan the composer will actually render: it diversifies adjacent
++  // repeats itself, so scoring the raw layout would flag a fixed problem.
++  let scenes = diversifySceneClips(original, input.clipCount);
++  const repaired = resplitLongHolds(scenes, input.clipCount);
++  if (repaired !== scenes) {
++    scenes = diversifySceneClips(repaired, input.clipCount);
++  }
++
++  const gated: PlanGateInput = { ...input, scenes };
++  const risk = scoreSlideshowRisk(gated);
++  const promise = checkDeliveryPromise(gated);
++  const pacing = verifyScenePacing(gated);
++
++  const warnings: string[] = [];
++  if (!promise.ok && promise.reason) warnings.push(promise.reason);
++  if (!pacing.ok && pacing.reason) warnings.push(pacing.reason);
++  if (risk.score >= 0.5) {
++    warnings.push(`slideshow risk ${risk.score}: ${risk.reasons.slice(0, 3).join("; ")}`);
++  }
++
++  const blocked =
++    risk.score >= BLOCK_RISK
++      ? "This video came out as one repeated still held over the whole narration, which is not worth publishing. You were not charged — try a longer topic, more paragraphs, or stock footage."
++      : null;
++
++  return {
++    scenes,
++    revised: scenes.length !== original.length || scenes.some((s, i) => s.clipIndex !== original[i]?.clipIndex),
++    risk: risk.score,
++    warnings,
++    blocked,
++  };
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+index f994fd5..7d9178c 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+@@ -12,6 +12,7 @@ import {
+   type StockClip,
+ } from "./stockSources";
+ import { composeTopicVideo, sceneDurations } from "./compose";
++import { gateRenderPlan } from "../planGate";
+ import {
+   CHARACTER_SCENES_PER_PARAGRAPH,
+   groupCuesIntoScenes,
+@@ -309,6 +310,40 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+   }
+   checkDeadline(startedAt, deadlineMs);
+ 
++  // 3b) Pre-render plan gate: score the cut rhythm while it is still cheap to
++  // change, repair held shots, and refuse a plan recutting cannot save.
++  const plannedScenes =
++    sceneMap && sceneMap.length > 0
++      ? sceneMap
++      : sceneDurations(narration.cues, narration.totalDurationSec).map((durationSec, i) => ({
++          clipIndex: i % clips.length,
++          durationSec,
++        }));
++  const gate = gateRenderPlan({
++    scenes: plannedScenes,
++    clipCount: clips.length,
++    // AI b-roll animates generated stills; stock and character clips move.
++    stillImagery: aiMode,
++    cueStartsSec: narration.cues.map((cue) => cue.startSec),
++    totalDurationSec: narration.totalDurationSec,
++    subtitles: params.subtitles,
++  });
++  if (gate.blocked) {
++    throw new VideoGenProviderError(gate.blocked);
++  }
++  if (gate.warnings.length > 0) {
++    logger.warn(
++      {
++        topic,
++        visualsSource: params.visualsSource ?? "stock",
++        risk: gate.risk,
++        revised: gate.revised,
++        warnings: gate.warnings,
++      },
++      "pre-render plan gate flagged the scene layout",
++    );
++  }
++
+   // 4) Compose.
+   params.onStage?.("Composing the video");
+   const buffer = await composeTopicVideo({
+@@ -322,7 +357,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+     accentColor: params.accentColor ?? null,
+     watermark: params.watermark ?? null,
+     music: params.music ?? null,
+-    sceneMap,
++    sceneMap: gate.scenes,
+   });
+   return { buffer, provider, model, durationSec: narration.totalDurationSec };
+ }
+-- 
+2.43.0
+

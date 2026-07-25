@@ -42,4 +42,5 @@ export interface FeatureFlags {
   viralToolkit: boolean;
   brandVideo: boolean;
   referenceStyles: boolean;
+  planGate: boolean;
 }

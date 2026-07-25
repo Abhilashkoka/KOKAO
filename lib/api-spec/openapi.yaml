@@ -12749,6 +12749,7 @@ components:
           viralToolkit,
           brandVideo,
           referenceStyles,
+          planGate,
         ]
       properties:
         aiStudio:
@@ -12814,6 +12815,8 @@ components:
         brandVideo:
           type: boolean
         referenceStyles:
+          type: boolean
+        planGate:
           type: boolean
     AiSpendSettingsView:
       type: object

@@ -192,6 +192,12 @@ export const FEATURES = [
       "Brand kits steering topic videos: brand voice in the script, brand colour on captions, and the brand logo watermarked on every frame. When off, the Brand kit picker is hidden and all videos render unbranded.",
   },
   {
+    id: "planGate",
+    label: "Pre-render Plan Gate",
+    description:
+      "Scores a topic video's cut plan before the render: repairs held shots, warns on slow cut rates, and refuses (with refund) plans that would come out as one repeated still. When off, plans render exactly as submitted.",
+  },
+  {
     id: "referenceStyles",
     label: "Reference Styles",
     description:

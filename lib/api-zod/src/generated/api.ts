@@ -100,7 +100,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "composer": zod.boolean(),
   "viralToolkit": zod.boolean(),
   "brandVideo": zod.boolean(),
-  "referenceStyles": zod.boolean()
+  "referenceStyles": zod.boolean(),
+  "planGate": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 

@@ -40,6 +40,7 @@ const ALL_ON: FeatureFlags = {
   viralToolkit: true,
   brandVideo: true,
   referenceStyles: true,
+  planGate: true,
 };
 
 /**

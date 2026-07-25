@@ -12,6 +12,8 @@ import {
   type StockClip,
 } from "./stockSources";
 import { composeTopicVideo, sceneDurations } from "./compose";
+import { gateRenderPlan } from "../planGate";
+import { isFeatureEnabled } from "../../featureFlags";
 import {
   CHARACTER_SCENES_PER_PARAGRAPH,
   groupCuesIntoScenes,
@@ -309,6 +311,45 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
   }
   checkDeadline(startedAt, deadlineMs);
 
+  // 3b) Pre-render plan gate: score the cut rhythm while it is still cheap to
+  // change, repair held shots, and refuse a plan recutting cannot save.
+  const plannedScenes =
+    sceneMap && sceneMap.length > 0
+      ? sceneMap
+      : sceneDurations(narration.cues, narration.totalDurationSec).map((durationSec, i) => ({
+          clipIndex: i % clips.length,
+          durationSec,
+        }));
+  // Gated by the Plan Gate kill switch (fail-open): when off, plans render
+  // exactly as they did before the gate existed — no repair, no refusal.
+  const planGateEnabled = await isFeatureEnabled("planGate").catch(() => true);
+  const gate = planGateEnabled
+    ? gateRenderPlan({
+        scenes: plannedScenes,
+        clipCount: clips.length,
+        // AI b-roll animates generated stills; stock and character clips move.
+        stillImagery: aiMode,
+        cueStartsSec: narration.cues.map((cue) => cue.startSec),
+        totalDurationSec: narration.totalDurationSec,
+        subtitles: params.subtitles,
+      })
+    : null;
+  if (gate?.blocked) {
+    throw new VideoGenProviderError(gate.blocked);
+  }
+  if (gate && gate.warnings.length > 0) {
+    logger.warn(
+      {
+        topic,
+        visualsSource: params.visualsSource ?? "stock",
+        risk: gate.risk,
+        revised: gate.revised,
+        warnings: gate.warnings,
+      },
+      "pre-render plan gate flagged the scene layout",
+    );
+  }
+
   // 4) Compose.
   params.onStage?.("Composing the video");
   const buffer = await composeTopicVideo({
@@ -322,7 +363,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     accentColor: params.accentColor ?? null,
     watermark: params.watermark ?? null,
     music: params.music ?? null,
-    sceneMap,
+    sceneMap: gate ? gate.scenes : (sceneMap ?? null),
   });
   return { buffer, provider, model, durationSec: narration.totalDurationSec };
 }
