@@ -21,13 +21,9 @@ export function videoJobUnits(engine: string, options: VideoJobOptions | null): 
     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
     units = 2 * paragraphs;
   }
-  // An AI-composed music bed is its own real generation: +1 unit. Only
-  // charged when no uploaded track takes precedence.
-  if (
-    (engine === "topic_to_video" || engine === "slideshow") &&
-    !options?.musicPath &&
-    options?.musicPrompt?.trim()
-  ) {
+  // An AI-composed music bed is its own real generation: +1 unit, on any
+  // engine. Only charged when no uploaded track takes precedence.
+  if (!options?.musicPath && options?.musicPrompt?.trim()) {
     units += 1;
   }
   return units;

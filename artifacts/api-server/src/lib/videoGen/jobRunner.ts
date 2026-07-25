@@ -6,7 +6,7 @@ import { refundCredits } from "../credits";
 import { logger } from "../logger";
 import { generateVideo, VideoGenNotConfiguredError, VideoGenProviderError } from "./index";
 import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
-import { normalizeVideo } from "./postprocess";
+import { normalizeVideo, mixMusicIntoVideo } from "./postprocess";
 import { generateMusicBed } from "./musicGen";
 import { verifyRenderedVideo, type VideoQaExpectations } from "./qaGate";
 import {
@@ -148,6 +148,11 @@ async function produceVideo(
   const aspectRatio = options.aspectRatio ?? "9:16";
 
   if (job.engine === "text_to_video") {
+    // Optional music bed (upload / library / AI compose), mixed under the
+    // clip after rendering. Resolved up front so a missing uploaded track
+    // fails before any provider spend.
+    const music = await resolveMusic(job, options, options.durationSec ?? 5, onStage);
+    const withMusic = async (buf: Buffer) => (music ? mixMusicIntoVideo(buf, music) : buf);
     // With a character picked, the clip is identity-anchored: keyframe edit
     // of the locked outfit's reference, then image-to-video.
     if (options.characterId) {
@@ -163,7 +168,7 @@ async function produceVideo(
       return {
         // Providers routinely ignore the requested aspect/resolution;
         // normalize (fail-soft) so the delivered file matches the request.
-        buffer: await normalizeVideo(result.buffer, aspectRatio),
+        buffer: await withMusic(await normalizeVideo(result.buffer, aspectRatio)),
         provider: result.provider,
         model: result.model,
         qa: { minDurationSec: 0.5, label: "character clip" },
@@ -177,7 +182,7 @@ async function produceVideo(
       durationSec: options.durationSec ?? 5,
     });
     return {
-      buffer: await normalizeVideo(result.buffer, aspectRatio),
+      buffer: await withMusic(await normalizeVideo(result.buffer, aspectRatio)),
       provider: result.provider,
       model: result.model,
       qa: { minDurationSec: 0.5, label: "text-to-video clip" },
@@ -187,6 +192,7 @@ async function produceVideo(
   if (job.engine === "image_to_video") {
     const sourcePath = job.sourceImagePaths?.[0];
     if (!sourcePath) throw new VideoJobInputError("No source image provided.");
+    const music = await resolveMusic(job, options, options.durationSec ?? 5, onStage);
     const image = await loadSourceImage(sourcePath, job.tenantId);
     onStage("Animating your image");
     const result = await generateVideo({
@@ -197,7 +203,9 @@ async function produceVideo(
       image,
     });
     return {
-      buffer: await normalizeVideo(result.buffer, aspectRatio),
+      buffer: music
+        ? await mixMusicIntoVideo(await normalizeVideo(result.buffer, aspectRatio), music)
+        : await normalizeVideo(result.buffer, aspectRatio),
       provider: result.provider,
       model: result.model,
       qa: { minDurationSec: 0.5, label: "image-to-video clip" },

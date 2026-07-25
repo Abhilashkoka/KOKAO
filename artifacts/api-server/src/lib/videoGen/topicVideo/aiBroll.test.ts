@@ -48,7 +48,15 @@ describe("videoJobUnits for AI b-roll", () => {
         musicPrompt: "epic",
       }),
     ).toBe(5);
-    expect(videoJobUnits("text_to_video", { ...base, musicPrompt: "lofi" })).toBe(1);
+    expect(videoJobUnits("text_to_video", { ...base, musicPrompt: "lofi" })).toBe(2);
+    expect(videoJobUnits("image_to_video", { ...base, musicPrompt: "lofi" })).toBe(2);
+    expect(
+      videoJobUnits("image_to_video", {
+        ...base,
+        musicPrompt: "lofi",
+        musicPath: "/objects/1/u/t.mp3",
+      }),
+    ).toBe(1);
   });
 });
 

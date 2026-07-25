@@ -205,6 +205,52 @@ describe("Video Studio", () => {
     });
   });
 
+  it("offers a music toggle on Text to Video that gates the music payload", async () => {
+    renderPage();
+    const user = userEvent.setup();
+    // Music picker is hidden until the toggle is switched on.
+    expect(screen.queryByTestId("button-ai-music")).toBeNull();
+    await user.click(screen.getByTestId("switch-clip-music"));
+    await user.click(screen.getByTestId("button-ai-music"));
+    fireEvent.change(screen.getByTestId("input-ai-music"), {
+      target: { value: "soft ambient pads" },
+    });
+    await user.click(screen.getByTestId("button-set-ai-music"));
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "A calm ocean at dusk" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-video"));
+    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+    expect(mockState.lastGenerateVars.data).toMatchObject({
+      engine: "text_to_video",
+      musicPath: null,
+      musicPrompt: "soft ambient pads",
+    });
+  });
+
+  it("drops the music payload when the clip music toggle is turned back off", async () => {
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("switch-clip-music"));
+    await user.click(screen.getByTestId("button-ai-music"));
+    fireEvent.change(screen.getByTestId("input-ai-music"), {
+      target: { value: "soft ambient pads" },
+    });
+    await user.click(screen.getByTestId("button-set-ai-music"));
+    await user.click(screen.getByTestId("switch-clip-music"));
+    expect(screen.queryByTestId("chip-ai-music")).toBeNull();
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "A calm ocean at dusk" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-video"));
+    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+    expect(mockState.lastGenerateVars.data).toMatchObject({
+      engine: "text_to_video",
+      musicPath: null,
+      musicPrompt: null,
+    });
+  });
+
   it("hides the caption style picker when subtitles are off", async () => {
     renderPage();
     const user = userEvent.setup();

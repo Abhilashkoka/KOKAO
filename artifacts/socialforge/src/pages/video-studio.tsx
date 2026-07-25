@@ -178,6 +178,7 @@ export function VideoStudioPage() {
   const [aiMusicDraft, setAiMusicDraft] = useState("");
   const [aiMusicOpen, setAiMusicOpen] = useState(false);
   const [musicLibraryOpen, setMusicLibraryOpen] = useState(false);
+  const [clipMusic, setClipMusic] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
 
@@ -365,16 +366,8 @@ export function VideoStudioPage() {
           durationSec,
           slideDurationSec,
           overlayText: engine === "slideshow" && overlayText.trim() ? overlayText.trim() : null,
-          musicPath:
-            engine === "slideshow" || engine === "topic_to_video"
-              ? (music?.objectPath ?? null)
-              : null,
-          musicPrompt:
-            (engine === "slideshow" || engine === "topic_to_video") &&
-            !music &&
-            musicPrompt.trim()
-              ? musicPrompt.trim()
-              : null,
+          musicPath: musicEnabled ? (music?.objectPath ?? null) : null,
+          musicPrompt: musicEnabled && !music && musicPrompt.trim() ? musicPrompt.trim() : null,
           voice,
           stockSource,
           subtitles,
@@ -484,6 +477,101 @@ export function VideoStudioPage() {
 
   const needsPhotos = engine === "image_to_video" || engine === "slideshow";
   const meta = ENGINE_META[engine];
+  const musicEnabled =
+    engine === "slideshow" || engine === "topic_to_video" || clipMusic;
+
+  const musicPicker = (
+    <>
+      {music ? (
+        <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
+          <Music className="h-4 w-4 text-primary shrink-0" />
+          <span className="truncate">{music.name}</span>
+          <button type="button" aria-label="Remove music" onClick={() => setMusic(null)} className="ml-auto">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ) : musicPrompt ? (
+        <div
+          className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2"
+          data-testid="chip-ai-music"
+        >
+          <Sparkles className="h-4 w-4 text-primary shrink-0" />
+          <span className="truncate">AI: {musicPrompt}</span>
+          <Badge variant="secondary" className="shrink-0">+1 unit</Badge>
+          <button
+            type="button"
+            aria-label="Remove AI music"
+            onClick={() => setMusicPrompt("")}
+            className="ml-auto"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ) : aiMusicOpen ? (
+        <div className="flex gap-2">
+          <Input
+            autoFocus
+            placeholder="lofi chill beat, warm and mellow"
+            maxLength={200}
+            value={aiMusicDraft}
+            onChange={(e) => setAiMusicDraft(e.target.value)}
+            data-testid="input-ai-music"
+          />
+          <Button
+            type="button"
+            size="sm"
+            disabled={!aiMusicDraft.trim()}
+            onClick={() => {
+              setMusicPrompt(aiMusicDraft.trim());
+              setAiMusicOpen(false);
+              setAiMusicDraft("");
+            }}
+            data-testid="button-set-ai-music"
+          >
+            Set
+          </Button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={uploading}
+            onClick={() => musicInputRef.current?.click()}
+            data-testid="button-upload-music"
+          >
+            <Upload className="h-4 w-4 mr-1.5" /> Upload
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setMusicLibraryOpen(true)}
+            data-testid="button-music-library"
+          >
+            <Library className="h-4 w-4 mr-1.5" /> Library
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setAiMusicOpen(true)}
+            data-testid="button-ai-music"
+          >
+            <Sparkles className="h-4 w-4 mr-1.5" /> AI compose
+          </Button>
+        </div>
+      )}
+      <input
+        ref={musicInputRef}
+        type="file"
+        accept={MUSIC_TYPES.join(",")}
+        className="hidden"
+        onChange={(e) => void handleMusicFile(e.target.files)}
+      />
+    </>
+  );
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -843,95 +931,34 @@ export function VideoStudioPage() {
               )}
               <div className="space-y-2">
                 <Label>Background music (optional)</Label>
-                {music ? (
-                  <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
-                    <Music className="h-4 w-4 text-primary shrink-0" />
-                    <span className="truncate">{music.name}</span>
-                    <button type="button" aria-label="Remove music" onClick={() => setMusic(null)} className="ml-auto">
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                ) : musicPrompt ? (
-                  <div
-                    className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2"
-                    data-testid="chip-ai-music"
-                  >
-                    <Sparkles className="h-4 w-4 text-primary shrink-0" />
-                    <span className="truncate">AI: {musicPrompt}</span>
-                    <Badge variant="secondary" className="shrink-0">+1 unit</Badge>
-                    <button
-                      type="button"
-                      aria-label="Remove AI music"
-                      onClick={() => setMusicPrompt("")}
-                      className="ml-auto"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                ) : aiMusicOpen ? (
-                  <div className="flex gap-2">
-                    <Input
-                      autoFocus
-                      placeholder="lofi chill beat, warm and mellow"
-                      maxLength={200}
-                      value={aiMusicDraft}
-                      onChange={(e) => setAiMusicDraft(e.target.value)}
-                      data-testid="input-ai-music"
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={!aiMusicDraft.trim()}
-                      onClick={() => {
-                        setMusicPrompt(aiMusicDraft.trim());
-                        setAiMusicOpen(false);
-                        setAiMusicDraft("");
-                      }}
-                      data-testid="button-set-ai-music"
-                    >
-                      Set
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={uploading}
-                      onClick={() => musicInputRef.current?.click()}
-                      data-testid="button-upload-music"
-                    >
-                      <Upload className="h-4 w-4 mr-1.5" /> Upload
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setMusicLibraryOpen(true)}
-                      data-testid="button-music-library"
-                    >
-                      <Library className="h-4 w-4 mr-1.5" /> Library
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setAiMusicOpen(true)}
-                      data-testid="button-ai-music"
-                    >
-                      <Sparkles className="h-4 w-4 mr-1.5" /> AI compose
-                    </Button>
-                  </div>
-                )}
-                <input
-                  ref={musicInputRef}
-                  type="file"
-                  accept={MUSIC_TYPES.join(",")}
-                  className="hidden"
-                  onChange={(e) => void handleMusicFile(e.target.files)}
-                />
+                {musicPicker}
               </div>
+            </div>
+          )}
+
+          {(engine === "text_to_video" || engine === "image_to_video") && (
+            <div className="space-y-2">
+              <Label htmlFor="clip-music">Background music</Label>
+              <div className="flex items-center gap-3 border border-border rounded-md px-3 py-2">
+                <Switch
+                  id="clip-music"
+                  checked={clipMusic}
+                  onCheckedChange={(on) => {
+                    setClipMusic(on);
+                    if (!on) {
+                      setMusic(null);
+                      setMusicPrompt("");
+                      setAiMusicOpen(false);
+                      setAiMusicDraft("");
+                    }
+                  }}
+                  data-testid="switch-clip-music"
+                />
+                <span className="text-sm text-muted-foreground">
+                  Add a music bed to the clip
+                </span>
+              </div>
+              {clipMusic && musicPicker}
             </div>
           )}
 
