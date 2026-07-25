@@ -17,6 +17,7 @@ import {
   useDeleteCharacterOutfit,
   useSearchMusicLibrary,
   useImportLibraryMusic,
+  useGenerateHooks,
   getSearchMusicLibraryQueryKey,
   getGoogleDriveAuthUrl,
   getListVideoJobsQueryKey,
@@ -29,6 +30,7 @@ import {
   type GoogleDriveFile,
   type Character,
   type MusicTrack,
+  type HookIdea,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -82,6 +84,8 @@ import {
 } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { SavedVisualPickerDialog } from "@/components/saved-visuals";
+import { VIDEO_TOPIC_TEMPLATES } from "@/lib/viral-templates";
+import { useFeatureFlags } from "@/lib/features";
 
 type Engine = "text_to_video" | "image_to_video" | "slideshow" | "topic_to_video";
 type Aspect = "16:9" | "9:16" | "1:1";
@@ -179,6 +183,8 @@ export function VideoStudioPage() {
   const [aiMusicOpen, setAiMusicOpen] = useState(false);
   const [musicLibraryOpen, setMusicLibraryOpen] = useState(false);
   const [clipMusic, setClipMusic] = useState(false);
+  const [hooksOpen, setHooksOpen] = useState(false);
+  const [hookIdeas, setHookIdeas] = useState<HookIdea[]>([]);
   const [uploading, setUploading] = useState(false);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
 
@@ -194,8 +200,10 @@ export function VideoStudioPage() {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const musicInputRef = useRef<HTMLInputElement>(null);
 
+  const { flags } = useFeatureFlags();
   const requestUploadUrl = useRequestUploadUrl();
   const generateVideo = useGenerateVideo();
+  const generateHooks = useGenerateHooks();
   const saveToLibrary = useSaveVideoToLibrary();
   const { data: jobs } = useListVideoJobs({
     query: { queryKey: getListVideoJobsQueryKey() },
@@ -630,6 +638,59 @@ export function VideoStudioPage() {
                 onChange={(e) => setPrompt(e.target.value)}
                 rows={3}
               />
+              {engine === "topic_to_video" && flags.viralToolkit && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select
+                    value=""
+                    onValueChange={(id) => {
+                      const template = VIDEO_TOPIC_TEMPLATES.find((t) => t.id === id);
+                      if (template) setPrompt(template.pattern);
+                    }}
+                  >
+                    <SelectTrigger className="w-52" data-testid="select-topic-template">
+                      <SelectValue placeholder="Start from a template" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {VIDEO_TOPIC_TEMPLATES.map((template) => (
+                        <SelectItem key={template.id} value={template.id}>
+                          {template.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={prompt.trim().length < 4 || generateHooks.isPending}
+                    onClick={() =>
+                      generateHooks.mutate(
+                        { data: { topic: prompt.trim().slice(0, 300) } },
+                        {
+                          onSuccess: (res) => {
+                            setHookIdeas(res.hooks);
+                            setHooksOpen(true);
+                          },
+                          onError: () =>
+                            toast({
+                              title: "Hook writing failed",
+                              description: "Please try again in a moment.",
+                              variant: "destructive",
+                            }),
+                        },
+                      )
+                    }
+                    data-testid="button-hook-ideas"
+                  >
+                    {generateHooks.isPending ? (
+                      <RippleSpinner className="mr-1.5 h-4 w-4" />
+                    ) : (
+                      <Lightbulb className="h-4 w-4 mr-1.5" />
+                    )}
+                    Hook ideas
+                  </Button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1213,6 +1274,37 @@ export function VideoStudioPage() {
           setMusicLibraryOpen(false);
         }}
       />
+
+      <Dialog open={hooksOpen} onOpenChange={setHooksOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Hook ideas</DialogTitle>
+            <DialogDescription>
+              Five ways to open the video — pick one and the script will start with it.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {hookIdeas.map((hook, i) => (
+              <button
+                key={i}
+                type="button"
+                className="w-full text-left border border-border rounded-md px-3 py-2 hover:border-primary transition-colors"
+                onClick={() => {
+                  const base = prompt.replace(/ — open with this hook:.*$/s, "").trim();
+                  setPrompt(`${base} — open with this hook: "${hook.text}"`);
+                  setHooksOpen(false);
+                }}
+                data-testid={`button-use-hook-${i}`}
+              >
+                <Badge variant="secondary" className="mb-1 lowercase">
+                  {hook.style}
+                </Badge>
+                <p className="text-sm">{hook.text}</p>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

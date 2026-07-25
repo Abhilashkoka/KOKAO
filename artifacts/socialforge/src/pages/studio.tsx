@@ -8,6 +8,7 @@ import {
   useGenerateImage,
   useGenerateCampaign,
   useGenerateCarousel,
+  useGeneratePlatformPack,
   useSuggestTopics,
   useSummarizeUrl,
   useResearchTopic,
@@ -39,6 +40,7 @@ import {
   type CaptionResult as CaptionResultType,
   type CampaignResult as CampaignResultType,
   type ImageRequest,
+  type PlatformPackItem,
 } from "@workspace/api-client-react";
 import { streamCaptionRequest } from "@/lib/captionStream";
 import { streamCampaignRequest } from "@/lib/campaignStream";
@@ -78,6 +80,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import {
   TWEET_MAX_LENGTH,
   isOverTweetLimit,
@@ -316,6 +326,8 @@ function ImageStudio() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [captionResult, setCaptionResult] = useState<{ caption: string; hashtags: string[]; title?: string } | null>(null);
+  const [platformPack, setPlatformPack] = useState<{ title?: string; items: PlatformPackItem[] } | null>(null);
+  const [packOpen, setPackOpen] = useState(false);
   const [briefQuestions, setBriefQuestions] = useState<string[] | null>(null);
   const [campaignTitle, setCampaignTitle] = useState<string | null>(null);
   const [captionPlatform, setCaptionPlatform] = useState<string | null>(null);
@@ -494,6 +506,7 @@ function ImageStudio() {
   const generateImage = useGenerateImage();
   const generateCampaign = useGenerateCampaign();
   const generateCarousel = useGenerateCarousel();
+  const generatePlatformPack = useGeneratePlatformPack();
   const suggestTopics = useSuggestTopics();
   const summarizeUrl = useSummarizeUrl();
   const researchTopic = useResearchTopic();
@@ -884,6 +897,20 @@ function ImageStudio() {
     } else {
       toast({ title: "Error", description: error?.message || "Failed to generate content.", variant: "destructive" });
     }
+  };
+
+  const onPlatformPack = (values: z.infer<typeof schema>) => {
+    generatePlatformPack.mutate(
+      { data: { brief: values.prompt, brandKitId: values.brandKitId || undefined } },
+      {
+        onSuccess: (res) => {
+          setPlatformPack(res);
+          setPackOpen(true);
+          refreshQuota();
+        },
+        onError: handleError,
+      },
+    );
   };
 
   const onSuggestTopics = () => {
@@ -2219,6 +2246,23 @@ function ImageStudio() {
                         Image
                       </Button>
                     </div>
+                    {flags.viralToolkit && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={form.handleSubmit(onPlatformPack)}
+                        disabled={isPending || generatePlatformPack.isPending}
+                        className="w-full"
+                        data-testid="button-platform-pack"
+                      >
+                        {generatePlatformPack.isPending ? (
+                          <RippleSpinner className="mr-2 h-4 w-4" />
+                        ) : (
+                          <Layers className="mr-2 h-4 w-4" />
+                        )}
+                        Platform pack — one brief, every platform
+                      </Button>
+                    )}
                     {imagesExhausted && (
                       <p className="text-xs text-destructive" data-testid="image-quota-hint">
                         {imageLimitHint}
@@ -2229,6 +2273,54 @@ function ImageStudio() {
               </Form>
             </CardContent>
           </Card>
+
+          <Dialog open={packOpen} onOpenChange={setPackOpen}>
+            <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle data-testid="text-pack-title">
+                  {platformPack?.title || "Platform pack"}
+                </DialogTitle>
+                <DialogDescription>
+                  One brief, rewritten natively for each platform. Copy what you need.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                {platformPack?.items.map((item) => (
+                  <div
+                    key={item.platform}
+                    className="border border-border rounded-md p-3 space-y-2"
+                    data-testid={`pack-item-${item.platform}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="capitalize">{item.platform}</Badge>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="ml-auto"
+                        onClick={() => {
+                          const tags = item.hashtags.map((h) => `#${h}`).join(" ");
+                          void navigator.clipboard.writeText(
+                            tags ? `${item.caption}\n\n${tags}` : item.caption,
+                          );
+                          toast({ title: "Copied", description: `${item.platform} caption copied.` });
+                        }}
+                        data-testid={`button-copy-pack-${item.platform}`}
+                      >
+                        Copy
+                      </Button>
+                    </div>
+                    <p className="text-sm whitespace-pre-wrap">{item.caption}</p>
+                    {item.hashtags.length > 0 && (
+                      <p className="text-xs text-muted-foreground break-words">
+                        {item.hashtags.map((h) => `#${h}`).join(" ")}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
 
         <div className="lg:col-span-7 flex flex-col gap-6 lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">

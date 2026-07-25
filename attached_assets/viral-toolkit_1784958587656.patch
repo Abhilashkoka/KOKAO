@@ -1,0 +1,1548 @@
+From cd1ae91a340b8ffd95249ee86f8d4351b6d93db1 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 24 Jul 2026 20:06:08 +0000
+Subject: [PATCH] Viral toolkit: hook writer, platform pack, topic templates
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Three compilers that turn one idea into platform-ready marketing content:
+
+1. Hook writer (POST /ai/generate-hooks, free like suggest-topics): 5
+   first-three-seconds openers in distinct proven patterns — question,
+   bold claim, contrarian, curiosity gap, stat, story — brand-voice-aware.
+   In the video studio, "Hook ideas" next to the topic input; picking one
+   steers the script to open with it.
+
+2. Platform pack (POST /ai/platform-pack, funded as ONE caption:
+   quota → credit → 402, refund on failure): one brief in, a natively
+   rewritten caption + hashtags + CTA out for each platform
+   (instagram/facebook/linkedin/x/threads/youtube), each respecting its
+   platform's norms (X's 280 chars all-in, LinkedIn's max-3-hashtags,
+   Threads' 500-char casual register...). Reuses the existing RICE prompt
+   builder, humanization constraints, brand-kit rules, and taste memory.
+   One-click copy per platform in the caption studio.
+
+3. Topic templates: 8 proven short-form formats (listicle, myth-busting,
+   before/after, insider secrets, ...) pre-fill the topic input from a
+   "Start from a template" picker.
+
+Verified: 5 new route tests green (hook parsing, platform filtering +
+usage row, 402 on exhausted funding, credit refund on model failure),
+14 studio page tests (hook apply flow), root typecheck, spec lint,
+codegen committed. No schema change, no new dependencies.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EJdoZ8bk1pWTrmbMVQJZ7G
+---
+ artifacts/api-server/src/routes/ai.ts         | 239 ++++++++++++++++++
+ .../src/routes/ai.viralToolkit.test.ts        | 165 ++++++++++++
+ .../socialforge/src/lib/viral-templates.ts    |  48 ++++
+ artifacts/socialforge/src/pages/studio.tsx    |  90 +++++++
+ .../src/pages/video-studio.test.tsx           |  26 ++
+ .../socialforge/src/pages/video-studio.tsx    |  90 +++++++
+ .../src/generated/api.schemas.ts              |  64 +++++
+ lib/api-client-react/src/generated/api.ts     | 146 +++++++++++
+ lib/api-spec/openapi.yaml                     | 136 ++++++++++
+ lib/api-zod/src/generated/api.ts              |  51 ++++
+ .../generated/types/generateHooksRequest.ts   |  17 ++
+ lib/api-zod/src/generated/types/hookIdea.ts   |  13 +
+ lib/api-zod/src/generated/types/hookIdeas.ts  |  12 +
+ lib/api-zod/src/generated/types/index.ts      |   7 +
+ .../src/generated/types/platformPack.ts       |  14 +
+ .../src/generated/types/platformPackItem.ts   |  16 ++
+ .../generated/types/platformPackRequest.ts    |  25 ++
+ .../types/platformPackRequestPlatformsItem.ts |  19 ++
+ 18 files changed, 1178 insertions(+)
+ create mode 100644 artifacts/api-server/src/routes/ai.viralToolkit.test.ts
+ create mode 100644 artifacts/socialforge/src/lib/viral-templates.ts
+ create mode 100644 lib/api-zod/src/generated/types/generateHooksRequest.ts
+ create mode 100644 lib/api-zod/src/generated/types/hookIdea.ts
+ create mode 100644 lib/api-zod/src/generated/types/hookIdeas.ts
+ create mode 100644 lib/api-zod/src/generated/types/platformPack.ts
+ create mode 100644 lib/api-zod/src/generated/types/platformPackItem.ts
+ create mode 100644 lib/api-zod/src/generated/types/platformPackRequest.ts
+ create mode 100644 lib/api-zod/src/generated/types/platformPackRequestPlatformsItem.ts
+
+diff --git a/artifacts/api-server/src/routes/ai.ts b/artifacts/api-server/src/routes/ai.ts
+index b0868c9..3bf2146 100644
+--- a/artifacts/api-server/src/routes/ai.ts
++++ b/artifacts/api-server/src/routes/ai.ts
+@@ -10,7 +10,9 @@ import {
+ } from "../lib/imageGen";
+ import {
+   GenerateCaptionBody,
++  GenerateHooksBody,
+   GenerateImageBody,
++  GeneratePlatformPackBody,
+   SuggestTopicsBody,
+   SummarizeUrlBody,
+   GenerateCampaignBody,
+@@ -771,6 +773,243 @@ router.post("/ai/suggest-topics", async (req: Request, res: Response) => {
+   }
+ });
+ 
++/** The six proven hook patterns the hook writer rotates through. */
++const HOOK_STYLES = [
++  { key: "question", hint: "A question the target viewer can't not answer in their head." },
++  { key: "bold-claim", hint: "A confident, specific claim that raises the stakes immediately." },
++  { key: "contrarian", hint: "Challenge the common advice everyone in this niche repeats." },
++  { key: "curiosity", hint: "Open a specific curiosity gap the viewer must stay to close." },
++  { key: "stat", hint: "Lead with one startling, concrete number or fact." },
++  { key: "story", hint: "Drop the viewer mid-story at the most tense moment." },
++] as const;
++
++/**
++ * POST /ai/generate-hooks — 5 first-three-seconds hook variants in distinct
++ * proven styles. Free helper (like suggest-topics): one small completion.
++ */
++router.post("/ai/generate-hooks", async (req: Request, res: Response) => {
++  const parsed = GenerateHooksBody.safeParse(req.body);
++  if (!parsed.success) {
++    res.status(400).json({ error: "Invalid input" });
++    return;
++  }
++  const tenant = await loadTenant(req.tenantId);
++  if (!tenant) {
++    res.status(401).json({ error: "Unauthorized" });
++    return;
++  }
++  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
++  if (!textGen) return;
++  const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
++
++  const styleList = HOOK_STYLES.map((s) => `${s.key}: ${s.hint}`).join("\n- ");
++  const systemPrompt = buildRicePrompt({
++    role: "You write the first three seconds of high-performing short-form social videos. Your hooks decide whether people stop scrolling.",
++    instruction: [
++      "Write exactly 5 opening hooks for the given topic, each using a DIFFERENT one of these patterns:",
++      styleList,
++      "Each hook is 1-2 short spoken sentences (max ~20 words) meant to be said out loud at the start of a video.",
++    ],
++    context: brand
++      ? [
++          `Brand voice: ${voiceHint(brand)}.`,
++          ...(brand.identity.audience.length > 0
++            ? [`Target audience: ${brand.identity.audience.slice(0, 3).join(", ")}.`]
++            : []),
++        ]
++      : [],
++    examples: [],
++    constraints: [...HUMAN_EXPERT_CONSTRAINTS],
++    outputFormat: [
++      'Respond ONLY with strict JSON: {"hooks": [{"style": string, "text": string}]} with exactly 5 entries, style being the pattern key used.',
++    ],
++  });
++
++  try {
++    const completion = await textGen.client.chat.completions.create({
++      model: textGen.model,
++      messages: [
++        { role: "system", content: systemPrompt },
++        { role: "user", content: `Topic: ${parsed.data.topic}` },
++      ],
++      max_completion_tokens: 2048,
++      response_format: { type: "json_object" },
++      ...usageAccountingParams(textGen.provider),
++    });
++    const raw = completion.choices[0]?.message?.content ?? "{}";
++    let hooks: { style: string; text: string }[] = [];
++    try {
++      const obj = JSON.parse(raw) as { hooks?: unknown };
++      if (Array.isArray(obj.hooks)) {
++        hooks = obj.hooks
++          .map((h) => ({
++            style: String((h as Record<string, unknown>)?.style ?? "hook").trim(),
++            text: String((h as Record<string, unknown>)?.text ?? "").trim(),
++          }))
++          .filter((h) => h.text)
++          .slice(0, 6);
++      }
++    } catch {
++      hooks = [];
++    }
++    res.json({ hooks });
++  } catch (error) {
++    req.log.error({ err: error }, "Hook generation failed");
++    res.status(500).json({ error: "Failed to write hooks" });
++  }
++});
++
++/** Per-platform norms baked into the platform-pack prompt. */
++const PLATFORM_NORMS: Record<string, string> = {
++  instagram:
++    "Instagram: strong first line (it truncates early), short paragraphs with line breaks, 5-8 niche hashtags, a save/share-worthy close.",
++  facebook:
++    "Facebook: conversational and story-first, 1-3 hashtags at most, questions perform well, no hashtag walls.",
++  linkedin:
++    "LinkedIn: professional but human, a hook line then whitespace-heavy short paragraphs, max 3 hashtags, no emoji spam, end with a discussion question.",
++  twitter:
++    "X/Twitter: the ENTIRE caption must fit 280 characters including hashtags; punchy, max 2 hashtags, no filler.",
++  threads:
++    "Threads: casual and conversational, max ~500 characters, 0-2 hashtags, reads like a text to a friend.",
++  youtube:
++    "YouTube (community/description): searchable first sentence, then context; 3-5 hashtags at the end.",
++};
++const PLATFORM_PACK_DEFAULT = ["instagram", "facebook", "linkedin", "twitter", "threads"];
++
++/**
++ * POST /ai/platform-pack — one brief in, a tailored caption per platform out.
++ * Funded exactly like one caption (quota first, then a caption credit): it
++ * replaces writing the same brief five times.
++ */
++router.post("/ai/platform-pack", async (req: Request, res: Response) => {
++  const parsed = GeneratePlatformPackBody.safeParse(req.body);
++  if (!parsed.success) {
++    res.status(400).json({ error: "Invalid input" });
++    return;
++  }
++  const tenant = await loadTenant(req.tenantId);
++  if (!tenant) {
++    res.status(401).json({ error: "Unauthorized" });
++    return;
++  }
++  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
++  if (!textGen) return;
++
++  const platforms = (
++    parsed.data.platforms && parsed.data.platforms.length > 0
++      ? [...new Set(parsed.data.platforms)]
++      : PLATFORM_PACK_DEFAULT
++  ).filter((p) => p in PLATFORM_NORMS);
++
++  const limits = await getPlanLimits(tenant.plan);
++  const usage = await getUsage(req.tenantId);
++  const funding = await reserveFunding(req.tenantId, limits.captions, usage.captions, "caption");
++  if (!funding) {
++    res.status(402).json({
++      error:
++        "Monthly caption quota reached and no caption credits left. Upgrade your plan or buy a credit pack.",
++    });
++    return;
++  }
++
++  const [brand, taste] = await Promise.all([
++    loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null),
++    buildTasteGuidance(req.tenantId),
++  ]);
++  const tone = parsed.data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
++  const context: string[] = [
++    `Tone/voice: ${tone}.`,
++    "Platform norms to follow exactly:",
++    ...platforms.map((p) => PLATFORM_NORMS[p]!),
++  ];
++  const constraints = [...HUMAN_EXPERT_CONSTRAINTS];
++  if (brand) {
++    context.push(`Brand name: ${brand.identity.brand_name}.`);
++    if (brand.voice.dos.length > 0)
++      constraints.push(`Voice do's: ${brand.voice.dos.slice(0, 5).join("; ")}.`);
++    if (brand.voice.donts.length > 0)
++      constraints.push(`Voice don'ts: ${brand.voice.donts.slice(0, 5).join("; ")}.`);
++    if (brand.brand_controls.restricted_terms.length > 0) {
++      constraints.push(
++        `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
++      );
++    }
++  }
++
++  const systemPrompt = buildRicePrompt({
++    role: "You are a cross-platform social copywriter: the SAME idea, natively rewritten for each platform — never copy-pasted between them.",
++    instruction: [
++      `Write one caption for EACH of these platforms from the user's brief: ${platforms.join(", ")}.`,
++      "Each caption must feel native to its platform (structure, length, tone) while carrying the same core idea and offer.",
++      "Each caption ends with a clear call-to-action appropriate to that platform; also return that CTA separately.",
++      "Also name the campaign idea in 3-8 words as `title`.",
++    ],
++    context,
++    examples: taste.captionLines,
++    constraints,
++    outputFormat: [
++      'Respond ONLY with strict JSON: {"title": string, "items": [{"platform": string, "caption": string, "hashtags": string[], "cta": string}]} — one item per requested platform, in the requested order.',
++      "Hashtags must not include the # symbol.",
++    ],
++  });
++
++  const startedAt = Date.now();
++  try {
++    const completion = await textGen.client.chat.completions.create({
++      model: textGen.model,
++      messages: [
++        { role: "system", content: systemPrompt },
++        { role: "user", content: parsed.data.brief },
++      ],
++      max_completion_tokens: 8192,
++      response_format: { type: "json_object" },
++      ...usageAccountingParams(textGen.provider),
++    });
++    const raw = completion.choices[0]?.message?.content ?? "{}";
++    let title = "";
++    let items: { platform: string; caption: string; hashtags: string[]; cta: string }[] = [];
++    try {
++      const obj = JSON.parse(raw) as { title?: unknown; items?: unknown };
++      title = typeof obj.title === "string" ? obj.title : "";
++      if (Array.isArray(obj.items)) {
++        items = obj.items
++          .map((entry) => {
++            const rec = (entry ?? {}) as Record<string, unknown>;
++            return {
++              platform: String(rec.platform ?? "").toLowerCase().trim(),
++              caption: typeof rec.caption === "string" ? rec.caption : "",
++              hashtags: Array.isArray(rec.hashtags)
++                ? rec.hashtags.map((h) => String(h).replace(/^#/, "")).filter(Boolean)
++                : [],
++              cta: typeof rec.cta === "string" ? rec.cta : "",
++            };
++          })
++          .filter((item) => item.caption && platforms.includes(item.platform));
++      }
++    } catch {
++      items = [];
++    }
++    if (items.length === 0) {
++      await releaseFunding(req, funding, "caption");
++      res.status(500).json({ error: "Failed to compile the platform pack" });
++      return;
++    }
++    await settleFunding(req, funding, "caption", {
++      requestBytes: Buffer.byteLength(systemPrompt + parsed.data.brief),
++      responseBytes: Buffer.byteLength(raw),
++      durationMs: Date.now() - startedAt,
++      model: textGen.model,
++      platform: "multi",
++      ...(await buildTextCostMeta(completion, textGen)),
++    });
++    res.json({ ...(title ? { title } : {}), items });
++  } catch (error) {
++    await releaseFunding(req, funding, "caption");
++    req.log.error({ err: error }, "Platform pack generation failed");
++    res.status(500).json({ error: "Failed to compile the platform pack" });
++  }
++});
++
+ router.post("/ai/summarize-url", async (req: Request, res: Response) => {
+   const parsed = SummarizeUrlBody.safeParse(req.body);
+   if (!parsed.success) {
+diff --git a/artifacts/api-server/src/routes/ai.viralToolkit.test.ts b/artifacts/api-server/src/routes/ai.viralToolkit.test.ts
+new file mode 100644
+index 0000000..37fa7e3
+--- /dev/null
++++ b/artifacts/api-server/src/routes/ai.viralToolkit.test.ts
+@@ -0,0 +1,165 @@
++/**
++ * Hook writer + platform pack: response parsing, platform filtering, and the
++ * caption-style funding contract (quota → credit → 402; refund on failure).
++ */
++import { describe, it, expect, afterAll, beforeEach, afterEach, vi } from "vitest";
++import express, { type Express } from "express";
++import request from "supertest";
++
++const planState = { captions: 5 };
++vi.mock("../lib/plans", async (importOriginal) => {
++  const actual = await importOriginal<typeof import("../lib/plans")>();
++  return {
++    ...actual,
++    getPlanLimits: vi.fn(async () => ({
++      captions: planState.captions,
++      images: 0,
++      videos: 0,
++      teamSeats: 0,
++    })),
++  };
++});
++
++const modelState: { reply: unknown; fail: boolean } = { reply: {}, fail: false };
++vi.mock("../lib/textGen", async (importOriginal) => {
++  const actual = await importOriginal<typeof import("../lib/textGen")>();
++  return {
++    ...actual,
++    getTextGenClient: vi.fn(async () => ({
++      provider: "builtin",
++      model: "test-model",
++      client: {
++        chat: {
++          completions: {
++            create: vi.fn(async () => {
++              if (modelState.fail) throw new Error("upstream exploded");
++              return {
++                choices: [{ message: { content: JSON.stringify(modelState.reply) } }],
++              };
++            }),
++          },
++        },
++      },
++    })),
++  };
++});
++
++import { db, pool, usageEventsTable, creditLedgerTable, creditBalancesTable } from "@workspace/db";
++import { eq } from "drizzle-orm";
++import aiRouter from "./ai";
++import { grantCredits, getCreditBalances } from "../lib/credits";
++import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
++
++let app: Express;
++let tenant: TestTenant;
++
++beforeEach(async () => {
++  tenant = await createTenant();
++  planState.captions = 5;
++  modelState.fail = false;
++  app = express();
++  app.use(express.json());
++  app.use((req, _res, next) => {
++    (req as unknown as { tenantId: number }).tenantId = tenant.tenantId;
++    (req as unknown as { log: unknown }).log = {
++      info: vi.fn(),
++      error: vi.fn(),
++      warn: vi.fn(),
++      debug: vi.fn(),
++    };
++    next();
++  });
++  app.use(aiRouter);
++});
++
++afterEach(async () => {
++  await db.delete(usageEventsTable).where(eq(usageEventsTable.tenantId, tenant.tenantId));
++  await db.delete(creditLedgerTable).where(eq(creditLedgerTable.tenantId, tenant.tenantId));
++  await db.delete(creditBalancesTable).where(eq(creditBalancesTable.tenantId, tenant.tenantId));
++  await deleteTenant(tenant.tenantId);
++});
++
++afterAll(async () => {
++  await pool.end();
++});
++
++describe("POST /ai/generate-hooks", () => {
++  it("returns the parsed hook variants", async () => {
++    modelState.reply = {
++      hooks: [
++        { style: "question", text: "Still doing chai the slow way?" },
++        { style: "stat", text: "83% of founders skip this one habit." },
++      ],
++    };
++    const res = await request(app)
++      .post("/ai/generate-hooks")
++      .send({ topic: "morning habits for founders" });
++    expect(res.status).toBe(200);
++    expect(res.body.hooks).toHaveLength(2);
++    expect(res.body.hooks[0]).toEqual({
++      style: "question",
++      text: "Still doing chai the slow way?",
++    });
++  });
++
++  it("rejects a too-short topic", async () => {
++    const res = await request(app).post("/ai/generate-hooks").send({ topic: "x" });
++    expect(res.status).toBe(400);
++  });
++});
++
++describe("POST /ai/platform-pack", () => {
++  const reply = {
++    title: "Slow Morning Chai",
++    items: [
++      { platform: "instagram", caption: "IG caption", hashtags: ["chai", "slowliving"], cta: "Save this." },
++      { platform: "twitter", caption: "X caption", hashtags: ["chai"], cta: "Repost if you agree." },
++      { platform: "myspace", caption: "should be filtered out", hashtags: [], cta: "" },
++    ],
++  };
++
++  it("returns captions only for requested platforms and records usage", async () => {
++    modelState.reply = reply;
++    const res = await request(app)
++      .post("/ai/platform-pack")
++      .send({ brief: "A cozy chai brand launching a slow-morning ritual kit", platforms: ["instagram", "twitter"] });
++    expect(res.status).toBe(200);
++    expect(res.body.title).toBe("Slow Morning Chai");
++    expect(res.body.items.map((i: { platform: string }) => i.platform)).toEqual([
++      "instagram",
++      "twitter",
++    ]);
++    const usage = await db
++      .select()
++      .from(usageEventsTable)
++      .where(eq(usageEventsTable.tenantId, tenant.tenantId));
++    expect(usage).toHaveLength(1);
++    expect(usage[0]!.kind).toBe("caption");
++  });
++
++  it("402s when quota and credits are both gone", async () => {
++    planState.captions = 0;
++    const res = await request(app)
++      .post("/ai/platform-pack")
++      .send({ brief: "A cozy chai brand launching a slow-morning ritual kit" });
++    expect(res.status).toBe(402);
++  });
++
++  it("refunds a reserved credit when the model fails", async () => {
++    planState.captions = 0;
++    await grantCredits({
++      tenantId: tenant.tenantId,
++      captionCredits: 1,
++      imageCredits: 0,
++      kind: "admin_grant",
++      note: "test grant",
++    });
++    modelState.fail = true;
++    const res = await request(app)
++      .post("/ai/platform-pack")
++      .send({ brief: "A cozy chai brand launching a slow-morning ritual kit" });
++    expect(res.status).toBe(500);
++    const balances = await getCreditBalances(tenant.tenantId);
++    expect(balances.captionCredits).toBe(1);
++  });
++});
+diff --git a/artifacts/socialforge/src/lib/viral-templates.ts b/artifacts/socialforge/src/lib/viral-templates.ts
+new file mode 100644
+index 0000000..e17ad23
+--- /dev/null
++++ b/artifacts/socialforge/src/lib/viral-templates.ts
+@@ -0,0 +1,48 @@
++/**
++ * Proven short-form content formats. Each pattern pre-fills the topic input;
++ * the ___ is where the user drops their subject.
++ */
++export interface ViralTemplate {
++  id: string;
++  label: string;
++  pattern: string;
++}
++
++export const VIDEO_TOPIC_TEMPLATES: ViralTemplate[] = [
++  {
++    id: "listicle",
++    label: "Listicle",
++    pattern: "5 mistakes people make with ___ (and what to do instead)",
++  },
++  {
++    id: "myth",
++    label: "Myth-busting",
++    pattern: "The biggest myth about ___ — and what actually works",
++  },
++  { id: "howto", label: "How-to", pattern: "How to ___ in under a week, step by step" },
++  {
++    id: "beforeafter",
++    label: "Before / after",
++    pattern: "What changed when we switched to ___ — the honest before and after",
++  },
++  {
++    id: "pov",
++    label: "Day in the life",
++    pattern: "A day in the life of ___ — the parts nobody shows",
++  },
++  {
++    id: "beginner",
++    label: "Beginner's guide",
++    pattern: "Everything a beginner needs to know about ___ in one minute",
++  },
++  {
++    id: "comparison",
++    label: "Comparison",
++    pattern: "___ vs ___ — which one is actually worth your money?",
++  },
++  {
++    id: "secrets",
++    label: "Insider secrets",
++    pattern: "3 things people in the ___ industry won't tell you",
++  },
++];
+diff --git a/artifacts/socialforge/src/pages/studio.tsx b/artifacts/socialforge/src/pages/studio.tsx
+index fffd8b8..19274c2 100644
+--- a/artifacts/socialforge/src/pages/studio.tsx
++++ b/artifacts/socialforge/src/pages/studio.tsx
+@@ -8,6 +8,7 @@ import {
+   useGenerateImage,
+   useGenerateCampaign,
+   useGenerateCarousel,
++  useGeneratePlatformPack,
+   useSuggestTopics,
+   useSummarizeUrl,
+   useResearchTopic,
+@@ -39,6 +40,7 @@ import {
+   type CaptionResult as CaptionResultType,
+   type CampaignResult as CampaignResultType,
+   type ImageRequest,
++  type PlatformPackItem,
+ } from "@workspace/api-client-react";
+ import { streamCaptionRequest } from "@/lib/captionStream";
+ import { streamCampaignRequest } from "@/lib/campaignStream";
+@@ -78,6 +80,14 @@ import {
+   AlertDialogHeader,
+   AlertDialogTitle,
+ } from "@/components/ui/alert-dialog";
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogHeader,
++  DialogTitle,
++} from "@/components/ui/dialog";
++import { Badge } from "@/components/ui/badge";
+ import {
+   TWEET_MAX_LENGTH,
+   isOverTweetLimit,
+@@ -316,6 +326,8 @@ function ImageStudio() {
+   const { toast } = useToast();
+   const queryClient = useQueryClient();
+   const [captionResult, setCaptionResult] = useState<{ caption: string; hashtags: string[]; title?: string } | null>(null);
++  const [platformPack, setPlatformPack] = useState<{ title?: string; items: PlatformPackItem[] } | null>(null);
++  const [packOpen, setPackOpen] = useState(false);
+   const [briefQuestions, setBriefQuestions] = useState<string[] | null>(null);
+   const [campaignTitle, setCampaignTitle] = useState<string | null>(null);
+   const [captionPlatform, setCaptionPlatform] = useState<string | null>(null);
+@@ -494,6 +506,7 @@ function ImageStudio() {
+   const generateImage = useGenerateImage();
+   const generateCampaign = useGenerateCampaign();
+   const generateCarousel = useGenerateCarousel();
++  const generatePlatformPack = useGeneratePlatformPack();
+   const suggestTopics = useSuggestTopics();
+   const summarizeUrl = useSummarizeUrl();
+   const researchTopic = useResearchTopic();
+@@ -886,6 +899,20 @@ function ImageStudio() {
+     }
+   };
+ 
++  const onPlatformPack = (values: z.infer<typeof schema>) => {
++    generatePlatformPack.mutate(
++      { data: { brief: values.prompt, brandKitId: values.brandKitId || undefined } },
++      {
++        onSuccess: (res) => {
++          setPlatformPack(res);
++          setPackOpen(true);
++          refreshQuota();
++        },
++        onError: handleError,
++      },
++    );
++  };
++
+   const onSuggestTopics = () => {
+     if (niche.trim().length < 2) {
+       toast({ title: "Enter a niche", description: "Tell us a topic area first.", variant: "destructive" });
+@@ -2166,6 +2193,21 @@ function ImageStudio() {
+                         Image
+                       </Button>
+                     </div>
++                    <Button
++                      type="button"
++                      variant="secondary"
++                      onClick={form.handleSubmit(onPlatformPack)}
++                      disabled={isPending || generatePlatformPack.isPending}
++                      className="w-full"
++                      data-testid="button-platform-pack"
++                    >
++                      {generatePlatformPack.isPending ? (
++                        <RippleSpinner className="mr-2 h-4 w-4" />
++                      ) : (
++                        <Layers className="mr-2 h-4 w-4" />
++                      )}
++                      Platform pack — one brief, every platform
++                    </Button>
+                     {imagesExhausted && (
+                       <p className="text-xs text-destructive" data-testid="image-quota-hint">
+                         {imageLimitHint}
+@@ -2176,6 +2218,54 @@ function ImageStudio() {
+               </Form>
+             </CardContent>
+           </Card>
++
++          <Dialog open={packOpen} onOpenChange={setPackOpen}>
++            <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
++              <DialogHeader>
++                <DialogTitle data-testid="text-pack-title">
++                  {platformPack?.title || "Platform pack"}
++                </DialogTitle>
++                <DialogDescription>
++                  One brief, rewritten natively for each platform. Copy what you need.
++                </DialogDescription>
++              </DialogHeader>
++              <div className="space-y-3">
++                {platformPack?.items.map((item) => (
++                  <div
++                    key={item.platform}
++                    className="border border-border rounded-md p-3 space-y-2"
++                    data-testid={`pack-item-${item.platform}`}
++                  >
++                    <div className="flex items-center gap-2">
++                      <Badge variant="secondary" className="capitalize">{item.platform}</Badge>
++                      <Button
++                        type="button"
++                        variant="ghost"
++                        size="sm"
++                        className="ml-auto"
++                        onClick={() => {
++                          const tags = item.hashtags.map((h) => `#${h}`).join(" ");
++                          void navigator.clipboard.writeText(
++                            tags ? `${item.caption}\n\n${tags}` : item.caption,
++                          );
++                          toast({ title: "Copied", description: `${item.platform} caption copied.` });
++                        }}
++                        data-testid={`button-copy-pack-${item.platform}`}
++                      >
++                        Copy
++                      </Button>
++                    </div>
++                    <p className="text-sm whitespace-pre-wrap">{item.caption}</p>
++                    {item.hashtags.length > 0 && (
++                      <p className="text-xs text-muted-foreground break-words">
++                        {item.hashtags.map((h) => `#${h}`).join(" ")}
++                      </p>
++                    )}
++                  </div>
++                ))}
++              </div>
++            </DialogContent>
++          </Dialog>
+         </div>
+ 
+         <div className="lg:col-span-7 flex flex-col gap-6 lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
+diff --git a/artifacts/socialforge/src/pages/video-studio.test.tsx b/artifacts/socialforge/src/pages/video-studio.test.tsx
+index 42a21b7..ccb1cfd 100644
+--- a/artifacts/socialforge/src/pages/video-studio.test.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.test.tsx
+@@ -60,6 +60,16 @@ vi.mock("@workspace/api-client-react", async () => {
+       },
+     }),
+     useGetVideoJob: () => ({ data: mockState.activeJob }),
++    useGenerateHooks: () => ({
++      isPending: false,
++      mutate: (_vars: unknown, opts: any) =>
++        opts?.onSuccess?.({
++          hooks: [
++            { style: "question", text: "Still doing chai the slow way?" },
++            { style: "stat", text: "83% of founders skip this one habit." },
++          ],
++        }),
++    }),
+     useListVideoJobs: () => ({ data: mockState.jobs }),
+     useGetGoogleDriveStatus: () => ({
+       data: { connected: false, configured: true, redirectUri: "x", expired: false },
+@@ -205,6 +215,22 @@ describe("Video Studio", () => {
+     });
+   });
+ 
++  it("offers hook ideas and applies the picked hook to the topic", async () => {
++    renderPage();
++    const user = userEvent.setup();
++    await user.click(screen.getByTestId("tab-topic-to-video"));
++    expect(screen.getByTestId("select-topic-template")).toBeTruthy();
++    fireEvent.change(screen.getByTestId("input-video-prompt"), {
++      target: { value: "morning habits for founders" },
++    });
++    await user.click(screen.getByTestId("button-hook-ideas"));
++    await user.click(screen.getByTestId("button-use-hook-0"));
++    const promptBox = screen.getByTestId("input-video-prompt") as HTMLTextAreaElement;
++    expect(promptBox.value).toBe(
++      'morning habits for founders — open with this hook: "Still doing chai the slow way?"',
++    );
++  });
++
+   it("hides the caption style picker when subtitles are off", async () => {
+     renderPage();
+     const user = userEvent.setup();
+diff --git a/artifacts/socialforge/src/pages/video-studio.tsx b/artifacts/socialforge/src/pages/video-studio.tsx
+index 0f9d06a..770c0ec 100644
+--- a/artifacts/socialforge/src/pages/video-studio.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.tsx
+@@ -17,6 +17,7 @@ import {
+   useDeleteCharacterOutfit,
+   useSearchMusicLibrary,
+   useImportLibraryMusic,
++  useGenerateHooks,
+   getSearchMusicLibraryQueryKey,
+   getGoogleDriveAuthUrl,
+   getListVideoJobsQueryKey,
+@@ -29,6 +30,7 @@ import {
+   type GoogleDriveFile,
+   type Character,
+   type MusicTrack,
++  type HookIdea,
+ } from "@workspace/api-client-react";
+ import { useQueryClient } from "@tanstack/react-query";
+ import { Button } from "@/components/ui/button";
+@@ -81,6 +83,7 @@ import {
+ } from "lucide-react";
+ import { navigate } from "wouter/use-browser-location";
+ import { SavedVisualPickerDialog } from "@/components/saved-visuals";
++import { VIDEO_TOPIC_TEMPLATES } from "@/lib/viral-templates";
+ 
+ type Engine = "text_to_video" | "image_to_video" | "slideshow" | "topic_to_video";
+ type Aspect = "16:9" | "9:16" | "1:1";
+@@ -177,6 +180,8 @@ export function VideoStudioPage() {
+   const [aiMusicDraft, setAiMusicDraft] = useState("");
+   const [aiMusicOpen, setAiMusicOpen] = useState(false);
+   const [musicLibraryOpen, setMusicLibraryOpen] = useState(false);
++  const [hooksOpen, setHooksOpen] = useState(false);
++  const [hookIdeas, setHookIdeas] = useState<HookIdea[]>([]);
+   const [uploading, setUploading] = useState(false);
+   const [activeJobId, setActiveJobId] = useState<number | null>(null);
+ 
+@@ -194,6 +199,7 @@ export function VideoStudioPage() {
+ 
+   const requestUploadUrl = useRequestUploadUrl();
+   const generateVideo = useGenerateVideo();
++  const generateHooks = useGenerateHooks();
+   const saveToLibrary = useSaveVideoToLibrary();
+   const { data: jobs } = useListVideoJobs({
+     query: { queryKey: getListVideoJobsQueryKey() },
+@@ -505,6 +511,59 @@ export function VideoStudioPage() {
+                 onChange={(e) => setPrompt(e.target.value)}
+                 rows={3}
+               />
++              {engine === "topic_to_video" && (
++                <div className="flex flex-wrap items-center gap-2">
++                  <Select
++                    value=""
++                    onValueChange={(id) => {
++                      const template = VIDEO_TOPIC_TEMPLATES.find((t) => t.id === id);
++                      if (template) setPrompt(template.pattern);
++                    }}
++                  >
++                    <SelectTrigger className="w-52" data-testid="select-topic-template">
++                      <SelectValue placeholder="Start from a template" />
++                    </SelectTrigger>
++                    <SelectContent>
++                      {VIDEO_TOPIC_TEMPLATES.map((template) => (
++                        <SelectItem key={template.id} value={template.id}>
++                          {template.label}
++                        </SelectItem>
++                      ))}
++                    </SelectContent>
++                  </Select>
++                  <Button
++                    type="button"
++                    variant="outline"
++                    size="sm"
++                    disabled={prompt.trim().length < 4 || generateHooks.isPending}
++                    onClick={() =>
++                      generateHooks.mutate(
++                        { data: { topic: prompt.trim().slice(0, 300) } },
++                        {
++                          onSuccess: (res) => {
++                            setHookIdeas(res.hooks);
++                            setHooksOpen(true);
++                          },
++                          onError: () =>
++                            toast({
++                              title: "Hook writing failed",
++                              description: "Please try again in a moment.",
++                              variant: "destructive",
++                            }),
++                        },
++                      )
++                    }
++                    data-testid="button-hook-ideas"
++                  >
++                    {generateHooks.isPending ? (
++                      <RippleSpinner className="mr-1.5 h-4 w-4" />
++                    ) : (
++                      <Lightbulb className="h-4 w-4 mr-1.5" />
++                    )}
++                    Hook ideas
++                  </Button>
++                </div>
++              )}
+             </div>
+           )}
+ 
+@@ -1138,6 +1197,37 @@ export function VideoStudioPage() {
+           setMusicLibraryOpen(false);
+         }}
+       />
++
++      <Dialog open={hooksOpen} onOpenChange={setHooksOpen}>
++        <DialogContent className="sm:max-w-lg">
++          <DialogHeader>
++            <DialogTitle>Hook ideas</DialogTitle>
++            <DialogDescription>
++              Five ways to open the video — pick one and the script will start with it.
++            </DialogDescription>
++          </DialogHeader>
++          <div className="space-y-2">
++            {hookIdeas.map((hook, i) => (
++              <button
++                key={i}
++                type="button"
++                className="w-full text-left border border-border rounded-md px-3 py-2 hover:border-primary transition-colors"
++                onClick={() => {
++                  const base = prompt.replace(/ — open with this hook:.*$/s, "").trim();
++                  setPrompt(`${base} — open with this hook: "${hook.text}"`);
++                  setHooksOpen(false);
++                }}
++                data-testid={`button-use-hook-${i}`}
++              >
++                <Badge variant="secondary" className="mb-1 lowercase">
++                  {hook.style}
++                </Badge>
++                <p className="text-sm">{hook.text}</p>
++              </button>
++            ))}
++          </div>
++        </DialogContent>
++      </Dialog>
+     </div>
+   );
+ }
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index ba5b025..e9587c8 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -3033,6 +3033,70 @@ export interface TopicIdeasResult {
+   ideas: string[];
+ }
+ 
++export interface GenerateHooksRequest {
++  /**
++     * @minLength 2
++     * @maxLength 300
++     */
++  topic: string;
++  /** @nullable */
++  brandKitId?: number | null;
++}
++
++export interface HookIdea {
++  /** The hook pattern used (question, bold-claim, contrarian, curiosity, stat, story). */
++  style: string;
++  text: string;
++}
++
++export interface HookIdeas {
++  hooks: HookIdea[];
++}
++
++export type PlatformPackRequestPlatformsItem = typeof PlatformPackRequestPlatformsItem[keyof typeof PlatformPackRequestPlatformsItem];
++
++
++export const PlatformPackRequestPlatformsItem = {
++  instagram: 'instagram',
++  facebook: 'facebook',
++  linkedin: 'linkedin',
++  twitter: 'twitter',
++  threads: 'threads',
++  youtube: 'youtube',
++} as const;
++
++export interface PlatformPackRequest {
++  /**
++     * @minLength 10
++     * @maxLength 4000
++     */
++  brief: string;
++  /**
++     * Defaults to instagram, facebook, linkedin, twitter, threads.
++     * @maxItems 6
++     */
++  platforms?: PlatformPackRequestPlatformsItem[];
++  /** @nullable */
++  tone?: string | null;
++  /** @nullable */
++  brandKitId?: number | null;
++}
++
++export interface PlatformPackItem {
++  platform: string;
++  caption: string;
++  /** Without the */
++  hashtags: string[];
++  /** The closing call-to-action line (also present in caption). */
++  cta: string;
++}
++
++export interface PlatformPack {
++  /** Short name for the campaign idea. */
++  title?: string;
++  items: PlatformPackItem[];
++}
++
+ export interface SummarizeUrlRequest {
+   /**
+      * The article URL to fetch and summarize.
+diff --git a/lib/api-client-react/src/generated/api.ts b/lib/api-client-react/src/generated/api.ts
+index 00c8514..c7381d6 100644
+--- a/lib/api-client-react/src/generated/api.ts
++++ b/lib/api-client-react/src/generated/api.ts
+@@ -130,6 +130,7 @@ import type {
+   FeatureFlags,
+   FunnelAnalytics,
+   GamificationState,
++  GenerateHooksRequest,
+   GetAcquisitionAnalyticsParams,
+   GetAdCampaignDetailParams,
+   GetAudienceAnalyticsParams,
+@@ -149,6 +150,7 @@ import type {
+   GrantCreditsInput,
+   HealthReportOverview,
+   HealthStatus,
++  HookIdeas,
+   ImageGenSettingsView,
+   ImageJob,
+   ImageRequest,
+@@ -180,6 +182,8 @@ import type {
+   Plan,
+   PlanCreateInput,
+   PlanUpdateInput,
++  PlatformPack,
++  PlatformPackRequest,
+   PostMetrics,
+   PromoCode,
+   PromoCodeCreateInput,
+@@ -8765,6 +8769,148 @@ export const useSuggestTopics = <TError = ErrorType<ErrorEnvelope>,
+       return useMutation(getSuggestTopicsMutationOptions(options));
+     }
+ 
++export const getGenerateHooksUrl = () => {
++
++
++
++
++  return `/api/ai/generate-hooks`
++}
++
++/**
++ * Returns 5 first-three-seconds hook variants in distinct proven styles (question, bold claim, contrarian, curiosity gap, stat/story). Free — a lightweight helper like suggest-topics.
++ * @summary Write scroll-stopping opening hooks for a topic
++ */
++export const generateHooks = async (generateHooksRequest: GenerateHooksRequest, options?: RequestInit): Promise<HookIdeas> => {
++
++  return customFetch<HookIdeas>(getGenerateHooksUrl(),
++  {
++    ...options,
++    method: 'POST',
++    headers: { 'Content-Type': 'application/json', ...options?.headers },
++    body: JSON.stringify(generateHooksRequest)
++  }
++);}
++
++
++
++
++export const getGenerateHooksMutationOptions = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateHooks>>, TError,{data: BodyType<GenerateHooksRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof generateHooks>>, TError,{data: BodyType<GenerateHooksRequest>}, TContext> => {
++
++const mutationKey = ['generateHooks'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generateHooks>>, {data: BodyType<GenerateHooksRequest>}> = (props) => {
++          const {data} = props ?? {};
++
++          return  generateHooks(data,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type GenerateHooksMutationResult = NonNullable<Awaited<ReturnType<typeof generateHooks>>>
++    export type GenerateHooksMutationBody = BodyType<GenerateHooksRequest>
++    export type GenerateHooksMutationError = ErrorType<ErrorEnvelope>
++
++    /**
++ * @summary Write scroll-stopping opening hooks for a topic
++ */
++export const useGenerateHooks = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateHooks>>, TError,{data: BodyType<GenerateHooksRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof generateHooks>>,
++        TError,
++        {data: BodyType<GenerateHooksRequest>},
++        TContext
++      > => {
++      return useMutation(getGenerateHooksMutationOptions(options));
++    }
++
++export const getGeneratePlatformPackUrl = () => {
++
++
++
++
++  return `/api/ai/platform-pack`
++}
++
++/**
++ * One creative brief in, a tailored caption + hashtags + CTA out for each requested platform, respecting each platform's norms (length, hashtag counts, tone). Funded like a caption: monthly quota first, then a caption credit.
++ * @summary Compile one brief into per-platform captions (one caption unit)
++ */
++export const generatePlatformPack = async (platformPackRequest: PlatformPackRequest, options?: RequestInit): Promise<PlatformPack> => {
++
++  return customFetch<PlatformPack>(getGeneratePlatformPackUrl(),
++  {
++    ...options,
++    method: 'POST',
++    headers: { 'Content-Type': 'application/json', ...options?.headers },
++    body: JSON.stringify(platformPackRequest)
++  }
++);}
++
++
++
++
++export const getGeneratePlatformPackMutationOptions = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generatePlatformPack>>, TError,{data: BodyType<PlatformPackRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof generatePlatformPack>>, TError,{data: BodyType<PlatformPackRequest>}, TContext> => {
++
++const mutationKey = ['generatePlatformPack'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generatePlatformPack>>, {data: BodyType<PlatformPackRequest>}> = (props) => {
++          const {data} = props ?? {};
++
++          return  generatePlatformPack(data,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type GeneratePlatformPackMutationResult = NonNullable<Awaited<ReturnType<typeof generatePlatformPack>>>
++    export type GeneratePlatformPackMutationBody = BodyType<PlatformPackRequest>
++    export type GeneratePlatformPackMutationError = ErrorType<ErrorEnvelope>
++
++    /**
++ * @summary Compile one brief into per-platform captions (one caption unit)
++ */
++export const useGeneratePlatformPack = <TError = ErrorType<ErrorEnvelope>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generatePlatformPack>>, TError,{data: BodyType<PlatformPackRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof generatePlatformPack>>,
++        TError,
++        {data: BodyType<PlatformPackRequest>},
++        TContext
++      > => {
++      return useMutation(getGeneratePlatformPackMutationOptions(options));
++    }
++
+ export const getSummarizeUrlUrl = () => {
+ 
+ 
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index b9fdad4..61b9767 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -3198,6 +3198,69 @@ paths:
+             application/json:
+               schema:
+                 $ref: "#/components/schemas/ErrorEnvelope"
++  /ai/generate-hooks:
++    post:
++      operationId: generateHooks
++      tags: [ai]
++      summary: Write scroll-stopping opening hooks for a topic
++      description: >-
++        Returns 5 first-three-seconds hook variants in distinct proven styles
++        (question, bold claim, contrarian, curiosity gap, stat/story). Free —
++        a lightweight helper like suggest-topics.
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              $ref: "#/components/schemas/GenerateHooksRequest"
++      responses:
++        "200":
++          description: Hook variants
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/HookIdeas"
++        "400":
++          description: Invalid input
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++  /ai/platform-pack:
++    post:
++      operationId: generatePlatformPack
++      tags: [ai]
++      summary: Compile one brief into per-platform captions (one caption unit)
++      description: >-
++        One creative brief in, a tailored caption + hashtags + CTA out for
++        each requested platform, respecting each platform's norms (length,
++        hashtag counts, tone). Funded like a caption: monthly quota first,
++        then a caption credit.
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              $ref: "#/components/schemas/PlatformPackRequest"
++      responses:
++        "200":
++          description: Per-platform captions
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/PlatformPack"
++        "402":
++          description: Quota and credits exhausted
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
++        "400":
++          description: Invalid input
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/ErrorEnvelope"
+   /ai/summarize-url:
+     post:
+       operationId: summarizeUrl
+@@ -10840,6 +10903,79 @@ components:
+           type: array
+           items:
+             type: string
++    GenerateHooksRequest:
++      type: object
++      required: [topic]
++      properties:
++        topic:
++          type: string
++          minLength: 2
++          maxLength: 300
++        brandKitId:
++          type: ["integer", "null"]
++    HookIdea:
++      type: object
++      required: [style, text]
++      properties:
++        style:
++          type: string
++          description: The hook pattern used (question, bold-claim, contrarian, curiosity, stat, story).
++        text:
++          type: string
++    HookIdeas:
++      type: object
++      required: [hooks]
++      properties:
++        hooks:
++          type: array
++          items:
++            $ref: "#/components/schemas/HookIdea"
++    PlatformPackRequest:
++      type: object
++      required: [brief]
++      properties:
++        brief:
++          type: string
++          minLength: 10
++          maxLength: 4000
++        platforms:
++          type: array
++          maxItems: 6
++          items:
++            type: string
++            enum: [instagram, facebook, linkedin, twitter, threads, youtube]
++          description: Defaults to instagram, facebook, linkedin, twitter, threads.
++        tone:
++          type: ["string", "null"]
++        brandKitId:
++          type: ["integer", "null"]
++    PlatformPackItem:
++      type: object
++      required: [platform, caption, hashtags, cta]
++      properties:
++        platform:
++          type: string
++        caption:
++          type: string
++        hashtags:
++          type: array
++          items:
++            type: string
++          description: Without the # symbol.
++        cta:
++          type: string
++          description: The closing call-to-action line (also present in caption).
++    PlatformPack:
++      type: object
++      required: [items]
++      properties:
++        title:
++          type: string
++          description: Short name for the campaign idea.
++        items:
++          type: array
++          items:
++            $ref: "#/components/schemas/PlatformPackItem"
+     SummarizeUrlRequest:
+       type: object
+       required: [url]
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index 9385ee4..83ad318 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -5273,6 +5273,57 @@ export const SuggestTopicsResponse = zod.object({
+ })
+ 
+ 
++/**
++ * Returns 5 first-three-seconds hook variants in distinct proven styles (question, bold claim, contrarian, curiosity gap, stat/story). Free — a lightweight helper like suggest-topics.
++ * @summary Write scroll-stopping opening hooks for a topic
++ */
++export const generateHooksBodyTopicMin = 2;
++export const generateHooksBodyTopicMax = 300;
++
++
++
++export const GenerateHooksBody = zod.object({
++  "topic": zod.string().min(generateHooksBodyTopicMin).max(generateHooksBodyTopicMax),
++  "brandKitId": zod.number().nullish()
++})
++
++export const GenerateHooksResponse = zod.object({
++  "hooks": zod.array(zod.object({
++  "style": zod.string().describe('The hook pattern used (question, bold-claim, contrarian, curiosity, stat, story).'),
++  "text": zod.string()
++}))
++})
++
++
++/**
++ * One creative brief in, a tailored caption + hashtags + CTA out for each requested platform, respecting each platform's norms (length, hashtag counts, tone). Funded like a caption: monthly quota first, then a caption credit.
++ * @summary Compile one brief into per-platform captions (one caption unit)
++ */
++export const generatePlatformPackBodyBriefMin = 10;
++export const generatePlatformPackBodyBriefMax = 4000;
++
++export const generatePlatformPackBodyPlatformsMax = 6;
++
++
++
++export const GeneratePlatformPackBody = zod.object({
++  "brief": zod.string().min(generatePlatformPackBodyBriefMin).max(generatePlatformPackBodyBriefMax),
++  "platforms": zod.array(zod.enum(['instagram', 'facebook', 'linkedin', 'twitter', 'threads', 'youtube'])).max(generatePlatformPackBodyPlatformsMax).optional().describe('Defaults to instagram, facebook, linkedin, twitter, threads.'),
++  "tone": zod.string().nullish(),
++  "brandKitId": zod.number().nullish()
++})
++
++export const GeneratePlatformPackResponse = zod.object({
++  "title": zod.string().optional().describe('Short name for the campaign idea.'),
++  "items": zod.array(zod.object({
++  "platform": zod.string(),
++  "caption": zod.string(),
++  "hashtags": zod.array(zod.string()).describe('Without the'),
++  "cta": zod.string().describe('The closing call-to-action line (also present in caption).')
++}))
++})
++
++
+ /**
+  * @summary Fetch an article URL and summarize it into a title and summary
+  */
+diff --git a/lib/api-zod/src/generated/types/generateHooksRequest.ts b/lib/api-zod/src/generated/types/generateHooksRequest.ts
+new file mode 100644
+index 0000000..ce5d666
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/generateHooksRequest.ts
+@@ -0,0 +1,17 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface GenerateHooksRequest {
++  /**
++     * @minLength 2
++     * @maxLength 300
++     */
++  topic: string;
++  /** @nullable */
++  brandKitId?: number | null;
++}
+diff --git a/lib/api-zod/src/generated/types/hookIdea.ts b/lib/api-zod/src/generated/types/hookIdea.ts
+new file mode 100644
+index 0000000..dbd0bff
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/hookIdea.ts
+@@ -0,0 +1,13 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface HookIdea {
++  /** The hook pattern used (question, bold-claim, contrarian, curiosity, stat, story). */
++  style: string;
++  text: string;
++}
+diff --git a/lib/api-zod/src/generated/types/hookIdeas.ts b/lib/api-zod/src/generated/types/hookIdeas.ts
+new file mode 100644
+index 0000000..91f1283
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/hookIdeas.ts
+@@ -0,0 +1,12 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { HookIdea } from './hookIdea';
++
++export interface HookIdeas {
++  hooks: HookIdea[];
++}
+diff --git a/lib/api-zod/src/generated/types/index.ts b/lib/api-zod/src/generated/types/index.ts
+index 0d8542c..bc2363c 100644
+--- a/lib/api-zod/src/generated/types/index.ts
++++ b/lib/api-zod/src/generated/types/index.ts
+@@ -212,6 +212,7 @@ export * from './gamificationQuest';
+ export * from './gamificationState';
+ export * from './gamificationStateStreak';
+ export * from './gamificationStreakMilestone';
++export * from './generateHooksRequest';
+ export * from './getAcquisitionAnalyticsParams';
+ export * from './getAdCampaignDetailParams';
+ export * from './getAudienceAnalyticsParams';
+@@ -238,6 +239,8 @@ export * from './healthReportDetailCoverageGrade';
+ export * from './healthReportOverview';
+ export * from './healthScoreHistoryEntry';
+ export * from './healthStatus';
++export * from './hookIdea';
++export * from './hookIdeas';
+ export * from './imageGenModelOption';
+ export * from './imageGenProviderInfo';
+ export * from './imageGenProviderInfoKeySource';
+@@ -285,6 +288,10 @@ export * from './plan';
+ export * from './planCreateInput';
+ export * from './planLimits';
+ export * from './planUpdateInput';
++export * from './platformPack';
++export * from './platformPackItem';
++export * from './platformPackRequest';
++export * from './platformPackRequestPlatformsItem';
+ export * from './postMetrics';
+ export * from './postMetricsPollState';
+ export * from './promoCode';
+diff --git a/lib/api-zod/src/generated/types/platformPack.ts b/lib/api-zod/src/generated/types/platformPack.ts
+new file mode 100644
+index 0000000..91e79e2
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/platformPack.ts
+@@ -0,0 +1,14 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { PlatformPackItem } from './platformPackItem';
++
++export interface PlatformPack {
++  /** Short name for the campaign idea. */
++  title?: string;
++  items: PlatformPackItem[];
++}
+diff --git a/lib/api-zod/src/generated/types/platformPackItem.ts b/lib/api-zod/src/generated/types/platformPackItem.ts
+new file mode 100644
+index 0000000..30cdfe0
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/platformPackItem.ts
+@@ -0,0 +1,16 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface PlatformPackItem {
++  platform: string;
++  caption: string;
++  /** Without the */
++  hashtags: string[];
++  /** The closing call-to-action line (also present in caption). */
++  cta: string;
++}
+diff --git a/lib/api-zod/src/generated/types/platformPackRequest.ts b/lib/api-zod/src/generated/types/platformPackRequest.ts
+new file mode 100644
+index 0000000..00abf61
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/platformPackRequest.ts
+@@ -0,0 +1,25 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { PlatformPackRequestPlatformsItem } from './platformPackRequestPlatformsItem';
++
++export interface PlatformPackRequest {
++  /**
++     * @minLength 10
++     * @maxLength 4000
++     */
++  brief: string;
++  /**
++     * Defaults to instagram, facebook, linkedin, twitter, threads.
++     * @maxItems 6
++     */
++  platforms?: PlatformPackRequestPlatformsItem[];
++  /** @nullable */
++  tone?: string | null;
++  /** @nullable */
++  brandKitId?: number | null;
++}
+diff --git a/lib/api-zod/src/generated/types/platformPackRequestPlatformsItem.ts b/lib/api-zod/src/generated/types/platformPackRequestPlatformsItem.ts
+new file mode 100644
+index 0000000..4f153a5
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/platformPackRequestPlatformsItem.ts
+@@ -0,0 +1,19 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type PlatformPackRequestPlatformsItem = typeof PlatformPackRequestPlatformsItem[keyof typeof PlatformPackRequestPlatformsItem];
++
++
++export const PlatformPackRequestPlatformsItem = {
++  instagram: 'instagram',
++  facebook: 'facebook',
++  linkedin: 'linkedin',
++  twitter: 'twitter',
++  threads: 'threads',
++  youtube: 'youtube',
++} as const;
+-- 
+2.43.0
+

@@ -97,7 +97,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "imageJobs": zod.boolean(),
   "studioQuickPublish": zod.boolean(),
   "campaignStreaming": zod.boolean(),
-  "composer": zod.boolean()
+  "composer": zod.boolean(),
+  "viralToolkit": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -5271,6 +5272,57 @@ export const SuggestTopicsBody = zod.object({
 
 export const SuggestTopicsResponse = zod.object({
   "ideas": zod.array(zod.string())
+})
+
+
+/**
+ * Returns 5 first-three-seconds hook variants in distinct proven styles (question, bold claim, contrarian, curiosity gap, stat/story). Free — a lightweight helper like suggest-topics.
+ * @summary Write scroll-stopping opening hooks for a topic
+ */
+export const generateHooksBodyTopicMin = 2;
+export const generateHooksBodyTopicMax = 300;
+
+
+
+export const GenerateHooksBody = zod.object({
+  "topic": zod.string().min(generateHooksBodyTopicMin).max(generateHooksBodyTopicMax),
+  "brandKitId": zod.number().nullish()
+})
+
+export const GenerateHooksResponse = zod.object({
+  "hooks": zod.array(zod.object({
+  "style": zod.string().describe('The hook pattern used (question, bold-claim, contrarian, curiosity, stat, story).'),
+  "text": zod.string()
+}))
+})
+
+
+/**
+ * One creative brief in, a tailored caption + hashtags + CTA out for each requested platform, respecting each platform's norms (length, hashtag counts, tone). Funded like a caption: monthly quota first, then a caption credit.
+ * @summary Compile one brief into per-platform captions (one caption unit)
+ */
+export const generatePlatformPackBodyBriefMin = 10;
+export const generatePlatformPackBodyBriefMax = 4000;
+
+export const generatePlatformPackBodyPlatformsMax = 6;
+
+
+
+export const GeneratePlatformPackBody = zod.object({
+  "brief": zod.string().min(generatePlatformPackBodyBriefMin).max(generatePlatformPackBodyBriefMax),
+  "platforms": zod.array(zod.enum(['instagram', 'facebook', 'linkedin', 'twitter', 'threads', 'youtube'])).max(generatePlatformPackBodyPlatformsMax).optional().describe('Defaults to instagram, facebook, linkedin, twitter, threads.'),
+  "tone": zod.string().nullish(),
+  "brandKitId": zod.number().nullish()
+})
+
+export const GeneratePlatformPackResponse = zod.object({
+  "title": zod.string().optional().describe('Short name for the campaign idea.'),
+  "items": zod.array(zod.object({
+  "platform": zod.string(),
+  "caption": zod.string(),
+  "hashtags": zod.array(zod.string()).describe('Without the'),
+  "cta": zod.string().describe('The closing call-to-action line (also present in caption).')
+}))
 })
 
 

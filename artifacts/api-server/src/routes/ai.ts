@@ -10,7 +10,9 @@ import {
 } from "../lib/imageGen";
 import {
   GenerateCaptionBody,
+  GenerateHooksBody,
   GenerateImageBody,
+  GeneratePlatformPackBody,
   SuggestTopicsBody,
   SummarizeUrlBody,
   GenerateCampaignBody,
@@ -768,6 +770,243 @@ router.post("/ai/suggest-topics", async (req: Request, res: Response) => {
   } catch (error) {
     req.log.error({ err: error }, "Topic suggestion failed");
     res.status(500).json({ error: "Failed to suggest topics" });
+  }
+});
+
+/** The six proven hook patterns the hook writer rotates through. */
+const HOOK_STYLES = [
+  { key: "question", hint: "A question the target viewer can't not answer in their head." },
+  { key: "bold-claim", hint: "A confident, specific claim that raises the stakes immediately." },
+  { key: "contrarian", hint: "Challenge the common advice everyone in this niche repeats." },
+  { key: "curiosity", hint: "Open a specific curiosity gap the viewer must stay to close." },
+  { key: "stat", hint: "Lead with one startling, concrete number or fact." },
+  { key: "story", hint: "Drop the viewer mid-story at the most tense moment." },
+] as const;
+
+/**
+ * POST /ai/generate-hooks — 5 first-three-seconds hook variants in distinct
+ * proven styles. Free helper (like suggest-topics): one small completion.
+ */
+router.post("/ai/generate-hooks", async (req: Request, res: Response) => {
+  const parsed = GenerateHooksBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const tenant = await loadTenant(req.tenantId);
+  if (!tenant) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+  if (!textGen) return;
+  const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
+
+  const styleList = HOOK_STYLES.map((s) => `${s.key}: ${s.hint}`).join("\n- ");
+  const systemPrompt = buildRicePrompt({
+    role: "You write the first three seconds of high-performing short-form social videos. Your hooks decide whether people stop scrolling.",
+    instruction: [
+      "Write exactly 5 opening hooks for the given topic, each using a DIFFERENT one of these patterns:",
+      styleList,
+      "Each hook is 1-2 short spoken sentences (max ~20 words) meant to be said out loud at the start of a video.",
+    ],
+    context: brand
+      ? [
+          `Brand voice: ${voiceHint(brand)}.`,
+          ...(brand.identity.audience.length > 0
+            ? [`Target audience: ${brand.identity.audience.slice(0, 3).join(", ")}.`]
+            : []),
+        ]
+      : [],
+    examples: [],
+    constraints: [...HUMAN_EXPERT_CONSTRAINTS],
+    outputFormat: [
+      'Respond ONLY with strict JSON: {"hooks": [{"style": string, "text": string}]} with exactly 5 entries, style being the pattern key used.',
+    ],
+  });
+
+  try {
+    const completion = await textGen.client.chat.completions.create({
+      model: textGen.model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Topic: ${parsed.data.topic}` },
+      ],
+      max_completion_tokens: 2048,
+      response_format: { type: "json_object" },
+      ...usageAccountingParams(textGen.provider),
+    });
+    const raw = completion.choices[0]?.message?.content ?? "{}";
+    let hooks: { style: string; text: string }[] = [];
+    try {
+      const obj = JSON.parse(raw) as { hooks?: unknown };
+      if (Array.isArray(obj.hooks)) {
+        hooks = obj.hooks
+          .map((h) => ({
+            style: String((h as Record<string, unknown>)?.style ?? "hook").trim(),
+            text: String((h as Record<string, unknown>)?.text ?? "").trim(),
+          }))
+          .filter((h) => h.text)
+          .slice(0, 6);
+      }
+    } catch {
+      hooks = [];
+    }
+    res.json({ hooks });
+  } catch (error) {
+    req.log.error({ err: error }, "Hook generation failed");
+    res.status(500).json({ error: "Failed to write hooks" });
+  }
+});
+
+/** Per-platform norms baked into the platform-pack prompt. */
+const PLATFORM_NORMS: Record<string, string> = {
+  instagram:
+    "Instagram: strong first line (it truncates early), short paragraphs with line breaks, 5-8 niche hashtags, a save/share-worthy close.",
+  facebook:
+    "Facebook: conversational and story-first, 1-3 hashtags at most, questions perform well, no hashtag walls.",
+  linkedin:
+    "LinkedIn: professional but human, a hook line then whitespace-heavy short paragraphs, max 3 hashtags, no emoji spam, end with a discussion question.",
+  twitter:
+    "X/Twitter: the ENTIRE caption must fit 280 characters including hashtags; punchy, max 2 hashtags, no filler.",
+  threads:
+    "Threads: casual and conversational, max ~500 characters, 0-2 hashtags, reads like a text to a friend.",
+  youtube:
+    "YouTube (community/description): searchable first sentence, then context; 3-5 hashtags at the end.",
+};
+const PLATFORM_PACK_DEFAULT = ["instagram", "facebook", "linkedin", "twitter", "threads"];
+
+/**
+ * POST /ai/platform-pack — one brief in, a tailored caption per platform out.
+ * Funded exactly like one caption (quota first, then a caption credit): it
+ * replaces writing the same brief five times.
+ */
+router.post("/ai/platform-pack", async (req: Request, res: Response) => {
+  const parsed = GeneratePlatformPackBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const tenant = await loadTenant(req.tenantId);
+  if (!tenant) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+  if (!textGen) return;
+
+  const platforms = (
+    parsed.data.platforms && parsed.data.platforms.length > 0
+      ? [...new Set(parsed.data.platforms)]
+      : PLATFORM_PACK_DEFAULT
+  ).filter((p) => p in PLATFORM_NORMS);
+
+  const limits = await getPlanLimits(tenant.plan);
+  const usage = await getUsage(req.tenantId);
+  const funding = await reserveFunding(req.tenantId, limits.captions, usage.captions, "caption");
+  if (!funding) {
+    res.status(402).json({
+      error:
+        "Monthly caption quota reached and no caption credits left. Upgrade your plan or buy a credit pack.",
+    });
+    return;
+  }
+
+  const [brand, taste] = await Promise.all([
+    loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null),
+    buildTasteGuidance(req.tenantId),
+  ]);
+  const tone = parsed.data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
+  const context: string[] = [
+    `Tone/voice: ${tone}.`,
+    "Platform norms to follow exactly:",
+    ...platforms.map((p) => PLATFORM_NORMS[p]!),
+  ];
+  const constraints = [...HUMAN_EXPERT_CONSTRAINTS];
+  if (brand) {
+    context.push(`Brand name: ${brand.identity.brand_name}.`);
+    if (brand.voice.dos.length > 0)
+      constraints.push(`Voice do's: ${brand.voice.dos.slice(0, 5).join("; ")}.`);
+    if (brand.voice.donts.length > 0)
+      constraints.push(`Voice don'ts: ${brand.voice.donts.slice(0, 5).join("; ")}.`);
+    if (brand.brand_controls.restricted_terms.length > 0) {
+      constraints.push(
+        `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
+      );
+    }
+  }
+
+  const systemPrompt = buildRicePrompt({
+    role: "You are a cross-platform social copywriter: the SAME idea, natively rewritten for each platform — never copy-pasted between them.",
+    instruction: [
+      `Write one caption for EACH of these platforms from the user's brief: ${platforms.join(", ")}.`,
+      "Each caption must feel native to its platform (structure, length, tone) while carrying the same core idea and offer.",
+      "Each caption ends with a clear call-to-action appropriate to that platform; also return that CTA separately.",
+      "Also name the campaign idea in 3-8 words as `title`.",
+    ],
+    context,
+    examples: taste.captionLines,
+    constraints,
+    outputFormat: [
+      'Respond ONLY with strict JSON: {"title": string, "items": [{"platform": string, "caption": string, "hashtags": string[], "cta": string}]} — one item per requested platform, in the requested order.',
+      "Hashtags must not include the # symbol.",
+    ],
+  });
+
+  const startedAt = Date.now();
+  try {
+    const completion = await textGen.client.chat.completions.create({
+      model: textGen.model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: parsed.data.brief },
+      ],
+      max_completion_tokens: 8192,
+      response_format: { type: "json_object" },
+      ...usageAccountingParams(textGen.provider),
+    });
+    const raw = completion.choices[0]?.message?.content ?? "{}";
+    let title = "";
+    let items: { platform: string; caption: string; hashtags: string[]; cta: string }[] = [];
+    try {
+      const obj = JSON.parse(raw) as { title?: unknown; items?: unknown };
+      title = typeof obj.title === "string" ? obj.title : "";
+      if (Array.isArray(obj.items)) {
+        items = obj.items
+          .map((entry) => {
+            const rec = (entry ?? {}) as Record<string, unknown>;
+            return {
+              platform: String(rec.platform ?? "").toLowerCase().trim(),
+              caption: typeof rec.caption === "string" ? rec.caption : "",
+              hashtags: Array.isArray(rec.hashtags)
+                ? rec.hashtags.map((h) => String(h).replace(/^#/, "")).filter(Boolean)
+                : [],
+              cta: typeof rec.cta === "string" ? rec.cta : "",
+            };
+          })
+          .filter((item) => item.caption && platforms.includes(item.platform));
+      }
+    } catch {
+      items = [];
+    }
+    if (items.length === 0) {
+      await releaseFunding(req, funding, "caption");
+      res.status(500).json({ error: "Failed to compile the platform pack" });
+      return;
+    }
+    await settleFunding(req, funding, "caption", {
+      requestBytes: Buffer.byteLength(systemPrompt + parsed.data.brief),
+      responseBytes: Buffer.byteLength(raw),
+      durationMs: Date.now() - startedAt,
+      model: textGen.model,
+      platform: "multi",
+      ...(await buildTextCostMeta(completion, textGen)),
+    });
+    res.json({ ...(title ? { title } : {}), items });
+  } catch (error) {
+    await releaseFunding(req, funding, "caption");
+    req.log.error({ err: error }, "Platform pack generation failed");
+    res.status(500).json({ error: "Failed to compile the platform pack" });
   }
 });
 

@@ -180,6 +180,12 @@ export const FEATURES = [
       "The one-sheet Publish / Schedule composer on Content Library cards: media preview, inline caption editing, and multi-platform publish or schedule in one place. When off, the library falls back to the legacy per-platform dialogs.",
   },
   {
+    id: "viralToolkit",
+    label: "Viral Toolkit",
+    description:
+      "Hook ideas and topic templates in the Video Studio, plus the multi-platform Platform Pack generator in AI Studio.",
+  },
+  {
     id: "progressMeter",
     label: "Upgrade Progress Meter",
     description:

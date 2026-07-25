@@ -39,4 +39,5 @@ export interface FeatureFlags {
   studioQuickPublish: boolean;
   campaignStreaming: boolean;
   composer: boolean;
+  viralToolkit: boolean;
 }

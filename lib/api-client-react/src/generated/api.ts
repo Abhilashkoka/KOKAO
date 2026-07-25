@@ -130,6 +130,7 @@ import type {
   FeatureFlags,
   FunnelAnalytics,
   GamificationState,
+  GenerateHooksRequest,
   GetAcquisitionAnalyticsParams,
   GetAdCampaignDetailParams,
   GetAudienceAnalyticsParams,
@@ -149,6 +150,7 @@ import type {
   GrantCreditsInput,
   HealthReportOverview,
   HealthStatus,
+  HookIdeas,
   ImageGenSettingsView,
   ImageJob,
   ImageRequest,
@@ -180,6 +182,8 @@ import type {
   Plan,
   PlanCreateInput,
   PlanUpdateInput,
+  PlatformPack,
+  PlatformPackRequest,
   PostMetrics,
   PromoCode,
   PromoCodeCreateInput,
@@ -8763,6 +8767,148 @@ export const useSuggestTopics = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getSuggestTopicsMutationOptions(options));
+    }
+
+export const getGenerateHooksUrl = () => {
+
+
+
+
+  return `/api/ai/generate-hooks`
+}
+
+/**
+ * Returns 5 first-three-seconds hook variants in distinct proven styles (question, bold claim, contrarian, curiosity gap, stat/story). Free — a lightweight helper like suggest-topics.
+ * @summary Write scroll-stopping opening hooks for a topic
+ */
+export const generateHooks = async (generateHooksRequest: GenerateHooksRequest, options?: RequestInit): Promise<HookIdeas> => {
+
+  return customFetch<HookIdeas>(getGenerateHooksUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(generateHooksRequest)
+  }
+);}
+
+
+
+
+export const getGenerateHooksMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateHooks>>, TError,{data: BodyType<GenerateHooksRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generateHooks>>, TError,{data: BodyType<GenerateHooksRequest>}, TContext> => {
+
+const mutationKey = ['generateHooks'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generateHooks>>, {data: BodyType<GenerateHooksRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  generateHooks(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GenerateHooksMutationResult = NonNullable<Awaited<ReturnType<typeof generateHooks>>>
+    export type GenerateHooksMutationBody = BodyType<GenerateHooksRequest>
+    export type GenerateHooksMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Write scroll-stopping opening hooks for a topic
+ */
+export const useGenerateHooks = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateHooks>>, TError,{data: BodyType<GenerateHooksRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generateHooks>>,
+        TError,
+        {data: BodyType<GenerateHooksRequest>},
+        TContext
+      > => {
+      return useMutation(getGenerateHooksMutationOptions(options));
+    }
+
+export const getGeneratePlatformPackUrl = () => {
+
+
+
+
+  return `/api/ai/platform-pack`
+}
+
+/**
+ * One creative brief in, a tailored caption + hashtags + CTA out for each requested platform, respecting each platform's norms (length, hashtag counts, tone). Funded like a caption: monthly quota first, then a caption credit.
+ * @summary Compile one brief into per-platform captions (one caption unit)
+ */
+export const generatePlatformPack = async (platformPackRequest: PlatformPackRequest, options?: RequestInit): Promise<PlatformPack> => {
+
+  return customFetch<PlatformPack>(getGeneratePlatformPackUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(platformPackRequest)
+  }
+);}
+
+
+
+
+export const getGeneratePlatformPackMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generatePlatformPack>>, TError,{data: BodyType<PlatformPackRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generatePlatformPack>>, TError,{data: BodyType<PlatformPackRequest>}, TContext> => {
+
+const mutationKey = ['generatePlatformPack'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generatePlatformPack>>, {data: BodyType<PlatformPackRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  generatePlatformPack(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GeneratePlatformPackMutationResult = NonNullable<Awaited<ReturnType<typeof generatePlatformPack>>>
+    export type GeneratePlatformPackMutationBody = BodyType<PlatformPackRequest>
+    export type GeneratePlatformPackMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Compile one brief into per-platform captions (one caption unit)
+ */
+export const useGeneratePlatformPack = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generatePlatformPack>>, TError,{data: BodyType<PlatformPackRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generatePlatformPack>>,
+        TError,
+        {data: BodyType<PlatformPackRequest>},
+        TContext
+      > => {
+      return useMutation(getGeneratePlatformPackMutationOptions(options));
     }
 
 export const getSummarizeUrlUrl = () => {

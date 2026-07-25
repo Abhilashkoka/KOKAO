@@ -3198,6 +3198,69 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/generate-hooks:
+    post:
+      operationId: generateHooks
+      tags: [ai]
+      summary: Write scroll-stopping opening hooks for a topic
+      description: >-
+        Returns 5 first-three-seconds hook variants in distinct proven styles
+        (question, bold claim, contrarian, curiosity gap, stat/story). Free —
+        a lightweight helper like suggest-topics.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateHooksRequest"
+      responses:
+        "200":
+          description: Hook variants
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HookIdeas"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/platform-pack:
+    post:
+      operationId: generatePlatformPack
+      tags: [ai]
+      summary: Compile one brief into per-platform captions (one caption unit)
+      description: >-
+        One creative brief in, a tailored caption + hashtags + CTA out for
+        each requested platform, respecting each platform's norms (length,
+        hashtag counts, tone). Funded like a caption: monthly quota first,
+        then a caption credit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformPackRequest"
+      responses:
+        "200":
+          description: Per-platform captions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformPack"
+        "402":
+          description: Quota and credits exhausted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/summarize-url:
     post:
       operationId: summarizeUrl
@@ -10840,6 +10903,79 @@ components:
           type: array
           items:
             type: string
+    GenerateHooksRequest:
+      type: object
+      required: [topic]
+      properties:
+        topic:
+          type: string
+          minLength: 2
+          maxLength: 300
+        brandKitId:
+          type: ["integer", "null"]
+    HookIdea:
+      type: object
+      required: [style, text]
+      properties:
+        style:
+          type: string
+          description: The hook pattern used (question, bold-claim, contrarian, curiosity, stat, story).
+        text:
+          type: string
+    HookIdeas:
+      type: object
+      required: [hooks]
+      properties:
+        hooks:
+          type: array
+          items:
+            $ref: "#/components/schemas/HookIdea"
+    PlatformPackRequest:
+      type: object
+      required: [brief]
+      properties:
+        brief:
+          type: string
+          minLength: 10
+          maxLength: 4000
+        platforms:
+          type: array
+          maxItems: 6
+          items:
+            type: string
+            enum: [instagram, facebook, linkedin, twitter, threads, youtube]
+          description: Defaults to instagram, facebook, linkedin, twitter, threads.
+        tone:
+          type: ["string", "null"]
+        brandKitId:
+          type: ["integer", "null"]
+    PlatformPackItem:
+      type: object
+      required: [platform, caption, hashtags, cta]
+      properties:
+        platform:
+          type: string
+        caption:
+          type: string
+        hashtags:
+          type: array
+          items:
+            type: string
+          description: Without the # symbol.
+        cta:
+          type: string
+          description: The closing call-to-action line (also present in caption).
+    PlatformPack:
+      type: object
+      required: [items]
+      properties:
+        title:
+          type: string
+          description: Short name for the campaign idea.
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformPackItem"
     SummarizeUrlRequest:
       type: object
       required: [url]
@@ -12443,6 +12579,7 @@ components:
           studioQuickPublish,
           campaignStreaming,
           composer,
+          viralToolkit,
         ]
       properties:
         aiStudio:
@@ -12502,6 +12639,8 @@ components:
         campaignStreaming:
           type: boolean
         composer:
+          type: boolean
+        viralToolkit:
           type: boolean
     AiSpendSettingsView:
       type: object

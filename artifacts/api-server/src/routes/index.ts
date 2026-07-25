@@ -95,6 +95,9 @@ router.use("/ai/generate-video", requireFeature("videoGen"));
 router.use("/ai/video-jobs", requireFeature("videoGen"));
 // Async image jobs: own kill switch on top of the /ai gate; when off, the
 // studio falls back to the synchronous generate-image route.
+// Viral toolkit: hook writer + platform pack, own switch on top of /ai.
+router.use("/ai/generate-hooks", requireFeature("viralToolkit"));
+router.use("/ai/platform-pack", requireFeature("viralToolkit"));
 router.use("/ai/generate-image-async", requireFeature("imageJobs"));
 router.use("/ai/image-jobs", requireFeature("imageJobs"));
 router.use("/google-drive", requireFeature("videoGen"));

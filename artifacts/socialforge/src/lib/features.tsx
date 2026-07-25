@@ -37,6 +37,7 @@ const ALL_ON: FeatureFlags = {
   studioQuickPublish: true,
   campaignStreaming: true,
   composer: true,
+  viralToolkit: true,
 };
 
 /**

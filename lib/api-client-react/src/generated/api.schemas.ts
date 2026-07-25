@@ -3033,6 +3033,70 @@ export interface TopicIdeasResult {
   ideas: string[];
 }
 
+export interface GenerateHooksRequest {
+  /**
+     * @minLength 2
+     * @maxLength 300
+     */
+  topic: string;
+  /** @nullable */
+  brandKitId?: number | null;
+}
+
+export interface HookIdea {
+  /** The hook pattern used (question, bold-claim, contrarian, curiosity, stat, story). */
+  style: string;
+  text: string;
+}
+
+export interface HookIdeas {
+  hooks: HookIdea[];
+}
+
+export type PlatformPackRequestPlatformsItem = typeof PlatformPackRequestPlatformsItem[keyof typeof PlatformPackRequestPlatformsItem];
+
+
+export const PlatformPackRequestPlatformsItem = {
+  instagram: 'instagram',
+  facebook: 'facebook',
+  linkedin: 'linkedin',
+  twitter: 'twitter',
+  threads: 'threads',
+  youtube: 'youtube',
+} as const;
+
+export interface PlatformPackRequest {
+  /**
+     * @minLength 10
+     * @maxLength 4000
+     */
+  brief: string;
+  /**
+     * Defaults to instagram, facebook, linkedin, twitter, threads.
+     * @maxItems 6
+     */
+  platforms?: PlatformPackRequestPlatformsItem[];
+  /** @nullable */
+  tone?: string | null;
+  /** @nullable */
+  brandKitId?: number | null;
+}
+
+export interface PlatformPackItem {
+  platform: string;
+  caption: string;
+  /** Without the */
+  hashtags: string[];
+  /** The closing call-to-action line (also present in caption). */
+  cta: string;
+}
+
+export interface PlatformPack {
+  /** Short name for the campaign idea. */
+  title?: string;
+  items: PlatformPackItem[];
+}
+
 export interface SummarizeUrlRequest {
   /**
      * The article URL to fetch and summarize.
@@ -4261,6 +4325,7 @@ export interface FeatureFlags {
   studioQuickPublish: boolean;
   campaignStreaming: boolean;
   composer: boolean;
+  viralToolkit: boolean;
 }
 
 /**

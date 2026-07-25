@@ -60,6 +60,16 @@ vi.mock("@workspace/api-client-react", async () => {
       },
     }),
     useGetVideoJob: () => ({ data: mockState.activeJob }),
+    useGenerateHooks: () => ({
+      isPending: false,
+      mutate: (_vars: unknown, opts: any) =>
+        opts?.onSuccess?.({
+          hooks: [
+            { style: "question", text: "Still doing chai the slow way?" },
+            { style: "stat", text: "83% of founders skip this one habit." },
+          ],
+        }),
+    }),
     useListVideoJobs: () => ({ data: mockState.jobs }),
     useGetGoogleDriveStatus: () => ({
       data: { connected: false, configured: true, redirectUri: "x", expired: false },
@@ -249,6 +259,22 @@ describe("Video Studio", () => {
       musicPath: null,
       musicPrompt: null,
     });
+  });
+
+  it("offers hook ideas and applies the picked hook to the topic", async () => {
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    expect(screen.getByTestId("select-topic-template")).toBeTruthy();
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "morning habits for founders" },
+    });
+    await user.click(screen.getByTestId("button-hook-ideas"));
+    await user.click(screen.getByTestId("button-use-hook-0"));
+    const promptBox = screen.getByTestId("input-video-prompt") as HTMLTextAreaElement;
+    expect(promptBox.value).toBe(
+      'morning habits for founders — open with this hook: "Still doing chai the slow way?"',
+    );
   });
 
   it("hides the caption style picker when subtitles are off", async () => {
