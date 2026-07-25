@@ -83,6 +83,11 @@ export interface VideoGenerateRequest {
      */
   outfitId?: number | null;
   /**
+     * topic_to_video only; apply this brand kit — its voice steers the script, its primary color tints the caption stroke, and its logo is watermarked top-right.
+     * @nullable
+     */
+  brandKitId?: number | null;
+  /**
      * topic_to_video character mode; costume-change instructions (e.g. "switch to gym wear for the workout scenes").
      * @maxLength 500
      * @nullable

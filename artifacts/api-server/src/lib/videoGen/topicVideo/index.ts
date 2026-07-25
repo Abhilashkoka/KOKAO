@@ -70,6 +70,12 @@ export interface TopicVideoParams {
   characterId?: number | null;
   outfitId?: number | null;
   wardrobeNotes?: string | null;
+  /** Brand-voice hint injected into the script prompt (brand kit). */
+  brandVoice?: string | null;
+  /** Caption stroke accent ("0xRRGGBB") from the brand kit. */
+  accentColor?: string | null;
+  /** Brand logo bytes to watermark top-right. */
+  watermark?: Buffer | null;
   /** Live progress reporting ("Writing the script", ...); optional. */
   onStage?: (stage: string) => void;
 }
@@ -219,6 +225,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     tenantAiModel: tenant.aiModel,
     topic,
     paragraphCount: params.paragraphCount,
+    brandVoice: params.brandVoice ?? null,
   });
   checkDeadline(startedAt, deadlineMs);
 
@@ -309,6 +316,8 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     aspectRatio: params.aspectRatio,
     subtitles: params.subtitles,
     captionStyle: params.captionStyle ?? "classic",
+    accentColor: params.accentColor ?? null,
+    watermark: params.watermark ?? null,
     music: params.music ?? null,
     sceneMap,
   });

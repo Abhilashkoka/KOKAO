@@ -23,8 +23,15 @@ export interface TopicScript {
 /** ~1 paragraph ≈ 30s of narration; the UI offers 1..3. */
 export const MAX_PARAGRAPHS = 3;
 
-export function buildTopicScriptPrompt(topic: string, paragraphCount: number): string {
+export function buildTopicScriptPrompt(
+  topic: string,
+  paragraphCount: number,
+  brandVoice?: string | null,
+): string {
   const paragraphs = Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), MAX_PARAGRAPHS);
+  const brandBlock = brandVoice?.trim()
+    ? `\n\n## Brand voice (write in this brand's voice):\n${brandVoice.trim()}`
+    : "";
   return `# Role: Short Video Script Writer
 
 ## Goals:
@@ -36,7 +43,7 @@ Write the narration script for a short vertical video about the given subject, p
 3. No markdown, no titles, no formatting — only the raw spoken words.
 4. Never include "voiceover", "narrator" or similar speaker indicators.
 5. Never mention this prompt, the script itself, or the paragraph count.
-6. Write the script in the same language as the video subject.
+6. Write the script in the same language as the video subject.${brandBlock}
 
 ## Search term constraints:
 1. Return 5 stock-video search terms that follow the order of topics in the script; earlier terms must describe earlier visual moments.
@@ -77,6 +84,8 @@ export async function generateTopicScript(params: {
   tenantAiModel: string;
   topic: string;
   paragraphCount: number;
+  /** Optional brand-voice hint (traits, audience, terms to avoid). */
+  brandVoice?: string | null;
 }): Promise<TopicScript & { model: string }> {
   const textGen = await getTextGenClient(params.tenantAiModel);
   const completion = await textGen.client.chat.completions.create({
@@ -87,7 +96,14 @@ export async function generateTopicScript(params: {
         content:
           "You write narration scripts for short social videos and reply with strict JSON only.",
       },
-      { role: "user", content: buildTopicScriptPrompt(params.topic, params.paragraphCount) },
+      {
+        role: "user",
+        content: buildTopicScriptPrompt(
+          params.topic,
+          params.paragraphCount,
+          params.brandVoice ?? null,
+        ),
+      },
     ],
     max_completion_tokens: 8192,
     response_format: { type: "json_object" },

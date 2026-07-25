@@ -57,6 +57,11 @@ export interface ComposeInput {
    * social style. Ignored when `subtitles` is false.
    */
   captionStyle?: "classic" | "dynamic";
+  /** Brand accent for the caption stroke, as an ffmpeg color ("0xRRGGBB");
+   * null/omitted keeps the default black stroke. */
+  accentColor?: string | null;
+  /** Brand logo bytes (PNG/JPEG) overlaid top-right at ~7% height. */
+  watermark?: Buffer | null;
   /** Optional background music bytes. */
   music?: Buffer | null;
   /**
@@ -279,15 +284,31 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
         ).toFixed(3);
         videoFilters.push(
           `drawtext=fontfile=${fontFile}:textfile=cue_${String(i).padStart(3, "0")}.txt:` +
-            `fontcolor=white:fontsize=${fontSize}:borderw=${strokeWidth}:bordercolor=black:` +
+            `fontcolor=white:fontsize=${fontSize}:borderw=${strokeWidth}:` +
+            `bordercolor=${input.accentColor ?? "black"}:` +
             `line_spacing=${Math.round(fontSize / 5)}:` +
             `x=(w-text_w)/2:y=${yExpr}:` +
             `enable='between(t,${start},${end})'`,
         );
       }
     }
-    const videoChain =
-      videoFilters.length > 0 ? `[0:v]${videoFilters.join(",")}[vout]` : `[0:v]null[vout]`;
+
+    // Brand watermark: small logo top-right at ~7% frame height, 85% opacity
+    // (top-right keeps clear of both caption styles).
+    const hasWatermark = !!input.watermark && input.watermark.length > 0;
+    if (hasWatermark) {
+      await writeFile(join(dir, "logo.png"), input.watermark!);
+    }
+    const watermarkIndex = 2 + (hasMusic ? 1 : 0);
+    const watermarkPad = Math.round(height / 45);
+    const baseChain =
+      videoFilters.length > 0 ? `[0:v]${videoFilters.join(",")}` : `[0:v]null`;
+    const videoChain = hasWatermark
+      ? `${baseChain}[vbase];` +
+        `[${watermarkIndex}:v]scale=-1:${Math.round(height * 0.07)},format=rgba,` +
+        `colorchannelmixer=aa=0.85[wm];` +
+        `[vbase][wm]overlay=W-w-${watermarkPad}:${watermarkPad}[vout]`
+      : `${baseChain}[vout]`;
 
     // Audio: the narration is loudness-normalized to a spoken-word target,
     // the music is genuinely DUCKED under speech via sidechain compression
@@ -315,6 +336,7 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
       if (musicSeekSec > 0) args.push("-ss", musicSeekSec.toFixed(3));
       args.push("-i", "music");
     }
+    if (hasWatermark) args.push("-i", "logo.png");
     args.push(
       "-filter_complex_script",
       "filters.txt",

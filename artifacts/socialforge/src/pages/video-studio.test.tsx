@@ -28,12 +28,14 @@ const mockState: {
   jobs: any[];
   activeJob: any;
   characters: any[];
+  brandKits: any[];
 } = {
   lastGenerateVars: null,
   generateError: null,
   jobs: [],
   activeJob: undefined,
   characters: [],
+  brandKits: [],
 };
 
 const toastSpy = vi.fn();
@@ -77,6 +79,7 @@ vi.mock("@workspace/api-client-react", async () => {
     }),
     useListContent: () => ({ data: [], isLoading: false }),
     useListCharacters: () => ({ data: mockState.characters }),
+    useListBrandKits: () => ({ data: mockState.brandKits }),
   });
 });
 
@@ -99,6 +102,7 @@ beforeEach(() => {
   mockState.jobs = [];
   mockState.activeJob = undefined;
   mockState.characters = [];
+  mockState.brandKits = [];
   toastSpy.mockClear();
   cleanup();
 });
@@ -275,6 +279,42 @@ describe("Video Studio", () => {
     expect(promptBox.value).toBe(
       'morning habits for founders — open with this hook: "Still doing chai the slow way?"',
     );
+  });
+
+  it("sends the picked brand kit with a topic video, and nothing by default", async () => {
+    mockState.brandKits = [
+      { id: 9, name: "Chai Point", tenantId: 1 },
+      { id: 12, name: "Side Project", tenantId: 1 },
+    ];
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "5 morning habits that transform your day" },
+    });
+
+    // Branding is opt-in: nothing is sent until a kit is chosen.
+    fireEvent.click(screen.getByTestId("button-generate-video"));
+    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+    expect(mockState.lastGenerateVars.data.brandKitId).toBeNull();
+
+    mockState.lastGenerateVars = null;
+    await user.click(screen.getByTestId("select-brand-kit"));
+    await user.click(screen.getByRole("option", { name: "Chai Point" }));
+    fireEvent.click(screen.getByTestId("button-generate-video"));
+    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+    expect(mockState.lastGenerateVars.data.brandKitId).toBe(9);
+  });
+
+  it("keeps the brand kit picker off engines that cannot use it", async () => {
+    mockState.brandKits = [{ id: 9, name: "Chai Point", tenantId: 1 }];
+    renderPage();
+    const user = userEvent.setup();
+    expect(screen.queryByTestId("select-brand-kit")).toBeNull();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    expect(screen.getByTestId("select-brand-kit")).toBeTruthy();
+    await user.click(screen.getByTestId("tab-slideshow"));
+    expect(screen.queryByTestId("select-brand-kit")).toBeNull();
   });
 
   it("hides the caption style picker when subtitles are off", async () => {

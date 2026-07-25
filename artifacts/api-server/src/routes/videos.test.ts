@@ -292,6 +292,42 @@ describe("POST /api/ai/generate-video", () => {
     });
   });
 
+  it("stores a brand kit on a topic video and drops it on other engines", async () => {
+    const tenant = await newTenant();
+    const topic = await request(app).post("/api/ai/generate-video").send({
+      engine: "topic_to_video",
+      prompt: "Why your morning routine keeps failing",
+      brandKitId: 4321,
+    });
+    expect(topic.status).toBe(201);
+    await waitForPendingJobs();
+    const topicRow = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, topic.body.id))
+    )[0];
+    // A foreign/unknown id is stored as-is; the job runner resolves it
+    // tenant-scoped and simply renders unbranded when it does not match.
+    expect(topicRow?.options?.brandKitId).toBe(4321);
+
+    const text = await request(app).post("/api/ai/generate-video").send({
+      engine: "text_to_video",
+      prompt: "A calm ocean at dusk",
+      brandKitId: 4321,
+    });
+    expect(text.status).toBe(201);
+    await waitForPendingJobs();
+    const textRow = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, text.body.id))
+    )[0];
+    expect(textRow?.options?.brandKitId).toBeNull();
+    expect(tenant.tenantId).toBeGreaterThan(0);
+  });
+
   it("rejects a topic-to-video music path outside the caller's workspace", async () => {
     const tenant = await newTenant();
     const res = await request(app)

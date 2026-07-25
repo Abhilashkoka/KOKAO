@@ -18,6 +18,7 @@ import {
   useSearchMusicLibrary,
   useImportLibraryMusic,
   useGenerateHooks,
+  useListBrandKits,
   getSearchMusicLibraryQueryKey,
   getGoogleDriveAuthUrl,
   getListVideoJobsQueryKey,
@@ -185,6 +186,7 @@ export function VideoStudioPage() {
   const [clipMusic, setClipMusic] = useState(false);
   const [hooksOpen, setHooksOpen] = useState(false);
   const [hookIdeas, setHookIdeas] = useState<HookIdea[]>([]);
+  const [brandKitId, setBrandKitId] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
 
@@ -211,6 +213,7 @@ export function VideoStudioPage() {
   const { data: characters } = useListCharacters({
     query: { queryKey: getListCharactersQueryKey() },
   });
+  const { data: brandKits } = useListBrandKits();
   const activeCharacter = characters?.find((c) => c.id === characterId) ?? null;
 
   // Poll the active job until it settles; the server does the heavy lifting.
@@ -396,6 +399,7 @@ export function VideoStudioPage() {
             engine === "topic_to_video" && visuals === "character" && wardrobeNotes.trim()
               ? wardrobeNotes.trim()
               : null,
+          brandKitId: engine === "topic_to_video" ? brandKitId : null,
         },
       },
       {
@@ -748,6 +752,32 @@ export function VideoStudioPage() {
                     {4 * paragraphCount} video units (one per scene).
                   </p>
                 </div>
+              )}
+
+              {flags.brandVideo && (
+              <div className="space-y-2">
+                <Label htmlFor="brand-kit">Brand kit (optional)</Label>
+                <Select
+                  value={brandKitId === null ? "none" : String(brandKitId)}
+                  onValueChange={(v) => setBrandKitId(v === "none" ? null : Number(v))}
+                >
+                  <SelectTrigger id="brand-kit" data-testid="select-brand-kit">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No branding</SelectItem>
+                    {brandKits?.map((kit) => (
+                      <SelectItem key={kit.id} value={String(kit.id)}>
+                        {kit.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Writes the script in your brand voice, tints caption outlines with
+                  your brand colour, and stamps your logo on every frame.
+                </p>
+              </div>
               )}
             </div>
           )}

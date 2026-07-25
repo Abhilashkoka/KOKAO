@@ -98,7 +98,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "studioQuickPublish": zod.boolean(),
   "campaignStreaming": zod.boolean(),
   "composer": zod.boolean(),
-  "viralToolkit": zod.boolean()
+  "viralToolkit": zod.boolean(),
+  "brandVideo": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -5073,6 +5074,7 @@ export const GenerateVideoBody = zod.object({
   "visualsSource": zod.enum(['stock', 'character', 'ai']).default(generateVideoBodyVisualsSourceDefault).describe('topic_to_video only. \"character\" generates every scene with the locked character (one video unit per scene, 4 per paragraph). \"ai\" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph.'),
   "characterId": zod.number().nullish().describe('Character lock: the character featured in the video (text_to_video and topic_to_video character mode).'),
   "outfitId": zod.number().nullish().describe('Costume lock: the outfit the character wears. Defaults to the character\'s default outfit.'),
+  "brandKitId": zod.number().nullish().describe('topic_to_video only; apply this brand kit — its voice steers the script, its primary color tints the caption stroke, and its logo is watermarked top-right.'),
   "wardrobeNotes": zod.string().max(generateVideoBodyWardrobeNotesMax).nullish().describe('topic_to_video character mode; costume-change instructions (e.g. \"switch to gym wear for the workout scenes\").')
 })
 

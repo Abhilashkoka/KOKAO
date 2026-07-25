@@ -10243,6 +10243,12 @@ components:
           description: >-
             Costume lock: the outfit the character wears. Defaults to the
             character's default outfit.
+        brandKitId:
+          type: ["integer", "null"]
+          description: >-
+            topic_to_video only; apply this brand kit — its voice steers the
+            script, its primary color tints the caption stroke, and its logo
+            is watermarked top-right.
         wardrobeNotes:
           type: ["string", "null"]
           maxLength: 500
@@ -12580,6 +12586,7 @@ components:
           campaignStreaming,
           composer,
           viralToolkit,
+          brandVideo,
         ]
       properties:
         aiStudio:
@@ -12641,6 +12648,8 @@ components:
         composer:
           type: boolean
         viralToolkit:
+          type: boolean
+        brandVideo:
           type: boolean
     AiSpendSettingsView:
       type: object

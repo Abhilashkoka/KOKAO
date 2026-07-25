@@ -8,6 +8,8 @@ import { generateVideo, VideoGenNotConfiguredError, VideoGenProviderError } from
 import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
 import { normalizeVideo, mixMusicIntoVideo } from "./postprocess";
 import { generateMusicBed } from "./musicGen";
+import { loadVideoBranding } from "./branding";
+import { isFeatureEnabled } from "../featureFlags";
 import { verifyRenderedVideo, type VideoQaExpectations } from "./qaGate";
 import {
   generateTopicVideo,
@@ -249,6 +251,37 @@ async function produceVideo(
   if (job.engine === "topic_to_video") {
     // MusicGen tops out at 30s; the composer loops the bed, so 30 is enough.
     const music = await resolveMusic(job, options, 30, onStage);
+
+    // Brand kit → video (opt-in, fail-soft): voice for the script, accent
+    // for the captions, logo for the corner watermark. Gated by the Brand
+    // Video kill switch so already-queued branded jobs render unbranded
+    // when the feature is turned off.
+    const brandVideoEnabled = await isFeatureEnabled("brandVideo").catch(() => true);
+    const branding = await loadVideoBranding(
+      job.tenantId,
+      brandVideoEnabled ? (options.brandKitId ?? null) : null,
+    ).catch(
+      (err) => {
+        logger.warn({ err, jobId: job.id }, "Brand kit lookup failed; rendering unbranded");
+        return null;
+      },
+    );
+    let watermark: Buffer | null = null;
+    if (branding?.watermarkPath) {
+      try {
+        watermark = (
+          await loadTenantObject(
+            branding.watermarkPath,
+            job.tenantId,
+            MAX_SOURCE_IMAGE_BYTES,
+            "Brand logo",
+          )
+        ).buffer;
+      } catch (err) {
+        logger.warn({ err, jobId: job.id }, "Brand logo load failed; skipping watermark");
+      }
+    }
+
     const result = await generateTopicVideo({
       tenantId: job.tenantId,
       topic: job.prompt ?? "",
@@ -268,6 +301,9 @@ async function produceVideo(
       characterId: options.characterId ?? null,
       outfitId: options.outfitId ?? null,
       wardrobeNotes: options.wardrobeNotes ?? null,
+      brandVoice: branding?.voiceHint ?? null,
+      accentColor: branding?.accentColor ?? null,
+      watermark,
       onStage,
     });
     return {

@@ -1,0 +1,882 @@
+From f3856ee9b198a3f6f575b9ce53b8a8d3ae076721 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 25 Jul 2026 05:19:09 +0000
+Subject: [PATCH] feat(video): brand kits steer topic videos end to end
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A topic video can now carry a brand kit, and every part of the pipeline
+that has a brand-shaped decision to make consults it:
+
+- Script: the kit's voice traits, audience, CTA style, and restricted
+  terms become a "Brand voice" block in the script prompt, so the
+  narration sounds like the brand instead of generic AI copy.
+- Captions: the first parseable brand colour, darkened for contrast
+  behind white text, becomes the caption stroke.
+- Frames: the kit's icon mark (or primary logo) is stamped top-right at
+  ~7% frame height and 85% opacity, clear of both caption styles.
+
+Branding is opt-in and strictly fail-soft. No brandKitId means the
+render is byte-for-byte what it was before; a missing kit, unparseable
+colour, or unloadable logo just skips that one touch and the video still
+ships. Only /objects/ logo paths are watermarked — an external logo URL
+would mean fetching an arbitrary host at render time, so those are
+ignored.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EJdoZ8bk1pWTrmbMVQJZ7G
+---
+ .../src/lib/videoGen/branding.test.ts         | 146 ++++++++++++++++++
+ .../api-server/src/lib/videoGen/branding.ts   |  90 +++++++++++
+ .../api-server/src/lib/videoGen/jobRunner.ts  |  29 ++++
+ .../src/lib/videoGen/topicVideo/compose.ts    |  28 +++-
+ .../src/lib/videoGen/topicVideo/index.ts      |   9 ++
+ .../src/lib/videoGen/topicVideo/script.ts     |  22 ++-
+ .../videoGen/topicVideo/topicVideo.test.ts    |  75 +++++++++
+ .../api-server/src/routes/videos.test.ts      |  36 +++++
+ artifacts/api-server/src/routes/videos.ts     |   3 +
+ .../src/pages/video-studio.test.tsx           |  40 +++++
+ .../socialforge/src/pages/video-studio.tsx    |  28 ++++
+ .../src/generated/api.schemas.ts              |   5 +
+ lib/api-spec/openapi.yaml                     |   6 +
+ lib/api-zod/src/generated/api.ts              |   1 +
+ .../generated/types/videoGenerateRequest.ts   |   5 +
+ lib/db/src/schema/videoGenerations.ts         |   2 +
+ 16 files changed, 519 insertions(+), 6 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/branding.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/branding.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/branding.test.ts b/artifacts/api-server/src/lib/videoGen/branding.test.ts
+new file mode 100644
+index 0000000..6079523
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/branding.test.ts
+@@ -0,0 +1,146 @@
++import { describe, it, expect, vi, beforeEach } from "vitest";
++import type { BrandKitPayload } from "@workspace/db";
++import { buildDefaultPayload } from "../brandKit/defaults";
++import { parseHexColor, toCaptionStroke, loadVideoBranding } from "./branding";
++
++const loadActivePayload = vi.hoisted(() => vi.fn());
++vi.mock("../brandKit/service", () => ({ loadActivePayload }));
++
++function payloadWith(mutate: (p: BrandKitPayload) => void): BrandKitPayload {
++  const payload = buildDefaultPayload({ brandName: "Chai Point" });
++  mutate(payload);
++  return payload;
++}
++
++/** loadActivePayload resolves with { kit, payload, compiledStylePrompt }. */
++function resolveWith(payload: BrandKitPayload) {
++  loadActivePayload.mockResolvedValue({
++    kit: { id: 7, tenantId: 1 },
++    payload,
++    compiledStylePrompt: null,
++  });
++}
++
++describe("parseHexColor", () => {
++  it("accepts 6-digit hex with or without the hash, in either case", () => {
++    expect(parseHexColor("#FF8800")).toEqual({ r: 255, g: 136, b: 0 });
++    expect(parseHexColor("ff8800")).toEqual({ r: 255, g: 136, b: 0 });
++    expect(parseHexColor("  #0A0B0C  ")).toEqual({ r: 10, g: 11, b: 12 });
++  });
++
++  it("rejects shorthand, named, and malformed colors", () => {
++    for (const bad of ["#FFF", "rebeccapurple", "", "#GGHHII", "#FF88000"]) {
++      expect(parseHexColor(bad)).toBeNull();
++    }
++  });
++});
++
++describe("toCaptionStroke", () => {
++  it("darkens the brand color so white caption text stays readable", () => {
++    // 255 * 0.45 = 114.75 -> 115 (0x73); 136 * 0.45 = 61.2 -> 61 (0x3D)
++    expect(toCaptionStroke("#FF8800")).toBe("0x733D00");
++  });
++
++  it("keeps black black and never exceeds the byte range", () => {
++    expect(toCaptionStroke("#000000")).toBe("0x000000");
++    expect(toCaptionStroke("#FFFFFF")).toBe("0x737373");
++  });
++
++  it("returns null for colors it cannot parse", () => {
++    expect(toCaptionStroke("not-a-color")).toBeNull();
++  });
++});
++
++describe("loadVideoBranding", () => {
++  beforeEach(() => {
++    loadActivePayload.mockReset();
++  });
++
++  it("returns null without touching the database when no kit is requested", async () => {
++    expect(await loadVideoBranding(1, null)).toBeNull();
++    expect(await loadVideoBranding(1, undefined)).toBeNull();
++    expect(await loadVideoBranding(1, 0)).toBeNull();
++    expect(loadActivePayload).not.toHaveBeenCalled();
++  });
++
++  it("returns null when the kit does not resolve for this tenant", async () => {
++    loadActivePayload.mockResolvedValue(null);
++    expect(await loadVideoBranding(1, 7)).toBeNull();
++  });
++
++  it("builds a voice hint from traits, audience, CTA style, and banned terms", async () => {
++    resolveWith(
++      payloadWith((p) => {
++        p.voice.traits = ["warm", "practical", "never salesy"];
++        p.identity.audience = ["cafe owners", "first-time founders"];
++        p.voice.cta_style = "invite, never demand";
++        p.brand_controls.restricted_terms = ["cheap", "guaranteed"];
++      }),
++    );
++    const branding = await loadVideoBranding(1, 7);
++    expect(branding?.voiceHint).toBe(
++      "Voice: warm, practical, never salesy. Audience: cafe owners, first-time founders. " +
++        "CTA style: invite, never demand. Never use these terms: cheap, guaranteed.",
++    );
++    expect(branding?.brandName).toBe("Chai Point");
++  });
++
++  it("has no voice hint when the kit carries no voice signal", async () => {
++    resolveWith(payloadWith(() => {}));
++    expect((await loadVideoBranding(1, 7))?.voiceHint).toBeNull();
++  });
++
++  it("uses the first parseable color, preferring primary over secondary", async () => {
++    resolveWith(
++      payloadWith((p) => {
++        p.colors.primary = [{ name: "bad", hex: "not-hex" } as any];
++        p.colors.secondary = [{ name: "ok", hex: "#FF8800" } as any];
++      }),
++    );
++    expect((await loadVideoBranding(1, 7))?.accentColor).toBe("0x733D00");
++
++    resolveWith(
++      payloadWith((p) => {
++        p.colors.primary = [{ name: "brand", hex: "#112233" } as any];
++        p.colors.secondary = [{ name: "other", hex: "#FF8800" } as any];
++      }),
++    );
++    expect((await loadVideoBranding(1, 7))?.accentColor).toBe("0x080F17");
++  });
++
++  it("has no accent color when every swatch is unparseable", async () => {
++    resolveWith(
++      payloadWith((p) => {
++        p.colors.primary = [{ name: "bad", hex: "teal" } as any];
++      }),
++    );
++    expect((await loadVideoBranding(1, 7))?.accentColor).toBeNull();
++  });
++
++  it("watermarks with the icon mark first, then the primary logo", async () => {
++    resolveWith(
++      payloadWith((p) => {
++        p.logos.primary = { url: "/objects/1/uploads/primary.png" } as any;
++        p.logos.icon_mark = { url: "/objects/1/uploads/icon.png" } as any;
++      }),
++    );
++    expect((await loadVideoBranding(1, 7))?.watermarkPath).toBe("/objects/1/uploads/icon.png");
++
++    resolveWith(
++      payloadWith((p) => {
++        p.logos.primary = { url: "/objects/1/uploads/primary.png" } as any;
++      }),
++    );
++    expect((await loadVideoBranding(1, 7))?.watermarkPath).toBe("/objects/1/uploads/primary.png");
++  });
++
++  it("never watermarks with an external logo URL", async () => {
++    resolveWith(
++      payloadWith((p) => {
++        p.logos.icon_mark = { url: "https://cdn.example.com/logo.png" } as any;
++        p.logos.primary = { url: "http://example.com/p.png" } as any;
++      }),
++    );
++    expect((await loadVideoBranding(1, 7))?.watermarkPath).toBeNull();
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/branding.ts b/artifacts/api-server/src/lib/videoGen/branding.ts
+new file mode 100644
+index 0000000..538e9c9
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/branding.ts
+@@ -0,0 +1,90 @@
++import type { BrandKitPayload } from "@workspace/db";
++import { loadActivePayload } from "../brandKit/service";
++
++/**
++ * Brand kit → video: everything the video pipeline needs from a brand kit,
++ * resolved once per job. Branding is opt-in (only applied when the job
++ * carries a brandKitId) and strictly fail-soft — a missing kit, color, or
++ * logo just means that touch is skipped.
++ */
++
++export interface VideoBranding {
++  /** Voice/audience/avoid-terms line for the script prompt, or null. */
++  voiceHint: string | null;
++  /** Caption accent as an ffmpeg color ("0xRRGGBB"), pre-darkened for use
++   * as a stroke behind white text, or null. */
++  accentColor: string | null;
++  /** Tenant-storage path of the logo to watermark with, or null. */
++  watermarkPath: string | null;
++  brandName: string;
++}
++
++/** "#A1B2C3" / "A1B2C3" → {r,g,b}, or null for anything else. */
++export function parseHexColor(hex: string): { r: number; g: number; b: number } | null {
++  const match = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim());
++  if (!match) return null;
++  const value = Number.parseInt(match[1]!, 16);
++  return { r: (value >> 16) & 0xff, g: (value >> 8) & 0xff, b: value & 0xff };
++}
++
++/**
++ * Darken a brand color for use as the caption stroke: white text needs a
++ * dark outline, so the hue is kept but luminance is pulled down.
++ */
++export function toCaptionStroke(hex: string): string | null {
++  const rgb = parseHexColor(hex);
++  if (!rgb) return null;
++  const darken = (c: number) => Math.round(c * 0.45);
++  const value = (darken(rgb.r) << 16) | (darken(rgb.g) << 8) | darken(rgb.b);
++  return `0x${value.toString(16).padStart(6, "0").toUpperCase()}`;
++}
++
++function firstColorHex(payload: BrandKitPayload): string | null {
++  const candidates = [...payload.colors.primary, ...payload.colors.secondary];
++  for (const color of candidates) {
++    if (parseHexColor(color.hex)) return color.hex;
++  }
++  return null;
++}
++
++/** The logo best suited to a small corner watermark (icon mark first). */
++function watermarkLogoPath(payload: BrandKitPayload): string | null {
++  const candidates = [payload.logos.icon_mark, payload.logos.primary, payload.logos.secondary];
++  for (const logo of candidates) {
++    // Only tenant-storage paths are loaded (external URLs would mean a
++    // server-side fetch of an arbitrary host at render time).
++    if (logo?.url?.startsWith("/objects/")) return logo.url;
++  }
++  return null;
++}
++
++/** One compact line steering the script writer toward the brand's voice. */
++function buildVoiceHint(payload: BrandKitPayload): string | null {
++  const parts: string[] = [];
++  const traits = payload.voice.traits.filter(Boolean).slice(0, 5);
++  if (traits.length > 0) parts.push(`Voice: ${traits.join(", ")}.`);
++  const audience = payload.identity.audience.filter(Boolean).slice(0, 3);
++  if (audience.length > 0) parts.push(`Audience: ${audience.join(", ")}.`);
++  if (payload.voice.cta_style) parts.push(`CTA style: ${payload.voice.cta_style}.`);
++  const restricted = payload.brand_controls.restricted_terms.filter(Boolean);
++  if (restricted.length > 0) parts.push(`Never use these terms: ${restricted.join(", ")}.`);
++  return parts.length > 0 ? parts.join(" ") : null;
++}
++
++/** Resolve a brand kit into video-ready branding, or null. Fail-soft. */
++export async function loadVideoBranding(
++  tenantId: number,
++  brandKitId: number | null | undefined,
++): Promise<VideoBranding | null> {
++  if (!brandKitId) return null;
++  const resolved = await loadActivePayload(tenantId, brandKitId);
++  if (!resolved) return null;
++  const payload = resolved.payload;
++  const hex = firstColorHex(payload);
++  return {
++    voiceHint: buildVoiceHint(payload),
++    accentColor: hex ? toCaptionStroke(hex) : null,
++    watermarkPath: watermarkLogoPath(payload),
++    brandName: payload.identity.brand_name,
++  };
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index 5d12f38..5085769 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -8,6 +8,7 @@ import { generateVideo, VideoGenNotConfiguredError, VideoGenProviderError } from
+ import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
+ import { normalizeVideo } from "./postprocess";
+ import { generateMusicBed } from "./musicGen";
++import { loadVideoBranding } from "./branding";
+ import { verifyRenderedVideo, type VideoQaExpectations } from "./qaGate";
+ import {
+   generateTopicVideo,
+@@ -241,6 +242,31 @@ async function produceVideo(
+   if (job.engine === "topic_to_video") {
+     // MusicGen tops out at 30s; the composer loops the bed, so 30 is enough.
+     const music = await resolveMusic(job, options, 30, onStage);
++
++    // Brand kit → video (opt-in, fail-soft): voice for the script, accent
++    // for the captions, logo for the corner watermark.
++    const branding = await loadVideoBranding(job.tenantId, options.brandKitId ?? null).catch(
++      (err) => {
++        logger.warn({ err, jobId: job.id }, "Brand kit lookup failed; rendering unbranded");
++        return null;
++      },
++    );
++    let watermark: Buffer | null = null;
++    if (branding?.watermarkPath) {
++      try {
++        watermark = (
++          await loadTenantObject(
++            branding.watermarkPath,
++            job.tenantId,
++            MAX_SOURCE_IMAGE_BYTES,
++            "Brand logo",
++          )
++        ).buffer;
++      } catch (err) {
++        logger.warn({ err, jobId: job.id }, "Brand logo load failed; skipping watermark");
++      }
++    }
++
+     const result = await generateTopicVideo({
+       tenantId: job.tenantId,
+       topic: job.prompt ?? "",
+@@ -260,6 +286,9 @@ async function produceVideo(
+       characterId: options.characterId ?? null,
+       outfitId: options.outfitId ?? null,
+       wardrobeNotes: options.wardrobeNotes ?? null,
++      brandVoice: branding?.voiceHint ?? null,
++      accentColor: branding?.accentColor ?? null,
++      watermark,
+       onStage,
+     });
+     return {
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts
+index 979c434..293195c 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/compose.ts
+@@ -57,6 +57,11 @@ export interface ComposeInput {
+    * social style. Ignored when `subtitles` is false.
+    */
+   captionStyle?: "classic" | "dynamic";
++  /** Brand accent for the caption stroke, as an ffmpeg color ("0xRRGGBB");
++   * null/omitted keeps the default black stroke. */
++  accentColor?: string | null;
++  /** Brand logo bytes (PNG/JPEG) overlaid top-right at ~7% height. */
++  watermark?: Buffer | null;
+   /** Optional background music bytes. */
+   music?: Buffer | null;
+   /**
+@@ -279,15 +284,31 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
+         ).toFixed(3);
+         videoFilters.push(
+           `drawtext=fontfile=${fontFile}:textfile=cue_${String(i).padStart(3, "0")}.txt:` +
+-            `fontcolor=white:fontsize=${fontSize}:borderw=${strokeWidth}:bordercolor=black:` +
++            `fontcolor=white:fontsize=${fontSize}:borderw=${strokeWidth}:` +
++            `bordercolor=${input.accentColor ?? "black"}:` +
+             `line_spacing=${Math.round(fontSize / 5)}:` +
+             `x=(w-text_w)/2:y=${yExpr}:` +
+             `enable='between(t,${start},${end})'`,
+         );
+       }
+     }
+-    const videoChain =
+-      videoFilters.length > 0 ? `[0:v]${videoFilters.join(",")}[vout]` : `[0:v]null[vout]`;
++
++    // Brand watermark: small logo top-right at ~7% frame height, 85% opacity
++    // (top-right keeps clear of both caption styles).
++    const hasWatermark = !!input.watermark && input.watermark.length > 0;
++    if (hasWatermark) {
++      await writeFile(join(dir, "logo.png"), input.watermark!);
++    }
++    const watermarkIndex = 2 + (hasMusic ? 1 : 0);
++    const watermarkPad = Math.round(height / 45);
++    const baseChain =
++      videoFilters.length > 0 ? `[0:v]${videoFilters.join(",")}` : `[0:v]null`;
++    const videoChain = hasWatermark
++      ? `${baseChain}[vbase];` +
++        `[${watermarkIndex}:v]scale=-1:${Math.round(height * 0.07)},format=rgba,` +
++        `colorchannelmixer=aa=0.85[wm];` +
++        `[vbase][wm]overlay=W-w-${watermarkPad}:${watermarkPad}[vout]`
++      : `${baseChain}[vout]`;
+ 
+     // Audio: the narration is loudness-normalized to a spoken-word target,
+     // the music is genuinely DUCKED under speech via sidechain compression
+@@ -315,6 +336,7 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
+       if (musicSeekSec > 0) args.push("-ss", musicSeekSec.toFixed(3));
+       args.push("-i", "music");
+     }
++    if (hasWatermark) args.push("-i", "logo.png");
+     args.push(
+       "-filter_complex_script",
+       "filters.txt",
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+index fe0d580..3b0ce95 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+@@ -70,6 +70,12 @@ export interface TopicVideoParams {
+   characterId?: number | null;
+   outfitId?: number | null;
+   wardrobeNotes?: string | null;
++  /** Brand-voice hint injected into the script prompt (brand kit). */
++  brandVoice?: string | null;
++  /** Caption stroke accent ("0xRRGGBB") from the brand kit. */
++  accentColor?: string | null;
++  /** Brand logo bytes to watermark top-right. */
++  watermark?: Buffer | null;
+   /** Live progress reporting ("Writing the script", ...); optional. */
+   onStage?: (stage: string) => void;
+ }
+@@ -219,6 +225,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+     tenantAiModel: tenant.aiModel,
+     topic,
+     paragraphCount: params.paragraphCount,
++    brandVoice: params.brandVoice ?? null,
+   });
+   checkDeadline(startedAt, deadlineMs);
+ 
+@@ -309,6 +316,8 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+     aspectRatio: params.aspectRatio,
+     subtitles: params.subtitles,
+     captionStyle: params.captionStyle ?? "classic",
++    accentColor: params.accentColor ?? null,
++    watermark: params.watermark ?? null,
+     music: params.music ?? null,
+     sceneMap,
+   });
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/script.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/script.ts
+index 4092c65..d3e3603 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/script.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/script.ts
+@@ -23,8 +23,15 @@ export interface TopicScript {
+ /** ~1 paragraph ≈ 30s of narration; the UI offers 1..3. */
+ export const MAX_PARAGRAPHS = 3;
+ 
+-export function buildTopicScriptPrompt(topic: string, paragraphCount: number): string {
++export function buildTopicScriptPrompt(
++  topic: string,
++  paragraphCount: number,
++  brandVoice?: string | null,
++): string {
+   const paragraphs = Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), MAX_PARAGRAPHS);
++  const brandBlock = brandVoice?.trim()
++    ? `\n\n## Brand voice (write in this brand's voice):\n${brandVoice.trim()}`
++    : "";
+   return `# Role: Short Video Script Writer
+ 
+ ## Goals:
+@@ -36,7 +43,7 @@ Write the narration script for a short vertical video about the given subject, p
+ 3. No markdown, no titles, no formatting — only the raw spoken words.
+ 4. Never include "voiceover", "narrator" or similar speaker indicators.
+ 5. Never mention this prompt, the script itself, or the paragraph count.
+-6. Write the script in the same language as the video subject.
++6. Write the script in the same language as the video subject.${brandBlock}
+ 
+ ## Search term constraints:
+ 1. Return 5 stock-video search terms that follow the order of topics in the script; earlier terms must describe earlier visual moments.
+@@ -77,6 +84,8 @@ export async function generateTopicScript(params: {
+   tenantAiModel: string;
+   topic: string;
+   paragraphCount: number;
++  /** Optional brand-voice hint (traits, audience, terms to avoid). */
++  brandVoice?: string | null;
+ }): Promise<TopicScript & { model: string }> {
+   const textGen = await getTextGenClient(params.tenantAiModel);
+   const completion = await textGen.client.chat.completions.create({
+@@ -87,7 +96,14 @@ export async function generateTopicScript(params: {
+         content:
+           "You write narration scripts for short social videos and reply with strict JSON only.",
+       },
+-      { role: "user", content: buildTopicScriptPrompt(params.topic, params.paragraphCount) },
++      {
++        role: "user",
++        content: buildTopicScriptPrompt(
++          params.topic,
++          params.paragraphCount,
++          params.brandVoice ?? null,
++        ),
++      },
+     ],
+     max_completion_tokens: 8192,
+     response_format: { type: "json_object" },
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts
+index 4ce6c4b..2f3142c 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/topicVideo.test.ts
+@@ -118,6 +118,21 @@ describe("script generation helpers", () => {
+     expect(buildTopicScriptPrompt("x", 0)).toContain("exactly 1 paragraph");
+   });
+ 
++  it("injects a brand voice block only when a hint is supplied", () => {
++    const plain = buildTopicScriptPrompt("morning chai", 1);
++    expect(plain).not.toContain("Brand voice");
++    const branded = buildTopicScriptPrompt(
++      "morning chai",
++      1,
++      "Voice: warm, practical. Never use these terms: cheap.",
++    );
++    expect(branded).toContain("Brand voice");
++    expect(branded).toContain("Voice: warm, practical. Never use these terms: cheap.");
++    // Branding steers the voice; it must not change the output contract.
++    expect(branded).toContain("exactly 1 paragraph");
++    expect(branded).toContain("searchTerms");
++  });
++
+   it("cleans markdown remnants out of a script", () => {
+     expect(cleanScript("**Bold** start. [pause] The # real content.")).toBe(
+       "Bold start.  The  real content.",
+@@ -232,6 +247,21 @@ async function makeTestClip(seconds: number): Promise<Buffer> {
+   }
+ }
+ 
++/** A tiny transparent-ish PNG to stand in for a brand logo. */
++async function makeTestLogo(): Promise<Buffer> {
++  const dir = await mkdtemp(join(tmpdir(), "topic-test-logo-"));
++  try {
++    await runFfmpeg(
++      ["-y", "-f", "lavfi", "-i", "color=c=white:s=120x40:d=1", "-frames:v", "1", "logo.png"],
++      dir,
++    );
++    const { readFile } = await import("fs/promises");
++    return await readFile(join(dir, "logo.png"));
++  } finally {
++    await rm(dir, { recursive: true, force: true }).catch(() => {});
++  }
++}
++
+ describe("composeTopicVideo (real ffmpeg)", () => {
+   it(
+     "renders narrated, subtitled scenes into a single MP4",
+@@ -326,6 +356,51 @@ describe("composeTopicVideo (real ffmpeg)", () => {
+     120_000,
+   );
+ 
++  it(
++    "renders brand accent captions and a corner logo watermark",
++    async () => {
++      const clip = await makeTestClip(2);
++      const out = await composeTopicVideo({
++        clips: [clip],
++        narrationWav: makeTestWav(3.6),
++        cues: [
++          { text: "Branded scene one.", startSec: 0, endSec: 1.4 },
++          { text: "Branded scene two.", startSec: 1.65, endSec: 3.05 },
++        ],
++        totalDurationSec: 3.65,
++        aspectRatio: "9:16",
++        subtitles: true,
++        captionStyle: "dynamic",
++        music: null,
++        accentColor: "0x733D00",
++        watermark: await makeTestLogo(),
++      });
++      expect(out.toString("ascii", 4, 8)).toBe("ftyp");
++      expect(out.length).toBeGreaterThan(1000);
++    },
++    120_000,
++  );
++
++  it(
++    "still renders when a watermark is supplied without subtitles or music",
++    async () => {
++      const out = await composeTopicVideo({
++        clips: [await makeTestClip(2)],
++        // loudnorm needs a few seconds of audio to settle (it emits NaN on
++        // very short inputs), so keep test narration at 4s like the others.
++        narrationWav: makeTestWav(4),
++        cues: [{ text: "Logo only.", startSec: 0, endSec: 3.4 }],
++        totalDurationSec: 4,
++        aspectRatio: "1:1",
++        subtitles: false,
++        music: null,
++        watermark: await makeTestLogo(),
++      });
++      expect(out.toString("ascii", 4, 8)).toBe("ftyp");
++    },
++    120_000,
++  );
++
+   it("rejects a scene map that points at a missing clip", async () => {
+     await expect(
+       composeTopicVideo({
+diff --git a/artifacts/api-server/src/routes/videos.test.ts b/artifacts/api-server/src/routes/videos.test.ts
+index 3ca66c5..cc03267 100644
+--- a/artifacts/api-server/src/routes/videos.test.ts
++++ b/artifacts/api-server/src/routes/videos.test.ts
+@@ -292,6 +292,42 @@ describe("POST /api/ai/generate-video", () => {
+     });
+   });
+ 
++  it("stores a brand kit on a topic video and drops it on other engines", async () => {
++    const tenant = await newTenant();
++    const topic = await request(app).post("/api/ai/generate-video").send({
++      engine: "topic_to_video",
++      prompt: "Why your morning routine keeps failing",
++      brandKitId: 4321,
++    });
++    expect(topic.status).toBe(201);
++    await waitForPendingJobs();
++    const topicRow = (
++      await db
++        .select()
++        .from(videoGenerationsTable)
++        .where(eq(videoGenerationsTable.id, topic.body.id))
++    )[0];
++    // A foreign/unknown id is stored as-is; the job runner resolves it
++    // tenant-scoped and simply renders unbranded when it does not match.
++    expect(topicRow?.options?.brandKitId).toBe(4321);
++
++    const text = await request(app).post("/api/ai/generate-video").send({
++      engine: "text_to_video",
++      prompt: "A calm ocean at dusk",
++      brandKitId: 4321,
++    });
++    expect(text.status).toBe(201);
++    await waitForPendingJobs();
++    const textRow = (
++      await db
++        .select()
++        .from(videoGenerationsTable)
++        .where(eq(videoGenerationsTable.id, text.body.id))
++    )[0];
++    expect(textRow?.options?.brandKitId).toBeNull();
++    expect(tenant.tenantId).toBeGreaterThan(0);
++  });
++
+   it("rejects a topic-to-video music path outside the caller's workspace", async () => {
+     const tenant = await newTenant();
+     const res = await request(app)
+diff --git a/artifacts/api-server/src/routes/videos.ts b/artifacts/api-server/src/routes/videos.ts
+index ef66474..9c51352 100644
+--- a/artifacts/api-server/src/routes/videos.ts
++++ b/artifacts/api-server/src/routes/videos.ts
+@@ -209,6 +209,9 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+     characterId,
+     outfitId,
+     wardrobeNotes: body.wardrobeNotes?.trim() || null,
++    // Brand kit is tenant-scoped at load time in the job runner; storing a
++    // foreign id just renders unbranded.
++    brandKitId: body.engine === "topic_to_video" ? (body.brandKitId ?? null) : null,
+   };
+ 
+   // Fund like every metered generation: monthly plan quota first, then
+diff --git a/artifacts/socialforge/src/pages/video-studio.test.tsx b/artifacts/socialforge/src/pages/video-studio.test.tsx
+index ccb1cfd..67f765c 100644
+--- a/artifacts/socialforge/src/pages/video-studio.test.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.test.tsx
+@@ -28,12 +28,14 @@ const mockState: {
+   jobs: any[];
+   activeJob: any;
+   characters: any[];
++  brandKits: any[];
+ } = {
+   lastGenerateVars: null,
+   generateError: null,
+   jobs: [],
+   activeJob: undefined,
+   characters: [],
++  brandKits: [],
+ };
+ 
+ const toastSpy = vi.fn();
+@@ -77,6 +79,7 @@ vi.mock("@workspace/api-client-react", async () => {
+     }),
+     useListContent: () => ({ data: [], isLoading: false }),
+     useListCharacters: () => ({ data: mockState.characters }),
++    useListBrandKits: () => ({ data: mockState.brandKits }),
+   });
+ });
+ 
+@@ -99,6 +102,7 @@ beforeEach(() => {
+   mockState.jobs = [];
+   mockState.activeJob = undefined;
+   mockState.characters = [];
++  mockState.brandKits = [];
+   toastSpy.mockClear();
+   cleanup();
+ });
+@@ -231,6 +235,42 @@ describe("Video Studio", () => {
+     );
+   });
+ 
++  it("sends the picked brand kit with a topic video, and nothing by default", async () => {
++    mockState.brandKits = [
++      { id: 9, name: "Chai Point", tenantId: 1 },
++      { id: 12, name: "Side Project", tenantId: 1 },
++    ];
++    renderPage();
++    const user = userEvent.setup();
++    await user.click(screen.getByTestId("tab-topic-to-video"));
++    fireEvent.change(screen.getByTestId("input-video-prompt"), {
++      target: { value: "5 morning habits that transform your day" },
++    });
++
++    // Branding is opt-in: nothing is sent until a kit is chosen.
++    fireEvent.click(screen.getByTestId("button-generate-video"));
++    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
++    expect(mockState.lastGenerateVars.data.brandKitId).toBeNull();
++
++    mockState.lastGenerateVars = null;
++    await user.click(screen.getByTestId("select-brand-kit"));
++    await user.click(screen.getByRole("option", { name: "Chai Point" }));
++    fireEvent.click(screen.getByTestId("button-generate-video"));
++    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
++    expect(mockState.lastGenerateVars.data.brandKitId).toBe(9);
++  });
++
++  it("keeps the brand kit picker off engines that cannot use it", async () => {
++    mockState.brandKits = [{ id: 9, name: "Chai Point", tenantId: 1 }];
++    renderPage();
++    const user = userEvent.setup();
++    expect(screen.queryByTestId("select-brand-kit")).toBeNull();
++    await user.click(screen.getByTestId("tab-topic-to-video"));
++    expect(screen.getByTestId("select-brand-kit")).toBeTruthy();
++    await user.click(screen.getByTestId("tab-slideshow"));
++    expect(screen.queryByTestId("select-brand-kit")).toBeNull();
++  });
++
+   it("hides the caption style picker when subtitles are off", async () => {
+     renderPage();
+     const user = userEvent.setup();
+diff --git a/artifacts/socialforge/src/pages/video-studio.tsx b/artifacts/socialforge/src/pages/video-studio.tsx
+index 770c0ec..1b977de 100644
+--- a/artifacts/socialforge/src/pages/video-studio.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.tsx
+@@ -18,6 +18,7 @@ import {
+   useSearchMusicLibrary,
+   useImportLibraryMusic,
+   useGenerateHooks,
++  useListBrandKits,
+   getSearchMusicLibraryQueryKey,
+   getGoogleDriveAuthUrl,
+   getListVideoJobsQueryKey,
+@@ -182,6 +183,7 @@ export function VideoStudioPage() {
+   const [musicLibraryOpen, setMusicLibraryOpen] = useState(false);
+   const [hooksOpen, setHooksOpen] = useState(false);
+   const [hookIdeas, setHookIdeas] = useState<HookIdea[]>([]);
++  const [brandKitId, setBrandKitId] = useState<number | null>(null);
+   const [uploading, setUploading] = useState(false);
+   const [activeJobId, setActiveJobId] = useState<number | null>(null);
+ 
+@@ -207,6 +209,7 @@ export function VideoStudioPage() {
+   const { data: characters } = useListCharacters({
+     query: { queryKey: getListCharactersQueryKey() },
+   });
++  const { data: brandKits } = useListBrandKits();
+   const activeCharacter = characters?.find((c) => c.id === characterId) ?? null;
+ 
+   // Poll the active job until it settles; the server does the heavy lifting.
+@@ -400,6 +403,7 @@ export function VideoStudioPage() {
+             engine === "topic_to_video" && visuals === "character" && wardrobeNotes.trim()
+               ? wardrobeNotes.trim()
+               : null,
++          brandKitId: engine === "topic_to_video" ? brandKitId : null,
+         },
+       },
+       {
+@@ -622,6 +626,30 @@ export function VideoStudioPage() {
+                   </p>
+                 </div>
+               )}
++
++              <div className="space-y-2">
++                <Label htmlFor="brand-kit">Brand kit (optional)</Label>
++                <Select
++                  value={brandKitId === null ? "none" : String(brandKitId)}
++                  onValueChange={(v) => setBrandKitId(v === "none" ? null : Number(v))}
++                >
++                  <SelectTrigger id="brand-kit" data-testid="select-brand-kit">
++                    <SelectValue />
++                  </SelectTrigger>
++                  <SelectContent>
++                    <SelectItem value="none">No branding</SelectItem>
++                    {brandKits?.map((kit) => (
++                      <SelectItem key={kit.id} value={String(kit.id)}>
++                        {kit.name}
++                      </SelectItem>
++                    ))}
++                  </SelectContent>
++                </Select>
++                <p className="text-xs text-muted-foreground">
++                  Writes the script in your brand voice, tints caption outlines with
++                  your brand colour, and stamps your logo on every frame.
++                </p>
++              </div>
+             </div>
+           )}
+ 
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index e9587c8..fe4a150 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -2544,6 +2544,11 @@ export interface VideoGenerateRequest {
+      * @nullable
+      */
+   outfitId?: number | null;
++  /**
++     * topic_to_video only; apply this brand kit — its voice steers the script, its primary color tints the caption stroke, and its logo is watermarked top-right.
++     * @nullable
++     */
++  brandKitId?: number | null;
+   /**
+      * topic_to_video character mode; costume-change instructions (e.g. "switch to gym wear for the workout scenes").
+      * @maxLength 500
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index 61b9767..31adf6b 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -10243,6 +10243,12 @@ components:
+           description: >-
+             Costume lock: the outfit the character wears. Defaults to the
+             character's default outfit.
++        brandKitId:
++          type: ["integer", "null"]
++          description: >-
++            topic_to_video only; apply this brand kit — its voice steers the
++            script, its primary color tints the caption stroke, and its logo
++            is watermarked top-right.
+         wardrobeNotes:
+           type: ["string", "null"]
+           maxLength: 500
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index 83ad318..eb08c88 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -5071,6 +5071,7 @@ export const GenerateVideoBody = zod.object({
+   "visualsSource": zod.enum(['stock', 'character', 'ai']).default(generateVideoBodyVisualsSourceDefault).describe('topic_to_video only. \"character\" generates every scene with the locked character (one video unit per scene, 4 per paragraph). \"ai\" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph.'),
+   "characterId": zod.number().nullish().describe('Character lock: the character featured in the video (text_to_video and topic_to_video character mode).'),
+   "outfitId": zod.number().nullish().describe('Costume lock: the outfit the character wears. Defaults to the character\'s default outfit.'),
++  "brandKitId": zod.number().nullish().describe('topic_to_video only; apply this brand kit — its voice steers the script, its primary color tints the caption stroke, and its logo is watermarked top-right.'),
+   "wardrobeNotes": zod.string().max(generateVideoBodyWardrobeNotesMax).nullish().describe('topic_to_video character mode; costume-change instructions (e.g. \"switch to gym wear for the workout scenes\").')
+ })
+ 
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequest.ts b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+index f9a0449..1d36122 100644
+--- a/lib/api-zod/src/generated/types/videoGenerateRequest.ts
++++ b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+@@ -82,6 +82,11 @@ export interface VideoGenerateRequest {
+      * @nullable
+      */
+   outfitId?: number | null;
++  /**
++     * topic_to_video only; apply this brand kit — its voice steers the script, its primary color tints the caption stroke, and its logo is watermarked top-right.
++     * @nullable
++     */
++  brandKitId?: number | null;
+   /**
+      * topic_to_video character mode; costume-change instructions (e.g. "switch to gym wear for the workout scenes").
+      * @maxLength 500
+diff --git a/lib/db/src/schema/videoGenerations.ts b/lib/db/src/schema/videoGenerations.ts
+index 29ec8c8..a9e5f1a 100644
+--- a/lib/db/src/schema/videoGenerations.ts
++++ b/lib/db/src/schema/videoGenerations.ts
+@@ -51,6 +51,8 @@ export interface VideoJobOptions {
+   outfitId?: number | null;
+   /** topic_to_video character mode: costume-change instructions. */
+   wardrobeNotes?: string | null;
++  /** topic_to_video: brand kit steering voice, caption accent, watermark. */
++  brandKitId?: number | null;
+ }
+ 
+ export const videoGenerationsTable = pgTable("video_generations", {
+-- 
+2.43.0
+

@@ -186,6 +186,12 @@ export const FEATURES = [
       "Hook ideas and topic templates in the Video Studio, plus the multi-platform Platform Pack generator in AI Studio.",
   },
   {
+    id: "brandVideo",
+    label: "Brand Video",
+    description:
+      "Brand kits steering topic videos: brand voice in the script, brand colour on captions, and the brand logo watermarked on every frame. When off, the Brand kit picker is hidden and all videos render unbranded.",
+  },
+  {
     id: "progressMeter",
     label: "Upgrade Progress Meter",
     description:

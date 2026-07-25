@@ -20,6 +20,7 @@ import { runVideoGenerationJob } from "../lib/videoGen/jobRunner";
 import { MAX_SLIDESHOW_IMAGES } from "../lib/videoGen/slideshow";
 import { videoJobUnits } from "../lib/videoGen/units";
 import { getCharacterDetail, resolveOutfit } from "../lib/characters";
+import { isFeatureEnabled } from "../lib/featureFlags";
 import { serializeContent } from "../lib/serializers";
 import type { VideoGeneration } from "@workspace/db";
 
@@ -209,6 +210,13 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     characterId,
     outfitId,
     wardrobeNotes: body.wardrobeNotes?.trim() || null,
+    // Brand kit is tenant-scoped at load time in the job runner; storing a
+    // foreign id just renders unbranded. Dropped entirely when the Brand
+    // Video kill switch is off.
+    brandKitId:
+      body.engine === "topic_to_video" && (await isFeatureEnabled("brandVideo"))
+        ? (body.brandKitId ?? null)
+        : null,
   };
 
   // Fund like every metered generation: monthly plan quota first, then

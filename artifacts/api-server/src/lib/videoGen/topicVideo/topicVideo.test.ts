@@ -118,6 +118,21 @@ describe("script generation helpers", () => {
     expect(buildTopicScriptPrompt("x", 0)).toContain("exactly 1 paragraph");
   });
 
+  it("injects a brand voice block only when a hint is supplied", () => {
+    const plain = buildTopicScriptPrompt("morning chai", 1);
+    expect(plain).not.toContain("Brand voice");
+    const branded = buildTopicScriptPrompt(
+      "morning chai",
+      1,
+      "Voice: warm, practical. Never use these terms: cheap.",
+    );
+    expect(branded).toContain("Brand voice");
+    expect(branded).toContain("Voice: warm, practical. Never use these terms: cheap.");
+    // Branding steers the voice; it must not change the output contract.
+    expect(branded).toContain("exactly 1 paragraph");
+    expect(branded).toContain("searchTerms");
+  });
+
   it("cleans markdown remnants out of a script", () => {
     expect(cleanScript("**Bold** start. [pause] The # real content.")).toBe(
       "Bold start.  The  real content.",
@@ -232,6 +247,21 @@ async function makeTestClip(seconds: number): Promise<Buffer> {
   }
 }
 
+/** A tiny transparent-ish PNG to stand in for a brand logo. */
+async function makeTestLogo(): Promise<Buffer> {
+  const dir = await mkdtemp(join(tmpdir(), "topic-test-logo-"));
+  try {
+    await runFfmpeg(
+      ["-y", "-f", "lavfi", "-i", "color=c=white:s=120x40:d=1", "-frames:v", "1", "logo.png"],
+      dir,
+    );
+    const { readFile } = await import("fs/promises");
+    return await readFile(join(dir, "logo.png"));
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 describe("composeTopicVideo (real ffmpeg)", () => {
   it(
     "renders narrated, subtitled scenes into a single MP4",
@@ -320,6 +350,51 @@ describe("composeTopicVideo (real ffmpeg)", () => {
           { clipIndex: 0, durationSec: 2.65 },
           { clipIndex: 1, durationSec: 2.0 },
         ],
+      });
+      expect(out.toString("ascii", 4, 8)).toBe("ftyp");
+    },
+    120_000,
+  );
+
+  it(
+    "renders brand accent captions and a corner logo watermark",
+    async () => {
+      const clip = await makeTestClip(2);
+      const out = await composeTopicVideo({
+        clips: [clip],
+        narrationWav: makeTestWav(3.6),
+        cues: [
+          { text: "Branded scene one.", startSec: 0, endSec: 1.4 },
+          { text: "Branded scene two.", startSec: 1.65, endSec: 3.05 },
+        ],
+        totalDurationSec: 3.65,
+        aspectRatio: "9:16",
+        subtitles: true,
+        captionStyle: "dynamic",
+        music: null,
+        accentColor: "0x733D00",
+        watermark: await makeTestLogo(),
+      });
+      expect(out.toString("ascii", 4, 8)).toBe("ftyp");
+      expect(out.length).toBeGreaterThan(1000);
+    },
+    120_000,
+  );
+
+  it(
+    "still renders when a watermark is supplied without subtitles or music",
+    async () => {
+      const out = await composeTopicVideo({
+        clips: [await makeTestClip(2)],
+        // loudnorm needs a few seconds of audio to settle (it emits NaN on
+        // very short inputs), so keep test narration at 4s like the others.
+        narrationWav: makeTestWav(4),
+        cues: [{ text: "Logo only.", startSec: 0, endSec: 3.4 }],
+        totalDurationSec: 4,
+        aspectRatio: "1:1",
+        subtitles: false,
+        music: null,
+        watermark: await makeTestLogo(),
       });
       expect(out.toString("ascii", 4, 8)).toBe("ftyp");
     },

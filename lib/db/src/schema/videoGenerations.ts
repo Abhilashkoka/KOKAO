@@ -51,6 +51,8 @@ export interface VideoJobOptions {
   outfitId?: number | null;
   /** topic_to_video character mode: costume-change instructions. */
   wardrobeNotes?: string | null;
+  /** topic_to_video: brand kit steering voice, caption accent, watermark. */
+  brandKitId?: number | null;
 }
 
 export const videoGenerationsTable = pgTable("video_generations", {

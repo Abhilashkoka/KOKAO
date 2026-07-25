@@ -38,6 +38,7 @@ const ALL_ON: FeatureFlags = {
   campaignStreaming: true,
   composer: true,
   viralToolkit: true,
+  brandVideo: true,
 };
 
 /**

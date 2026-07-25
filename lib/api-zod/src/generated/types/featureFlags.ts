@@ -40,4 +40,5 @@ export interface FeatureFlags {
   campaignStreaming: boolean;
   composer: boolean;
   viralToolkit: boolean;
+  brandVideo: boolean;
 }
