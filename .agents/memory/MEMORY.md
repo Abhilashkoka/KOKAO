@@ -70,5 +70,6 @@
 - [Provider scoring](provider-scoring.md) — health is a partition never a weight; cost scored only vs 2+ priced peers; streamed completions must request include_usage or cost is NULL.
 - [ffmpeg render pitfalls](ffmpeg-render-pitfalls.md) — pin -framerate on stills; no -shortest with music; counted loops not -stream_loop -1; NotConfigured is terminal never breaker-recorded.
 - [Topic-video uniformity](topic-video-uniformity.md) — costume locked unless real wardrobe notes (parser clamp is the guarantee); b-roll consistency is style-only, never first-image anchoring.
+- [DIY Playwright e2e fallback](diy-playwright-e2e.md) — when the testing subagent kind errors, drive Playwright + nix chromium yourself; Clerk ticket sign-in; dismiss the consent dialog; regen missing api-client codegen.
 - [Storyboard review pause](storyboard-review.md) — persist funding at job creation (sweep refunds need it); jsonb counters spend via atomic conditional UPDATE, never read-then-write; approve reuses the exact previewed stills.
 - [Replicate video input mapping](replicate-video-inputs.md) — wrong start-image field name is silently ignored; photo subject vanishes with a "successful" job; verify each model schema.

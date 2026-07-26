@@ -18,6 +18,16 @@ export async function runImageGenerationJob(
   jobId: number,
   funding: "quota" | "credit",
 ): Promise<void> {
+  // Dev-only test hook: hold the runner back before its claim so a browser
+  // e2e can observe (and cancel) a genuinely "queued" job. Ignored in
+  // production; the queued->processing claim below stays the real guard.
+  const claimDelayMs =
+    process.env.NODE_ENV !== "production"
+      ? Number(process.env.IMAGE_JOB_CLAIM_DELAY_MS ?? 0)
+      : 0;
+  if (Number.isFinite(claimDelayMs) && claimDelayMs > 0) {
+    await new Promise((r) => setTimeout(r, claimDelayMs));
+  }
   // Atomic claim: flip queued -> processing in one conditional UPDATE so a
   // double-enqueued job can never be processed (and charged) twice.
   const job = (
