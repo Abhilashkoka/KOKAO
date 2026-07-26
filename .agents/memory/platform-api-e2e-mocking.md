@@ -3,6 +3,8 @@ name: Mocking platform APIs for browser e2e runs
 description: How to make Threads/X publish flows succeed end-to-end in a real browser session without hitting real platform APIs.
 ---
 
+**Rule (also applies to Meta Ads):** `META_ADS_GRAPH_BASE_OVERRIDE` (metaAdsApi.ts) points ads Graph calls at a local mock the same way. For curl-based API e2e without a browser, mint a session via the Clerk backend API (POST /v1/users, /v1/sessions, /v1/sessions/{id}/tokens) and send the JWT as `Authorization: Bearer` — requireTenant auto-provisions the tenant on first request; seed the ads connection by tenant email afterwards.
+
 **Rule:** Threads and X outbound base URLs support dev-only env overrides (`THREADS_GRAPH_BASE_OVERRIDE` in the threads routes, `TWITTER_API_BASE_OVERRIDE` in the twitter API lib), ignored when `NODE_ENV=production`. Point them at a tiny local HTTP mock that answers the probe (empty `{data:[]}`) and the create/publish endpoints with fake ids, and a browser e2e can exercise real publish/resend flows to completion.
 
 **Why:** The publish/resend routes call graph.threads.net / api.x.com directly; with fake seeded tokens every call fails, so "flow completes and UI clears" can never be verified in a real browser otherwise.
