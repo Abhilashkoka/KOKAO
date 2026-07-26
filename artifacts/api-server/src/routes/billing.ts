@@ -489,6 +489,17 @@ router.post("/billing/verify-purchase", async (req: Request, res: Response) => {
     // Duplicate grants (webhook raced us) are fine — balance is already right.
     res.json({ ok: true, credits: await getCreditBalances(req.tenantId) });
   } catch (error) {
+    // A nonexistent or malformed order id makes Razorpay's order fetch fail
+    // with a 4xx. Treat that exactly like a bad signature: a generic 400 that
+    // never reveals whether an order exists, and never a 5xx.
+    if (
+      error instanceof RazorpayApiError &&
+      error.status >= 400 &&
+      error.status < 500
+    ) {
+      res.status(400).json({ error: "Payment verification failed" });
+      return;
+    }
     handleRazorpayError(req, res, error, "Failed to verify purchase");
   }
 });

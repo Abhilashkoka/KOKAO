@@ -454,6 +454,62 @@ describe("cross-tenant replay is rejected (real mock server)", () => {
   });
 });
 
+describe("guessed / nonexistent ids are rejected cleanly (real mock server)", () => {
+  async function tenantALedger() {
+    return db
+      .select()
+      .from(creditLedgerTable)
+      .where(eq(creditLedgerTable.tenantId, tenantId));
+  }
+
+  it("verify-purchase with a random order id fails with a generic 400 and no credits", async () => {
+    actAs(clerkUserId);
+    const before = await tenantALedger();
+    const fakeOrderId = "order_XXXX00000000";
+    // Even with a technically valid signature over the fake id (attacker who
+    // somehow knows the secret can't mint credits from a nonexistent order).
+    const res = await request(app).post("/api/billing/verify-purchase").send({
+      razorpayOrderId: fakeOrderId,
+      razorpayPaymentId: "pay_RT_GUESS1",
+      razorpaySignature: signOrder(fakeOrderId, "pay_RT_GUESS1"),
+    });
+    expect(res.status).toBe(400);
+    // Same generic message as a bad signature — no order-existence oracle.
+    expect(res.body.error).toBe("Payment verification failed");
+    const after = await tenantALedger();
+    expect(after).toHaveLength(before.length);
+  });
+
+  it("verify-purchase with a malformed order id also fails 400 with no ledger writes", async () => {
+    const before = await tenantALedger();
+    const malformed = "not-an-order-id";
+    const res = await request(app).post("/api/billing/verify-purchase").send({
+      razorpayOrderId: malformed,
+      razorpayPaymentId: "pay_RT_GUESS2",
+      razorpaySignature: signOrder(malformed, "pay_RT_GUESS2"),
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Payment verification failed");
+    const after = await tenantALedger();
+    expect(after).toHaveLength(before.length);
+  });
+
+  it("verify-subscription with a nonexistent sub id returns 404 and leaves the plan alone", async () => {
+    const planBefore = (await getTenant(tenantId)).plan;
+    const fakeSubId = "sub_XXXX00000000";
+    const res = await request(app)
+      .post("/api/billing/verify-subscription")
+      .send({
+        razorpaySubscriptionId: fakeSubId,
+        razorpayPaymentId: "pay_RT_GUESS3",
+        razorpaySignature: signSubscription(fakeSubId, "pay_RT_GUESS3"),
+      });
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe("Subscription not found");
+    expect((await getTenant(tenantId)).plan).toBe(planBefore);
+  });
+});
+
 describe("retried purchase after a failed checkout (real mock server)", () => {
   // Balances carried over from the two prior purchases (first round trip
   // + the cross-tenant replay suite's order for tenant A).
