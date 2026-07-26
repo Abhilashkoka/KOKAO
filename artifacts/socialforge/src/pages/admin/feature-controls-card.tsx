@@ -18,6 +18,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
+import { ChevronDown } from "lucide-react";
+import { useState } from "react";
 
 /**
  * Platform-wide feature kill switches. Turning one off hides the module for
@@ -32,6 +34,7 @@ export function FeatureControlsCard() {
   // dedicated setting; it is surfaced here so all switches live together.
   const { data: adsSettings, isLoading: adsLoading } = useAdminGetAdsSettings();
   const updateAds = useAdminUpdateAdsSettings();
+  const [open, setOpen] = useState(false);
 
   const handleAdsToggle = (enabled: boolean) => {
     updateAds.mutate(
@@ -90,14 +93,34 @@ export function FeatureControlsCard() {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Feature controls</CardTitle>
+      <CardHeader
+        className="cursor-pointer select-none"
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen((o) => !o);
+          }
+        }}
+        data-testid="toggle-feature-controls-card"
+      >
+        <div className="flex items-center justify-between gap-4">
+          <CardTitle>Feature controls</CardTitle>
+          <ChevronDown
+            className={`h-5 w-5 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+            aria-hidden="true"
+          />
+        </div>
         <CardDescription>
           Turn app modules on or off for every tenant on the platform. Disabled
           modules disappear from tenants' navigation and their API routes are
           blocked. The admin area is never affected.
         </CardDescription>
       </CardHeader>
+      {open && (
       <CardContent>
         {isLoading || adsLoading ? (
           <div className="space-y-3">
@@ -147,6 +170,7 @@ export function FeatureControlsCard() {
           </div>
         )}
       </CardContent>
+      )}
     </Card>
   );
 }
