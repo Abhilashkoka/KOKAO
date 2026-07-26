@@ -1,11 +1,10 @@
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import { haptic } from "@/lib/haptics";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
   Modal,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -197,12 +196,6 @@ export default function StudioScreen() {
       ? (kits.find((k) => k.id === brandKitId) ?? null)
       : (kits.find((k) => k.isDefault) ?? null);
   const activeSwatches = activeKit ? kitSwatches(activeKit, 6) : [];
-
-  const haptic = () => {
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-  };
 
   const setFailure = (err: unknown) => {
     setError(errorMessage(err));

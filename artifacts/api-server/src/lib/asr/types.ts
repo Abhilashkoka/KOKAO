@@ -1,3 +1,5 @@
+import { boundedProviderFetch } from "../aiProviderFetch";
+
 /** Input to a transcription provider: a short voice-note audio file. */
 export interface TranscribeInput {
   buffer: Buffer;
@@ -40,18 +42,13 @@ export const ASR_FETCH_TIMEOUT_MS = 30_000;
 
 /** Bounded-timeout fetch for ASR provider calls. */
 export async function asrFetch(url: string, init: RequestInit): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ASR_FETCH_TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new AsrProviderError(
+  return boundedProviderFetch(
+    url,
+    init,
+    ASR_FETCH_TIMEOUT_MS,
+    () =>
+      new AsrProviderError(
         `Transcription request timed out after ${ASR_FETCH_TIMEOUT_MS / 1000}s.`,
-      );
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
+      ),
+  );
 }

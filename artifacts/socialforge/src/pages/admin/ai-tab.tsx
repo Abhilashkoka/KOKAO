@@ -61,7 +61,8 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronDown, ExternalLink } from "lucide-react";
+import { ExternalLink } from "lucide-react";
+import { CollapsibleCardHeader } from "@/components/ui/collapsible-card-header";
 
 const ASR_KEY_PAGES: Record<string, string> = {
   groq: "https://console.groq.com/keys",
@@ -1972,32 +1973,13 @@ function AiCostReportCard() {
 
   return (
     <Card data-testid="card-ai-cost-report">
-      <CardHeader
-        className="cursor-pointer select-none"
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            setOpen((o) => !o);
-          }
-        }}
-        data-testid="toggle-ai-cost-report-card"
-      >
-        <div className="flex items-center justify-between gap-4">
-          <CardTitle>Actual Cost Report</CardTitle>
-          <ChevronDown
-            className={`h-5 w-5 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
-            aria-hidden="true"
-          />
-        </div>
-        <CardDescription>
-          Per-tenant real AI cost for the selected month, next to what the tenant-facing
-          "AI amount spent" rates would display for the same volume.
-        </CardDescription>
-      </CardHeader>
+      <CollapsibleCardHeader
+        title="Actual Cost Report"
+        description='Per-tenant real AI cost for the selected month, next to what the tenant-facing "AI amount spent" rates would display for the same volume.'
+        open={open}
+        onToggle={() => setOpen((o) => !o)}
+        testId="toggle-ai-cost-report-card"
+      />
       {open && (
       <CardContent className="space-y-4">
         {isLoading || !report ? (

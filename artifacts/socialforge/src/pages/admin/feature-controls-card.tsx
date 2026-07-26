@@ -8,17 +8,11 @@ import {
 } from "@workspace/api-client-react";
 import { useAdminUpdateFeatureFlag } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { CollapsibleCardHeader } from "@/components/ui/collapsible-card-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 
 /**
@@ -93,33 +87,13 @@ export function FeatureControlsCard() {
 
   return (
     <Card>
-      <CardHeader
-        className="cursor-pointer select-none"
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            setOpen((o) => !o);
-          }
-        }}
-        data-testid="toggle-feature-controls-card"
-      >
-        <div className="flex items-center justify-between gap-4">
-          <CardTitle>Feature controls</CardTitle>
-          <ChevronDown
-            className={`h-5 w-5 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
-            aria-hidden="true"
-          />
-        </div>
-        <CardDescription>
-          Turn app modules on or off for every tenant on the platform. Disabled
-          modules disappear from tenants' navigation and their API routes are
-          blocked. The admin area is never affected.
-        </CardDescription>
-      </CardHeader>
+      <CollapsibleCardHeader
+        title="Feature controls"
+        description="Turn app modules on or off for every tenant on the platform. Disabled modules disappear from tenants' navigation and their API routes are blocked. The admin area is never affected."
+        open={open}
+        onToggle={() => setOpen((o) => !o)}
+        testId="toggle-feature-controls-card"
+      />
       {open && (
       <CardContent>
         {isLoading || adsLoading ? (

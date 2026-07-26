@@ -1,3 +1,5 @@
+import { boundedProviderFetch } from "../aiProviderFetch";
+
 /** Supported output aspect ratios (mirrors the /ai/generate-video contract). */
 export type VideoAspect = "16:9" | "9:16" | "1:1";
 
@@ -68,23 +70,15 @@ export const VIDEO_GEN_TOTAL_DEADLINE_MS = 10 * 60 * 1000;
 
 /** Bounded-timeout fetch for video provider calls. */
 export async function videoGenFetch(url: string, init: RequestInit): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), VIDEO_GEN_FETCH_TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new VideoGenProviderError(
+  return boundedProviderFetch(
+    url,
+    init,
+    VIDEO_GEN_FETCH_TIMEOUT_MS,
+    () =>
+      new VideoGenProviderError(
         `Video provider call timed out after ${VIDEO_GEN_FETCH_TIMEOUT_MS / 1000}s.`,
-      );
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
+      ),
+  );
 }
 
-/** Short upstream error detail for logs/messages without dumping whole bodies. */
-export async function errorDetail(res: Response): Promise<string> {
-  return (await res.text().catch(() => "")).slice(0, 300);
-}
+export { errorDetail } from "../aiProviderFetch";
