@@ -53,11 +53,11 @@ describe("generateVideo model fallback", () => {
   it("retries on the next catalog model after a transient failure", async () => {
     vi.mocked(generateWithReplicate)
       .mockRejectedValueOnce(new VideoGenProviderError("queue backed up", 503))
-      .mockResolvedValueOnce(result("google/veo-3-fast"));
+      .mockResolvedValueOnce(result("wan-video/wan-2.5-t2v"));
 
     const out = await generateVideo(params);
-    expect(out.model).toBe("google/veo-3-fast");
-    expect(attemptedModels()).toEqual(["wan-video/wan-2.2-t2v-fast", "google/veo-3-fast"]);
+    expect(out.model).toBe("wan-video/wan-2.5-t2v");
+    expect(attemptedModels()).toEqual(["wan-video/wan-2.2-t2v-fast", "wan-video/wan-2.5-t2v"]);
   });
 
   it("does not advance the chain on a permanent failure", async () => {
@@ -78,8 +78,8 @@ describe("generateVideo model fallback", () => {
     await expect(generateVideo(params)).rejects.toThrow("configured model down");
     expect(attemptedModels()).toEqual([
       "wan-video/wan-2.2-t2v-fast",
+      "wan-video/wan-2.5-t2v",
       "google/veo-3-fast",
-      "minimax/video-01",
     ]);
   });
 
@@ -121,14 +121,14 @@ describe("generateVideo model fallback", () => {
   it("uses the image-to-video chain in image mode", async () => {
     vi.mocked(generateWithReplicate)
       .mockRejectedValueOnce(new VideoGenProviderError("down", 503))
-      .mockResolvedValueOnce(result("minimax/video-01"));
+      .mockResolvedValueOnce(result("wan-video/wan-2.5-i2v"));
 
     await generateVideo({
       ...params,
       mode: "image",
       image: { buffer: Buffer.from("png"), mimeType: "image/png" },
     });
-    expect(attemptedModels()).toEqual(["wan-video/wan-2.2-i2v-fast", "minimax/video-01"]);
+    expect(attemptedModels()).toEqual(["wan-video/wan-2.2-i2v-fast", "wan-video/wan-2.5-i2v"]);
     expect(vi.mocked(generateWithReplicate).mock.calls[1]![0].image).toBeDefined();
   });
 
