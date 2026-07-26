@@ -5177,7 +5177,7 @@ export const generateVideoBodyParagraphCountMax = 3;
 export const generateVideoBodyVisualsSourceDefault = `stock`;
 export const generateVideoBodyWardrobeNotesMax = 500;
 
-
+export const generateVideoBodyReviewStoryboardDefault = true;
 
 export const GenerateVideoBody = zod.object({
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
@@ -5199,13 +5199,14 @@ export const GenerateVideoBody = zod.object({
   "outfitId": zod.number().nullish().describe('Costume lock: the outfit the character wears. Defaults to the character\'s default outfit.'),
   "brandKitId": zod.number().nullish().describe('topic_to_video only; apply this brand kit — its voice steers the script, its primary color tints the caption stroke, and its logo is watermarked top-right.'),
   "styleProfileId": zod.number().nullish().describe('topic_to_video only; write and cut the video like the reference video this saved style profile was analyzed from (hook shape, pacing, caption treatment).'),
-  "wardrobeNotes": zod.string().max(generateVideoBodyWardrobeNotesMax).nullish().describe('topic_to_video character mode; costume-change instructions (e.g. \"switch to gym wear for the workout scenes\").')
+  "wardrobeNotes": zod.string().max(generateVideoBodyWardrobeNotesMax).nullish().describe('topic_to_video character mode; costume-change instructions (e.g. \"switch to gym wear for the workout scenes\").'),
+  "reviewStoryboard": zod.boolean().default(generateVideoBodyReviewStoryboardDefault).describe('Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by topic_to_video with generated visuals (visualsSource \"character\" or \"ai\"); other engines have nothing promptable to review and ignore it. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST ...\/storyboard\/approve to render it.')
 })
 
 export const GenerateVideoResponse = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
-  "status": zod.enum(['queued', 'processing', 'succeeded', 'failed']),
+  "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
   "sourceImagePaths": zod.array(zod.string()),
   "aspectRatio": zod.string(),
@@ -5216,6 +5217,32 @@ export const GenerateVideoResponse = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
+  "storyboard": zod.union([zod.object({
+  "version": zod.literal(1),
+  "visualsSource": zod.enum(['character', 'ai']),
+  "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
+  "model": zod.string().nullish(),
+  "provider": zod.string().nullish(),
+  "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+  "narration": zod.object({
+  "audioPath": zod.string(),
+  "totalDurationSec": zod.number(),
+  "cues": zod.array(zod.object({
+  "text": zod.string(),
+  "startSec": zod.number(),
+  "endSec": zod.number()
+})).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+}),
+  "scenes": zod.array(zod.object({
+  "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded.'),
+  "visual": zod.string().describe('The image\/video prompt for this scene. This is editable.'),
+  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked.'),
+  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null only when the preview failed to store.'),
+  "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
+}))
+}),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+  "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -5275,7 +5302,7 @@ export const ImportLibraryMusicResponse = zod.object({
 export const ListVideoJobsResponseItem = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
-  "status": zod.enum(['queued', 'processing', 'succeeded', 'failed']),
+  "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
   "sourceImagePaths": zod.array(zod.string()),
   "aspectRatio": zod.string(),
@@ -5286,6 +5313,32 @@ export const ListVideoJobsResponseItem = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
+  "storyboard": zod.union([zod.object({
+  "version": zod.literal(1),
+  "visualsSource": zod.enum(['character', 'ai']),
+  "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
+  "model": zod.string().nullish(),
+  "provider": zod.string().nullish(),
+  "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+  "narration": zod.object({
+  "audioPath": zod.string(),
+  "totalDurationSec": zod.number(),
+  "cues": zod.array(zod.object({
+  "text": zod.string(),
+  "startSec": zod.number(),
+  "endSec": zod.number()
+})).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+}),
+  "scenes": zod.array(zod.object({
+  "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded.'),
+  "visual": zod.string().describe('The image\/video prompt for this scene. This is editable.'),
+  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked.'),
+  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null only when the preview failed to store.'),
+  "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
+}))
+}),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+  "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -5302,7 +5355,7 @@ export const GetVideoJobParams = zod.object({
 export const GetVideoJobResponse = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
-  "status": zod.enum(['queued', 'processing', 'succeeded', 'failed']),
+  "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
   "sourceImagePaths": zod.array(zod.string()),
   "aspectRatio": zod.string(),
@@ -5313,6 +5366,260 @@ export const GetVideoJobResponse = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
+  "storyboard": zod.union([zod.object({
+  "version": zod.literal(1),
+  "visualsSource": zod.enum(['character', 'ai']),
+  "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
+  "model": zod.string().nullish(),
+  "provider": zod.string().nullish(),
+  "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+  "narration": zod.object({
+  "audioPath": zod.string(),
+  "totalDurationSec": zod.number(),
+  "cues": zod.array(zod.object({
+  "text": zod.string(),
+  "startSec": zod.number(),
+  "endSec": zod.number()
+})).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+}),
+  "scenes": zod.array(zod.object({
+  "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded.'),
+  "visual": zod.string().describe('The image\/video prompt for this scene. This is editable.'),
+  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked.'),
+  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null only when the preview failed to store.'),
+  "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
+}))
+}),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+  "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * Only valid while the job's status is awaiting_review. Scenes are addressed by id; unlisted scenes keep their current values. Editing a scene's visual does not regenerate its preview — that is a separate call, so a user can retype several scenes and only pay preview time for the ones they want to see.
+ * @summary Edit the scenes of a paused storyboard
+ */
+export const UpdateVideoStoryboardParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const updateVideoStoryboardBodyScenesItemVisualMax = 1000;
+
+export const updateVideoStoryboardBodyScenesItemDurationSecMax = 20;
+
+export const updateVideoStoryboardBodyScenesMax = 24;
+
+
+
+export const UpdateVideoStoryboardBody = zod.object({
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "visual": zod.string().min(1).max(updateVideoStoryboardBodyScenesItemVisualMax).optional(),
+  "durationSec": zod.number().min(1).max(updateVideoStoryboardBodyScenesItemDurationSecMax).optional().describe('Rejected while the storyboard is timelineLocked.')
+})).min(1).max(updateVideoStoryboardBodyScenesMax).describe('Scenes to edit, addressed by id. Only the fields you send change; unlisted scenes are untouched. Never accepts image paths — a preview is replaced by regenerating it, not by pointing at a file.')
+})
+
+export const UpdateVideoStoryboardResponse = zod.object({
+  "id": zod.number(),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
+  "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
+  "prompt": zod.string().nullish(),
+  "sourceImagePaths": zod.array(zod.string()),
+  "aspectRatio": zod.string(),
+  "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+  "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+  "provider": zod.string().nullish(),
+  "model": zod.string().nullish(),
+  "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
+  "durationMs": zod.number().nullish(),
+  "storyboard": zod.union([zod.object({
+  "version": zod.literal(1),
+  "visualsSource": zod.enum(['character', 'ai']),
+  "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
+  "model": zod.string().nullish(),
+  "provider": zod.string().nullish(),
+  "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+  "narration": zod.object({
+  "audioPath": zod.string(),
+  "totalDurationSec": zod.number(),
+  "cues": zod.array(zod.object({
+  "text": zod.string(),
+  "startSec": zod.number(),
+  "endSec": zod.number()
+})).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+}),
+  "scenes": zod.array(zod.object({
+  "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded.'),
+  "visual": zod.string().describe('The image\/video prompt for this scene. This is editable.'),
+  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked.'),
+  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null only when the preview failed to store.'),
+  "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
+}))
+}),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+  "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * Runs the same image step the render will use, so the returned preview is the frame that gets animated on approve. Unbilled but capped per storyboard; the cap is reported back as regenerations on the storyboard.
+ * @summary Regenerate one scene's preview image from its current prompt
+ */
+export const RegenerateStoryboardScenePreviewParams = zod.object({
+  "jobId": zod.coerce.number(),
+  "sceneId": zod.coerce.string()
+})
+
+export const RegenerateStoryboardScenePreviewResponse = zod.object({
+  "id": zod.number(),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
+  "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
+  "prompt": zod.string().nullish(),
+  "sourceImagePaths": zod.array(zod.string()),
+  "aspectRatio": zod.string(),
+  "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+  "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+  "provider": zod.string().nullish(),
+  "model": zod.string().nullish(),
+  "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
+  "durationMs": zod.number().nullish(),
+  "storyboard": zod.union([zod.object({
+  "version": zod.literal(1),
+  "visualsSource": zod.enum(['character', 'ai']),
+  "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
+  "model": zod.string().nullish(),
+  "provider": zod.string().nullish(),
+  "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+  "narration": zod.object({
+  "audioPath": zod.string(),
+  "totalDurationSec": zod.number(),
+  "cues": zod.array(zod.object({
+  "text": zod.string(),
+  "startSec": zod.number(),
+  "endSec": zod.number()
+})).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+}),
+  "scenes": zod.array(zod.object({
+  "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded.'),
+  "visual": zod.string().describe('The image\/video prompt for this scene. This is editable.'),
+  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked.'),
+  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null only when the preview failed to store.'),
+  "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
+}))
+}),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+  "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * Returns immediately with status processing; poll the job as usual. Nothing is charged here — the reservation was taken when the job was created.
+ * @summary Approve a storyboard and resume rendering
+ */
+export const ApproveVideoStoryboardParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const ApproveVideoStoryboardResponse = zod.object({
+  "id": zod.number(),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
+  "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
+  "prompt": zod.string().nullish(),
+  "sourceImagePaths": zod.array(zod.string()),
+  "aspectRatio": zod.string(),
+  "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+  "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+  "provider": zod.string().nullish(),
+  "model": zod.string().nullish(),
+  "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
+  "durationMs": zod.number().nullish(),
+  "storyboard": zod.union([zod.object({
+  "version": zod.literal(1),
+  "visualsSource": zod.enum(['character', 'ai']),
+  "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
+  "model": zod.string().nullish(),
+  "provider": zod.string().nullish(),
+  "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+  "narration": zod.object({
+  "audioPath": zod.string(),
+  "totalDurationSec": zod.number(),
+  "cues": zod.array(zod.object({
+  "text": zod.string(),
+  "startSec": zod.number(),
+  "endSec": zod.number()
+})).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+}),
+  "scenes": zod.array(zod.object({
+  "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded.'),
+  "visual": zod.string().describe('The image\/video prompt for this scene. This is editable.'),
+  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked.'),
+  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null only when the preview failed to store.'),
+  "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
+}))
+}),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+  "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Abandon a paused storyboard and refund its reservation
+ */
+export const DiscardVideoStoryboardParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const DiscardVideoStoryboardResponse = zod.object({
+  "id": zod.number(),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
+  "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
+  "prompt": zod.string().nullish(),
+  "sourceImagePaths": zod.array(zod.string()),
+  "aspectRatio": zod.string(),
+  "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+  "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+  "provider": zod.string().nullish(),
+  "model": zod.string().nullish(),
+  "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
+  "durationMs": zod.number().nullish(),
+  "storyboard": zod.union([zod.object({
+  "version": zod.literal(1),
+  "visualsSource": zod.enum(['character', 'ai']),
+  "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
+  "model": zod.string().nullish(),
+  "provider": zod.string().nullish(),
+  "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+  "narration": zod.object({
+  "audioPath": zod.string(),
+  "totalDurationSec": zod.number(),
+  "cues": zod.array(zod.object({
+  "text": zod.string(),
+  "startSec": zod.number(),
+  "endSec": zod.number()
+})).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+}),
+  "scenes": zod.array(zod.object({
+  "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded.'),
+  "visual": zod.string().describe('The image\/video prompt for this scene. This is editable.'),
+  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked.'),
+  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null only when the preview failed to store.'),
+  "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
+}))
+}),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+  "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })

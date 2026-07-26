@@ -205,18 +205,18 @@ export interface CharacterSceneClips {
 }
 
 /**
- * Generate one AI clip per scene: outfit reference → identity-locked keyframe
- * → image-to-video. Each scene retries once; a scene that fails twice fails
- * the job (the runner refunds the reserved credits).
+ * The cheap half: one identity-locked keyframe per scene, from the outfit's
+ * reference photo. These PNGs are also exactly what the storyboard shows as
+ * its preview stills, so a reviewed job generates them once and animates the
+ * approved ones — no image is ever paid for twice.
  */
-export async function generateCharacterSceneClips(params: {
+export async function generateSceneKeyframes(params: {
   tenantId: number;
   character: Character;
   outfits: CharacterOutfit[];
   plan: ScenePlanEntry[];
-  scenes: ScriptScene[];
   aspectRatio: VideoAspect;
-}): Promise<CharacterSceneClips> {
+}): Promise<Buffer[]> {
   const outfitsById = new Map(params.outfits.map((o) => [o.id, o]));
   // Load each worn outfit's reference once, not per scene.
   const references = new Map<number, Awaited<ReturnType<typeof loadReferenceImage>>>();
@@ -225,27 +225,49 @@ export async function generateCharacterSceneClips(params: {
     if (!outfit) throw new VideoGenProviderError("Scene plan references a missing outfit.");
     references.set(outfitId, await loadReferenceImage(outfit.referenceImagePath, params.tenantId));
   }
-
-  let provider = "";
-  let model = "";
-  const clips = await mapWithConcurrency(params.plan, SCENE_CONCURRENCY, async (entry, i) => {
+  return mapWithConcurrency(params.plan, SCENE_CONCURRENCY, async (entry, i) => {
     const outfit = outfitsById.get(entry.outfitId)!;
     const reference = references.get(entry.outfitId)!;
-    const durationSec = clipDurationForScene(params.scenes[i]!.durationSec);
-    const attempt = async (): Promise<Buffer> => {
-      const keyframe = await generateSceneKeyframe(
+    const attempt = () =>
+      generateSceneKeyframe(
         params.character,
         outfit,
         entry.visual,
         params.aspectRatio,
         reference,
       );
+    try {
+      return (await attempt()).buffer;
+    } catch (err) {
+      logger.warn({ err, scene: i }, "character keyframe generation failed; retrying once");
+      return (await attempt()).buffer;
+    }
+  });
+}
+
+/**
+ * The expensive half: image-to-video per keyframe. Each scene retries once; a
+ * scene that fails twice fails the job (the runner refunds the reservation).
+ */
+export async function animateSceneKeyframes(params: {
+  keyframes: Buffer[];
+  plan: ScenePlanEntry[];
+  scenes: ScriptScene[];
+  aspectRatio: VideoAspect;
+}): Promise<CharacterSceneClips> {
+  let provider = "";
+  let model = "";
+  const clips = await mapWithConcurrency(params.plan, SCENE_CONCURRENCY, async (entry, i) => {
+    const keyframe = params.keyframes[i];
+    if (!keyframe) throw new VideoGenProviderError("A scene is missing its keyframe image.");
+    const durationSec = clipDurationForScene(params.scenes[i]!.durationSec);
+    const attempt = async (): Promise<Buffer> => {
       const clip = await generateVideo({
         mode: "image",
         prompt: `${entry.visual}. Subtle natural motion, cinematic.`,
         aspectRatio: params.aspectRatio,
         durationSec,
-        image: { buffer: keyframe.buffer, mimeType: "image/png" },
+        image: { buffer: keyframe, mimeType: "image/png" },
       });
       provider = clip.provider;
       model = clip.model;
@@ -254,7 +276,7 @@ export async function generateCharacterSceneClips(params: {
     try {
       return await attempt();
     } catch (err) {
-      logger.warn({ err, scene: i }, "character scene generation failed; retrying once");
+      logger.warn({ err, scene: i }, "character scene animation failed; retrying once");
       return await attempt();
     }
   });
@@ -268,4 +290,27 @@ export async function generateCharacterSceneClips(params: {
     provider: provider || "replicate",
     model: model || "image-to-video",
   };
+}
+
+/**
+ * Straight-through character scenes: outfit reference → identity-locked
+ * keyframe → image-to-video, per scene. Used when the job is not paused for
+ * storyboard review; a reviewed job calls the two halves either side of the
+ * pause instead.
+ */
+export async function generateCharacterSceneClips(params: {
+  tenantId: number;
+  character: Character;
+  outfits: CharacterOutfit[];
+  plan: ScenePlanEntry[];
+  scenes: ScriptScene[];
+  aspectRatio: VideoAspect;
+}): Promise<CharacterSceneClips> {
+  const keyframes = await generateSceneKeyframes(params);
+  return animateSceneKeyframes({
+    keyframes,
+    plan: params.plan,
+    scenes: params.scenes,
+    aspectRatio: params.aspectRatio,
+  });
 }

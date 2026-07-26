@@ -7,10 +7,12 @@
  */
 import type { VideoJobEngine } from './videoJobEngine';
 import type { VideoJobStatus } from './videoJobStatus';
+import type { VideoStoryboard } from './videoStoryboard';
 
 export interface VideoJob {
   id: number;
   engine: VideoJobEngine;
+  /** awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way. */
   status: VideoJobStatus;
   /** @nullable */
   prompt?: string | null;
@@ -42,6 +44,13 @@ export interface VideoJob {
   stage?: string | null;
   /** @nullable */
   durationMs?: number | null;
+  /** The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved. */
+  storyboard?: VideoStoryboard | null;
+  /**
+     * When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.
+     * @nullable
+     */
+  storyboardExpiresAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }

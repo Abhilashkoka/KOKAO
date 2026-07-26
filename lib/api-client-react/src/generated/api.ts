@@ -259,6 +259,7 @@ import type {
   UpdateDesignSkillBody,
   UpdateImageGenSettingsRequest,
   UpdateNotificationPoliciesBody,
+  UpdateStoryboardRequest,
   UpdateTenantDesignSkillBody,
   UpdateTenantPlanBody,
   UpdateTenantSuperadminBody,
@@ -8775,6 +8776,292 @@ export function useGetVideoJob<TData = Awaited<ReturnType<typeof getVideoJob>>, 
 
 
 
+
+export const getUpdateVideoStoryboardUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/storyboard`
+}
+
+/**
+ * Only valid while the job's status is awaiting_review. Scenes are addressed by id; unlisted scenes keep their current values. Editing a scene's visual does not regenerate its preview — that is a separate call, so a user can retype several scenes and only pay preview time for the ones they want to see.
+ * @summary Edit the scenes of a paused storyboard
+ */
+export const updateVideoStoryboard = async (jobId: number,
+    updateStoryboardRequest: UpdateStoryboardRequest, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getUpdateVideoStoryboardUrl(jobId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateStoryboardRequest)
+  }
+);}
+
+
+
+
+export const getUpdateVideoStoryboardMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateVideoStoryboard>>, TError,{jobId: number;data: BodyType<UpdateStoryboardRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateVideoStoryboard>>, TError,{jobId: number;data: BodyType<UpdateStoryboardRequest>}, TContext> => {
+
+const mutationKey = ['updateVideoStoryboard'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateVideoStoryboard>>, {jobId: number;data: BodyType<UpdateStoryboardRequest>}> = (props) => {
+          const {jobId,data} = props ?? {};
+
+          return  updateVideoStoryboard(jobId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateVideoStoryboardMutationResult = NonNullable<Awaited<ReturnType<typeof updateVideoStoryboard>>>
+    export type UpdateVideoStoryboardMutationBody = BodyType<UpdateStoryboardRequest>
+    export type UpdateVideoStoryboardMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Edit the scenes of a paused storyboard
+ */
+export const useUpdateVideoStoryboard = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateVideoStoryboard>>, TError,{jobId: number;data: BodyType<UpdateStoryboardRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateVideoStoryboard>>,
+        TError,
+        {jobId: number;data: BodyType<UpdateStoryboardRequest>},
+        TContext
+      > => {
+      return useMutation(getUpdateVideoStoryboardMutationOptions(options));
+    }
+
+export const getRegenerateStoryboardScenePreviewUrl = (jobId: number,
+    sceneId: string,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/storyboard/scenes/${sceneId}/preview`
+}
+
+/**
+ * Runs the same image step the render will use, so the returned preview is the frame that gets animated on approve. Unbilled but capped per storyboard; the cap is reported back as regenerations on the storyboard.
+ * @summary Regenerate one scene's preview image from its current prompt
+ */
+export const regenerateStoryboardScenePreview = async (jobId: number,
+    sceneId: string, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getRegenerateStoryboardScenePreviewUrl(jobId,sceneId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRegenerateStoryboardScenePreviewMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof regenerateStoryboardScenePreview>>, TError,{jobId: number;sceneId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof regenerateStoryboardScenePreview>>, TError,{jobId: number;sceneId: string}, TContext> => {
+
+const mutationKey = ['regenerateStoryboardScenePreview'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof regenerateStoryboardScenePreview>>, {jobId: number;sceneId: string}> = (props) => {
+          const {jobId,sceneId} = props ?? {};
+
+          return  regenerateStoryboardScenePreview(jobId,sceneId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RegenerateStoryboardScenePreviewMutationResult = NonNullable<Awaited<ReturnType<typeof regenerateStoryboardScenePreview>>>
+
+    export type RegenerateStoryboardScenePreviewMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Regenerate one scene's preview image from its current prompt
+ */
+export const useRegenerateStoryboardScenePreview = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof regenerateStoryboardScenePreview>>, TError,{jobId: number;sceneId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof regenerateStoryboardScenePreview>>,
+        TError,
+        {jobId: number;sceneId: string},
+        TContext
+      > => {
+      return useMutation(getRegenerateStoryboardScenePreviewMutationOptions(options));
+    }
+
+export const getApproveVideoStoryboardUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/storyboard/approve`
+}
+
+/**
+ * Returns immediately with status processing; poll the job as usual. Nothing is charged here — the reservation was taken when the job was created.
+ * @summary Approve a storyboard and resume rendering
+ */
+export const approveVideoStoryboard = async (jobId: number, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getApproveVideoStoryboardUrl(jobId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getApproveVideoStoryboardMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveVideoStoryboard>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveVideoStoryboard>>, TError,{jobId: number}, TContext> => {
+
+const mutationKey = ['approveVideoStoryboard'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveVideoStoryboard>>, {jobId: number}> = (props) => {
+          const {jobId} = props ?? {};
+
+          return  approveVideoStoryboard(jobId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApproveVideoStoryboardMutationResult = NonNullable<Awaited<ReturnType<typeof approveVideoStoryboard>>>
+
+    export type ApproveVideoStoryboardMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Approve a storyboard and resume rendering
+ */
+export const useApproveVideoStoryboard = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveVideoStoryboard>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof approveVideoStoryboard>>,
+        TError,
+        {jobId: number},
+        TContext
+      > => {
+      return useMutation(getApproveVideoStoryboardMutationOptions(options));
+    }
+
+export const getDiscardVideoStoryboardUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/storyboard/discard`
+}
+
+/**
+ * @summary Abandon a paused storyboard and refund its reservation
+ */
+export const discardVideoStoryboard = async (jobId: number, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getDiscardVideoStoryboardUrl(jobId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getDiscardVideoStoryboardMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof discardVideoStoryboard>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof discardVideoStoryboard>>, TError,{jobId: number}, TContext> => {
+
+const mutationKey = ['discardVideoStoryboard'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof discardVideoStoryboard>>, {jobId: number}> = (props) => {
+          const {jobId} = props ?? {};
+
+          return  discardVideoStoryboard(jobId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DiscardVideoStoryboardMutationResult = NonNullable<Awaited<ReturnType<typeof discardVideoStoryboard>>>
+
+    export type DiscardVideoStoryboardMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Abandon a paused storyboard and refund its reservation
+ */
+export const useDiscardVideoStoryboard = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof discardVideoStoryboard>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof discardVideoStoryboard>>,
+        TError,
+        {jobId: number},
+        TContext
+      > => {
+      return useMutation(getDiscardVideoStoryboardMutationOptions(options));
+    }
 
 export const getSaveVideoToLibraryUrl = (jobId: number,) => {
 

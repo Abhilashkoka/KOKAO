@@ -1,9 +1,19 @@
-import { db, tenantsTable } from "@workspace/db";
+import {
+  db,
+  tenantsTable,
+  type VideoStoryboard,
+  type VideoStoryboardScene,
+} from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "../../logger";
 import { VideoGenProviderError, type VideoAspect } from "../types";
 import { generateTopicScript } from "./script";
-import { splitIntoSentences, synthesizeNarration, type NarrationVoice } from "./narration";
+import {
+  splitIntoSentences,
+  synthesizeNarration,
+  type NarrationCue,
+  type NarrationVoice,
+} from "./narration";
 import {
   stockCandidates,
   stockNotConfiguredError,
@@ -20,9 +30,19 @@ import {
   groupCuesIntoScenes,
   planSceneVisuals,
   generateCharacterSceneClips,
+  generateSceneKeyframes,
+  animateSceneKeyframes,
+  type ScriptScene,
+  type ScenePlanEntry,
 } from "./characterScenes";
 import { assignClipsToScenes } from "./visionRank";
-import { AI_BROLL_SCENES_PER_PARAGRAPH, generateBrollClips } from "./aiBroll";
+import {
+  AI_BROLL_SCENES_PER_PARAGRAPH,
+  generateBrollClips,
+  generateBrollStills,
+  planBrollVisuals,
+  stillsToClips,
+} from "./aiBroll";
 import { getCharacterDetail, resolveOutfit } from "../../characters";
 
 export { NARRATION_VOICES, type NarrationVoice } from "./narration";
@@ -188,6 +208,64 @@ async function gatherStockClips(
   return { clips, provider: def.id, sceneToClip };
 }
 
+/** How many scenes a script of this many paragraphs is cut into. */
+function sceneCountFor(perParagraph: number, paragraphCount: number): number {
+  return perParagraph * Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), 3);
+}
+
+/**
+ * Steps 1-2, shared by the straight-through render and the storyboard plan:
+ * the tenant's model writes a script, then it is voiced sentence by sentence.
+ * Voicing before anything visual is what lets a storyboard show exact scene
+ * lengths instead of word-count estimates — the recording already exists, so
+ * the cut points are measured rather than predicted.
+ */
+async function writeAndVoiceScript(params: {
+  tenantId: number;
+  topic: string;
+  voice: NarrationVoice;
+  paragraphCount: number;
+  brandVoice?: string | null;
+  referenceStyle?: string | null;
+  startedAt: number;
+  deadlineMs: number;
+  onStage?: (stage: string) => void;
+}): Promise<{
+  tenantAiModel: string;
+  model: string;
+  searchTerms: string[];
+  narration: Awaited<ReturnType<typeof synthesizeNarration>>;
+}> {
+  const tenant = (
+    await db.select().from(tenantsTable).where(eq(tenantsTable.id, params.tenantId)).limit(1)
+  )[0];
+  if (!tenant) {
+    throw new VideoGenProviderError("Tenant not found.");
+  }
+
+  // 1) Script + ordered stock search terms in one completion.
+  params.onStage?.("Writing the script");
+  const { script, searchTerms, model } = await generateTopicScript({
+    tenantAiModel: tenant.aiModel,
+    topic: params.topic,
+    paragraphCount: params.paragraphCount,
+    brandVoice: params.brandVoice ?? null,
+    referenceStyle: params.referenceStyle ?? null,
+  });
+  checkDeadline(params.startedAt, params.deadlineMs);
+
+  // 2) Sentence-level narration with exact timings.
+  const sentences = splitIntoSentences(script);
+  if (sentences.length === 0) {
+    throw new VideoGenProviderError("The AI returned an empty script. Please try again.");
+  }
+  params.onStage?.("Voicing the narration");
+  const narration = await synthesizeNarration(sentences, params.voice);
+  checkDeadline(params.startedAt, params.deadlineMs);
+
+  return { tenantAiModel: tenant.aiModel, model, searchTerms, narration };
+}
+
 export async function generateTopicVideo(params: TopicVideoParams): Promise<TopicVideoResult> {
   const startedAt = Date.now();
   const characterMode = params.visualsSource === "character";
@@ -202,32 +280,17 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     throw new VideoGenProviderError("A topic is required.");
   }
 
-  const tenant = (
-    await db.select().from(tenantsTable).where(eq(tenantsTable.id, params.tenantId)).limit(1)
-  )[0];
-  if (!tenant) {
-    throw new VideoGenProviderError("Tenant not found.");
-  }
-
-  // 1) Script + ordered stock search terms in one completion.
-  params.onStage?.("Writing the script");
-  const { script, searchTerms, model } = await generateTopicScript({
-    tenantAiModel: tenant.aiModel,
+  const { tenantAiModel, model, searchTerms, narration } = await writeAndVoiceScript({
+    tenantId: params.tenantId,
     topic,
+    voice: params.voice,
     paragraphCount: params.paragraphCount,
     brandVoice: params.brandVoice ?? null,
     referenceStyle: params.referenceStyle ?? null,
+    startedAt,
+    deadlineMs,
+    onStage: params.onStage,
   });
-  checkDeadline(startedAt, deadlineMs);
-
-  // 2) Sentence-level narration with exact timings.
-  const sentences = splitIntoSentences(script);
-  if (sentences.length === 0) {
-    throw new VideoGenProviderError("The AI returned an empty script. Please try again.");
-  }
-  params.onStage?.("Voicing the narration");
-  const narration = await synthesizeNarration(sentences, params.voice);
-  checkDeadline(startedAt, deadlineMs);
 
   // 3) Visuals: locked-character AI scenes, generated b-roll, or stock.
   let clips: Buffer[];
@@ -235,16 +298,13 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
   let provider: string;
   if (aiMode) {
     params.onStage?.("Creating AI imagery");
-    const sceneCount =
-      AI_BROLL_SCENES_PER_PARAGRAPH *
-      Math.min(Math.max(Math.trunc(params.paragraphCount) || 1, 1), 3);
     const scenes = groupCuesIntoScenes(
       narration.cues,
       narration.totalDurationSec,
-      sceneCount,
+      sceneCountFor(AI_BROLL_SCENES_PER_PARAGRAPH, params.paragraphCount),
     );
     const generated = await generateBrollClips({
-      tenantAiModel: tenant.aiModel,
+      tenantAiModel,
       topic,
       scenes,
       aspectRatio: params.aspectRatio,
@@ -256,7 +316,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     params.onStage?.("Filming your character");
     const generated = await generateCharacterStoryClips({
       tenantId: params.tenantId,
-      tenantAiModel: tenant.aiModel,
+      tenantAiModel,
       topic,
       characterId: params.characterId ?? 0,
       outfitId: params.outfitId ?? null,
@@ -278,7 +338,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
       narration.cues.length,
       startedAt,
       {
-        tenantAiModel: tenant.aiModel,
+        tenantAiModel,
         topic,
         sceneTexts: narration.cues.map((cue) => cue.text),
       },
@@ -354,6 +414,40 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
   return { buffer, provider, model, durationSec: narration.totalDurationSec };
 }
 
+/** Resolve the character and the costume plan for a set of narration scenes.
+ * Shared by the straight-through character render and the storyboard plan. */
+async function planCharacterScenes(params: {
+  tenantId: number;
+  tenantAiModel: string;
+  topic: string;
+  characterId: number;
+  outfitId: number | null;
+  wardrobeNotes: string;
+  scenes: ScriptScene[];
+}): Promise<{
+  detail: NonNullable<Awaited<ReturnType<typeof getCharacterDetail>>>;
+  plan: ScenePlanEntry[];
+}> {
+  const detail = await getCharacterDetail(params.tenantId, params.characterId);
+  if (!detail) {
+    throw new VideoGenProviderError("The selected character no longer exists.");
+  }
+  const lockedOutfit = resolveOutfit(detail, params.outfitId);
+  if (!lockedOutfit) {
+    throw new VideoGenProviderError("The selected outfit no longer exists.");
+  }
+  const plan = await planSceneVisuals({
+    tenantAiModel: params.tenantAiModel,
+    topic: params.topic,
+    character: detail.character,
+    outfits: detail.outfits,
+    lockedOutfitId: lockedOutfit.id,
+    wardrobeNotes: params.wardrobeNotes,
+    scenes: params.scenes,
+  });
+  return { detail, plan };
+}
+
 /** Script scenes → wardrobe plan → identity-locked clips, for character mode. */
 async function generateCharacterStoryClips(params: {
   tenantId: number;
@@ -364,34 +458,19 @@ async function generateCharacterStoryClips(params: {
   wardrobeNotes: string;
   paragraphCount: number;
   aspectRatio: VideoAspect;
-  cues: import("./narration").NarrationCue[];
+  cues: NarrationCue[];
   totalDurationSec: number;
 }): Promise<{
   clips: Buffer[];
   sceneMap: import("./compose").SceneSegment[];
   provider: string;
 }> {
-  const detail = await getCharacterDetail(params.tenantId, params.characterId);
-  if (!detail) {
-    throw new VideoGenProviderError("The selected character no longer exists.");
-  }
-  const lockedOutfit = resolveOutfit(detail, params.outfitId);
-  if (!lockedOutfit) {
-    throw new VideoGenProviderError("The selected outfit no longer exists.");
-  }
-  const sceneCount =
-    CHARACTER_SCENES_PER_PARAGRAPH *
-    Math.min(Math.max(Math.trunc(params.paragraphCount) || 1, 1), 3);
-  const scenes = groupCuesIntoScenes(params.cues, params.totalDurationSec, sceneCount);
-  const plan = await planSceneVisuals({
-    tenantAiModel: params.tenantAiModel,
-    topic: params.topic,
-    character: detail.character,
-    outfits: detail.outfits,
-    lockedOutfitId: lockedOutfit.id,
-    wardrobeNotes: params.wardrobeNotes,
-    scenes,
-  });
+  const scenes = groupCuesIntoScenes(
+    params.cues,
+    params.totalDurationSec,
+    sceneCountFor(CHARACTER_SCENES_PER_PARAGRAPH, params.paragraphCount),
+  );
+  const { detail, plan } = await planCharacterScenes({ ...params, scenes });
   const generated = await generateCharacterSceneClips({
     tenantId: params.tenantId,
     character: detail.character,
@@ -401,4 +480,309 @@ async function generateCharacterStoryClips(params: {
     aspectRatio: params.aspectRatio,
   });
   return { clips: generated.clips, sceneMap: generated.sceneMap, provider: generated.provider };
+}
+
+/* ------------------------------------------------------------------------- *
+ * Storyboard: the same pipeline, cut in half at its cheapest point.
+ *
+ * The plan half writes the script, voices it, cuts it into scenes, plans each
+ * scene's prompt and generates ONE still per scene. Those stills are not
+ * throwaway previews — they are the exact images the render half animates, so
+ * a reviewed video generates no image twice. Only the expensive step
+ * (image-to-video, or the Ken Burns encode) waits behind the user's approval.
+ * ------------------------------------------------------------------------- */
+
+/** Scene lengths come from the voiced narration, so they cannot be edited
+ * without desyncing the audio. Kept as a named constant because the PATCH
+ * route and the studio both key off it. */
+const NARRATION_TIMELINE_LOCKED = true;
+
+export interface StoryboardPlanParams {
+  tenantId: number;
+  topic: string;
+  aspectRatio: VideoAspect;
+  voice: NarrationVoice;
+  paragraphCount: number;
+  /** Only "character" and "ai" plan reviewable scenes; stock renders straight
+   * through (its visuals are searched, not prompted). */
+  visualsSource: "character" | "ai";
+  characterId?: number | null;
+  outfitId?: number | null;
+  wardrobeNotes?: string | null;
+  brandVoice?: string | null;
+  referenceStyle?: string | null;
+  /** Persists narration audio and preview stills to tenant storage. */
+  upload: (bytes: Buffer, contentType: string) => Promise<string>;
+  onStage?: (stage: string) => void;
+}
+
+/** Plan a topic video and stop: everything up to (but not including) the
+ * expensive per-scene generation. */
+export async function planTopicStoryboard(
+  params: StoryboardPlanParams,
+): Promise<VideoStoryboard> {
+  const startedAt = Date.now();
+  const characterMode = params.visualsSource === "character";
+  const deadlineMs = characterMode
+    ? CHARACTER_VIDEO_TOTAL_DEADLINE_MS
+    : AI_BROLL_TOTAL_DEADLINE_MS;
+  const topic = params.topic.trim();
+  if (!topic) {
+    throw new VideoGenProviderError("A topic is required.");
+  }
+
+  const { tenantAiModel, model, narration } = await writeAndVoiceScript({
+    tenantId: params.tenantId,
+    topic,
+    voice: params.voice,
+    paragraphCount: params.paragraphCount,
+    brandVoice: params.brandVoice ?? null,
+    referenceStyle: params.referenceStyle ?? null,
+    startedAt,
+    deadlineMs,
+    onStage: params.onStage,
+  });
+
+  const scenes = groupCuesIntoScenes(
+    narration.cues,
+    narration.totalDurationSec,
+    sceneCountFor(
+      characterMode ? CHARACTER_SCENES_PER_PARAGRAPH : AI_BROLL_SCENES_PER_PARAGRAPH,
+      params.paragraphCount,
+    ),
+  );
+
+  params.onStage?.("Sketching the storyboard");
+  let visuals: string[];
+  let outfitIds: (number | null)[];
+  let stills: Buffer[];
+  let provider: string;
+  if (characterMode) {
+    const { detail, plan } = await planCharacterScenes({
+      tenantId: params.tenantId,
+      tenantAiModel,
+      topic,
+      characterId: params.characterId ?? 0,
+      outfitId: params.outfitId ?? null,
+      wardrobeNotes: params.wardrobeNotes ?? "",
+      scenes,
+    });
+    checkDeadline(startedAt, deadlineMs);
+    visuals = plan.map((entry) => entry.visual);
+    outfitIds = plan.map((entry) => entry.outfitId);
+    stills = await generateSceneKeyframes({
+      tenantId: params.tenantId,
+      character: detail.character,
+      outfits: detail.outfits,
+      plan,
+      aspectRatio: params.aspectRatio,
+    });
+    provider = "openai";
+  } else {
+    visuals = await planBrollVisuals({ tenantAiModel, topic, scenes });
+    outfitIds = scenes.map(() => null);
+    checkDeadline(startedAt, deadlineMs);
+    const generated = await generateBrollStills({
+      prompts: visuals,
+      aspectRatio: params.aspectRatio,
+    });
+    stills = generated.images;
+    provider = generated.provider;
+  }
+  checkDeadline(startedAt, deadlineMs);
+
+  params.onStage?.("Saving the storyboard");
+  const audioPath = await params.upload(narration.wav, "audio/wav");
+  const previewPaths = await Promise.all(
+    stills.map((still) =>
+      // A preview that fails to upload leaves the scene without a thumbnail
+      // rather than sinking a plan the user could still have approved.
+      params.upload(still, "image/png").catch((err) => {
+        logger.warn({ err }, "storyboard preview upload failed");
+        return null;
+      }),
+    ),
+  );
+
+  return {
+    version: 1,
+    visualsSource: params.visualsSource,
+    timelineLocked: NARRATION_TIMELINE_LOCKED,
+    model,
+    provider,
+    regenerations: 0,
+    narration: {
+      audioPath,
+      totalDurationSec: narration.totalDurationSec,
+      cues: narration.cues.map((cue) => ({
+        text: cue.text,
+        startSec: cue.startSec,
+        endSec: cue.endSec,
+      })),
+    },
+    scenes: scenes.map((scene, i) => ({
+      id: `s${i + 1}`,
+      text: scene.text,
+      visual: visuals[i] ?? scene.text,
+      durationSec: scene.durationSec,
+      previewPath: previewPaths[i] ?? null,
+      outfitId: outfitIds[i] ?? null,
+    })),
+  };
+}
+
+/** Render an approved storyboard: animate the stills the plan already made,
+ * then compose against the narration it already voiced. */
+export async function renderTopicStoryboard(params: {
+  storyboard: VideoStoryboard;
+  aspectRatio: VideoAspect;
+  subtitles: boolean;
+  captionStyle?: "classic" | "dynamic";
+  music?: Buffer | null;
+  accentColor?: string | null;
+  watermark?: Buffer | null;
+  /** Reads narration audio and preview stills back from tenant storage. */
+  load: (objectPath: string) => Promise<Buffer>;
+  onStage?: (stage: string) => void;
+}): Promise<TopicVideoResult> {
+  const startedAt = Date.now();
+  const board = params.storyboard;
+  const characterMode = board.visualsSource === "character";
+  const deadlineMs = characterMode
+    ? CHARACTER_VIDEO_TOTAL_DEADLINE_MS
+    : AI_BROLL_TOTAL_DEADLINE_MS;
+  if (board.scenes.length === 0) {
+    throw new VideoGenProviderError("This storyboard has no scenes.");
+  }
+
+  params.onStage?.("Loading your storyboard");
+  const narrationWav = await params.load(board.narration.audioPath);
+  const stills = await Promise.all(
+    board.scenes.map(async (scene) => {
+      if (!scene.previewPath) return null;
+      return params.load(scene.previewPath).catch(() => null);
+    }),
+  );
+  if (stills.some((still) => still === null)) {
+    // The plan's stills ARE the render's inputs, so a missing one cannot be
+    // worked around here — regenerating it would silently change the frame the
+    // user approved. The runner refunds and the user can start again.
+    throw new VideoGenProviderError(
+      "Some storyboard images are no longer available. Please start a new video.",
+    );
+  }
+  checkDeadline(startedAt, deadlineMs);
+
+  const scenes: ScriptScene[] = board.scenes.map((scene, i) => ({
+    firstCue: i,
+    lastCue: i,
+    durationSec: scene.durationSec,
+    text: scene.text,
+  }));
+
+  let clips: Buffer[];
+  let sceneMap;
+  let provider = board.provider ?? "ai";
+  if (characterMode) {
+    params.onStage?.("Filming your character");
+    const animated = await animateSceneKeyframes({
+      keyframes: stills as Buffer[],
+      plan: board.scenes.map((scene) => ({
+        visual: scene.visual,
+        outfitId: scene.outfitId ?? 0,
+      })),
+      scenes,
+      aspectRatio: params.aspectRatio,
+    });
+    clips = animated.clips;
+    sceneMap = animated.sceneMap;
+    provider = animated.provider;
+  } else {
+    params.onStage?.("Animating your storyboard");
+    const rendered = await stillsToClips({
+      images: stills as Buffer[],
+      scenes,
+      aspectRatio: params.aspectRatio,
+    });
+    clips = rendered.clips;
+    sceneMap = rendered.sceneMap;
+  }
+  checkDeadline(startedAt, deadlineMs);
+
+  const cues = board.narration.cues;
+  const planGateEnabled = await isFeatureEnabled("planGate").catch(() => true);
+  const gate = planGateEnabled
+    ? gateRenderPlan({
+        scenes: sceneMap,
+        clipCount: clips.length,
+        stillImagery: !characterMode,
+        cueStartsSec: cues.map((cue) => cue.startSec),
+        totalDurationSec: board.narration.totalDurationSec,
+        subtitles: params.subtitles,
+      })
+    : null;
+  if (gate?.blocked) {
+    throw new VideoGenProviderError(gate.blocked);
+  }
+  if (gate && gate.warnings.length > 0) {
+    logger.warn(
+      { visualsSource: board.visualsSource, risk: gate.risk, warnings: gate.warnings },
+      "pre-render plan gate flagged the approved storyboard",
+    );
+  }
+
+  params.onStage?.("Composing the video");
+  const buffer = await composeTopicVideo({
+    clips,
+    narrationWav,
+    cues,
+    totalDurationSec: board.narration.totalDurationSec,
+    aspectRatio: params.aspectRatio,
+    subtitles: params.subtitles,
+    captionStyle: params.captionStyle ?? "classic",
+    accentColor: params.accentColor ?? null,
+    watermark: params.watermark ?? null,
+    music: params.music ?? null,
+    sceneMap: gate ? gate.scenes : sceneMap,
+  });
+  return { buffer, provider, model: board.model ?? "", durationSec: board.narration.totalDurationSec };
+}
+
+/** Regenerate one scene's preview still from an edited prompt. Returns the new
+ * /objects/... path. Character scenes stay identity-anchored on their outfit's
+ * reference photo, exactly as the plan phase generated them. */
+export async function regenerateStoryboardPreview(params: {
+  tenantId: number;
+  storyboard: VideoStoryboard;
+  scene: VideoStoryboardScene;
+  aspectRatio: VideoAspect;
+  characterId?: number | null;
+  upload: (bytes: Buffer, contentType: string) => Promise<string>;
+}): Promise<string> {
+  if (params.storyboard.visualsSource === "character") {
+    const detail = await getCharacterDetail(params.tenantId, params.characterId ?? 0);
+    if (!detail) {
+      throw new VideoGenProviderError("The selected character no longer exists.");
+    }
+    const [still] = await generateSceneKeyframes({
+      tenantId: params.tenantId,
+      character: detail.character,
+      outfits: detail.outfits,
+      plan: [
+        {
+          visual: params.scene.visual,
+          // resolveOutfit falls back to the default outfit, so a wardrobe entry
+          // deleted since planning cannot strand the scene.
+          outfitId: resolveOutfit(detail, params.scene.outfitId)?.id ?? 0,
+        },
+      ],
+      aspectRatio: params.aspectRatio,
+    });
+    return params.upload(still!, "image/png");
+  }
+  const { images } = await generateBrollStills({
+    prompts: [params.scene.visual],
+    aspectRatio: params.aspectRatio,
+  });
+  return params.upload(images[0]!, "image/png");
 }

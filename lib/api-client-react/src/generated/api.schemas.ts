@@ -2643,6 +2643,96 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   wardrobeNotes?: string | null;
+  /** Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by topic_to_video with generated visuals (visualsSource "character" or "ai"); other engines have nothing promptable to review and ignore it. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST .../storyboard/approve to render it. */
+  reviewStoryboard?: boolean;
+}
+
+export interface VideoStoryboardScene {
+  /** Stable scene address for edits ("s1", "s2", ...). */
+  id: string;
+  /** The narration this scene plays under. Read-only: it comes from audio that has already been recorded. */
+  text: string;
+  /** The image/video prompt for this scene. This is editable. */
+  visual: string;
+  /** Seconds on screen. Read-only while the parent storyboard is timelineLocked. */
+  durationSec: number;
+  /**
+     * /objects/... preview still; serve via /api/storage{previewPath}. Null only when the preview failed to store.
+     * @nullable
+     */
+  previewPath: string | null;
+  /**
+     * Character mode; the outfit worn in this scene.
+     * @nullable
+     */
+  outfitId: number | null;
+}
+
+export type VideoStoryboardVersion = typeof VideoStoryboardVersion[keyof typeof VideoStoryboardVersion];
+
+
+export const VideoStoryboardVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type VideoStoryboardVisualsSource = typeof VideoStoryboardVisualsSource[keyof typeof VideoStoryboardVisualsSource];
+
+
+export const VideoStoryboardVisualsSource = {
+  character: 'character',
+  ai: 'ai',
+} as const;
+
+export type VideoStoryboardNarrationCuesItem = {
+  text: string;
+  startSec: number;
+  endSec: number;
+};
+
+export type VideoStoryboardNarration = {
+  audioPath: string;
+  totalDurationSec: number;
+  /** Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them. */
+  cues: VideoStoryboardNarrationCuesItem[];
+};
+
+export interface VideoStoryboard {
+  version: VideoStoryboardVersion;
+  visualsSource: VideoStoryboardVisualsSource;
+  /** True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio. */
+  timelineLocked: boolean;
+  /** @nullable */
+  model?: string | null;
+  /** @nullable */
+  provider?: string | null;
+  /** Preview regenerations spent so far; capped server-side. */
+  regenerations: number;
+  narration: VideoStoryboardNarration;
+  scenes: VideoStoryboardScene[];
+}
+
+export type UpdateStoryboardRequestScenesItem = {
+  id: string;
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+  visual?: string;
+  /**
+     * Rejected while the storyboard is timelineLocked.
+     * @minimum 1
+     * @maximum 20
+     */
+  durationSec?: number;
+};
+
+export interface UpdateStoryboardRequest {
+  /**
+     * Scenes to edit, addressed by id. Only the fields you send change; unlisted scenes are untouched. Never accepts image paths — a preview is replaced by regenerating it, not by pointing at a file.
+     * @minItems 1
+     * @maxItems 24
+     */
+  scenes: UpdateStoryboardRequestScenesItem[];
 }
 
 export type VideoJobEngine = typeof VideoJobEngine[keyof typeof VideoJobEngine];
@@ -2655,12 +2745,16 @@ export const VideoJobEngine = {
   topic_to_video: 'topic_to_video',
 } as const;
 
+/**
+ * awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.
+ */
 export type VideoJobStatus = typeof VideoJobStatus[keyof typeof VideoJobStatus];
 
 
 export const VideoJobStatus = {
   queued: 'queued',
   processing: 'processing',
+  awaiting_review: 'awaiting_review',
   succeeded: 'succeeded',
   failed: 'failed',
 } as const;
@@ -2668,6 +2762,7 @@ export const VideoJobStatus = {
 export interface VideoJob {
   id: number;
   engine: VideoJobEngine;
+  /** awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way. */
   status: VideoJobStatus;
   /** @nullable */
   prompt?: string | null;
@@ -2699,6 +2794,13 @@ export interface VideoJob {
   stage?: string | null;
   /** @nullable */
   durationMs?: number | null;
+  /** The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved. */
+  storyboard?: VideoStoryboard | null;
+  /**
+     * When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.
+     * @nullable
+     */
+  storyboardExpiresAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

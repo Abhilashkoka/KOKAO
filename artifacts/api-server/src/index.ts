@@ -18,6 +18,7 @@ import {
   stopPostMetricsSweep,
 } from "./lib/postMetricsSweep";
 import { startImageJobSweep, stopImageJobSweep } from "./lib/imageJobs";
+import { startVideoJobSweep, stopVideoJobSweep } from "./lib/videoGen/videoJobSweep";
 
 // Fail loudly before binding if a deployed context is missing required env,
 // rather than booting into a silently-degraded state.
@@ -73,6 +74,11 @@ const server: Server = app.listen(port, (err) => {
   // Periodically fail out image jobs abandoned in queued/processing by a
   // restart (the background runner is in-process), refunding credit funding.
   startImageJobSweep();
+
+  // Periodically settle video jobs that cannot settle themselves: storyboards
+  // whose review window closed, and jobs orphaned in queued/processing by a
+  // restart. Both refund credit funding.
+  startVideoJobSweep();
 });
 
 // Graceful shutdown: drain in-flight background publish jobs (bounded by a
@@ -86,6 +92,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     stopPushTokenMaintenance();
     stopPostMetricsSweep();
     stopImageJobSweep();
+    stopVideoJobSweep();
     void shutdown(signal);
   });
 }

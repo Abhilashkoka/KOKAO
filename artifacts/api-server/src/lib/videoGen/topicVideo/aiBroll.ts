@@ -190,8 +190,49 @@ async function mapWithConcurrency<T, R>(
 }
 
 /**
- * Generate one owned clip per scene: image from the scene's plan, then a
- * Ken Burns move sized to the scene's duration (alternating in/out).
+ * The cheap half: one still per prompt. These are also exactly the stills the
+ * storyboard previews, so a reviewed job generates them once and animates the
+ * approved ones rather than paying for a second set.
+ */
+export async function generateBrollStills(params: {
+  prompts: string[];
+  aspectRatio: VideoAspect;
+}): Promise<{ images: Buffer[]; provider: string }> {
+  const size = imageSizeForAspect(params.aspectRatio);
+  let provider = "ai";
+  const images = await mapWithConcurrency(params.prompts, IMAGE_CONCURRENCY, async (prompt) => {
+    const image = await generateImage(prompt, size);
+    provider = image.provider;
+    return image.buffer;
+  });
+  return { images, provider };
+}
+
+/** The render half: a Ken Burns move per still, sized to its scene and
+ * alternating in/out so consecutive scenes do not drift the same way. */
+export async function stillsToClips(params: {
+  images: Buffer[];
+  scenes: ScriptScene[];
+  aspectRatio: VideoAspect;
+}): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[] }> {
+  const clips = await mapWithConcurrency(params.scenes, IMAGE_CONCURRENCY, async (scene, i) => {
+    const image = params.images[i];
+    if (!image) throw new VideoGenProviderError("A scene is missing its still image.");
+    return stillToClip(image, scene.durationSec, params.aspectRatio, i % 2 === 0);
+  });
+  return {
+    clips,
+    sceneMap: params.scenes.map((scene, i) => ({
+      clipIndex: i,
+      durationSec: scene.durationSec,
+    })),
+  };
+}
+
+/**
+ * Straight-through generated b-roll: plan the prompts, generate one still per
+ * scene, Ken Burns each into a clip. Used when the job is not paused for
+ * storyboard review; a reviewed job calls the halves either side of the pause.
  */
 export async function generateBrollClips(params: {
   tenantAiModel: string;
@@ -207,21 +248,14 @@ export async function generateBrollClips(params: {
     topic: params.topic,
     scenes: params.scenes,
   });
-  const size = imageSizeForAspect(params.aspectRatio);
-
-  let provider = "ai";
-  const clips = await mapWithConcurrency(params.scenes, IMAGE_CONCURRENCY, async (scene, i) => {
-    const image = await generateImage(prompts[i]!, size);
-    provider = image.provider;
-    return stillToClip(image.buffer, scene.durationSec, params.aspectRatio, i % 2 === 0);
+  const { images, provider } = await generateBrollStills({
+    prompts,
+    aspectRatio: params.aspectRatio,
   });
-
-  return {
-    clips,
-    sceneMap: params.scenes.map((scene, i) => ({
-      clipIndex: i,
-      durationSec: scene.durationSec,
-    })),
-    provider,
-  };
+  const { clips, sceneMap } = await stillsToClips({
+    images,
+    scenes: params.scenes,
+    aspectRatio: params.aspectRatio,
+  });
+  return { clips, sceneMap, provider };
 }

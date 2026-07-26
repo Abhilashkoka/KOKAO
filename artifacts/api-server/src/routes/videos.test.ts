@@ -31,11 +31,40 @@ vi.mock("@clerk/express", async () => {
 // tenancy) is tested deterministically.
 const runnerState = vi.hoisted(() => ({
   calls: [] as { jobId: number; funding: string }[],
+  resumed: [] as number[],
+  previews: [] as { jobId: number; sceneId: string }[],
+  /** Set by a test to make the next preview regeneration throw. */
+  previewError: null as unknown,
 }));
 vi.mock("../lib/videoGen/jobRunner", () => ({
+  STORYBOARD_REGENERATIONS_PER_SCENE: 2,
   runVideoGenerationJob: vi.fn(async (jobId: number, funding: string) => {
     runnerState.calls.push({ jobId, funding });
   }),
+  resumeVideoGenerationJob: vi.fn(async (job: { id: number }) => {
+    runnerState.resumed.push(job.id);
+  }),
+  // Mirrors the real function's contract: swap in a fresh still for the one
+  // scene, leaving the rest of the plan (including the regenerations counter,
+  // which the route spends atomically before calling this) alone.
+  refreshStoryboardScenePreview: vi.fn(
+    async (
+      job: { id: number; tenantId: number },
+      storyboard: VideoStoryboard,
+      scene: VideoStoryboardScene,
+    ) => {
+      if (runnerState.previewError) throw runnerState.previewError;
+      runnerState.previews.push({ jobId: job.id, sceneId: scene.id });
+      return {
+        ...storyboard,
+        scenes: storyboard.scenes.map((s) =>
+          s.id === scene.id
+            ? { ...s, previewPath: `/objects/${job.tenantId}/uploads/reroll-${s.id}.png` }
+            : s,
+        ),
+      };
+    },
+  ),
 }));
 
 // Music library: the Openverse client + SSRF guard have their own tests
@@ -83,7 +112,10 @@ import {
   creditLedgerTable,
   charactersTable,
   characterOutfitsTable,
+  type VideoStoryboard,
+  type VideoStoryboardScene,
 } from "@workspace/db";
+import { VideoGenProviderError } from "../lib/videoGen";
 import { eq } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import videosRouter from "./videos";
@@ -138,6 +170,9 @@ const savedProviderEnv = Object.fromEntries(
 beforeEach(() => {
   resetAuthState();
   runnerState.calls.length = 0;
+  runnerState.resumed.length = 0;
+  runnerState.previews.length = 0;
+  runnerState.previewError = null;
   for (const [key, value] of Object.entries(PROVIDER_ENV)) process.env[key] = value;
 });
 
@@ -308,7 +343,24 @@ describe("POST /api/ai/generate-video", () => {
       captionStyle: "dynamic",
       stockSource: "pexels",
       musicPath: `/objects/${tenant.tenantId}/uploads/track.mp3`,
+      // Storyboard review is on unless the caller turns it off.
+      reviewStoryboard: true,
     });
+  });
+
+  it("honours a caller that turns storyboard review off", async () => {
+    await newTenant();
+    const res = await request(app).post("/api/ai/generate-video").send({
+      engine: "topic_to_video",
+      prompt: "why sourdough rises",
+      visualsSource: "ai",
+      reviewStoryboard: false,
+    });
+    expect(res.status).toBe(201);
+    const row = (
+      await db.select().from(videoGenerationsTable).where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+    expect(row?.options?.reviewStoryboard).toBe(false);
   });
 
   it("stores a brand kit on a topic video and drops it on other engines", async () => {
@@ -546,6 +598,10 @@ describe("POST /api/ai/generate-video", () => {
     expect(runnerState.calls).toEqual([{ jobId: res.body.id, funding: "credit" }]);
     // Reserved atomically up front — the balance is already debited.
     expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(0);
+    // Funding is persisted at creation, not at the runner's claim: a restart
+    // before the claim would otherwise leave a queued orphan the sweep cannot
+    // refund.
+    expect((await readJob(res.body.id)).funding).toBe("credit");
   });
 });
 
@@ -575,6 +631,321 @@ describe("GET /api/ai/video-jobs", () => {
 
     const crossRead = await request(app).get(`/api/ai/video-jobs/${otherJob.id}`);
     expect(crossRead.status).toBe(404);
+  });
+});
+
+/**
+ * Storyboard review. Every mutation is a status-guarded UPDATE, so these tests
+ * lean hardest on the two things that cost money or cannot be undone: that a
+ * plan can only be claimed once, and that a discard refunds exactly once.
+ */
+function storyboardFixture(tenantId: number, sceneCount = 2): VideoStoryboard {
+  return {
+    version: 1,
+    visualsSource: "character",
+    timelineLocked: true,
+    model: "kwaivgi/kling-v1.6-standard",
+    provider: "replicate",
+    regenerations: 0,
+    narration: {
+      audioPath: `/objects/${tenantId}/uploads/narration.wav`,
+      totalDurationSec: 6 * sceneCount,
+      cues: Array.from({ length: sceneCount }, (_, i) => ({
+        text: `Line ${i + 1}`,
+        startSec: i * 6,
+        endSec: (i + 1) * 6,
+      })),
+    },
+    scenes: Array.from({ length: sceneCount }, (_, i) => ({
+      id: `s${i + 1}`,
+      text: `Line ${i + 1}`,
+      visual: `wide shot ${i + 1}`,
+      durationSec: 6,
+      previewPath: `/objects/${tenantId}/uploads/shot-${i + 1}.png`,
+      outfitId: null,
+    })),
+  };
+}
+
+async function seedPausedJob(
+  tenantId: number,
+  overrides: Partial<typeof videoGenerationsTable.$inferInsert> = {},
+  storyboard: VideoStoryboard = storyboardFixture(tenantId),
+) {
+  return (
+    await db
+      .insert(videoGenerationsTable)
+      .values({
+        tenantId,
+        engine: "topic_to_video",
+        status: "awaiting_review",
+        funding: "quota",
+        options: { aspectRatio: "9:16", visualsSource: "character", paragraphCount: 1 },
+        storyboard,
+        storyboardExpiresAt: new Date(Date.now() + 60_000),
+        ...overrides,
+      })
+      .returning()
+  )[0]!;
+}
+
+async function readJob(id: number) {
+  return (
+    await db.select().from(videoGenerationsTable).where(eq(videoGenerationsTable.id, id)).limit(1)
+  )[0]!;
+}
+
+describe("PATCH /api/ai/video-jobs/:jobId/storyboard", () => {
+  it("rewrites the edited scene's prompt and leaves the others untouched", async () => {
+    const tenant = await newTenant();
+    const job = await seedPausedJob(tenant.tenantId);
+
+    const res = await request(app)
+      .patch(`/api/ai/video-jobs/${job.id}/storyboard`)
+      .send({ scenes: [{ id: "s2", visual: "  close up on her hands  " }] });
+    expect(res.status).toBe(200);
+    expect(res.body.storyboard.scenes[0].visual).toBe("wide shot 1");
+    expect(res.body.storyboard.scenes[1].visual).toBe("close up on her hands");
+    // Editing a prompt does not touch its still — the redraw button does that.
+    expect(res.body.storyboard.scenes[1].previewPath).toBe(
+      `/objects/${tenant.tenantId}/uploads/shot-2.png`,
+    );
+    expect((await readJob(job.id)).storyboard?.scenes[1]?.visual).toBe("close up on her hands");
+  });
+
+  it("rejects an edit naming a scene that is not in the plan", async () => {
+    const tenant = await newTenant();
+    const job = await seedPausedJob(tenant.tenantId);
+    const res = await request(app)
+      .patch(`/api/ai/video-jobs/${job.id}/storyboard`)
+      .send({ scenes: [{ id: "s9", visual: "a scene that does not exist" }] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/not in this storyboard/i);
+    expect((await readJob(job.id)).storyboard?.scenes[0]?.visual).toBe("wide shot 1");
+  });
+
+  it("refuses a length edit while the timeline is locked to the narration", async () => {
+    const tenant = await newTenant();
+    const job = await seedPausedJob(tenant.tenantId);
+    const res = await request(app)
+      .patch(`/api/ai/video-jobs/${job.id}/storyboard`)
+      .send({ scenes: [{ id: "s1", durationSec: 10 }] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/narration timing/i);
+    expect((await readJob(job.id)).storyboard?.scenes[0]?.durationSec).toBe(6);
+  });
+
+  it("400s on a job that is not paused for review", async () => {
+    const tenant = await newTenant();
+    const job = await seedPausedJob(tenant.tenantId, { status: "processing" });
+    const res = await request(app)
+      .patch(`/api/ai/video-jobs/${job.id}/storyboard`)
+      .send({ scenes: [{ id: "s1", visual: "nope" }] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/not waiting for storyboard review/i);
+  });
+
+  it("404s on another tenant's storyboard", async () => {
+    const other = await newTenant();
+    const job = await seedPausedJob(other.tenantId);
+    await newTenant();
+    const res = await request(app)
+      .patch(`/api/ai/video-jobs/${job.id}/storyboard`)
+      .send({ scenes: [{ id: "s1", visual: "not mine" }] });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("POST /api/ai/video-jobs/:jobId/storyboard/scenes/:sceneId/preview", () => {
+  it("re-rolls one still and counts the regeneration", async () => {
+    const tenant = await newTenant();
+    const job = await seedPausedJob(tenant.tenantId);
+
+    const res = await request(app).post(
+      `/api/ai/video-jobs/${job.id}/storyboard/scenes/s1/preview`,
+    );
+    expect(res.status).toBe(200);
+    expect(runnerState.previews).toEqual([{ jobId: job.id, sceneId: "s1" }]);
+    expect(res.body.storyboard.regenerations).toBe(1);
+    expect(res.body.storyboard.scenes[0].previewPath).toBe(
+      `/objects/${tenant.tenantId}/uploads/reroll-s1.png`,
+    );
+    expect(res.body.storyboard.scenes[1].previewPath).toBe(
+      `/objects/${tenant.tenantId}/uploads/shot-2.png`,
+    );
+    expect((await readJob(job.id)).storyboard?.regenerations).toBe(1);
+  });
+
+  it("400s on a scene id that is not in the plan", async () => {
+    const tenant = await newTenant();
+    const job = await seedPausedJob(tenant.tenantId);
+    const res = await request(app).post(
+      `/api/ai/video-jobs/${job.id}/storyboard/scenes/s9/preview`,
+    );
+    expect(res.status).toBe(400);
+    expect(runnerState.previews).toHaveLength(0);
+  });
+
+  it("stops re-rolling at two per scene and says how many that was", async () => {
+    const tenant = await newTenant();
+    // Two scenes, so the cap is four; start already spent.
+    const spent = storyboardFixture(tenant.tenantId);
+    spent.regenerations = 4;
+    const job = await seedPausedJob(tenant.tenantId, {}, spent);
+
+    const res = await request(app).post(
+      `/api/ai/video-jobs/${job.id}/storyboard/scenes/s1/preview`,
+    );
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("all 4 free preview re-rolls");
+    expect(runnerState.previews).toHaveLength(0);
+  });
+
+  it("grants only the re-rolls left under the cap when requests race", async () => {
+    const tenant = await newTenant();
+    // Two scenes → cap 4; three already spent, so exactly one re-roll remains.
+    const spent = storyboardFixture(tenant.tenantId);
+    spent.regenerations = 3;
+    const job = await seedPausedJob(tenant.tenantId, {}, spent);
+
+    const [a, b] = await Promise.all([
+      request(app).post(`/api/ai/video-jobs/${job.id}/storyboard/scenes/s1/preview`),
+      request(app).post(`/api/ai/video-jobs/${job.id}/storyboard/scenes/s2/preview`),
+    ]);
+    // The atomic claim lets exactly one through; the loser sees the cap error.
+    expect([a.status, b.status].sort()).toEqual([200, 400]);
+    expect(runnerState.previews).toHaveLength(1);
+    expect((await readJob(job.id)).storyboard?.regenerations).toBe(4);
+  });
+
+  it("502s when the image provider fails, leaving the plan as it was", async () => {
+    const tenant = await newTenant();
+    const job = await seedPausedJob(tenant.tenantId);
+    runnerState.previewError = new VideoGenProviderError("Replicate is over capacity.", 503);
+
+    const res = await request(app).post(
+      `/api/ai/video-jobs/${job.id}/storyboard/scenes/s1/preview`,
+    );
+    expect(res.status).toBe(502);
+    expect(res.body.error).toBe("Replicate is over capacity.");
+    const row = await readJob(job.id);
+    expect(row.status).toBe("awaiting_review");
+    expect(row.storyboard?.regenerations).toBe(0);
+  });
+});
+
+describe("POST /api/ai/video-jobs/:jobId/storyboard/approve", () => {
+  it("claims the plan once, hands it to the runner and clears the expiry", async () => {
+    const tenant = await newTenant();
+    const job = await seedPausedJob(tenant.tenantId);
+
+    const res = await request(app).post(`/api/ai/video-jobs/${job.id}/storyboard/approve`);
+    expect(res.status).toBe(202);
+    expect(res.body.status).toBe("processing");
+    expect(res.body.storyboardExpiresAt).toBeNull();
+
+    await waitForPendingJobs();
+    expect(runnerState.resumed).toEqual([job.id]);
+    const row = await readJob(job.id);
+    expect(row.status).toBe("processing");
+    expect(row.storyboardExpiresAt).toBeNull();
+    // The plan is kept as the record of what was approved.
+    expect(row.storyboard?.scenes).toHaveLength(2);
+
+    // A second approve finds nothing left to claim, so no second render.
+    const again = await request(app).post(`/api/ai/video-jobs/${job.id}/storyboard/approve`);
+    expect(again.status).toBe(400);
+    await waitForPendingJobs();
+    expect(runnerState.resumed).toEqual([job.id]);
+  });
+
+  it("renders once when two approvals arrive together", async () => {
+    const tenant = await newTenant();
+    const job = await seedPausedJob(tenant.tenantId);
+
+    // Both requests can read awaiting_review before either writes, so the
+    // conditional UPDATE is the only thing standing between the user and two
+    // renders of the same plan.
+    const results = await Promise.all([
+      request(app).post(`/api/ai/video-jobs/${job.id}/storyboard/approve`),
+      request(app).post(`/api/ai/video-jobs/${job.id}/storyboard/approve`),
+    ]);
+    expect(results.filter((r) => r.status === 202)).toHaveLength(1);
+    expect(results.filter((r) => r.status === 400)).toHaveLength(1);
+
+    await waitForPendingJobs();
+    expect(runnerState.resumed).toEqual([job.id]);
+  });
+
+  it("400s a job with no plan to approve", async () => {
+    const tenant = await newTenant();
+    const job = (
+      await db
+        .insert(videoGenerationsTable)
+        .values({ tenantId: tenant.tenantId, engine: "topic_to_video", status: "queued" })
+        .returning()
+    )[0]!;
+    const res = await request(app).post(`/api/ai/video-jobs/${job.id}/storyboard/approve`);
+    expect(res.status).toBe(400);
+    expect(runnerState.resumed).toHaveLength(0);
+  });
+});
+
+describe("POST /api/ai/video-jobs/:jobId/storyboard/discard", () => {
+  it("fails the job and gives credit funding back exactly once", async () => {
+    const tenant = await newTenant("payg");
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 0,
+      kind: "admin_grant",
+      note: "test",
+    });
+    // A one-paragraph character video costs four units, spent at enqueue.
+    const job = await seedPausedJob(tenant.tenantId, { funding: "credit" });
+
+    const res = await request(app).post(`/api/ai/video-jobs/${job.id}/storyboard/discard`);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("failed");
+    expect(res.body.error).toMatch(/Nothing was charged/i);
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(4);
+
+    // Discarding twice must not refund twice.
+    const again = await request(app).post(`/api/ai/video-jobs/${job.id}/storyboard/discard`);
+    expect(again.status).toBe(400);
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(4);
+  });
+
+  it("refunds once when two discards arrive together", async () => {
+    const tenant = await newTenant("payg");
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 0,
+      kind: "admin_grant",
+      note: "test",
+    });
+    const job = await seedPausedJob(tenant.tenantId, { funding: "credit" });
+
+    // Both requests can read awaiting_review before either writes, so only the
+    // conditional UPDATE keeps this from refunding eight units for four.
+    const results = await Promise.all([
+      request(app).post(`/api/ai/video-jobs/${job.id}/storyboard/discard`),
+      request(app).post(`/api/ai/video-jobs/${job.id}/storyboard/discard`),
+    ]);
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(4);
+  });
+
+  it("refunds nothing when the job was funded by the plan quota", async () => {
+    const tenant = await newTenant();
+    const job = await seedPausedJob(tenant.tenantId, { funding: "quota" });
+    const res = await request(app).post(`/api/ai/video-jobs/${job.id}/storyboard/discard`);
+    expect(res.status).toBe(200);
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(0);
+    expect((await readJob(job.id)).storyboardExpiresAt).toBeNull();
   });
 });
 

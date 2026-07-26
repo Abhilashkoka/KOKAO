@@ -14,8 +14,12 @@ import {
  * job (lib/backgroundJobs.ts) that persists its own progress here. Clients
  * poll GET /ai/video-jobs/{id} until status is succeeded or failed.
  *
- * status: queued | processing | succeeded | failed
+ * status: queued | processing | awaiting_review | succeeded | failed
  * engine: text_to_video | image_to_video | slideshow | topic_to_video
+ *
+ * awaiting_review is the storyboard pause: the job planned its scenes, voiced
+ * the narration and generated a preview still per scene, then stopped before
+ * the expensive half so the user can edit the plan. Approving resumes it.
  */
 
 /** Options captured at enqueue time so the job is fully self-describing. */
@@ -55,6 +59,53 @@ export interface VideoJobOptions {
   brandKitId?: number | null;
   /** topic_to_video: reference-derived style profile steering pacing + hook. */
   styleProfileId?: number | null;
+  /** Pause after planning so the user can edit the storyboard before the
+   * expensive half runs. Honoured by topic_to_video with generated visuals
+   * (character / ai); other engines plan nothing reviewable and ignore it. */
+  reviewStoryboard?: boolean;
+}
+
+/** One reviewable beat of a video: the narration it covers, the prompt that
+ * will generate it, and a preview still of what that prompt produced. */
+export interface VideoStoryboardScene {
+  /** Stable address for edits ("s1", "s2", ...); never reused or renumbered. */
+  id: string;
+  /** The narration this scene plays under. Read-only: it comes from the voiced
+   * audio, so changing it would desync the timeline from the recording. */
+  text: string;
+  /** The image/video prompt. This is the field the user edits. */
+  visual: string;
+  /** Seconds on screen. Read-only while timelineLocked. */
+  durationSec: number;
+  /** /objects/... preview still, or null when the preview failed to generate
+   * (the scene still renders; only its thumbnail is missing). */
+  previewPath: string | null;
+  /** Character mode: the outfit worn in this scene. */
+  outfitId: number | null;
+}
+
+/** The plan a paused job is waiting on. Stored on the job row so approving is
+ * a resume rather than a re-plan, and so a client only needs the job GET. */
+export interface VideoStoryboard {
+  version: 1;
+  /** Which generated-visual pipeline will render these scenes. */
+  visualsSource: "character" | "ai";
+  /** True when scene lengths are dictated by already-voiced narration, which
+   * makes durationSec read-only — editing one would either desync every later
+   * scene from the audio or silently change the total length. */
+  timelineLocked: boolean;
+  model: string | null;
+  provider: string | null;
+  /** Preview regenerations spent so far; capped server-side. */
+  regenerations: number;
+  /** The voiced narration the scenes are cut against, parked in tenant storage
+   * so approving does not have to re-synthesize (and re-bill) it. */
+  narration: {
+    audioPath: string;
+    totalDurationSec: number;
+    cues: { text: string; startSec: number; endSec: number }[];
+  };
+  scenes: VideoStoryboardScene[];
 }
 
 export const videoGenerationsTable = pgTable("video_generations", {
@@ -81,6 +132,15 @@ export const videoGenerationsTable = pgTable("video_generations", {
   stage: text("stage"),
   /** Wall-clock generation time, for the usage/cost meters. */
   durationMs: integer("duration_ms"),
+  /** How the route paid for this job, so a sweep that settles an abandoned
+   * one knows whether there are credits to give back. */
+  funding: text("funding").$type<"quota" | "credit">(),
+  /** The editable plan; only set while status is awaiting_review (and kept
+   * afterwards as a record of what was approved). */
+  storyboard: jsonb("storyboard").$type<VideoStoryboard>(),
+  /** When an unreviewed storyboard is swept and the reservation refunded.
+   * Null unless the job is awaiting_review. */
+  storyboardExpiresAt: timestamp("storyboard_expires_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

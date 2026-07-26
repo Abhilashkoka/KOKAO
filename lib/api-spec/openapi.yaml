@@ -3189,6 +3189,163 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/storyboard:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    patch:
+      operationId: updateVideoStoryboard
+      tags: [ai]
+      summary: Edit the scenes of a paused storyboard
+      description: >-
+        Only valid while the job's status is awaiting_review. Scenes are
+        addressed by id; unlisted scenes keep their current values. Editing a
+        scene's visual does not regenerate its preview — that is a separate
+        call, so a user can retype several scenes and only pay preview time for
+        the ones they want to see.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateStoryboardRequest"
+      responses:
+        "200":
+          description: The job with its updated storyboard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "400":
+          description: Not awaiting review, unknown scene id, or a locked field
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/storyboard/scenes/{sceneId}/preview:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: sceneId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: regenerateStoryboardScenePreview
+      tags: [ai]
+      summary: Regenerate one scene's preview image from its current prompt
+      description: >-
+        Runs the same image step the render will use, so the returned preview is
+        the frame that gets animated on approve. Unbilled but capped per
+        storyboard; the cap is reported back as regenerations on the storyboard.
+      responses:
+        "200":
+          description: The job with the scene's new preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "400":
+          description: Not awaiting review, unknown scene id, or cap reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: The image provider failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/storyboard/approve:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: approveVideoStoryboard
+      tags: [ai]
+      summary: Approve a storyboard and resume rendering
+      description: >-
+        Returns immediately with status processing; poll the job as usual.
+        Nothing is charged here — the reservation was taken when the job was
+        created.
+      responses:
+        "202":
+          description: Rendering resumed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "400":
+          description: Not awaiting review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: The server is shutting down; try again shortly
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/storyboard/discard:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: discardVideoStoryboard
+      tags: [ai]
+      summary: Abandon a paused storyboard and refund its reservation
+      responses:
+        "200":
+          description: The failed job, with its reservation returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "400":
+          description: Not awaiting review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/video-jobs/{jobId}/save-to-library:
     parameters:
       - name: jobId
@@ -10397,6 +10554,122 @@ components:
           description: >-
             topic_to_video character mode; costume-change instructions
             (e.g. "switch to gym wear for the workout scenes").
+        reviewStoryboard:
+          type: boolean
+          default: true
+          description: >-
+            Pause after planning so the storyboard can be edited before the
+            expensive half runs. Honoured by topic_to_video with generated
+            visuals (visualsSource "character" or "ai"); other engines have
+            nothing promptable to review and ignore it. The job lands in
+            awaiting_review with a storyboard; PATCH the scenes, then POST
+            .../storyboard/approve to render it.
+    VideoStoryboardScene:
+      type: object
+      required: [id, text, visual, durationSec, previewPath, outfitId]
+      properties:
+        id:
+          type: string
+          description: Stable scene address for edits ("s1", "s2", ...).
+        text:
+          type: string
+          description: >-
+            The narration this scene plays under. Read-only: it comes from
+            audio that has already been recorded.
+        visual:
+          type: string
+          description: The image/video prompt for this scene. This is editable.
+        durationSec:
+          type: number
+          description: >-
+            Seconds on screen. Read-only while the parent storyboard is
+            timelineLocked.
+        previewPath:
+          type: ["string", "null"]
+          description: >-
+            /objects/... preview still; serve via /api/storage{previewPath}.
+            Null only when the preview failed to store.
+        outfitId:
+          type: ["integer", "null"]
+          description: Character mode; the outfit worn in this scene.
+    VideoStoryboard:
+      type: object
+      required:
+        [version, visualsSource, timelineLocked, regenerations, narration, scenes]
+      properties:
+        version:
+          type: integer
+          enum: [1]
+        visualsSource:
+          type: string
+          enum: [character, ai]
+        timelineLocked:
+          type: boolean
+          description: >-
+            True when scene lengths are dictated by narration that has already
+            been recorded, which makes durationSec read-only — editing one
+            would desync every later scene from the audio.
+        model:
+          type: ["string", "null"]
+        provider:
+          type: ["string", "null"]
+        regenerations:
+          type: integer
+          description: Preview regenerations spent so far; capped server-side.
+        narration:
+          type: object
+          required: [audioPath, totalDurationSec, cues]
+          properties:
+            audioPath:
+              type: string
+            totalDurationSec:
+              type: number
+            cues:
+              type: array
+              description: >-
+                Subtitle timings measured from the recording, so the render half
+                does not have to re-voice the script to know them.
+              items:
+                type: object
+                required: [text, startSec, endSec]
+                properties:
+                  text:
+                    type: string
+                  startSec:
+                    type: number
+                  endSec:
+                    type: number
+        scenes:
+          type: array
+          items:
+            $ref: "#/components/schemas/VideoStoryboardScene"
+    UpdateStoryboardRequest:
+      type: object
+      required: [scenes]
+      properties:
+        scenes:
+          type: array
+          minItems: 1
+          maxItems: 24
+          description: >-
+            Scenes to edit, addressed by id. Only the fields you send change;
+            unlisted scenes are untouched. Never accepts image paths — a
+            preview is replaced by regenerating it, not by pointing at a file.
+          items:
+            type: object
+            required: [id]
+            properties:
+              id:
+                type: string
+              visual:
+                type: string
+                minLength: 1
+                maxLength: 1000
+              durationSec:
+                type: number
+                minimum: 1
+                maximum: 20
+                description: Rejected while the storyboard is timelineLocked.
     VideoJob:
       type: object
       required:
@@ -10409,7 +10682,10 @@ components:
           enum: [text_to_video, image_to_video, slideshow, topic_to_video]
         status:
           type: string
-          enum: [queued, processing, succeeded, failed]
+          enum: [queued, processing, awaiting_review, succeeded, failed]
+          description: >-
+            awaiting_review means the job paused with an editable storyboard
+            and is waiting on approve or discard; it resumes no other way.
         prompt:
           type: ["string", "null"]
         sourceImagePaths:
@@ -10439,6 +10715,19 @@ components:
             processing; null otherwise.
         durationMs:
           type: ["integer", "null"]
+        storyboard:
+          oneOf:
+            - $ref: "#/components/schemas/VideoStoryboard"
+            - type: "null"
+          description: >-
+            The editable plan. Present while status is awaiting_review, and kept
+            afterwards as a record of what was approved.
+        storyboardExpiresAt:
+          type: ["string", "null"]
+          format: date-time
+          description: >-
+            When an unapproved storyboard is discarded and its reservation
+            refunded. Only set while status is awaiting_review.
         createdAt:
           type: string
           format: date-time

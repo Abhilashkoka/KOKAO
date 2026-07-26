@@ -1,10 +1,11 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, tenantsTable, contentItemsTable, videoGenerationsTable } from "@workspace/db";
-import { and, eq, desc } from "drizzle-orm";
+import { and, eq, desc, isNotNull, sql } from "drizzle-orm";
 import {
   GenerateVideoBody,
   ImportLibraryMusicBody,
   SaveVideoToLibraryBody,
+  UpdateVideoStoryboardBody,
 } from "@workspace/api-zod";
 import {
   searchLibraryMusic,
@@ -16,7 +17,13 @@ import { getPlanLimits } from "../lib/plans";
 import { getUsage } from "../lib/usage";
 import { spendCredit, refundCredits } from "../lib/credits";
 import { enqueueBackgroundJob } from "../lib/backgroundJobs";
-import { runVideoGenerationJob } from "../lib/videoGen/jobRunner";
+import {
+  runVideoGenerationJob,
+  resumeVideoGenerationJob,
+  refreshStoryboardScenePreview,
+  STORYBOARD_REGENERATIONS_PER_SCENE,
+} from "../lib/videoGen/jobRunner";
+import { VideoGenProviderError } from "../lib/videoGen";
 import { MAX_SLIDESHOW_IMAGES } from "../lib/videoGen/slideshow";
 import { videoJobUnits } from "../lib/videoGen/units";
 import { preflightVideoJob } from "../lib/videoGen/preflight";
@@ -49,6 +56,8 @@ function serializeVideoJob(job: VideoGeneration) {
     error: job.error ?? null,
     stage: job.stage ?? null,
     durationMs: job.durationMs ?? null,
+    storyboard: job.storyboard ?? null,
+    storyboardExpiresAt: job.storyboardExpiresAt?.toISOString() ?? null,
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
   };
@@ -211,6 +220,9 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     characterId,
     outfitId,
     wardrobeNotes: body.wardrobeNotes?.trim() || null,
+    // Defaults to true in the request schema, so an older client that has never
+    // heard of storyboards still gets one.
+    reviewStoryboard: body.reviewStoryboard,
     // Brand kit is tenant-scoped at load time in the job runner; storing a
     // foreign id just renders unbranded. Dropped entirely when the Brand
     // Video kill switch is off.
@@ -273,6 +285,10 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
         prompt: body.prompt?.trim() || null,
         sourceImagePaths,
         options,
+        // Persisted at creation, not at the runner's claim: if the process
+        // restarts before the runner claims this row, the stuck-job sweep can
+        // only refund a credit reservation it knows about.
+        funding,
       })
       .returning()
   )[0]!;
@@ -336,6 +352,297 @@ router.get("/ai/video-jobs/:jobId", async (req: Request, res: Response) => {
   }
   res.json(serializeVideoJob(job));
 });
+
+/**
+ * Storyboard review. A job created with reviewStoryboard pauses after the cheap
+ * half (script → narration → one still per scene) and waits here in
+ * awaiting_review. The stills on the plan ARE the frames the render animates, so
+ * approving costs no image generation twice, and editing is free.
+ *
+ * Funding was reserved when the job was created; approve spends nothing extra
+ * and discard gives it back.
+ */
+
+/** Load a job that must be paused for review, answering the request when it is
+ * not. Returns the job and its plan together so callers get both non-null. */
+async function loadPausedJob(
+  req: Request,
+  res: Response,
+): Promise<{ job: VideoGeneration; storyboard: NonNullable<VideoGeneration["storyboard"]> } | null> {
+  const job = await loadJob(req);
+  if (!job) {
+    res.status(404).json({ error: "Not found" });
+    return null;
+  }
+  if (job.status !== "awaiting_review" || !job.storyboard) {
+    res.status(400).json({ error: "This video is not waiting for storyboard review." });
+    return null;
+  }
+  return { job, storyboard: job.storyboard };
+}
+
+/** Edit scene prompts (and, when the timeline is unlocked, scene lengths). */
+router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Response) => {
+  const parsed = UpdateVideoStoryboardBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const loaded = await loadPausedJob(req, res);
+  if (!loaded) return;
+  const { storyboard } = loaded;
+
+  const edits = new Map(parsed.data.scenes.map((scene) => [scene.id, scene]));
+  for (const id of edits.keys()) {
+    if (!storyboard.scenes.some((scene) => scene.id === id)) {
+      res.status(400).json({ error: "That scene is not in this storyboard." });
+      return;
+    }
+  }
+  // Topic storyboards are cut against already-recorded narration, so a length
+  // edit would either desync every later scene from the audio or silently
+  // change the total. Reject it rather than accept-and-ignore.
+  if (storyboard.timelineLocked && parsed.data.scenes.some((s) => s.durationSec != null)) {
+    res.status(400).json({
+      error: "Scene lengths are set by the narration timing and cannot be changed.",
+    });
+    return;
+  }
+
+  const updated = {
+    ...storyboard,
+    scenes: storyboard.scenes.map((scene) => {
+      const edit = edits.get(scene.id);
+      if (!edit) return scene;
+      return {
+        ...scene,
+        visual: edit.visual?.trim() || scene.visual,
+        durationSec: edit.durationSec ?? scene.durationSec,
+      };
+    }),
+  };
+  const saved = (
+    await db
+      .update(videoGenerationsTable)
+      .set({ storyboard: updated, updatedAt: new Date() })
+      .where(
+        and(
+          eq(videoGenerationsTable.id, Number(req.params.jobId)),
+          eq(videoGenerationsTable.tenantId, req.tenantId),
+          eq(videoGenerationsTable.status, "awaiting_review"),
+        ),
+      )
+      .returning()
+  )[0];
+  if (!saved) {
+    res.status(400).json({ error: "This video is not waiting for storyboard review." });
+    return;
+  }
+  res.json(serializeVideoJob(saved));
+});
+
+/** Re-roll one scene's preview still from its current prompt. */
+router.post(
+  "/ai/video-jobs/:jobId/storyboard/scenes/:sceneId/preview",
+  async (req: Request, res: Response) => {
+    const loaded = await loadPausedJob(req, res);
+    if (!loaded) return;
+    const { job, storyboard } = loaded;
+
+    const scene = storyboard.scenes.find((s) => s.id === req.params.sceneId);
+    if (!scene) {
+      res.status(400).json({ error: "That scene is not in this storyboard." });
+      return;
+    }
+    const cap = STORYBOARD_REGENERATIONS_PER_SCENE * storyboard.scenes.length;
+
+    // Spend one re-roll atomically BEFORE the expensive generation: the
+    // conditional UPDATE both checks the cap and increments the counter in one
+    // statement, so concurrent requests each need their own winning claim and
+    // can never overshoot the cap by racing a read-then-write.
+    const claimed = (
+      await db
+        .update(videoGenerationsTable)
+        .set({
+          storyboard: sql`jsonb_set(${videoGenerationsTable.storyboard}, '{regenerations}', to_jsonb(COALESCE((${videoGenerationsTable.storyboard}->>'regenerations')::int, 0) + 1))`,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(videoGenerationsTable.id, job.id),
+            eq(videoGenerationsTable.tenantId, req.tenantId),
+            eq(videoGenerationsTable.status, "awaiting_review"),
+            sql`COALESCE((${videoGenerationsTable.storyboard}->>'regenerations')::int, 0) < ${cap}`,
+          ),
+        )
+        .returning()
+    )[0];
+    if (!claimed || !claimed.storyboard) {
+      res.status(400).json({
+        error: `You have used all ${cap} free preview re-rolls for this storyboard. Approve it, or start a new video.`,
+      });
+      return;
+    }
+
+    // Best-effort: a provider failure should not eat a re-roll. Guarded the
+    // same way as the claim; if the plan moved on meanwhile, leave it alone.
+    const releaseClaim = async (): Promise<void> => {
+      await db
+        .update(videoGenerationsTable)
+        .set({
+          storyboard: sql`jsonb_set(${videoGenerationsTable.storyboard}, '{regenerations}', to_jsonb(GREATEST(COALESCE((${videoGenerationsTable.storyboard}->>'regenerations')::int, 0) - 1, 0)))`,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(videoGenerationsTable.id, job.id),
+            eq(videoGenerationsTable.tenantId, req.tenantId),
+            eq(videoGenerationsTable.status, "awaiting_review"),
+          ),
+        );
+    };
+
+    const fresh = claimed.storyboard;
+    const freshScene = fresh.scenes.find((s) => s.id === scene.id) ?? scene;
+    let updated;
+    try {
+      updated = await refreshStoryboardScenePreview(job, fresh, freshScene);
+    } catch (error) {
+      req.log.warn({ err: error, jobId: job.id }, "Storyboard preview regeneration failed");
+      await releaseClaim().catch(() => {});
+      const message =
+        error instanceof VideoGenProviderError
+          ? error.message
+          : "Generating that preview failed. Please try again.";
+      res.status(502).json({ error: message });
+      return;
+    }
+    // Persist only the scenes; the regenerations counter was already spent by
+    // the atomic claim above, and writing the whole object back would let a
+    // slow request overwrite a counter a concurrent request has since moved.
+    // Guarded on status so a preview cannot land on a plan that was approved
+    // or discarded while the image was generating.
+    const saved = (
+      await db
+        .update(videoGenerationsTable)
+        .set({
+          storyboard: sql`jsonb_set(${videoGenerationsTable.storyboard}, '{scenes}', ${JSON.stringify(updated.scenes)}::jsonb)`,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(videoGenerationsTable.id, job.id),
+            eq(videoGenerationsTable.tenantId, req.tenantId),
+            eq(videoGenerationsTable.status, "awaiting_review"),
+          ),
+        )
+        .returning()
+    )[0];
+    if (!saved) {
+      res.status(400).json({ error: "This video is not waiting for storyboard review." });
+      return;
+    }
+    res.json(serializeVideoJob(saved));
+  },
+);
+
+/** Approve the plan and run the expensive half. */
+router.post(
+  "/ai/video-jobs/:jobId/storyboard/approve",
+  async (req: Request, res: Response) => {
+    const loaded = await loadPausedJob(req, res);
+    if (!loaded) return;
+
+    // Claim atomically here rather than in the runner, so two approve requests
+    // cannot both start a render (the second finds nothing to claim).
+    const claimed = (
+      await db
+        .update(videoGenerationsTable)
+        .set({
+          status: "processing",
+          stage: "Getting started",
+          storyboardExpiresAt: null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(videoGenerationsTable.id, loaded.job.id),
+            eq(videoGenerationsTable.tenantId, req.tenantId),
+            eq(videoGenerationsTable.status, "awaiting_review"),
+            isNotNull(videoGenerationsTable.storyboard),
+          ),
+        )
+        .returning()
+    )[0];
+    if (!claimed) {
+      res.status(400).json({ error: "This video is not waiting for storyboard review." });
+      return;
+    }
+
+    const accepted = enqueueBackgroundJob(() => resumeVideoGenerationJob(claimed));
+    if (!accepted) {
+      // Shutdown in progress: put the plan back so the user can approve again.
+      // Nothing was charged, so there is nothing to refund.
+      await db
+        .update(videoGenerationsTable)
+        .set({
+          status: "awaiting_review",
+          stage: null,
+          storyboardExpiresAt: loaded.job.storyboardExpiresAt,
+        })
+        .where(eq(videoGenerationsTable.id, claimed.id));
+      res.status(503).json({ error: "Server is restarting. Please retry in a moment." });
+      return;
+    }
+    res.status(202).json(serializeVideoJob(claimed));
+  },
+);
+
+/** Abandon the plan now instead of waiting for it to expire, and refund. */
+router.post(
+  "/ai/video-jobs/:jobId/storyboard/discard",
+  async (req: Request, res: Response) => {
+    const loaded = await loadPausedJob(req, res);
+    if (!loaded) return;
+
+    const discarded = (
+      await db
+        .update(videoGenerationsTable)
+        .set({
+          status: "failed",
+          error: "You discarded this storyboard. Nothing was charged.",
+          stage: null,
+          storyboardExpiresAt: null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(videoGenerationsTable.id, loaded.job.id),
+            eq(videoGenerationsTable.tenantId, req.tenantId),
+            eq(videoGenerationsTable.status, "awaiting_review"),
+          ),
+        )
+        .returning()
+    )[0];
+    // Conditional on status, so only the request that actually flipped the row
+    // issues the refund — a double discard cannot refund twice.
+    if (!discarded) {
+      res.status(400).json({ error: "This video is not waiting for storyboard review." });
+      return;
+    }
+    if (discarded.funding === "credit") {
+      await refundCredits(
+        req.tenantId,
+        "video",
+        videoJobUnits(discarded.engine, discarded.options),
+        "storyboard discarded",
+      ).catch((err) =>
+        req.log.error({ err, jobId: discarded.id }, "Failed to refund discarded storyboard"),
+      );
+    }
+    res.json(serializeVideoJob(discarded));
+  },
+);
 
 /** Save a finished video into the content library as a draft item. */
 router.post(

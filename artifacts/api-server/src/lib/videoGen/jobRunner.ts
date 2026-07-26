@@ -1,5 +1,11 @@
-import { db, videoGenerationsTable, type VideoGeneration } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import {
+  db,
+  videoGenerationsTable,
+  type VideoGeneration,
+  type VideoStoryboard,
+  type VideoStoryboardScene,
+} from "@workspace/db";
+import { and, eq } from "drizzle-orm";
 import { ObjectStorageService, ObjectNotFoundError } from "../objectStorage";
 import { recordUsage } from "../usage";
 import { refundCredits } from "../credits";
@@ -14,6 +20,9 @@ import { isFeatureEnabled } from "../featureFlags";
 import { verifyRenderedVideo, type VideoQaExpectations } from "./qaGate";
 import {
   generateTopicVideo,
+  planTopicStoryboard,
+  renderTopicStoryboard,
+  regenerateStoryboardPreview,
   NARRATION_VOICES,
   type NarrationVoice,
   type StockSourceChoice,
@@ -38,10 +47,29 @@ const MAX_SOURCE_IMAGE_BYTES = 10 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 /** Music uploads: cap matches the audio transcription route's limit. */
 const MAX_MUSIC_BYTES = 15 * 1024 * 1024;
+/** Narration WAV parked between planning and approval; a few minutes of 24kHz
+ * mono is well under this, and it is our own file rather than an upload. */
+const MAX_NARRATION_BYTES = 60 * 1024 * 1024;
+/** How long an unreviewed storyboard is held before it is swept and refunded.
+ * A day is long enough to come back to tomorrow and short enough that reserved
+ * credits are not parked indefinitely. */
+export const STORYBOARD_TTL_MS = 24 * 60 * 60 * 1000;
+/** Free preview re-rolls per storyboard, expressed per scene. Previews are not
+ * billed, so this is the abuse ceiling on authenticated image generation — two
+ * tries per scene is enough to fix a bad prompt without being an open tap. */
+export const STORYBOARD_REGENERATIONS_PER_SCENE = 2;
 
 const objectStorageService = new ObjectStorageService();
 
 class VideoJobInputError extends Error {}
+
+/** Engines that plan something a user can meaningfully edit. Stock footage is
+ * searched rather than prompted, so it has no prompt to review. */
+function storyboardEligible(job: VideoGeneration): "character" | "ai" | null {
+  if (job.engine !== "topic_to_video") return null;
+  const source = job.options?.visualsSource;
+  return source === "character" || source === "ai" ? source : null;
+}
 
 async function loadTenantObject(
   objectPath: string,
@@ -138,15 +166,20 @@ async function resolveMusic(
   return null;
 }
 
+type ProduceResult =
+  | { paused: true; storyboard: VideoStoryboard }
+  | {
+      paused?: false;
+      buffer: Buffer;
+      provider: string | null;
+      model: string | null;
+      qa: VideoQaExpectations;
+    };
+
 async function produceVideo(
   job: VideoGeneration,
   onStage: (stage: string) => void,
-): Promise<{
-  buffer: Buffer;
-  provider: string | null;
-  model: string | null;
-  qa: VideoQaExpectations;
-}> {
+): Promise<ProduceResult> {
   const options = job.options ?? { aspectRatio: "9:16" as const };
   const aspectRatio = options.aspectRatio ?? "9:16";
 
@@ -250,9 +283,6 @@ async function produceVideo(
   }
 
   if (job.engine === "topic_to_video") {
-    // MusicGen tops out at 30s; the composer loops the bed, so 30 is enough.
-    const music = await resolveMusic(job, options, 30, onStage);
-
     // Brand kit → video (opt-in, fail-soft): voice for the script, accent
     // for the captions, logo for the corner watermark. Gated by the Brand
     // Video kill switch so already-queued branded jobs render unbranded
@@ -295,6 +325,69 @@ async function produceVideo(
         })
       : null;
 
+    const visualsSource =
+      options.visualsSource === "character"
+        ? "character"
+        : options.visualsSource === "ai"
+          ? "ai"
+          : "stock";
+    const reviewable = storyboardEligible(job);
+
+    // A storyboard already on the row means this run is the resume: the plan
+    // was approved, so render it instead of planning again.
+    if (job.storyboard) {
+      // MusicGen tops out at 30s; the composer loops the bed, so 30 is enough.
+      const music = await resolveMusic(job, options, 30, onStage);
+      const result = await renderTopicStoryboard({
+        storyboard: job.storyboard,
+        aspectRatio,
+        subtitles: options.subtitles ?? true,
+        captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
+        music,
+        accentColor: branding?.accentColor ?? null,
+        watermark,
+        load: async (objectPath) =>
+          (
+            await loadTenantObject(
+              objectPath,
+              job.tenantId,
+              MAX_NARRATION_BYTES,
+              "Storyboard asset",
+            )
+          ).buffer,
+        onStage,
+      });
+      return {
+        buffer: result.buffer,
+        provider: result.provider,
+        model: result.model,
+        qa: { expectedDurationSec: result.durationSec, expectAudio: true, label: "topic video" },
+      };
+    }
+
+    // First run with review asked for: plan, then stop. No music is composed
+    // and no clip is animated until the plan is approved.
+    if (reviewable && options.reviewStoryboard) {
+      const storyboard = await planTopicStoryboard({
+        tenantId: job.tenantId,
+        topic: job.prompt ?? "",
+        aspectRatio,
+        voice: isNarrationVoice(options.voice) ? options.voice : "alloy",
+        paragraphCount: options.paragraphCount ?? 1,
+        visualsSource: reviewable,
+        characterId: options.characterId ?? null,
+        outfitId: options.outfitId ?? null,
+        wardrobeNotes: options.wardrobeNotes ?? null,
+        brandVoice: branding?.voiceHint ?? null,
+        referenceStyle,
+        upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
+        onStage,
+      });
+      return { paused: true, storyboard };
+    }
+
+    // MusicGen tops out at 30s; the composer loops the bed, so 30 is enough.
+    const music = await resolveMusic(job, options, 30, onStage);
     const result = await generateTopicVideo({
       tenantId: job.tenantId,
       topic: job.prompt ?? "",
@@ -305,12 +398,7 @@ async function produceVideo(
       captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
       paragraphCount: options.paragraphCount ?? 1,
       music,
-      visualsSource:
-        options.visualsSource === "character"
-          ? "character"
-          : options.visualsSource === "ai"
-            ? "ai"
-            : "stock",
+      visualsSource,
       characterId: options.characterId ?? null,
       outfitId: options.outfitId ?? null,
       wardrobeNotes: options.wardrobeNotes ?? null,
@@ -346,21 +434,75 @@ function isStockSourceChoice(value: string | undefined): value is StockSourceCho
 /**
  * Run one video job to completion. `funding` is how the route paid for it
  * ("quota" = counts against the monthly plan, "credit" = already debited).
+ *
+ * A job that asked for storyboard review stops halfway: it lands in
+ * awaiting_review with its plan on the row, and nothing is metered or refunded
+ * until the plan is approved (resumeVideoGenerationJob) or expires.
  */
 export async function runVideoGenerationJob(
   jobId: number,
   funding: "quota" | "credit",
 ): Promise<void> {
-  const job = (
+  // Atomic claim: only one runner can move a job out of queued, so a retry or
+  // a restart cannot double-spend a reservation.
+  const claimed = (
     await db
-      .select()
-      .from(videoGenerationsTable)
-      .where(eq(videoGenerationsTable.id, jobId))
-      .limit(1)
+      .update(videoGenerationsTable)
+      .set({ status: "processing", stage: "Getting started", funding })
+      .where(and(eq(videoGenerationsTable.id, jobId), eq(videoGenerationsTable.status, "queued")))
+      .returning()
   )[0];
-  if (!job || job.status !== "queued") return;
+  if (!claimed) return;
+  await executeVideoJob(claimed, funding);
+}
 
-  await setJob(jobId, { status: "processing", stage: "Getting started" });
+/**
+ * Render an approved storyboard. Takes the row the approve route already
+ * claimed (flipping awaiting_review → processing in one conditional UPDATE, so
+ * two approvals cannot both start a render) rather than claiming again here.
+ *
+ * Funding was reserved when the job was first enqueued, so this settles exactly
+ * as the straight-through path does.
+ */
+export async function resumeVideoGenerationJob(job: VideoGeneration): Promise<void> {
+  await executeVideoJob(job, job.funding ?? "quota");
+}
+
+/**
+ * Regenerate one storyboard scene's preview still from its current prompt and
+ * return the updated plan. Lives here rather than in the route because the
+ * bridge to object storage belongs to the runner, not to topicVideo.
+ *
+ * Throws VideoGenProviderError when the provider (or the character behind a
+ * character scene) fails.
+ */
+export async function refreshStoryboardScenePreview(
+  job: VideoGeneration,
+  storyboard: VideoStoryboard,
+  scene: VideoStoryboardScene,
+): Promise<VideoStoryboard> {
+  const previewPath = await regenerateStoryboardPreview({
+    tenantId: job.tenantId,
+    storyboard,
+    scene,
+    aspectRatio: job.options?.aspectRatio ?? "9:16",
+    characterId: job.options?.characterId ?? null,
+    upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
+  });
+  // Note: does NOT touch the regenerations counter — the preview route spends
+  // a re-roll with an atomic conditional UPDATE before calling this, so
+  // incrementing here as well would double-count.
+  return {
+    ...storyboard,
+    scenes: storyboard.scenes.map((s) => (s.id === scene.id ? { ...s, previewPath } : s)),
+  };
+}
+
+async function executeVideoJob(
+  job: VideoGeneration,
+  funding: "quota" | "credit",
+): Promise<void> {
+  const jobId = job.id;
   const startedAt = Date.now();
 
   // Live progress: fire-and-forget stage writes; clients poll them. A stage
@@ -370,7 +512,23 @@ export async function runVideoGenerationJob(
   };
 
   try {
-    const { buffer, provider, model, qa } = await produceVideo(job, onStage);
+    const produced = await produceVideo(job, onStage);
+
+    // The storyboard pause. Nothing is metered and nothing is refunded: the
+    // reservation stays reserved against the render the user is about to
+    // approve, and the sweep gives it back if they never do.
+    if (produced.paused) {
+      await setJob(jobId, {
+        status: "awaiting_review",
+        storyboard: produced.storyboard,
+        storyboardExpiresAt: new Date(Date.now() + STORYBOARD_TTL_MS),
+        durationMs: Date.now() - startedAt,
+        error: null,
+        stage: null,
+      });
+      return;
+    }
+    const { buffer, provider, model, qa } = produced;
 
     // Quality gate: never deliver (or charge for) a broken render. A failure
     // here throws VideoGenProviderError and lands in the refund path below.
@@ -388,7 +546,9 @@ export async function runVideoGenerationJob(
       logger.warn({ err, jobId }, "Video poster frame extraction failed");
     }
 
-    const durationMs = Date.now() - startedAt;
+    // A reviewed job ran in two halves; add this one to the planning time
+    // already recorded so the cost meters see the whole job.
+    const durationMs = (job.durationMs ?? 0) + (Date.now() - startedAt);
     await setJob(jobId, {
       status: "succeeded",
       videoPath,
@@ -429,7 +589,8 @@ export async function runVideoGenerationJob(
       status: "failed",
       error: message,
       stage: null,
-      durationMs: Date.now() - startedAt,
+      storyboardExpiresAt: null,
+      durationMs: (job.durationMs ?? 0) + (Date.now() - startedAt),
     }).catch(() => {});
     if (funding === "credit") {
       const units = videoJobUnits(job.engine, job.options);

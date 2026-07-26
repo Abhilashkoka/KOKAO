@@ -4,6 +4,10 @@ import {
   useGetVideoJob,
   useListVideoJobs,
   useSaveVideoToLibrary,
+  useUpdateVideoStoryboard,
+  useRegenerateStoryboardScenePreview,
+  useApproveVideoStoryboard,
+  useDiscardVideoStoryboard,
   useGetGoogleDriveStatus,
   useDisconnectGoogleDrive,
   useListGoogleDriveFiles,
@@ -32,6 +36,8 @@ import {
   getListContentQueryKey,
   getListCharactersQueryKey,
   type VideoJob,
+  type VideoStoryboard,
+  type VideoStoryboardScene,
   type GoogleDriveFile,
   type Character,
   type MusicTrack,
@@ -92,6 +98,7 @@ import {
 import { navigate } from "wouter/use-browser-location";
 import { SavedVisualPickerDialog } from "@/components/saved-visuals";
 import { VIDEO_TOPIC_TEMPLATES } from "@/lib/viral-templates";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { useFeatureFlags } from "@/lib/features";
 
 type Engine = "text_to_video" | "image_to_video" | "slideshow" | "topic_to_video";
@@ -134,6 +141,10 @@ const STAGE_PROGRESS: Record<string, number> = {
   "Finding the right footage": 48,
   "Creating AI imagery": 48,
   "Filming your character": 48,
+  "Sketching the storyboard": 55,
+  "Saving the storyboard": 80,
+  "Loading your storyboard": 12,
+  "Animating your storyboard": 45,
   "Generating the video": 40,
   "Animating your image": 40,
   "Composing the slideshow": 55,
@@ -201,6 +212,7 @@ export function VideoStudioPage() {
   const [styleProfileId, setStyleProfileId] = useState<number | null>(null);
   const [stylesOpen, setStylesOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [reviewStoryboard, setReviewStoryboard] = useState(true);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
 
   const [saveOpen, setSaveOpen] = useState(false);
@@ -243,6 +255,19 @@ export function VideoStudioPage() {
       },
     },
   });
+
+  // Announce a finished storyboard once per job. Separate from announcedRef so
+  // pausing for review does not consume the job's settle announcement.
+  const reviewAnnouncedRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!activeJob || activeJob.status !== "awaiting_review") return;
+    if (reviewAnnouncedRef.current === activeJob.id) return;
+    reviewAnnouncedRef.current = activeJob.id;
+    toast({
+      title: "Storyboard ready",
+      description: "Edit any shot below, then render it. Nothing is charged until you do.",
+    });
+  }, [activeJob, toast]);
 
   // Announce settle exactly once per job.
   const announcedRef = useRef<number | null>(null);
@@ -377,6 +402,14 @@ export function VideoStudioPage() {
     activeJob.id === activeJobId &&
     (activeJob.status === "queued" || activeJob.status === "processing");
 
+  /** The active job is paused on an editable plan. Not "busy" (nothing is
+   * running) but still unfinished, so it blocks starting another video. */
+  const reviewing =
+    activeJob != null &&
+    activeJob.id === activeJobId &&
+    activeJob.status === "awaiting_review" &&
+    activeJob.storyboard != null;
+
   const onGenerate = () => {
     generateVideo.mutate(
       {
@@ -417,6 +450,11 @@ export function VideoStudioPage() {
               : null,
           brandKitId: engine === "topic_to_video" ? brandKitId : null,
           styleProfileId: engine === "topic_to_video" ? styleProfileId : null,
+          // Only topic mode with generated visuals has prompts to review; the
+          // server ignores the flag everywhere else, but sending false keeps
+          // the intent honest.
+          reviewStoryboard:
+            engine === "topic_to_video" && visuals !== "stock" ? reviewStoryboard : false,
         },
       },
       {
@@ -1099,6 +1137,24 @@ export function VideoStudioPage() {
             </div>
           )}
 
+          {engine === "topic_to_video" && visuals !== "stock" && (
+            <div className="space-y-2">
+              <Label htmlFor="review-storyboard">Storyboard</Label>
+              <div className="flex items-start gap-3 border border-border rounded-md px-3 py-2">
+                <Switch
+                  id="review-storyboard"
+                  checked={reviewStoryboard}
+                  onCheckedChange={setReviewStoryboard}
+                  data-testid="switch-review-storyboard"
+                />
+                <span className="text-sm text-muted-foreground">
+                  Show me each shot before rendering, so I can reword any that miss. Free — the
+                  previews become the frames in the video.
+                </span>
+              </div>
+            </div>
+          )}
+
           {(engine === "text_to_video" || engine === "image_to_video") && (
             <div className="space-y-2">
               <Label htmlFor="clip-music">Background music</Label>
@@ -1127,11 +1183,15 @@ export function VideoStudioPage() {
 
           <Button
             onClick={onGenerate}
-            disabled={!canGenerate || busy}
+            disabled={!canGenerate || busy || reviewing}
             className="w-full sm:w-auto"
             data-testid="button-generate-video"
           >
-            {generateVideo.isPending || busy ? (
+            {reviewing ? (
+              <>
+                <Clapperboard className="h-4 w-4 mr-2" /> Finish the storyboard below
+              </>
+            ) : generateVideo.isPending || busy ? (
               <>
                 <RippleSpinner className="mr-2 h-4 w-4" /> Generating…
               </>
@@ -1168,6 +1228,9 @@ export function VideoStudioPage() {
                 </div>
                 <Progress value={stageProgress(activeJob)} />
               </div>
+            )}
+            {reviewing && activeJob.storyboard && (
+              <StoryboardReview job={activeJob} storyboard={activeJob.storyboard} />
             )}
             {activeJob.status === "succeeded" && activeJob.videoPath && (
               <div className="space-y-4">
@@ -1414,6 +1477,230 @@ export function VideoStudioPage() {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+/**
+ * The storyboard review step. A paused job arrives with one preview still per
+ * shot; editing a prompt is free, re-rolling a preview is free but capped, and
+ * nothing more is charged when the render finally runs.
+ */
+function StoryboardReview({
+  job,
+  storyboard,
+}: {
+  job: VideoJob;
+  storyboard: VideoStoryboard;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  /** Local text per scene, so typing doesn't round-trip on every keystroke. */
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [rollingScene, setRollingScene] = useState<string | null>(null);
+
+  const update = useUpdateVideoStoryboard();
+  const regenerate = useRegenerateStoryboardScenePreview();
+  const approve = useApproveVideoStoryboard();
+  const discard = useDiscardVideoStoryboard();
+
+  const settle = (updated: VideoJob) => {
+    queryClient.setQueryData(getGetVideoJobQueryKey(job.id), updated);
+    void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
+  };
+  const fail = (title: string) => (error: unknown) =>
+    toast({
+      title,
+      description: apiErrorMessage(error, "Please try again."),
+      variant: "destructive",
+    });
+
+  const rollsLeft = Math.max(0, storyboard.scenes.length * 2 - storyboard.regenerations);
+  const totalSec = Math.round(storyboard.narration.totalDurationSec);
+  const workingOn = update.isPending || approve.isPending || discard.isPending;
+
+  /** Push a scene's edited prompt, then optionally re-roll its preview. */
+  const saveScene = (scene: VideoStoryboardScene, thenRoll: boolean) => {
+    const draft = (drafts[scene.id] ?? scene.visual).trim();
+    const changed = draft.length > 0 && draft !== scene.visual;
+    const roll = () => {
+      if (!thenRoll) return;
+      setRollingScene(scene.id);
+      regenerate.mutate(
+        { jobId: job.id, sceneId: scene.id },
+        {
+          onSuccess: settle,
+          onError: fail("Could not redraw that shot"),
+          onSettled: () => setRollingScene(null),
+        },
+      );
+    };
+    if (!changed) {
+      roll();
+      return;
+    }
+    update.mutate(
+      { jobId: job.id, data: { scenes: [{ id: scene.id, visual: draft }] } },
+      {
+        onSuccess: (updated) => {
+          settle(updated);
+          setDrafts((d) => {
+            const { [scene.id]: _dropped, ...rest } = d;
+            return rest;
+          });
+          roll();
+        },
+        onError: fail("Could not save that shot"),
+      },
+    );
+  };
+
+  return (
+    <div className="space-y-4" data-testid="storyboard-review">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-medium flex items-center gap-2">
+            <Clapperboard className="h-4 w-4 text-primary" />
+            Your storyboard is ready
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {storyboard.scenes.length} shots · {totalSec}s narrated. Reword any shot, then render.
+            Shot lengths follow the narration, so they are fixed.
+          </p>
+        </div>
+        <Badge variant="secondary" data-testid="text-rolls-left">
+          {rollsLeft} free redraws left
+        </Badge>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {storyboard.scenes.map((scene, i) => {
+          const draft = drafts[scene.id] ?? scene.visual;
+          const dirty = draft.trim() !== scene.visual && draft.trim().length > 0;
+          const rolling = rollingScene === scene.id;
+          return (
+            <div
+              key={scene.id}
+              className="rounded-xl border border-border bg-muted/30 overflow-hidden flex flex-col"
+              data-testid={`storyboard-scene-${scene.id}`}
+            >
+              <div className="aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden relative">
+                {scene.previewPath ? (
+                  <img
+                    src={storageUrl(scene.previewPath)}
+                    alt={`Shot ${i + 1} preview`}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                )}
+                {rolling && (
+                  <div className="absolute inset-0 bg-background/70 flex items-center justify-center">
+                    <RippleSpinner className="h-6 w-6" />
+                  </div>
+                )}
+                <Badge className="absolute top-2 left-2" variant="secondary">
+                  {i + 1} · {Math.round(scene.durationSec)}s
+                </Badge>
+              </div>
+              <div className="p-3 space-y-2 flex flex-col flex-1">
+                <p className="text-xs text-muted-foreground line-clamp-3" title={scene.text}>
+                  “{scene.text}”
+                </p>
+                <Label htmlFor={`shot-${scene.id}`} className="sr-only">
+                  What shot {i + 1} shows
+                </Label>
+                <Textarea
+                  id={`shot-${scene.id}`}
+                  rows={3}
+                  maxLength={1000}
+                  value={draft}
+                  onChange={(e) =>
+                    setDrafts((d) => ({ ...d, [scene.id]: e.target.value }))
+                  }
+                  className="text-sm resize-none"
+                  data-testid={`input-shot-${scene.id}`}
+                />
+                <div className="flex gap-2 mt-auto">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1"
+                    disabled={rolling || workingOn || (rollsLeft === 0 && !dirty)}
+                    onClick={() => saveScene(scene, true)}
+                    data-testid={`button-redraw-${scene.id}`}
+                  >
+                    <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                    {rolling ? "Redrawing…" : "Redraw"}
+                  </Button>
+                  {dirty && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={rolling || workingOn}
+                      onClick={() => saveScene(scene, false)}
+                      data-testid={`button-save-shot-${scene.id}`}
+                    >
+                      Save
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          disabled={workingOn || rollingScene !== null}
+          onClick={() =>
+            approve.mutate(
+              { jobId: job.id },
+              {
+                onSuccess: settle,
+                onError: fail("Could not start rendering"),
+              },
+            )
+          }
+          data-testid="button-approve-storyboard"
+        >
+          {approve.isPending ? (
+            <>
+              <RippleSpinner className="mr-2 h-4 w-4" /> Starting…
+            </>
+          ) : (
+            <>
+              <Film className="h-4 w-4 mr-2" /> Render this storyboard
+            </>
+          )}
+        </Button>
+        <Button
+          variant="ghost"
+          disabled={workingOn || rollingScene !== null}
+          onClick={() =>
+            discard.mutate(
+              { jobId: job.id },
+              {
+                onSuccess: (updated) => {
+                  settle(updated);
+                  toast({
+                    title: "Storyboard discarded",
+                    description: "Nothing was charged.",
+                  });
+                },
+                onError: fail("Could not discard it"),
+              },
+            )
+          }
+          data-testid="button-discard-storyboard"
+        >
+          <Trash2 className="h-4 w-4 mr-2" /> Discard
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          Unrendered storyboards are dropped after a day.
+        </p>
+      </div>
     </div>
   );
 }
