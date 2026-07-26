@@ -10,5 +10,8 @@ description: How to e2e-test the mobile Plan & Billing screen in the Expo web pr
 - On web, `react-native-webview` renders "React Native WebView does not support this platform" inside the checkout modal — modal header/title still renders, which is enough to verify checkout opens.
 - Non-owner members must not see Buy/Upgrade buttons at all (not just disabled) — pack rows hide the Buy button unless `isOwner`.
 
+- Expo-web click pitfalls: the privacy "Not now" and other RN-web buttons sit under a subtree that intercepts pointer events — use `{ force: true }`; text locators like `/^Verify/` also match headings ("Verify your email") — use `exact: true`.
+- Upgrade-request loop verified e2e in Expo web: member sign-up auto-accepts pre-seeded invite, Request upgrade shows success notice, owner gets exactly one unread `upgrade_requested` row deduped across repeat taps.
+
 **Why:** these three pitfalls (blank popstate nav, late invite seeding, WebView-on-web) each cost a failed run before diagnosis.
 **How to apply:** any future Expo-web e2e that needs deep routes, team membership, or Razorpay checkout.
