@@ -6,6 +6,7 @@ import { Sparkles, Image as ImageIcon, Calendar as CalendarIcon, Clock, Layers, 
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { useFeatureFlags } from "@/lib/features";
+import { WelcomeBanner } from "@/components/welcome-banner";
 
 export function DashboardPage() {
   const { data: me, isLoading: meLoading } = useGetMe();
@@ -35,6 +36,7 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <WelcomeBanner />
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight">Welcome back, {me?.tenant.name}</h1>

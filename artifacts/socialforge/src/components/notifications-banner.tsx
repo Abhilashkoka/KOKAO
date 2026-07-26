@@ -8,6 +8,7 @@ import {
   getListNotificationsQueryKey,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
+import { SIGNUP_CREDITS_GRANTED } from "@/components/welcome-banner";
 
 // Publish-outcome notifications link to the library (optionally a specific
 // post); connection alerts link to reconnect flows. Label accordingly.
@@ -19,7 +20,12 @@ function linkLabel(linkUrl: string): string {
 
 export function NotificationsBanner() {
   const queryClient = useQueryClient();
-  const { data: notifications } = useListNotifications();
+  const { data: allNotifications } = useListNotifications();
+  // The one-time welcome-credits notice gets its own celebratory banner on
+  // the dashboard (WelcomeBanner) — keep it out of this alert-styled list.
+  const notifications = allNotifications?.filter(
+    (n) => n.type !== SIGNUP_CREDITS_GRANTED,
+  );
   const { mutate: markRead, isPending } = useMarkNotificationRead();
   const { mutate: markAllRead, isPending: isDismissingAll } =
     useMarkAllNotificationsRead();
