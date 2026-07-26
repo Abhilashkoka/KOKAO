@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { stillToClip } from "./aiBroll";
+import { stillToClip, buildStillToClipArgs } from "./aiBroll";
 import { assignClipsToScenes } from "./visionRank";
 import { videoJobUnits } from "../units";
 
@@ -12,6 +12,27 @@ const PNG_1PX = Buffer.from(
 function isMp4(buffer: Buffer): boolean {
   return buffer.length > 12 && buffer.toString("ascii", 4, 8) === "ftyp";
 }
+
+describe("buildStillToClipArgs", () => {
+  it("pins the still input to the pipeline frame rate", () => {
+    // The image demuxer defaults to 25fps while the zoompan retimes to 30, so
+    // without -framerate the clip landed ~17% short — short enough that the
+    // composer loop-filled it and the Ken Burns move visibly restarted
+    // mid-scene — and the zoom under-travelled by the same fraction.
+    const args = buildStillToClipArgs(3, "9:16", true);
+    const inputAt = args.indexOf("-i");
+    expect(args.slice(0, inputAt)).toEqual([
+      "-y",
+      "-framerate",
+      "30",
+      "-loop",
+      "1",
+      "-t",
+      "3.000",
+    ]);
+    expect(args[inputAt + 1]).toBe("still.png");
+  });
+});
 
 describe("stillToClip", () => {
   it("turns a still image into a Ken Burns MP4 with real ffmpeg", async () => {

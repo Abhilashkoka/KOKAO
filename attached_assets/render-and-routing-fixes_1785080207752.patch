@@ -1,0 +1,819 @@
+From d325832e349ac4d4ae0b47f1612ad31674bff9b2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 26 Jul 2026 13:40:22 +0000
+Subject: [PATCH] Fix truncated slideshow renders and stop retrying a missing
+ video API token
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A photo slideshow with a background music track shorter than the video came
+out as long as the track and no longer: the music was a plain unlooped input
+and the encode carried -shortest, so a one-second bed under a five-second
+slideshow produced a one-second file. That is an 80% duration drift, well past
+the post-render QA gate's 25% tolerance, so the job then failed and refunded
+after paying for the whole render. The bed is now looped to cover the video and
+-shortest is gone, leaving the existing -t output bound to set the length. The
+loop count is counted rather than infinite, because -stream_loop -1 on an input
+that opens but decodes to no packets — a truncated upload, and musicPath is
+validated by object-key prefix only — restarts the demuxer forever without ever
+producing the frame that -t would bound, hanging the encode until the
+five-minute ffmpeg timeout. A bed whose length ffprobe cannot read is not
+looped at all, and one already longer than the video needs no loop; since the
+intro-skip analyser only returns a nonzero seek for a track longer than the
+video, a seek and a loop can no longer coincide.
+
+Every still fed to ffmpeg ran at the image demuxer's 25fps default while the
+filter chain retimed to 30, so both the slideshow and the topic video's Ken
+Burns b-roll clips came out at 25/30ths of their intended length and the
+zoompan move, stepped once per input frame, under-travelled by the same
+fraction. Slideshows lost about 17% per slide — a 6.7% overall drift that sits
+inside the QA gate and shipped short in silence — and for slide durations above
+three seconds the xfade offsets overran the shortened streams badly enough to
+lose more than half the video. AI b-roll clips came back short enough that the
+composer loop-filled them with -stream_loop -1, which is what made the camera
+move visibly restart mid-scene. Both inputs are now pinned with -framerate to
+the same FPS constant their filter chains already use.
+
+VideoGenNotConfiguredError extends Error rather than VideoGenProviderError, so
+it fell through isTransientVideoGenError's closing `return error instanceof
+Error` and was classified as an upstream hiccup. A tenant with no Replicate
+token therefore walked all three models in the fallback chain — none of which
+could have worked, since they authenticate with the same credential resolved
+once outside the loop — and recorded three failures against the shared provider
+circuit breaker, which is enough to open it and turn later preflights into a
+misleading 503 for tenants who are configured. Classifying it as terminal
+delivers both halves at once: the fallback loop rethrows a non-transient
+primary failure before it reaches the recording call, and only records failures
+it classified as transient.
+
+The argv construction for both renders is now a pure exported function
+(buildSlideshowArgs, buildStillToClipArgs) so input-option ordering is
+assertable without spawning an encoder; the filtergraphs are unchanged.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EJdoZ8bk1pWTrmbMVQJZ7G
+---
+ .../api-server/src/lib/videoGen/index.ts      |   9 +-
+ .../src/lib/videoGen/slideshow.test.ts        | 218 +++++++++++++-
+ .../api-server/src/lib/videoGen/slideshow.ts  | 270 +++++++++++-------
+ .../lib/videoGen/topicVideo/aiBroll.test.ts   |  23 +-
+ .../src/lib/videoGen/topicVideo/aiBroll.ts    |  77 +++--
+ .../src/lib/videoGen/videoFallback.test.ts    |  22 +-
+ 6 files changed, 486 insertions(+), 133 deletions(-)
+
+diff --git a/artifacts/api-server/src/lib/videoGen/index.ts b/artifacts/api-server/src/lib/videoGen/index.ts
+index caca79a..4808d2e 100644
+--- a/artifacts/api-server/src/lib/videoGen/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/index.ts
+@@ -9,7 +9,7 @@ import {
+   REPLICATE_I2V_MODEL,
+ } from "./providers/replicate";
+ import { isTransientStatus } from "./retry";
+-import { VideoGenProviderError } from "./types";
++import { VideoGenNotConfiguredError, VideoGenProviderError } from "./types";
+ import type { SourceImage, VideoAspect, VideoGenInput, VideoGenResult } from "./types";
+ 
+ export { VideoGenNotConfiguredError, VideoGenProviderError } from "./types";
+@@ -184,6 +184,13 @@ export function videoGenHealthKey(providerId: string): string {
+ /** Whether a video failure is the UPSTREAM's fault (429/5xx/network/timeout),
+  * as opposed to a rejected prompt or bad key that would fail on any model. */
+ function isTransientVideoGenError(error: unknown): boolean {
++  // A missing API token is terminal. Every model in the chain authenticates
++  // with the same credential, so walking it cannot help — and it says nothing
++  // about whether the provider is up, so it must not reach the breaker. Both
++  // halves follow from returning false here: the loop throws on a
++  // non-transient primary failure before it would record anything, and it
++  // only records failures it classified as transient.
++  if (error instanceof VideoGenNotConfiguredError) return false;
+   if (error instanceof VideoGenProviderError) {
+     if (error.status === undefined) return true; // timeout / network-shaped
+     return isTransientStatus(error.status);
+diff --git a/artifacts/api-server/src/lib/videoGen/slideshow.test.ts b/artifacts/api-server/src/lib/videoGen/slideshow.test.ts
+index c82e3d0..bcaaf49 100644
+--- a/artifacts/api-server/src/lib/videoGen/slideshow.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/slideshow.test.ts
+@@ -1,5 +1,15 @@
+ import { describe, it, expect } from "vitest";
+-import { renderSlideshow, extractPosterFrame, MAX_SLIDESHOW_IMAGES } from "./slideshow";
++import { readFile, writeFile, mkdtemp, rm } from "fs/promises";
++import { tmpdir } from "os";
++import { join } from "path";
++import {
++  renderSlideshow,
++  extractPosterFrame,
++  buildSlideshowArgs,
++  probeDurationSec,
++  runFfmpeg,
++  MAX_SLIDESHOW_IMAGES,
++} from "./slideshow";
+ import { VideoGenProviderError } from "./types";
+ 
+ /**
+@@ -22,6 +32,161 @@ function isPng(buffer: Buffer): boolean {
+   return buffer.length > 8 && buffer[0] === 0x89 && buffer.toString("ascii", 1, 4) === "PNG";
+ }
+ 
++/** The options ffmpeg applies to the input named `file`: everything between the
++ * previous input's filename and this input's own `-i`. */
++function inputOptions(args: string[], file: string): string[] {
++  const at = args.findIndex((arg, i) => arg === "-i" && args[i + 1] === file);
++  expect(at, `no "-i ${file}" in the argument list`).toBeGreaterThan(-1);
++  let start = 1; // past the leading "-y"
++  for (let i = at - 1; i >= 0; i--) {
++    if (args[i] === "-i") {
++      start = i + 2;
++      break;
++    }
++  }
++  return args.slice(start, at);
++}
++
++/** Args from the filtergraph on, i.e. the ones that apply to the output file. */
++function outputOptions(args: string[]): string[] {
++  return args.slice(args.indexOf("-filter_complex"));
++}
++
++/** A real WAV of the given length, via the same ffmpeg the encoder uses. */
++async function synthesizeToneWav(seconds: number): Promise<Buffer> {
++  const dir = await mkdtemp(join(tmpdir(), "kokao-tone-"));
++  try {
++    await runFfmpeg(
++      ["-y", "-f", "lavfi", "-i", `sine=frequency=440:duration=${seconds}`, "tone.wav"],
++      dir,
++    );
++    return await readFile(join(dir, "tone.wav"));
++  } finally {
++    await rm(dir, { recursive: true, force: true }).catch(() => {});
++  }
++}
++
++/** A WAV that opens cleanly but whose PCM payload is missing — the RIFF and
++ * data-chunk headers with nothing behind them, i.e. what an interrupted upload
++ * leaves in storage. ffprobe reports no duration and the demuxer yields no
++ * packets. */
++async function headerOnlyWav(): Promise<Buffer> {
++  const wav = await synthesizeToneWav(1);
++  const dataAt = wav.indexOf("data", 0, "ascii");
++  expect(dataAt, "synthesized WAV has no data chunk").toBeGreaterThan(-1);
++  return wav.subarray(0, dataAt + 8);
++}
++
++async function durationOf(video: Buffer): Promise<number | null> {
++  const dir = await mkdtemp(join(tmpdir(), "kokao-probe-"));
++  try {
++    await writeFile(join(dir, "v.mp4"), video);
++    return await probeDurationSec("v.mp4", dir);
++  } finally {
++    await rm(dir, { recursive: true, force: true }).catch(() => {});
++  }
++}
++
++describe("buildSlideshowArgs", () => {
++  const base = {
++    slideSec: 4,
++    width: 1080,
++    height: 1920,
++    overlayFontFile: null,
++    musicDurationSec: null,
++  };
++
++  it("pins every still input to the pipeline frame rate", () => {
++    // Without -framerate the image demuxer runs at its 25fps default while the
++    // filter chain retimes to 30, so each slide is ~17% short and the Ken
++    // Burns zoom under-travels by the same fraction.
++    const args = buildSlideshowArgs({
++      ...base,
++      slideNames: ["slide_000.png", "slide_001.jpg"],
++      musicSeekSec: null,
++    });
++    expect(inputOptions(args, "slide_000.png")).toEqual([
++      "-framerate",
++      "30",
++      "-loop",
++      "1",
++      "-t",
++      "4",
++    ]);
++    expect(inputOptions(args, "slide_001.jpg")).toEqual([
++      "-framerate",
++      "30",
++      "-loop",
++      "1",
++      "-t",
++      "4",
++    ]);
++  });
++
++  it("loops a short music bed enough to cover the video, without -shortest", () => {
++    const args = buildSlideshowArgs({
++      ...base,
++      slideNames: ["slide_000.png", "slide_001.png"],
++      musicSeekSec: 0,
++      musicDurationSec: 3,
++    });
++    // 2 slides x 4s minus one 0.5s crossfade = 7.5s, so a 3s bed needs
++    // ceil(7.5/3) = 3 extra plays. -stream_loop is an INPUT option, so it has
++    // to precede this input's -i.
++    expect(inputOptions(args, "music")).toEqual(["-stream_loop", "3"]);
++    // -shortest would re-truncate the video back to one play of the bed.
++    expect(args).not.toContain("-shortest");
++    const output = outputOptions(args);
++    expect(output[output.indexOf("-t") + 1]).toBe("7.500");
++  });
++
++  it("never loops a bed whose length ffprobe could not read", () => {
++    // An infinitely looped input that decodes to no packets restarts the
++    // demuxer forever without ever producing the frame that -t would bound, so
++    // the encode runs until FFMPEG_TIMEOUT_MS and the job fails as a timeout.
++    const args = buildSlideshowArgs({
++      ...base,
++      slideNames: ["slide_000.png"],
++      musicSeekSec: 0,
++      musicDurationSec: null,
++    });
++    expect(inputOptions(args, "music")).toEqual([]);
++    expect(args).not.toContain("-stream_loop");
++  });
++
++  it("leaves a bed that already covers the video unlooped, keeping its seek", () => {
++    const args = buildSlideshowArgs({
++      ...base,
++      slideNames: ["slide_000.png"],
++      musicSeekSec: 12.5,
++      musicDurationSec: 60,
++    });
++    expect(inputOptions(args, "music")).toEqual(["-ss", "12.500"]);
++  });
++
++  it("clamps the slide duration for the inputs and the output bound alike", () => {
++    // The stills, the zoom step and -t all have to describe one timeline: a
++    // per-input -t of 30s under an output bound computed from the 10s clamp
++    // would compose a timeline the encoder then truncates.
++    const args = buildSlideshowArgs({
++      ...base,
++      slideSec: 30,
++      slideNames: ["slide_000.png", "slide_001.png", "slide_002.png"],
++      musicSeekSec: null,
++    });
++    expect(inputOptions(args, "slide_000.png")).toEqual([
++      "-framerate",
++      "30",
++      "-loop",
++      "1",
++      "-t",
++      "10",
++    ]);
++    const output = outputOptions(args);
++    expect(output[output.indexOf("-t") + 1]).toBe("29.000");
++  });
++});
++
+ describe("renderSlideshow", () => {
+   it("encodes multiple photos into a faststart MP4 with crossfades", async () => {
+     const video = await renderSlideshow({
+@@ -52,6 +217,57 @@ describe("renderSlideshow", () => {
+     expect(isMp4(video)).toBe(true);
+   }, 120_000);
+ 
++  it("runs the full intended length when the music bed is shorter than the video", async () => {
++    // -shortest against an unlooped bed truncated the render to the track: a
++    // 1s bed under a 5s slideshow produced a 1s file, an 80% drift that the
++    // QA gate (25% max) then failed — refunding after the whole render.
++    const video = await renderSlideshow({
++      images: [PNG_1PX, PNG_1PX, PNG_1PX],
++      aspectRatio: "1:1",
++      slideDurationSec: 2, // 3 x 2s - 2 x 0.5s crossfade = 5s
++      music: await synthesizeToneWav(1),
++    });
++    expect(isMp4(video)).toBe(true);
++    const duration = await durationOf(video);
++    expect(duration).not.toBeNull();
++    expect(duration!).toBeGreaterThan(4.9);
++    expect(duration!).toBeLessThan(5.1);
++  }, 180_000);
++
++  it("finishes on a music file that opens but decodes to nothing", async () => {
++    // A truncated upload is bytes the tenant chose from their library, and
++    // /ai/generate-video validates musicPath by object-key prefix only. Under
++    // an infinite -stream_loop this render never terminated; the timeout is
++    // deliberately far below FFMPEG_TIMEOUT_MS so a regression shows up as a
++    // failing test in seconds rather than a five-minute stall.
++    const video = await renderSlideshow({
++      images: [PNG_1PX, PNG_1PX, PNG_1PX],
++      aspectRatio: "1:1",
++      slideDurationSec: 2,
++      music: await headerOnlyWav(),
++    });
++    expect(isMp4(video)).toBe(true);
++    // The slideshow still runs its full length — it simply has no music.
++    const duration = await durationOf(video);
++    expect(duration).not.toBeNull();
++    expect(duration!).toBeGreaterThan(4.9);
++    expect(duration!).toBeLessThan(5.1);
++  }, 60_000);
++
++  it("lands on the expected duration rather than 25/30ths of it", async () => {
++    // The 25fps image-demuxer default cost every still ~17%: this render came
++    // out at 4.67s instead of 5s — inside the drift gate, so it shipped short.
++    const video = await renderSlideshow({
++      images: [PNG_1PX, PNG_1PX, PNG_1PX],
++      aspectRatio: "1:1",
++      slideDurationSec: 2,
++    });
++    const duration = await durationOf(video);
++    expect(duration).not.toBeNull();
++    expect(duration!).toBeGreaterThan(4.9);
++    expect(duration!).toBeLessThan(5.1);
++  }, 180_000);
++
+   it("rejects an empty or oversized photo set without spawning ffmpeg", async () => {
+     await expect(
+       renderSlideshow({ images: [], aspectRatio: "1:1", slideDurationSec: 3 }),
+diff --git a/artifacts/api-server/src/lib/videoGen/slideshow.ts b/artifacts/api-server/src/lib/videoGen/slideshow.ts
+index 9e8cc8b..136b259 100644
+--- a/artifacts/api-server/src/lib/videoGen/slideshow.ts
++++ b/artifacts/api-server/src/lib/videoGen/slideshow.ts
+@@ -144,6 +144,152 @@ export function expectedSlideshowDurationSec(
+   return imageCount * slideSec - (imageCount - 1) * TRANSITION_SEC;
+ }
+ 
++export interface SlideshowArgsInput {
++  /** Slide filenames already written into the working directory, in order. */
++  slideNames: string[];
++  /** Requested per-slide seconds; clamped to MIN/MAX_SLIDE_SECONDS here. */
++  slideSec: number;
++  width: number;
++  height: number;
++  /** Intro-skip seek into the "music" input, or null when there is no music. */
++  musicSeekSec: number | null;
++  /** Probed length of the "music" input; null when ffprobe could not read it. */
++  musicDurationSec: number | null;
++  /** Font for the burned-in caption ("overlay.txt"); null skips the overlay. */
++  overlayFontFile: string | null;
++}
++
++/**
++ * The ffmpeg argv for one slideshow render. Pure: every file it names is
++ * written by `renderSlideshow` beforehand, so the argument list — input option
++ * ordering in particular — is testable without spawning an encoder.
++ */
++export function buildSlideshowArgs(input: SlideshowArgsInput): string[] {
++  const { slideNames, width, height } = input;
++  const count = slideNames.length;
++  // Clamp once, here: the per-input -t, the zoom step and the output bound all
++  // have to describe the same timeline, and expectedSlideshowDurationSec
++  // clamps internally.
++  const slideSec = Math.min(MAX_SLIDE_SECONDS, Math.max(MIN_SLIDE_SECONDS, input.slideSec));
++  const totalSec = expectedSlideshowDurationSec(count, slideSec);
++  const args: string[] = ["-y"];
++
++  // One looped still input per slide. -framerate pins the image demuxer to
++  // the pipeline's FPS: at its 25fps default it feeds 25 frames per second
++  // into a chain that retimes to FPS, so each slide came out ~17% short and
++  // the zoompan move (stepped per input frame) under-travelled to match.
++  for (const name of slideNames) {
++    args.push("-framerate", String(FPS), "-loop", "1", "-t", String(slideSec), "-i", name);
++  }
++
++  const musicIndex = count;
++  const hasMusic = input.musicSeekSec !== null;
++  if (hasMusic) {
++    // Loop the bed when it is too short to cover the slideshow. The loop count
++    // is COUNTED, not -1: an infinitely looped input that decodes to no
++    // packets — a truncated upload, say — restarts the demuxer forever at zero
++    // cost and never produces the frame that would satisfy the -t bound below,
++    // so the encode only ends at FFMPEG_TIMEOUT_MS. A counted loop always
++    // reaches EOF. `-t` bounds the output, so -shortest is unnecessary (and
++    // would re-truncate the video back to one play of the bed).
++    // A seek never coincides with a loop: pickMusicStartOffsetSec only returns
++    // a nonzero offset for a track LONGER than the video, which is the case
++    // that needs no loop — so -ss is never re-applied per iteration.
++    const musicDurationSec = input.musicDurationSec;
++    if (musicDurationSec !== null && musicDurationSec > 0 && musicDurationSec < totalSec) {
++      args.push("-stream_loop", String(Math.ceil(totalSec / musicDurationSec)));
++    }
++    if (input.musicSeekSec! > 0) args.push("-ss", input.musicSeekSec!.toFixed(3));
++    args.push("-i", "music");
++  }
++
++  // Normalize every slide to the target frame with a gentle Ken Burns
++  // move (alternating zoom in / zoom out per slide), then chain
++  // crossfades. Photos are cover-cropped — same fill rule as the topic
++  // video composer — instead of letterboxed, and the zoompan works on a
++  // 2x supersampled frame so the motion is smooth rather than steppy.
++  const filters: string[] = [];
++  const superW = width * 2;
++  const superH = height * 2;
++  const zoomSpan = 0.08; // 8% total move per slide
++  const frames = Math.max(1, Math.round(slideSec * FPS));
++  const zoomStep = (zoomSpan / frames).toFixed(6);
++  for (let i = 0; i < count; i++) {
++    const zoomExpr =
++      i % 2 === 0
++        ? `min(1+${zoomStep}*on,${(1 + zoomSpan).toFixed(3)})` // zoom in
++        : `max(${(1 + zoomSpan).toFixed(3)}-${zoomStep}*on,1.001)`; // zoom out
++    filters.push(
++      `[${i}:v]scale=${superW}:${superH}:force_original_aspect_ratio=increase,` +
++        `crop=${superW}:${superH},` +
++        `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
++        `d=1:s=${width}x${height}:fps=${FPS},` +
++        `setsar=1,format=yuv420p[v${i}]`,
++    );
++  }
++  let chainLabel = "v0";
++  for (let i = 1; i < count; i++) {
++    const out = i === count - 1 ? "xfaded" : `chain${i}`;
++    const offset = (i * (slideSec - TRANSITION_SEC)).toFixed(3);
++    filters.push(
++      `[${chainLabel}][v${i}]xfade=transition=fade:duration=${TRANSITION_SEC}:offset=${offset}[${out}]`,
++    );
++    chainLabel = out;
++  }
++  if (count === 1) {
++    filters.push(`[v0]copy[xfaded]`);
++  }
++
++  let videoOut = "xfaded";
++  if (input.overlayFontFile) {
++    // textfile= sidesteps drawtext's brittle inline-escaping rules: the
++    // caption is written verbatim to a file ffmpeg reads back, so colons,
++    // quotes, commas, and brackets in user text can never break the graph.
++    filters.push(
++      `[xfaded]drawtext=fontfile=${input.overlayFontFile}:textfile=overlay.txt:` +
++        `fontcolor=white:fontsize=${Math.round(height / 18)}:` +
++        `box=1:boxcolor=black@0.45:boxborderw=18:` +
++        `x=(w-text_w)/2:y=h-text_h-${Math.round(height / 12)}[titled]`,
++    );
++    videoOut = "titled";
++  }
++
++  args.push("-filter_complex", filters.join(";"), "-map", `[${videoOut}]`);
++
++  if (hasMusic) {
++    const fadeStart = Math.max(0, totalSec - 1.5).toFixed(3);
++    args.push(
++      "-map",
++      `${musicIndex}:a`,
++      "-af",
++      `afade=t=out:st=${fadeStart}:d=1.5`,
++      "-c:a",
++      "aac",
++      "-b:a",
++      "128k",
++    );
++  } else {
++    args.push("-an");
++  }
++
++  args.push(
++    "-t",
++    totalSec.toFixed(3),
++    "-c:v",
++    "libx264",
++    "-preset",
++    "veryfast",
++    "-crf",
++    "20",
++    "-pix_fmt",
++    "yuv420p",
++    "-movflags",
++    "+faststart",
++    "out.mp4",
++  );
++  return args;
++}
++
+ /** Render an MP4 slideshow from photos. Returns the encoded video bytes. */
+ export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
+   const count = input.images.length;
+@@ -152,121 +298,47 @@ export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
+       `Slideshow needs 1-${MAX_SLIDESHOW_IMAGES} images (got ${count}).`,
+     );
+   }
+-  const slideSec = Math.min(
+-    MAX_SLIDE_SECONDS,
+-    Math.max(MIN_SLIDE_SECONDS, input.slideDurationSec),
+-  );
+   const { width, height } = ASPECT_DIMENSIONS[input.aspectRatio];
+ 
+   const dir = await mkdtemp(join(tmpdir(), "kokao-slideshow-"));
+   try {
+-    const args: string[] = ["-y"];
+-
+-    // One looped still input per slide.
++    const slideNames: string[] = [];
+     for (let i = 0; i < count; i++) {
+       const name = `slide_${String(i).padStart(3, "0")}.${sniffImageExt(input.images[i]!)}`;
+       await writeFile(join(dir, name), input.images[i]!);
+-      args.push("-loop", "1", "-t", String(slideSec), "-i", name);
++      slideNames.push(name);
+     }
+-    const totalSec = count * slideSec - (count - 1) * TRANSITION_SEC;
+-    const musicIndex = count;
++
++    let musicSeekSec: number | null = null;
++    let musicDurationSec: number | null = null;
+     if (input.music && input.music.length > 0) {
+       await writeFile(join(dir, "music"), input.music);
++      const totalSec = expectedSlideshowDurationSec(count, input.slideDurationSec);
++      // The bed's own length decides whether it has to be looped to cover the
++      // video (null = ffprobe could not read it, so it must not be looped).
++      musicDurationSec = await probeDurationSec("music", dir);
+       // Skip a long quiet intro in the track (fail-soft: 0 = from the top).
+-      const musicSeekSec = await pickMusicStartOffsetSec("music", dir, totalSec);
+-      if (musicSeekSec > 0) args.push("-ss", musicSeekSec.toFixed(3));
+-      args.push("-i", "music");
+-    }
+-
+-    // Normalize every slide to the target frame with a gentle Ken Burns
+-    // move (alternating zoom in / zoom out per slide), then chain
+-    // crossfades. Photos are cover-cropped — same fill rule as the topic
+-    // video composer — instead of letterboxed, and the zoompan works on a
+-    // 2x supersampled frame so the motion is smooth rather than steppy.
+-    const filters: string[] = [];
+-    const superW = width * 2;
+-    const superH = height * 2;
+-    const zoomSpan = 0.08; // 8% total move per slide
+-    const frames = Math.max(1, Math.round(slideSec * FPS));
+-    const zoomStep = (zoomSpan / frames).toFixed(6);
+-    for (let i = 0; i < count; i++) {
+-      const zoomExpr =
+-        i % 2 === 0
+-          ? `min(1+${zoomStep}*on,${(1 + zoomSpan).toFixed(3)})` // zoom in
+-          : `max(${(1 + zoomSpan).toFixed(3)}-${zoomStep}*on,1.001)`; // zoom out
+-      filters.push(
+-        `[${i}:v]scale=${superW}:${superH}:force_original_aspect_ratio=increase,` +
+-          `crop=${superW}:${superH},` +
+-          `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
+-          `d=1:s=${width}x${height}:fps=${FPS},` +
+-          `setsar=1,format=yuv420p[v${i}]`,
+-      );
+-    }
+-    let chainLabel = "v0";
+-    for (let i = 1; i < count; i++) {
+-      const out = i === count - 1 ? "xfaded" : `chain${i}`;
+-      const offset = (i * (slideSec - TRANSITION_SEC)).toFixed(3);
+-      filters.push(
+-        `[${chainLabel}][v${i}]xfade=transition=fade:duration=${TRANSITION_SEC}:offset=${offset}[${out}]`,
+-      );
+-      chainLabel = out;
+-    }
+-    if (count === 1) {
+-      filters.push(`[v0]copy[xfaded]`);
++      musicSeekSec = await pickMusicStartOffsetSec("music", dir, totalSec);
+     }
+ 
+-    let videoOut = "xfaded";
+-    const fontFile = input.overlayText?.trim() ? await findFontFile() : null;
+-    if (input.overlayText?.trim() && fontFile) {
+-      // textfile= sidesteps drawtext's brittle inline-escaping rules: the
+-      // caption is written verbatim to a file ffmpeg reads back, so colons,
+-      // quotes, commas, and brackets in user text can never break the graph.
+-      await writeFile(join(dir, "overlay.txt"), input.overlayText.trim().slice(0, 120));
+-      filters.push(
+-        `[xfaded]drawtext=fontfile=${fontFile}:textfile=overlay.txt:` +
+-          `fontcolor=white:fontsize=${Math.round(height / 18)}:` +
+-          `box=1:boxcolor=black@0.45:boxborderw=18:` +
+-          `x=(w-text_w)/2:y=h-text_h-${Math.round(height / 12)}[titled]`,
+-      );
+-      videoOut = "titled";
++    const overlayText = input.overlayText?.trim();
++    const overlayFontFile = overlayText ? await findFontFile() : null;
++    if (overlayText && overlayFontFile) {
++      await writeFile(join(dir, "overlay.txt"), overlayText.slice(0, 120));
+     }
+ 
+-    args.push("-filter_complex", filters.join(";"), "-map", `[${videoOut}]`);
+-
+-    if (input.music && input.music.length > 0) {
+-      const fadeStart = Math.max(0, totalSec - 1.5).toFixed(3);
+-      args.push(
+-        "-map",
+-        `${musicIndex}:a`,
+-        "-af",
+-        `afade=t=out:st=${fadeStart}:d=1.5`,
+-        "-c:a",
+-        "aac",
+-        "-b:a",
+-        "128k",
+-        "-shortest",
+-      );
+-    } else {
+-      args.push("-an");
+-    }
+-
+-    args.push(
+-      "-t",
+-      totalSec.toFixed(3),
+-      "-c:v",
+-      "libx264",
+-      "-preset",
+-      "veryfast",
+-      "-crf",
+-      "20",
+-      "-pix_fmt",
+-      "yuv420p",
+-      "-movflags",
+-      "+faststart",
+-      "out.mp4",
++    await runFfmpeg(
++      buildSlideshowArgs({
++        slideNames,
++        slideSec: input.slideDurationSec,
++        width,
++        height,
++        musicSeekSec,
++        musicDurationSec,
++        overlayFontFile,
++      }),
++      dir,
+     );
+-
+-    await runFfmpeg(args, dir);
+     return await readFile(join(dir, "out.mp4"));
+   } finally {
+     await rm(dir, { recursive: true, force: true }).catch(() => {});
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.test.ts
+index fdf346b..afcca10 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, it, expect } from "vitest";
+-import { stillToClip } from "./aiBroll";
++import { stillToClip, buildStillToClipArgs } from "./aiBroll";
+ import { assignClipsToScenes } from "./visionRank";
+ import { videoJobUnits } from "../units";
+ 
+@@ -13,6 +13,27 @@ function isMp4(buffer: Buffer): boolean {
+   return buffer.length > 12 && buffer.toString("ascii", 4, 8) === "ftyp";
+ }
+ 
++describe("buildStillToClipArgs", () => {
++  it("pins the still input to the pipeline frame rate", () => {
++    // The image demuxer defaults to 25fps while the zoompan retimes to 30, so
++    // without -framerate the clip landed ~17% short — short enough that the
++    // composer loop-filled it and the Ken Burns move visibly restarted
++    // mid-scene — and the zoom under-travelled by the same fraction.
++    const args = buildStillToClipArgs(3, "9:16", true);
++    const inputAt = args.indexOf("-i");
++    expect(args.slice(0, inputAt)).toEqual([
++      "-y",
++      "-framerate",
++      "30",
++      "-loop",
++      "1",
++      "-t",
++      "3.000",
++    ]);
++    expect(args[inputAt + 1]).toBe("still.png");
++  });
++});
++
+ describe("stillToClip", () => {
+   it("turns a still image into a Ken Burns MP4 with real ffmpeg", async () => {
+     const zoomIn = await stillToClip(PNG_1PX, 1.5, "9:16", true);
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
+index 67b6ae0..a98a8a9 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
+@@ -88,13 +88,16 @@ ${sceneList}`,
+   }
+ }
+ 
+-/** Turn a still image into a Ken Burns clip matching the scene's duration. */
+-export async function stillToClip(
+-  image: Buffer,
++/**
++ * The ffmpeg argv for one Ken Burns clip, rendered from "still.png" in the
++ * working directory. Split out of `stillToClip` so the argument list is
++ * testable without spawning an encoder.
++ */
++export function buildStillToClipArgs(
+   durationSec: number,
+   aspectRatio: VideoAspect,
+   zoomIn: boolean,
+-): Promise<Buffer> {
++): string[] {
+   const { width, height } = ASPECT_DIMENSIONS[aspectRatio];
+   const superW = width * 2;
+   const superH = height * 2;
+@@ -106,35 +109,49 @@ export async function stillToClip(
+     ? `min(1+${zoomStep}*on,${(1 + zoomSpan).toFixed(3)})`
+     : `max(${(1 + zoomSpan).toFixed(3)}-${zoomStep}*on,1.001)`;
+ 
++  return [
++    "-y",
++    // Pin the image demuxer to the pipeline's FPS. At its 25fps default it fed
++    // 25 frames per second into a chain that retimes to FPS, so the clip came
++    // out ~17% short — short enough that the composer loop-filled it with
++    // -stream_loop -1 and the Ken Burns move visibly restarted mid-scene —
++    // and the per-frame zoom step under-travelled by the same fraction.
++    "-framerate",
++    String(FPS),
++    "-loop",
++    "1",
++    "-t",
++    seconds.toFixed(3),
++    "-i",
++    "still.png",
++    "-vf",
++    `scale=${superW}:${superH}:force_original_aspect_ratio=increase,` +
++      `crop=${superW}:${superH},` +
++      `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
++      `d=1:s=${width}x${height}:fps=${FPS},` +
++      `setsar=1,format=yuv420p`,
++    "-an",
++    "-c:v",
++    "libx264",
++    "-preset",
++    "veryfast",
++    "-crf",
++    "23",
++    "clip.mp4",
++  ];
++}
++
++/** Turn a still image into a Ken Burns clip matching the scene's duration. */
++export async function stillToClip(
++  image: Buffer,
++  durationSec: number,
++  aspectRatio: VideoAspect,
++  zoomIn: boolean,
++): Promise<Buffer> {
+   const dir = await mkdtemp(join(tmpdir(), "kokao-broll-"));
+   try {
+     await writeFile(join(dir, "still.png"), image);
+-    await runFfmpeg(
+-      [
+-        "-y",
+-        "-loop",
+-        "1",
+-        "-t",
+-        seconds.toFixed(3),
+-        "-i",
+-        "still.png",
+-        "-vf",
+-        `scale=${superW}:${superH}:force_original_aspect_ratio=increase,` +
+-          `crop=${superW}:${superH},` +
+-          `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
+-          `d=1:s=${width}x${height}:fps=${FPS},` +
+-          `setsar=1,format=yuv420p`,
+-        "-an",
+-        "-c:v",
+-        "libx264",
+-        "-preset",
+-        "veryfast",
+-        "-crf",
+-        "23",
+-        "clip.mp4",
+-      ],
+-      dir,
+-    );
++    await runFfmpeg(buildStillToClipArgs(durationSec, aspectRatio, zoomIn), dir);
+     return await readFile(join(dir, "clip.mp4"));
+   } finally {
+     await rm(dir, { recursive: true, force: true }).catch(() => {});
+diff --git a/artifacts/api-server/src/lib/videoGen/videoFallback.test.ts b/artifacts/api-server/src/lib/videoGen/videoFallback.test.ts
+index 0107ae8..15c66e4 100644
+--- a/artifacts/api-server/src/lib/videoGen/videoFallback.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/videoFallback.test.ts
+@@ -3,7 +3,11 @@ import { like } from "drizzle-orm";
+ import { db, appCredentialsTable, videoGenSettingsTable } from "@workspace/db";
+ import { getProviderHealth, resetProviderHealthForTests } from "../providerHealth";
+ import { generateVideo, setVideoGenSelection } from "./index";
+-import { VideoGenProviderError, type VideoGenResult } from "./types";
++import {
++  VideoGenNotConfiguredError,
++  VideoGenProviderError,
++  type VideoGenResult,
++} from "./types";
+ 
+ vi.mock("./providers/replicate", () => ({
+   REPLICATE_T2V_MODEL: "wan-video/wan-2.2-t2v-fast",
+@@ -142,6 +146,22 @@ describe("generateVideo model fallback", () => {
+     expect(getProviderHealth("videogen:replicate")?.consecutiveFailures).toBe(0);
+   });
+ 
++  it("treats a missing API token as terminal: no fallback, no health failure", async () => {
++    // Every model in the chain authenticates with the same credential, so
++    // walking it cannot help. And a missing key says nothing about whether
++    // Replicate is up, so it must not trip the breaker for the tenants who
++    // ARE configured — one misconfigured tenant used to earn 3 recorded
++    // failures per job, opening the breaker and turning every later job's
++    // preflight into a misleading 503.
++    vi.mocked(generateWithReplicate).mockRejectedValue(
++      new VideoGenNotConfiguredError("Replicate is not configured: save an API token"),
++    );
++
++    await expect(generateVideo(params)).rejects.toThrow("Replicate is not configured");
++    expect(attemptedModels()).toEqual(["wan-video/wan-2.2-t2v-fast"]);
++    expect(getProviderHealth("videogen:replicate")).toBeNull();
++  });
++
+   it("does not count a permanent failure against provider health", async () => {
+     vi.mocked(generateWithReplicate).mockRejectedValue(
+       new VideoGenProviderError("prompt rejected", 400),
+-- 
+2.43.0
+

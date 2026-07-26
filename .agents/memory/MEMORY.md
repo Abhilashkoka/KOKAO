@@ -68,3 +68,4 @@
 - [Reference styles](reference-styles.md) — analyze a reference video once into a saved profile; soft guidance only, styleProfileId dropped when the kill switch is off.
 - [Footage & prompt breadth](footage-and-prompt-breadth.md) — keyless stock sources are failover-only in auto; empty results fail over like errors; Look pills compile server-side into the stored prompt.
 - [Provider scoring](provider-scoring.md) — health is a partition never a weight; cost scored only vs 2+ priced peers; streamed completions must request include_usage or cost is NULL.
+- [ffmpeg render pitfalls](ffmpeg-render-pitfalls.md) — pin -framerate on stills; no -shortest with music; counted loops not -stream_loop -1; NotConfigured is terminal never breaker-recorded.

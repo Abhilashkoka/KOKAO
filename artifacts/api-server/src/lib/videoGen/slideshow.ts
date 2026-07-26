@@ -144,6 +144,152 @@ export function expectedSlideshowDurationSec(
   return imageCount * slideSec - (imageCount - 1) * TRANSITION_SEC;
 }
 
+export interface SlideshowArgsInput {
+  /** Slide filenames already written into the working directory, in order. */
+  slideNames: string[];
+  /** Requested per-slide seconds; clamped to MIN/MAX_SLIDE_SECONDS here. */
+  slideSec: number;
+  width: number;
+  height: number;
+  /** Intro-skip seek into the "music" input, or null when there is no music. */
+  musicSeekSec: number | null;
+  /** Probed length of the "music" input; null when ffprobe could not read it. */
+  musicDurationSec: number | null;
+  /** Font for the burned-in caption ("overlay.txt"); null skips the overlay. */
+  overlayFontFile: string | null;
+}
+
+/**
+ * The ffmpeg argv for one slideshow render. Pure: every file it names is
+ * written by `renderSlideshow` beforehand, so the argument list — input option
+ * ordering in particular — is testable without spawning an encoder.
+ */
+export function buildSlideshowArgs(input: SlideshowArgsInput): string[] {
+  const { slideNames, width, height } = input;
+  const count = slideNames.length;
+  // Clamp once, here: the per-input -t, the zoom step and the output bound all
+  // have to describe the same timeline, and expectedSlideshowDurationSec
+  // clamps internally.
+  const slideSec = Math.min(MAX_SLIDE_SECONDS, Math.max(MIN_SLIDE_SECONDS, input.slideSec));
+  const totalSec = expectedSlideshowDurationSec(count, slideSec);
+  const args: string[] = ["-y"];
+
+  // One looped still input per slide. -framerate pins the image demuxer to
+  // the pipeline's FPS: at its 25fps default it feeds 25 frames per second
+  // into a chain that retimes to FPS, so each slide came out ~17% short and
+  // the zoompan move (stepped per input frame) under-travelled to match.
+  for (const name of slideNames) {
+    args.push("-framerate", String(FPS), "-loop", "1", "-t", String(slideSec), "-i", name);
+  }
+
+  const musicIndex = count;
+  const hasMusic = input.musicSeekSec !== null;
+  if (hasMusic) {
+    // Loop the bed when it is too short to cover the slideshow. The loop count
+    // is COUNTED, not -1: an infinitely looped input that decodes to no
+    // packets — a truncated upload, say — restarts the demuxer forever at zero
+    // cost and never produces the frame that would satisfy the -t bound below,
+    // so the encode only ends at FFMPEG_TIMEOUT_MS. A counted loop always
+    // reaches EOF. `-t` bounds the output, so -shortest is unnecessary (and
+    // would re-truncate the video back to one play of the bed).
+    // A seek never coincides with a loop: pickMusicStartOffsetSec only returns
+    // a nonzero offset for a track LONGER than the video, which is the case
+    // that needs no loop — so -ss is never re-applied per iteration.
+    const musicDurationSec = input.musicDurationSec;
+    if (musicDurationSec !== null && musicDurationSec > 0 && musicDurationSec < totalSec) {
+      args.push("-stream_loop", String(Math.ceil(totalSec / musicDurationSec)));
+    }
+    if (input.musicSeekSec! > 0) args.push("-ss", input.musicSeekSec!.toFixed(3));
+    args.push("-i", "music");
+  }
+
+  // Normalize every slide to the target frame with a gentle Ken Burns
+  // move (alternating zoom in / zoom out per slide), then chain
+  // crossfades. Photos are cover-cropped — same fill rule as the topic
+  // video composer — instead of letterboxed, and the zoompan works on a
+  // 2x supersampled frame so the motion is smooth rather than steppy.
+  const filters: string[] = [];
+  const superW = width * 2;
+  const superH = height * 2;
+  const zoomSpan = 0.08; // 8% total move per slide
+  const frames = Math.max(1, Math.round(slideSec * FPS));
+  const zoomStep = (zoomSpan / frames).toFixed(6);
+  for (let i = 0; i < count; i++) {
+    const zoomExpr =
+      i % 2 === 0
+        ? `min(1+${zoomStep}*on,${(1 + zoomSpan).toFixed(3)})` // zoom in
+        : `max(${(1 + zoomSpan).toFixed(3)}-${zoomStep}*on,1.001)`; // zoom out
+    filters.push(
+      `[${i}:v]scale=${superW}:${superH}:force_original_aspect_ratio=increase,` +
+        `crop=${superW}:${superH},` +
+        `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
+        `d=1:s=${width}x${height}:fps=${FPS},` +
+        `setsar=1,format=yuv420p[v${i}]`,
+    );
+  }
+  let chainLabel = "v0";
+  for (let i = 1; i < count; i++) {
+    const out = i === count - 1 ? "xfaded" : `chain${i}`;
+    const offset = (i * (slideSec - TRANSITION_SEC)).toFixed(3);
+    filters.push(
+      `[${chainLabel}][v${i}]xfade=transition=fade:duration=${TRANSITION_SEC}:offset=${offset}[${out}]`,
+    );
+    chainLabel = out;
+  }
+  if (count === 1) {
+    filters.push(`[v0]copy[xfaded]`);
+  }
+
+  let videoOut = "xfaded";
+  if (input.overlayFontFile) {
+    // textfile= sidesteps drawtext's brittle inline-escaping rules: the
+    // caption is written verbatim to a file ffmpeg reads back, so colons,
+    // quotes, commas, and brackets in user text can never break the graph.
+    filters.push(
+      `[xfaded]drawtext=fontfile=${input.overlayFontFile}:textfile=overlay.txt:` +
+        `fontcolor=white:fontsize=${Math.round(height / 18)}:` +
+        `box=1:boxcolor=black@0.45:boxborderw=18:` +
+        `x=(w-text_w)/2:y=h-text_h-${Math.round(height / 12)}[titled]`,
+    );
+    videoOut = "titled";
+  }
+
+  args.push("-filter_complex", filters.join(";"), "-map", `[${videoOut}]`);
+
+  if (hasMusic) {
+    const fadeStart = Math.max(0, totalSec - 1.5).toFixed(3);
+    args.push(
+      "-map",
+      `${musicIndex}:a`,
+      "-af",
+      `afade=t=out:st=${fadeStart}:d=1.5`,
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+    );
+  } else {
+    args.push("-an");
+  }
+
+  args.push(
+    "-t",
+    totalSec.toFixed(3),
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-crf",
+    "20",
+    "-pix_fmt",
+    "yuv420p",
+    "-movflags",
+    "+faststart",
+    "out.mp4",
+  );
+  return args;
+}
+
 /** Render an MP4 slideshow from photos. Returns the encoded video bytes. */
 export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
   const count = input.images.length;
@@ -152,121 +298,47 @@ export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
       `Slideshow needs 1-${MAX_SLIDESHOW_IMAGES} images (got ${count}).`,
     );
   }
-  const slideSec = Math.min(
-    MAX_SLIDE_SECONDS,
-    Math.max(MIN_SLIDE_SECONDS, input.slideDurationSec),
-  );
   const { width, height } = ASPECT_DIMENSIONS[input.aspectRatio];
 
   const dir = await mkdtemp(join(tmpdir(), "kokao-slideshow-"));
   try {
-    const args: string[] = ["-y"];
-
-    // One looped still input per slide.
+    const slideNames: string[] = [];
     for (let i = 0; i < count; i++) {
       const name = `slide_${String(i).padStart(3, "0")}.${sniffImageExt(input.images[i]!)}`;
       await writeFile(join(dir, name), input.images[i]!);
-      args.push("-loop", "1", "-t", String(slideSec), "-i", name);
+      slideNames.push(name);
     }
-    const totalSec = count * slideSec - (count - 1) * TRANSITION_SEC;
-    const musicIndex = count;
+
+    let musicSeekSec: number | null = null;
+    let musicDurationSec: number | null = null;
     if (input.music && input.music.length > 0) {
       await writeFile(join(dir, "music"), input.music);
+      const totalSec = expectedSlideshowDurationSec(count, input.slideDurationSec);
+      // The bed's own length decides whether it has to be looped to cover the
+      // video (null = ffprobe could not read it, so it must not be looped).
+      musicDurationSec = await probeDurationSec("music", dir);
       // Skip a long quiet intro in the track (fail-soft: 0 = from the top).
-      const musicSeekSec = await pickMusicStartOffsetSec("music", dir, totalSec);
-      if (musicSeekSec > 0) args.push("-ss", musicSeekSec.toFixed(3));
-      args.push("-i", "music");
+      musicSeekSec = await pickMusicStartOffsetSec("music", dir, totalSec);
     }
 
-    // Normalize every slide to the target frame with a gentle Ken Burns
-    // move (alternating zoom in / zoom out per slide), then chain
-    // crossfades. Photos are cover-cropped — same fill rule as the topic
-    // video composer — instead of letterboxed, and the zoompan works on a
-    // 2x supersampled frame so the motion is smooth rather than steppy.
-    const filters: string[] = [];
-    const superW = width * 2;
-    const superH = height * 2;
-    const zoomSpan = 0.08; // 8% total move per slide
-    const frames = Math.max(1, Math.round(slideSec * FPS));
-    const zoomStep = (zoomSpan / frames).toFixed(6);
-    for (let i = 0; i < count; i++) {
-      const zoomExpr =
-        i % 2 === 0
-          ? `min(1+${zoomStep}*on,${(1 + zoomSpan).toFixed(3)})` // zoom in
-          : `max(${(1 + zoomSpan).toFixed(3)}-${zoomStep}*on,1.001)`; // zoom out
-      filters.push(
-        `[${i}:v]scale=${superW}:${superH}:force_original_aspect_ratio=increase,` +
-          `crop=${superW}:${superH},` +
-          `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
-          `d=1:s=${width}x${height}:fps=${FPS},` +
-          `setsar=1,format=yuv420p[v${i}]`,
-      );
-    }
-    let chainLabel = "v0";
-    for (let i = 1; i < count; i++) {
-      const out = i === count - 1 ? "xfaded" : `chain${i}`;
-      const offset = (i * (slideSec - TRANSITION_SEC)).toFixed(3);
-      filters.push(
-        `[${chainLabel}][v${i}]xfade=transition=fade:duration=${TRANSITION_SEC}:offset=${offset}[${out}]`,
-      );
-      chainLabel = out;
-    }
-    if (count === 1) {
-      filters.push(`[v0]copy[xfaded]`);
+    const overlayText = input.overlayText?.trim();
+    const overlayFontFile = overlayText ? await findFontFile() : null;
+    if (overlayText && overlayFontFile) {
+      await writeFile(join(dir, "overlay.txt"), overlayText.slice(0, 120));
     }
 
-    let videoOut = "xfaded";
-    const fontFile = input.overlayText?.trim() ? await findFontFile() : null;
-    if (input.overlayText?.trim() && fontFile) {
-      // textfile= sidesteps drawtext's brittle inline-escaping rules: the
-      // caption is written verbatim to a file ffmpeg reads back, so colons,
-      // quotes, commas, and brackets in user text can never break the graph.
-      await writeFile(join(dir, "overlay.txt"), input.overlayText.trim().slice(0, 120));
-      filters.push(
-        `[xfaded]drawtext=fontfile=${fontFile}:textfile=overlay.txt:` +
-          `fontcolor=white:fontsize=${Math.round(height / 18)}:` +
-          `box=1:boxcolor=black@0.45:boxborderw=18:` +
-          `x=(w-text_w)/2:y=h-text_h-${Math.round(height / 12)}[titled]`,
-      );
-      videoOut = "titled";
-    }
-
-    args.push("-filter_complex", filters.join(";"), "-map", `[${videoOut}]`);
-
-    if (input.music && input.music.length > 0) {
-      const fadeStart = Math.max(0, totalSec - 1.5).toFixed(3);
-      args.push(
-        "-map",
-        `${musicIndex}:a`,
-        "-af",
-        `afade=t=out:st=${fadeStart}:d=1.5`,
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-shortest",
-      );
-    } else {
-      args.push("-an");
-    }
-
-    args.push(
-      "-t",
-      totalSec.toFixed(3),
-      "-c:v",
-      "libx264",
-      "-preset",
-      "veryfast",
-      "-crf",
-      "20",
-      "-pix_fmt",
-      "yuv420p",
-      "-movflags",
-      "+faststart",
-      "out.mp4",
+    await runFfmpeg(
+      buildSlideshowArgs({
+        slideNames,
+        slideSec: input.slideDurationSec,
+        width,
+        height,
+        musicSeekSec,
+        musicDurationSec,
+        overlayFontFile,
+      }),
+      dir,
     );
-
-    await runFfmpeg(args, dir);
     return await readFile(join(dir, "out.mp4"));
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});

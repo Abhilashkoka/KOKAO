@@ -3,7 +3,11 @@ import { like } from "drizzle-orm";
 import { db, appCredentialsTable, videoGenSettingsTable } from "@workspace/db";
 import { getProviderHealth, resetProviderHealthForTests } from "../providerHealth";
 import { generateVideo, setVideoGenSelection } from "./index";
-import { VideoGenProviderError, type VideoGenResult } from "./types";
+import {
+  VideoGenNotConfiguredError,
+  VideoGenProviderError,
+  type VideoGenResult,
+} from "./types";
 
 vi.mock("./providers/replicate", () => ({
   REPLICATE_T2V_MODEL: "wan-video/wan-2.2-t2v-fast",
@@ -140,6 +144,22 @@ describe("generateVideo model fallback", () => {
     vi.mocked(generateWithReplicate).mockResolvedValue(result("wan-video/wan-2.2-t2v-fast"));
     await generateVideo(params);
     expect(getProviderHealth("videogen:replicate")?.consecutiveFailures).toBe(0);
+  });
+
+  it("treats a missing API token as terminal: no fallback, no health failure", async () => {
+    // Every model in the chain authenticates with the same credential, so
+    // walking it cannot help. And a missing key says nothing about whether
+    // Replicate is up, so it must not trip the breaker for the tenants who
+    // ARE configured — one misconfigured tenant used to earn 3 recorded
+    // failures per job, opening the breaker and turning every later job's
+    // preflight into a misleading 503.
+    vi.mocked(generateWithReplicate).mockRejectedValue(
+      new VideoGenNotConfiguredError("Replicate is not configured: save an API token"),
+    );
+
+    await expect(generateVideo(params)).rejects.toThrow("Replicate is not configured");
+    expect(attemptedModels()).toEqual(["wan-video/wan-2.2-t2v-fast"]);
+    expect(getProviderHealth("videogen:replicate")).toBeNull();
   });
 
   it("does not count a permanent failure against provider health", async () => {

@@ -9,7 +9,7 @@ import {
   REPLICATE_I2V_MODEL,
 } from "./providers/replicate";
 import { isTransientStatus } from "./retry";
-import { VideoGenProviderError } from "./types";
+import { VideoGenNotConfiguredError, VideoGenProviderError } from "./types";
 import type { SourceImage, VideoAspect, VideoGenInput, VideoGenResult } from "./types";
 
 export { VideoGenNotConfiguredError, VideoGenProviderError } from "./types";
@@ -184,6 +184,13 @@ export function videoGenHealthKey(providerId: string): string {
 /** Whether a video failure is the UPSTREAM's fault (429/5xx/network/timeout),
  * as opposed to a rejected prompt or bad key that would fail on any model. */
 function isTransientVideoGenError(error: unknown): boolean {
+  // A missing API token is terminal. Every model in the chain authenticates
+  // with the same credential, so walking it cannot help — and it says nothing
+  // about whether the provider is up, so it must not reach the breaker. Both
+  // halves follow from returning false here: the loop throws on a
+  // non-transient primary failure before it would record anything, and it
+  // only records failures it classified as transient.
+  if (error instanceof VideoGenNotConfiguredError) return false;
   if (error instanceof VideoGenProviderError) {
     if (error.status === undefined) return true; // timeout / network-shaped
     return isTransientStatus(error.status);

@@ -88,13 +88,16 @@ ${sceneList}`,
   }
 }
 
-/** Turn a still image into a Ken Burns clip matching the scene's duration. */
-export async function stillToClip(
-  image: Buffer,
+/**
+ * The ffmpeg argv for one Ken Burns clip, rendered from "still.png" in the
+ * working directory. Split out of `stillToClip` so the argument list is
+ * testable without spawning an encoder.
+ */
+export function buildStillToClipArgs(
   durationSec: number,
   aspectRatio: VideoAspect,
   zoomIn: boolean,
-): Promise<Buffer> {
+): string[] {
   const { width, height } = ASPECT_DIMENSIONS[aspectRatio];
   const superW = width * 2;
   const superH = height * 2;
@@ -106,35 +109,49 @@ export async function stillToClip(
     ? `min(1+${zoomStep}*on,${(1 + zoomSpan).toFixed(3)})`
     : `max(${(1 + zoomSpan).toFixed(3)}-${zoomStep}*on,1.001)`;
 
+  return [
+    "-y",
+    // Pin the image demuxer to the pipeline's FPS. At its 25fps default it fed
+    // 25 frames per second into a chain that retimes to FPS, so the clip came
+    // out ~17% short — short enough that the composer loop-filled it with
+    // -stream_loop -1 and the Ken Burns move visibly restarted mid-scene —
+    // and the per-frame zoom step under-travelled by the same fraction.
+    "-framerate",
+    String(FPS),
+    "-loop",
+    "1",
+    "-t",
+    seconds.toFixed(3),
+    "-i",
+    "still.png",
+    "-vf",
+    `scale=${superW}:${superH}:force_original_aspect_ratio=increase,` +
+      `crop=${superW}:${superH},` +
+      `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
+      `d=1:s=${width}x${height}:fps=${FPS},` +
+      `setsar=1,format=yuv420p`,
+    "-an",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-crf",
+    "23",
+    "clip.mp4",
+  ];
+}
+
+/** Turn a still image into a Ken Burns clip matching the scene's duration. */
+export async function stillToClip(
+  image: Buffer,
+  durationSec: number,
+  aspectRatio: VideoAspect,
+  zoomIn: boolean,
+): Promise<Buffer> {
   const dir = await mkdtemp(join(tmpdir(), "kokao-broll-"));
   try {
     await writeFile(join(dir, "still.png"), image);
-    await runFfmpeg(
-      [
-        "-y",
-        "-loop",
-        "1",
-        "-t",
-        seconds.toFixed(3),
-        "-i",
-        "still.png",
-        "-vf",
-        `scale=${superW}:${superH}:force_original_aspect_ratio=increase,` +
-          `crop=${superW}:${superH},` +
-          `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
-          `d=1:s=${width}x${height}:fps=${FPS},` +
-          `setsar=1,format=yuv420p`,
-        "-an",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-crf",
-        "23",
-        "clip.mp4",
-      ],
-      dir,
-    );
+    await runFfmpeg(buildStillToClipArgs(durationSec, aspectRatio, zoomIn), dir);
     return await readFile(join(dir, "clip.mp4"));
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
