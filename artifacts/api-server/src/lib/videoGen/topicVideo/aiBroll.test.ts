@@ -1,7 +1,36 @@
-import { describe, it, expect } from "vitest";
-import { stillToClip, buildStillToClipArgs } from "./aiBroll";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { stillToClip, buildStillToClipArgs, planBrollVisuals } from "./aiBroll";
 import { assignClipsToScenes } from "./visionRank";
 import { videoJobUnits } from "../units";
+
+const brollState = vi.hoisted(() => ({
+  response: "" as string,
+  lastPrompt: "" as string,
+  throws: false,
+}));
+vi.mock("../../textGen", () => ({
+  getTextGenClient: vi.fn(async () => ({
+    provider: "builtin",
+    model: "gpt-test",
+    client: {
+      chat: {
+        completions: {
+          create: vi.fn(async (args: { messages: { content: string }[] }) => {
+            if (brollState.throws) throw new Error("model unavailable");
+            brollState.lastPrompt = args.messages[1]!.content;
+            return { choices: [{ message: { content: brollState.response } }] };
+          }),
+        },
+      },
+    },
+  })),
+}));
+
+beforeEach(() => {
+  brollState.response = "";
+  brollState.lastPrompt = "";
+  brollState.throws = false;
+});
 
 // 1x1 red PNG.
 const PNG_1PX = Buffer.from(
@@ -31,6 +60,63 @@ describe("buildStillToClipArgs", () => {
       "3.000",
     ]);
     expect(args[inputAt + 1]).toBe("still.png");
+  });
+});
+
+describe("planBrollVisuals", () => {
+  const scenes = [
+    { firstCue: 0, lastCue: 0, durationSec: 4, text: "Flour on a table." },
+    { firstCue: 1, lastCue: 1, durationSec: 4, text: "Kneading the dough." },
+  ];
+  const plan = () => planBrollVisuals({ tenantAiModel: "gpt-test", topic: "baking", scenes });
+
+  it("appends one shared look to every scene prompt", async () => {
+    // Scene subjects differ on purpose; the look is what has to be constant,
+    // otherwise the finished video reads as a stock-photo collage.
+    brollState.response = JSON.stringify({
+      style: "warm dawn palette, soft window light, 35mm",
+      prompts: ["flour drifting onto oak", "hands working dough"],
+    });
+    expect(await plan()).toEqual([
+      "flour drifting onto oak Shared look across all scenes: warm dawn palette, soft window light, 35mm",
+      "hands working dough Shared look across all scenes: warm dawn palette, soft window light, 35mm",
+    ]);
+    expect(brollState.lastPrompt).toContain('{"style": "...", "prompts":');
+  });
+
+  it("leaves the scene prompts exactly as they were when no style comes back", async () => {
+    for (const response of [
+      { style: "   ", prompts: ["a", "b"] },
+      { prompts: ["a", "b"] },
+      { style: 42, prompts: ["a", "b"] },
+      { style: null, prompts: ["a", "b"] },
+    ]) {
+      brollState.response = JSON.stringify(response);
+      expect(await plan()).toEqual(["a", "b"]);
+    }
+  });
+
+  it("bounds a runaway style clause instead of pasting an essay into every prompt", async () => {
+    brollState.response = JSON.stringify({ style: "x".repeat(500), prompts: ["a", "b"] });
+    const prompts = await plan();
+    expect(prompts[0]).toBe(`a Shared look across all scenes: ${"x".repeat(200)}`);
+    expect(prompts[1]).toBe(prompts[0]!.replace(/^a /, "b "));
+  });
+
+  it("still falls back to narration text when art direction fails outright", async () => {
+    brollState.throws = true;
+    expect(await plan()).toEqual([
+      "Photorealistic cinematic still: Flour on a table.",
+      "Photorealistic cinematic still: Kneading the dough.",
+    ]);
+  });
+
+  it("still falls back when the response carries a style but no prompts", async () => {
+    brollState.response = JSON.stringify({ style: "moody teal grade" });
+    expect(await plan()).toEqual([
+      "Photorealistic cinematic still: Flour on a table.",
+      "Photorealistic cinematic still: Kneading the dough.",
+    ]);
   });
 });
 

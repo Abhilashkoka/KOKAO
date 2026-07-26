@@ -97,12 +97,22 @@ export async function planSceneVisuals(params: {
   scenes: ScriptScene[];
 }): Promise<ScenePlanEntry[]> {
   const textGen = await getTextGenClient(params.tenantAiModel);
+  // Costume uniformity is the default. Unless the user wrote wardrobe
+  // instructions, the character wears the locked outfit in every scene: the
+  // rules below ask the director for that, and the clamp at the end of this
+  // function enforces it whatever the model actually replies.
+  const wardrobeNotes = params.wardrobeNotes.trim();
+  const costumeLocked = wardrobeNotes === "";
   const wardrobe = params.outfits
     .map((o) => `- id ${o.id}: "${o.name}" — ${o.description}`)
     .join("\n");
   const sceneList = params.scenes
     .map((s, i) => `${i + 1}. ${s.text}`)
     .join("\n");
+  const outfitRules = costumeLocked
+    ? `3. "outfitId" must be exactly ${params.lockedOutfitId} for every scene. The character wears one costume for the whole video — never change it, however much the story might suggest one.`
+    : `3. "outfitId" must be one of the wardrobe ids. Default to ${params.lockedOutfitId} and change it only where the wardrobe instructions below explicitly call for a change.
+4. Keep outfit changes rare and motivated; never alternate every scene.`;
   const prompt = `# Role: Video Scene Director
 
 A short video features one recurring character. For every scene below, describe the single visual moment to generate, always featuring the character.
@@ -116,9 +126,8 @@ ${wardrobe}
 ## Rules:
 1. Return a JSON object: {"scenes": [{"visual": "...", "outfitId": <id>}, ...]} with exactly ${params.scenes.length} entries, in scene order.
 2. "visual" is one vivid sentence describing what the character is doing and where, matching that scene's narration. Do not mention the character's name or clothing in it.
-3. "outfitId" must be one of the wardrobe ids. Default to ${params.lockedOutfitId} unless the story or the wardrobe instructions call for a change at that moment.
-4. Keep outfit changes rare and motivated; never alternate every scene.
-${params.wardrobeNotes ? `\n## Wardrobe instructions from the user:\n${params.wardrobeNotes}\n` : ""}
+${outfitRules}
+${costumeLocked ? "" : `\n## Wardrobe instructions from the user:\n${wardrobeNotes}\n`}
 ## Scenes (narration):
 ${sceneList}`;
 
@@ -150,8 +159,12 @@ ${sceneList}`;
       typeof entry?.visual === "string" && entry.visual.trim()
         ? entry.visual.trim()
         : scene.text.slice(0, 300);
-    const outfitId =
-      typeof entry?.outfitId === "number" && validIds.has(entry.outfitId)
+    // The enforcement half of the costume lock: with no wardrobe instructions
+    // the locked outfit wins outright, so a model that ignores rule 3 still
+    // cannot change the character's clothes between scenes.
+    const outfitId = costumeLocked
+      ? params.lockedOutfitId
+      : typeof entry?.outfitId === "number" && validIds.has(entry.outfitId)
         ? entry.outfitId
         : params.lockedOutfitId;
     return { visual, outfitId };

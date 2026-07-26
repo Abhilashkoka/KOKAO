@@ -1,0 +1,335 @@
+From 655a49908de46585e1265c4f0a82a3f02c990062 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 26 Jul 2026 14:40:08 +0000
+Subject: [PATCH] Keep a character's costume consistent across every scene by
+ default
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Costume uniformity was opt-out rather than opt-in. The Video Scene Director's
+rule 3 read "Default to <locked outfit> unless the story or the wardrobe
+instructions call for a change at that moment", which actively invited the model
+to redress the character on story grounds alone — so a user who never asked for
+a costume change could still get one, and the same character would walk through
+their own video in three different outfits.
+
+Costume changes now require the user to have written wardrobe notes, enforced in
+two layers. The prompt layer states the costume is fixed for the whole video and
+drops the story-driven escape hatch entirely when there are no wardrobe notes;
+when there are, changes are permitted only where those notes call for one. The
+parser layer is the actual guarantee: with no wardrobe notes the locked outfit
+is pinned onto every scene regardless of what the model replied, so a director
+that ignores its instructions still cannot change the character's clothes.
+Whitespace-only notes count as no notes. Character identity itself was already
+sound and is untouched — every keyframe is an image edit of the outfit's
+reference photo, so the face comes from a real picture rather than a re-roll.
+
+AI b-roll had the matching problem one level up: every scene's image prompt was
+planned independently, so palette, light and grade drifted scene to scene and a
+finished video read as a stock-photo collage. The Art Director now also returns
+a single style clause that is appended to every scene prompt, giving one look
+across the video while leaving each scene's subject free. Deliberately not the
+image-anchoring trick that character mode uses — b-roll scenes are meant to show
+different things, and anchoring scene two on scene one's picture would drag its
+subject along with its style. The clause is length-bounded and the existing
+fail-soft behaviour is preserved exactly: no usable style leaves the prompts
+byte-identical to before, and a failed planning call still falls back to
+narration text.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EJdoZ8bk1pWTrmbMVQJZ7G
+---
+ .../lib/videoGen/topicVideo/aiBroll.test.ts   | 90 ++++++++++++++++++-
+ .../src/lib/videoGen/topicVideo/aiBroll.ts    | 28 ++++--
+ .../topicVideo/characterScenes.test.ts        | 52 +++++++++++
+ .../videoGen/topicVideo/characterScenes.ts    | 23 +++--
+ 4 files changed, 179 insertions(+), 14 deletions(-)
+
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.test.ts
+index afcca10..1a26d7f 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.test.ts
+@@ -1,8 +1,37 @@
+-import { describe, it, expect } from "vitest";
+-import { stillToClip, buildStillToClipArgs } from "./aiBroll";
++import { describe, it, expect, vi, beforeEach } from "vitest";
++import { stillToClip, buildStillToClipArgs, planBrollVisuals } from "./aiBroll";
+ import { assignClipsToScenes } from "./visionRank";
+ import { videoJobUnits } from "../units";
+ 
++const brollState = vi.hoisted(() => ({
++  response: "" as string,
++  lastPrompt: "" as string,
++  throws: false,
++}));
++vi.mock("../../textGen", () => ({
++  getTextGenClient: vi.fn(async () => ({
++    provider: "builtin",
++    model: "gpt-test",
++    client: {
++      chat: {
++        completions: {
++          create: vi.fn(async (args: { messages: { content: string }[] }) => {
++            if (brollState.throws) throw new Error("model unavailable");
++            brollState.lastPrompt = args.messages[1]!.content;
++            return { choices: [{ message: { content: brollState.response } }] };
++          }),
++        },
++      },
++    },
++  })),
++}));
++
++beforeEach(() => {
++  brollState.response = "";
++  brollState.lastPrompt = "";
++  brollState.throws = false;
++});
++
+ // 1x1 red PNG.
+ const PNG_1PX = Buffer.from(
+   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+@@ -34,6 +63,63 @@ describe("buildStillToClipArgs", () => {
+   });
+ });
+ 
++describe("planBrollVisuals", () => {
++  const scenes = [
++    { firstCue: 0, lastCue: 0, durationSec: 4, text: "Flour on a table." },
++    { firstCue: 1, lastCue: 1, durationSec: 4, text: "Kneading the dough." },
++  ];
++  const plan = () => planBrollVisuals({ tenantAiModel: "gpt-test", topic: "baking", scenes });
++
++  it("appends one shared look to every scene prompt", async () => {
++    // Scene subjects differ on purpose; the look is what has to be constant,
++    // otherwise the finished video reads as a stock-photo collage.
++    brollState.response = JSON.stringify({
++      style: "warm dawn palette, soft window light, 35mm",
++      prompts: ["flour drifting onto oak", "hands working dough"],
++    });
++    expect(await plan()).toEqual([
++      "flour drifting onto oak Shared look across all scenes: warm dawn palette, soft window light, 35mm",
++      "hands working dough Shared look across all scenes: warm dawn palette, soft window light, 35mm",
++    ]);
++    expect(brollState.lastPrompt).toContain('{"style": "...", "prompts":');
++  });
++
++  it("leaves the scene prompts exactly as they were when no style comes back", async () => {
++    for (const response of [
++      { style: "   ", prompts: ["a", "b"] },
++      { prompts: ["a", "b"] },
++      { style: 42, prompts: ["a", "b"] },
++      { style: null, prompts: ["a", "b"] },
++    ]) {
++      brollState.response = JSON.stringify(response);
++      expect(await plan()).toEqual(["a", "b"]);
++    }
++  });
++
++  it("bounds a runaway style clause instead of pasting an essay into every prompt", async () => {
++    brollState.response = JSON.stringify({ style: "x".repeat(500), prompts: ["a", "b"] });
++    const prompts = await plan();
++    expect(prompts[0]).toBe(`a Shared look across all scenes: ${"x".repeat(200)}`);
++    expect(prompts[1]).toBe(prompts[0]!.replace(/^a /, "b "));
++  });
++
++  it("still falls back to narration text when art direction fails outright", async () => {
++    brollState.throws = true;
++    expect(await plan()).toEqual([
++      "Photorealistic cinematic still: Flour on a table.",
++      "Photorealistic cinematic still: Kneading the dough.",
++    ]);
++  });
++
++  it("still falls back when the response carries a style but no prompts", async () => {
++    brollState.response = JSON.stringify({ style: "moody teal grade" });
++    expect(await plan()).toEqual([
++      "Photorealistic cinematic still: Flour on a table.",
++      "Photorealistic cinematic still: Kneading the dough.",
++    ]);
++  });
++});
++
+ describe("stillToClip", () => {
+   it("turns a still image into a Ken Burns MP4 with real ffmpeg", async () => {
+     const zoomIn = await stillToClip(PNG_1PX, 1.5, "9:16", true);
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
+index a98a8a9..1d13997 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
+@@ -31,9 +31,18 @@ function imageSizeForAspect(aspect: VideoAspect): ImageSize {
+   return "1024x1024";
+ }
+ 
++/** A shared look is one clause, not an essay; bound it so prompts stay sane. */
++const MAX_STYLE_CHARS = 200;
++
+ /**
+- * One LLM call turns the scenes into concrete photographic prompts. Fails
+- * soft: a scene without a plan falls back to its narration text.
++ * One LLM call turns the scenes into concrete photographic prompts, plus a
++ * single style directive that gets appended to every one of them so the
++ * finished video reads as one film instead of a stock-photo collage. B-roll
++ * scenes are deliberately different subjects, so the *look* — palette, light,
++ * lens, grade — is the only thing that can be held constant across them;
++ * anchoring later scenes on the first scene's image would drag its subject
++ * along with its style. Fails soft: a scene without a plan falls back to its
++ * narration text, and an unusable style is simply dropped.
+  */
+ export async function planBrollVisuals(params: {
+   tenantAiModel: string;
+@@ -60,10 +69,10 @@ export async function planBrollVisuals(params: {
+ A short video about "${params.topic}" has ${params.scenes.length} narrated scenes. Write one image-generation prompt per scene.
+ 
+ ## Rules:
+-1. Reply with strict JSON: {"prompts": ["...", ...]} — exactly ${params.scenes.length} entries, in scene order.
+-2. Each prompt describes ONE photorealistic, cinematic still that visualizes that scene's meaning: concrete subject, setting, lighting, camera angle.
+-3. No text, watermarks, logos, or recognizable brands in the image. No people looking into the camera.
+-4. Keep a consistent visual mood across all scenes (same time of day / palette family).
++1. Reply with strict JSON: {"style": "...", "prompts": ["...", ...]} — exactly ${params.scenes.length} prompt entries, in scene order.
++2. "style" is ONE short clause fixing the look of the whole video: palette, quality of light, lens/format, colour grade. No subject matter and no scene specifics — it is appended to every prompt.
++3. Each prompt describes ONE photorealistic, cinematic still that visualizes that scene's meaning: concrete subject, setting, camera angle. Do not restate the style.
++4. No text, watermarks, logos, or recognizable brands in the image. No people looking into the camera.
+ 
+ ## Scenes (narration):
+ ${sceneList}`,
+@@ -75,12 +84,17 @@ ${sceneList}`,
+     });
+     const parsed = JSON.parse(completion.choices[0]?.message?.content ?? "") as {
+       prompts?: unknown;
++      style?: unknown;
+     };
+     const prompts: unknown[] | null = Array.isArray(parsed.prompts) ? parsed.prompts : null;
+     if (!prompts) return fallback;
++    const style =
++      typeof parsed.style === "string" ? parsed.style.trim().slice(0, MAX_STYLE_CHARS) : "";
+     return params.scenes.map((_, i) => {
+       const entry = prompts[i];
+-      return typeof entry === "string" && entry.trim() ? entry.trim() : fallback[i]!;
++      const scenePrompt =
++        typeof entry === "string" && entry.trim() ? entry.trim() : fallback[i]!;
++      return style ? `${scenePrompt} Shared look across all scenes: ${style}` : scenePrompt;
+     });
+   } catch (error) {
+     logger.warn({ err: error }, "B-roll visual planning failed; using narration text");
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.test.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.test.ts
+index e9b9c9c..8005225 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.test.ts
+@@ -196,6 +196,58 @@ describe("planSceneVisuals", () => {
+     expect(planState.lastPrompt).toContain("Maya");
+   });
+ 
++  it("forces the locked outfit on every scene when the user gave no wardrobe notes", async () => {
++    // The director returned a *valid* costume change for scene two. With no
++    // wardrobe instructions from the user, uniformity wins regardless.
++    planState.response = JSON.stringify({
++      scenes: [
++        { visual: "waking up by a window", outfitId: 10 },
++        { visual: "lifting weights", outfitId: 11 },
++      ],
++    });
++    const plan = await planSceneVisuals({
++      tenantAiModel: "gpt-test",
++      topic: "founder life",
++      character,
++      outfits,
++      lockedOutfitId: 10,
++      wardrobeNotes: "   ", // whitespace is no instruction at all
++      scenes,
++    });
++    expect(plan.map((p) => p.outfitId)).toEqual([10, 10]);
++    // Only the costume is pinned; the planned visuals still come through.
++    expect(plan.map((p) => p.visual)).toEqual(["waking up by a window", "lifting weights"]);
++  });
++
++  it("tells the director the costume is fixed unless the user asked otherwise", async () => {
++    planState.response = JSON.stringify({ scenes: [] });
++    await planSceneVisuals({
++      tenantAiModel: "gpt-test",
++      topic: "founder life",
++      character,
++      outfits,
++      lockedOutfitId: 10,
++      wardrobeNotes: "",
++      scenes,
++    });
++    expect(planState.lastPrompt).toContain('"outfitId" must be exactly 10 for every scene');
++    expect(planState.lastPrompt).not.toContain("Wardrobe instructions from the user");
++
++    await planSceneVisuals({
++      tenantAiModel: "gpt-test",
++      topic: "founder life",
++      character,
++      outfits,
++      lockedOutfitId: 10,
++      wardrobeNotes: "gym wear for the workout",
++      scenes,
++    });
++    expect(planState.lastPrompt).toContain(
++      "change it only where the wardrobe instructions below explicitly call for a change",
++    );
++    expect(planState.lastPrompt).toContain("Wardrobe instructions from the user");
++  });
++
+   it("falls back to the locked outfit and scene text on a bad response", async () => {
+     planState.response = JSON.stringify({
+       scenes: [{ visual: "", outfitId: 999 }],
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+index 2e91dfc..a9123d7 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+@@ -97,12 +97,22 @@ export async function planSceneVisuals(params: {
+   scenes: ScriptScene[];
+ }): Promise<ScenePlanEntry[]> {
+   const textGen = await getTextGenClient(params.tenantAiModel);
++  // Costume uniformity is the default. Unless the user wrote wardrobe
++  // instructions, the character wears the locked outfit in every scene: the
++  // rules below ask the director for that, and the clamp at the end of this
++  // function enforces it whatever the model actually replies.
++  const wardrobeNotes = params.wardrobeNotes.trim();
++  const costumeLocked = wardrobeNotes === "";
+   const wardrobe = params.outfits
+     .map((o) => `- id ${o.id}: "${o.name}" — ${o.description}`)
+     .join("\n");
+   const sceneList = params.scenes
+     .map((s, i) => `${i + 1}. ${s.text}`)
+     .join("\n");
++  const outfitRules = costumeLocked
++    ? `3. "outfitId" must be exactly ${params.lockedOutfitId} for every scene. The character wears one costume for the whole video — never change it, however much the story might suggest one.`
++    : `3. "outfitId" must be one of the wardrobe ids. Default to ${params.lockedOutfitId} and change it only where the wardrobe instructions below explicitly call for a change.
++4. Keep outfit changes rare and motivated; never alternate every scene.`;
+   const prompt = `# Role: Video Scene Director
+ 
+ A short video features one recurring character. For every scene below, describe the single visual moment to generate, always featuring the character.
+@@ -116,9 +126,8 @@ ${wardrobe}
+ ## Rules:
+ 1. Return a JSON object: {"scenes": [{"visual": "...", "outfitId": <id>}, ...]} with exactly ${params.scenes.length} entries, in scene order.
+ 2. "visual" is one vivid sentence describing what the character is doing and where, matching that scene's narration. Do not mention the character's name or clothing in it.
+-3. "outfitId" must be one of the wardrobe ids. Default to ${params.lockedOutfitId} unless the story or the wardrobe instructions call for a change at that moment.
+-4. Keep outfit changes rare and motivated; never alternate every scene.
+-${params.wardrobeNotes ? `\n## Wardrobe instructions from the user:\n${params.wardrobeNotes}\n` : ""}
++${outfitRules}
++${costumeLocked ? "" : `\n## Wardrobe instructions from the user:\n${wardrobeNotes}\n`}
+ ## Scenes (narration):
+ ${sceneList}`;
+ 
+@@ -150,8 +159,12 @@ ${sceneList}`;
+       typeof entry?.visual === "string" && entry.visual.trim()
+         ? entry.visual.trim()
+         : scene.text.slice(0, 300);
+-    const outfitId =
+-      typeof entry?.outfitId === "number" && validIds.has(entry.outfitId)
++    // The enforcement half of the costume lock: with no wardrobe instructions
++    // the locked outfit wins outright, so a model that ignores rule 3 still
++    // cannot change the character's clothes between scenes.
++    const outfitId = costumeLocked
++      ? params.lockedOutfitId
++      : typeof entry?.outfitId === "number" && validIds.has(entry.outfitId)
+         ? entry.outfitId
+         : params.lockedOutfitId;
+     return { visual, outfitId };
+-- 
+2.43.0
+

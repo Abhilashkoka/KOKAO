@@ -31,9 +31,18 @@ function imageSizeForAspect(aspect: VideoAspect): ImageSize {
   return "1024x1024";
 }
 
+/** A shared look is one clause, not an essay; bound it so prompts stay sane. */
+const MAX_STYLE_CHARS = 200;
+
 /**
- * One LLM call turns the scenes into concrete photographic prompts. Fails
- * soft: a scene without a plan falls back to its narration text.
+ * One LLM call turns the scenes into concrete photographic prompts, plus a
+ * single style directive that gets appended to every one of them so the
+ * finished video reads as one film instead of a stock-photo collage. B-roll
+ * scenes are deliberately different subjects, so the *look* — palette, light,
+ * lens, grade — is the only thing that can be held constant across them;
+ * anchoring later scenes on the first scene's image would drag its subject
+ * along with its style. Fails soft: a scene without a plan falls back to its
+ * narration text, and an unusable style is simply dropped.
  */
 export async function planBrollVisuals(params: {
   tenantAiModel: string;
@@ -60,10 +69,10 @@ export async function planBrollVisuals(params: {
 A short video about "${params.topic}" has ${params.scenes.length} narrated scenes. Write one image-generation prompt per scene.
 
 ## Rules:
-1. Reply with strict JSON: {"prompts": ["...", ...]} — exactly ${params.scenes.length} entries, in scene order.
-2. Each prompt describes ONE photorealistic, cinematic still that visualizes that scene's meaning: concrete subject, setting, lighting, camera angle.
-3. No text, watermarks, logos, or recognizable brands in the image. No people looking into the camera.
-4. Keep a consistent visual mood across all scenes (same time of day / palette family).
+1. Reply with strict JSON: {"style": "...", "prompts": ["...", ...]} — exactly ${params.scenes.length} prompt entries, in scene order.
+2. "style" is ONE short clause fixing the look of the whole video: palette, quality of light, lens/format, colour grade. No subject matter and no scene specifics — it is appended to every prompt.
+3. Each prompt describes ONE photorealistic, cinematic still that visualizes that scene's meaning: concrete subject, setting, camera angle. Do not restate the style.
+4. No text, watermarks, logos, or recognizable brands in the image. No people looking into the camera.
 
 ## Scenes (narration):
 ${sceneList}`,
@@ -75,12 +84,17 @@ ${sceneList}`,
     });
     const parsed = JSON.parse(completion.choices[0]?.message?.content ?? "") as {
       prompts?: unknown;
+      style?: unknown;
     };
     const prompts: unknown[] | null = Array.isArray(parsed.prompts) ? parsed.prompts : null;
     if (!prompts) return fallback;
+    const style =
+      typeof parsed.style === "string" ? parsed.style.trim().slice(0, MAX_STYLE_CHARS) : "";
     return params.scenes.map((_, i) => {
       const entry = prompts[i];
-      return typeof entry === "string" && entry.trim() ? entry.trim() : fallback[i]!;
+      const scenePrompt =
+        typeof entry === "string" && entry.trim() ? entry.trim() : fallback[i]!;
+      return style ? `${scenePrompt} Shared look across all scenes: ${style}` : scenePrompt;
     });
   } catch (error) {
     logger.warn({ err: error }, "B-roll visual planning failed; using narration text");

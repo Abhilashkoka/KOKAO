@@ -196,6 +196,58 @@ describe("planSceneVisuals", () => {
     expect(planState.lastPrompt).toContain("Maya");
   });
 
+  it("forces the locked outfit on every scene when the user gave no wardrobe notes", async () => {
+    // The director returned a *valid* costume change for scene two. With no
+    // wardrobe instructions from the user, uniformity wins regardless.
+    planState.response = JSON.stringify({
+      scenes: [
+        { visual: "waking up by a window", outfitId: 10 },
+        { visual: "lifting weights", outfitId: 11 },
+      ],
+    });
+    const plan = await planSceneVisuals({
+      tenantAiModel: "gpt-test",
+      topic: "founder life",
+      character,
+      outfits,
+      lockedOutfitId: 10,
+      wardrobeNotes: "   ", // whitespace is no instruction at all
+      scenes,
+    });
+    expect(plan.map((p) => p.outfitId)).toEqual([10, 10]);
+    // Only the costume is pinned; the planned visuals still come through.
+    expect(plan.map((p) => p.visual)).toEqual(["waking up by a window", "lifting weights"]);
+  });
+
+  it("tells the director the costume is fixed unless the user asked otherwise", async () => {
+    planState.response = JSON.stringify({ scenes: [] });
+    await planSceneVisuals({
+      tenantAiModel: "gpt-test",
+      topic: "founder life",
+      character,
+      outfits,
+      lockedOutfitId: 10,
+      wardrobeNotes: "",
+      scenes,
+    });
+    expect(planState.lastPrompt).toContain('"outfitId" must be exactly 10 for every scene');
+    expect(planState.lastPrompt).not.toContain("Wardrobe instructions from the user");
+
+    await planSceneVisuals({
+      tenantAiModel: "gpt-test",
+      topic: "founder life",
+      character,
+      outfits,
+      lockedOutfitId: 10,
+      wardrobeNotes: "gym wear for the workout",
+      scenes,
+    });
+    expect(planState.lastPrompt).toContain(
+      "change it only where the wardrobe instructions below explicitly call for a change",
+    );
+    expect(planState.lastPrompt).toContain("Wardrobe instructions from the user");
+  });
+
   it("falls back to the locked outfit and scene text on a bad response", async () => {
     planState.response = JSON.stringify({
       scenes: [{ visual: "", outfitId: 999 }],
