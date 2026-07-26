@@ -107,6 +107,20 @@ function routePlatformCall(url: string, method: string): Response {
   if (url.includes("api.linkedin.com/v2/userinfo")) {
     return jsonRes(200, { sub: "li_person_123", name: "LinkedIn User" });
   }
+  if (url.includes("api.linkedin.com/rest/images")) {
+    // Image asset register (initializeUpload) — happens BEFORE the
+    // post-creating write; a 500 here must be classified transient.
+    if (outage) return jsonRes(500, { message: "temporarily down" });
+    return jsonRes(200, {
+      value: {
+        uploadUrl: "https://linkedin-upload.test/dms-uploads/img1",
+        image: "urn:li:image:img1",
+      },
+    });
+  }
+  if (url.includes("linkedin-upload.test/dms-uploads")) {
+    return jsonRes(201, {}); // binary PUT of the image bytes
+  }
   if (url.includes("api.linkedin.com/rest/posts")) {
     if (method === "GET") return jsonRes(200, { elements: [] }); // dedupe probe
     if (outage) return jsonRes(500, { message: "temporarily down" });
@@ -287,6 +301,20 @@ const CASES: PlatformCase[] = [
       await insertLinkedinAccount(tenantId);
     },
     withImage: false,
+    isCreateWrite: (c) =>
+      c.method === "POST" && c.url.includes("api.linkedin.com/rest/posts"),
+    expectedPostId: "urn:li:share:9001",
+  },
+  {
+    platform: "linkedin",
+    label: "with image",
+    seed: async (tenantId) => {
+      await insertLinkedinAccount(tenantId);
+    },
+    withImage: true,
+    // The 500 lands on the image register (initializeUpload), before any
+    // post-creating write — the schedule must still re-queue and publish.
+    outageBeforeCreate: true,
     isCreateWrite: (c) =>
       c.method === "POST" && c.url.includes("api.linkedin.com/rest/posts"),
     expectedPostId: "urn:li:share:9001",
