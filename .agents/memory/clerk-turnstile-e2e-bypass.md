@@ -28,3 +28,5 @@ Clerk dev instances show an interactive Cloudflare Turnstile CAPTCHA on sign-up 
 ## Expo/mobile CORS origins
 - Dev: REPLIT_DOMAINS excludes the Expo dev domain; the API CORS allowlist must include REPLIT_EXPO_DEV_DOMAIN.
 - Production: the mobile build's public domain comes from REPLIT_INTERNAL_APP_DOMAIN (may include a scheme, not guaranteed to be in REPLIT_DOMAINS); buildAllowedOrigins includes it defensively, scheme-normalized. Live production CORS is still unverified until the first publish.
+
+**When the testing subagent is unavailable** (`Unknown config kind: testing` despite the validator listing it — happens under heavy parallel task load), the DIY Playwright harness works end-to-end: Nix chromium executablePath, sign-UP a fresh `+clerk_test` user (OTP 424242) with the testing-token + sitekey-rewrite routes, then grant powers via direct DB flags (e.g. `tenants.is_superadmin=true`). Authed API calls can be made from the page via `page.evaluate(fetch(...， credentials:'include'))`. Import pg via the pnpm store path; root `node_modules/playwright` imports fine.

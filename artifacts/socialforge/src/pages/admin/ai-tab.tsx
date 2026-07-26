@@ -2184,9 +2184,9 @@ function AiCostReportCard() {
                   </table>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Displayed spend in the trend uses today's tenant-facing rates for every
-                  month, so it compares volume, not historical pricing. Up to 12 months are
-                  shown, newest first.
+                  Displayed spend in the trend uses the tenant-facing rates that were in
+                  effect when each event was recorded, so changing rates never shifts past
+                  months. Up to 12 months are shown, newest first.
                 </p>
               </div>
             )}
@@ -2194,7 +2194,8 @@ function AiCostReportCard() {
               Caption and image cost columns show the month's known-cost total with the
               per-generation average in parentheses (averages cover only events with a
               computed cost). "Unknown" counts events where no price or conversion rate
-              applied. Displayed spend uses the current tenant-facing rates for comparison.
+              applied. Displayed spend sums each event's snapshotted tenant-facing rate;
+              only events recorded before snapshotting fall back to today's rates.
             </p>
           </>
         )}
