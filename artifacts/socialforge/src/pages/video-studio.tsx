@@ -213,6 +213,7 @@ export function VideoStudioPage() {
   const [stylesOpen, setStylesOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [reviewStoryboard, setReviewStoryboard] = useState(true);
+  const [shotCount, setShotCount] = useState(1);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
 
   const [saveOpen, setSaveOpen] = useState(false);
@@ -256,16 +257,32 @@ export function VideoStudioPage() {
     },
   });
 
-  // Announce a finished storyboard once per job. Separate from announcedRef so
-  // pausing for review does not consume the job's settle announcement.
+  // A storyboard waiting on the user survives a reload, but activeJobId does
+  // not — so adopt the newest paused job on first load. Without this a plan the
+  // user already paid for is invisible until they think to click its card, which
+  // is exactly the "where is my storyboard?" trap.
+  const adoptedRef = useRef(false);
+  useEffect(() => {
+    if (adoptedRef.current || activeJobId !== null || !jobs) return;
+    const paused = jobs.find((job) => job.status === "awaiting_review");
+    if (!paused) return;
+    adoptedRef.current = true;
+    setActiveJobId(paused.id);
+  }, [jobs, activeJobId]);
+
+  // Announce a finished storyboard once per job, and open it. Separate from
+  // announcedRef so pausing for review does not consume the job's settle
+  // announcement.
+  const [boardOpen, setBoardOpen] = useState(false);
   const reviewAnnouncedRef = useRef<number | null>(null);
   useEffect(() => {
     if (!activeJob || activeJob.status !== "awaiting_review") return;
     if (reviewAnnouncedRef.current === activeJob.id) return;
     reviewAnnouncedRef.current = activeJob.id;
+    setBoardOpen(true);
     toast({
       title: "Storyboard ready",
-      description: "Edit any shot below, then render it. Nothing is charged until you do.",
+      description: "Edit any shot, then render it. Nothing else is charged until you do.",
     });
   }, [activeJob, toast]);
 
@@ -402,6 +419,22 @@ export function VideoStudioPage() {
     activeJob.id === activeJobId &&
     (activeJob.status === "queued" || activeJob.status === "processing");
 
+  /** Whether this engine plans something worth looking at before it renders.
+   * Stock topic footage is searched, not prompted, so there is nothing to edit. */
+  const storyboardAvailable = engine !== "topic_to_video" || visuals !== "stock";
+
+  /** What the storyboard will show, per engine — the copy on the toggle. */
+  const storyboardBlurb =
+    engine === "slideshow"
+      ? "See every photo with its own caption and length before the video is built."
+      : engine === "image_to_video"
+        ? "Check the photo and how long it animates for before anything is generated."
+        : engine === "text_to_video"
+          ? shotCount > 1
+            ? "Read and reword every shot before any of them is generated."
+            : "Read and reword the shot before it is generated."
+          : "See every scene as a still, and reword any of them, before the video is filmed.";
+
   /** The active job is paused on an editable plan. Not "busy" (nothing is
    * running) but still unfinished, so it blocks starting another video. */
   const reviewing =
@@ -450,11 +483,10 @@ export function VideoStudioPage() {
               : null,
           brandKitId: engine === "topic_to_video" ? brandKitId : null,
           styleProfileId: engine === "topic_to_video" ? styleProfileId : null,
-          // Only topic mode with generated visuals has prompts to review; the
-          // server ignores the flag everywhere else, but sending false keeps
-          // the intent honest.
-          reviewStoryboard:
-            engine === "topic_to_video" && visuals !== "stock" ? reviewStoryboard : false,
+          shotCount: engine === "text_to_video" ? shotCount : 1,
+          // Every engine reviews except topic mode's stock branch, whose
+          // visuals are searched rather than prompted.
+          reviewStoryboard: storyboardAvailable ? reviewStoryboard : false,
         },
       },
       {
@@ -1137,7 +1169,30 @@ export function VideoStudioPage() {
             </div>
           )}
 
-          {engine === "topic_to_video" && visuals !== "stock" && (
+          {engine === "text_to_video" && (
+            <div className="space-y-2">
+              <Label htmlFor="shot-count">Shots</Label>
+              <Select value={String(shotCount)} onValueChange={(v) => setShotCount(Number(v))}>
+                <SelectTrigger id="shot-count" className="w-full" data-testid="select-shot-count">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <SelectItem key={n} value={String(n)} data-testid={`option-shots-${n}`}>
+                      {n === 1 ? "1 shot — one continuous take" : `${n} shots — cut together`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground" data-testid="text-shot-cost">
+                {shotCount === 1
+                  ? "One clip, one video unit."
+                  : `${shotCount} clips joined into one video — ${shotCount} video units.`}
+              </p>
+            </div>
+          )}
+
+          {storyboardAvailable && (
             <div className="space-y-2">
               <Label htmlFor="review-storyboard">Storyboard</Label>
               <div className="flex items-start gap-3 border border-border rounded-md px-3 py-2">
@@ -1147,9 +1202,8 @@ export function VideoStudioPage() {
                   onCheckedChange={setReviewStoryboard}
                   data-testid="switch-review-storyboard"
                 />
-                <span className="text-sm text-muted-foreground">
-                  Show me each shot before rendering, so I can reword any that miss. Free — the
-                  previews become the frames in the video.
+                <span className="text-sm text-muted-foreground" data-testid="text-storyboard-blurb">
+                  {storyboardBlurb} Free — nothing is generated twice.
                 </span>
               </div>
             </div>
@@ -1230,7 +1284,36 @@ export function VideoStudioPage() {
               </div>
             )}
             {reviewing && activeJob.storyboard && (
-              <StoryboardReview job={activeJob} storyboard={activeJob.storyboard} />
+              <>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex-1 min-w-48">
+                    <p className="font-medium flex items-center gap-2">
+                      <Clapperboard className="h-4 w-4 text-primary" />
+                      Your storyboard is waiting
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Nothing else is charged until you render it.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => setBoardOpen(true)}
+                    data-testid="button-open-storyboard"
+                  >
+                    Open storyboard
+                  </Button>
+                </div>
+                <Dialog open={boardOpen} onOpenChange={setBoardOpen}>
+                  <DialogContent className="sm:max-w-4xl max-h-[85vh] overflow-y-auto">
+                    <DialogHeader>
+                      {/* The review panel carries its own visible heading, so this
+                          one only exists to name the dialog for screen readers. */}
+                      <DialogTitle className="sr-only">Your storyboard</DialogTitle>
+                    </DialogHeader>
+                    <StoryboardReview job={activeJob} storyboard={activeJob.storyboard} />
+                  </DialogContent>
+                </Dialog>
+              </>
             )}
             {activeJob.status === "succeeded" && activeJob.videoPath && (
               <div className="space-y-4">
@@ -1481,10 +1564,59 @@ export function VideoStudioPage() {
   );
 }
 
+/** A slide crossfade overlaps its two photos, so every join costs half a second
+ * of the running total. Mirrors TRANSITION_SEC in the slideshow renderer. */
+const SLIDE_CROSSFADE_SEC = 0.5;
+
+/** Unsaved edits to one scene. Absent fields are untouched. */
+type SceneDraft = { visual?: string; durationSec?: number };
+
 /**
- * The storyboard review step. A paused job arrives with one preview still per
- * shot; editing a prompt is free, re-rolling a preview is free but capped, and
- * nothing more is charged when the render finally runs.
+ * What the finished video will run to. Mirrors the renderers: a recording wins
+ * when there is one, slides lose half a second to every crossfade, and joined
+ * clips simply add up.
+ */
+function storyboardTotalSec(storyboard: VideoStoryboard): number {
+  if (storyboard.narration) return storyboard.narration.totalDurationSec;
+  const sum = storyboard.scenes.reduce((total, scene) => total + scene.durationSec, 0);
+  if (storyboard.visualsSource !== "slide") return sum;
+  return Math.max(0, sum - Math.max(0, storyboard.scenes.length - 1) * SLIDE_CROSSFADE_SEC);
+}
+
+/**
+ * The PATCH body for one scene, or null when nothing actually changed.
+ *
+ * On a slide plan `visual` is the caption burned over the photo, so emptying it
+ * is a real edit. Everywhere else it is the generation prompt, and a prompt with
+ * nothing in it has nothing to generate — there, blank means "leave it alone".
+ */
+function sceneEdit(
+  scene: VideoStoryboardScene,
+  draft: SceneDraft | undefined,
+  slides: boolean,
+  lengthEditable: boolean,
+): SceneDraft | null {
+  const edit: SceneDraft = {};
+  const visual = draft?.visual?.trim();
+  if (visual != null && visual !== scene.visual && (slides || visual.length > 0)) {
+    edit.visual = visual;
+  }
+  if (lengthEditable && draft?.durationSec != null && draft.durationSec !== scene.durationSec) {
+    edit.durationSec = draft.durationSec;
+  }
+  return Object.keys(edit).length > 0 ? edit : null;
+}
+
+/**
+ * The storyboard review step. A paused job arrives with one planned shot per
+ * beat; editing is free, re-rolling a preview is free but capped, and nothing
+ * more is charged when the render finally runs.
+ *
+ * All five plan kinds land here and they differ in what is editable. Topic plans
+ * are cut against a recording, so their text is narration and their lengths are
+ * pinned to it; the other engines voice nothing, which is what frees the
+ * timeline. Only generated stills can be redrawn — "photo" and "slide" previews
+ * are the user's own uploads, and a "prompt" shot list has no still at all.
  */
 function StoryboardReview({
   job,
@@ -1495,8 +1627,8 @@ function StoryboardReview({
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  /** Local text per scene, so typing doesn't round-trip on every keystroke. */
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  /** Local edits per scene, so typing doesn't round-trip on every keystroke. */
+  const [drafts, setDrafts] = useState<Record<string, SceneDraft>>({});
   const [rollingScene, setRollingScene] = useState<string | null>(null);
 
   const update = useUpdateVideoStoryboard();
@@ -1515,14 +1647,43 @@ function StoryboardReview({
       variant: "destructive",
     });
 
-  const rollsLeft = Math.max(0, storyboard.scenes.length * 2 - storyboard.regenerations);
-  const totalSec = Math.round(storyboard.narration.totalDurationSec);
-  const workingOn = update.isPending || approve.isPending || discard.isPending;
+  const source = storyboard.visualsSource;
+  /** Slide plans caption a photo rather than prompt for one. */
+  const slides = source === "slide";
+  /** Only generated stills can be redrawn; the rest are the user's own photos. */
+  const drawn = source === "character" || source === "ai";
+  /** A prompt plan is a shot list — there is no frame to show at all. */
+  const framed = source !== "prompt";
+  /** The range a length may be edited into. The server sends none when the
+   * timeline is locked to a recording, and none on plans stored before lengths
+   * were editable — either way there is nothing to offer. */
+  const bounds = storyboard.durationBounds ?? null;
+  /** Whole-second choices, so a length is picked rather than typed and parsed. */
+  const lengths = bounds
+    ? Array.from(
+        { length: Math.max(1, Math.floor(bounds.maxSec) - Math.ceil(bounds.minSec) + 1) },
+        (_, i) => Math.ceil(bounds.minSec) + i,
+      )
+    : [];
 
-  /** Push a scene's edited prompt, then optionally re-roll its preview. */
+  const rollsLeft = Math.max(0, storyboard.scenes.length * 2 - storyboard.regenerations);
+  const totalSec = Math.round(storyboardTotalSec(storyboard));
+  const workingOn = update.isPending || approve.isPending || discard.isPending;
+  const count = storyboard.scenes.length;
+
+  const blurb = storyboard.narration
+    ? `${count} shots · ${totalSec}s narrated. Reword any shot, then render. Shot lengths follow the narration, so they are fixed.`
+    : slides
+      ? `${count} ${count === 1 ? "photo" : "photos"} · about ${totalSec}s. Edit any caption and how long its photo holds, then render.`
+      : source === "photo"
+        ? `Your photo, about ${totalSec}s. Say what it should do and how long it animates, then render.`
+        : `${count} ${count === 1 ? "shot" : "shots"} · about ${totalSec}s. Reword any shot${
+            lengths.length > 1 ? " and how long it runs" : ""
+          }, then render. Nothing is generated until you do.`;
+
+  /** Push one scene's edits, then optionally re-roll its preview. */
   const saveScene = (scene: VideoStoryboardScene, thenRoll: boolean) => {
-    const draft = (drafts[scene.id] ?? scene.visual).trim();
-    const changed = draft.length > 0 && draft !== scene.visual;
+    const edit = sceneEdit(scene, drafts[scene.id], slides, lengths.length > 1);
     const roll = () => {
       if (!thenRoll) return;
       setRollingScene(scene.id);
@@ -1535,12 +1696,12 @@ function StoryboardReview({
         },
       );
     };
-    if (!changed) {
+    if (!edit) {
       roll();
       return;
     }
     update.mutate(
-      { jobId: job.id, data: { scenes: [{ id: scene.id, visual: draft }] } },
+      { jobId: job.id, data: { scenes: [{ id: scene.id, ...edit }] } },
       {
         onSuccess: (updated) => {
           settle(updated);
@@ -1555,6 +1716,36 @@ function StoryboardReview({
     );
   };
 
+  /** Render, flushing every unsaved edit first. A prompt the user typed and then
+   * watched get filmed without is the one outcome this whole step exists to
+   * prevent, so Render never means "discard what is on screen". */
+  const renderNow = () => {
+    const scenes = storyboard.scenes.flatMap((scene) => {
+      const edit = sceneEdit(scene, drafts[scene.id], slides, lengths.length > 1);
+      return edit ? [{ id: scene.id, ...edit }] : [];
+    });
+    const start = () =>
+      approve.mutate(
+        { jobId: job.id },
+        { onSuccess: settle, onError: fail("Could not start rendering") },
+      );
+    if (scenes.length === 0) {
+      start();
+      return;
+    }
+    update.mutate(
+      { jobId: job.id, data: { scenes } },
+      {
+        onSuccess: (updated) => {
+          settle(updated);
+          setDrafts({});
+          start();
+        },
+        onError: fail("Could not save your edits"),
+      },
+    );
+  };
+
   return (
     <div className="space-y-4" data-testid="storyboard-review">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1563,20 +1754,26 @@ function StoryboardReview({
             <Clapperboard className="h-4 w-4 text-primary" />
             Your storyboard is ready
           </p>
-          <p className="text-sm text-muted-foreground">
-            {storyboard.scenes.length} shots · {totalSec}s narrated. Reword any shot, then render.
-            Shot lengths follow the narration, so they are fixed.
+          <p className="text-sm text-muted-foreground" data-testid="text-storyboard-summary">
+            {blurb}
           </p>
         </div>
-        <Badge variant="secondary" data-testid="text-rolls-left">
-          {rollsLeft} free redraws left
-        </Badge>
+        {drawn && (
+          <Badge variant="secondary" data-testid="text-rolls-left">
+            {rollsLeft} free redraws left
+          </Badge>
+        )}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {storyboard.scenes.map((scene, i) => {
-          const draft = drafts[scene.id] ?? scene.visual;
-          const dirty = draft.trim() !== scene.visual && draft.trim().length > 0;
+          const draft = drafts[scene.id];
+          const visual = draft?.visual ?? scene.visual;
+          const seconds = Math.min(
+            Math.max(Math.round(draft?.durationSec ?? scene.durationSec), lengths[0] ?? 0),
+            lengths.at(-1) ?? 0,
+          );
+          const dirty = sceneEdit(scene, draft, slides, lengths.length > 1) !== null;
           const rolling = rollingScene === scene.id;
           return (
             <div
@@ -1584,55 +1781,108 @@ function StoryboardReview({
               className="rounded-xl border border-border bg-muted/30 overflow-hidden flex flex-col"
               data-testid={`storyboard-scene-${scene.id}`}
             >
-              <div className="aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden relative">
-                {scene.previewPath ? (
-                  <img
-                    src={storageUrl(scene.previewPath)}
-                    alt={`Shot ${i + 1} preview`}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <ImageIcon className="h-8 w-8 text-muted-foreground" />
-                )}
-                {rolling && (
-                  <div className="absolute inset-0 bg-background/70 flex items-center justify-center">
-                    <RippleSpinner className="h-6 w-6" />
-                  </div>
-                )}
-                <Badge className="absolute top-2 left-2" variant="secondary">
-                  {i + 1} · {Math.round(scene.durationSec)}s
-                </Badge>
-              </div>
+              {framed && (
+                <div className="aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden relative">
+                  {scene.previewPath ? (
+                    <img
+                      src={storageUrl(scene.previewPath)}
+                      alt={`Shot ${i + 1} preview`}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                  )}
+                  {rolling && (
+                    <div className="absolute inset-0 bg-background/70 flex items-center justify-center">
+                      <RippleSpinner className="h-6 w-6" />
+                    </div>
+                  )}
+                  <Badge className="absolute top-2 left-2" variant="secondary">
+                    {i + 1} · {Math.round(scene.durationSec)}s
+                  </Badge>
+                </div>
+              )}
               <div className="p-3 space-y-2 flex flex-col flex-1">
-                <p className="text-xs text-muted-foreground line-clamp-3" title={scene.text}>
-                  “{scene.text}”
-                </p>
+                {!framed && (
+                  <Badge variant="secondary" className="self-start">
+                    Shot {i + 1} · {Math.round(scene.durationSec)}s
+                  </Badge>
+                )}
+                {scene.text.trim().length > 0 && (
+                  <p className="text-xs text-muted-foreground line-clamp-3" title={scene.text}>
+                    “{scene.text}”
+                  </p>
+                )}
                 <Label htmlFor={`shot-${scene.id}`} className="sr-only">
-                  What shot {i + 1} shows
+                  {slides
+                    ? `Caption for photo ${i + 1}`
+                    : source === "photo"
+                      ? "What the photo should do"
+                      : `What shot ${i + 1} shows`}
                 </Label>
                 <Textarea
                   id={`shot-${scene.id}`}
                   rows={3}
                   maxLength={1000}
-                  value={draft}
+                  value={visual}
+                  placeholder={slides ? "No caption" : undefined}
                   onChange={(e) =>
-                    setDrafts((d) => ({ ...d, [scene.id]: e.target.value }))
+                    setDrafts((d) => ({
+                      ...d,
+                      [scene.id]: { ...d[scene.id], visual: e.target.value },
+                    }))
                   }
                   className="text-sm resize-none"
                   data-testid={`input-shot-${scene.id}`}
                 />
+                {lengths.length > 1 && (
+                  <div className="flex items-center gap-2">
+                    <Label
+                      htmlFor={`length-${scene.id}`}
+                      className="text-xs text-muted-foreground shrink-0"
+                    >
+                      {slides ? "Holds for" : "Runs for"}
+                    </Label>
+                    <Select
+                      value={String(seconds)}
+                      onValueChange={(v) =>
+                        setDrafts((d) => ({
+                          ...d,
+                          [scene.id]: { ...d[scene.id], durationSec: Number(v) },
+                        }))
+                      }
+                    >
+                      <SelectTrigger
+                        id={`length-${scene.id}`}
+                        className="h-8 flex-1"
+                        data-testid={`select-length-${scene.id}`}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {lengths.map((n) => (
+                          <SelectItem key={n} value={String(n)}>
+                            {n}s
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div className="flex gap-2 mt-auto">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-1"
-                    disabled={rolling || workingOn || (rollsLeft === 0 && !dirty)}
-                    onClick={() => saveScene(scene, true)}
-                    data-testid={`button-redraw-${scene.id}`}
-                  >
-                    <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-                    {rolling ? "Redrawing…" : "Redraw"}
-                  </Button>
+                  {drawn && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1"
+                      disabled={rolling || workingOn || (rollsLeft === 0 && !dirty)}
+                      onClick={() => saveScene(scene, true)}
+                      data-testid={`button-redraw-${scene.id}`}
+                    >
+                      <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                      {rolling ? "Redrawing…" : "Redraw"}
+                    </Button>
+                  )}
                   {dirty && (
                     <Button
                       size="sm"
@@ -1654,15 +1904,7 @@ function StoryboardReview({
       <div className="flex flex-wrap items-center gap-2">
         <Button
           disabled={workingOn || rollingScene !== null}
-          onClick={() =>
-            approve.mutate(
-              { jobId: job.id },
-              {
-                onSuccess: settle,
-                onError: fail("Could not start rendering"),
-              },
-            )
-          }
+          onClick={renderNow}
           data-testid="button-approve-storyboard"
         >
           {approve.isPending ? (

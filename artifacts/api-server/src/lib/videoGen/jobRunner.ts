@@ -28,6 +28,13 @@ import {
   type StockSourceChoice,
 } from "./topicVideo";
 import { generateCharacterClip } from "./characterClip";
+import {
+  clipShotCount,
+  clipStoryboardSource,
+  clipStoryboardTotalSec,
+  planClipStoryboard,
+  renderClipStoryboard,
+} from "./clipStoryboard";
 import { videoJobUnits } from "./units";
 import type { SourceImage } from "./types";
 
@@ -63,9 +70,10 @@ const objectStorageService = new ObjectStorageService();
 
 class VideoJobInputError extends Error {}
 
-/** Engines that plan something a user can meaningfully edit. Stock footage is
- * searched rather than prompted, so it has no prompt to review. */
-function storyboardEligible(job: VideoGeneration): "character" | "ai" | null {
+/** Topic mode's reviewable sub-modes. Stock footage is searched rather than
+ * prompted, so it has no prompt to review; the other three engines get their
+ * plan kind from clipStoryboardSource instead. */
+function topicStoryboardEligible(job: VideoGeneration): "character" | "ai" | null {
   if (job.engine !== "topic_to_video") return null;
   const source = job.options?.visualsSource;
   return source === "character" || source === "ai" ? source : null;
@@ -176,12 +184,86 @@ type ProduceResult =
       qa: VideoQaExpectations;
     };
 
+/** Render a non-topic plan: resolve its music bed against the length the plan
+ * actually promises, then hand it to the clip renderer. */
+async function renderApprovedClipStoryboard(
+  job: VideoGeneration,
+  options: NonNullable<VideoGeneration["options"]>,
+  storyboard: VideoStoryboard,
+  aspectRatio: NonNullable<VideoJobAspect>,
+  onStage: (stage: string) => void,
+): Promise<ProduceResult> {
+  const music = await resolveMusic(
+    job,
+    options,
+    Math.max(1, Math.round(clipStoryboardTotalSec(storyboard))),
+    onStage,
+  );
+  const result = await renderClipStoryboard({
+    job,
+    storyboard,
+    aspectRatio,
+    music,
+    // Previews are tenant objects, so they go through the same size and type
+    // validation as a freshly uploaded source image.
+    load: (objectPath) => loadSourceImage(objectPath, job.tenantId),
+    onStage,
+  });
+  return {
+    buffer: result.buffer,
+    provider: result.provider,
+    model: result.model,
+    qa:
+      storyboard.visualsSource === "slide"
+        ? { expectedDurationSec: result.totalSec, label: "slideshow" }
+        : // Clip lengths are held per shot but fail-soft, so the join can drift
+          // further than the QA gate's tolerance; only emptiness is a failure.
+          { minDurationSec: 0.5, label: "storyboard video" },
+  };
+}
+
+type VideoJobAspect = NonNullable<VideoGeneration["options"]>["aspectRatio"];
+
 async function produceVideo(
   job: VideoGeneration,
   onStage: (stage: string) => void,
 ): Promise<ProduceResult> {
   const options = job.options ?? { aspectRatio: "9:16" as const };
   const aspectRatio = options.aspectRatio ?? "9:16";
+
+  // Storyboards for the three engines that are not topic mode. All three share
+  // one plan-and-pause path, so it sits ahead of the engine branches rather than
+  // being repeated inside each of them.
+  const clipSource = job.engine === "topic_to_video" ? null : clipStoryboardSource(job);
+  if (clipSource) {
+    // A plan already on the row means this run is the resume: render what was
+    // approved instead of planning again.
+    if (job.storyboard) {
+      return renderApprovedClipStoryboard(job, options, job.storyboard, aspectRatio, onStage);
+    }
+    if (options.reviewStoryboard) {
+      const storyboard = await planClipStoryboard({
+        job,
+        source: clipSource,
+        aspectRatio,
+        upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
+        onStage,
+      });
+      return { paused: true, storyboard };
+    }
+    // Review declined, but the job was funded for several shots. Plan in memory
+    // and render it in one pass so the user still gets the shots they paid for.
+    if (job.engine === "text_to_video" && clipShotCount(options.shotCount) > 1) {
+      const storyboard = await planClipStoryboard({
+        job,
+        source: clipSource,
+        aspectRatio,
+        upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
+        onStage,
+      });
+      return renderApprovedClipStoryboard(job, options, storyboard, aspectRatio, onStage);
+    }
+  }
 
   if (job.engine === "text_to_video") {
     // Optional music bed (upload / library / AI compose), mixed under the
@@ -331,7 +413,7 @@ async function produceVideo(
         : options.visualsSource === "ai"
           ? "ai"
           : "stock";
-    const reviewable = storyboardEligible(job);
+    const reviewable = topicStoryboardEligible(job);
 
     // A storyboard already on the row means this run is the resume: the plan
     // was approved, so render it instead of planning again.

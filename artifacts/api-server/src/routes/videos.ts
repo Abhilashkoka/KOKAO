@@ -1,5 +1,11 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, tenantsTable, contentItemsTable, videoGenerationsTable } from "@workspace/db";
+import {
+  db,
+  tenantsTable,
+  contentItemsTable,
+  videoGenerationsTable,
+  storyboardPreviewsAreGenerated,
+} from "@workspace/db";
 import { and, eq, desc, isNotNull, sql } from "drizzle-orm";
 import {
   GenerateVideoBody,
@@ -25,6 +31,7 @@ import {
 } from "../lib/videoGen/jobRunner";
 import { VideoGenProviderError } from "../lib/videoGen";
 import { MAX_SLIDESHOW_IMAGES } from "../lib/videoGen/slideshow";
+import { clampSceneDuration, clipShotCount } from "../lib/videoGen/clipStoryboard";
 import { videoJobUnits } from "../lib/videoGen/units";
 import { preflightVideoJob } from "../lib/videoGen/preflight";
 import { getCharacterDetail, resolveOutfit } from "../lib/characters";
@@ -207,6 +214,9 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   const options = {
     aspectRatio: body.aspectRatio ?? "9:16",
     durationSec: body.durationSec ?? 5,
+    // Prices the job (one unit per shot), so it is pinned here and the
+    // storyboard editor cannot move it.
+    shotCount: body.engine === "text_to_video" ? clipShotCount(body.shotCount) : 1,
     slideDurationSec: body.slideDurationSec ?? 3,
     overlayText: body.overlayText ?? null,
     musicPath: body.musicPath ?? null,
@@ -409,15 +419,26 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
     return;
   }
 
+  // On a slideshow plan, `visual` is the burned-in caption, so clearing it is a
+  // real edit. Everywhere else it is the generation prompt, and an empty prompt
+  // has nothing to generate — there, blank means "leave it alone".
+  const blankClearsVisual = storyboard.visualsSource === "slide";
   const updated = {
     ...storyboard,
     scenes: storyboard.scenes.map((scene) => {
       const edit = edits.get(scene.id);
       if (!edit) return scene;
+      const visual = edit.visual?.trim();
       return {
         ...scene,
-        visual: edit.visual?.trim() || scene.visual,
-        durationSec: edit.durationSec ?? scene.durationSec,
+        visual: visual || (blankClearsVisual && visual === "" ? "" : scene.visual),
+        // Clamped rather than rejected: the bounds are what the renderer can
+        // actually deliver, and a client that asks for 30s meant "the longest
+        // you can do".
+        durationSec:
+          edit.durationSec == null
+            ? scene.durationSec
+            : clampSceneDuration(storyboard, edit.durationSec),
       };
     }),
   };
@@ -449,6 +470,15 @@ router.post(
     if (!loaded) return;
     const { job, storyboard } = loaded;
 
+    // "photo" and "slide" plans preview the user's OWN uploaded photos, and a
+    // "prompt" plan has no still at all — there is nothing here to re-roll, and
+    // generating one would replace a photo they chose with one they did not.
+    if (!storyboardPreviewsAreGenerated(storyboard.visualsSource)) {
+      res.status(400).json({
+        error: "This storyboard's images are your own photos, so there is nothing to redraw.",
+      });
+      return;
+    }
     const scene = storyboard.scenes.find((s) => s.id === req.params.sceneId);
     if (!scene) {
       res.status(400).json({ error: "That scene is not in this storyboard." });

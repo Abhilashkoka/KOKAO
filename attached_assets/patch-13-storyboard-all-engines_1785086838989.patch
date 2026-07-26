@@ -1,0 +1,3801 @@
+From 0d7b007c5571550b35f8e9bdc875982b7ed826f5 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 26 Jul 2026 17:22:11 +0000
+Subject: [PATCH] Storyboard every video engine, not just topic mode
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Patch 12 gave topic videos a storyboard to review before rendering, but it
+only paused when the visuals were AI stills or a locked character — and the
+studio defaults topic videos to stock footage, so most people never saw one.
+The other three engines never planned at all.
+
+Now every engine that plans something worth looking at pauses on it:
+
+  text_to_video   a shot list of 1-5 shots, split from the brief by the LLM
+                  and joined back into one video after rendering
+  image_to_video  the uploaded photo, with what it should do and for how long
+  slideshow       every photo with its own caption and hold time
+  topic_to_video  unchanged, minus the toggle being hidden on stock footage
+
+Scene lengths are editable wherever nothing has been voiced yet — a clip
+holds 3-10s, a slide 1-10s — and pinned to the recording where narration
+already exists. Only generated stills offer a redraw; a slide or photo
+preview is the user's own upload and a shot list has no still at all.
+
+Multi-shot clips are priced per shot at enqueue, so declining review still
+renders the shots that were paid for. Nothing beyond the reservation is
+metered until the plan is approved, and an unapproved plan is swept and
+refunded after a day, exactly as before.
+
+The review itself is now a dialog that opens as soon as the plan lands, with
+an Open storyboard button to get it back after a dismissal. Render flushes
+whatever is on screen before it starts, so an edit that was typed but not
+saved is never filmed without.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EJdoZ8bk1pWTrmbMVQJZ7G
+---
+ .../src/lib/videoGen/clipStoryboard.test.ts   | 518 ++++++++++++++++++
+ .../src/lib/videoGen/clipStoryboard.ts        | 410 ++++++++++++++
+ .../src/lib/videoGen/jobRunner.test.ts        | 341 ++++++++++++
+ .../api-server/src/lib/videoGen/jobRunner.ts  |  90 ++-
+ .../src/lib/videoGen/postprocess.ts           |  95 +++-
+ .../api-server/src/lib/videoGen/slideshow.ts  | 106 +++-
+ .../src/lib/videoGen/topicVideo/index.ts      |  16 +-
+ .../api-server/src/lib/videoGen/units.ts      |  23 +-
+ .../api-server/src/routes/videos.test.ts      | 180 ++++++
+ artifacts/api-server/src/routes/videos.ts     |  36 +-
+ .../src/pages/video-studio.test.tsx           | 191 +++++++
+ .../socialforge/src/pages/video-studio.tsx    | 396 ++++++++++---
+ .../src/generated/api.schemas.ts              |  51 +-
+ lib/api-spec/openapi.yaml                     |  69 ++-
+ lib/api-zod/src/generated/api.ts              | 122 +++--
+ lib/api-zod/src/generated/types/index.ts      |   1 +
+ .../updateStoryboardRequestScenesItem.ts      |   4 +-
+ .../generated/types/videoGenerateRequest.ts   |   8 +-
+ .../src/generated/types/videoStoryboard.ts    |  11 +
+ .../types/videoStoryboardDurationBounds.ts    |  16 +
+ .../types/videoStoryboardNarration.ts         |   6 +-
+ .../generated/types/videoStoryboardScene.ts   |   8 +-
+ .../types/videoStoryboardVisualsSource.ts     |   6 +
+ lib/db/src/schema/videoGenerations.ts         |  56 +-
+ 24 files changed, 2557 insertions(+), 203 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/clipStoryboard.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/clipStoryboard.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/jobRunner.test.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoStoryboardDurationBounds.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/clipStoryboard.test.ts b/artifacts/api-server/src/lib/videoGen/clipStoryboard.test.ts
+new file mode 100644
+index 0000000..55533ab
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/clipStoryboard.test.ts
+@@ -0,0 +1,518 @@
++import { describe, it, expect, vi, beforeEach } from "vitest";
++import type { VideoGeneration, VideoStoryboard } from "@workspace/db";
++import {
++  clampSceneDuration,
++  clipDurationBounds,
++  clipShotCount,
++  clipStoryboardSource,
++  clipStoryboardTotalSec,
++  planClipStoryboard,
++  renderClipStoryboard,
++} from "./clipStoryboard";
++import { videoJobUnits } from "./units";
++
++const state = vi.hoisted(() => ({
++  /** JSON the shot-splitter gets back, or "" to make the call throw. */
++  shotReply: "",
++  splitThrows: false,
++  splitPrompt: "",
++  keyframeFailsOn: null as string | null,
++  keyframePrompts: [] as string[],
++  keyframeRefs: [] as (string | null)[],
++  generateCalls: [] as { mode: string; prompt: string; durationSec: number; hasImage: boolean }[],
++  slideshowCall: null as {
++    slideDurationsSec?: number[] | null;
++    slideCaptions?: string[] | null;
++    imageCount: number;
++  } | null,
++  concatCount: 0,
++  musicMixed: false,
++}));
++
++vi.mock("@workspace/db", async (importOriginal) => {
++  const actual = await importOriginal<typeof import("@workspace/db")>();
++  return {
++    ...actual,
++    db: {
++      select: () => ({
++        from: () => ({
++          where: () => ({ limit: async () => [{ id: 1, aiModel: "auto" }] }),
++        }),
++      }),
++    },
++  };
++});
++
++vi.mock("../textGen", () => ({
++  getTextGenClient: vi.fn(async () => ({
++    provider: "builtin",
++    model: "gpt-test",
++    client: {
++      chat: {
++        completions: {
++          create: vi.fn(async (args: { messages: { content: string }[] }) => {
++            if (state.splitThrows) throw new Error("model unavailable");
++            state.splitPrompt = args.messages[1]!.content;
++            return { choices: [{ message: { content: state.shotReply } }] };
++          }),
++        },
++      },
++    },
++  })),
++}));
++
++vi.mock("../characters", () => ({
++  getCharacterDetail: vi.fn(async () => ({
++    character: { id: 7, name: "Mira" },
++    outfits: [{ id: 3, referenceImagePath: "/objects/1/c/mira-red.png" }],
++  })),
++  resolveOutfit: vi.fn(() => ({ id: 3, referenceImagePath: "/objects/1/c/mira-red.png" })),
++  loadReferenceImage: vi.fn(async (path: string) => ({ buffer: Buffer.from(path), mimeType: "image/png" })),
++  generateSceneKeyframe: vi.fn(
++    async (
++      _character: unknown,
++      _outfit: unknown,
++      visual: string,
++      _aspect: string,
++      reference: { buffer: Buffer } | null,
++    ) => {
++      state.keyframePrompts.push(visual);
++      state.keyframeRefs.push(reference ? reference.buffer.toString() : null);
++      if (state.keyframeFailsOn === visual) throw new Error("image model down");
++      return { buffer: Buffer.from(`frame:${visual}`) };
++    },
++  ),
++}));
++
++vi.mock("./index", () => ({
++  generateVideo: vi.fn(
++    async (args: { mode: string; prompt: string; durationSec: number; image?: unknown }) => {
++      state.generateCalls.push({
++        mode: args.mode,
++        prompt: args.prompt,
++        durationSec: args.durationSec,
++        hasImage: args.image != null,
++      });
++      return { buffer: Buffer.from(`clip:${args.prompt}`), provider: "replicate", model: "veo-test" };
++    },
++  ),
++}));
++
++vi.mock("./postprocess", () => ({
++  normalizeVideo: vi.fn(async (buffer: Buffer) => buffer),
++  enforceClipDuration: vi.fn(async (buffer: Buffer) => buffer),
++  concatClips: vi.fn(async (clips: Buffer[]) => {
++    state.concatCount = clips.length;
++    return Buffer.concat(clips);
++  }),
++  mixMusicIntoVideo: vi.fn(async (buffer: Buffer) => {
++    state.musicMixed = true;
++    return buffer;
++  }),
++}));
++
++vi.mock("./slideshow", async (importOriginal) => {
++  const actual = await importOriginal<typeof import("./slideshow")>();
++  return {
++    ...actual,
++    renderSlideshow: vi.fn(
++      async (input: {
++        images: Buffer[];
++        slideDurationsSec?: number[] | null;
++        slideCaptions?: string[] | null;
++      }) => {
++        state.slideshowCall = {
++          slideDurationsSec: input.slideDurationsSec,
++          slideCaptions: input.slideCaptions,
++          imageCount: input.images.length,
++        };
++        return Buffer.from("slideshow");
++      },
++    ),
++  };
++});
++
++beforeEach(() => {
++  state.shotReply = "";
++  state.splitThrows = false;
++  state.splitPrompt = "";
++  state.keyframeFailsOn = null;
++  state.keyframePrompts = [];
++  state.keyframeRefs = [];
++  state.generateCalls = [];
++  state.slideshowCall = null;
++  state.concatCount = 0;
++  state.musicMixed = false;
++});
++
++function makeJob(overrides: Partial<VideoGeneration>): VideoGeneration {
++  return {
++    id: 42,
++    tenantId: 1,
++    engine: "text_to_video",
++    prompt: "A barista pulling an espresso shot",
++    sourceImagePaths: null,
++    options: { aspectRatio: "9:16" },
++    ...overrides,
++  } as unknown as VideoGeneration;
++}
++
++function board(overrides: Partial<VideoStoryboard>): VideoStoryboard {
++  return {
++    version: 1,
++    visualsSource: "prompt",
++    timelineLocked: false,
++    durationBounds: { minSec: 3, maxSec: 10 },
++    model: null,
++    provider: null,
++    regenerations: 0,
++    narration: null,
++    scenes: [],
++    ...overrides,
++  } as VideoStoryboard;
++}
++
++const plan = (job: VideoGeneration, source: Parameters<typeof planClipStoryboard>[0]["source"]) =>
++  planClipStoryboard({
++    job,
++    source,
++    aspectRatio: "9:16",
++    upload: async (bytes) => `/objects/1/sb/${bytes.toString()}.png`,
++  });
++
++describe("clip storyboard pacing rules", () => {
++  it("bounds each plan kind to what its renderer can actually deliver", () => {
++    // The "one image every three to five seconds" rule lives here: AI clips
++    // cannot read as motion under 3s and no provider will do a single take past
++    // 10s, while slides are bounded by the encoder's own clamps.
++    expect(clipDurationBounds("character")).toEqual({ minSec: 3, maxSec: 10 });
++    expect(clipDurationBounds("prompt")).toEqual({ minSec: 3, maxSec: 10 });
++    expect(clipDurationBounds("photo")).toEqual({ minSec: 3, maxSec: 10 });
++    expect(clipDurationBounds("slide")).toEqual({ minSec: 1, maxSec: 10 });
++    // Topic b-roll is cut against narration, so it has no free timeline at all.
++    expect(clipDurationBounds("ai")).toBeNull();
++  });
++
++  it("clamps an edited length instead of rejecting it", () => {
++    const slides = board({ visualsSource: "slide", durationBounds: { minSec: 1, maxSec: 10 } });
++    expect(clampSceneDuration(slides, 30)).toBe(10);
++    expect(clampSceneDuration(slides, 0.2)).toBe(1);
++    expect(clampSceneDuration(slides, 4.44)).toBe(4.4);
++    // A plan stored before bounds existed still clamps, from its source.
++    const legacy = board({ visualsSource: "character", durationBounds: null });
++    expect(clampSceneDuration(legacy, 1)).toBe(3);
++    expect(clampSceneDuration(legacy, 99)).toBe(10);
++    // Narration-timed plans have no bounds to clamp into, so lengths pass through.
++    expect(clampSceneDuration(board({ visualsSource: "ai", durationBounds: null }), 2.5)).toBe(2.5);
++    expect(clampSceneDuration(slides, Number.NaN)).toBe(1);
++  });
++
++  it("pins shot count into the funded range", () => {
++    expect(clipShotCount(undefined)).toBe(1);
++    expect(clipShotCount(0)).toBe(1);
++    expect(clipShotCount(-4)).toBe(1);
++    expect(clipShotCount(2.7)).toBe(2);
++    expect(clipShotCount(5)).toBe(5);
++    expect(clipShotCount(99)).toBe(5);
++    expect(clipShotCount(Number.NaN)).toBe(1);
++  });
++
++  it("maps each engine to the plan kind it produces", () => {
++    expect(clipStoryboardSource(makeJob({ engine: "text_to_video" }))).toBe("prompt");
++    expect(
++      clipStoryboardSource(
++        makeJob({ engine: "text_to_video", options: { aspectRatio: "9:16", characterId: 7 } }),
++      ),
++    ).toBe("character");
++    expect(clipStoryboardSource(makeJob({ engine: "image_to_video" }))).toBe("photo");
++    expect(clipStoryboardSource(makeJob({ engine: "slideshow" }))).toBe("slide");
++    // Topic mode plans through its own narration-aware path.
++    expect(clipStoryboardSource(makeJob({ engine: "topic_to_video" }))).toBeNull();
++  });
++
++  it("counts a slideshow's crossfade overlap but not a cut", () => {
++    const scenes = [4, 4, 4].map((durationSec, i) => ({
++      id: `s${i}`,
++      text: "",
++      visual: "",
++      durationSec,
++      previewPath: null,
++      outfitId: null,
++    }));
++    expect(clipStoryboardTotalSec(board({ visualsSource: "slide", scenes }))).toBe(11);
++    expect(clipStoryboardTotalSec(board({ visualsSource: "prompt", scenes }))).toBe(12);
++  });
++});
++
++describe("planClipStoryboard for the user's own photos", () => {
++  it("plans a slideshow from the uploaded photos without generating anything", async () => {
++    const job = makeJob({
++      engine: "slideshow",
++      sourceImagePaths: ["/objects/1/u/a.png", "/objects/1/u/b.png"],
++      options: { aspectRatio: "9:16", slideDurationSec: 4 },
++    });
++    const result = await plan(job, "slide");
++    expect(result.visualsSource).toBe("slide");
++    expect(result.timelineLocked).toBe(false);
++    expect(result.narration).toBeNull();
++    expect(result.durationBounds).toEqual({ minSec: 1, maxSec: 10 });
++    // The previews ARE the uploads, so planning costs nothing and there is
++    // nothing generated that could be redrawn.
++    expect(result.scenes.map((s) => s.previewPath)).toEqual([
++      "/objects/1/u/a.png",
++      "/objects/1/u/b.png",
++    ]);
++    expect(result.scenes.map((s) => s.visual)).toEqual(["", ""]);
++    expect(result.scenes.map((s) => s.durationSec)).toEqual([4, 4]);
++    expect(state.keyframePrompts).toEqual([]);
++  });
++
++  it("caps a slideshow plan at what the encoder accepts", async () => {
++    const job = makeJob({
++      engine: "slideshow",
++      sourceImagePaths: Array.from({ length: 25 }, (_, i) => `/objects/1/u/${i}.png`),
++      options: { aspectRatio: "9:16", slideDurationSec: 3 },
++    });
++    expect((await plan(job, "slide")).scenes).toHaveLength(20);
++  });
++
++  it("plans one animated scene from the first photo, clamped to what a clip can be", async () => {
++    const job = makeJob({
++      engine: "image_to_video",
++      prompt: "  Slow push in on the cup  ",
++      sourceImagePaths: ["/objects/1/u/cup.png", "/objects/1/u/ignored.png"],
++      options: { aspectRatio: "9:16", durationSec: 30 },
++    });
++    const result = await plan(job, "photo");
++    expect(result.scenes).toHaveLength(1);
++    expect(result.scenes[0]!.visual).toBe("Slow push in on the cup");
++    expect(result.scenes[0]!.previewPath).toBe("/objects/1/u/cup.png");
++    expect(result.scenes[0]!.durationSec).toBe(10);
++  });
++
++  it("refuses to plan a photo job with no photo", async () => {
++    await expect(plan(makeJob({ engine: "slideshow", sourceImagePaths: [] }), "slide")).rejects.toThrow(
++      /No photos provided/,
++    );
++    await expect(
++      plan(makeJob({ engine: "image_to_video", sourceImagePaths: null }), "photo"),
++    ).rejects.toThrow(/No source image provided/);
++  });
++});
++
++describe("planClipStoryboard for text-to-video", () => {
++  it("keeps a single shot as the brief itself, with no still to show", async () => {
++    const result = await plan(makeJob({ options: { aspectRatio: "9:16" } }), "prompt");
++    expect(result.scenes).toHaveLength(1);
++    expect(result.scenes[0]!.visual).toBe("A barista pulling an espresso shot");
++    // A prompt plan is a shot list; there is deliberately no image generated.
++    expect(result.scenes[0]!.previewPath).toBeNull();
++    expect(result.scenes[0]!.durationSec).toBe(5);
++    expect(state.splitPrompt).toBe("");
++  });
++
++  it("splits a multi-shot brief and asks for wardrobe and location to carry across", async () => {
++    state.shotReply = JSON.stringify({ shots: ["Grinding beans", "Tamping", "The pour"] });
++    const result = await plan(
++      makeJob({ options: { aspectRatio: "9:16", shotCount: 3, durationSec: 6 } }),
++      "prompt",
++    );
++    expect(result.scenes.map((s) => s.visual)).toEqual(["Grinding beans", "Tamping", "The pour"]);
++    expect(result.scenes.map((s) => s.durationSec)).toEqual([6, 6, 6]);
++    expect(state.splitPrompt).toContain("exactly 3 consecutive shots");
++    expect(state.splitPrompt).toContain("same subject, wardrobe, location and visual style");
++  });
++
++  it("always returns exactly the shot count the job was funded for", async () => {
++    // Short reply: padded from the brief. Long reply: truncated. Either way the
++    // plan matches what was reserved, so billing and delivery cannot diverge.
++    state.shotReply = JSON.stringify({ shots: ["Only one"] });
++    const short = await plan(makeJob({ options: { aspectRatio: "9:16", shotCount: 3 } }), "prompt");
++    expect(short.scenes.map((s) => s.visual)).toEqual([
++      "Only one",
++      "A barista pulling an espresso shot",
++      "A barista pulling an espresso shot",
++    ]);
++
++    state.shotReply = JSON.stringify({ shots: ["a", "b", "c", "d", "e"] });
++    const long = await plan(makeJob({ options: { aspectRatio: "9:16", shotCount: 2 } }), "prompt");
++    expect(long.scenes.map((s) => s.visual)).toEqual(["a", "b"]);
++  });
++
++  it("falls back to the brief per shot rather than losing a funded job to a copy call", async () => {
++    state.splitThrows = true;
++    const thrown = await plan(makeJob({ options: { aspectRatio: "9:16", shotCount: 2 } }), "prompt");
++    expect(thrown.scenes.map((s) => s.visual)).toEqual([
++      "A barista pulling an espresso shot",
++      "A barista pulling an espresso shot",
++    ]);
++
++    state.splitThrows = false;
++    state.shotReply = JSON.stringify({ shots: "not an array" });
++    const malformed = await plan(makeJob({ options: { aspectRatio: "9:16", shotCount: 2 } }), "prompt");
++    expect(malformed.scenes.map((s) => s.visual)).toEqual([
++      "A barista pulling an espresso shot",
++      "A barista pulling an espresso shot",
++    ]);
++  });
++
++  it("refuses to plan a clip job with no brief", async () => {
++    await expect(plan(makeJob({ prompt: "   " }), "prompt")).rejects.toThrow(/A prompt is required/);
++  });
++});
++
++describe("planClipStoryboard for a locked character", () => {
++  const job = () =>
++    makeJob({ options: { aspectRatio: "9:16", characterId: 7, outfitId: 3, shotCount: 3 } });
++
++  it("draws every shot from one shared outfit reference so the person stays the same", async () => {
++    state.shotReply = JSON.stringify({ shots: ["Walking out", "At the counter", "Sitting down"] });
++    const result = await plan(job(), "character");
++    expect(result.visualsSource).toBe("character");
++    expect(state.keyframePrompts).toEqual(["Walking out", "At the counter", "Sitting down"]);
++    // Same reference image behind all three — character and wardrobe uniformity
++    // is the default, not something the user has to ask for.
++    expect(new Set(state.keyframeRefs)).toEqual(new Set(["/objects/1/c/mira-red.png"]));
++    expect(result.scenes.map((s) => s.outfitId)).toEqual([3, 3, 3]);
++    expect(result.scenes.map((s) => s.previewPath)).toEqual([
++      "/objects/1/sb/frame:Walking out.png",
++      "/objects/1/sb/frame:At the counter.png",
++      "/objects/1/sb/frame:Sitting down.png",
++    ]);
++  });
++
++  it("leaves one failed still blank instead of losing the whole plan", async () => {
++    state.shotReply = JSON.stringify({ shots: ["Walking out", "At the counter", "Sitting down"] });
++    state.keyframeFailsOn = "At the counter";
++    const result = await plan(job(), "character");
++    expect(result.scenes.map((s) => s.previewPath)).toEqual([
++      "/objects/1/sb/frame:Walking out.png",
++      null,
++      "/objects/1/sb/frame:Sitting down.png",
++    ]);
++  });
++});
++
++describe("renderClipStoryboard", () => {
++  const render = (storyboard: VideoStoryboard, music?: Buffer) =>
++    renderClipStoryboard({
++      job: makeJob({}),
++      storyboard,
++      aspectRatio: "9:16",
++      music: music ?? null,
++      load: async (path) => ({ buffer: Buffer.from(path), mimeType: "image/png" }),
++    });
++
++  const scene = (over: Partial<VideoStoryboard["scenes"][number]>) => ({
++    id: "s1",
++    text: "",
++    visual: "shot",
++    durationSec: 5,
++    previewPath: null,
++    outfitId: null,
++    ...over,
++  });
++
++  it("passes each slide its own length and caption through to the encoder", async () => {
++    const result = await render(
++      board({
++        visualsSource: "slide",
++        durationBounds: { minSec: 1, maxSec: 10 },
++        scenes: [
++          scene({ id: "s1", visual: "Day one", durationSec: 4, previewPath: "/objects/1/u/a.png" }),
++          scene({ id: "s2", visual: "", durationSec: 2, previewPath: "/objects/1/u/b.png" }),
++        ],
++      }),
++    );
++    expect(state.slideshowCall).toEqual({
++      imageCount: 2,
++      slideDurationsSec: [4, 2],
++      // An empty caption is a real value here: that slide shows no text.
++      slideCaptions: ["Day one", ""],
++    });
++    expect(result.totalSec).toBe(5.5);
++  });
++
++  it("refuses a slideshow whose photo has gone missing", async () => {
++    await expect(
++      render(board({ visualsSource: "slide", scenes: [scene({ previewPath: null })] })),
++    ).rejects.toThrow(/photo in this storyboard is missing/);
++  });
++
++  it("generates one clip per shot and joins them", async () => {
++    const result = await render(
++      board({
++        visualsSource: "prompt",
++        scenes: [
++          scene({ id: "s1", visual: "Grinding beans", durationSec: 4 }),
++          scene({ id: "s2", visual: "The pour", durationSec: 7 }),
++        ],
++      }),
++      Buffer.from("music"),
++    );
++    expect(state.generateCalls).toEqual([
++      { mode: "text", prompt: "Grinding beans", durationSec: 4, hasImage: false },
++      { mode: "text", prompt: "The pour", durationSec: 7, hasImage: false },
++    ]);
++    expect(state.concatCount).toBe(2);
++    expect(state.musicMixed).toBe(true);
++    expect(result.totalSec).toBe(11);
++    expect(result.provider).toBe("replicate");
++  });
++
++  it("animates the approved keyframe rather than re-drawing one", async () => {
++    await render(
++      board({
++        visualsSource: "character",
++        scenes: [scene({ visual: "Walking out", previewPath: "/objects/1/sb/one.png" })],
++      }),
++    );
++    expect(state.generateCalls).toEqual([
++      {
++        mode: "image",
++        prompt: "Walking out. Subtle natural motion, cinematic.",
++        durationSec: 5,
++        hasImage: true,
++      },
++    ]);
++  });
++
++  it("fails a character render whose approved keyframe is gone, rather than substituting one", async () => {
++    await expect(
++      render(board({ visualsSource: "character", scenes: [scene({ previewPath: null })] })),
++    ).rejects.toThrow(/no longer available/);
++  });
++
++  it("re-clamps a stored length that is outside what the providers accept", async () => {
++    await render(
++      board({
++        visualsSource: "prompt",
++        durationBounds: { minSec: 3, maxSec: 10 },
++        scenes: [scene({ durationSec: 45 })],
++      }),
++    );
++    expect(state.generateCalls[0]!.durationSec).toBe(10);
++  });
++
++  it("refuses an empty storyboard", async () => {
++    await expect(render(board({ visualsSource: "prompt", scenes: [] }))).rejects.toThrow(
++      /no scenes/,
++    );
++  });
++});
++
++describe("videoJobUnits for multi-shot clips", () => {
++  it("prices a text_to_video job at one unit per funded shot", () => {
++    const base = { aspectRatio: "9:16" as const };
++    expect(videoJobUnits("text_to_video", { ...base })).toBe(1);
++    expect(videoJobUnits("text_to_video", { ...base, shotCount: 1 })).toBe(1);
++    expect(videoJobUnits("text_to_video", { ...base, shotCount: 3 })).toBe(3);
++    expect(videoJobUnits("text_to_video", { ...base, shotCount: 5 })).toBe(5);
++    expect(videoJobUnits("text_to_video", { ...base, shotCount: 99 })).toBe(5);
++    // Shot count is a text_to_video concept; nothing else prices off it.
++    expect(videoJobUnits("image_to_video", { ...base, shotCount: 4 })).toBe(1);
++    expect(videoJobUnits("slideshow", { ...base, shotCount: 4 })).toBe(1);
++    // And an AI music bed still stacks on top.
++    expect(videoJobUnits("text_to_video", { ...base, shotCount: 3, musicPrompt: "lofi" })).toBe(4);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/clipStoryboard.ts b/artifacts/api-server/src/lib/videoGen/clipStoryboard.ts
+new file mode 100644
+index 0000000..423272b
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/clipStoryboard.ts
+@@ -0,0 +1,410 @@
++import {
++  type VideoGeneration,
++  type VideoStoryboard,
++  type VideoStoryboardScene,
++  type VideoStoryboardSource,
++  tenantsTable,
++  db,
++} from "@workspace/db";
++import { eq } from "drizzle-orm";
++import { getCharacterDetail, resolveOutfit, loadReferenceImage, generateSceneKeyframe } from "../characters";
++import { getTextGenClient } from "../textGen";
++import { usageAccountingParams } from "../aiCost";
++import { logger } from "../logger";
++import { generateVideo } from "./index";
++import { concatClips, enforceClipDuration, mixMusicIntoVideo, normalizeVideo } from "./postprocess";
++import {
++  renderSlideshow,
++  slideshowTotalSec,
++  MIN_SLIDE_SECONDS,
++  MAX_SLIDE_SECONDS,
++  MAX_SLIDESHOW_IMAGES,
++} from "./slideshow";
++import { VideoGenProviderError, type SourceImage, type VideoAspect } from "./types";
++
++/**
++ * Storyboards for the three engines that are not topic mode: text_to_video,
++ * image_to_video and slideshow.
++ *
++ * These plans differ from a topic plan in one structural way: there is no voiced
++ * narration, so the timeline is FREE. Scene lengths are editable here, bounded
++ * per source by what the renderer can actually deliver, which is where the
++ * "one image every three to five seconds" pacing rule lives.
++ *
++ * What each plan costs to make is the thing that decides what is editable:
++ *
++ * - slideshow ("slide") plans, and animate-photo ("photo") plans, are free to
++ *   produce. The previews are the user's own uploaded photos, already in tenant
++ *   storage, so planning generates nothing at all.
++ * - text_to_video splits the brief into shots. With a character locked, each
++ *   shot gets an identity-anchored keyframe — the plan is a "character" plan,
++ *   the keyframes are free previews, and the render animates the exact frames
++ *   that were approved. Without a character there is nothing image-shaped to
++ *   show, so a "prompt" plan is a shot list: prompts and lengths, no stills.
++ *
++ * Shot COUNT is fixed at enqueue time on every one of them, because the funding
++ * reservation is computed from it. Editing a plan can never change what the job
++ * costs, which is what makes editing free.
++ */
++
++/** Most shots one text_to_video job will split into. Each shot is a separate
++ * generation, so this is also the ceiling on what one job can cost. */
++export const MAX_CLIP_SHOTS = 5;
++
++/** Default seconds per shot when the request did not ask for a length. */
++const DEFAULT_CLIP_SEC = 5;
++
++/**
++ * Editable length range per plan kind — the pacing rule, enforced in one place.
++ *
++ * AI clips are bounded by what the models offer: under ~3s there is not enough
++ * footage for motion to read, and over ~10s no provider in the chain will
++ * generate a single take. Slides are bounded by the encoder's own clamps.
++ */
++export function clipDurationBounds(
++  source: VideoStoryboardSource,
++): { minSec: number; maxSec: number } | null {
++  if (source === "slide") return { minSec: MIN_SLIDE_SECONDS, maxSec: MAX_SLIDE_SECONDS };
++  if (source === "character" || source === "prompt" || source === "photo") {
++    return { minSec: 3, maxSec: 10 };
++  }
++  // "ai" is topic mode's b-roll: narration-timed, so it has no free timeline.
++  return null;
++}
++
++/** Clamp one scene length into its plan's bounds. */
++export function clampSceneDuration(storyboard: VideoStoryboard, durationSec: number): number {
++  const bounds = storyboard.durationBounds ?? clipDurationBounds(storyboard.visualsSource);
++  if (!bounds) return durationSec;
++  if (!Number.isFinite(durationSec)) return bounds.minSec;
++  return Math.min(bounds.maxSec, Math.max(bounds.minSec, Math.round(durationSec * 10) / 10));
++}
++
++/** How many shots a text_to_video job was funded for (1..MAX_CLIP_SHOTS). */
++export function clipShotCount(shotCount: number | undefined): number {
++  return Math.min(MAX_CLIP_SHOTS, Math.max(1, Math.trunc(shotCount ?? 1) || 1));
++}
++
++/** Which plan kind an engine produces, or null when it plans nothing editable. */
++export function clipStoryboardSource(job: VideoGeneration): VideoStoryboardSource | null {
++  if (job.engine === "text_to_video") {
++    return job.options?.characterId ? "character" : "prompt";
++  }
++  if (job.engine === "image_to_video") return "photo";
++  if (job.engine === "slideshow") return "slide";
++  return null;
++}
++
++/** Total length of a plan: slides overlap by a crossfade, shots do not. */
++export function clipStoryboardTotalSec(storyboard: VideoStoryboard): number {
++  const secs = storyboard.scenes.map((scene) => scene.durationSec);
++  if (storyboard.visualsSource === "slide") return slideshowTotalSec(secs);
++  return secs.reduce((sum, sec) => sum + sec, 0);
++}
++
++/**
++ * Split a brief into an ordered shot list. One LLM call, only when more than one
++ * shot was asked for — a single shot is the brief itself.
++ *
++ * Fail-soft: if the split fails, every shot starts from the brief. The user paid
++ * for those shots, so losing the job over a copywriting call would be the wrong
++ * trade — and the storyboard they are about to edit is exactly where a repeated
++ * prompt gets fixed.
++ */
++async function splitBriefIntoShots(
++  tenantId: number,
++  brief: string,
++  shotCount: number,
++): Promise<string[]> {
++  if (shotCount <= 1) return [brief];
++  const fallback = new Array(shotCount).fill(brief);
++  const tenant = (
++    await db.select().from(tenantsTable).where(eq(tenantsTable.id, tenantId)).limit(1)
++  )[0];
++  if (!tenant) throw new VideoGenProviderError("Tenant not found.");
++  try {
++    const textGen = await getTextGenClient(tenant.aiModel);
++    const completion = await textGen.client.chat.completions.create({
++      model: textGen.model,
++      messages: [
++        {
++          role: "system",
++          content:
++            "You are a shot planner for short social videos. You reply with strict JSON only.",
++        },
++        {
++          role: "user",
++          content:
++            `Break this video brief into exactly ${shotCount} consecutive shots.\n\n` +
++            `Brief: ${brief.slice(0, 2000)}\n\n` +
++            "Each shot is one continuous camera take of a few seconds, generated " +
++            "independently, so describe it self-containedly: subject, action, " +
++            "framing, lighting. Keep the same subject, wardrobe, location and " +
++            "visual style across every shot so they cut together as one video. " +
++            "No camera-cut instructions, no dialogue, no on-screen text.\n\n" +
++            `Reply as {"shots": ["...", "..."]} with exactly ${shotCount} strings.`,
++        },
++      ],
++      max_completion_tokens: 2048,
++      response_format: { type: "json_object" },
++      ...usageAccountingParams(textGen.provider),
++    });
++    const parsed: unknown = JSON.parse(completion.choices[0]?.message?.content ?? "");
++    const shots = (parsed as { shots?: unknown }).shots;
++    if (!Array.isArray(shots)) return fallback;
++    const cleaned = shots
++      .map((shot) => (typeof shot === "string" ? shot.trim().slice(0, 1000) : ""))
++      .filter((shot) => shot.length > 0);
++    if (cleaned.length === 0) return fallback;
++    // Pad a short reply from the brief and drop a long one, so the shot list
++    // always matches the count the job was funded for.
++    return Array.from({ length: shotCount }, (_, i) => cleaned[i] ?? brief);
++  } catch (err) {
++    logger.warn({ err, tenantId }, "Shot split failed; every shot starts from the brief");
++    return fallback;
++  }
++}
++
++export interface ClipStoryboardPlanParams {
++  job: VideoGeneration;
++  source: VideoStoryboardSource;
++  aspectRatio: VideoAspect;
++  /** Reads a tenant photo back for keyframing; unused by slide/photo plans. */
++  upload: (bytes: Buffer, contentType: string) => Promise<string>;
++  onStage?: (stage: string) => void;
++}
++
++/** Plan a non-topic video and stop, before anything expensive runs. */
++export async function planClipStoryboard(
++  params: ClipStoryboardPlanParams,
++): Promise<VideoStoryboard> {
++  const { job, source, aspectRatio } = params;
++  const options = job.options ?? { aspectRatio };
++  const bounds = clipDurationBounds(source)!;
++  const clamp = (sec: number): number =>
++    Math.min(bounds.maxSec, Math.max(bounds.minSec, sec));
++
++  // Photos are the plan for the two engines the user supplied images for. Their
++  // previews cost nothing: they are the very paths that were uploaded.
++  if (source === "photo" || source === "slide") {
++    const paths = job.sourceImagePaths ?? [];
++    if (paths.length === 0) {
++      throw new VideoGenProviderError(
++        source === "photo" ? "No source image provided." : "No photos provided.",
++      );
++    }
++    const used = source === "photo" ? paths.slice(0, 1) : paths.slice(0, MAX_SLIDESHOW_IMAGES);
++    const perScene =
++      source === "photo"
++        ? clamp(options.durationSec ?? DEFAULT_CLIP_SEC)
++        : clamp(options.slideDurationSec ?? 3);
++    return {
++      version: 1,
++      visualsSource: source,
++      timelineLocked: false,
++      durationBounds: bounds,
++      model: null,
++      provider: null,
++      regenerations: 0,
++      narration: null,
++      scenes: used.map((path, i) => ({
++        id: `s${i + 1}`,
++        text: "",
++        // A slide's caption starts empty; the whole-video overlayText, if the
++        // request set one, keeps captioning the whole video until a slide
++        // caption replaces it.
++        visual: source === "photo" ? (job.prompt ?? "").trim() : "",
++        durationSec: perScene,
++        previewPath: path,
++        outfitId: null,
++      })),
++    };
++  }
++
++  // text_to_video: split the brief, then (with a character locked) draw the
++  // keyframe each shot will be animated from.
++  const brief = (job.prompt ?? "").trim();
++  if (!brief) throw new VideoGenProviderError("A prompt is required.");
++  const shotCount = clipShotCount(options.shotCount);
++  const perScene = clamp(options.durationSec ?? DEFAULT_CLIP_SEC);
++  params.onStage?.(shotCount > 1 ? "Planning your shots" : "Planning your shot");
++  const visuals = await splitBriefIntoShots(job.tenantId, brief, shotCount);
++
++  if (source === "prompt") {
++    return {
++      version: 1,
++      visualsSource: "prompt",
++      timelineLocked: false,
++      durationBounds: bounds,
++      model: null,
++      provider: null,
++      regenerations: 0,
++      narration: null,
++      scenes: visuals.map((visual, i) => ({
++        id: `s${i + 1}`,
++        text: "",
++        visual,
++        durationSec: perScene,
++        previewPath: null,
++        outfitId: null,
++      })),
++    };
++  }
++
++  // Character-locked shots: one identity-anchored keyframe each, from the SAME
++  // outfit reference, so the person and their clothes carry across every shot
++  // without the user having to ask for it.
++  const detail = await getCharacterDetail(job.tenantId, options.characterId ?? 0);
++  if (!detail) throw new VideoGenProviderError("The selected character no longer exists.");
++  const outfit = resolveOutfit(detail, options.outfitId ?? null);
++  if (!outfit) throw new VideoGenProviderError("The selected outfit no longer exists.");
++  const reference = await loadReferenceImage(outfit.referenceImagePath, job.tenantId);
++  params.onStage?.("Drawing your shots");
++  const previewPaths: (string | null)[] = [];
++  for (const visual of visuals) {
++    // Best-effort per shot: a missing still leaves that card blank and the
++    // render regenerates it, rather than losing the whole plan to one failure.
++    try {
++      const keyframe = await generateSceneKeyframe(
++        detail.character,
++        outfit,
++        visual,
++        aspectRatio,
++        reference,
++      );
++      previewPaths.push(await params.upload(keyframe.buffer, "image/png"));
++    } catch (err) {
++      logger.warn({ err, jobId: job.id }, "Storyboard keyframe failed; leaving the shot blank");
++      previewPaths.push(null);
++    }
++  }
++  return {
++    version: 1,
++    visualsSource: "character",
++    timelineLocked: false,
++    durationBounds: bounds,
++    model: null,
++    provider: null,
++    regenerations: 0,
++    narration: null,
++    scenes: visuals.map((visual, i) => ({
++      id: `s${i + 1}`,
++      text: "",
++      visual,
++      durationSec: perScene,
++      previewPath: previewPaths[i] ?? null,
++      outfitId: outfit.id,
++    })),
++  };
++}
++
++export interface ClipStoryboardRenderParams {
++  job: VideoGeneration;
++  storyboard: VideoStoryboard;
++  aspectRatio: VideoAspect;
++  music?: Buffer | null;
++  /** Reads photos and keyframes back out of tenant storage. */
++  load: (objectPath: string) => Promise<{ buffer: Buffer; mimeType: string }>;
++  onStage?: (stage: string) => void;
++}
++
++/** Render an approved non-topic storyboard. */
++export async function renderClipStoryboard(params: ClipStoryboardRenderParams): Promise<{
++  buffer: Buffer;
++  provider: string | null;
++  model: string | null;
++  totalSec: number;
++}> {
++  const { storyboard, aspectRatio } = params;
++  const scenes = storyboard.scenes;
++  if (scenes.length === 0) {
++    throw new VideoGenProviderError("This storyboard has no scenes.");
++  }
++  // Lengths are re-clamped at render: a plan stored before the bounds existed,
++  // or one whose bounds moved since, still renders inside what ffmpeg and the
++  // providers accept.
++  const durations = scenes.map((scene) => clampSceneDuration(storyboard, scene.durationSec));
++
++  if (storyboard.visualsSource === "slide") {
++    params.onStage?.("Preparing your photos");
++    const images: Buffer[] = [];
++    for (const scene of scenes) {
++      if (!scene.previewPath) {
++        throw new VideoGenProviderError("A photo in this storyboard is missing.");
++      }
++      images.push((await params.load(scene.previewPath)).buffer);
++    }
++    params.onStage?.("Composing the slideshow");
++    const buffer = await renderSlideshow({
++      images,
++      aspectRatio,
++      slideDurationSec: durations[0]!,
++      slideDurationsSec: durations,
++      slideCaptions: scenes.map((scene) => scene.visual),
++      music: params.music ?? null,
++    });
++    return { buffer, provider: null, model: null, totalSec: slideshowTotalSec(durations) };
++  }
++
++  // One AI clip per shot. Every clip is normalized to the same frame spec and
++  // held to its planned length before they are joined, so the cuts land where
++  // the storyboard said they would.
++  let photo: SourceImage | null = null;
++  if (storyboard.visualsSource === "photo") {
++    const path = scenes[0]?.previewPath;
++    if (!path) throw new VideoGenProviderError("No source image provided.");
++    const loaded = await params.load(path);
++    photo = { buffer: loaded.buffer, mimeType: loaded.mimeType };
++  }
++
++  const clips: Buffer[] = [];
++  let provider: string | null = null;
++  let model: string | null = null;
++  for (const [i, scene] of scenes.entries()) {
++    const shotLabel = scenes.length > 1 ? ` ${i + 1} of ${scenes.length}` : "";
++    let image = photo;
++    if (storyboard.visualsSource === "character") {
++      params.onStage?.(`Filming shot${shotLabel}`);
++      // The approved keyframe IS the first frame, which is what makes editing
++      // free. Missing means the plan's still failed to generate, not that a
++      // different frame may be substituted — those jobs fail and refund.
++      if (!scene.previewPath) {
++        throw new VideoGenProviderError(
++          "Some storyboard images are no longer available. Please start a new video.",
++        );
++      }
++      const loaded = await params.load(scene.previewPath);
++      image = { buffer: loaded.buffer, mimeType: loaded.mimeType };
++    } else {
++      params.onStage?.(`Generating shot${shotLabel}`);
++    }
++    const result = await generateVideo({
++      mode: image ? "image" : "text",
++      prompt:
++        storyboard.visualsSource === "character"
++          ? `${scene.visual}. Subtle natural motion, cinematic.`
++          : scene.visual,
++      aspectRatio,
++      durationSec: durations[i]!,
++      ...(image ? { image } : {}),
++    });
++    provider = result.provider;
++    model = result.model;
++    clips.push(
++      await enforceClipDuration(await normalizeVideo(result.buffer, aspectRatio), durations[i]!),
++    );
++  }
++
++  if (clips.length > 1) params.onStage?.("Joining your shots");
++  let buffer = await concatClips(clips);
++  if (params.music) buffer = await mixMusicIntoVideo(buffer, params.music);
++  return {
++    buffer,
++    provider,
++    model,
++    totalSec: durations.reduce((sum, sec) => sum + sec, 0),
++  };
++}
++
++/** The scene shape the studio edits, re-exported so callers need one import. */
++export type { VideoStoryboardScene };
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.test.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.test.ts
+new file mode 100644
+index 0000000..8a575f4
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.test.ts
+@@ -0,0 +1,341 @@
++import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
++
++/**
++ * The storyboard pause, as the runner actually executes it. The three engines
++ * that are not topic mode share one plan-and-pause path, and the two ways out of
++ * it — approve, or decline review on a job that was still funded for several
++ * shots — settle funding differently. That is what is tested here; the planner
++ * and the renderer have their own tests (clipStoryboard.test.ts), so both are
++ * stubbed and only the wiring between them and the row is exercised.
++ */
++
++const state = vi.hoisted(() => ({
++  /** Each planClipStoryboard call's source, in order. */
++  planned: [] as string[],
++  /** Each renderClipStoryboard call's plan, in order. */
++  rendered: [] as unknown[],
++  /** Set by a test to make the render throw. */
++  renderError: null as unknown,
++  usage: [] as { tenantId: number; funding: string | undefined }[],
++  refunds: [] as { tenantId: number; units: number }[],
++  music: [] as number[],
++}));
++
++vi.mock("./clipStoryboard", async (importOriginal) => {
++  const actual = await importOriginal<typeof import("./clipStoryboard")>();
++  return {
++    ...actual,
++    planClipStoryboard: vi.fn(
++      async ({ source, job }: { source: string; job: { tenantId: number } }) => {
++        state.planned.push(source);
++        return {
++          version: 1 as const,
++          visualsSource: source,
++          timelineLocked: false,
++          durationBounds: actual.clipDurationBounds(
++            source as "prompt" | "slide" | "photo" | "character",
++          ),
++          model: null,
++          provider: null,
++          regenerations: 0,
++          narration: null,
++          scenes: [
++            {
++              id: "s1",
++              text: "",
++              visual: "planned shot",
++              durationSec: 4,
++              previewPath: `/objects/${job.tenantId}/uploads/planned.png`,
++              outfitId: null,
++            },
++          ],
++        };
++      },
++    ),
++    renderClipStoryboard: vi.fn(async ({ storyboard }: { storyboard: unknown }) => {
++      if (state.renderError) throw state.renderError;
++      state.rendered.push(storyboard);
++      return {
++        buffer: Buffer.from("rendered-mp4"),
++        provider: "replicate",
++        model: "veo-test",
++        totalSec: 4,
++      };
++    }),
++  };
++});
++
++vi.mock("./qaGate", async (importOriginal) => ({
++  ...(await importOriginal<typeof import("./qaGate")>()),
++  verifyRenderedVideo: vi.fn(async () => {}),
++}));
++
++vi.mock("./slideshow", async (importOriginal) => ({
++  ...(await importOriginal<typeof import("./slideshow")>()),
++  renderSlideshow: vi.fn(async () => ({ buffer: Buffer.from("slides"), totalSec: 4 })),
++  extractPosterFrame: vi.fn(async () => Buffer.from("poster-png")),
++}));
++
++vi.mock("./musicGen", async (importOriginal) => ({
++  ...(await importOriginal<typeof import("./musicGen")>()),
++  generateMusicBed: vi.fn(async (_prompt: string, sec: number) => {
++    state.music.push(sec);
++    return Buffer.from("music");
++  }),
++}));
++
++vi.mock("../usage", async (importOriginal) => ({
++  ...(await importOriginal<typeof import("../usage")>()),
++  recordUsage: vi.fn(
++    async (tenantId: number, _kind: string, meta?: { funding?: string }) => {
++      state.usage.push({ tenantId, funding: meta?.funding });
++    },
++  ),
++}));
++
++vi.mock("../credits", async (importOriginal) => ({
++  ...(await importOriginal<typeof import("../credits")>()),
++  refundCredits: vi.fn(async (tenantId: number, _kind: string, units: number) => {
++    state.refunds.push({ tenantId, units });
++  }),
++}));
++
++vi.mock("../objectStorage", async (importOriginal) => {
++  const actual = await importOriginal<typeof import("../objectStorage")>();
++  class FakeObjectStorageService {
++    async getObjectEntityUploadURL(tenantId: number): Promise<string> {
++      return `https://storage.example.com/objects/${tenantId}/uploads/out-uuid`;
++    }
++    normalizeObjectEntityPath(uploadURL: string): string {
++      return new URL(uploadURL).pathname;
++    }
++  }
++  return { ...actual, ObjectStorageService: FakeObjectStorageService };
++});
++
++import { db, videoGenerationsTable, type VideoStoryboard } from "@workspace/db";
++import { eq } from "drizzle-orm";
++import { createTenant, deleteTenant, type TestTenant } from "../../test/dbHelpers";
++import { VideoGenProviderError } from "./index";
++import {
++  runVideoGenerationJob,
++  resumeVideoGenerationJob,
++  STORYBOARD_TTL_MS,
++} from "./jobRunner";
++
++const createdTenants: TestTenant[] = [];
++
++async function newTenant(): Promise<TestTenant> {
++  const tenant = await createTenant();
++  createdTenants.push(tenant);
++  return tenant;
++}
++
++type JobRow = typeof videoGenerationsTable.$inferInsert;
++
++async function seedJob(tenantId: number, overrides: Partial<JobRow> = {}) {
++  return (
++    await db
++      .insert(videoGenerationsTable)
++      .values({
++        tenantId,
++        engine: "text_to_video",
++        status: "queued",
++        prompt: "A barista pulling an espresso shot",
++        options: { aspectRatio: "9:16", reviewStoryboard: true },
++        ...overrides,
++      })
++      .returning()
++  )[0]!;
++}
++
++async function readJob(id: number) {
++  return (
++    await db.select().from(videoGenerationsTable).where(eq(videoGenerationsTable.id, id)).limit(1)
++  )[0]!;
++}
++
++beforeEach(() => {
++  state.planned.length = 0;
++  state.rendered.length = 0;
++  state.usage.length = 0;
++  state.refunds.length = 0;
++  state.music.length = 0;
++  state.renderError = null;
++  // uploadToStorage PUTs the finished bytes to a presigned URL; the storage
++  // service is faked, so the PUT is too.
++  vi.stubGlobal(
++    "fetch",
++    vi.fn(async () => new Response(null, { status: 200 })),
++  );
++});
++
++afterAll(async () => {
++  vi.unstubAllGlobals();
++  for (const tenant of createdTenants) {
++    await db
++      .delete(videoGenerationsTable)
++      .where(eq(videoGenerationsTable.tenantId, tenant.tenantId));
++    await deleteTenant(tenant.tenantId);
++  }
++});
++
++describe("the clip storyboard pause", () => {
++  it("pauses all three clip engines and meters nothing yet", async () => {
++    // Every engine that is not topic mode gets a plan, which is the whole point
++    // of this patch: before it, only topic mode ever paused.
++    const tenant = await newTenant();
++    const engines = [
++      ["text_to_video", "prompt"],
++      ["image_to_video", "photo"],
++      ["slideshow", "slide"],
++    ] as const;
++
++    for (const [engine, source] of engines) {
++      const job = await seedJob(tenant.tenantId, {
++        engine,
++        sourceImagePaths:
++          engine === "text_to_video"
++            ? null
++            : [`/objects/${tenant.tenantId}/uploads/a.png`, `/objects/${tenant.tenantId}/uploads/b.png`],
++      });
++      const before = Date.now();
++      await runVideoGenerationJob(job.id, "quota");
++
++      const row = await readJob(job.id);
++      expect(row.status, engine).toBe("awaiting_review");
++      expect(row.storyboard?.visualsSource, engine).toBe(source);
++      expect(row.storyboard?.scenes[0]?.visual).toBe("planned shot");
++      // Held long enough to come back to tomorrow, and swept after that.
++      expect(row.storyboardExpiresAt?.getTime() ?? 0).toBeGreaterThanOrEqual(
++        before + STORYBOARD_TTL_MS - 5_000,
++      );
++      expect(row.videoPath).toBeNull();
++      expect(row.error).toBeNull();
++    }
++
++    expect(state.planned).toEqual(["prompt", "photo", "slide"]);
++    // Nothing was rendered and nothing was billed: the reservation stays
++    // reserved against a render the user has not asked for yet.
++    expect(state.rendered).toHaveLength(0);
++    expect(state.usage).toHaveLength(0);
++    expect(state.refunds).toHaveLength(0);
++  });
++
++  it("renders the approved plan on resume instead of planning again", async () => {
++    const tenant = await newTenant();
++    const approved: VideoStoryboard = {
++      version: 1,
++      visualsSource: "prompt",
++      timelineLocked: false,
++      durationBounds: { minSec: 3, maxSec: 10 },
++      model: null,
++      provider: null,
++      regenerations: 0,
++      narration: null,
++      scenes: [
++        {
++          id: "s1",
++          text: "",
++          visual: "the shot the user edited",
++          durationSec: 7,
++          previewPath: null,
++          outfitId: null,
++        },
++      ],
++    };
++    // The approve route already claimed the row, so resume takes it as it is.
++    const job = await seedJob(tenant.tenantId, {
++      status: "processing",
++      funding: "credit",
++      storyboard: approved,
++      durationMs: 1_200,
++    });
++
++    await resumeVideoGenerationJob(await readJob(job.id));
++
++    // The edited plan is what got filmed — not a fresh one.
++    expect(state.planned).toHaveLength(0);
++    expect(state.rendered).toEqual([approved]);
++    const row = await readJob(job.id);
++    expect(row.status).toBe("succeeded");
++    expect(row.videoPath).toBe(`/objects/${tenant.tenantId}/uploads/out-uuid`);
++    expect(row.thumbnailPath).toBe(`/objects/${tenant.tenantId}/uploads/out-uuid`);
++    expect(row.provider).toBe("replicate");
++    expect(row.model).toBe("veo-test");
++    // Planning time already on the row is kept, so cost meters see the whole job.
++    expect(row.durationMs ?? 0).toBeGreaterThanOrEqual(1_200);
++    expect(state.usage).toEqual([{ tenantId: tenant.tenantId, funding: "credit" }]);
++  });
++
++  it("still splits the shots a declined review was funded for", async () => {
++    // Turning review off must not quietly turn a three-shot job into one shot:
++    // the user was charged three units at enqueue.
++    const tenant = await newTenant();
++    const job = await seedJob(tenant.tenantId, {
++      options: { aspectRatio: "9:16", reviewStoryboard: false, shotCount: 3 },
++    });
++
++    await runVideoGenerationJob(job.id, "quota");
++
++    expect(state.planned).toEqual(["prompt"]);
++    expect(state.rendered).toHaveLength(1);
++    const row = await readJob(job.id);
++    expect(row.status).toBe("succeeded");
++    // Planned in memory and rendered in one pass, so nothing was ever awaiting
++    // review and no plan was parked on the row.
++    expect(row.storyboard).toBeNull();
++    // One usage row per funded unit.
++    expect(state.usage).toHaveLength(3);
++  });
++
++  it("refunds every funded shot when the render fails", async () => {
++    const tenant = await newTenant();
++    const job = await seedJob(tenant.tenantId, {
++      options: { aspectRatio: "9:16", reviewStoryboard: false, shotCount: 3 },
++    });
++    state.renderError = new VideoGenProviderError("Replicate is over capacity.", 503);
++
++    await runVideoGenerationJob(job.id, "credit");
++
++    const row = await readJob(job.id);
++    expect(row.status).toBe("failed");
++    expect(row.error).toBe("Replicate is over capacity.");
++    expect(row.storyboardExpiresAt).toBeNull();
++    expect(state.usage).toHaveLength(0);
++    // Three units in, three units back.
++    expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 3 }]);
++  });
++
++  it("sizes an AI music bed to the plan the user approved, not the request", async () => {
++    // The length the user edited the plan to is the length the bed has to cover.
++    const tenant = await newTenant();
++    const job = await seedJob(tenant.tenantId, {
++      status: "processing",
++      options: { aspectRatio: "9:16", musicPrompt: "warm lo-fi", durationSec: 5 },
++      storyboard: {
++        version: 1,
++        visualsSource: "prompt",
++        timelineLocked: false,
++        durationBounds: { minSec: 3, maxSec: 10 },
++        model: null,
++        provider: null,
++        regenerations: 0,
++        narration: null,
++        scenes: [1, 2, 3].map((i) => ({
++          id: `s${i}`,
++          text: "",
++          visual: `shot ${i}`,
++          durationSec: 6,
++          previewPath: null,
++          outfitId: null,
++        })),
++      },
++    });
++
++    await resumeVideoGenerationJob(await readJob(job.id));
++
++    expect((await readJob(job.id)).status).toBe("succeeded");
++    expect(state.music).toEqual([18]);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index c39b6e5..2b1ae17 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -28,6 +28,13 @@ import {
+   type StockSourceChoice,
+ } from "./topicVideo";
+ import { generateCharacterClip } from "./characterClip";
++import {
++  clipShotCount,
++  clipStoryboardSource,
++  clipStoryboardTotalSec,
++  planClipStoryboard,
++  renderClipStoryboard,
++} from "./clipStoryboard";
+ import { videoJobUnits } from "./units";
+ import type { SourceImage } from "./types";
+ 
+@@ -63,9 +70,10 @@ const objectStorageService = new ObjectStorageService();
+ 
+ class VideoJobInputError extends Error {}
+ 
+-/** Engines that plan something a user can meaningfully edit. Stock footage is
+- * searched rather than prompted, so it has no prompt to review. */
+-function storyboardEligible(job: VideoGeneration): "character" | "ai" | null {
++/** Topic mode's reviewable sub-modes. Stock footage is searched rather than
++ * prompted, so it has no prompt to review; the other three engines get their
++ * plan kind from clipStoryboardSource instead. */
++function topicStoryboardEligible(job: VideoGeneration): "character" | "ai" | null {
+   if (job.engine !== "topic_to_video") return null;
+   const source = job.options?.visualsSource;
+   return source === "character" || source === "ai" ? source : null;
+@@ -176,6 +184,46 @@ type ProduceResult =
+       qa: VideoQaExpectations;
+     };
+ 
++/** Render a non-topic plan: resolve its music bed against the length the plan
++ * actually promises, then hand it to the clip renderer. */
++async function renderApprovedClipStoryboard(
++  job: VideoGeneration,
++  options: NonNullable<VideoGeneration["options"]>,
++  storyboard: VideoStoryboard,
++  aspectRatio: NonNullable<VideoJobAspect>,
++  onStage: (stage: string) => void,
++): Promise<ProduceResult> {
++  const music = await resolveMusic(
++    job,
++    options,
++    Math.max(1, Math.round(clipStoryboardTotalSec(storyboard))),
++    onStage,
++  );
++  const result = await renderClipStoryboard({
++    job,
++    storyboard,
++    aspectRatio,
++    music,
++    // Previews are tenant objects, so they go through the same size and type
++    // validation as a freshly uploaded source image.
++    load: (objectPath) => loadSourceImage(objectPath, job.tenantId),
++    onStage,
++  });
++  return {
++    buffer: result.buffer,
++    provider: result.provider,
++    model: result.model,
++    qa:
++      storyboard.visualsSource === "slide"
++        ? { expectedDurationSec: result.totalSec, label: "slideshow" }
++        : // Clip lengths are held per shot but fail-soft, so the join can drift
++          // further than the QA gate's tolerance; only emptiness is a failure.
++          { minDurationSec: 0.5, label: "storyboard video" },
++  };
++}
++
++type VideoJobAspect = NonNullable<VideoGeneration["options"]>["aspectRatio"];
++
+ async function produceVideo(
+   job: VideoGeneration,
+   onStage: (stage: string) => void,
+@@ -183,6 +231,40 @@ async function produceVideo(
+   const options = job.options ?? { aspectRatio: "9:16" as const };
+   const aspectRatio = options.aspectRatio ?? "9:16";
+ 
++  // Storyboards for the three engines that are not topic mode. All three share
++  // one plan-and-pause path, so it sits ahead of the engine branches rather than
++  // being repeated inside each of them.
++  const clipSource = job.engine === "topic_to_video" ? null : clipStoryboardSource(job);
++  if (clipSource) {
++    // A plan already on the row means this run is the resume: render what was
++    // approved instead of planning again.
++    if (job.storyboard) {
++      return renderApprovedClipStoryboard(job, options, job.storyboard, aspectRatio, onStage);
++    }
++    if (options.reviewStoryboard) {
++      const storyboard = await planClipStoryboard({
++        job,
++        source: clipSource,
++        aspectRatio,
++        upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
++        onStage,
++      });
++      return { paused: true, storyboard };
++    }
++    // Review declined, but the job was funded for several shots. Plan in memory
++    // and render it in one pass so the user still gets the shots they paid for.
++    if (job.engine === "text_to_video" && clipShotCount(options.shotCount) > 1) {
++      const storyboard = await planClipStoryboard({
++        job,
++        source: clipSource,
++        aspectRatio,
++        upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
++        onStage,
++      });
++      return renderApprovedClipStoryboard(job, options, storyboard, aspectRatio, onStage);
++    }
++  }
++
+   if (job.engine === "text_to_video") {
+     // Optional music bed (upload / library / AI compose), mixed under the
+     // clip after rendering. Resolved up front so a missing uploaded track
+@@ -331,7 +413,7 @@ async function produceVideo(
+         : options.visualsSource === "ai"
+           ? "ai"
+           : "stock";
+-    const reviewable = storyboardEligible(job);
++    const reviewable = topicStoryboardEligible(job);
+ 
+     // A storyboard already on the row means this run is the resume: the plan
+     // was approved, so render it instead of planning again.
+diff --git a/artifacts/api-server/src/lib/videoGen/postprocess.ts b/artifacts/api-server/src/lib/videoGen/postprocess.ts
+index faab289..257f67f 100644
+--- a/artifacts/api-server/src/lib/videoGen/postprocess.ts
++++ b/artifacts/api-server/src/lib/videoGen/postprocess.ts
+@@ -4,7 +4,7 @@ import { tmpdir } from "os";
+ import { join } from "path";
+ import { pickMusicStartOffsetSec } from "./musicOffset";
+ import { runFfmpeg, probeDurationSec } from "./slideshow";
+-import { ASPECT_DIMENSIONS, type VideoAspect } from "./types";
++import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "./types";
+ import { logger } from "../logger";
+ 
+ /**
+@@ -62,6 +62,99 @@ export async function normalizeVideo(video: Buffer, aspectRatio: VideoAspect): P
+   }
+ }
+ 
++/**
++ * Hold a provider clip to the length the storyboard promised. Models only offer
++ * discrete lengths (5s, 10s), so a shot planned at 7s comes back at 5 or 10 —
++ * without this pass the storyboard's stated timings are fiction and the shots
++ * of a multi-shot video drift out of the rhythm the user set.
++ *
++ * Too long is trimmed. Too short holds the final frame (tpad), which is the
++ * only honest option: looping would replay motion the user did not ask for, and
++ * generating more footage would cost another unit.
++ *
++ * Fail-soft like its neighbours: any error returns the ORIGINAL buffer.
++ */
++export async function enforceClipDuration(video: Buffer, targetSec: number): Promise<Buffer> {
++  if (!Number.isFinite(targetSec) || targetSec <= 0) return video;
++  const dir = await mkdtemp(join(tmpdir(), "kokao-cliplen-"));
++  try {
++    await writeFile(join(dir, "in.mp4"), video);
++    const actualSec = await probeDurationSec("in.mp4", dir);
++    // Within a third of a second is close enough that re-encoding costs more
++    // quality than the drift costs rhythm.
++    if (actualSec === null || Math.abs(actualSec - targetSec) < 0.34) return video;
++    const args = ["-y", "-i", "in.mp4"];
++    if (actualSec < targetSec) {
++      args.push("-vf", `tpad=stop_mode=clone:stop_duration=${(targetSec - actualSec).toFixed(3)}`);
++    }
++    args.push(
++      "-t", targetSec.toFixed(3),
++      "-map", "0:v:0",
++      "-map", "0:a?",
++      "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
++      "-c:a", "aac", "-b:a", "128k",
++      "-movflags", "+faststart",
++      "out.mp4",
++    );
++    await runFfmpeg(args, dir);
++    const out = await readFile(join(dir, "out.mp4"));
++    return out.length > 0 ? out : video;
++  } catch (error) {
++    logger.warn({ err: error }, "Clip length enforcement failed; delivering the clip as-is");
++    return video;
++  } finally {
++    await rm(dir, { recursive: true, force: true }).catch(() => {});
++  }
++}
++
++/**
++ * Join shot clips end to end into one video. Every clip must already have been
++ * through normalizeVideo, which pins codec, resolution, SAR and frame rate — the
++ * concat demuxer needs them identical, and re-encoding here instead would cost a
++ * second generation-loss pass over footage that already cost money.
++ *
++ * NOT fail-soft: a caller with several clips has no single clip to fall back on,
++ * so a failed join has to surface rather than silently ship shot one.
++ */
++export async function concatClips(clips: Buffer[]): Promise<Buffer> {
++  if (clips.length === 0) {
++    throw new VideoGenProviderError("There are no clips to join.");
++  }
++  if (clips.length === 1) return clips[0]!;
++  const dir = await mkdtemp(join(tmpdir(), "kokao-concat-"));
++  try {
++    const names: string[] = [];
++    for (const [i, clip] of clips.entries()) {
++      const name = `clip_${String(i).padStart(3, "0")}.mp4`;
++      await writeFile(join(dir, name), clip);
++      names.push(name);
++    }
++    // Quoted, one per line: the concat demuxer's own escaping. The names are
++    // generated here, never user input, so they cannot contain a quote.
++    await writeFile(join(dir, "list.txt"), names.map((n) => `file '${n}'`).join("\n"));
++    await runFfmpeg(
++      [
++        "-y", "-f", "concat", "-safe", "0", "-i", "list.txt",
++        // Some provider clips carry audio and some do not; a stream-copy concat
++        // of a mixed set desyncs, so re-encode audio to a common track and let
++        // the video ride through untouched.
++        "-c:v", "copy",
++        "-c:a", "aac", "-b:a", "128k",
++        "-movflags", "+faststart",
++        "out.mp4",
++      ],
++      dir,
++    );
++    const out = await readFile(join(dir, "out.mp4"));
++    if (out.length === 0) {
++      throw new VideoGenProviderError("Joining the shots produced an empty video.");
++    }
++    return out;
++  } finally {
++    await rm(dir, { recursive: true, force: true }).catch(() => {});
++  }
++}
++
+ /** Whether the file has at least one audio stream (ffprobe; false on failure). */
+ function probeHasAudio(file: string, cwd: string): Promise<boolean> {
+   return new Promise((resolve) => {
+diff --git a/artifacts/api-server/src/lib/videoGen/slideshow.ts b/artifacts/api-server/src/lib/videoGen/slideshow.ts
+index 136b259..8313027 100644
+--- a/artifacts/api-server/src/lib/videoGen/slideshow.ts
++++ b/artifacts/api-server/src/lib/videoGen/slideshow.ts
+@@ -31,8 +31,15 @@ export interface SlideshowInput {
+   aspectRatio: VideoAspect;
+   /** Seconds each photo is on screen (clamped to 1..10). */
+   slideDurationSec: number;
++  /** Per-slide overrides for slideDurationSec, one entry per image. Set by an
++   * approved storyboard, where each slide's length is edited on its own. */
++  slideDurationsSec?: number[] | null;
+   /** Optional caption burned into the bottom of the video. */
+   overlayText?: string | null;
++  /** Per-slide captions, one entry per image (null/empty = no caption on that
++   * slide). Set by an approved storyboard; takes precedence over overlayText,
++   * which captions the whole video. */
++  slideCaptions?: (string | null)[] | null;
+   /** Optional background music (mp3/m4a/wav bytes), faded out at the end. */
+   music?: Buffer | null;
+ }
+@@ -140,8 +147,20 @@ export function expectedSlideshowDurationSec(
+   imageCount: number,
+   slideDurationSec: number,
+ ): number {
+-  const slideSec = Math.min(MAX_SLIDE_SECONDS, Math.max(MIN_SLIDE_SECONDS, slideDurationSec));
+-  return imageCount * slideSec - (imageCount - 1) * TRANSITION_SEC;
++  return slideshowTotalSec(new Array(imageCount).fill(slideDurationSec));
++}
++
++/** Clamp one slide length into the range the encoder can actually render. */
++export function clampSlideSec(slideDurationSec: number): number {
++  if (!Number.isFinite(slideDurationSec)) return MIN_SLIDE_SECONDS;
++  return Math.min(MAX_SLIDE_SECONDS, Math.max(MIN_SLIDE_SECONDS, slideDurationSec));
++}
++
++/** Total length of a slideshow whose slides have individual lengths. Slides
++ * overlap by one crossfade each, so the total is the sum minus the overlaps. */
++export function slideshowTotalSec(slideDurationsSec: number[]): number {
++  const total = slideDurationsSec.reduce((sum, sec) => sum + clampSlideSec(sec), 0);
++  return total - Math.max(0, slideDurationsSec.length - 1) * TRANSITION_SEC;
+ }
+ 
+ export interface SlideshowArgsInput {
+@@ -149,6 +168,8 @@ export interface SlideshowArgsInput {
+   slideNames: string[];
+   /** Requested per-slide seconds; clamped to MIN/MAX_SLIDE_SECONDS here. */
+   slideSec: number;
++  /** Per-slide overrides for slideSec, one entry per slide. */
++  slideSecs?: number[] | null;
+   width: number;
+   height: number;
+   /** Intro-skip seek into the "music" input, or null when there is no music. */
+@@ -157,6 +178,9 @@ export interface SlideshowArgsInput {
+   musicDurationSec: number | null;
+   /** Font for the burned-in caption ("overlay.txt"); null skips the overlay. */
+   overlayFontFile: string | null;
++  /** Indices of slides that have their own caption file ("caption0.txt", ...).
++   * Requires overlayFontFile; when set, the whole-video overlay is skipped. */
++  captionedSlides?: number[] | null;
+ }
+ 
+ /**
+@@ -168,18 +192,21 @@ export function buildSlideshowArgs(input: SlideshowArgsInput): string[] {
+   const { slideNames, width, height } = input;
+   const count = slideNames.length;
+   // Clamp once, here: the per-input -t, the zoom step and the output bound all
+-  // have to describe the same timeline, and expectedSlideshowDurationSec
+-  // clamps internally.
+-  const slideSec = Math.min(MAX_SLIDE_SECONDS, Math.max(MIN_SLIDE_SECONDS, input.slideSec));
+-  const totalSec = expectedSlideshowDurationSec(count, slideSec);
++  // have to describe the same timeline, and slideshowTotalSec clamps
++  // internally. A per-slide list only applies when it covers every slide, so a
++  // short or stale array can never silently retime part of the video.
++  const secs = (
++    input.slideSecs?.length === count ? input.slideSecs : new Array(count).fill(input.slideSec)
++  ).map(clampSlideSec);
++  const totalSec = slideshowTotalSec(secs);
+   const args: string[] = ["-y"];
+ 
+   // One looped still input per slide. -framerate pins the image demuxer to
+   // the pipeline's FPS: at its 25fps default it feeds 25 frames per second
+   // into a chain that retimes to FPS, so each slide came out ~17% short and
+   // the zoompan move (stepped per input frame) under-travelled to match.
+-  for (const name of slideNames) {
+-    args.push("-framerate", String(FPS), "-loop", "1", "-t", String(slideSec), "-i", name);
++  for (const [i, name] of slideNames.entries()) {
++    args.push("-framerate", String(FPS), "-loop", "1", "-t", String(secs[i]!), "-i", name);
+   }
+ 
+   const musicIndex = count;
+@@ -212,9 +239,19 @@ export function buildSlideshowArgs(input: SlideshowArgsInput): string[] {
+   const superW = width * 2;
+   const superH = height * 2;
+   const zoomSpan = 0.08; // 8% total move per slide
+-  const frames = Math.max(1, Math.round(slideSec * FPS));
+-  const zoomStep = (zoomSpan / frames).toFixed(6);
++  // Per-slide captions are drawn on the slide's own stream, before the
++  // crossfade chain, so each caption fades with the photo it belongs to. Sizing
++  // matches the whole-video overlay so a mixed video looks consistent.
++  const perSlideCaptions = new Set(input.overlayFontFile ? (input.captionedSlides ?? []) : []);
++  const drawCaption = (file: string): string =>
++    `drawtext=fontfile=${input.overlayFontFile}:textfile=${file}:` +
++    `fontcolor=white:fontsize=${Math.round(height / 18)}:` +
++    `box=1:boxcolor=black@0.45:boxborderw=18:` +
++    `x=(w-text_w)/2:y=h-text_h-${Math.round(height / 12)}`;
+   for (let i = 0; i < count; i++) {
++    // The zoom travels the same 8% however long the slide is, so a 10s slide
++    // steps slower than a 2s one rather than over-travelling.
++    const zoomStep = (zoomSpan / Math.max(1, Math.round(secs[i]! * FPS))).toFixed(6);
+     const zoomExpr =
+       i % 2 === 0
+         ? `min(1+${zoomStep}*on,${(1 + zoomSpan).toFixed(3)})` // zoom in
+@@ -224,15 +261,20 @@ export function buildSlideshowArgs(input: SlideshowArgsInput): string[] {
+         `crop=${superW}:${superH},` +
+         `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
+         `d=1:s=${width}x${height}:fps=${FPS},` +
+-        `setsar=1,format=yuv420p[v${i}]`,
++        `setsar=1,format=yuv420p` +
++        (perSlideCaptions.has(i) ? `,${drawCaption(`caption${i}.txt`)}` : "") +
++        `[v${i}]`,
+     );
+   }
+   let chainLabel = "v0";
++  // Each crossfade starts one TRANSITION_SEC before the running total, so
++  // uneven slide lengths still line up with the -t bound.
++  let elapsed = 0;
+   for (let i = 1; i < count; i++) {
+     const out = i === count - 1 ? "xfaded" : `chain${i}`;
+-    const offset = (i * (slideSec - TRANSITION_SEC)).toFixed(3);
++    elapsed += secs[i - 1]! - TRANSITION_SEC;
+     filters.push(
+-      `[${chainLabel}][v${i}]xfade=transition=fade:duration=${TRANSITION_SEC}:offset=${offset}[${out}]`,
++      `[${chainLabel}][v${i}]xfade=transition=fade:duration=${TRANSITION_SEC}:offset=${elapsed.toFixed(3)}[${out}]`,
+     );
+     chainLabel = out;
+   }
+@@ -241,16 +283,11 @@ export function buildSlideshowArgs(input: SlideshowArgsInput): string[] {
+   }
+ 
+   let videoOut = "xfaded";
+-  if (input.overlayFontFile) {
++  if (input.overlayFontFile && perSlideCaptions.size === 0) {
+     // textfile= sidesteps drawtext's brittle inline-escaping rules: the
+     // caption is written verbatim to a file ffmpeg reads back, so colons,
+     // quotes, commas, and brackets in user text can never break the graph.
+-    filters.push(
+-      `[xfaded]drawtext=fontfile=${input.overlayFontFile}:textfile=overlay.txt:` +
+-        `fontcolor=white:fontsize=${Math.round(height / 18)}:` +
+-        `box=1:boxcolor=black@0.45:boxborderw=18:` +
+-        `x=(w-text_w)/2:y=h-text_h-${Math.round(height / 12)}[titled]`,
+-    );
++    filters.push(`[xfaded]${drawCaption("overlay.txt")}[titled]`);
+     videoOut = "titled";
+   }
+ 
+@@ -309,11 +346,18 @@ export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
+       slideNames.push(name);
+     }
+ 
++    // A per-slide list only counts when it covers every slide; buildSlideshowArgs
++    // applies the same rule, so both agree on the timeline.
++    const slideSecs =
++      input.slideDurationsSec?.length === count ? input.slideDurationsSec : null;
++
+     let musicSeekSec: number | null = null;
+     let musicDurationSec: number | null = null;
+     if (input.music && input.music.length > 0) {
+       await writeFile(join(dir, "music"), input.music);
+-      const totalSec = expectedSlideshowDurationSec(count, input.slideDurationSec);
++      const totalSec = slideSecs
++        ? slideshowTotalSec(slideSecs)
++        : expectedSlideshowDurationSec(count, input.slideDurationSec);
+       // The bed's own length decides whether it has to be looped to cover the
+       // video (null = ffprobe could not read it, so it must not be looped).
+       musicDurationSec = await probeDurationSec("music", dir);
+@@ -321,16 +365,32 @@ export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
+       musicSeekSec = await pickMusicStartOffsetSec("music", dir, totalSec);
+     }
+ 
+-    const overlayText = input.overlayText?.trim();
+-    const overlayFontFile = overlayText ? await findFontFile() : null;
++    // Per-slide captions win over the whole-video overlay: an approved
++    // storyboard has said something specific about every slide.
++    const captions = (input.slideCaptions ?? []).map((text) => text?.trim() ?? "");
++    const hasPerSlideCaptions = captions.some((text) => text.length > 0);
++    const overlayText = hasPerSlideCaptions ? "" : input.overlayText?.trim();
++    const overlayFontFile =
++      overlayText || hasPerSlideCaptions ? await findFontFile() : null;
+     if (overlayText && overlayFontFile) {
+       await writeFile(join(dir, "overlay.txt"), overlayText.slice(0, 120));
+     }
++    const captionedSlides: number[] = [];
++    if (overlayFontFile && hasPerSlideCaptions) {
++      for (let i = 0; i < count; i++) {
++        const text = captions[i];
++        if (!text) continue;
++        await writeFile(join(dir, `caption${i}.txt`), text.slice(0, 120));
++        captionedSlides.push(i);
++      }
++    }
+ 
+     await runFfmpeg(
+       buildSlideshowArgs({
+         slideNames,
+         slideSec: input.slideDurationSec,
++        slideSecs,
++        captionedSlides,
+         width,
+         height,
+         musicSeekSec,
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+index ac137d1..924ae80 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+@@ -654,9 +654,15 @@ export async function renderTopicStoryboard(params: {
+   if (board.scenes.length === 0) {
+     throw new VideoGenProviderError("This storyboard has no scenes.");
+   }
++  // Topic videos are cut against a recording; the other engines voice nothing
++  // and carry a null narration, so they never reach this renderer.
++  const narration = board.narration;
++  if (!narration) {
++    throw new VideoGenProviderError("This storyboard has no narration to cut against.");
++  }
+ 
+   params.onStage?.("Loading your storyboard");
+-  const narrationWav = await params.load(board.narration.audioPath);
++  const narrationWav = await params.load(narration.audioPath);
+   const stills = await Promise.all(
+     board.scenes.map(async (scene) => {
+       if (!scene.previewPath) return null;
+@@ -709,7 +715,7 @@ export async function renderTopicStoryboard(params: {
+   }
+   checkDeadline(startedAt, deadlineMs);
+ 
+-  const cues = board.narration.cues;
++  const cues = narration.cues;
+   const planGateEnabled = await isFeatureEnabled("planGate").catch(() => true);
+   const gate = planGateEnabled
+     ? gateRenderPlan({
+@@ -717,7 +723,7 @@ export async function renderTopicStoryboard(params: {
+         clipCount: clips.length,
+         stillImagery: !characterMode,
+         cueStartsSec: cues.map((cue) => cue.startSec),
+-        totalDurationSec: board.narration.totalDurationSec,
++        totalDurationSec: narration.totalDurationSec,
+         subtitles: params.subtitles,
+       })
+     : null;
+@@ -736,7 +742,7 @@ export async function renderTopicStoryboard(params: {
+     clips,
+     narrationWav,
+     cues,
+-    totalDurationSec: board.narration.totalDurationSec,
++    totalDurationSec: narration.totalDurationSec,
+     aspectRatio: params.aspectRatio,
+     subtitles: params.subtitles,
+     captionStyle: params.captionStyle ?? "classic",
+@@ -745,7 +751,7 @@ export async function renderTopicStoryboard(params: {
+     music: params.music ?? null,
+     sceneMap: gate ? gate.scenes : sceneMap,
+   });
+-  return { buffer, provider, model: board.model ?? "", durationSec: board.narration.totalDurationSec };
++  return { buffer, provider, model: board.model ?? "", durationSec: narration.totalDurationSec };
+ }
+ 
+ /** Regenerate one scene's preview still from an edited prompt. Returns the new
+diff --git a/artifacts/api-server/src/lib/videoGen/units.ts b/artifacts/api-server/src/lib/videoGen/units.ts
+index 009c6a7..07497b8 100644
+--- a/artifacts/api-server/src/lib/videoGen/units.ts
++++ b/artifacts/api-server/src/lib/videoGen/units.ts
+@@ -1,18 +1,29 @@
+ import type { VideoJobOptions } from "@workspace/db";
+ import { CHARACTER_SCENES_PER_PARAGRAPH } from "./topicVideo/characterScenes";
++import { clipShotCount } from "./clipStoryboard";
+ 
+ /**
+  * How many video quota units / credits one generation job costs.
+  *
+- * Every engine is a single generation — one unit — except character story
+- * videos, where every scene is its own real AI generation (keyframe +
+- * image-to-video), so a job costs one unit per scene: Short (1 paragraph)
+- * = 4, Medium = 8, Long = 12. The route reserves this amount up front and
+- * the job runner refunds the same amount if the job fails.
++ * Every engine is a single generation — one unit — except the two that are
++ * really many generations wearing one job:
++ *
++ * - character story videos, where every scene is its own keyframe +
++ *   image-to-video pair, so a job costs one unit per scene: Short (1 paragraph)
++ *   = 4, Medium = 8, Long = 12.
++ * - multi-shot text_to_video, where every shot is its own clip generation, so a
++ *   job costs one unit per shot.
++ *
++ * The route reserves this amount up front and the job runner refunds the same
++ * amount if the job fails.
+  */
+ export function videoJobUnits(engine: string, options: VideoJobOptions | null): number {
+   let units = 1;
+-  if (engine === "topic_to_video" && options?.visualsSource === "character") {
++  if (engine === "text_to_video") {
++    // Shot count is fixed at enqueue precisely because it prices the job; the
++    // storyboard editor can reword a shot but never add or remove one.
++    units = clipShotCount(options?.shotCount);
++  } else if (engine === "topic_to_video" && options?.visualsSource === "character") {
+     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
+     units = CHARACTER_SCENES_PER_PARAGRAPH * paragraphs;
+   } else if (engine === "topic_to_video" && options?.visualsSource === "ai") {
+diff --git a/artifacts/api-server/src/routes/videos.test.ts b/artifacts/api-server/src/routes/videos.test.ts
+index 1b669e4..c3ea1c8 100644
+--- a/artifacts/api-server/src/routes/videos.test.ts
++++ b/artifacts/api-server/src/routes/videos.test.ts
+@@ -579,6 +579,64 @@ describe("POST /api/ai/generate-video", () => {
+     expect(runnerState.calls).toHaveLength(0);
+   });
+ 
++  it("prices a multi-shot clip at one unit per shot", async () => {
++    // Each shot is its own generation, so the reservation has to scale with the
++    // count — otherwise a 3-shot job renders three clips on one unit's funding.
++    const tenant = await newTenant("payg");
++    await grantCredits({
++      tenantId: tenant.tenantId,
++      captionCredits: 0,
++      imageCredits: 0,
++      videoCredits: 2, // a 3-shot clip needs 3
++      kind: "admin_grant",
++      note: "test",
++    });
++    const short = await request(app)
++      .post("/api/ai/generate-video")
++      .send({ engine: "text_to_video", prompt: "a calm ocean at dusk", shotCount: 3 });
++    expect(short.status).toBe(402);
++    expect(short.body.error).toMatch(/3 video units/);
++    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(2);
++
++    const ok = await request(app)
++      .post("/api/ai/generate-video")
++      .send({ engine: "text_to_video", prompt: "a calm ocean at dusk", shotCount: 2 });
++    expect(ok.status).toBe(201);
++    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(0);
++  });
++
++  it("pins shot count at enqueue, and only on the engine that splits shots", async () => {
++    const tenant = await newTenant();
++    const capped = await request(app)
++      .post("/api/ai/generate-video")
++      .send({ engine: "text_to_video", prompt: "a calm ocean at dusk", shotCount: 2 });
++    expect(capped.status).toBe(201);
++    const clip = (
++      await db
++        .select()
++        .from(videoGenerationsTable)
++        .where(eq(videoGenerationsTable.id, capped.body.id))
++    )[0];
++    expect(clip?.options?.shotCount).toBe(2);
++
++    // A slideshow has no shots to split; sending one must not price the job up.
++    const slides = await request(app)
++      .post("/api/ai/generate-video")
++      .send({
++        engine: "slideshow",
++        sourceImagePaths: [`/objects/${tenant.tenantId}/uploads/a.png`],
++        shotCount: 5,
++      });
++    expect(slides.status).toBe(201);
++    const row = (
++      await db
++        .select()
++        .from(videoGenerationsTable)
++        .where(eq(videoGenerationsTable.id, slides.body.id))
++    )[0];
++    expect(row?.options?.shotCount).toBe(1);
++  });
++
+   it("reserves a video credit when the quota is exhausted", async () => {
+     const tenant = await newTenant("payg");
+     await grantCredits({
+@@ -663,6 +721,37 @@ function storyboardFixture(tenantId: number, sceneCount = 2): VideoStoryboard {
+   };
+ }
+ 
++/**
++ * A plan from one of the three engines that voice nothing. No narration is what
++ * frees the timeline, so lengths are editable and bounded per plan kind.
++ */
++function clipBoardFixture(
++  tenantId: number,
++  visualsSource: VideoStoryboard["visualsSource"],
++  sceneCount = 2,
++): VideoStoryboard {
++  const bounds =
++    visualsSource === "slide" ? { minSec: 1, maxSec: 10 } : { minSec: 3, maxSec: 10 };
++  return {
++    version: 1,
++    visualsSource,
++    timelineLocked: false,
++    durationBounds: bounds,
++    model: null,
++    provider: null,
++    regenerations: 0,
++    narration: null,
++    scenes: Array.from({ length: sceneCount }, (_, i) => ({
++      id: `s${i + 1}`,
++      text: "",
++      visual: visualsSource === "slide" ? `caption ${i + 1}` : `shot ${i + 1}`,
++      durationSec: 4,
++      previewPath: visualsSource === "prompt" ? null : `/objects/${tenantId}/uploads/p${i + 1}.png`,
++      outfitId: null,
++    })),
++  };
++}
++
+ async function seedPausedJob(
+   tenantId: number,
+   overrides: Partial<typeof videoGenerationsTable.$inferInsert> = {},
+@@ -731,6 +820,71 @@ describe("PATCH /api/ai/video-jobs/:jobId/storyboard", () => {
+     expect((await readJob(job.id)).storyboard?.scenes[0]?.durationSec).toBe(6);
+   });
+ 
++  it("clamps an edited length into what the plan can actually deliver", async () => {
++    // Rejecting an in-contract length would mean losing the edit; a client that
++    // asks for the schema's 20s ceiling meant "the longest you can do", and what
++    // a slideshow can do is 10.
++    const tenant = await newTenant();
++    const job = await seedPausedJob(
++      tenant.tenantId,
++      { engine: "slideshow" },
++      clipBoardFixture(tenant.tenantId, "slide"),
++    );
++    const res = await request(app)
++      .patch(`/api/ai/video-jobs/${job.id}/storyboard`)
++      .send({
++        scenes: [
++          { id: "s1", durationSec: 20 },
++          { id: "s2", durationSec: 1 },
++        ],
++      });
++    expect(res.status).toBe(200);
++    expect(res.body.storyboard.scenes.map((s: { durationSec: number }) => s.durationSec)).toEqual([
++      10, 1,
++    ]);
++
++    // A clip cannot read as motion under three seconds, so that plan floors higher.
++    const clip = await seedPausedJob(
++      tenant.tenantId,
++      { engine: "text_to_video" },
++      clipBoardFixture(tenant.tenantId, "prompt"),
++    );
++    const clipRes = await request(app)
++      .patch(`/api/ai/video-jobs/${clip.id}/storyboard`)
++      .send({ scenes: [{ id: "s1", durationSec: 1 }] });
++    expect(clipRes.status).toBe(200);
++    expect(clipRes.body.storyboard.scenes[0].durationSec).toBe(3);
++  });
++
++  it("clears an emptied slide caption but leaves an emptied prompt alone", async () => {
++    // On a slideshow the visual is text burned over the photo, so removing it is
++    // a real edit. Everywhere else it is the generation prompt, and a scene with
++    // no prompt has nothing to generate.
++    const tenant = await newTenant();
++    const slides = await seedPausedJob(
++      tenant.tenantId,
++      { engine: "slideshow" },
++      clipBoardFixture(tenant.tenantId, "slide"),
++    );
++    const cleared = await request(app)
++      .patch(`/api/ai/video-jobs/${slides.id}/storyboard`)
++      .send({ scenes: [{ id: "s1", visual: "   " }] });
++    expect(cleared.status).toBe(200);
++    expect(cleared.body.storyboard.scenes[0].visual).toBe("");
++    expect((await readJob(slides.id)).storyboard?.scenes[0]?.visual).toBe("");
++
++    const clip = await seedPausedJob(
++      tenant.tenantId,
++      { engine: "text_to_video" },
++      clipBoardFixture(tenant.tenantId, "prompt"),
++    );
++    const kept = await request(app)
++      .patch(`/api/ai/video-jobs/${clip.id}/storyboard`)
++      .send({ scenes: [{ id: "s1", visual: "   " }] });
++    expect(kept.status).toBe(200);
++    expect(kept.body.storyboard.scenes[0].visual).toBe("shot 1");
++  });
++
+   it("400s on a job that is not paused for review", async () => {
+     const tenant = await newTenant();
+     const job = await seedPausedJob(tenant.tenantId, { status: "processing" });
+@@ -797,6 +951,32 @@ describe("POST /api/ai/video-jobs/:jobId/storyboard/scenes/:sceneId/preview", ()
+     expect(runnerState.previews).toHaveLength(0);
+   });
+ 
++  it("400s a redraw on a plan whose stills are the user's own photos", async () => {
++    // Only "character" and "ai" previews were drawn, so only those can be
++    // redrawn. A slide or photo preview is the upload itself, and a prompt plan
++    // has no still at all — re-rolling any of them would replace or invent
++    // something the user did not ask for.
++    const tenant = await newTenant();
++    for (const [engine, source] of [
++      ["slideshow", "slide"],
++      ["image_to_video", "photo"],
++      ["text_to_video", "prompt"],
++    ] as const) {
++      const job = await seedPausedJob(
++        tenant.tenantId,
++        { engine },
++        clipBoardFixture(tenant.tenantId, source),
++      );
++      const res = await request(app).post(
++        `/api/ai/video-jobs/${job.id}/storyboard/scenes/s1/preview`,
++      );
++      expect(res.status, source).toBe(400);
++      expect(res.body.error).toMatch(/your own photos/i);
++      expect(runnerState.previews).toHaveLength(0);
++      expect((await readJob(job.id)).storyboard?.regenerations).toBe(0);
++    }
++  });
++
+   it("502s when the image provider fails, leaving the plan as it was", async () => {
+     const tenant = await newTenant();
+     const job = await seedPausedJob(tenant.tenantId);
+diff --git a/artifacts/api-server/src/routes/videos.ts b/artifacts/api-server/src/routes/videos.ts
+index d625ff4..12af591 100644
+--- a/artifacts/api-server/src/routes/videos.ts
++++ b/artifacts/api-server/src/routes/videos.ts
+@@ -1,5 +1,11 @@
+ import { Router, type IRouter, type Request, type Response } from "express";
+-import { db, tenantsTable, contentItemsTable, videoGenerationsTable } from "@workspace/db";
++import {
++  db,
++  tenantsTable,
++  contentItemsTable,
++  videoGenerationsTable,
++  storyboardPreviewsAreGenerated,
++} from "@workspace/db";
+ import { and, eq, desc, isNotNull } from "drizzle-orm";
+ import {
+   GenerateVideoBody,
+@@ -25,6 +31,7 @@ import {
+ } from "../lib/videoGen/jobRunner";
+ import { VideoGenProviderError } from "../lib/videoGen";
+ import { MAX_SLIDESHOW_IMAGES } from "../lib/videoGen/slideshow";
++import { clampSceneDuration, clipShotCount } from "../lib/videoGen/clipStoryboard";
+ import { videoJobUnits } from "../lib/videoGen/units";
+ import { preflightVideoJob } from "../lib/videoGen/preflight";
+ import { getCharacterDetail, resolveOutfit } from "../lib/characters";
+@@ -207,6 +214,9 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+   const options = {
+     aspectRatio: body.aspectRatio ?? "9:16",
+     durationSec: body.durationSec ?? 5,
++    // Prices the job (one unit per shot), so it is pinned here and the
++    // storyboard editor cannot move it.
++    shotCount: body.engine === "text_to_video" ? clipShotCount(body.shotCount) : 1,
+     slideDurationSec: body.slideDurationSec ?? 3,
+     overlayText: body.overlayText ?? null,
+     musicPath: body.musicPath ?? null,
+@@ -405,15 +415,26 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
+     return;
+   }
+ 
++  // On a slideshow plan, `visual` is the burned-in caption, so clearing it is a
++  // real edit. Everywhere else it is the generation prompt, and an empty prompt
++  // has nothing to generate — there, blank means "leave it alone".
++  const blankClearsVisual = storyboard.visualsSource === "slide";
+   const updated = {
+     ...storyboard,
+     scenes: storyboard.scenes.map((scene) => {
+       const edit = edits.get(scene.id);
+       if (!edit) return scene;
++      const visual = edit.visual?.trim();
+       return {
+         ...scene,
+-        visual: edit.visual?.trim() || scene.visual,
+-        durationSec: edit.durationSec ?? scene.durationSec,
++        visual: visual || (blankClearsVisual && visual === "" ? "" : scene.visual),
++        // Clamped rather than rejected: the bounds are what the renderer can
++        // actually deliver, and a client that asks for 30s meant "the longest
++        // you can do".
++        durationSec:
++          edit.durationSec == null
++            ? scene.durationSec
++            : clampSceneDuration(storyboard, edit.durationSec),
+       };
+     }),
+   };
+@@ -445,6 +466,15 @@ router.post(
+     if (!loaded) return;
+     const { job, storyboard } = loaded;
+ 
++    // "photo" and "slide" plans preview the user's OWN uploaded photos, and a
++    // "prompt" plan has no still at all — there is nothing here to re-roll, and
++    // generating one would replace a photo they chose with one they did not.
++    if (!storyboardPreviewsAreGenerated(storyboard.visualsSource)) {
++      res.status(400).json({
++        error: "This storyboard's images are your own photos, so there is nothing to redraw.",
++      });
++      return;
++    }
+     const scene = storyboard.scenes.find((s) => s.id === req.params.sceneId);
+     if (!scene) {
+       res.status(400).json({ error: "That scene is not in this storyboard." });
+diff --git a/artifacts/socialforge/src/pages/video-studio.test.tsx b/artifacts/socialforge/src/pages/video-studio.test.tsx
+index d6742a4..5034ace 100644
+--- a/artifacts/socialforge/src/pages/video-studio.test.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.test.tsx
+@@ -30,6 +30,8 @@ const mockState: {
+   characters: any[];
+   brandKits: any[];
+   styleProfiles: any[];
++  storyboardEdits: any[];
++  approvals: number[];
+ } = {
+   lastGenerateVars: null,
+   generateError: null,
+@@ -38,6 +40,8 @@ const mockState: {
+   characters: [],
+   brandKits: [],
+   styleProfiles: [],
++  storyboardEdits: [],
++  approvals: [],
+ };
+ 
+ const toastSpy = vi.fn();
+@@ -80,6 +84,20 @@ vi.mock("@workspace/api-client-react", async () => {
+       isLoading: false,
+     }),
+     useListContent: () => ({ data: [], isLoading: false }),
++    useUpdateVideoStoryboard: () => ({
++      isPending: false,
++      mutate: (vars: any, opts: any) => {
++        mockState.storyboardEdits.push(vars);
++        opts?.onSuccess?.(mockState.activeJob);
++      },
++    }),
++    useApproveVideoStoryboard: () => ({
++      isPending: false,
++      mutate: (vars: any, opts: any) => {
++        mockState.approvals.push(vars.jobId);
++        opts?.onSuccess?.({ ...mockState.activeJob, status: "processing", storyboard: null });
++      },
++    }),
+     useListCharacters: () => ({ data: mockState.characters }),
+     useListBrandKits: () => ({ data: mockState.brandKits }),
+     useListVideoStyles: () => ({ data: mockState.styleProfiles }),
+@@ -114,6 +132,71 @@ function styleProfile(over: {
+   };
+ }
+ 
++/** A plan from an engine that voices nothing, so its lengths are editable. */
++function clipBoard(visualsSource: "prompt" | "slide" | "photo") {
++  return {
++    version: 1,
++    visualsSource,
++    timelineLocked: false,
++    durationBounds: visualsSource === "slide" ? { minSec: 1, maxSec: 10 } : { minSec: 3, maxSec: 10 },
++    model: null,
++    provider: null,
++    regenerations: 0,
++    narration: null,
++    scenes: [1, 2].map((i) => ({
++      id: `s${i}`,
++      text: "",
++      visual: visualsSource === "slide" ? `caption ${i}` : `shot ${i}`,
++      durationSec: 4,
++      previewPath: visualsSource === "prompt" ? null : `/objects/1/uploads/p${i}.png`,
++      outfitId: null,
++    })),
++  };
++}
++
++/** A topic plan: cut against a recording, so the timeline is not the user's. */
++function narratedBoard() {
++  return {
++    version: 1,
++    visualsSource: "character",
++    timelineLocked: true,
++    durationBounds: null,
++    model: "kwaivgi/kling-v1.6-standard",
++    provider: "replicate",
++    regenerations: 0,
++    narration: {
++      audioPath: "/objects/1/uploads/narration.wav",
++      totalDurationSec: 12,
++      cues: [
++        { text: "Line 1", startSec: 0, endSec: 6 },
++        { text: "Line 2", startSec: 6, endSec: 12 },
++      ],
++    },
++    scenes: [1, 2].map((i) => ({
++      id: `s${i}`,
++      text: `Line ${i}`,
++      visual: `wide shot ${i}`,
++      durationSec: 6,
++      previewPath: `/objects/1/uploads/shot-${i}.png`,
++      outfitId: null,
++    })),
++  };
++}
++
++function pausedJob(storyboard: unknown) {
++  return {
++    id: 11,
++    engine: "text_to_video",
++    status: "awaiting_review",
++    prompt: "A barista pulling an espresso shot",
++    sourceImagePaths: [],
++    aspectRatio: "9:16",
++    storyboard,
++    createdAt: "2026-01-01T00:00:00Z",
++    updatedAt: "2026-01-01T00:00:00Z",
++  };
++}
++
+ function renderPage() {
+   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+   return render(
+@@ -133,6 +216,8 @@ beforeEach(() => {
+   mockState.characters = [];
+   mockState.brandKits = [];
+   mockState.styleProfiles = [];
++  mockState.storyboardEdits = [];
++  mockState.approvals = [];
+   toastSpy.mockClear();
+   cleanup();
+ });
+@@ -502,6 +587,112 @@ describe("Video Studio", () => {
+     expect(screen.getByTestId("text-job-stage").textContent).toBe("Voicing the narration…");
+   });
+ 
++  it("offers a storyboard on every engine except searched stock footage", async () => {
++    renderPage();
++    const user = userEvent.setup();
++    // Text to Video.
++    expect(screen.getByTestId("switch-review-storyboard")).toBeTruthy();
++    await user.click(screen.getByTestId("tab-image-to-video"));
++    expect(screen.getByTestId("switch-review-storyboard")).toBeTruthy();
++    await user.click(screen.getByTestId("tab-slideshow"));
++    expect(screen.getByTestId("text-storyboard-blurb").textContent).toContain(
++      "every photo with its own caption and length",
++    );
++    // Topic mode defaults to stock footage, which is searched rather than
++    // prompted — there is nothing to edit, so the toggle is gone.
++    await user.click(screen.getByTestId("tab-topic-to-video"));
++    expect(screen.queryByTestId("switch-review-storyboard")).toBeNull();
++    await user.click(screen.getByTestId("toggle-visuals-ai"));
++    expect(screen.getByTestId("switch-review-storyboard")).toBeTruthy();
++  });
++
++  it("prices the shot count and sends it with a text-to-video job", async () => {
++    renderPage();
++    const user = userEvent.setup();
++    expect(screen.getByTestId("text-shot-cost").textContent).toContain("One clip, one video unit");
++    await user.click(screen.getByTestId("select-shot-count"));
++    await user.click(screen.getByTestId("option-shots-3"));
++    expect(screen.getByTestId("text-shot-cost").textContent).toContain("3 video units");
++    fireEvent.change(screen.getByTestId("input-video-prompt"), {
++      target: { value: "A calm ocean at dusk" },
++    });
++    fireEvent.click(screen.getByTestId("button-generate-video"));
++    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
++    expect(mockState.lastGenerateVars.data).toMatchObject({
++      engine: "text_to_video",
++      shotCount: 3,
++      reviewStoryboard: true,
++    });
++  });
++
++  it("keeps the shots picker off engines that cannot split shots", async () => {
++    renderPage();
++    const user = userEvent.setup();
++    expect(screen.getByTestId("select-shot-count")).toBeTruthy();
++    await user.click(screen.getByTestId("tab-slideshow"));
++    expect(screen.queryByTestId("select-shot-count")).toBeNull();
++  });
++
++  it("opens a paused plan in a dialog the user can reopen", async () => {
++    mockState.activeJob = pausedJob(clipBoard("prompt"));
++    mockState.jobs = [mockState.activeJob];
++    renderPage();
++    fireEvent.click(screen.getByTestId("job-card-11"));
++    // The plan announces itself: the dialog is open without being asked for.
++    await waitFor(() => expect(screen.getByTestId("storyboard-review")).toBeTruthy());
++    expect(screen.getByTestId("text-storyboard-summary").textContent).toContain("2 shots");
++    // And it can be got back after a dismissal.
++    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
++    await waitFor(() => expect(screen.queryByTestId("storyboard-review")).toBeNull());
++    fireEvent.click(screen.getByTestId("button-open-storyboard"));
++    await waitFor(() => expect(screen.getByTestId("storyboard-review")).toBeTruthy());
++  });
++
++  it("lets a shot's length be edited, and hides redraw on the user's own photos", async () => {
++    // A clip plan voices nothing, which is what frees the timeline.
++    mockState.activeJob = pausedJob(clipBoard("slide"));
++    mockState.jobs = [mockState.activeJob];
++    renderPage();
++    fireEvent.click(screen.getByTestId("job-card-11"));
++    await waitFor(() => expect(screen.getByTestId("storyboard-review")).toBeTruthy());
++    expect(screen.getByTestId("select-length-s1")).toBeTruthy();
++    // The preview is the upload itself, so there is nothing to redraw.
++    expect(screen.queryByTestId("button-redraw-s1")).toBeNull();
++    expect(screen.queryByTestId("text-rolls-left")).toBeNull();
++  });
++
++  it("pins lengths to the recording on a narrated plan", async () => {
++    mockState.activeJob = pausedJob(narratedBoard());
++    mockState.jobs = [mockState.activeJob];
++    renderPage();
++    fireEvent.click(screen.getByTestId("job-card-11"));
++    await waitFor(() => expect(screen.getByTestId("storyboard-review")).toBeTruthy());
++    expect(screen.queryByTestId("select-length-s1")).toBeNull();
++    expect(screen.getByTestId("text-storyboard-summary").textContent).toContain(
++      "lengths follow the narration",
++    );
++    // Stills on a character plan were drawn, so those can be re-rolled.
++    expect(screen.getByTestId("button-redraw-s1")).toBeTruthy();
++  });
++
++  it("saves an unsaved edit before it starts the render", async () => {
++    // Typing a prompt and then watching it get filmed without is the one
++    // outcome the review step exists to prevent.
++    mockState.activeJob = pausedJob(clipBoard("prompt"));
++    mockState.jobs = [mockState.activeJob];
++    renderPage();
++    fireEvent.click(screen.getByTestId("job-card-11"));
++    await waitFor(() => expect(screen.getByTestId("storyboard-review")).toBeTruthy());
++    fireEvent.change(screen.getByTestId("input-shot-s1"), {
++      target: { value: "a slow push in on the cup" },
++    });
++    fireEvent.click(screen.getByTestId("button-approve-storyboard"));
++    await waitFor(() => expect(mockState.approvals).toEqual([11]));
++    expect(mockState.storyboardEdits).toEqual([
++      { jobId: 11, data: { scenes: [{ id: "s1", visual: "a slow push in on the cup" }] } },
++    ]);
++  });
++
+   it("falls back to a generic label when no stage is reported yet", () => {
+     mockState.activeJob = {
+       id: 9,
+diff --git a/artifacts/socialforge/src/pages/video-studio.tsx b/artifacts/socialforge/src/pages/video-studio.tsx
+index ea08462..1ced34f 100644
+--- a/artifacts/socialforge/src/pages/video-studio.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.tsx
+@@ -213,6 +213,7 @@ export function VideoStudioPage() {
+   const [stylesOpen, setStylesOpen] = useState(false);
+   const [uploading, setUploading] = useState(false);
+   const [reviewStoryboard, setReviewStoryboard] = useState(true);
++  const [shotCount, setShotCount] = useState(1);
+   const [activeJobId, setActiveJobId] = useState<number | null>(null);
+ 
+   const [saveOpen, setSaveOpen] = useState(false);
+@@ -256,16 +257,32 @@ export function VideoStudioPage() {
+     },
+   });
+ 
+-  // Announce a finished storyboard once per job. Separate from announcedRef so
+-  // pausing for review does not consume the job's settle announcement.
++  // A storyboard waiting on the user survives a reload, but activeJobId does
++  // not — so adopt the newest paused job on first load. Without this a plan the
++  // user already paid for is invisible until they think to click its card, which
++  // is exactly the "where is my storyboard?" trap.
++  const adoptedRef = useRef(false);
++  useEffect(() => {
++    if (adoptedRef.current || activeJobId !== null || !jobs) return;
++    const paused = jobs.find((job) => job.status === "awaiting_review");
++    if (!paused) return;
++    adoptedRef.current = true;
++    setActiveJobId(paused.id);
++  }, [jobs, activeJobId]);
++
++  // Announce a finished storyboard once per job, and open it. Separate from
++  // announcedRef so pausing for review does not consume the job's settle
++  // announcement.
++  const [boardOpen, setBoardOpen] = useState(false);
+   const reviewAnnouncedRef = useRef<number | null>(null);
+   useEffect(() => {
+     if (!activeJob || activeJob.status !== "awaiting_review") return;
+     if (reviewAnnouncedRef.current === activeJob.id) return;
+     reviewAnnouncedRef.current = activeJob.id;
++    setBoardOpen(true);
+     toast({
+       title: "Storyboard ready",
+-      description: "Edit any shot below, then render it. Nothing is charged until you do.",
++      description: "Edit any shot, then render it. Nothing else is charged until you do.",
+     });
+   }, [activeJob, toast]);
+ 
+@@ -402,6 +419,22 @@ export function VideoStudioPage() {
+     activeJob.id === activeJobId &&
+     (activeJob.status === "queued" || activeJob.status === "processing");
+ 
++  /** Whether this engine plans something worth looking at before it renders.
++   * Stock topic footage is searched, not prompted, so there is nothing to edit. */
++  const storyboardAvailable = engine !== "topic_to_video" || visuals !== "stock";
++
++  /** What the storyboard will show, per engine — the copy on the toggle. */
++  const storyboardBlurb =
++    engine === "slideshow"
++      ? "See every photo with its own caption and length before the video is built."
++      : engine === "image_to_video"
++        ? "Check the photo and how long it animates for before anything is generated."
++        : engine === "text_to_video"
++          ? shotCount > 1
++            ? "Read and reword every shot before any of them is generated."
++            : "Read and reword the shot before it is generated."
++          : "See every scene as a still, and reword any of them, before the video is filmed.";
++
+   /** The active job is paused on an editable plan. Not "busy" (nothing is
+    * running) but still unfinished, so it blocks starting another video. */
+   const reviewing =
+@@ -450,11 +483,10 @@ export function VideoStudioPage() {
+               : null,
+           brandKitId: engine === "topic_to_video" ? brandKitId : null,
+           styleProfileId: engine === "topic_to_video" ? styleProfileId : null,
+-          // Only topic mode with generated visuals has prompts to review; the
+-          // server ignores the flag everywhere else, but sending false keeps
+-          // the intent honest.
+-          reviewStoryboard:
+-            engine === "topic_to_video" && visuals !== "stock" ? reviewStoryboard : false,
++          shotCount: engine === "text_to_video" ? shotCount : 1,
++          // Every engine reviews except topic mode's stock branch, whose
++          // visuals are searched rather than prompted.
++          reviewStoryboard: storyboardAvailable ? reviewStoryboard : false,
+         },
+       },
+       {
+@@ -1134,7 +1166,30 @@ export function VideoStudioPage() {
+             </div>
+           )}
+ 
+-          {engine === "topic_to_video" && visuals !== "stock" && (
++          {engine === "text_to_video" && (
++            <div className="space-y-2">
++              <Label htmlFor="shot-count">Shots</Label>
++              <Select value={String(shotCount)} onValueChange={(v) => setShotCount(Number(v))}>
++                <SelectTrigger id="shot-count" className="w-full" data-testid="select-shot-count">
++                  <SelectValue />
++                </SelectTrigger>
++                <SelectContent>
++                  {[1, 2, 3, 4, 5].map((n) => (
++                    <SelectItem key={n} value={String(n)} data-testid={`option-shots-${n}`}>
++                      {n === 1 ? "1 shot — one continuous take" : `${n} shots — cut together`}
++                    </SelectItem>
++                  ))}
++                </SelectContent>
++              </Select>
++              <p className="text-xs text-muted-foreground" data-testid="text-shot-cost">
++                {shotCount === 1
++                  ? "One clip, one video unit."
++                  : `${shotCount} clips joined into one video — ${shotCount} video units.`}
++              </p>
++            </div>
++          )}
++
++          {storyboardAvailable && (
+             <div className="space-y-2">
+               <Label htmlFor="review-storyboard">Storyboard</Label>
+               <div className="flex items-start gap-3 border border-border rounded-md px-3 py-2">
+@@ -1144,9 +1199,8 @@ export function VideoStudioPage() {
+                   onCheckedChange={setReviewStoryboard}
+                   data-testid="switch-review-storyboard"
+                 />
+-                <span className="text-sm text-muted-foreground">
+-                  Show me each shot before rendering, so I can reword any that miss. Free — the
+-                  previews become the frames in the video.
++                <span className="text-sm text-muted-foreground" data-testid="text-storyboard-blurb">
++                  {storyboardBlurb} Free — nothing is generated twice.
+                 </span>
+               </div>
+             </div>
+@@ -1227,7 +1281,36 @@ export function VideoStudioPage() {
+               </div>
+             )}
+             {reviewing && activeJob.storyboard && (
+-              <StoryboardReview job={activeJob} storyboard={activeJob.storyboard} />
++              <>
++                <div className="flex flex-wrap items-center gap-3">
++                  <div className="flex-1 min-w-48">
++                    <p className="font-medium flex items-center gap-2">
++                      <Clapperboard className="h-4 w-4 text-primary" />
++                      Your storyboard is waiting
++                    </p>
++                    <p className="text-sm text-muted-foreground">
++                      Nothing else is charged until you render it.
++                    </p>
++                  </div>
++                  <Button
++                    variant="outline"
++                    onClick={() => setBoardOpen(true)}
++                    data-testid="button-open-storyboard"
++                  >
++                    Open storyboard
++                  </Button>
++                </div>
++                <Dialog open={boardOpen} onOpenChange={setBoardOpen}>
++                  <DialogContent className="sm:max-w-4xl max-h-[85vh] overflow-y-auto">
++                    <DialogHeader>
++                      {/* The review panel carries its own visible heading, so this
++                          one only exists to name the dialog for screen readers. */}
++                      <DialogTitle className="sr-only">Your storyboard</DialogTitle>
++                    </DialogHeader>
++                    <StoryboardReview job={activeJob} storyboard={activeJob.storyboard} />
++                  </DialogContent>
++                </Dialog>
++              </>
+             )}
+             {activeJob.status === "succeeded" && activeJob.videoPath && (
+               <div className="space-y-4">
+@@ -1478,10 +1561,59 @@ export function VideoStudioPage() {
+   );
+ }
+ 
++/** A slide crossfade overlaps its two photos, so every join costs half a second
++ * of the running total. Mirrors TRANSITION_SEC in the slideshow renderer. */
++const SLIDE_CROSSFADE_SEC = 0.5;
++
++/** Unsaved edits to one scene. Absent fields are untouched. */
++type SceneDraft = { visual?: string; durationSec?: number };
++
++/**
++ * What the finished video will run to. Mirrors the renderers: a recording wins
++ * when there is one, slides lose half a second to every crossfade, and joined
++ * clips simply add up.
++ */
++function storyboardTotalSec(storyboard: VideoStoryboard): number {
++  if (storyboard.narration) return storyboard.narration.totalDurationSec;
++  const sum = storyboard.scenes.reduce((total, scene) => total + scene.durationSec, 0);
++  if (storyboard.visualsSource !== "slide") return sum;
++  return Math.max(0, sum - Math.max(0, storyboard.scenes.length - 1) * SLIDE_CROSSFADE_SEC);
++}
++
+ /**
+- * The storyboard review step. A paused job arrives with one preview still per
+- * shot; editing a prompt is free, re-rolling a preview is free but capped, and
+- * nothing more is charged when the render finally runs.
++ * The PATCH body for one scene, or null when nothing actually changed.
++ *
++ * On a slide plan `visual` is the caption burned over the photo, so emptying it
++ * is a real edit. Everywhere else it is the generation prompt, and a prompt with
++ * nothing in it has nothing to generate — there, blank means "leave it alone".
++ */
++function sceneEdit(
++  scene: VideoStoryboardScene,
++  draft: SceneDraft | undefined,
++  slides: boolean,
++  lengthEditable: boolean,
++): SceneDraft | null {
++  const edit: SceneDraft = {};
++  const visual = draft?.visual?.trim();
++  if (visual != null && visual !== scene.visual && (slides || visual.length > 0)) {
++    edit.visual = visual;
++  }
++  if (lengthEditable && draft?.durationSec != null && draft.durationSec !== scene.durationSec) {
++    edit.durationSec = draft.durationSec;
++  }
++  return Object.keys(edit).length > 0 ? edit : null;
++}
++
++/**
++ * The storyboard review step. A paused job arrives with one planned shot per
++ * beat; editing is free, re-rolling a preview is free but capped, and nothing
++ * more is charged when the render finally runs.
++ *
++ * All five plan kinds land here and they differ in what is editable. Topic plans
++ * are cut against a recording, so their text is narration and their lengths are
++ * pinned to it; the other engines voice nothing, which is what frees the
++ * timeline. Only generated stills can be redrawn — "photo" and "slide" previews
++ * are the user's own uploads, and a "prompt" shot list has no still at all.
+  */
+ function StoryboardReview({
+   job,
+@@ -1492,8 +1624,8 @@ function StoryboardReview({
+ }) {
+   const { toast } = useToast();
+   const queryClient = useQueryClient();
+-  /** Local text per scene, so typing doesn't round-trip on every keystroke. */
+-  const [drafts, setDrafts] = useState<Record<string, string>>({});
++  /** Local edits per scene, so typing doesn't round-trip on every keystroke. */
++  const [drafts, setDrafts] = useState<Record<string, SceneDraft>>({});
+   const [rollingScene, setRollingScene] = useState<string | null>(null);
+ 
+   const update = useUpdateVideoStoryboard();
+@@ -1512,14 +1644,43 @@ function StoryboardReview({
+       variant: "destructive",
+     });
+ 
++  const source = storyboard.visualsSource;
++  /** Slide plans caption a photo rather than prompt for one. */
++  const slides = source === "slide";
++  /** Only generated stills can be redrawn; the rest are the user's own photos. */
++  const drawn = source === "character" || source === "ai";
++  /** A prompt plan is a shot list — there is no frame to show at all. */
++  const framed = source !== "prompt";
++  /** The range a length may be edited into. The server sends none when the
++   * timeline is locked to a recording, and none on plans stored before lengths
++   * were editable — either way there is nothing to offer. */
++  const bounds = storyboard.durationBounds ?? null;
++  /** Whole-second choices, so a length is picked rather than typed and parsed. */
++  const lengths = bounds
++    ? Array.from(
++        { length: Math.max(1, Math.floor(bounds.maxSec) - Math.ceil(bounds.minSec) + 1) },
++        (_, i) => Math.ceil(bounds.minSec) + i,
++      )
++    : [];
++
+   const rollsLeft = Math.max(0, storyboard.scenes.length * 2 - storyboard.regenerations);
+-  const totalSec = Math.round(storyboard.narration.totalDurationSec);
++  const totalSec = Math.round(storyboardTotalSec(storyboard));
+   const workingOn = update.isPending || approve.isPending || discard.isPending;
+-
+-  /** Push a scene's edited prompt, then optionally re-roll its preview. */
++  const count = storyboard.scenes.length;
++
++  const blurb = storyboard.narration
++    ? `${count} shots · ${totalSec}s narrated. Reword any shot, then render. Shot lengths follow the narration, so they are fixed.`
++    : slides
++      ? `${count} ${count === 1 ? "photo" : "photos"} · about ${totalSec}s. Edit any caption and how long its photo holds, then render.`
++      : source === "photo"
++        ? `Your photo, about ${totalSec}s. Say what it should do and how long it animates, then render.`
++        : `${count} ${count === 1 ? "shot" : "shots"} · about ${totalSec}s. Reword any shot${
++            lengths.length > 1 ? " and how long it runs" : ""
++          }, then render. Nothing is generated until you do.`;
++
++  /** Push one scene's edits, then optionally re-roll its preview. */
+   const saveScene = (scene: VideoStoryboardScene, thenRoll: boolean) => {
+-    const draft = (drafts[scene.id] ?? scene.visual).trim();
+-    const changed = draft.length > 0 && draft !== scene.visual;
++    const edit = sceneEdit(scene, drafts[scene.id], slides, lengths.length > 1);
+     const roll = () => {
+       if (!thenRoll) return;
+       setRollingScene(scene.id);
+@@ -1532,12 +1693,12 @@ function StoryboardReview({
+         },
+       );
+     };
+-    if (!changed) {
++    if (!edit) {
+       roll();
+       return;
+     }
+     update.mutate(
+-      { jobId: job.id, data: { scenes: [{ id: scene.id, visual: draft }] } },
++      { jobId: job.id, data: { scenes: [{ id: scene.id, ...edit }] } },
+       {
+         onSuccess: (updated) => {
+           settle(updated);
+@@ -1552,6 +1713,36 @@ function StoryboardReview({
+     );
+   };
+ 
++  /** Render, flushing every unsaved edit first. A prompt the user typed and then
++   * watched get filmed without is the one outcome this whole step exists to
++   * prevent, so Render never means "discard what is on screen". */
++  const renderNow = () => {
++    const scenes = storyboard.scenes.flatMap((scene) => {
++      const edit = sceneEdit(scene, drafts[scene.id], slides, lengths.length > 1);
++      return edit ? [{ id: scene.id, ...edit }] : [];
++    });
++    const start = () =>
++      approve.mutate(
++        { jobId: job.id },
++        { onSuccess: settle, onError: fail("Could not start rendering") },
++      );
++    if (scenes.length === 0) {
++      start();
++      return;
++    }
++    update.mutate(
++      { jobId: job.id, data: { scenes } },
++      {
++        onSuccess: (updated) => {
++          settle(updated);
++          setDrafts({});
++          start();
++        },
++        onError: fail("Could not save your edits"),
++      },
++    );
++  };
++
+   return (
+     <div className="space-y-4" data-testid="storyboard-review">
+       <div className="flex flex-wrap items-start justify-between gap-3">
+@@ -1560,20 +1751,26 @@ function StoryboardReview({
+             <Clapperboard className="h-4 w-4 text-primary" />
+             Your storyboard is ready
+           </p>
+-          <p className="text-sm text-muted-foreground">
+-            {storyboard.scenes.length} shots · {totalSec}s narrated. Reword any shot, then render.
+-            Shot lengths follow the narration, so they are fixed.
++          <p className="text-sm text-muted-foreground" data-testid="text-storyboard-summary">
++            {blurb}
+           </p>
+         </div>
+-        <Badge variant="secondary" data-testid="text-rolls-left">
+-          {rollsLeft} free redraws left
+-        </Badge>
++        {drawn && (
++          <Badge variant="secondary" data-testid="text-rolls-left">
++            {rollsLeft} free redraws left
++          </Badge>
++        )}
+       </div>
+ 
+       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+         {storyboard.scenes.map((scene, i) => {
+-          const draft = drafts[scene.id] ?? scene.visual;
+-          const dirty = draft.trim() !== scene.visual && draft.trim().length > 0;
++          const draft = drafts[scene.id];
++          const visual = draft?.visual ?? scene.visual;
++          const seconds = Math.min(
++            Math.max(Math.round(draft?.durationSec ?? scene.durationSec), lengths[0] ?? 0),
++            lengths.at(-1) ?? 0,
++          );
++          const dirty = sceneEdit(scene, draft, slides, lengths.length > 1) !== null;
+           const rolling = rollingScene === scene.id;
+           return (
+             <div
+@@ -1581,55 +1778,108 @@ function StoryboardReview({
+               className="rounded-xl border border-border bg-muted/30 overflow-hidden flex flex-col"
+               data-testid={`storyboard-scene-${scene.id}`}
+             >
+-              <div className="aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden relative">
+-                {scene.previewPath ? (
+-                  <img
+-                    src={storageUrl(scene.previewPath)}
+-                    alt={`Shot ${i + 1} preview`}
+-                    className="h-full w-full object-cover"
+-                  />
+-                ) : (
+-                  <ImageIcon className="h-8 w-8 text-muted-foreground" />
++              {framed && (
++                <div className="aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden relative">
++                  {scene.previewPath ? (
++                    <img
++                      src={storageUrl(scene.previewPath)}
++                      alt={`Shot ${i + 1} preview`}
++                      className="h-full w-full object-cover"
++                    />
++                  ) : (
++                    <ImageIcon className="h-8 w-8 text-muted-foreground" />
++                  )}
++                  {rolling && (
++                    <div className="absolute inset-0 bg-background/70 flex items-center justify-center">
++                      <RippleSpinner className="h-6 w-6" />
++                    </div>
++                  )}
++                  <Badge className="absolute top-2 left-2" variant="secondary">
++                    {i + 1} · {Math.round(scene.durationSec)}s
++                  </Badge>
++                </div>
++              )}
++              <div className="p-3 space-y-2 flex flex-col flex-1">
++                {!framed && (
++                  <Badge variant="secondary" className="self-start">
++                    Shot {i + 1} · {Math.round(scene.durationSec)}s
++                  </Badge>
+                 )}
+-                {rolling && (
+-                  <div className="absolute inset-0 bg-background/70 flex items-center justify-center">
+-                    <RippleSpinner className="h-6 w-6" />
+-                  </div>
++                {scene.text.trim().length > 0 && (
++                  <p className="text-xs text-muted-foreground line-clamp-3" title={scene.text}>
++                    “{scene.text}”
++                  </p>
+                 )}
+-                <Badge className="absolute top-2 left-2" variant="secondary">
+-                  {i + 1} · {Math.round(scene.durationSec)}s
+-                </Badge>
+-              </div>
+-              <div className="p-3 space-y-2 flex flex-col flex-1">
+-                <p className="text-xs text-muted-foreground line-clamp-3" title={scene.text}>
+-                  “{scene.text}”
+-                </p>
+                 <Label htmlFor={`shot-${scene.id}`} className="sr-only">
+-                  What shot {i + 1} shows
++                  {slides
++                    ? `Caption for photo ${i + 1}`
++                    : source === "photo"
++                      ? "What the photo should do"
++                      : `What shot ${i + 1} shows`}
+                 </Label>
+                 <Textarea
+                   id={`shot-${scene.id}`}
+                   rows={3}
+                   maxLength={1000}
+-                  value={draft}
++                  value={visual}
++                  placeholder={slides ? "No caption" : undefined}
+                   onChange={(e) =>
+-                    setDrafts((d) => ({ ...d, [scene.id]: e.target.value }))
++                    setDrafts((d) => ({
++                      ...d,
++                      [scene.id]: { ...d[scene.id], visual: e.target.value },
++                    }))
+                   }
+                   className="text-sm resize-none"
+                   data-testid={`input-shot-${scene.id}`}
+                 />
++                {lengths.length > 1 && (
++                  <div className="flex items-center gap-2">
++                    <Label
++                      htmlFor={`length-${scene.id}`}
++                      className="text-xs text-muted-foreground shrink-0"
++                    >
++                      {slides ? "Holds for" : "Runs for"}
++                    </Label>
++                    <Select
++                      value={String(seconds)}
++                      onValueChange={(v) =>
++                        setDrafts((d) => ({
++                          ...d,
++                          [scene.id]: { ...d[scene.id], durationSec: Number(v) },
++                        }))
++                      }
++                    >
++                      <SelectTrigger
++                        id={`length-${scene.id}`}
++                        className="h-8 flex-1"
++                        data-testid={`select-length-${scene.id}`}
++                      >
++                        <SelectValue />
++                      </SelectTrigger>
++                      <SelectContent>
++                        {lengths.map((n) => (
++                          <SelectItem key={n} value={String(n)}>
++                            {n}s
++                          </SelectItem>
++                        ))}
++                      </SelectContent>
++                    </Select>
++                  </div>
++                )}
+                 <div className="flex gap-2 mt-auto">
+-                  <Button
+-                    size="sm"
+-                    variant="outline"
+-                    className="flex-1"
+-                    disabled={rolling || workingOn || (rollsLeft === 0 && !dirty)}
+-                    onClick={() => saveScene(scene, true)}
+-                    data-testid={`button-redraw-${scene.id}`}
+-                  >
+-                    <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+-                    {rolling ? "Redrawing…" : "Redraw"}
+-                  </Button>
++                  {drawn && (
++                    <Button
++                      size="sm"
++                      variant="outline"
++                      className="flex-1"
++                      disabled={rolling || workingOn || (rollsLeft === 0 && !dirty)}
++                      onClick={() => saveScene(scene, true)}
++                      data-testid={`button-redraw-${scene.id}`}
++                    >
++                      <Sparkles className="h-3.5 w-3.5 mr-1.5" />
++                      {rolling ? "Redrawing…" : "Redraw"}
++                    </Button>
++                  )}
+                   {dirty && (
+                     <Button
+                       size="sm"
+@@ -1651,15 +1901,7 @@ function StoryboardReview({
+       <div className="flex flex-wrap items-center gap-2">
+         <Button
+           disabled={workingOn || rollingScene !== null}
+-          onClick={() =>
+-            approve.mutate(
+-              { jobId: job.id },
+-              {
+-                onSuccess: settle,
+-                onError: fail("Could not start rendering"),
+-              },
+-            )
+-          }
++          onClick={renderNow}
+           data-testid="button-approve-storyboard"
+         >
+           {approve.isPending ? (
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index 0d5f23f..4286663 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -2578,6 +2578,12 @@ export interface VideoGenerateRequest {
+      * @maximum 10
+      */
+   durationSec?: number;
++  /**
++     * text_to_video only; how many shots the brief is split into. Each shot is its own AI clip and they are joined into one video, so this is also what the job costs in video units. It is fixed here at enqueue time — the storyboard editor rewords shots but never adds or removes one.
++     * @minimum 1
++     * @maximum 5
++     */
++  shotCount?: number;
+   /**
+      * Slideshow only; seconds each photo is on screen.
+      * @minimum 1
+@@ -2643,21 +2649,21 @@ export interface VideoGenerateRequest {
+      * @nullable
+      */
+   wardrobeNotes?: string | null;
+-  /** Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by topic_to_video with generated visuals (visualsSource "character" or "ai"); other engines have nothing promptable to review and ignore it. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST .../storyboard/approve to render it. */
++  /** Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by every engine except topic_to_video's stock branch, whose visuals are searched rather than prompted. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST .../storyboard/approve to render it. */
+   reviewStoryboard?: boolean;
+ }
+ 
+ export interface VideoStoryboardScene {
+   /** Stable scene address for edits ("s1", "s2", ...). */
+   id: string;
+-  /** The narration this scene plays under. Read-only: it comes from audio that has already been recorded. */
++  /** The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script. */
+   text: string;
+-  /** The image/video prompt for this scene. This is editable. */
++  /** What this beat shows, and the field you edit. A generation prompt on every plan except "slide", where it is the caption burned over that photo (empty for no caption). */
+   visual: string;
+-  /** Seconds on screen. Read-only while the parent storyboard is timelineLocked. */
++  /** Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan's durationBounds. */
+   durationSec: number;
+   /**
+-     * /objects/... preview still; serve via /api/storage{previewPath}. Null only when the preview failed to store.
++     * /objects/... preview still; serve via /api/storage{previewPath}. Null when the preview failed to store, and on "prompt" plans, which generate no still at all. On "photo" and "slide" plans this is the user's own uploaded photo.
+      * @nullable
+      */
+   previewPath: string | null;
+@@ -2675,38 +2681,67 @@ export const VideoStoryboardVersion = {
+   NUMBER_1: 1,
+ } as const;
+ 
++/**
++ * Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene and "ai" encodes a generated still per scene — both have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled.
++ */
+ export type VideoStoryboardVisualsSource = typeof VideoStoryboardVisualsSource[keyof typeof VideoStoryboardVisualsSource];
+ 
+ 
+ export const VideoStoryboardVisualsSource = {
+   character: 'character',
+   ai: 'ai',
++  prompt: 'prompt',
++  photo: 'photo',
++  slide: 'slide',
+ } as const;
+ 
++/**
++ * The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.
++ * @nullable
++ */
++export type VideoStoryboardDurationBounds = {
++  minSec: number;
++  maxSec: number;
++} | null;
++
+ export type VideoStoryboardNarrationCuesItem = {
+   text: string;
+   startSec: number;
+   endSec: number;
+ };
+ 
++/**
++ * The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.
++ * @nullable
++ */
+ export type VideoStoryboardNarration = {
+   audioPath: string;
+   totalDurationSec: number;
+   /** Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them. */
+   cues: VideoStoryboardNarrationCuesItem[];
+-};
++} | null;
+ 
+ export interface VideoStoryboard {
+   version: VideoStoryboardVersion;
++  /** Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene and "ai" encodes a generated still per scene — both have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled. */
+   visualsSource: VideoStoryboardVisualsSource;
+   /** True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio. */
+   timelineLocked: boolean;
++  /**
++     * The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.
++     * @nullable
++     */
++  durationBounds?: VideoStoryboardDurationBounds;
+   /** @nullable */
+   model?: string | null;
+   /** @nullable */
+   provider?: string | null;
+   /** Preview regenerations spent so far; capped server-side. */
+   regenerations: number;
++  /**
++     * The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.
++     * @nullable
++     */
+   narration: VideoStoryboardNarration;
+   scenes: VideoStoryboardScene[];
+ }
+@@ -2714,12 +2749,12 @@ export interface VideoStoryboard {
+ export type UpdateStoryboardRequestScenesItem = {
+   id: string;
+   /**
+-     * @minLength 1
++     * The prompt for this scene, or its caption on a "slide" plan — where an empty string is meaningful and clears the caption. On every other plan an empty value leaves the prompt alone, because a scene with no prompt has nothing to generate.
+      * @maxLength 1000
+      */
+   visual?: string;
+   /**
+-     * Rejected while the storyboard is timelineLocked.
++     * Rejected while the storyboard is timelineLocked, and clamped into the plan's durationBounds otherwise.
+      * @minimum 1
+      * @maximum 20
+      */
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index e8257e6..c5cfd87 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -10463,6 +10463,17 @@ components:
+           maximum: 10
+           default: 5
+           description: AI engines only; providers clamp to what they support.
++        shotCount:
++          type: integer
++          minimum: 1
++          maximum: 5
++          default: 1
++          description: >-
++            text_to_video only; how many shots the brief is split into. Each
++            shot is its own AI clip and they are joined into one video, so this
++            is also what the job costs in video units. It is fixed here at
++            enqueue time — the storyboard editor rewords shots but never adds
++            or removes one.
+         slideDurationSec:
+           type: integer
+           minimum: 1
+@@ -10559,11 +10570,10 @@ components:
+           default: true
+           description: >-
+             Pause after planning so the storyboard can be edited before the
+-            expensive half runs. Honoured by topic_to_video with generated
+-            visuals (visualsSource "character" or "ai"); other engines have
+-            nothing promptable to review and ignore it. The job lands in
+-            awaiting_review with a storyboard; PATCH the scenes, then POST
+-            .../storyboard/approve to render it.
++            expensive half runs. Honoured by every engine except
++            topic_to_video's stock branch, whose visuals are searched rather
++            than prompted. The job lands in awaiting_review with a storyboard;
++            PATCH the scenes, then POST .../storyboard/approve to render it.
+     VideoStoryboardScene:
+       type: object
+       required: [id, text, visual, durationSec, previewPath, outfitId]
+@@ -10575,20 +10585,26 @@ components:
+           type: string
+           description: >-
+             The narration this scene plays under. Read-only: it comes from
+-            audio that has already been recorded.
++            audio that has already been recorded. Empty on the engines that
++            voice no script.
+         visual:
+           type: string
+-          description: The image/video prompt for this scene. This is editable.
++          description: >-
++            What this beat shows, and the field you edit. A generation prompt on
++            every plan except "slide", where it is the caption burned over that
++            photo (empty for no caption).
+         durationSec:
+           type: number
+           description: >-
+             Seconds on screen. Read-only while the parent storyboard is
+-            timelineLocked.
++            timelineLocked; otherwise editable within the plan's durationBounds.
+         previewPath:
+           type: ["string", "null"]
+           description: >-
+             /objects/... preview still; serve via /api/storage{previewPath}.
+-            Null only when the preview failed to store.
++            Null when the preview failed to store, and on "prompt" plans, which
++            generate no still at all. On "photo" and "slide" plans this is the
++            user's own uploaded photo.
+         outfitId:
+           type: ["integer", "null"]
+           description: Character mode; the outfit worn in this scene.
+@@ -10602,13 +10618,31 @@ components:
+           enum: [1]
+         visualsSource:
+           type: string
+-          enum: [character, ai]
++          enum: [character, ai, prompt, photo, slide]
++          description: >-
++            Which pipeline renders these scenes, and therefore what is editable.
++            "character" animates a generated keyframe per scene and "ai" encodes
++            a generated still per scene — both have re-rollable previews.
++            "prompt" is a text_to_video shot list with no stills. "photo" and
++            "slide" show the user's own uploaded photos, so their previews cost
++            nothing and cannot be re-rolled.
+         timelineLocked:
+           type: boolean
+           description: >-
+             True when scene lengths are dictated by narration that has already
+             been recorded, which makes durationSec read-only — editing one
+             would desync every later scene from the audio.
++        durationBounds:
++          type: ["object", "null"]
++          required: [minSec, maxSec]
++          description: >-
++            The range a scene length may be edited into. Null when the timeline
++            is locked, and on plans stored before lengths were editable.
++          properties:
++            minSec:
++              type: number
++            maxSec:
++              type: number
+         model:
+           type: ["string", "null"]
+         provider:
+@@ -10617,8 +10651,11 @@ components:
+           type: integer
+           description: Preview regenerations spent so far; capped server-side.
+         narration:
+-          type: object
++          type: ["object", "null"]
+           required: [audioPath, totalDurationSec, cues]
++          description: >-
++            The recording the scenes are cut against. Null on the engines that
++            voice no script, which is also what frees their timeline.
+           properties:
+             audioPath:
+               type: string
+@@ -10663,13 +10700,19 @@ components:
+                 type: string
+               visual:
+                 type: string
+-                minLength: 1
+                 maxLength: 1000
++                description: >-
++                  The prompt for this scene, or its caption on a "slide" plan —
++                  where an empty string is meaningful and clears the caption.
++                  On every other plan an empty value leaves the prompt alone,
++                  because a scene with no prompt has nothing to generate.
+               durationSec:
+                 type: number
+                 minimum: 1
+                 maximum: 20
+-                description: Rejected while the storyboard is timelineLocked.
++                description: >-
++                  Rejected while the storyboard is timelineLocked, and clamped
++                  into the plan's durationBounds otherwise.
+     VideoJob:
+       type: object
+       required:
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index b12f2b6..41d976e 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -5160,6 +5160,9 @@ export const generateVideoBodyDurationSecDefault = 5;
+ export const generateVideoBodyDurationSecMin = 3;
+ export const generateVideoBodyDurationSecMax = 10;
+ 
++export const generateVideoBodyShotCountDefault = 1;
++export const generateVideoBodyShotCountMax = 5;
++
+ export const generateVideoBodySlideDurationSecDefault = 3;
+ export const generateVideoBodySlideDurationSecMax = 10;
+ 
+@@ -5185,6 +5188,7 @@ export const GenerateVideoBody = zod.object({
+   "sourceImagePaths": zod.array(zod.string()).max(generateVideoBodySourceImagePathsMax).nullish().describe('Ordered \/objects\/... photo paths. image_to_video animates the first; slideshow uses all of them in order.'),
+   "aspectRatio": zod.enum(['16:9', '9:16', '1:1']).default(generateVideoBodyAspectRatioDefault),
+   "durationSec": zod.number().min(generateVideoBodyDurationSecMin).max(generateVideoBodyDurationSecMax).default(generateVideoBodyDurationSecDefault).describe('AI engines only; providers clamp to what they support.'),
++  "shotCount": zod.number().min(1).max(generateVideoBodyShotCountMax).default(generateVideoBodyShotCountDefault).describe('text_to_video only; how many shots the brief is split into. Each shot is its own AI clip and they are joined into one video, so this is also what the job costs in video units. It is fixed here at enqueue time — the storyboard editor rewords shots but never adds or removes one.'),
+   "slideDurationSec": zod.number().min(1).max(generateVideoBodySlideDurationSecMax).default(generateVideoBodySlideDurationSecDefault).describe('Slideshow only; seconds each photo is on screen.'),
+   "overlayText": zod.string().max(generateVideoBodyOverlayTextMax).nullish().describe('Slideshow only; caption burned into the video.'),
+   "musicPath": zod.string().nullish().describe('Slideshow and topic_to_video; \/objects\/... path of an uploaded music track, faded out at the end of the video.'),
+@@ -5200,7 +5204,7 @@ export const GenerateVideoBody = zod.object({
+   "brandKitId": zod.number().nullish().describe('topic_to_video only; apply this brand kit — its voice steers the script, its primary color tints the caption stroke, and its logo is watermarked top-right.'),
+   "styleProfileId": zod.number().nullish().describe('topic_to_video only; write and cut the video like the reference video this saved style profile was analyzed from (hook shape, pacing, caption treatment).'),
+   "wardrobeNotes": zod.string().max(generateVideoBodyWardrobeNotesMax).nullish().describe('topic_to_video character mode; costume-change instructions (e.g. \"switch to gym wear for the workout scenes\").'),
+-  "reviewStoryboard": zod.boolean().default(generateVideoBodyReviewStoryboardDefault).describe('Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by topic_to_video with generated visuals (visualsSource \"character\" or \"ai\"); other engines have nothing promptable to review and ignore it. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST ...\/storyboard\/approve to render it.')
++  "reviewStoryboard": zod.boolean().default(generateVideoBodyReviewStoryboardDefault).describe('Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by every engine except topic_to_video\'s stock branch, whose visuals are searched rather than prompted. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST ...\/storyboard\/approve to render it.')
+ })
+ 
+ export const GenerateVideoResponse = zod.object({
+@@ -5219,8 +5223,12 @@ export const GenerateVideoResponse = zod.object({
+   "durationMs": zod.number().nullish(),
+   "storyboard": zod.union([zod.object({
+   "version": zod.literal(1),
+-  "visualsSource": zod.enum(['character', 'ai']),
++  "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
+   "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
++  "durationBounds": zod.object({
++  "minSec": zod.number(),
++  "maxSec": zod.number()
++}).nullish().describe('The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.'),
+   "model": zod.string().nullish(),
+   "provider": zod.string().nullish(),
+   "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+@@ -5232,13 +5240,13 @@ export const GenerateVideoResponse = zod.object({
+   "startSec": zod.number(),
+   "endSec": zod.number()
+ })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+-}),
++}).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.'),
+   "scenes": zod.array(zod.object({
+   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+-  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded.'),
+-  "visual": zod.string().describe('The image\/video prompt for this scene. This is editable.'),
+-  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked.'),
+-  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null only when the preview failed to store.'),
++  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script.'),
++  "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
++  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
++  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
+ }))
+ }),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+@@ -5315,8 +5323,12 @@ export const ListVideoJobsResponseItem = zod.object({
+   "durationMs": zod.number().nullish(),
+   "storyboard": zod.union([zod.object({
+   "version": zod.literal(1),
+-  "visualsSource": zod.enum(['character', 'ai']),
++  "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
+   "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
++  "durationBounds": zod.object({
++  "minSec": zod.number(),
++  "maxSec": zod.number()
++}).nullish().describe('The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.'),
+   "model": zod.string().nullish(),
+   "provider": zod.string().nullish(),
+   "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+@@ -5328,13 +5340,13 @@ export const ListVideoJobsResponseItem = zod.object({
+   "startSec": zod.number(),
+   "endSec": zod.number()
+ })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+-}),
++}).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.'),
+   "scenes": zod.array(zod.object({
+   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+-  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded.'),
+-  "visual": zod.string().describe('The image\/video prompt for this scene. This is editable.'),
+-  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked.'),
+-  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null only when the preview failed to store.'),
++  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script.'),
++  "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
++  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
++  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
+ }))
+ }),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+@@ -5368,8 +5380,12 @@ export const GetVideoJobResponse = zod.object({
+   "durationMs": zod.number().nullish(),
+   "storyboard": zod.union([zod.object({
+   "version": zod.literal(1),
+-  "visualsSource": zod.enum(['character', 'ai']),
++  "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
+   "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
++  "durationBounds": zod.object({
++  "minSec": zod.number(),
++  "maxSec": zod.number()
++}).nullish().describe('The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.'),
+   "model": zod.string().nullish(),
+   "provider": zod.string().nullish(),
+   "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+@@ -5381,13 +5397,13 @@ export const GetVideoJobResponse = zod.object({
+   "startSec": zod.number(),
+   "endSec": zod.number()
+ })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+-}),
++}).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.'),
+   "scenes": zod.array(zod.object({
+   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+-  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded.'),
+-  "visual": zod.string().describe('The image\/video prompt for this scene. This is editable.'),
+-  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked.'),
+-  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null only when the preview failed to store.'),
++  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script.'),
++  "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
++  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
++  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
+ }))
+ }),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+@@ -5416,8 +5432,8 @@ export const updateVideoStoryboardBodyScenesMax = 24;
+ export const UpdateVideoStoryboardBody = zod.object({
+   "scenes": zod.array(zod.object({
+   "id": zod.string(),
+-  "visual": zod.string().min(1).max(updateVideoStoryboardBodyScenesItemVisualMax).optional(),
+-  "durationSec": zod.number().min(1).max(updateVideoStoryboardBodyScenesItemDurationSecMax).optional().describe('Rejected while the storyboard is timelineLocked.')
++  "visual": zod.string().max(updateVideoStoryboardBodyScenesItemVisualMax).optional().describe('The prompt for this scene, or its caption on a \"slide\" plan — where an empty string is meaningful and clears the caption. On every other plan an empty value leaves the prompt alone, because a scene with no prompt has nothing to generate.'),
++  "durationSec": zod.number().min(1).max(updateVideoStoryboardBodyScenesItemDurationSecMax).optional().describe('Rejected while the storyboard is timelineLocked, and clamped into the plan\'s durationBounds otherwise.')
+ })).min(1).max(updateVideoStoryboardBodyScenesMax).describe('Scenes to edit, addressed by id. Only the fields you send change; unlisted scenes are untouched. Never accepts image paths — a preview is replaced by regenerating it, not by pointing at a file.')
+ })
+ 
+@@ -5437,8 +5453,12 @@ export const UpdateVideoStoryboardResponse = zod.object({
+   "durationMs": zod.number().nullish(),
+   "storyboard": zod.union([zod.object({
+   "version": zod.literal(1),
+-  "visualsSource": zod.enum(['character', 'ai']),
++  "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
+   "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
++  "durationBounds": zod.object({
++  "minSec": zod.number(),
++  "maxSec": zod.number()
++}).nullish().describe('The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.'),
+   "model": zod.string().nullish(),
+   "provider": zod.string().nullish(),
+   "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+@@ -5450,13 +5470,13 @@ export const UpdateVideoStoryboardResponse = zod.object({
+   "startSec": zod.number(),
+   "endSec": zod.number()
+ })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+-}),
++}).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.'),
+   "scenes": zod.array(zod.object({
+   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+-  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded.'),
+-  "visual": zod.string().describe('The image\/video prompt for this scene. This is editable.'),
+-  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked.'),
+-  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null only when the preview failed to store.'),
++  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script.'),
++  "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
++  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
++  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
+ }))
+ }),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+@@ -5491,8 +5511,12 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
+   "durationMs": zod.number().nullish(),
+   "storyboard": zod.union([zod.object({
+   "version": zod.literal(1),
+-  "visualsSource": zod.enum(['character', 'ai']),
++  "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
+   "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
++  "durationBounds": zod.object({
++  "minSec": zod.number(),
++  "maxSec": zod.number()
++}).nullish().describe('The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.'),
+   "model": zod.string().nullish(),
+   "provider": zod.string().nullish(),
+   "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+@@ -5504,13 +5528,13 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
+   "startSec": zod.number(),
+   "endSec": zod.number()
+ })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+-}),
++}).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.'),
+   "scenes": zod.array(zod.object({
+   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+-  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded.'),
+-  "visual": zod.string().describe('The image\/video prompt for this scene. This is editable.'),
+-  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked.'),
+-  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null only when the preview failed to store.'),
++  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script.'),
++  "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
++  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
++  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
+ }))
+ }),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+@@ -5544,8 +5568,12 @@ export const ApproveVideoStoryboardResponse = zod.object({
+   "durationMs": zod.number().nullish(),
+   "storyboard": zod.union([zod.object({
+   "version": zod.literal(1),
+-  "visualsSource": zod.enum(['character', 'ai']),
++  "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
+   "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
++  "durationBounds": zod.object({
++  "minSec": zod.number(),
++  "maxSec": zod.number()
++}).nullish().describe('The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.'),
+   "model": zod.string().nullish(),
+   "provider": zod.string().nullish(),
+   "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+@@ -5557,13 +5585,13 @@ export const ApproveVideoStoryboardResponse = zod.object({
+   "startSec": zod.number(),
+   "endSec": zod.number()
+ })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+-}),
++}).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.'),
+   "scenes": zod.array(zod.object({
+   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+-  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded.'),
+-  "visual": zod.string().describe('The image\/video prompt for this scene. This is editable.'),
+-  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked.'),
+-  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null only when the preview failed to store.'),
++  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script.'),
++  "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
++  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
++  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
+ }))
+ }),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+@@ -5596,8 +5624,12 @@ export const DiscardVideoStoryboardResponse = zod.object({
+   "durationMs": zod.number().nullish(),
+   "storyboard": zod.union([zod.object({
+   "version": zod.literal(1),
+-  "visualsSource": zod.enum(['character', 'ai']),
++  "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
+   "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
++  "durationBounds": zod.object({
++  "minSec": zod.number(),
++  "maxSec": zod.number()
++}).nullish().describe('The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.'),
+   "model": zod.string().nullish(),
+   "provider": zod.string().nullish(),
+   "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+@@ -5609,13 +5641,13 @@ export const DiscardVideoStoryboardResponse = zod.object({
+   "startSec": zod.number(),
+   "endSec": zod.number()
+ })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+-}),
++}).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.'),
+   "scenes": zod.array(zod.object({
+   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+-  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded.'),
+-  "visual": zod.string().describe('The image\/video prompt for this scene. This is editable.'),
+-  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked.'),
+-  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null only when the preview failed to store.'),
++  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script.'),
++  "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
++  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
++  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
+ }))
+ }),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+diff --git a/lib/api-zod/src/generated/types/index.ts b/lib/api-zod/src/generated/types/index.ts
+index 76cce3c..d8c8066 100644
+--- a/lib/api-zod/src/generated/types/index.ts
++++ b/lib/api-zod/src/generated/types/index.ts
+@@ -440,6 +440,7 @@ export * from './videoJob';
+ export * from './videoJobEngine';
+ export * from './videoJobStatus';
+ export * from './videoStoryboard';
++export * from './videoStoryboardDurationBounds';
+ export * from './videoStoryboardNarration';
+ export * from './videoStoryboardNarrationCuesItem';
+ export * from './videoStoryboardScene';
+diff --git a/lib/api-zod/src/generated/types/updateStoryboardRequestScenesItem.ts b/lib/api-zod/src/generated/types/updateStoryboardRequestScenesItem.ts
+index ff2e480..a7ce846 100644
+--- a/lib/api-zod/src/generated/types/updateStoryboardRequestScenesItem.ts
++++ b/lib/api-zod/src/generated/types/updateStoryboardRequestScenesItem.ts
+@@ -9,12 +9,12 @@
+ export type UpdateStoryboardRequestScenesItem = {
+   id: string;
+   /**
+-     * @minLength 1
++     * The prompt for this scene, or its caption on a "slide" plan — where an empty string is meaningful and clears the caption. On every other plan an empty value leaves the prompt alone, because a scene with no prompt has nothing to generate.
+      * @maxLength 1000
+      */
+   visual?: string;
+   /**
+-     * Rejected while the storyboard is timelineLocked.
++     * Rejected while the storyboard is timelineLocked, and clamped into the plan's durationBounds otherwise.
+      * @minimum 1
+      * @maximum 20
+      */
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequest.ts b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+index d41a97e..60796c5 100644
+--- a/lib/api-zod/src/generated/types/videoGenerateRequest.ts
++++ b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+@@ -33,6 +33,12 @@ export interface VideoGenerateRequest {
+      * @maximum 10
+      */
+   durationSec?: number;
++  /**
++     * text_to_video only; how many shots the brief is split into. Each shot is its own AI clip and they are joined into one video, so this is also what the job costs in video units. It is fixed here at enqueue time — the storyboard editor rewords shots but never adds or removes one.
++     * @minimum 1
++     * @maximum 5
++     */
++  shotCount?: number;
+   /**
+      * Slideshow only; seconds each photo is on screen.
+      * @minimum 1
+@@ -98,6 +104,6 @@ export interface VideoGenerateRequest {
+      * @nullable
+      */
+   wardrobeNotes?: string | null;
+-  /** Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by topic_to_video with generated visuals (visualsSource "character" or "ai"); other engines have nothing promptable to review and ignore it. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST .../storyboard/approve to render it. */
++  /** Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by every engine except topic_to_video's stock branch, whose visuals are searched rather than prompted. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST .../storyboard/approve to render it. */
+   reviewStoryboard?: boolean;
+ }
+diff --git a/lib/api-zod/src/generated/types/videoStoryboard.ts b/lib/api-zod/src/generated/types/videoStoryboard.ts
+index 4eb9239..e8768b3 100644
+--- a/lib/api-zod/src/generated/types/videoStoryboard.ts
++++ b/lib/api-zod/src/generated/types/videoStoryboard.ts
+@@ -5,6 +5,7 @@
+  * KOKAO API
+  * OpenAPI spec version: 0.1.0
+  */
++import type { VideoStoryboardDurationBounds } from './videoStoryboardDurationBounds';
+ import type { VideoStoryboardNarration } from './videoStoryboardNarration';
+ import type { VideoStoryboardScene } from './videoStoryboardScene';
+ import type { VideoStoryboardVersion } from './videoStoryboardVersion';
+@@ -12,15 +13,25 @@ import type { VideoStoryboardVisualsSource } from './videoStoryboardVisualsSourc
+ 
+ export interface VideoStoryboard {
+   version: VideoStoryboardVersion;
++  /** Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene and "ai" encodes a generated still per scene — both have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled. */
+   visualsSource: VideoStoryboardVisualsSource;
+   /** True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio. */
+   timelineLocked: boolean;
++  /**
++     * The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.
++     * @nullable
++     */
++  durationBounds?: VideoStoryboardDurationBounds;
+   /** @nullable */
+   model?: string | null;
+   /** @nullable */
+   provider?: string | null;
+   /** Preview regenerations spent so far; capped server-side. */
+   regenerations: number;
++  /**
++     * The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.
++     * @nullable
++     */
+   narration: VideoStoryboardNarration;
+   scenes: VideoStoryboardScene[];
+ }
+diff --git a/lib/api-zod/src/generated/types/videoStoryboardDurationBounds.ts b/lib/api-zod/src/generated/types/videoStoryboardDurationBounds.ts
+new file mode 100644
+index 0000000..dd6a7f4
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoStoryboardDurationBounds.ts
+@@ -0,0 +1,16 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++/**
++ * The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.
++ * @nullable
++ */
++export type VideoStoryboardDurationBounds = {
++  minSec: number;
++  maxSec: number;
++} | null;
+diff --git a/lib/api-zod/src/generated/types/videoStoryboardNarration.ts b/lib/api-zod/src/generated/types/videoStoryboardNarration.ts
+index 8fdf065..8476109 100644
+--- a/lib/api-zod/src/generated/types/videoStoryboardNarration.ts
++++ b/lib/api-zod/src/generated/types/videoStoryboardNarration.ts
+@@ -7,9 +7,13 @@
+  */
+ import type { VideoStoryboardNarrationCuesItem } from './videoStoryboardNarrationCuesItem';
+ 
++/**
++ * The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.
++ * @nullable
++ */
+ export type VideoStoryboardNarration = {
+   audioPath: string;
+   totalDurationSec: number;
+   /** Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them. */
+   cues: VideoStoryboardNarrationCuesItem[];
+-};
++} | null;
+diff --git a/lib/api-zod/src/generated/types/videoStoryboardScene.ts b/lib/api-zod/src/generated/types/videoStoryboardScene.ts
+index cbad7b7..8ebe87b 100644
+--- a/lib/api-zod/src/generated/types/videoStoryboardScene.ts
++++ b/lib/api-zod/src/generated/types/videoStoryboardScene.ts
+@@ -9,14 +9,14 @@
+ export interface VideoStoryboardScene {
+   /** Stable scene address for edits ("s1", "s2", ...). */
+   id: string;
+-  /** The narration this scene plays under. Read-only: it comes from audio that has already been recorded. */
++  /** The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script. */
+   text: string;
+-  /** The image/video prompt for this scene. This is editable. */
++  /** What this beat shows, and the field you edit. A generation prompt on every plan except "slide", where it is the caption burned over that photo (empty for no caption). */
+   visual: string;
+-  /** Seconds on screen. Read-only while the parent storyboard is timelineLocked. */
++  /** Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan's durationBounds. */
+   durationSec: number;
+   /**
+-     * /objects/... preview still; serve via /api/storage{previewPath}. Null only when the preview failed to store.
++     * /objects/... preview still; serve via /api/storage{previewPath}. Null when the preview failed to store, and on "prompt" plans, which generate no still at all. On "photo" and "slide" plans this is the user's own uploaded photo.
+      * @nullable
+      */
+   previewPath: string | null;
+diff --git a/lib/api-zod/src/generated/types/videoStoryboardVisualsSource.ts b/lib/api-zod/src/generated/types/videoStoryboardVisualsSource.ts
+index ed231c1..325e6b9 100644
+--- a/lib/api-zod/src/generated/types/videoStoryboardVisualsSource.ts
++++ b/lib/api-zod/src/generated/types/videoStoryboardVisualsSource.ts
+@@ -6,10 +6,16 @@
+  * OpenAPI spec version: 0.1.0
+  */
+ 
++/**
++ * Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene and "ai" encodes a generated still per scene — both have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled.
++ */
+ export type VideoStoryboardVisualsSource = typeof VideoStoryboardVisualsSource[keyof typeof VideoStoryboardVisualsSource];
+ 
+ 
+ export const VideoStoryboardVisualsSource = {
+   character: 'character',
+   ai: 'ai',
++  prompt: 'prompt',
++  photo: 'photo',
++  slide: 'slide',
+ } as const;
+diff --git a/lib/db/src/schema/videoGenerations.ts b/lib/db/src/schema/videoGenerations.ts
+index 321fce7..142b9cb 100644
+--- a/lib/db/src/schema/videoGenerations.ts
++++ b/lib/db/src/schema/videoGenerations.ts
+@@ -28,6 +28,11 @@ export interface VideoJobOptions {
+   aspectRatio: "16:9" | "9:16" | "1:1";
+   /** AI engines: requested clip length in seconds. */
+   durationSec?: number;
++  /** text_to_video: how many shots the storyboard splits the brief into. Each
++   * shot is its own AI generation, so this is also the job's unit cost — it is
++   * fixed at enqueue time (the reservation is made from it) and the storyboard
++   * editor cannot add or remove shots afterwards. */
++  shotCount?: number;
+   /** Slideshow: seconds each photo is on screen. */
+   slideDurationSec?: number;
+   /** Slideshow: optional caption burned into the video. */
+@@ -60,8 +65,8 @@ export interface VideoJobOptions {
+   /** topic_to_video: reference-derived style profile steering pacing + hook. */
+   styleProfileId?: number | null;
+   /** Pause after planning so the user can edit the storyboard before the
+-   * expensive half runs. Honoured by topic_to_video with generated visuals
+-   * (character / ai); other engines plan nothing reviewable and ignore it. */
++   * expensive half runs. Honoured by every engine except topic_to_video's stock
++   * branch, whose visuals are searched rather than prompted. */
+   reviewStoryboard?: boolean;
+ }
+ 
+@@ -71,40 +76,71 @@ export interface VideoStoryboardScene {
+   /** Stable address for edits ("s1", "s2", ...); never reused or renumbered. */
+   id: string;
+   /** The narration this scene plays under. Read-only: it comes from the voiced
+-   * audio, so changing it would desync the timeline from the recording. */
++   * audio, so changing it would desync the timeline from the recording. Empty
++   * on engines that voice no script. */
+   text: string;
+-  /** The image/video prompt. This is the field the user edits. */
++  /** What this beat shows. The field the user edits — a generation prompt on
++   * every engine except "slide", where it is the caption burned over the photo
++   * (empty for no caption). */
+   visual: string;
+-  /** Seconds on screen. Read-only while timelineLocked. */
++  /** Seconds on screen. Read-only while timelineLocked; otherwise clamped to
++   * the plan's durationBounds. */
+   durationSec: number;
+   /** /objects/... preview still, or null when the preview failed to generate
+-   * (the scene still renders; only its thumbnail is missing). */
++   * (the scene still renders; only its thumbnail is missing). On "photo" and
++   * "slide" plans this is the user's own uploaded photo. */
+   previewPath: string | null;
+   /** Character mode: the outfit worn in this scene. */
+   outfitId: number | null;
+ }
+ 
++/** How a plan's scenes get rendered, and therefore what is editable on them:
++ *
++ * - `character` — topic mode: a generated keyframe per scene, animated.
++ * - `ai`        — topic mode: a generated still per scene, Ken Burns encoded.
++ * - `prompt`    — text_to_video: one AI clip per shot, concatenated. No preview
++ *                 still exists, because nothing image-shaped is generated.
++ * - `photo`     — image_to_video: the user's own photo animated. The preview is
++ *                 that photo, so it costs nothing and cannot be re-rolled.
++ * - `slide`     — slideshow: the user's photos, no AI at all. `visual` is the
++ *                 per-slide caption.
++ *
++ * Only `character` and `ai` have re-rollable previews; the rest either have no
++ * still or use one the user supplied.
++ */
++export type VideoStoryboardSource = "character" | "ai" | "prompt" | "photo" | "slide";
++
++/** True when this plan's previews are generated (and so can be re-rolled). */
++export function storyboardPreviewsAreGenerated(source: VideoStoryboardSource): boolean {
++  return source === "character" || source === "ai";
++}
++
+ /** The plan a paused job is waiting on. Stored on the job row so approving is
+  * a resume rather than a re-plan, and so a client only needs the job GET. */
+ export interface VideoStoryboard {
+   version: 1;
+-  /** Which generated-visual pipeline will render these scenes. */
+-  visualsSource: "character" | "ai";
++  /** Which pipeline will render these scenes; see VideoStoryboardSource. */
++  visualsSource: VideoStoryboardSource;
+   /** True when scene lengths are dictated by already-voiced narration, which
+    * makes durationSec read-only — editing one would either desync every later
+    * scene from the audio or silently change the total length. */
+   timelineLocked: boolean;
++  /** Per-scene length limits, enforced on edit and at render. Null when the
++   * timeline is locked (there is nothing to bound) and on plans written before
++   * unlocked timelines existed. */
++  durationBounds?: { minSec: number; maxSec: number } | null;
+   model: string | null;
+   provider: string | null;
+   /** Preview regenerations spent so far; capped server-side. */
+   regenerations: number;
+   /** The voiced narration the scenes are cut against, parked in tenant storage
+-   * so approving does not have to re-synthesize (and re-bill) it. */
++   * so approving does not have to re-synthesize (and re-bill) it. Null on the
++   * engines that voice no script. */
+   narration: {
+     audioPath: string;
+     totalDurationSec: number;
+     cues: { text: string; startSec: number; endSec: number }[];
+-  };
++  } | null;
+   scenes: VideoStoryboardScene[];
+ }
+ 
+-- 
+2.43.0
+

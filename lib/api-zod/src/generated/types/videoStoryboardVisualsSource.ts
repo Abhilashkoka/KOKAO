@@ -6,10 +6,16 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene and "ai" encodes a generated still per scene — both have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled.
+ */
 export type VideoStoryboardVisualsSource = typeof VideoStoryboardVisualsSource[keyof typeof VideoStoryboardVisualsSource];
 
 
 export const VideoStoryboardVisualsSource = {
   character: 'character',
   ai: 'ai',
+  prompt: 'prompt',
+  photo: 'photo',
+  slide: 'slide',
 } as const;

@@ -34,6 +34,12 @@ export interface VideoGenerateRequest {
      */
   durationSec?: number;
   /**
+     * text_to_video only; how many shots the brief is split into. Each shot is its own AI clip and they are joined into one video, so this is also what the job costs in video units. It is fixed here at enqueue time — the storyboard editor rewords shots but never adds or removes one.
+     * @minimum 1
+     * @maximum 5
+     */
+  shotCount?: number;
+  /**
      * Slideshow only; seconds each photo is on screen.
      * @minimum 1
      * @maximum 10
@@ -98,6 +104,6 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   wardrobeNotes?: string | null;
-  /** Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by topic_to_video with generated visuals (visualsSource "character" or "ai"); other engines have nothing promptable to review and ignore it. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST .../storyboard/approve to render it. */
+  /** Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by every engine except topic_to_video's stock branch, whose visuals are searched rather than prompted. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST .../storyboard/approve to render it. */
   reviewStoryboard?: boolean;
 }

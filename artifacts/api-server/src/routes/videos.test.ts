@@ -579,6 +579,64 @@ describe("POST /api/ai/generate-video", () => {
     expect(runnerState.calls).toHaveLength(0);
   });
 
+  it("prices a multi-shot clip at one unit per shot", async () => {
+    // Each shot is its own generation, so the reservation has to scale with the
+    // count — otherwise a 3-shot job renders three clips on one unit's funding.
+    const tenant = await newTenant("payg");
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 2, // a 3-shot clip needs 3
+      kind: "admin_grant",
+      note: "test",
+    });
+    const short = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ engine: "text_to_video", prompt: "a calm ocean at dusk", shotCount: 3 });
+    expect(short.status).toBe(402);
+    expect(short.body.error).toMatch(/3 video units/);
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(2);
+
+    const ok = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ engine: "text_to_video", prompt: "a calm ocean at dusk", shotCount: 2 });
+    expect(ok.status).toBe(201);
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(0);
+  });
+
+  it("pins shot count at enqueue, and only on the engine that splits shots", async () => {
+    const tenant = await newTenant();
+    const capped = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ engine: "text_to_video", prompt: "a calm ocean at dusk", shotCount: 2 });
+    expect(capped.status).toBe(201);
+    const clip = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, capped.body.id))
+    )[0];
+    expect(clip?.options?.shotCount).toBe(2);
+
+    // A slideshow has no shots to split; sending one must not price the job up.
+    const slides = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "slideshow",
+        sourceImagePaths: [`/objects/${tenant.tenantId}/uploads/a.png`],
+        shotCount: 5,
+      });
+    expect(slides.status).toBe(201);
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, slides.body.id))
+    )[0];
+    expect(row?.options?.shotCount).toBe(1);
+  });
+
   it("reserves a video credit when the quota is exhausted", async () => {
     const tenant = await newTenant("payg");
     await grantCredits({
@@ -667,6 +725,37 @@ function storyboardFixture(tenantId: number, sceneCount = 2): VideoStoryboard {
   };
 }
 
+/**
+ * A plan from one of the three engines that voice nothing. No narration is what
+ * frees the timeline, so lengths are editable and bounded per plan kind.
+ */
+function clipBoardFixture(
+  tenantId: number,
+  visualsSource: VideoStoryboard["visualsSource"],
+  sceneCount = 2,
+): VideoStoryboard {
+  const bounds =
+    visualsSource === "slide" ? { minSec: 1, maxSec: 10 } : { minSec: 3, maxSec: 10 };
+  return {
+    version: 1,
+    visualsSource,
+    timelineLocked: false,
+    durationBounds: bounds,
+    model: null,
+    provider: null,
+    regenerations: 0,
+    narration: null,
+    scenes: Array.from({ length: sceneCount }, (_, i) => ({
+      id: `s${i + 1}`,
+      text: "",
+      visual: visualsSource === "slide" ? `caption ${i + 1}` : `shot ${i + 1}`,
+      durationSec: 4,
+      previewPath: visualsSource === "prompt" ? null : `/objects/${tenantId}/uploads/p${i + 1}.png`,
+      outfitId: null,
+    })),
+  };
+}
+
 async function seedPausedJob(
   tenantId: number,
   overrides: Partial<typeof videoGenerationsTable.$inferInsert> = {},
@@ -733,6 +822,71 @@ describe("PATCH /api/ai/video-jobs/:jobId/storyboard", () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/narration timing/i);
     expect((await readJob(job.id)).storyboard?.scenes[0]?.durationSec).toBe(6);
+  });
+
+  it("clamps an edited length into what the plan can actually deliver", async () => {
+    // Rejecting an in-contract length would mean losing the edit; a client that
+    // asks for the schema's 20s ceiling meant "the longest you can do", and what
+    // a slideshow can do is 10.
+    const tenant = await newTenant();
+    const job = await seedPausedJob(
+      tenant.tenantId,
+      { engine: "slideshow" },
+      clipBoardFixture(tenant.tenantId, "slide"),
+    );
+    const res = await request(app)
+      .patch(`/api/ai/video-jobs/${job.id}/storyboard`)
+      .send({
+        scenes: [
+          { id: "s1", durationSec: 20 },
+          { id: "s2", durationSec: 1 },
+        ],
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.storyboard.scenes.map((s: { durationSec: number }) => s.durationSec)).toEqual([
+      10, 1,
+    ]);
+
+    // A clip cannot read as motion under three seconds, so that plan floors higher.
+    const clip = await seedPausedJob(
+      tenant.tenantId,
+      { engine: "text_to_video" },
+      clipBoardFixture(tenant.tenantId, "prompt"),
+    );
+    const clipRes = await request(app)
+      .patch(`/api/ai/video-jobs/${clip.id}/storyboard`)
+      .send({ scenes: [{ id: "s1", durationSec: 1 }] });
+    expect(clipRes.status).toBe(200);
+    expect(clipRes.body.storyboard.scenes[0].durationSec).toBe(3);
+  });
+
+  it("clears an emptied slide caption but leaves an emptied prompt alone", async () => {
+    // On a slideshow the visual is text burned over the photo, so removing it is
+    // a real edit. Everywhere else it is the generation prompt, and a scene with
+    // no prompt has nothing to generate.
+    const tenant = await newTenant();
+    const slides = await seedPausedJob(
+      tenant.tenantId,
+      { engine: "slideshow" },
+      clipBoardFixture(tenant.tenantId, "slide"),
+    );
+    const cleared = await request(app)
+      .patch(`/api/ai/video-jobs/${slides.id}/storyboard`)
+      .send({ scenes: [{ id: "s1", visual: "   " }] });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.storyboard.scenes[0].visual).toBe("");
+    expect((await readJob(slides.id)).storyboard?.scenes[0]?.visual).toBe("");
+
+    const clip = await seedPausedJob(
+      tenant.tenantId,
+      { engine: "text_to_video" },
+      clipBoardFixture(tenant.tenantId, "prompt"),
+    );
+    const kept = await request(app)
+      .patch(`/api/ai/video-jobs/${clip.id}/storyboard`)
+      .send({ scenes: [{ id: "s1", visual: "   " }] });
+    expect(kept.status).toBe(200);
+    expect(kept.body.storyboard.scenes[0].visual).toBe("shot 1");
   });
 
   it("400s on a job that is not paused for review", async () => {
@@ -816,6 +970,32 @@ describe("POST /api/ai/video-jobs/:jobId/storyboard/scenes/:sceneId/preview", ()
     expect([a.status, b.status].sort()).toEqual([200, 400]);
     expect(runnerState.previews).toHaveLength(1);
     expect((await readJob(job.id)).storyboard?.regenerations).toBe(4);
+  });
+
+  it("400s a redraw on a plan whose stills are the user's own photos", async () => {
+    // Only "character" and "ai" previews were drawn, so only those can be
+    // redrawn. A slide or photo preview is the upload itself, and a prompt plan
+    // has no still at all — re-rolling any of them would replace or invent
+    // something the user did not ask for.
+    const tenant = await newTenant();
+    for (const [engine, source] of [
+      ["slideshow", "slide"],
+      ["image_to_video", "photo"],
+      ["text_to_video", "prompt"],
+    ] as const) {
+      const job = await seedPausedJob(
+        tenant.tenantId,
+        { engine },
+        clipBoardFixture(tenant.tenantId, source),
+      );
+      const res = await request(app).post(
+        `/api/ai/video-jobs/${job.id}/storyboard/scenes/s1/preview`,
+      );
+      expect(res.status, source).toBe(400);
+      expect(res.body.error).toMatch(/your own photos/i);
+      expect(runnerState.previews).toHaveLength(0);
+      expect((await readJob(job.id)).storyboard?.regenerations).toBe(0);
+    }
   });
 
   it("502s when the image provider fails, leaving the plan as it was", async () => {

@@ -9,14 +9,14 @@
 export interface VideoStoryboardScene {
   /** Stable scene address for edits ("s1", "s2", ...). */
   id: string;
-  /** The narration this scene plays under. Read-only: it comes from audio that has already been recorded. */
+  /** The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script. */
   text: string;
-  /** The image/video prompt for this scene. This is editable. */
+  /** What this beat shows, and the field you edit. A generation prompt on every plan except "slide", where it is the caption burned over that photo (empty for no caption). */
   visual: string;
-  /** Seconds on screen. Read-only while the parent storyboard is timelineLocked. */
+  /** Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan's durationBounds. */
   durationSec: number;
   /**
-     * /objects/... preview still; serve via /api/storage{previewPath}. Null only when the preview failed to store.
+     * /objects/... preview still; serve via /api/storage{previewPath}. Null when the preview failed to store, and on "prompt" plans, which generate no still at all. On "photo" and "slide" plans this is the user's own uploaded photo.
      * @nullable
      */
   previewPath: string | null;

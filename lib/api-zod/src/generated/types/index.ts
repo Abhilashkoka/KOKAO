@@ -440,6 +440,7 @@ export * from './videoJob';
 export * from './videoJobEngine';
 export * from './videoJobStatus';
 export * from './videoStoryboard';
+export * from './videoStoryboardDurationBounds';
 export * from './videoStoryboardNarration';
 export * from './videoStoryboardNarrationCuesItem';
 export * from './videoStoryboardScene';

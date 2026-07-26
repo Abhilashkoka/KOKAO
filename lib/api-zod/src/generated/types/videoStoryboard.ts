@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { VideoStoryboardDurationBounds } from './videoStoryboardDurationBounds';
 import type { VideoStoryboardNarration } from './videoStoryboardNarration';
 import type { VideoStoryboardScene } from './videoStoryboardScene';
 import type { VideoStoryboardVersion } from './videoStoryboardVersion';
@@ -12,15 +13,25 @@ import type { VideoStoryboardVisualsSource } from './videoStoryboardVisualsSourc
 
 export interface VideoStoryboard {
   version: VideoStoryboardVersion;
+  /** Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene and "ai" encodes a generated still per scene — both have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled. */
   visualsSource: VideoStoryboardVisualsSource;
   /** True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio. */
   timelineLocked: boolean;
+  /**
+     * The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.
+     * @nullable
+     */
+  durationBounds?: VideoStoryboardDurationBounds;
   /** @nullable */
   model?: string | null;
   /** @nullable */
   provider?: string | null;
   /** Preview regenerations spent so far; capped server-side. */
   regenerations: number;
+  /**
+     * The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.
+     * @nullable
+     */
   narration: VideoStoryboardNarration;
   scenes: VideoStoryboardScene[];
 }

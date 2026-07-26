@@ -31,8 +31,15 @@ export interface SlideshowInput {
   aspectRatio: VideoAspect;
   /** Seconds each photo is on screen (clamped to 1..10). */
   slideDurationSec: number;
+  /** Per-slide overrides for slideDurationSec, one entry per image. Set by an
+   * approved storyboard, where each slide's length is edited on its own. */
+  slideDurationsSec?: number[] | null;
   /** Optional caption burned into the bottom of the video. */
   overlayText?: string | null;
+  /** Per-slide captions, one entry per image (null/empty = no caption on that
+   * slide). Set by an approved storyboard; takes precedence over overlayText,
+   * which captions the whole video. */
+  slideCaptions?: (string | null)[] | null;
   /** Optional background music (mp3/m4a/wav bytes), faded out at the end. */
   music?: Buffer | null;
 }
@@ -140,8 +147,20 @@ export function expectedSlideshowDurationSec(
   imageCount: number,
   slideDurationSec: number,
 ): number {
-  const slideSec = Math.min(MAX_SLIDE_SECONDS, Math.max(MIN_SLIDE_SECONDS, slideDurationSec));
-  return imageCount * slideSec - (imageCount - 1) * TRANSITION_SEC;
+  return slideshowTotalSec(new Array(imageCount).fill(slideDurationSec));
+}
+
+/** Clamp one slide length into the range the encoder can actually render. */
+export function clampSlideSec(slideDurationSec: number): number {
+  if (!Number.isFinite(slideDurationSec)) return MIN_SLIDE_SECONDS;
+  return Math.min(MAX_SLIDE_SECONDS, Math.max(MIN_SLIDE_SECONDS, slideDurationSec));
+}
+
+/** Total length of a slideshow whose slides have individual lengths. Slides
+ * overlap by one crossfade each, so the total is the sum minus the overlaps. */
+export function slideshowTotalSec(slideDurationsSec: number[]): number {
+  const total = slideDurationsSec.reduce((sum, sec) => sum + clampSlideSec(sec), 0);
+  return total - Math.max(0, slideDurationsSec.length - 1) * TRANSITION_SEC;
 }
 
 export interface SlideshowArgsInput {
@@ -149,6 +168,8 @@ export interface SlideshowArgsInput {
   slideNames: string[];
   /** Requested per-slide seconds; clamped to MIN/MAX_SLIDE_SECONDS here. */
   slideSec: number;
+  /** Per-slide overrides for slideSec, one entry per slide. */
+  slideSecs?: number[] | null;
   width: number;
   height: number;
   /** Intro-skip seek into the "music" input, or null when there is no music. */
@@ -157,6 +178,9 @@ export interface SlideshowArgsInput {
   musicDurationSec: number | null;
   /** Font for the burned-in caption ("overlay.txt"); null skips the overlay. */
   overlayFontFile: string | null;
+  /** Indices of slides that have their own caption file ("caption0.txt", ...).
+   * Requires overlayFontFile; when set, the whole-video overlay is skipped. */
+  captionedSlides?: number[] | null;
 }
 
 /**
@@ -168,18 +192,21 @@ export function buildSlideshowArgs(input: SlideshowArgsInput): string[] {
   const { slideNames, width, height } = input;
   const count = slideNames.length;
   // Clamp once, here: the per-input -t, the zoom step and the output bound all
-  // have to describe the same timeline, and expectedSlideshowDurationSec
-  // clamps internally.
-  const slideSec = Math.min(MAX_SLIDE_SECONDS, Math.max(MIN_SLIDE_SECONDS, input.slideSec));
-  const totalSec = expectedSlideshowDurationSec(count, slideSec);
+  // have to describe the same timeline, and slideshowTotalSec clamps
+  // internally. A per-slide list only applies when it covers every slide, so a
+  // short or stale array can never silently retime part of the video.
+  const secs = (
+    input.slideSecs?.length === count ? input.slideSecs : new Array(count).fill(input.slideSec)
+  ).map(clampSlideSec);
+  const totalSec = slideshowTotalSec(secs);
   const args: string[] = ["-y"];
 
   // One looped still input per slide. -framerate pins the image demuxer to
   // the pipeline's FPS: at its 25fps default it feeds 25 frames per second
   // into a chain that retimes to FPS, so each slide came out ~17% short and
   // the zoompan move (stepped per input frame) under-travelled to match.
-  for (const name of slideNames) {
-    args.push("-framerate", String(FPS), "-loop", "1", "-t", String(slideSec), "-i", name);
+  for (const [i, name] of slideNames.entries()) {
+    args.push("-framerate", String(FPS), "-loop", "1", "-t", String(secs[i]!), "-i", name);
   }
 
   const musicIndex = count;
@@ -212,9 +239,19 @@ export function buildSlideshowArgs(input: SlideshowArgsInput): string[] {
   const superW = width * 2;
   const superH = height * 2;
   const zoomSpan = 0.08; // 8% total move per slide
-  const frames = Math.max(1, Math.round(slideSec * FPS));
-  const zoomStep = (zoomSpan / frames).toFixed(6);
+  // Per-slide captions are drawn on the slide's own stream, before the
+  // crossfade chain, so each caption fades with the photo it belongs to. Sizing
+  // matches the whole-video overlay so a mixed video looks consistent.
+  const perSlideCaptions = new Set(input.overlayFontFile ? (input.captionedSlides ?? []) : []);
+  const drawCaption = (file: string): string =>
+    `drawtext=fontfile=${input.overlayFontFile}:textfile=${file}:` +
+    `fontcolor=white:fontsize=${Math.round(height / 18)}:` +
+    `box=1:boxcolor=black@0.45:boxborderw=18:` +
+    `x=(w-text_w)/2:y=h-text_h-${Math.round(height / 12)}`;
   for (let i = 0; i < count; i++) {
+    // The zoom travels the same 8% however long the slide is, so a 10s slide
+    // steps slower than a 2s one rather than over-travelling.
+    const zoomStep = (zoomSpan / Math.max(1, Math.round(secs[i]! * FPS))).toFixed(6);
     const zoomExpr =
       i % 2 === 0
         ? `min(1+${zoomStep}*on,${(1 + zoomSpan).toFixed(3)})` // zoom in
@@ -224,15 +261,20 @@ export function buildSlideshowArgs(input: SlideshowArgsInput): string[] {
         `crop=${superW}:${superH},` +
         `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
         `d=1:s=${width}x${height}:fps=${FPS},` +
-        `setsar=1,format=yuv420p[v${i}]`,
+        `setsar=1,format=yuv420p` +
+        (perSlideCaptions.has(i) ? `,${drawCaption(`caption${i}.txt`)}` : "") +
+        `[v${i}]`,
     );
   }
   let chainLabel = "v0";
+  // Each crossfade starts one TRANSITION_SEC before the running total, so
+  // uneven slide lengths still line up with the -t bound.
+  let elapsed = 0;
   for (let i = 1; i < count; i++) {
     const out = i === count - 1 ? "xfaded" : `chain${i}`;
-    const offset = (i * (slideSec - TRANSITION_SEC)).toFixed(3);
+    elapsed += secs[i - 1]! - TRANSITION_SEC;
     filters.push(
-      `[${chainLabel}][v${i}]xfade=transition=fade:duration=${TRANSITION_SEC}:offset=${offset}[${out}]`,
+      `[${chainLabel}][v${i}]xfade=transition=fade:duration=${TRANSITION_SEC}:offset=${elapsed.toFixed(3)}[${out}]`,
     );
     chainLabel = out;
   }
@@ -241,16 +283,11 @@ export function buildSlideshowArgs(input: SlideshowArgsInput): string[] {
   }
 
   let videoOut = "xfaded";
-  if (input.overlayFontFile) {
+  if (input.overlayFontFile && perSlideCaptions.size === 0) {
     // textfile= sidesteps drawtext's brittle inline-escaping rules: the
     // caption is written verbatim to a file ffmpeg reads back, so colons,
     // quotes, commas, and brackets in user text can never break the graph.
-    filters.push(
-      `[xfaded]drawtext=fontfile=${input.overlayFontFile}:textfile=overlay.txt:` +
-        `fontcolor=white:fontsize=${Math.round(height / 18)}:` +
-        `box=1:boxcolor=black@0.45:boxborderw=18:` +
-        `x=(w-text_w)/2:y=h-text_h-${Math.round(height / 12)}[titled]`,
-    );
+    filters.push(`[xfaded]${drawCaption("overlay.txt")}[titled]`);
     videoOut = "titled";
   }
 
@@ -309,11 +346,18 @@ export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
       slideNames.push(name);
     }
 
+    // A per-slide list only counts when it covers every slide; buildSlideshowArgs
+    // applies the same rule, so both agree on the timeline.
+    const slideSecs =
+      input.slideDurationsSec?.length === count ? input.slideDurationsSec : null;
+
     let musicSeekSec: number | null = null;
     let musicDurationSec: number | null = null;
     if (input.music && input.music.length > 0) {
       await writeFile(join(dir, "music"), input.music);
-      const totalSec = expectedSlideshowDurationSec(count, input.slideDurationSec);
+      const totalSec = slideSecs
+        ? slideshowTotalSec(slideSecs)
+        : expectedSlideshowDurationSec(count, input.slideDurationSec);
       // The bed's own length decides whether it has to be looped to cover the
       // video (null = ffprobe could not read it, so it must not be looped).
       musicDurationSec = await probeDurationSec("music", dir);
@@ -321,16 +365,32 @@ export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
       musicSeekSec = await pickMusicStartOffsetSec("music", dir, totalSec);
     }
 
-    const overlayText = input.overlayText?.trim();
-    const overlayFontFile = overlayText ? await findFontFile() : null;
+    // Per-slide captions win over the whole-video overlay: an approved
+    // storyboard has said something specific about every slide.
+    const captions = (input.slideCaptions ?? []).map((text) => text?.trim() ?? "");
+    const hasPerSlideCaptions = captions.some((text) => text.length > 0);
+    const overlayText = hasPerSlideCaptions ? "" : input.overlayText?.trim();
+    const overlayFontFile =
+      overlayText || hasPerSlideCaptions ? await findFontFile() : null;
     if (overlayText && overlayFontFile) {
       await writeFile(join(dir, "overlay.txt"), overlayText.slice(0, 120));
+    }
+    const captionedSlides: number[] = [];
+    if (overlayFontFile && hasPerSlideCaptions) {
+      for (let i = 0; i < count; i++) {
+        const text = captions[i];
+        if (!text) continue;
+        await writeFile(join(dir, `caption${i}.txt`), text.slice(0, 120));
+        captionedSlides.push(i);
+      }
     }
 
     await runFfmpeg(
       buildSlideshowArgs({
         slideNames,
         slideSec: input.slideDurationSec,
+        slideSecs,
+        captionedSlides,
         width,
         height,
         musicSeekSec,

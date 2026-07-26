@@ -9,12 +9,12 @@
 export type UpdateStoryboardRequestScenesItem = {
   id: string;
   /**
-     * @minLength 1
+     * The prompt for this scene, or its caption on a "slide" plan — where an empty string is meaningful and clears the caption. On every other plan an empty value leaves the prompt alone, because a scene with no prompt has nothing to generate.
      * @maxLength 1000
      */
   visual?: string;
   /**
-     * Rejected while the storyboard is timelineLocked.
+     * Rejected while the storyboard is timelineLocked, and clamped into the plan's durationBounds otherwise.
      * @minimum 1
      * @maximum 20
      */

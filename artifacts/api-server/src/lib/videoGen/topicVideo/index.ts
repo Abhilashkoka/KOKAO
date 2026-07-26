@@ -654,9 +654,15 @@ export async function renderTopicStoryboard(params: {
   if (board.scenes.length === 0) {
     throw new VideoGenProviderError("This storyboard has no scenes.");
   }
+  // Topic videos are cut against a recording; the other engines voice nothing
+  // and carry a null narration, so they never reach this renderer.
+  const narration = board.narration;
+  if (!narration) {
+    throw new VideoGenProviderError("This storyboard has no narration to cut against.");
+  }
 
   params.onStage?.("Loading your storyboard");
-  const narrationWav = await params.load(board.narration.audioPath);
+  const narrationWav = await params.load(narration.audioPath);
   const stills = await Promise.all(
     board.scenes.map(async (scene) => {
       if (!scene.previewPath) return null;
@@ -709,7 +715,7 @@ export async function renderTopicStoryboard(params: {
   }
   checkDeadline(startedAt, deadlineMs);
 
-  const cues = board.narration.cues;
+  const cues = narration.cues;
   const planGateEnabled = await isFeatureEnabled("planGate").catch(() => true);
   const gate = planGateEnabled
     ? gateRenderPlan({
@@ -717,7 +723,7 @@ export async function renderTopicStoryboard(params: {
         clipCount: clips.length,
         stillImagery: !characterMode,
         cueStartsSec: cues.map((cue) => cue.startSec),
-        totalDurationSec: board.narration.totalDurationSec,
+        totalDurationSec: narration.totalDurationSec,
         subtitles: params.subtitles,
       })
     : null;
@@ -736,7 +742,7 @@ export async function renderTopicStoryboard(params: {
     clips,
     narrationWav,
     cues,
-    totalDurationSec: board.narration.totalDurationSec,
+    totalDurationSec: narration.totalDurationSec,
     aspectRatio: params.aspectRatio,
     subtitles: params.subtitles,
     captionStyle: params.captionStyle ?? "classic",
@@ -745,7 +751,7 @@ export async function renderTopicStoryboard(params: {
     music: params.music ?? null,
     sceneMap: gate ? gate.scenes : sceneMap,
   });
-  return { buffer, provider, model: board.model ?? "", durationSec: board.narration.totalDurationSec };
+  return { buffer, provider, model: board.model ?? "", durationSec: narration.totalDurationSec };
 }
 
 /** Regenerate one scene's preview still from an edited prompt. Returns the new

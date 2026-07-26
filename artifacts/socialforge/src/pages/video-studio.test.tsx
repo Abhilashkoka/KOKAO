@@ -30,6 +30,8 @@ const mockState: {
   characters: any[];
   brandKits: any[];
   styleProfiles: any[];
+  storyboardEdits: any[];
+  approvals: number[];
 } = {
   lastGenerateVars: null,
   generateError: null,
@@ -38,6 +40,8 @@ const mockState: {
   characters: [],
   brandKits: [],
   styleProfiles: [],
+  storyboardEdits: [],
+  approvals: [],
 };
 
 const toastSpy = vi.fn();
@@ -80,6 +84,20 @@ vi.mock("@workspace/api-client-react", async () => {
       isLoading: false,
     }),
     useListContent: () => ({ data: [], isLoading: false }),
+    useUpdateVideoStoryboard: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => {
+        mockState.storyboardEdits.push(vars);
+        opts?.onSuccess?.(mockState.activeJob);
+      },
+    }),
+    useApproveVideoStoryboard: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => {
+        mockState.approvals.push(vars.jobId);
+        opts?.onSuccess?.({ ...mockState.activeJob, status: "processing", storyboard: null });
+      },
+    }),
     useListCharacters: () => ({ data: mockState.characters }),
     useListBrandKits: () => ({ data: mockState.brandKits }),
     useListVideoStyles: () => ({ data: mockState.styleProfiles }),
@@ -114,6 +132,71 @@ function styleProfile(over: {
   };
 }
 
+/** A plan from an engine that voices nothing, so its lengths are editable. */
+function clipBoard(visualsSource: "prompt" | "slide" | "photo") {
+  return {
+    version: 1,
+    visualsSource,
+    timelineLocked: false,
+    durationBounds: visualsSource === "slide" ? { minSec: 1, maxSec: 10 } : { minSec: 3, maxSec: 10 },
+    model: null,
+    provider: null,
+    regenerations: 0,
+    narration: null,
+    scenes: [1, 2].map((i) => ({
+      id: `s${i}`,
+      text: "",
+      visual: visualsSource === "slide" ? `caption ${i}` : `shot ${i}`,
+      durationSec: 4,
+      previewPath: visualsSource === "prompt" ? null : `/objects/1/uploads/p${i}.png`,
+      outfitId: null,
+    })),
+  };
+}
+
+/** A topic plan: cut against a recording, so the timeline is not the user's. */
+function narratedBoard() {
+  return {
+    version: 1,
+    visualsSource: "character",
+    timelineLocked: true,
+    durationBounds: null,
+    model: "kwaivgi/kling-v1.6-standard",
+    provider: "replicate",
+    regenerations: 0,
+    narration: {
+      audioPath: "/objects/1/uploads/narration.wav",
+      totalDurationSec: 12,
+      cues: [
+        { text: "Line 1", startSec: 0, endSec: 6 },
+        { text: "Line 2", startSec: 6, endSec: 12 },
+      ],
+    },
+    scenes: [1, 2].map((i) => ({
+      id: `s${i}`,
+      text: `Line ${i}`,
+      visual: `wide shot ${i}`,
+      durationSec: 6,
+      previewPath: `/objects/1/uploads/shot-${i}.png`,
+      outfitId: null,
+    })),
+  };
+}
+
+function pausedJob(storyboard: unknown) {
+  return {
+    id: 11,
+    engine: "text_to_video",
+    status: "awaiting_review",
+    prompt: "A barista pulling an espresso shot",
+    sourceImagePaths: [],
+    aspectRatio: "9:16",
+    storyboard,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+  };
+}
+
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -133,6 +216,8 @@ beforeEach(() => {
   mockState.characters = [];
   mockState.brandKits = [];
   mockState.styleProfiles = [];
+  mockState.storyboardEdits = [];
+  mockState.approvals = [];
   toastSpy.mockClear();
   cleanup();
 });
@@ -500,6 +585,112 @@ describe("Video Studio", () => {
     renderPage();
     fireEvent.click(screen.getByTestId("job-card-8"));
     expect(screen.getByTestId("text-job-stage").textContent).toBe("Voicing the narration…");
+  });
+
+  it("offers a storyboard on every engine except searched stock footage", async () => {
+    renderPage();
+    const user = userEvent.setup();
+    // Text to Video.
+    expect(screen.getByTestId("switch-review-storyboard")).toBeTruthy();
+    await user.click(screen.getByTestId("tab-image-to-video"));
+    expect(screen.getByTestId("switch-review-storyboard")).toBeTruthy();
+    await user.click(screen.getByTestId("tab-slideshow"));
+    expect(screen.getByTestId("text-storyboard-blurb").textContent).toContain(
+      "every photo with its own caption and length",
+    );
+    // Topic mode defaults to stock footage, which is searched rather than
+    // prompted — there is nothing to edit, so the toggle is gone.
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    expect(screen.queryByTestId("switch-review-storyboard")).toBeNull();
+    await user.click(screen.getByTestId("toggle-visuals-ai"));
+    expect(screen.getByTestId("switch-review-storyboard")).toBeTruthy();
+  });
+
+  it("prices the shot count and sends it with a text-to-video job", async () => {
+    renderPage();
+    const user = userEvent.setup();
+    expect(screen.getByTestId("text-shot-cost").textContent).toContain("One clip, one video unit");
+    await user.click(screen.getByTestId("select-shot-count"));
+    await user.click(screen.getByTestId("option-shots-3"));
+    expect(screen.getByTestId("text-shot-cost").textContent).toContain("3 video units");
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "A calm ocean at dusk" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-video"));
+    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+    expect(mockState.lastGenerateVars.data).toMatchObject({
+      engine: "text_to_video",
+      shotCount: 3,
+      reviewStoryboard: true,
+    });
+  });
+
+  it("keeps the shots picker off engines that cannot split shots", async () => {
+    renderPage();
+    const user = userEvent.setup();
+    expect(screen.getByTestId("select-shot-count")).toBeTruthy();
+    await user.click(screen.getByTestId("tab-slideshow"));
+    expect(screen.queryByTestId("select-shot-count")).toBeNull();
+  });
+
+  it("opens a paused plan in a dialog the user can reopen", async () => {
+    mockState.activeJob = pausedJob(clipBoard("prompt"));
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+    // The plan announces itself: the dialog is open without being asked for.
+    await waitFor(() => expect(screen.getByTestId("storyboard-review")).toBeTruthy());
+    expect(screen.getByTestId("text-storyboard-summary").textContent).toContain("2 shots");
+    // And it can be got back after a dismissal.
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("storyboard-review")).toBeNull());
+    fireEvent.click(screen.getByTestId("button-open-storyboard"));
+    await waitFor(() => expect(screen.getByTestId("storyboard-review")).toBeTruthy());
+  });
+
+  it("lets a shot's length be edited, and hides redraw on the user's own photos", async () => {
+    // A clip plan voices nothing, which is what frees the timeline.
+    mockState.activeJob = pausedJob(clipBoard("slide"));
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+    await waitFor(() => expect(screen.getByTestId("storyboard-review")).toBeTruthy());
+    expect(screen.getByTestId("select-length-s1")).toBeTruthy();
+    // The preview is the upload itself, so there is nothing to redraw.
+    expect(screen.queryByTestId("button-redraw-s1")).toBeNull();
+    expect(screen.queryByTestId("text-rolls-left")).toBeNull();
+  });
+
+  it("pins lengths to the recording on a narrated plan", async () => {
+    mockState.activeJob = pausedJob(narratedBoard());
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+    await waitFor(() => expect(screen.getByTestId("storyboard-review")).toBeTruthy());
+    expect(screen.queryByTestId("select-length-s1")).toBeNull();
+    expect(screen.getByTestId("text-storyboard-summary").textContent).toContain(
+      "lengths follow the narration",
+    );
+    // Stills on a character plan were drawn, so those can be re-rolled.
+    expect(screen.getByTestId("button-redraw-s1")).toBeTruthy();
+  });
+
+  it("saves an unsaved edit before it starts the render", async () => {
+    // Typing a prompt and then watching it get filmed without is the one
+    // outcome the review step exists to prevent.
+    mockState.activeJob = pausedJob(clipBoard("prompt"));
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+    await waitFor(() => expect(screen.getByTestId("storyboard-review")).toBeTruthy());
+    fireEvent.change(screen.getByTestId("input-shot-s1"), {
+      target: { value: "a slow push in on the cup" },
+    });
+    fireEvent.click(screen.getByTestId("button-approve-storyboard"));
+    await waitFor(() => expect(mockState.approvals).toEqual([11]));
+    expect(mockState.storyboardEdits).toEqual([
+      { jobId: 11, data: { scenes: [{ id: "s1", visual: "a slow push in on the cup" }] } },
+    ]);
   });
 
   it("falls back to a generic label when no stage is reported yet", () => {

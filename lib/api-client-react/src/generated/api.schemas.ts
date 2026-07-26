@@ -2579,6 +2579,12 @@ export interface VideoGenerateRequest {
      */
   durationSec?: number;
   /**
+     * text_to_video only; how many shots the brief is split into. Each shot is its own AI clip and they are joined into one video, so this is also what the job costs in video units. It is fixed here at enqueue time — the storyboard editor rewords shots but never adds or removes one.
+     * @minimum 1
+     * @maximum 5
+     */
+  shotCount?: number;
+  /**
      * Slideshow only; seconds each photo is on screen.
      * @minimum 1
      * @maximum 10
@@ -2643,21 +2649,21 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   wardrobeNotes?: string | null;
-  /** Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by topic_to_video with generated visuals (visualsSource "character" or "ai"); other engines have nothing promptable to review and ignore it. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST .../storyboard/approve to render it. */
+  /** Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by every engine except topic_to_video's stock branch, whose visuals are searched rather than prompted. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST .../storyboard/approve to render it. */
   reviewStoryboard?: boolean;
 }
 
 export interface VideoStoryboardScene {
   /** Stable scene address for edits ("s1", "s2", ...). */
   id: string;
-  /** The narration this scene plays under. Read-only: it comes from audio that has already been recorded. */
+  /** The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script. */
   text: string;
-  /** The image/video prompt for this scene. This is editable. */
+  /** What this beat shows, and the field you edit. A generation prompt on every plan except "slide", where it is the caption burned over that photo (empty for no caption). */
   visual: string;
-  /** Seconds on screen. Read-only while the parent storyboard is timelineLocked. */
+  /** Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan's durationBounds. */
   durationSec: number;
   /**
-     * /objects/... preview still; serve via /api/storage{previewPath}. Null only when the preview failed to store.
+     * /objects/... preview still; serve via /api/storage{previewPath}. Null when the preview failed to store, and on "prompt" plans, which generate no still at all. On "photo" and "slide" plans this is the user's own uploaded photo.
      * @nullable
      */
   previewPath: string | null;
@@ -2675,13 +2681,28 @@ export const VideoStoryboardVersion = {
   NUMBER_1: 1,
 } as const;
 
+/**
+ * Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene and "ai" encodes a generated still per scene — both have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled.
+ */
 export type VideoStoryboardVisualsSource = typeof VideoStoryboardVisualsSource[keyof typeof VideoStoryboardVisualsSource];
 
 
 export const VideoStoryboardVisualsSource = {
   character: 'character',
   ai: 'ai',
+  prompt: 'prompt',
+  photo: 'photo',
+  slide: 'slide',
 } as const;
+
+/**
+ * The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.
+ * @nullable
+ */
+export type VideoStoryboardDurationBounds = {
+  minSec: number;
+  maxSec: number;
+} | null;
 
 export type VideoStoryboardNarrationCuesItem = {
   text: string;
@@ -2689,24 +2710,38 @@ export type VideoStoryboardNarrationCuesItem = {
   endSec: number;
 };
 
+/**
+ * The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.
+ * @nullable
+ */
 export type VideoStoryboardNarration = {
   audioPath: string;
   totalDurationSec: number;
   /** Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them. */
   cues: VideoStoryboardNarrationCuesItem[];
-};
+} | null;
 
 export interface VideoStoryboard {
   version: VideoStoryboardVersion;
+  /** Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene and "ai" encodes a generated still per scene — both have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled. */
   visualsSource: VideoStoryboardVisualsSource;
   /** True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio. */
   timelineLocked: boolean;
+  /**
+     * The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.
+     * @nullable
+     */
+  durationBounds?: VideoStoryboardDurationBounds;
   /** @nullable */
   model?: string | null;
   /** @nullable */
   provider?: string | null;
   /** Preview regenerations spent so far; capped server-side. */
   regenerations: number;
+  /**
+     * The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.
+     * @nullable
+     */
   narration: VideoStoryboardNarration;
   scenes: VideoStoryboardScene[];
 }
@@ -2714,12 +2749,12 @@ export interface VideoStoryboard {
 export type UpdateStoryboardRequestScenesItem = {
   id: string;
   /**
-     * @minLength 1
+     * The prompt for this scene, or its caption on a "slide" plan — where an empty string is meaningful and clears the caption. On every other plan an empty value leaves the prompt alone, because a scene with no prompt has nothing to generate.
      * @maxLength 1000
      */
   visual?: string;
   /**
-     * Rejected while the storyboard is timelineLocked.
+     * Rejected while the storyboard is timelineLocked, and clamped into the plan's durationBounds otherwise.
      * @minimum 1
      * @maximum 20
      */

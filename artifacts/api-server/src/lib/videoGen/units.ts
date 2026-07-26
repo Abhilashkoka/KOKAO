@@ -1,18 +1,29 @@
 import type { VideoJobOptions } from "@workspace/db";
 import { CHARACTER_SCENES_PER_PARAGRAPH } from "./topicVideo/characterScenes";
+import { clipShotCount } from "./clipStoryboard";
 
 /**
  * How many video quota units / credits one generation job costs.
  *
- * Every engine is a single generation — one unit — except character story
- * videos, where every scene is its own real AI generation (keyframe +
- * image-to-video), so a job costs one unit per scene: Short (1 paragraph)
- * = 4, Medium = 8, Long = 12. The route reserves this amount up front and
- * the job runner refunds the same amount if the job fails.
+ * Every engine is a single generation — one unit — except the two that are
+ * really many generations wearing one job:
+ *
+ * - character story videos, where every scene is its own keyframe +
+ *   image-to-video pair, so a job costs one unit per scene: Short (1 paragraph)
+ *   = 4, Medium = 8, Long = 12.
+ * - multi-shot text_to_video, where every shot is its own clip generation, so a
+ *   job costs one unit per shot.
+ *
+ * The route reserves this amount up front and the job runner refunds the same
+ * amount if the job fails.
  */
 export function videoJobUnits(engine: string, options: VideoJobOptions | null): number {
   let units = 1;
-  if (engine === "topic_to_video" && options?.visualsSource === "character") {
+  if (engine === "text_to_video") {
+    // Shot count is fixed at enqueue precisely because it prices the job; the
+    // storyboard editor can reword a shot but never add or remove one.
+    units = clipShotCount(options?.shotCount);
+  } else if (engine === "topic_to_video" && options?.visualsSource === "character") {
     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
     units = CHARACTER_SCENES_PER_PARAGRAPH * paragraphs;
   } else if (engine === "topic_to_video" && options?.visualsSource === "ai") {

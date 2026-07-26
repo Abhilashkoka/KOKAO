@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { pickMusicStartOffsetSec } from "./musicOffset";
 import { runFfmpeg, probeDurationSec } from "./slideshow";
-import { ASPECT_DIMENSIONS, type VideoAspect } from "./types";
+import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "./types";
 import { logger } from "../logger";
 
 /**
@@ -57,6 +57,99 @@ export async function normalizeVideo(video: Buffer, aspectRatio: VideoAspect): P
   } catch (error) {
     logger.warn({ err: error }, "Video normalization failed; delivering the raw provider clip");
     return video;
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Hold a provider clip to the length the storyboard promised. Models only offer
+ * discrete lengths (5s, 10s), so a shot planned at 7s comes back at 5 or 10 —
+ * without this pass the storyboard's stated timings are fiction and the shots
+ * of a multi-shot video drift out of the rhythm the user set.
+ *
+ * Too long is trimmed. Too short holds the final frame (tpad), which is the
+ * only honest option: looping would replay motion the user did not ask for, and
+ * generating more footage would cost another unit.
+ *
+ * Fail-soft like its neighbours: any error returns the ORIGINAL buffer.
+ */
+export async function enforceClipDuration(video: Buffer, targetSec: number): Promise<Buffer> {
+  if (!Number.isFinite(targetSec) || targetSec <= 0) return video;
+  const dir = await mkdtemp(join(tmpdir(), "kokao-cliplen-"));
+  try {
+    await writeFile(join(dir, "in.mp4"), video);
+    const actualSec = await probeDurationSec("in.mp4", dir);
+    // Within a third of a second is close enough that re-encoding costs more
+    // quality than the drift costs rhythm.
+    if (actualSec === null || Math.abs(actualSec - targetSec) < 0.34) return video;
+    const args = ["-y", "-i", "in.mp4"];
+    if (actualSec < targetSec) {
+      args.push("-vf", `tpad=stop_mode=clone:stop_duration=${(targetSec - actualSec).toFixed(3)}`);
+    }
+    args.push(
+      "-t", targetSec.toFixed(3),
+      "-map", "0:v:0",
+      "-map", "0:a?",
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+      "-c:a", "aac", "-b:a", "128k",
+      "-movflags", "+faststart",
+      "out.mp4",
+    );
+    await runFfmpeg(args, dir);
+    const out = await readFile(join(dir, "out.mp4"));
+    return out.length > 0 ? out : video;
+  } catch (error) {
+    logger.warn({ err: error }, "Clip length enforcement failed; delivering the clip as-is");
+    return video;
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Join shot clips end to end into one video. Every clip must already have been
+ * through normalizeVideo, which pins codec, resolution, SAR and frame rate — the
+ * concat demuxer needs them identical, and re-encoding here instead would cost a
+ * second generation-loss pass over footage that already cost money.
+ *
+ * NOT fail-soft: a caller with several clips has no single clip to fall back on,
+ * so a failed join has to surface rather than silently ship shot one.
+ */
+export async function concatClips(clips: Buffer[]): Promise<Buffer> {
+  if (clips.length === 0) {
+    throw new VideoGenProviderError("There are no clips to join.");
+  }
+  if (clips.length === 1) return clips[0]!;
+  const dir = await mkdtemp(join(tmpdir(), "kokao-concat-"));
+  try {
+    const names: string[] = [];
+    for (const [i, clip] of clips.entries()) {
+      const name = `clip_${String(i).padStart(3, "0")}.mp4`;
+      await writeFile(join(dir, name), clip);
+      names.push(name);
+    }
+    // Quoted, one per line: the concat demuxer's own escaping. The names are
+    // generated here, never user input, so they cannot contain a quote.
+    await writeFile(join(dir, "list.txt"), names.map((n) => `file '${n}'`).join("\n"));
+    await runFfmpeg(
+      [
+        "-y", "-f", "concat", "-safe", "0", "-i", "list.txt",
+        // Some provider clips carry audio and some do not; a stream-copy concat
+        // of a mixed set desyncs, so re-encode audio to a common track and let
+        // the video ride through untouched.
+        "-c:v", "copy",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart",
+        "out.mp4",
+      ],
+      dir,
+    );
+    const out = await readFile(join(dir, "out.mp4"));
+    if (out.length === 0) {
+      throw new VideoGenProviderError("Joining the shots produced an empty video.");
+    }
+    return out;
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }

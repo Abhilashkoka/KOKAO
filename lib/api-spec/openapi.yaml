@@ -10463,6 +10463,17 @@ components:
           maximum: 30
           default: 5
           description: AI engines only; providers clamp to what they support.
+        shotCount:
+          type: integer
+          minimum: 1
+          maximum: 5
+          default: 1
+          description: >-
+            text_to_video only; how many shots the brief is split into. Each
+            shot is its own AI clip and they are joined into one video, so this
+            is also what the job costs in video units. It is fixed here at
+            enqueue time — the storyboard editor rewords shots but never adds
+            or removes one.
         slideDurationSec:
           type: integer
           minimum: 1
@@ -10559,11 +10570,10 @@ components:
           default: true
           description: >-
             Pause after planning so the storyboard can be edited before the
-            expensive half runs. Honoured by topic_to_video with generated
-            visuals (visualsSource "character" or "ai"); other engines have
-            nothing promptable to review and ignore it. The job lands in
-            awaiting_review with a storyboard; PATCH the scenes, then POST
-            .../storyboard/approve to render it.
+            expensive half runs. Honoured by every engine except
+            topic_to_video's stock branch, whose visuals are searched rather
+            than prompted. The job lands in awaiting_review with a storyboard;
+            PATCH the scenes, then POST .../storyboard/approve to render it.
     VideoStoryboardScene:
       type: object
       required: [id, text, visual, durationSec, previewPath, outfitId]
@@ -10575,20 +10585,26 @@ components:
           type: string
           description: >-
             The narration this scene plays under. Read-only: it comes from
-            audio that has already been recorded.
+            audio that has already been recorded. Empty on the engines that
+            voice no script.
         visual:
           type: string
-          description: The image/video prompt for this scene. This is editable.
+          description: >-
+            What this beat shows, and the field you edit. A generation prompt on
+            every plan except "slide", where it is the caption burned over that
+            photo (empty for no caption).
         durationSec:
           type: number
           description: >-
             Seconds on screen. Read-only while the parent storyboard is
-            timelineLocked.
+            timelineLocked; otherwise editable within the plan's durationBounds.
         previewPath:
           type: ["string", "null"]
           description: >-
             /objects/... preview still; serve via /api/storage{previewPath}.
-            Null only when the preview failed to store.
+            Null when the preview failed to store, and on "prompt" plans, which
+            generate no still at all. On "photo" and "slide" plans this is the
+            user's own uploaded photo.
         outfitId:
           type: ["integer", "null"]
           description: Character mode; the outfit worn in this scene.
@@ -10602,13 +10618,31 @@ components:
           enum: [1]
         visualsSource:
           type: string
-          enum: [character, ai]
+          enum: [character, ai, prompt, photo, slide]
+          description: >-
+            Which pipeline renders these scenes, and therefore what is editable.
+            "character" animates a generated keyframe per scene and "ai" encodes
+            a generated still per scene — both have re-rollable previews.
+            "prompt" is a text_to_video shot list with no stills. "photo" and
+            "slide" show the user's own uploaded photos, so their previews cost
+            nothing and cannot be re-rolled.
         timelineLocked:
           type: boolean
           description: >-
             True when scene lengths are dictated by narration that has already
             been recorded, which makes durationSec read-only — editing one
             would desync every later scene from the audio.
+        durationBounds:
+          type: ["object", "null"]
+          required: [minSec, maxSec]
+          description: >-
+            The range a scene length may be edited into. Null when the timeline
+            is locked, and on plans stored before lengths were editable.
+          properties:
+            minSec:
+              type: number
+            maxSec:
+              type: number
         model:
           type: ["string", "null"]
         provider:
@@ -10617,8 +10651,11 @@ components:
           type: integer
           description: Preview regenerations spent so far; capped server-side.
         narration:
-          type: object
+          type: ["object", "null"]
           required: [audioPath, totalDurationSec, cues]
+          description: >-
+            The recording the scenes are cut against. Null on the engines that
+            voice no script, which is also what frees their timeline.
           properties:
             audioPath:
               type: string
@@ -10663,13 +10700,19 @@ components:
                 type: string
               visual:
                 type: string
-                minLength: 1
                 maxLength: 1000
+                description: >-
+                  The prompt for this scene, or its caption on a "slide" plan —
+                  where an empty string is meaningful and clears the caption.
+                  On every other plan an empty value leaves the prompt alone,
+                  because a scene with no prompt has nothing to generate.
               durationSec:
                 type: number
                 minimum: 1
                 maximum: 20
-                description: Rejected while the storyboard is timelineLocked.
+                description: >-
+                  Rejected while the storyboard is timelineLocked, and clamped
+                  into the plan's durationBounds otherwise.
     VideoJob:
       type: object
       required:

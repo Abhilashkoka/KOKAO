@@ -7,9 +7,13 @@
  */
 import type { VideoStoryboardNarrationCuesItem } from './videoStoryboardNarrationCuesItem';
 
+/**
+ * The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.
+ * @nullable
+ */
 export type VideoStoryboardNarration = {
   audioPath: string;
   totalDurationSec: number;
   /** Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them. */
   cues: VideoStoryboardNarrationCuesItem[];
-};
+} | null;
