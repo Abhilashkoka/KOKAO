@@ -364,6 +364,58 @@ router.get("/ai/video-jobs/:jobId", async (req: Request, res: Response) => {
 });
 
 /**
+ * Cancel a still-queued job. The conditional queued->cancelled UPDATE is the
+ * same atomic guard the runner uses for its queued->processing claim, so a
+ * job can never be both cancelled and executed: whichever flip lands first
+ * wins. Refunds the reserved credits when the job was credit-funded (quota
+ * funding is only metered on success, so there is nothing to refund). The
+ * refund amount is recomputed from the stored engine/options — the exact
+ * inputs the route priced the job with at enqueue.
+ */
+router.post("/ai/video-jobs/:jobId/cancel", async (req: Request, res: Response) => {
+  const id = Number(req.params.jobId);
+  // The status flip and the credit refund share one transaction so a job can
+  // never end up cancelled without its refund (or vice versa).
+  const cancelled = await db.transaction(async (tx) => {
+    const row = (
+      await tx
+        .update(videoGenerationsTable)
+        .set({ status: "cancelled", error: null })
+        .where(
+          and(
+            eq(videoGenerationsTable.id, id),
+            eq(videoGenerationsTable.tenantId, req.tenantId),
+            eq(videoGenerationsTable.status, "queued"),
+          ),
+        )
+        .returning()
+    )[0];
+    if (row && row.funding === "credit") {
+      const units = videoJobUnits(row.engine, row.options);
+      await refundCredits(req.tenantId, "video", units, "video job cancelled", tx);
+    }
+    return row;
+  });
+  if (cancelled) {
+    res.json(serializeVideoJob(cancelled));
+    return;
+  }
+  const existing = await loadJob(req);
+  if (!existing) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  res.status(409).json({
+    error:
+      existing.status === "processing"
+        ? "This video has already started and can no longer be cancelled."
+        : existing.status === "awaiting_review"
+          ? "This video is waiting on storyboard review — discard the storyboard instead."
+          : "This video has already finished.",
+  });
+});
+
+/**
  * Storyboard review. A job created with reviewStoryboard pauses after the cheap
  * half (script → narration → one still per scene) and waits here in
  * awaiting_review. The stills on the plan ARE the frames the render animates, so

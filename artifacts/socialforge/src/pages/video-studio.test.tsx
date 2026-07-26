@@ -45,6 +45,7 @@ const mockState: {
 };
 
 const toastSpy = vi.fn();
+const cancelVideoJobSpy = vi.fn();
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: toastSpy }),
 }));
@@ -98,6 +99,7 @@ vi.mock("@workspace/api-client-react", async () => {
         opts?.onSuccess?.({ ...mockState.activeJob, status: "processing", storyboard: null });
       },
     }),
+    cancelVideoJob: (...args: unknown[]) => cancelVideoJobSpy(...args),
     useListCharacters: () => ({ data: mockState.characters }),
     useListBrandKits: () => ({ data: mockState.brandKits }),
     useListVideoStyles: () => ({ data: mockState.styleProfiles }),
@@ -219,6 +221,7 @@ beforeEach(() => {
   mockState.storyboardEdits = [];
   mockState.approvals = [];
   toastSpy.mockClear();
+  cancelVideoJobSpy.mockReset().mockResolvedValue({ id: 42, status: "cancelled" });
   cleanup();
 });
 
@@ -246,6 +249,59 @@ describe("Video Studio", () => {
       aspectRatio: "9:16",
       sourceImagePaths: [],
     });
+  });
+
+  it("shows queued status with elapsed time and cancels a still-queued job", async () => {
+    mockState.activeJob = {
+      id: 42,
+      engine: "text_to_video",
+      status: "queued",
+      prompt: "A calm ocean at dusk",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      createdAt: new Date(Date.now() - 5000).toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    renderPage();
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "A calm ocean at dusk" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-video"));
+
+    await waitFor(() => expect(screen.getByTestId("text-job-stage").textContent).toContain("Queued"));
+    expect(screen.getByTestId("text-video-job-elapsed").textContent).toMatch(/\ds elapsed/);
+
+    const cancelBtn = screen.getByTestId("button-cancel-video-job") as HTMLButtonElement;
+    expect(cancelBtn.disabled).toBe(false);
+    fireEvent.click(cancelBtn);
+    await waitFor(() => expect(cancelVideoJobSpy).toHaveBeenCalledWith(42));
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Video cancelled" }),
+      ),
+    );
+  });
+
+  it("disables Cancel once the job is processing", async () => {
+    mockState.activeJob = {
+      id: 42,
+      engine: "text_to_video",
+      status: "processing",
+      stage: "Writing the script",
+      prompt: "A calm ocean at dusk",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    renderPage();
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "A calm ocean at dusk" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-video"));
+
+    await waitFor(() => expect(screen.getByTestId("button-cancel-video-job")).toBeTruthy());
+    expect((screen.getByTestId("button-cancel-video-job") as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("requires photos before a slideshow can start, and offers all three photo sources", async () => {

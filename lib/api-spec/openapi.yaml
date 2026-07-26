@@ -3189,6 +3189,40 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/cancel:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: cancelVideoJob
+      tags: [ai]
+      summary: Cancel a still-queued video generation job
+      description: >-
+        Marks a queued job cancelled and refunds its credit funding (if it was
+        credit-funded). Jobs that have already started processing cannot be
+        cancelled and return 409.
+      responses:
+        "200":
+          description: The cancelled job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "409":
+          description: Job already started, finished, or was already cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/video-jobs/{jobId}/storyboard:
     parameters:
       - name: jobId
@@ -10725,7 +10759,7 @@ components:
           enum: [text_to_video, image_to_video, slideshow, topic_to_video]
         status:
           type: string
-          enum: [queued, processing, awaiting_review, succeeded, failed]
+          enum: [queued, processing, awaiting_review, succeeded, failed, cancelled]
           description: >-
             awaiting_review means the job paused with an editable storyboard
             and is waiting on approve or discard; it resumes no other way.

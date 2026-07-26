@@ -35,6 +35,7 @@ import {
   getListGoogleDriveFilesQueryKey,
   getListContentQueryKey,
   getListCharactersQueryKey,
+  cancelVideoJob,
   type VideoJob,
   type VideoStoryboard,
   type VideoStoryboardScene,
@@ -418,6 +419,47 @@ export function VideoStudioPage() {
     activeJob != null &&
     activeJob.id === activeJobId &&
     (activeJob.status === "queued" || activeJob.status === "processing");
+
+  // Live elapsed time while the job runs, anchored to the row's createdAt so
+  // it survives a reload mid-generation.
+  const [jobElapsed, setJobElapsed] = useState(0);
+  useEffect(() => {
+    if (!busy || !activeJob) {
+      setJobElapsed(0);
+      return;
+    }
+    const startedAt = new Date(activeJob.createdAt).getTime();
+    const tick = () => setJobElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [busy, activeJob]);
+
+  const [cancelling, setCancelling] = useState(false);
+  const cancelRunningJob = async () => {
+    if (!activeJob || cancelling) return;
+    setCancelling(true);
+    try {
+      await cancelVideoJob(activeJob.id);
+      setActiveJobId(null);
+      void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
+      toast({
+        title: "Video cancelled",
+        description: "Nothing was charged — any reserved credit was returned.",
+      });
+    } catch (err) {
+      const status = (err as { status?: number })?.status;
+      toast({
+        title: status === 409 ? "Too late to cancel" : "Couldn't cancel",
+        description:
+          status === 409
+            ? "Generation already started, so it will finish normally."
+            : "Something went wrong cancelling the job. It will finish normally.",
+      });
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   /** Whether this engine plans something worth looking at before it renders.
    * Stock topic footage is searched, not prompted, so there is nothing to edit. */
@@ -1281,6 +1323,33 @@ export function VideoStudioPage() {
                   </div>
                 </div>
                 <Progress value={stageProgress(activeJob)} />
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm text-muted-foreground" data-testid="text-video-job-elapsed">
+                    {jobElapsed >= 60
+                      ? `${Math.floor(jobElapsed / 60)}m ${jobElapsed % 60}s elapsed`
+                      : `${jobElapsed}s elapsed`}
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={activeJob.status !== "queued" || cancelling}
+                    title={
+                      activeJob.status !== "queued"
+                        ? "Generation already started and can no longer be cancelled."
+                        : undefined
+                    }
+                    onClick={cancelRunningJob}
+                    data-testid="button-cancel-video-job"
+                  >
+                    {cancelling ? (
+                      <RippleSpinner className="mr-2 h-4 w-4" />
+                    ) : (
+                      <X className="mr-2 h-4 w-4" />
+                    )}
+                    Cancel
+                  </Button>
+                </div>
               </div>
             )}
             {reviewing && activeJob.storyboard && (

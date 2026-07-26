@@ -18,4 +18,5 @@ export const VideoJobStatus = {
   awaiting_review: 'awaiting_review',
   succeeded: 'succeeded',
   failed: 'failed',
+  cancelled: 'cancelled',
 } as const;
