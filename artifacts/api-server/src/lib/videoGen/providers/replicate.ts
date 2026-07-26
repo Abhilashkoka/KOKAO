@@ -48,6 +48,17 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
   // action to the prompt benefit, others ignore it harmlessly.
   const prompt = `${input.prompt.trim()}\n\nTarget clip length: about ${input.durationSec} seconds of continuous action, paced to fill the full duration.`;
 
+  if (model.includes("happyhorse")) {
+    // Alibaba Happy Horse: reference images go in an "images" ARRAY (an
+    // "image" key is silently ignored — the photo's subject never appears);
+    // duration is an integer 3-15 seconds.
+    return {
+      prompt,
+      aspect_ratio: input.aspectRatio,
+      duration: Math.min(15, Math.max(3, Math.round(input.durationSec))),
+      ...(dataUri ? { images: [dataUri] } : {}),
+    };
+  }
   if (model.includes("minimax")) {
     // MiniMax video-01: fixed 6s/720p clips; no aspect/duration params.
     return { prompt, ...(dataUri ? { first_frame_image: dataUri } : {}) };
