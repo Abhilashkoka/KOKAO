@@ -61,7 +61,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { ExternalLink } from "lucide-react";
+import { ChevronDown, ExternalLink } from "lucide-react";
 
 const ASR_KEY_PAGES: Record<string, string> = {
   groq: "https://console.groq.com/keys",
@@ -1965,19 +1965,40 @@ function AiCostCard() {
 
 function AiCostReportCard() {
   const [month, setMonth] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
   const { data: report, isLoading } = useAdminGetAiCostReport(
     month ? { month } : undefined,
   );
 
   return (
     <Card data-testid="card-ai-cost-report">
-      <CardHeader>
-        <CardTitle>Actual Cost Report</CardTitle>
+      <CardHeader
+        className="cursor-pointer select-none"
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen((o) => !o);
+          }
+        }}
+        data-testid="toggle-ai-cost-report-card"
+      >
+        <div className="flex items-center justify-between gap-4">
+          <CardTitle>Actual Cost Report</CardTitle>
+          <ChevronDown
+            className={`h-5 w-5 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+            aria-hidden="true"
+          />
+        </div>
         <CardDescription>
           Per-tenant real AI cost for the selected month, next to what the tenant-facing
           "AI amount spent" rates would display for the same volume.
         </CardDescription>
       </CardHeader>
+      {open && (
       <CardContent className="space-y-4">
         {isLoading || !report ? (
           <Skeleton className="h-24 w-full" />
@@ -2196,6 +2217,7 @@ function AiCostReportCard() {
           </>
         )}
       </CardContent>
+      )}
     </Card>
   );
 }
