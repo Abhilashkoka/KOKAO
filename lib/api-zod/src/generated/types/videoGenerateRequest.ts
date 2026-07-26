@@ -30,7 +30,7 @@ export interface VideoGenerateRequest {
   /**
      * AI engines only; providers clamp to what they support.
      * @minimum 3
-     * @maximum 10
+     * @maximum 30
      */
   durationSec?: number;
   /**

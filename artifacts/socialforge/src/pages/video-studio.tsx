@@ -965,6 +965,9 @@ export function VideoStudioPage() {
                     <SelectItem value="5">5 seconds</SelectItem>
                     <SelectItem value="8">8 seconds</SelectItem>
                     <SelectItem value="10">10 seconds</SelectItem>
+                    <SelectItem value="15">15 seconds</SelectItem>
+                    <SelectItem value="20">20 seconds</SelectItem>
+                    <SelectItem value="30">30 seconds</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

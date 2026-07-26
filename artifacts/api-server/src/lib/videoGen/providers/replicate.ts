@@ -43,14 +43,19 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
   const dataUri = input.image
     ? `data:${input.image.mimeType};base64,${input.image.buffer.toString("base64")}`
     : null;
+  // Most video models have no (or a very limited) duration parameter, so the
+  // requested length is always baked into the prompt too — models that pace
+  // action to the prompt benefit, others ignore it harmlessly.
+  const prompt = `${input.prompt.trim()}\n\nTarget clip length: about ${input.durationSec} seconds of continuous action, paced to fill the full duration.`;
 
   if (model.includes("minimax")) {
     // MiniMax video-01: fixed 6s/720p clips; no aspect/duration params.
-    return { prompt: input.prompt, ...(dataUri ? { first_frame_image: dataUri } : {}) };
+    return { prompt, ...(dataUri ? { first_frame_image: dataUri } : {}) };
   }
   if (model.includes("kling")) {
+    // Kling only accepts 5 or 10 second clips.
     return {
-      prompt: input.prompt,
+      prompt,
       aspect_ratio: input.aspectRatio,
       duration: input.durationSec >= 10 ? 10 : 5,
       ...(dataUri ? { start_image: dataUri } : {}),
@@ -58,11 +63,11 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
   }
   if (model.includes("veo")) {
     // Veo on Replicate is 16:9-first; it rejects unknown params, keep minimal.
-    return { prompt: input.prompt, ...(dataUri ? { image: dataUri } : {}) };
+    return { prompt, ...(dataUri ? { image: dataUri } : {}) };
   }
   // WAN and most others accept aspect_ratio and an "image" start frame.
   return {
-    prompt: input.prompt,
+    prompt,
     aspect_ratio: input.aspectRatio,
     ...(dataUri ? { image: dataUri } : {}),
   };

@@ -10303,7 +10303,7 @@ components:
         durationSec:
           type: integer
           minimum: 3
-          maximum: 10
+          maximum: 30
           default: 5
           description: AI engines only; providers clamp to what they support.
         slideDurationSec:

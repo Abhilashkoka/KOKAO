@@ -5158,7 +5158,7 @@ export const generateVideoBodySourceImagePathsMax = 20;
 export const generateVideoBodyAspectRatioDefault = `9:16`;
 export const generateVideoBodyDurationSecDefault = 5;
 export const generateVideoBodyDurationSecMin = 3;
-export const generateVideoBodyDurationSecMax = 10;
+export const generateVideoBodyDurationSecMax = 30;
 
 export const generateVideoBodySlideDurationSecDefault = 3;
 export const generateVideoBodySlideDurationSecMax = 10;
