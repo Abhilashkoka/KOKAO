@@ -566,7 +566,9 @@ export function LibraryPage() {
   // dialog once the list is loaded, then cleans the URL so refreshes don't
   // re-trigger it. Guarded per search string (not a one-shot latch) so a
   // second notification click while the page stays mounted still works.
-  // Unknown ids (deleted items) just land on the library list.
+  // Unknown ids (deleted items) land on the library list with a clear
+  // "that post no longer exists" notice instead of a silent no-op, so an
+  // alert link to a deleted post never feels like a dead end.
   const search = useSearch();
   const [, setLocation] = useLocation();
   const handledDeepLinkRef = useRef<string | null>(null);
@@ -585,7 +587,14 @@ export function LibraryPage() {
     const item = Number.isInteger(id) && id > 0
       ? content.find((i: any) => i.id === id)
       : undefined;
-    if (item) openEdit(item);
+    if (item) {
+      openEdit(item);
+    } else {
+      toast({
+        title: "That post no longer exists",
+        description: "It may have been deleted after this alert was sent.",
+      });
+    }
     setLocation("/library", { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content, search]);
