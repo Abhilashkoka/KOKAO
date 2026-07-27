@@ -14,6 +14,7 @@ import {
   Shield,
   BarChart3,
   HeartPulse,
+  CircleDollarSign,
   Menu,
   LogOut
 } from "lucide-react";
@@ -51,6 +52,8 @@ const ANALYTICS_NAV_ITEM = { href: "/analytics", label: "Analytics", icon: BarCh
 const HEALTH_NAV_ITEM = { href: "/health", label: "Health", icon: HeartPulse };
 
 const ADMIN_NAV_ITEMS = [
+  // Pricing data comes from superadmin-only endpoints, so it lives with Admin.
+  { href: "/video-pricing", label: "Video Pricing", icon: CircleDollarSign },
   { href: "/admin", label: "Admin", icon: Shield },
 ];
 

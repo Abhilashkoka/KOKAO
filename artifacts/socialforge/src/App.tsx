@@ -11,6 +11,7 @@ import { SettingsPage } from "@/pages/settings";
 import { AdminPage } from "@/pages/admin";
 import { AnalyticsPage } from "@/pages/analytics";
 import { HealthPage } from "@/pages/health";
+import { VideoPricingPage } from "@/pages/video-pricing";
 import { AdsPage } from "@/pages/ads";
 import { CalendarPage } from "@/pages/calendar";
 import { CampaignsPage } from "@/pages/campaigns";
@@ -191,6 +192,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} />} />
             <Route path="/analytics" component={() => <ProtectedRoute component={AnalyticsPage} feature="analytics" featureLabel="Analytics" />} />
             <Route path="/health" component={() => <ProtectedRoute component={HealthPage} />} />
+            <Route path="/video-pricing" component={() => <ProtectedRoute component={VideoPricingPage} />} />
             {/* Branding moved into Settings; keep old links working. */}
             <Route path="/app-brand" component={() => <Redirect to="/settings" />} />
             
