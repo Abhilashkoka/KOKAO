@@ -36,6 +36,7 @@ import type {
   AdminGrantCredits200,
   AdminListAuditLogsParams,
   AdminListTextGenModelPricingParams,
+  AdminListVideoModelPricingParams,
   AdminSeatRequest,
   AdminStats,
   AdminSweepRunResult,
@@ -275,6 +276,7 @@ import type {
   VideoGenSettingsView,
   VideoGenerateRequest,
   VideoJob,
+  VideoModelPricingView,
   VideoStyleProfile,
   VisualAsset,
   YoutubeAppCredentialInput,
@@ -5388,6 +5390,90 @@ export function useAdminListTextGenModelPricing<TData = Awaited<ReturnType<typeo
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getAdminListTextGenModelPricingQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminListVideoModelPricingUrl = (params: AdminListVideoModelPricingParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/video-model-pricing?${stringifiedParams}` : `/api/admin/video-model-pricing`
+}
+
+/**
+ * @summary Live Replicate pricing for a list of video model slugs (superadmin only)
+ */
+export const adminListVideoModelPricing = async (params: AdminListVideoModelPricingParams, options?: RequestInit): Promise<VideoModelPricingView[]> => {
+
+  return customFetch<VideoModelPricingView[]>(getAdminListVideoModelPricingUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListVideoModelPricingQueryKey = (params?: AdminListVideoModelPricingParams,) => {
+    return [
+    `/api/admin/video-model-pricing`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getAdminListVideoModelPricingQueryOptions = <TData = Awaited<ReturnType<typeof adminListVideoModelPricing>>, TError = ErrorType<ErrorEnvelope>>(params: AdminListVideoModelPricingParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListVideoModelPricing>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListVideoModelPricingQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListVideoModelPricing>>> = ({ signal }) => adminListVideoModelPricing(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListVideoModelPricing>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListVideoModelPricingQueryResult = NonNullable<Awaited<ReturnType<typeof adminListVideoModelPricing>>>
+export type AdminListVideoModelPricingQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Live Replicate pricing for a list of video model slugs (superadmin only)
+ */
+
+export function useAdminListVideoModelPricing<TData = Awaited<ReturnType<typeof adminListVideoModelPricing>>, TError = ErrorType<ErrorEnvelope>>(
+ params: AdminListVideoModelPricingParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListVideoModelPricing>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListVideoModelPricingQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

@@ -1946,6 +1946,20 @@ export const AdminListTextGenModelPricingResponse = zod.array(AdminListTextGenMo
 
 
 /**
+ * @summary Live Replicate pricing for a list of video model slugs (superadmin only)
+ */
+export const AdminListVideoModelPricingQueryParams = zod.object({
+  "models": zod.coerce.string().describe('Comma-separated Replicate model slugs (owner\/name).')
+})
+
+export const AdminListVideoModelPricingResponseItem = zod.object({
+  "model": zod.string(),
+  "price": zod.string().nullable().describe('Human-readable price line from replicate.com (e.g. \"$0.20–$0.40 per second of output video\"), or null when unavailable.')
+})
+export const AdminListVideoModelPricingResponse = zod.array(AdminListVideoModelPricingResponseItem)
+
+
+/**
  * @summary Get the text generation provider selection (superadmin only)
  */
 export const AdminGetTextGenSettingsResponse = zod.object({

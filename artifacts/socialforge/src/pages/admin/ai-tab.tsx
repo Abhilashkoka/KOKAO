@@ -24,6 +24,8 @@ import {
   useAdminGetTextGenSettings,
   useAdminListTextGenModelPricing,
   getAdminListTextGenModelPricingQueryKey,
+  useAdminListVideoModelPricing,
+  getAdminListVideoModelPricingQueryKey,
   useAdminUpdateTextGenSettings,
   useAdminSetTextGenKey,
   useAdminClearTextGenKey,
@@ -902,6 +904,28 @@ function VideoGenProviderCard() {
   const effectiveProvider = draftProvider ?? settings?.provider ?? "replicate";
   const shown = settings?.providers.find((p) => p.id === effectiveProvider);
 
+  // Live Replicate pricing for every model in either dropdown (scraped
+  // server-side from replicate.com model pages; fail-soft nulls).
+  const videoModelSlugs = [
+    ...new Set(
+      [
+        ...(shown?.textModelOptions ?? []).map((o) => o.value),
+        ...(shown?.imageModelOptions ?? []).map((o) => o.value),
+      ].filter(Boolean),
+    ),
+  ];
+  const videoPricingParams = { models: videoModelSlugs.join(",") };
+  const { data: videoModelPricing } = useAdminListVideoModelPricing(videoPricingParams, {
+    query: {
+      // Orval partial options drop the generated key, so pass it explicitly.
+      queryKey: getAdminListVideoModelPricingQueryKey(videoPricingParams),
+      enabled: videoModelSlugs.length > 0 && effectiveProvider === "replicate",
+      staleTime: 60 * 60 * 1000,
+    },
+  });
+  const videoPriceFor = (model: string): string | null =>
+    videoModelPricing?.find((p) => p.model === model)?.price ?? null;
+
   const handleSaveKey = (providerId: string) => {
     const apiKey = keyInput.trim();
     if (!apiKey) return;
@@ -1007,7 +1031,14 @@ function VideoGenProviderCard() {
                       <SelectContent>
                         {shown.textModelOptions.map((o) => (
                           <SelectItem key={o.value} value={o.value}>
-                            {o.label}
+                            <span className="flex flex-col items-start">
+                              <span>{o.label}</span>
+                              {videoPriceFor(o.value) && (
+                                <span className="text-xs text-muted-foreground">
+                                  {videoPriceFor(o.value)}
+                                </span>
+                              )}
+                            </span>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1045,7 +1076,14 @@ function VideoGenProviderCard() {
                       <SelectContent>
                         {shown.imageModelOptions.map((o) => (
                           <SelectItem key={o.value} value={o.value}>
-                            {o.label}
+                            <span className="flex flex-col items-start">
+                              <span>{o.label}</span>
+                              {videoPriceFor(o.value) && (
+                                <span className="text-xs text-muted-foreground">
+                                  {videoPriceFor(o.value)}
+                                </span>
+                              )}
+                            </span>
                           </SelectItem>
                         ))}
                       </SelectContent>

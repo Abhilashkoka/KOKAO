@@ -1120,6 +1120,15 @@ export interface AiModelChoicesView {
   pricing?: ModelPricingView[];
 }
 
+export interface VideoModelPricingView {
+  model: string;
+  /**
+     * Human-readable price line from replicate.com (e.g. "$0.20–$0.40 per second of output video"), or null when unavailable.
+     * @nullable
+     */
+  price: string | null;
+}
+
 export interface AudioUploadInput {
   /** Audio file (webm/ogg/mp3/wav/m4a), max 15 MB. */
   audio: Blob;
@@ -4939,6 +4948,13 @@ month?: string;
 export type AdminListTextGenModelPricingParams = {
 /**
  * Comma-separated OpenRouter model ids.
+ */
+models: string;
+};
+
+export type AdminListVideoModelPricingParams = {
+/**
+ * Comma-separated Replicate model slugs (owner/name).
  */
 models: string;
 };

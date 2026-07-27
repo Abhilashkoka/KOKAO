@@ -1938,6 +1938,33 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/video-model-pricing:
+    get:
+      operationId: adminListVideoModelPricing
+      tags: [admin]
+      summary: Live Replicate pricing for a list of video model slugs (superadmin only)
+      parameters:
+        - name: models
+          in: query
+          required: true
+          description: Comma-separated Replicate model slugs (owner/name).
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Per-model pricing (null when unknown)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VideoModelPricingView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/text-gen-settings:
     get:
       operationId: adminGetTextGenSettings
@@ -8905,6 +8932,17 @@ components:
         outputPerMTokens:
           type: ["number", "null"]
           description: USD per 1M output (completion) tokens.
+    VideoModelPricingView:
+      type: object
+      required: [model, price]
+      properties:
+        model:
+          type: string
+        price:
+          type: ["string", "null"]
+          description: >-
+            Human-readable price line from replicate.com (e.g. "$0.20–$0.40
+            per second of output video"), or null when unavailable.
     AudioUploadInput:
       type: object
       required: [audio]

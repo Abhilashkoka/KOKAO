@@ -67,6 +67,7 @@ import {
   type TextGenProvider,
 } from "../lib/textGen";
 import { lookupOpenRouterPricing } from "../lib/openrouterCatalog";
+import { lookupReplicatePricing } from "../lib/replicateCatalog";
 import {
   AdminUpdateTenantPlanBody,
   AdminUpdateTenantSuperadminBody,
@@ -1561,6 +1562,23 @@ router.get("/admin/text-gen-model-pricing", async (req: Request, res: Response) 
   const rest = models
     .slice(200)
     .map((model) => ({ model, inputPerMTokens: null, outputPerMTokens: null }));
+  res.json([...looked, ...rest]);
+});
+
+/**
+ * GET /admin/video-model-pricing?models=owner/name,owner/name
+ * Live Replicate pricing (scraped from public model pages) for the video
+ * model dropdowns. Every submitted slug gets an entry (null when unknown).
+ */
+router.get("/admin/video-model-pricing", async (req: Request, res: Response) => {
+  const raw = typeof req.query.models === "string" ? req.query.models : "";
+  const models = [...new Set(raw.split(",").map((m) => m.trim()).filter(Boolean))];
+  if (models.length === 0) {
+    res.status(400).json({ error: "Provide at least one model slug in ?models=" });
+    return;
+  }
+  const looked = await lookupReplicatePricing(models.slice(0, 50));
+  const rest = models.slice(50).map((model) => ({ model, price: null }));
   res.json([...looked, ...rest]);
 });
 
