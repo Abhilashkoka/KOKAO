@@ -75,4 +75,5 @@
 - [Animate-photo framing](animate-photo-framing.md) — pad (never crop) user photos to the target aspect before video gen; aiPrompt must derive from the provider-bound input, not job.prompt.
 - [Storyboard scene editing](storyboard-scene-editing.md) — narration re-voices on approve via texts-vs-cues drift; inserts bill via options.addedScenes so all refund paths reprice automatically.
 - [Model pricing lookups](model-pricing-lookups.md) — OpenRouter has a keyless pricing catalog; Replicate's API has NONE — scrape the model page's embedded "prices" JSON; fail-soft nulls everywhere.
+- [Replicate text provider](replicate-text-provider.md) — no OpenAI chat endpoint; shim over predictions API (prompt/system_prompt/max_tokens only); stream EOF before "done" must reject; shares the video-gen key.
 - [Replicate video input mapping](replicate-video-inputs.md) — wrong start-image field name is silently ignored; photo subject vanishes with a "successful" job; verify each model schema.

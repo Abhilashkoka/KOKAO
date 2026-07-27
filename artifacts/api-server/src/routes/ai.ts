@@ -38,6 +38,7 @@ import {
   listTenantModelChoices,
 } from "../lib/textGen";
 import { lookupOpenRouterPricing } from "../lib/openrouterCatalog";
+import { lookupReplicateTokenPricing } from "../lib/replicateCatalog";
 import {
   TextGenNotConfiguredError,
   type TextGenClient,
@@ -157,10 +158,14 @@ async function getTextGenOrRespond(
  */
 router.get("/ai/models", async (_req: Request, res: Response) => {
   const choices = await listTenantModelChoices();
-  // Decorate OpenRouter choices with live catalog pricing (fail-soft: null
-  // prices when the public catalog is unreachable).
+  // Decorate external-provider choices with live catalog pricing (fail-soft:
+  // null prices when the public catalog is unreachable).
   if (choices.provider === "openrouter") {
     res.json({ ...choices, pricing: await lookupOpenRouterPricing(choices.models) });
+    return;
+  }
+  if (choices.provider === "replicate") {
+    res.json({ ...choices, pricing: await lookupReplicateTokenPricing(choices.models) });
     return;
   }
   res.json(choices);

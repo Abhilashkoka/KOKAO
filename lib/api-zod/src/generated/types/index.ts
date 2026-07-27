@@ -29,6 +29,7 @@ export * from './adminGrantCredits200';
 export * from './adminListAuditLogsAction';
 export * from './adminListAuditLogsParams';
 export * from './adminListTextGenModelPricingParams';
+export * from './adminListTextGenModelPricingProvider';
 export * from './adminListVideoModelPricingParams';
 export * from './adminSeatRequest';
 export * from './adminSeatRequestStatus';

@@ -12,4 +12,5 @@ export type AiModelChoicesViewProvider = typeof AiModelChoicesViewProvider[keyof
 export const AiModelChoicesViewProvider = {
   builtin: 'builtin',
   openrouter: 'openrouter',
+  replicate: 'replicate',
 } as const;

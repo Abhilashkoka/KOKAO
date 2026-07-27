@@ -7,7 +7,7 @@
  */
 
 /**
- * Where the active OpenRouter key comes from (admin-entered key wins over the env secret).
+ * Where the active provider key comes from (admin-entered key wins over the env secret). For replicate this reflects the shared video-generation key.
  * @nullable
  */
 export type TextGenSettingsViewKeySource = typeof TextGenSettingsViewKeySource[keyof typeof TextGenSettingsViewKeySource] | null;

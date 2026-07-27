@@ -4,6 +4,8 @@ import { eq } from "drizzle-orm";
 import { encryptJson, decryptJson } from "./secretCrypto";
 import { openai as builtinOpenAI } from "@workspace/integrations-openai-ai-server";
 import { resolveAiModel, isSupportedAiModel, SUPPORTED_AI_MODELS, DEFAULT_AI_MODEL } from "./aiModels";
+import { createReplicateChatClient } from "./replicateTextGen";
+import { getStoredVideoGenKey } from "./videoGen";
 
 /**
  * Text generation routing layer.
@@ -14,6 +16,9 @@ import { resolveAiModel, isSupportedAiModel, SUPPORTED_AI_MODELS, DEFAULT_AI_MOD
  *                    row behaves exactly like before this layer existed)
  *   - "openrouter" — OpenRouter with the admin's own API key, model list
  *                    curated by the admin
+ *   - "replicate"  — Replicate-hosted language models via the predictions
+ *                    API shim (replicateTextGen.ts). Reuses the Replicate
+ *                    key already saved for video generation.
  *
  * Rollback: flip the provider back to "builtin"; tenants' stored model names
  * fall back through resolveTextModel() automatically, so nobody is stranded
@@ -24,7 +29,7 @@ import { resolveAiModel, isSupportedAiModel, SUPPORTED_AI_MODELS, DEFAULT_AI_MOD
  * text (captions, topics, campaigns, URL summaries) goes through this switch.
  */
 
-export const TEXT_GEN_PROVIDERS = ["builtin", "openrouter"] as const;
+export const TEXT_GEN_PROVIDERS = ["builtin", "openrouter", "replicate"] as const;
 export type TextGenProvider = (typeof TEXT_GEN_PROVIDERS)[number];
 export const DEFAULT_TEXT_GEN_PROVIDER: TextGenProvider = "builtin";
 
@@ -130,6 +135,26 @@ export async function clearStoredOpenRouterKey(): Promise<void> {
 
 export type TextGenKeySource = "database" | "env" | null;
 
+const REPLICATE_ENV_KEY = "REPLICATE_API_TOKEN";
+
+/**
+ * The Replicate key for text generation. Deliberately the SAME key the admin
+ * saved for video generation (stored under videogen_replicate) — one key, one
+ * place to rotate it — with the env secret as fallback.
+ */
+export async function resolveReplicateTextKey(): Promise<string | null> {
+  const stored = await getStoredVideoGenKey("replicate");
+  if (stored) return stored;
+  return process.env[REPLICATE_ENV_KEY] ?? null;
+}
+
+/** Where the effective Replicate key comes from (shared with video generation). */
+export async function getReplicateTextKeySource(): Promise<TextGenKeySource> {
+  if (await getStoredVideoGenKey("replicate")) return "database";
+  if (process.env[REPLICATE_ENV_KEY]) return "env";
+  return null;
+}
+
 /** Where the effective OpenRouter key comes from (admin key wins over env secret). */
 export async function getOpenRouterKeySource(): Promise<TextGenKeySource> {
   if (await getStoredOpenRouterKey()) return "database";
@@ -150,12 +175,13 @@ export async function resolveOpenRouterKey(): Promise<string | null> {
  * configured default as the fallback.
  */
 export function resolveTextModel(selection: TextGenSelection, tenantModel: string): string {
-  if (selection.provider === "openrouter") {
+  if (selection.provider !== "builtin") {
     if (selection.models.includes(tenantModel)) return tenantModel;
     const fallback = selection.defaultModel ?? selection.models[0];
     if (!fallback) {
       throw new TextGenNotConfiguredError(
-        "OpenRouter is selected for text generation but no models are configured. " +
+        `${selection.provider === "openrouter" ? "OpenRouter" : "Replicate"} is selected for ` +
+          "text generation but no models are configured. " +
           "Add models in the admin dashboard or switch back to the built-in provider.",
       );
     }
@@ -167,7 +193,7 @@ export function resolveTextModel(selection: TextGenSelection, tenantModel: strin
 /** Whether a tenant may save this model name under the active provider. */
 export async function isAllowedTenantModel(model: string): Promise<boolean> {
   const selection = await getTextGenSelection();
-  if (selection.provider === "openrouter") return selection.models.includes(model);
+  if (selection.provider !== "builtin") return selection.models.includes(model);
   return isSupportedAiModel(model);
 }
 
@@ -178,9 +204,9 @@ export async function listTenantModelChoices(): Promise<{
   defaultModel: string;
 }> {
   const selection = await getTextGenSelection();
-  if (selection.provider === "openrouter") {
+  if (selection.provider !== "builtin") {
     return {
-      provider: "openrouter",
+      provider: selection.provider,
       models: selection.models,
       defaultModel: selection.defaultModel ?? selection.models[0] ?? "",
     };
@@ -214,6 +240,21 @@ export async function getTextGenClient(tenantModel: string): Promise<TextGenClie
     return {
       client: new OpenAI({ apiKey, baseURL: OPENROUTER_BASE_URL }),
       provider: "openrouter",
+      model: resolveTextModel(selection, tenantModel),
+    };
+  }
+  if (selection.provider === "replicate") {
+    const apiKey = await resolveReplicateTextKey();
+    if (!apiKey) {
+      throw new TextGenNotConfiguredError(
+        "Replicate is selected for text generation but no API key is configured. " +
+          "Save a Replicate key under Video Generation in the admin dashboard " +
+          "or switch back to the built-in provider.",
+      );
+    }
+    return {
+      client: createReplicateChatClient(apiKey),
+      provider: "replicate",
       model: resolveTextModel(selection, tenantModel),
     };
   }

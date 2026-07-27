@@ -1217,12 +1217,17 @@ function TextGenProviderCard() {
 
   // Live provider pricing for the models being edited (works on unsaved
   // drafts too). Fail-soft: unknown models simply show no price.
-  const pricingParams = { models: modelList.join(",") };
+  const pricingParams = {
+    models: modelList.join(","),
+    provider: effectiveProvider === "replicate" ? ("replicate" as const) : ("openrouter" as const),
+  };
   const { data: modelPricing } = useAdminListTextGenModelPricing(pricingParams, {
     query: {
       // Orval partial options drop the generated key, so pass it explicitly.
       queryKey: getAdminListTextGenModelPricingQueryKey(pricingParams),
-      enabled: modelList.length > 0 && effectiveProvider === "openrouter",
+      enabled:
+        modelList.length > 0 &&
+        (effectiveProvider === "openrouter" || effectiveProvider === "replicate"),
     },
   });
   const priceFor = (model: string) => modelPricing?.find((p) => p.model === model);
@@ -1231,10 +1236,10 @@ function TextGenProviderCard() {
     updateSettings.mutate(
       {
         data: {
-          provider: provider as "builtin" | "openrouter",
-          models: provider === "openrouter" ? modelList : [],
+          provider: provider as "builtin" | "openrouter" | "replicate",
+          models: provider !== "builtin" ? modelList : [],
           defaultModel:
-            provider === "openrouter" ? defaultModelValue.trim() || null : null,
+            provider !== "builtin" ? defaultModelValue.trim() || null : null,
         },
       },
       {
@@ -1248,7 +1253,9 @@ function TextGenProviderCard() {
             description:
               result.provider === "openrouter"
                 ? "Captions and other text are now generated through OpenRouter."
-                : "Captions and other text now use the built-in provider.",
+                : result.provider === "replicate"
+                  ? "Captions and other text are now generated through Replicate."
+                  : "Captions and other text now use the built-in provider.",
           });
         },
         onError: (err: unknown) => {
@@ -1268,8 +1275,8 @@ function TextGenProviderCard() {
       setDraftProvider(null);
       return;
     }
-    if (provider === "openrouter") {
-      // OpenRouter needs a key and a model list first; wait for Save settings.
+    if (provider === "openrouter" || provider === "replicate") {
+      // These need a key and a model list first; wait for Save settings.
       setDraftProvider(provider);
       return;
     }
@@ -1318,6 +1325,8 @@ function TextGenProviderCard() {
     });
   };
 
+  const isReplicate = effectiveProvider === "replicate";
+  const showModelConfig = effectiveProvider === "openrouter" || isReplicate;
   const showOpenRouterConfig = effectiveProvider === "openrouter";
 
   /** "In $0.15 / Out $0.60" from live pricing; placeholders while loading. */
@@ -1337,8 +1346,9 @@ function TextGenProviderCard() {
         <CardDescription>
           Which service writes captions, topics, and campaign text. The built-in
           option needs no key. OpenRouter uses your own API key (stored
-          encrypted) and lets you choose which models users can pick. Switching
-          back to Built-in instantly restores the previous behavior.
+          encrypted) and lets you choose which models users can pick. Replicate
+          reuses the key you saved for video generation. Switching back to
+          Built-in instantly restores the previous behavior.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -1358,6 +1368,7 @@ function TextGenProviderCard() {
                 <SelectContent>
                   <SelectItem value="builtin">Built-in (OpenAI)</SelectItem>
                   <SelectItem value="openrouter">OpenRouter (your own key)</SelectItem>
+                  <SelectItem value="replicate">Replicate (uses your video-gen key)</SelectItem>
                 </SelectContent>
               </Select>
               {isDraft ? (
@@ -1368,18 +1379,22 @@ function TextGenProviderCard() {
                 <Badge variant="destructive">Needs key</Badge>
               )}
             </div>
-            {showOpenRouterConfig && (
+            {showModelConfig && (
               <div className="space-y-2 rounded-md border p-3">
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Models users can choose</p>
                   <p className="text-xs text-muted-foreground">
-                    One OpenRouter model id per line (for example
-                    openai/gpt-4o-mini or anthropic/claude-3.5-haiku). Copy ids
-                    from openrouter.ai/models.
+                    {isReplicate
+                      ? "One Replicate language model per line, in owner/name form (for example openai/gpt-oss-20b or meta/meta-llama-3-70b-instruct). Copy slugs from replicate.com/collections/language-models."
+                      : "One OpenRouter model id per line (for example openai/gpt-4o-mini or anthropic/claude-3.5-haiku). Copy ids from openrouter.ai/models."}
                   </p>
                   <textarea
                     className="w-96 min-h-24 rounded-md border bg-background p-2 text-sm font-mono"
-                    placeholder={"openai/gpt-4o-mini\nanthropic/claude-3.5-haiku"}
+                    placeholder={
+                      isReplicate
+                        ? "openai/gpt-oss-20b\nmeta/meta-llama-3-70b-instruct"
+                        : "openai/gpt-4o-mini\nanthropic/claude-3.5-haiku"
+                    }
                     value={modelsValue}
                     onChange={(e) => setModelsInput(e.target.value)}
                     data-testid="input-text-gen-models"
@@ -1398,7 +1413,8 @@ function TextGenProviderCard() {
                         </div>
                       ))}
                       <p className="pt-1 text-xs text-muted-foreground">
-                        Live prices from openrouter.ai, USD per 1M tokens.
+                        Live prices from {isReplicate ? "replicate.com" : "openrouter.ai"}, USD per
+                        1M tokens.
                       </p>
                     </div>
                   )}
@@ -1446,12 +1462,30 @@ function TextGenProviderCard() {
                 </div>
                 <Button
                   size="sm"
-                  onClick={() => saveSelection("openrouter")}
+                  onClick={() => saveSelection(isReplicate ? "replicate" : "openrouter")}
                   disabled={updateSettings.isPending}
                   data-testid="button-save-text-gen-settings"
                 >
                   {updateSettings.isPending ? "Saving..." : "Save settings"}
                 </Button>
+              </div>
+            )}
+            {isReplicate && (
+              <div className="space-y-2 rounded-md border p-3" data-testid="text-replicate-key-info">
+                <p className="text-sm font-medium">Replicate API key</p>
+                {settings.keySource ? (
+                  <p className="text-sm text-muted-foreground">
+                    Uses the Replicate key already saved for Video Generation
+                    {settings.keySource === "env" ? ` (currently the ${settings.envKey} secret)` : ""}.
+                    One key powers both video and text — manage it in the Video
+                    Generation Provider card below.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No Replicate key found. Save one in the Video Generation
+                    Provider card below — text generation reuses the same key.
+                  </p>
+                )}
               </div>
             )}
             {showOpenRouterConfig && (

@@ -20,12 +20,12 @@ export interface ReplicateModelPricing {
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 interface CacheEntry {
-  price: string | null;
+  entries: PriceEntry[];
   fetchedAt: number;
 }
 
 let cache = new Map<string, CacheEntry>();
-const inflight = new Map<string, Promise<string | null>>();
+const inflight = new Map<string, Promise<PriceEntry[]>>();
 
 /** Test hook. */
 export function resetReplicateCatalogCache(): void {
@@ -79,27 +79,27 @@ export function formatPriceEntries(entries: PriceEntry[]): string | null {
   return unique.map((e) => `${e.price} ${e.title}`).join(" · ");
 }
 
-async function fetchModelPrice(slug: string): Promise<string | null> {
+async function fetchModelEntries(slug: string): Promise<PriceEntry[]> {
   const res = await platformFetch(`https://replicate.com/${slug}`, {
     headers: { "User-Agent": "Mozilla/5.0 (compatible; KOKAO admin pricing)" },
   });
-  if (!res.ok) return null;
-  return formatPriceEntries(extractPriceEntries(await res.text()));
+  if (!res.ok) return [];
+  return extractPriceEntries(await res.text());
 }
 
-async function getModelPrice(slug: string): Promise<string | null> {
+async function getModelEntries(slug: string): Promise<PriceEntry[]> {
   const cached = cache.get(slug);
-  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached.price;
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached.entries;
   const existing = inflight.get(slug);
   if (existing) return existing;
-  const promise = fetchModelPrice(slug)
-    .then((price) => {
-      cache.set(slug, { price, fetchedAt: Date.now() });
-      return price;
+  const promise = fetchModelEntries(slug)
+    .then((entries) => {
+      cache.set(slug, { entries, fetchedAt: Date.now() });
+      return entries;
     })
     .catch(() => {
       // Fail-soft: keep any stale entry, otherwise report unknown.
-      return cached ? cached.price : null;
+      return cached ? cached.entries : [];
     })
     .finally(() => {
       inflight.delete(slug);
@@ -113,7 +113,41 @@ export async function lookupReplicatePricing(models: string[]): Promise<Replicat
   return Promise.all(
     models.map(async (model) => ({
       model,
-      price: SLUG_RE.test(model) ? await getModelPrice(model) : null,
+      price: SLUG_RE.test(model) ? formatPriceEntries(await getModelEntries(model)) : null,
     })),
+  );
+}
+
+export interface ReplicateTokenPricing {
+  model: string;
+  inputPerMTokens: number | null;
+  outputPerMTokens: number | null;
+}
+
+function dollars(price: string): number | null {
+  const n = Number(price.replace(/[^0-9.]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Per-million-token pricing for Replicate-hosted LANGUAGE models, matching the
+ * ModelPricingView shape used for OpenRouter. Language model pages carry
+ * entries titled "per million input tokens" / "per million output tokens";
+ * models without such entries (e.g. video models) come back null/null.
+ */
+export async function lookupReplicateTokenPricing(
+  models: string[],
+): Promise<ReplicateTokenPricing[]> {
+  return Promise.all(
+    models.map(async (model) => {
+      const entries = SLUG_RE.test(model) ? await getModelEntries(model) : [];
+      const input = entries.find((e) => /per million input tokens/i.test(e.title));
+      const output = entries.find((e) => /per million output tokens/i.test(e.title));
+      return {
+        model,
+        inputPerMTokens: input ? dollars(input.price) : null,
+        outputPerMTokens: output ? dollars(output.price) : null,
+      };
+    }),
   );
 }

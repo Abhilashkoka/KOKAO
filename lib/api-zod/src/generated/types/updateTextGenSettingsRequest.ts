@@ -9,7 +9,7 @@ import type { UpdateTextGenSettingsRequestProvider } from './updateTextGenSettin
 
 export interface UpdateTextGenSettingsRequest {
   provider: UpdateTextGenSettingsRequestProvider;
-  /** OpenRouter model ids tenants may pick from (required for openrouter). */
+  /** Model ids tenants may pick from (required for openrouter and replicate; Replicate models use owner/name slugs). */
   models?: string[];
   /**
      * Must be one of models (defaults to the first entry).

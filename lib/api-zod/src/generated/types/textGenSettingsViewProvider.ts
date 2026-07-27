@@ -15,4 +15,5 @@ export type TextGenSettingsViewProvider = typeof TextGenSettingsViewProvider[key
 export const TextGenSettingsViewProvider = {
   builtin: 'builtin',
   openrouter: 'openrouter',
+  replicate: 'replicate',
 } as const;

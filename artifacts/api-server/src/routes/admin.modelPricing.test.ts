@@ -45,6 +45,19 @@ vi.mock("../lib/openrouterCatalog", () => ({
   ),
 }));
 
+vi.mock("../lib/replicateCatalog", () => ({
+  lookupReplicatePricing: vi.fn(async (models: string[]) =>
+    models.map((model) => ({ model, price: null })),
+  ),
+  lookupReplicateTokenPricing: vi.fn(async (models: string[]) =>
+    models.map((model) => ({
+      model,
+      inputPerMTokens: model === "openai/gpt-oss-20b" ? 0.09 : null,
+      outputPerMTokens: model === "openai/gpt-oss-20b" ? 0.36 : null,
+    })),
+  ),
+}));
+
 import { pool } from "@workspace/db";
 import { createAdminTestApp } from "../test/testApp";
 import { resetAuthState, actAs } from "../test/authState";
@@ -76,6 +89,17 @@ describe("GET /admin/text-gen-model-pricing", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual([
       { model: "known/model", inputPerMTokens: 0.15, outputPerMTokens: 0.6 },
+      { model: "unknown/model", inputPerMTokens: null, outputPerMTokens: null },
+    ]);
+  });
+
+  it("uses the Replicate catalog when provider=replicate", async () => {
+    const res = await request(app).get(
+      "/api/admin/text-gen-model-pricing?provider=replicate&models=openai/gpt-oss-20b,unknown/model",
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      { model: "openai/gpt-oss-20b", inputPerMTokens: 0.09, outputPerMTokens: 0.36 },
       { model: "unknown/model", inputPerMTokens: null, outputPerMTokens: null },
     ]);
   });

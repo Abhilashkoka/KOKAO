@@ -1030,10 +1030,11 @@ export type TextGenSettingsViewProvider = typeof TextGenSettingsViewProvider[key
 export const TextGenSettingsViewProvider = {
   builtin: 'builtin',
   openrouter: 'openrouter',
+  replicate: 'replicate',
 } as const;
 
 /**
- * Where the active OpenRouter key comes from (admin-entered key wins over the env secret).
+ * Where the active provider key comes from (admin-entered key wins over the env secret). For replicate this reflects the shared video-generation key.
  * @nullable
  */
 export type TextGenSettingsViewKeySource = typeof TextGenSettingsViewKeySource[keyof typeof TextGenSettingsViewKeySource] | null;
@@ -1055,11 +1056,11 @@ export interface TextGenSettingsView {
      */
   defaultModel: string | null;
   /**
-     * Where the active OpenRouter key comes from (admin-entered key wins over the env secret).
+     * Where the active provider key comes from (admin-entered key wins over the env secret). For replicate this reflects the shared video-generation key.
      * @nullable
      */
   keySource: TextGenSettingsViewKeySource;
-  /** Env secret name used as the key fallback. */
+  /** Env secret name used as the key fallback for the active provider. */
   envKey: string;
 }
 
@@ -1069,11 +1070,12 @@ export type UpdateTextGenSettingsRequestProvider = typeof UpdateTextGenSettingsR
 export const UpdateTextGenSettingsRequestProvider = {
   builtin: 'builtin',
   openrouter: 'openrouter',
+  replicate: 'replicate',
 } as const;
 
 export interface UpdateTextGenSettingsRequest {
   provider: UpdateTextGenSettingsRequestProvider;
-  /** OpenRouter model ids tenants may pick from (required for openrouter). */
+  /** Model ids tenants may pick from (required for openrouter and replicate; Replicate models use owner/name slugs). */
   models?: string[];
   /**
      * Must be one of models (defaults to the first entry).
@@ -1096,6 +1098,7 @@ export type AiModelChoicesViewProvider = typeof AiModelChoicesViewProvider[keyof
 export const AiModelChoicesViewProvider = {
   builtin: 'builtin',
   openrouter: 'openrouter',
+  replicate: 'replicate',
 } as const;
 
 export interface ModelPricingView {
@@ -4947,10 +4950,22 @@ month?: string;
 
 export type AdminListTextGenModelPricingParams = {
 /**
- * Comma-separated OpenRouter model ids.
+ * Comma-separated model ids.
  */
 models: string;
+/**
+ * Which catalog to consult (defaults to openrouter).
+ */
+provider?: AdminListTextGenModelPricingProvider;
 };
+
+export type AdminListTextGenModelPricingProvider = typeof AdminListTextGenModelPricingProvider[keyof typeof AdminListTextGenModelPricingProvider];
+
+
+export const AdminListTextGenModelPricingProvider = {
+  openrouter: 'openrouter',
+  replicate: 'replicate',
+} as const;
 
 export type AdminListVideoModelPricingParams = {
 /**

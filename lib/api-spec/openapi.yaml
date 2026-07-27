@@ -1915,14 +1915,21 @@ paths:
     get:
       operationId: adminListTextGenModelPricing
       tags: [admin]
-      summary: Live OpenRouter pricing for a list of model ids (superadmin only)
+      summary: Live provider pricing for a list of text model ids (superadmin only)
       parameters:
         - name: models
           in: query
           required: true
-          description: Comma-separated OpenRouter model ids.
+          description: Comma-separated model ids.
           schema:
             type: string
+        - name: provider
+          in: query
+          required: false
+          description: Which catalog to consult (defaults to openrouter).
+          schema:
+            type: string
+            enum: [openrouter, replicate]
       responses:
         "200":
           description: Per-model pricing (null when unknown)
@@ -8859,7 +8866,7 @@ components:
       properties:
         provider:
           type: string
-          enum: [builtin, openrouter]
+          enum: [builtin, openrouter, replicate]
           description: Which backend serves caption/topic/campaign text.
         models:
           type: array
@@ -8872,20 +8879,25 @@ components:
         keySource:
           type: ["string", "null"]
           enum: [database, env, null]
-          description: Where the active OpenRouter key comes from (admin-entered key wins over the env secret).
+          description: >-
+            Where the active provider key comes from (admin-entered key wins
+            over the env secret). For replicate this reflects the shared
+            video-generation key.
         envKey:
           type: string
-          description: Env secret name used as the key fallback.
+          description: Env secret name used as the key fallback for the active provider.
     UpdateTextGenSettingsRequest:
       type: object
       required: [provider]
       properties:
         provider:
           type: string
-          enum: [builtin, openrouter]
+          enum: [builtin, openrouter, replicate]
         models:
           type: array
-          description: OpenRouter model ids tenants may pick from (required for openrouter).
+          description: >-
+            Model ids tenants may pick from (required for openrouter and
+            replicate; Replicate models use owner/name slugs).
           items:
             type: string
         defaultModel:
@@ -8905,7 +8917,7 @@ components:
       properties:
         provider:
           type: string
-          enum: [builtin, openrouter]
+          enum: [builtin, openrouter, replicate]
         models:
           type: array
           items:

@@ -5334,7 +5334,7 @@ export const getAdminListTextGenModelPricingUrl = (params: AdminListTextGenModel
 }
 
 /**
- * @summary Live OpenRouter pricing for a list of model ids (superadmin only)
+ * @summary Live provider pricing for a list of text model ids (superadmin only)
  */
 export const adminListTextGenModelPricing = async (params: AdminListTextGenModelPricingParams, options?: RequestInit): Promise<ModelPricingView[]> => {
 
@@ -5381,7 +5381,7 @@ export type AdminListTextGenModelPricingQueryError = ErrorType<ErrorEnvelope>
 
 
 /**
- * @summary Live OpenRouter pricing for a list of model ids (superadmin only)
+ * @summary Live provider pricing for a list of text model ids (superadmin only)
  */
 
 export function useAdminListTextGenModelPricing<TData = Awaited<ReturnType<typeof adminListTextGenModelPricing>>, TError = ErrorType<ErrorEnvelope>>(

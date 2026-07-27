@@ -5,10 +5,15 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { AdminListTextGenModelPricingProvider } from './adminListTextGenModelPricingProvider';
 
 export type AdminListTextGenModelPricingParams = {
 /**
- * Comma-separated OpenRouter model ids.
+ * Comma-separated model ids.
  */
 models: string;
+/**
+ * Which catalog to consult (defaults to openrouter).
+ */
+provider?: AdminListTextGenModelPricingProvider;
 };

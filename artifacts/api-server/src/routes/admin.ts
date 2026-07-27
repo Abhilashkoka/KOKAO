@@ -62,12 +62,13 @@ import {
   getTextGenSelection,
   setTextGenSelection,
   getOpenRouterKeySource,
+  getReplicateTextKeySource,
   setStoredOpenRouterKey,
   clearStoredOpenRouterKey,
   type TextGenProvider,
 } from "../lib/textGen";
 import { lookupOpenRouterPricing } from "../lib/openrouterCatalog";
-import { lookupReplicatePricing } from "../lib/replicateCatalog";
+import { lookupReplicatePricing, lookupReplicateTokenPricing } from "../lib/replicateCatalog";
 import {
   AdminUpdateTenantPlanBody,
   AdminUpdateTenantSuperadminBody,
@@ -1168,12 +1169,16 @@ router.delete(
 /** Serialize the text-gen routing state for admin responses (never the key itself). */
 async function serializeTextGenSettings() {
   const selection = await getTextGenSelection();
+  const replicateSelected = selection.provider === "replicate";
   return {
     provider: selection.provider,
     models: selection.models,
     defaultModel: selection.defaultModel,
-    keySource: await getOpenRouterKeySource(),
-    envKey: "OPENROUTER_API_KEY",
+    // Replicate deliberately shares the video-generation key.
+    keySource: replicateSelected
+      ? await getReplicateTextKeySource()
+      : await getOpenRouterKeySource(),
+    envKey: replicateSelected ? "REPLICATE_API_TOKEN" : "OPENROUTER_API_KEY",
   };
 }
 
@@ -1544,12 +1549,13 @@ router.get("/admin/text-gen-settings", async (_req: Request, res: Response) => {
 });
 
 /**
- * GET /admin/text-gen-model-pricing?models=a,b
- * Live OpenRouter catalog pricing for the model ids being edited in the admin
+ * GET /admin/text-gen-model-pricing?models=a,b&provider=openrouter|replicate
+ * Live catalog pricing for the model ids being edited in the admin
  * dashboard (works for unsaved drafts, unlike GET /ai/models).
  */
 router.get("/admin/text-gen-model-pricing", async (req: Request, res: Response) => {
   const raw = typeof req.query.models === "string" ? req.query.models : "";
+  const provider = req.query.provider === "replicate" ? "replicate" : "openrouter";
   // Every submitted id gets an entry back (null prices when unknown) so the
   // UI never shows a permanent "loading" placeholder for a skipped model.
   const models = [...new Set(raw.split(",").map((m) => m.trim()).filter(Boolean))];
@@ -1557,7 +1563,11 @@ router.get("/admin/text-gen-model-pricing", async (req: Request, res: Response) 
     res.status(400).json({ error: "Provide at least one model id in ?models=" });
     return;
   }
-  const looked = await lookupOpenRouterPricing(models.slice(0, 200));
+  const capped = models.slice(0, 200);
+  const looked =
+    provider === "replicate"
+      ? await lookupReplicateTokenPricing(capped)
+      : await lookupOpenRouterPricing(capped);
   // Ids past the abuse cap still get explicit null-priced entries.
   const rest = models
     .slice(200)
@@ -1603,18 +1613,30 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
     .filter((m, i, all) => m.length > 0 && all.indexOf(m) === i)
     .slice(0, 20);
   const defaultModel = parsed.data.defaultModel?.trim() || null;
-  if (provider === "openrouter") {
+  if (provider !== "builtin") {
+    const label = provider === "openrouter" ? "OpenRouter" : "Replicate";
     if (models.length === 0) {
-      res.status(400).json({ error: "Add at least one OpenRouter model id" });
+      res.status(400).json({ error: `Add at least one ${label} model id` });
       return;
     }
     if (defaultModel && !models.includes(defaultModel)) {
       res.status(400).json({ error: "The default model must be one of the listed models" });
       return;
     }
-    if (!(await getOpenRouterKeySource())) {
+    if (provider === "replicate" && models.some((m) => !/^[^/\s]+\/[^/\s]+$/.test(m))) {
+      res.status(400).json({ error: "Replicate models must be owner/name slugs" });
+      return;
+    }
+    const keySource =
+      provider === "openrouter"
+        ? await getOpenRouterKeySource()
+        : await getReplicateTextKeySource();
+    if (!keySource) {
       res.status(400).json({
-        error: "Save an OpenRouter API key before switching text generation to OpenRouter",
+        error:
+          provider === "openrouter"
+            ? "Save an OpenRouter API key before switching text generation to OpenRouter"
+            : "Save a Replicate API key (under Video Generation) before switching text generation to Replicate",
       });
       return;
     }
@@ -1623,8 +1645,8 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
   const before = await getTextGenSelection();
   await setTextGenSelection({
     provider,
-    models: provider === "openrouter" ? models : [],
-    defaultModel: provider === "openrouter" ? (defaultModel ?? models[0] ?? null) : null,
+    models: provider !== "builtin" ? models : [],
+    defaultModel: provider !== "builtin" ? (defaultModel ?? models[0] ?? null) : null,
   });
 
   const after = await getTextGenSelection();

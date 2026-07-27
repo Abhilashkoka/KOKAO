@@ -12,4 +12,5 @@ export type UpdateTextGenSettingsRequestProvider = typeof UpdateTextGenSettingsR
 export const UpdateTextGenSettingsRequestProvider = {
   builtin: 'builtin',
   openrouter: 'openrouter',
+  replicate: 'replicate',
 } as const;

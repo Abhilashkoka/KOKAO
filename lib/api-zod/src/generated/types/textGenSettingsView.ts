@@ -19,10 +19,10 @@ export interface TextGenSettingsView {
      */
   defaultModel: string | null;
   /**
-     * Where the active OpenRouter key comes from (admin-entered key wins over the env secret).
+     * Where the active provider key comes from (admin-entered key wins over the env secret). For replicate this reflects the shared video-generation key.
      * @nullable
      */
   keySource: TextGenSettingsViewKeySource;
-  /** Env secret name used as the key fallback. */
+  /** Env secret name used as the key fallback for the active provider. */
   envKey: string;
 }

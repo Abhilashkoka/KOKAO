@@ -1931,10 +1931,11 @@ export const AdminGetAiCostReportResponse = zod.object({
 
 
 /**
- * @summary Live OpenRouter pricing for a list of model ids (superadmin only)
+ * @summary Live provider pricing for a list of text model ids (superadmin only)
  */
 export const AdminListTextGenModelPricingQueryParams = zod.object({
-  "models": zod.coerce.string().describe('Comma-separated OpenRouter model ids.')
+  "models": zod.coerce.string().describe('Comma-separated model ids.'),
+  "provider": zod.enum(['openrouter', 'replicate']).optional().describe('Which catalog to consult (defaults to openrouter).')
 })
 
 export const AdminListTextGenModelPricingResponseItem = zod.object({
@@ -1963,11 +1964,11 @@ export const AdminListVideoModelPricingResponse = zod.array(AdminListVideoModelP
  * @summary Get the text generation provider selection (superadmin only)
  */
 export const AdminGetTextGenSettingsResponse = zod.object({
-  "provider": zod.enum(['builtin', 'openrouter']).describe('Which backend serves caption\/topic\/campaign text.'),
+  "provider": zod.enum(['builtin', 'openrouter', 'replicate']).describe('Which backend serves caption\/topic\/campaign text.'),
   "models": zod.array(zod.string()).describe('Admin-curated OpenRouter model ids tenants may pick from.'),
   "defaultModel": zod.string().nullable().describe('Fallback model when a tenant\'s saved model is not in the list.'),
-  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active OpenRouter key comes from (admin-entered key wins over the env secret).'),
-  "envKey": zod.string().describe('Env secret name used as the key fallback.')
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active provider key comes from (admin-entered key wins over the env secret). For replicate this reflects the shared video-generation key.'),
+  "envKey": zod.string().describe('Env secret name used as the key fallback for the active provider.')
 })
 
 
@@ -1975,17 +1976,17 @@ export const AdminGetTextGenSettingsResponse = zod.object({
  * @summary Select the text generation provider for the whole app (superadmin only)
  */
 export const AdminUpdateTextGenSettingsBody = zod.object({
-  "provider": zod.enum(['builtin', 'openrouter']),
-  "models": zod.array(zod.string()).optional().describe('OpenRouter model ids tenants may pick from (required for openrouter).'),
+  "provider": zod.enum(['builtin', 'openrouter', 'replicate']),
+  "models": zod.array(zod.string()).optional().describe('Model ids tenants may pick from (required for openrouter and replicate; Replicate models use owner\/name slugs).'),
   "defaultModel": zod.string().nullish().describe('Must be one of models (defaults to the first entry).')
 })
 
 export const AdminUpdateTextGenSettingsResponse = zod.object({
-  "provider": zod.enum(['builtin', 'openrouter']).describe('Which backend serves caption\/topic\/campaign text.'),
+  "provider": zod.enum(['builtin', 'openrouter', 'replicate']).describe('Which backend serves caption\/topic\/campaign text.'),
   "models": zod.array(zod.string()).describe('Admin-curated OpenRouter model ids tenants may pick from.'),
   "defaultModel": zod.string().nullable().describe('Fallback model when a tenant\'s saved model is not in the list.'),
-  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active OpenRouter key comes from (admin-entered key wins over the env secret).'),
-  "envKey": zod.string().describe('Env secret name used as the key fallback.')
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active provider key comes from (admin-entered key wins over the env secret). For replicate this reflects the shared video-generation key.'),
+  "envKey": zod.string().describe('Env secret name used as the key fallback for the active provider.')
 })
 
 
@@ -2000,11 +2001,11 @@ export const AdminSetTextGenKeyBody = zod.object({
 })
 
 export const AdminSetTextGenKeyResponse = zod.object({
-  "provider": zod.enum(['builtin', 'openrouter']).describe('Which backend serves caption\/topic\/campaign text.'),
+  "provider": zod.enum(['builtin', 'openrouter', 'replicate']).describe('Which backend serves caption\/topic\/campaign text.'),
   "models": zod.array(zod.string()).describe('Admin-curated OpenRouter model ids tenants may pick from.'),
   "defaultModel": zod.string().nullable().describe('Fallback model when a tenant\'s saved model is not in the list.'),
-  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active OpenRouter key comes from (admin-entered key wins over the env secret).'),
-  "envKey": zod.string().describe('Env secret name used as the key fallback.')
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active provider key comes from (admin-entered key wins over the env secret). For replicate this reflects the shared video-generation key.'),
+  "envKey": zod.string().describe('Env secret name used as the key fallback for the active provider.')
 })
 
 
@@ -2012,11 +2013,11 @@ export const AdminSetTextGenKeyResponse = zod.object({
  * @summary Remove the saved OpenRouter API key (superadmin only)
  */
 export const AdminClearTextGenKeyResponse = zod.object({
-  "provider": zod.enum(['builtin', 'openrouter']).describe('Which backend serves caption\/topic\/campaign text.'),
+  "provider": zod.enum(['builtin', 'openrouter', 'replicate']).describe('Which backend serves caption\/topic\/campaign text.'),
   "models": zod.array(zod.string()).describe('Admin-curated OpenRouter model ids tenants may pick from.'),
   "defaultModel": zod.string().nullable().describe('Fallback model when a tenant\'s saved model is not in the list.'),
-  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active OpenRouter key comes from (admin-entered key wins over the env secret).'),
-  "envKey": zod.string().describe('Env secret name used as the key fallback.')
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active provider key comes from (admin-entered key wins over the env secret). For replicate this reflects the shared video-generation key.'),
+  "envKey": zod.string().describe('Env secret name used as the key fallback for the active provider.')
 })
 
 
@@ -2024,7 +2025,7 @@ export const AdminClearTextGenKeyResponse = zod.object({
  * @summary The AI text model choices available to this tenant right now
  */
 export const ListAiModelsResponse = zod.object({
-  "provider": zod.enum(['builtin', 'openrouter']),
+  "provider": zod.enum(['builtin', 'openrouter', 'replicate']),
   "models": zod.array(zod.string()),
   "defaultModel": zod.string(),
   "pricing": zod.array(zod.object({
