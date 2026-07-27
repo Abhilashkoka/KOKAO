@@ -32,6 +32,7 @@ import type {
   AdminFeatureFlag,
   AdminFeatureFlagInput,
   AdminGamificationPlan,
+  AdminGetAiCostCampaignsParams,
   AdminGetAiCostReportParams,
   AdminGrantCredits200,
   AdminListAuditLogsParams,
@@ -59,6 +60,7 @@ import type {
   AdsModuleStatus,
   AdsTiktokAuthUrlResult,
   AdsTiktokSelectInput,
+  AiCostCampaignsView,
   AiCostConfigView,
   AiCostReportView,
   AiModelChoicesView,
@@ -5306,6 +5308,90 @@ export function useAdminGetAiCostReport<TData = Awaited<ReturnType<typeof adminG
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getAdminGetAiCostReportQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminGetAiCostCampaignsUrl = (params?: AdminGetAiCostCampaignsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/ai-cost/campaigns?${stringifiedParams}` : `/api/admin/ai-cost/campaigns`
+}
+
+/**
+ * @summary Per-campaign actual AI cost for a month, across all tenants (superadmin only)
+ */
+export const adminGetAiCostCampaigns = async (params?: AdminGetAiCostCampaignsParams, options?: RequestInit): Promise<AiCostCampaignsView> => {
+
+  return customFetch<AiCostCampaignsView>(getAdminGetAiCostCampaignsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetAiCostCampaignsQueryKey = (params?: AdminGetAiCostCampaignsParams,) => {
+    return [
+    `/api/admin/ai-cost/campaigns`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getAdminGetAiCostCampaignsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetAiCostCampaigns>>, TError = ErrorType<ErrorEnvelope>>(params?: AdminGetAiCostCampaignsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetAiCostCampaigns>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetAiCostCampaignsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetAiCostCampaigns>>> = ({ signal }) => adminGetAiCostCampaigns(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetAiCostCampaigns>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetAiCostCampaignsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetAiCostCampaigns>>>
+export type AdminGetAiCostCampaignsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Per-campaign actual AI cost for a month, across all tenants (superadmin only)
+ */
+
+export function useAdminGetAiCostCampaigns<TData = Awaited<ReturnType<typeof adminGetAiCostCampaigns>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: AdminGetAiCostCampaignsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetAiCostCampaigns>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetAiCostCampaignsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

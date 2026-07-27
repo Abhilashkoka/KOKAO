@@ -40,8 +40,10 @@ import {
   useAdminUpsertAiModelPrice,
   useAdminDeleteAiModelPrice,
   useAdminGetAiCostReport,
+  useAdminGetAiCostCampaigns,
   getAdminGetAiCostConfigQueryKey,
   getAdminGetAiCostReportQueryKey,
+  getAdminGetAiCostCampaignsQueryKey,
 } from "@workspace/api-client-react";
 import { useFeatureFlags } from "@/lib/features";
 import { useQueryClient } from "@tanstack/react-query";
@@ -2168,6 +2170,13 @@ function AiCostReportCard() {
   const { data: report, isLoading } = useAdminGetAiCostReport(
     month ? { month } : undefined,
   );
+  const campaignParams = month ? { month } : undefined;
+  const { data: campaignReport } = useAdminGetAiCostCampaigns(campaignParams, {
+    query: {
+      enabled: open,
+      queryKey: getAdminGetAiCostCampaignsQueryKey(campaignParams),
+    },
+  });
 
   return (
     <Card data-testid="card-ai-cost-report">
@@ -2404,6 +2413,68 @@ function AiCostReportCard() {
                   Displayed spend in the trend uses the tenant-facing rates that were in
                   effect when each event was recorded, so changing rates never shifts past
                   months. Up to 12 months are shown, newest first.
+                </p>
+              </div>
+            )}
+            {campaignReport && campaignReport.campaigns.length > 0 && (
+              <div className="space-y-2" data-testid="section-campaign-costs">
+                <div className="text-sm font-medium">Campaign costs</div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="py-2 pr-3 font-medium">Tenant</th>
+                        <th className="py-2 pr-3 font-medium">Campaign</th>
+                        <th className="py-2 pr-3 font-medium text-right">Captions</th>
+                        <th className="py-2 pr-3 font-medium text-right">Images</th>
+                        <th className="py-2 pr-3 font-medium text-right">Videos</th>
+                        <th className="py-2 pr-3 font-medium text-right">Actual cost</th>
+                        <th className="py-2 font-medium text-right">Unknown</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {campaignReport.campaigns.map((c) => (
+                        <tr
+                          key={`${c.tenantId}-${c.campaignId}`}
+                          className="border-b last:border-0"
+                          data-testid={`row-campaign-cost-${c.tenantId}-${c.campaignId}`}
+                        >
+                          <td className="py-2 pr-3">
+                            <div className="font-medium">
+                              {c.tenantName ?? `Tenant #${c.tenantId}`}
+                            </div>
+                            {c.tenantEmail && (
+                              <div className="text-xs text-muted-foreground">{c.tenantEmail}</div>
+                            )}
+                          </td>
+                          <td className="py-2 pr-3">
+                            {c.campaignName ?? (
+                              <span className="text-muted-foreground">
+                                Campaign #{c.campaignId} (deleted)
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 pr-3 text-right">{c.captionCount}</td>
+                          <td className="py-2 pr-3 text-right">{c.imageCount}</td>
+                          <td className="py-2 pr-3 text-right">{c.videoCount}</td>
+                          <td className="py-2 pr-3 text-right">{paiseToInr(c.totalCostPaise)}</td>
+                          <td className="py-2 text-right">
+                            {c.unknownCount > 0 ? (
+                              <Badge variant="outline">{c.unknownCount} events</Badge>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Every caption, image and video generated inside a campaign, summed per
+                  campaign for the selected month. Generations made outside a campaign
+                  (one-off studio work) are not shown here but are included in the
+                  per-tenant table above.
                 </p>
               </div>
             )}

@@ -4887,6 +4887,34 @@ export interface AiCostReportView {
   tenants: AiCostReportTenantRow[];
 }
 
+export interface AiCostCampaignRow {
+  tenantId: number;
+  /** @nullable */
+  tenantName: string | null;
+  /** @nullable */
+  tenantEmail: string | null;
+  campaignId: string;
+  /**
+     * Null when the campaign was deleted or the id has no matching campaign.
+     * @nullable
+     */
+  campaignName: string | null;
+  captionCount: number;
+  imageCount: number;
+  videoCount: number;
+  /** Sum of known per-event costs for the campaign, in paise. */
+  totalCostPaise: number;
+  /** Campaign events with no computed cost. */
+  unknownCount: number;
+}
+
+export interface AiCostCampaignsView {
+  /** Reporting month, YYYY-MM (UTC). */
+  month: string;
+  /** Campaign rows sorted by known cost, highest first. */
+  campaigns: AiCostCampaignRow[];
+}
+
 export interface AdminFeatureFlag {
   feature: string;
   label: string;
@@ -4969,6 +4997,14 @@ export const AdsDatePresetParameter = {
 } as const;
 
 export type AdminGetAiCostReportParams = {
+/**
+ * Reporting month as YYYY-MM (UTC). Defaults to the current month.
+ * @pattern ^\d{4}-\d{2}$
+ */
+month?: string;
+};
+
+export type AdminGetAiCostCampaignsParams = {
 /**
  * Reporting month as YYYY-MM (UTC). Defaults to the current month.
  * @pattern ^\d{4}-\d{2}$

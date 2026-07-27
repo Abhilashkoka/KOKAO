@@ -7,11 +7,12 @@ import {
   scheduledPostsTable,
   connectedAccountsTable,
   usageEventsTable,
+  campaignsTable,
   adminAuditLogsTable,
   sweepStatusTable,
   subscriptionsTable,
 } from "@workspace/db";
-import { eq, sql, desc, gte, lt, lte, and, or, ilike, inArray } from "drizzle-orm";
+import { eq, sql, desc, gte, lt, lte, and, or, ilike, inArray, isNotNull } from "drizzle-orm";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import {
   recordAdminAction,
@@ -1567,6 +1568,102 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
     trend,
     tenants,
   });
+});
+
+/**
+ * GET /admin/ai-cost/campaigns?month=YYYY-MM
+ * Per-campaign actual AI cost for one month, across all tenants. Only usage
+ * events tagged with a campaign are included; events with NULL cost are
+ * counted separately (unknownCount) so coverage gaps stay visible.
+ */
+router.get("/admin/ai-cost/campaigns", async (req: Request, res: Response) => {
+  const monthParam = typeof req.query.month === "string" ? req.query.month : "";
+  const now = new Date();
+  const defaultMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  const month = monthParam || defaultMonth;
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+    res.status(400).json({ error: "Invalid month; use YYYY-MM" });
+    return;
+  }
+  const [yearStr, monthStr] = month.split("-");
+  const start = new Date(Date.UTC(Number(yearStr), Number(monthStr) - 1, 1));
+  const end = new Date(Date.UTC(Number(yearStr), Number(monthStr), 1));
+
+  const rows = await db
+    .select({
+      tenantId: usageEventsTable.tenantId,
+      campaignId: usageEventsTable.campaignId,
+      captionCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} = 'caption')::int`,
+      imageCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} = 'image')::int`,
+      videoCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} = 'video')::int`,
+      totalCostPaise: sql<number>`coalesce(sum(${usageEventsTable.costPaise}), 0)::int`,
+      unknownCount: sql<number>`count(*) filter (where ${usageEventsTable.costPaise} is null)::int`,
+    })
+    .from(usageEventsTable)
+    .where(
+      and(
+        gte(usageEventsTable.createdAt, start),
+        lt(usageEventsTable.createdAt, end),
+        inArray(usageEventsTable.kind, ["caption", "image", "video"]),
+        isNotNull(usageEventsTable.campaignId),
+      ),
+    )
+    .groupBy(usageEventsTable.tenantId, usageEventsTable.campaignId);
+
+  const tenantIds = [...new Set(rows.map((r) => r.tenantId))];
+  // usage_events.campaign_id is text; campaigns.id is numeric. Only numeric
+  // ids can resolve to a live campaign row — others (or deleted campaigns)
+  // simply show without a name.
+  const numericCampaignIds = [
+    ...new Set(
+      rows
+        .map((r) => r.campaignId)
+        .filter((id): id is string => id !== null && /^\d+$/.test(id))
+        .map((id) => Number(id)),
+    ),
+  ];
+  const [tenantRows, campaignRows] = await Promise.all([
+    tenantIds.length
+      ? db
+          .select({ id: tenantsTable.id, name: tenantsTable.name, email: tenantsTable.email })
+          .from(tenantsTable)
+          .where(inArray(tenantsTable.id, tenantIds))
+      : Promise.resolve([]),
+    numericCampaignIds.length
+      ? db
+          .select({
+            id: campaignsTable.id,
+            tenantId: campaignsTable.tenantId,
+            name: campaignsTable.name,
+          })
+          .from(campaignsTable)
+          .where(inArray(campaignsTable.id, numericCampaignIds))
+      : Promise.resolve([]),
+  ]);
+  const tenantInfo = new Map(tenantRows.map((t) => [t.id, t]));
+  // Key campaign names by tenant too, so a campaign id from one tenant can
+  // never pick up another tenant's campaign name.
+  const campaignName = new Map(campaignRows.map((c) => [`${c.tenantId}:${c.id}`, c.name]));
+
+  const campaigns = rows
+    .map((r) => {
+      const info = tenantInfo.get(r.tenantId);
+      return {
+        tenantId: r.tenantId,
+        tenantName: info?.name ?? null,
+        tenantEmail: info?.email ?? null,
+        campaignId: r.campaignId as string,
+        campaignName: campaignName.get(`${r.tenantId}:${r.campaignId}`) ?? null,
+        captionCount: r.captionCount,
+        imageCount: r.imageCount,
+        videoCount: r.videoCount,
+        totalCostPaise: r.totalCostPaise,
+        unknownCount: r.unknownCount,
+      };
+    })
+    .sort((a, b) => b.totalCostPaise - a.totalCostPaise);
+
+  res.json({ month, campaigns });
 });
 
 /**

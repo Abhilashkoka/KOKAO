@@ -1911,6 +1911,38 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ai-cost/campaigns:
+    get:
+      operationId: adminGetAiCostCampaigns
+      tags: [admin]
+      summary: Per-campaign actual AI cost for a month, across all tenants (superadmin only)
+      parameters:
+        - name: month
+          in: query
+          required: false
+          description: Reporting month as YYYY-MM (UTC). Defaults to the current month.
+          schema:
+            type: string
+            pattern: "^\\d{4}-\\d{2}$"
+      responses:
+        "200":
+          description: Campaign cost breakdown
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiCostCampaignsView"
+        "400":
+          description: Invalid month
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden or feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/text-gen-model-pricing:
     get:
       operationId: adminListTextGenModelPricing
@@ -13686,6 +13718,57 @@ components:
         unknownCount:
           type: integer
           description: Events in the month with no computed cost.
+    AiCostCampaignsView:
+      type: object
+      required: [month, campaigns]
+      properties:
+        month:
+          type: string
+          description: Reporting month, YYYY-MM (UTC).
+        campaigns:
+          type: array
+          description: Campaign rows sorted by known cost, highest first.
+          items:
+            $ref: "#/components/schemas/AiCostCampaignRow"
+    AiCostCampaignRow:
+      type: object
+      required:
+        [
+          tenantId,
+          tenantName,
+          tenantEmail,
+          campaignId,
+          campaignName,
+          captionCount,
+          imageCount,
+          videoCount,
+          totalCostPaise,
+          unknownCount,
+        ]
+      properties:
+        tenantId:
+          type: integer
+        tenantName:
+          type: ["string", "null"]
+        tenantEmail:
+          type: ["string", "null"]
+        campaignId:
+          type: string
+        campaignName:
+          type: ["string", "null"]
+          description: Null when the campaign was deleted or the id has no matching campaign.
+        captionCount:
+          type: integer
+        imageCount:
+          type: integer
+        videoCount:
+          type: integer
+        totalCostPaise:
+          type: integer
+          description: Sum of known per-event costs for the campaign, in paise.
+        unknownCount:
+          type: integer
+          description: Campaign events with no computed cost.
     AdminFeatureFlag:
       type: object
       required: [feature, label, description, enabled]

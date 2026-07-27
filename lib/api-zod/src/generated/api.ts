@@ -1950,6 +1950,33 @@ export const AdminGetAiCostReportResponse = zod.object({
 
 
 /**
+ * @summary Per-campaign actual AI cost for a month, across all tenants (superadmin only)
+ */
+export const adminGetAiCostCampaignsQueryMonthRegExp = new RegExp('^\\d{4}-\\d{2}$');
+
+
+export const AdminGetAiCostCampaignsQueryParams = zod.object({
+  "month": zod.coerce.string().regex(adminGetAiCostCampaignsQueryMonthRegExp).optional().describe('Reporting month as YYYY-MM (UTC). Defaults to the current month.')
+})
+
+export const AdminGetAiCostCampaignsResponse = zod.object({
+  "month": zod.string().describe('Reporting month, YYYY-MM (UTC).'),
+  "campaigns": zod.array(zod.object({
+  "tenantId": zod.number(),
+  "tenantName": zod.string().nullable(),
+  "tenantEmail": zod.string().nullable(),
+  "campaignId": zod.string(),
+  "campaignName": zod.string().nullable().describe('Null when the campaign was deleted or the id has no matching campaign.'),
+  "captionCount": zod.number(),
+  "imageCount": zod.number(),
+  "videoCount": zod.number(),
+  "totalCostPaise": zod.number().describe('Sum of known per-event costs for the campaign, in paise.'),
+  "unknownCount": zod.number().describe('Campaign events with no computed cost.')
+})).describe('Campaign rows sorted by known cost, highest first.')
+})
+
+
+/**
  * @summary Live provider pricing for a list of text model ids (superadmin only)
  */
 export const AdminListTextGenModelPricingQueryParams = zod.object({
