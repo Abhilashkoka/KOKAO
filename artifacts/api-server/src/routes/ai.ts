@@ -24,6 +24,13 @@ import { ObjectStorageService } from "../lib/objectStorage";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage, recordUsage, type UsageMeta } from "../lib/usage";
 import { spendCredit, refundCredits, type CreditKind } from "../lib/credits";
+import {
+  isWalletFunded,
+  reserveWallet,
+  settleWallet,
+  refundWallet,
+  type WalletReservation,
+} from "../lib/wallet";
 import { loadActivePayload } from "../lib/brandKit/service";
 import { isDesignSkillEnabledFor, buildDesignedImagePrompt } from "../lib/designSkill";
 import {
@@ -71,16 +78,35 @@ const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
 
 /**
- * How a metered generation is paid for: the monthly plan quota first, then
- * prepaid credits when the quota is exhausted.
+ * How a metered generation is paid for.
  *
- * Credits are RESERVED (atomically debited) up front, before the expensive
- * generation runs, so two concurrent requests can never both consume the
- * same last credit — the second reservation fails and gets a 402. If the
- * generation then fails, the reservation is refunded (audited in the
- * ledger). Quota-funded work is metered after success as before.
+ * Two rails, and a workspace is on exactly one of them:
+ *   quota → credit   the original path: the monthly plan quota first, then
+ *                    prepaid unit credits when the quota is exhausted
+ *   wallet           the prepaid rupee wallet, when the `wallet` platform
+ *                    switch is on AND this workspace is set to wallet mode
+ *
+ * Either way funding is RESERVED (atomically debited) up front, before the
+ * expensive generation runs, so two concurrent requests can never both
+ * consume the same last credit or the same last rupee — the second
+ * reservation fails and gets a 402. If the generation then fails, the
+ * reservation is refunded (audited in the ledger). Quota-funded work is
+ * metered after success as before.
+ *
+ * A wallet reservation is an ESTIMATE. It settles to the real provider cost
+ * plus the platform fee in `settleFunding`, once the provider has reported
+ * back — see lib/wallet.ts.
  */
-type Funding = "quota" | "credit";
+interface Funding {
+  source: "quota" | "credit" | "wallet";
+  reservation?: WalletReservation;
+  /**
+   * Set the moment the generation is treated as successful. `releaseFunding`
+   * refuses to refund afterwards, so a failure in the metering that FOLLOWS a
+   * settled charge can never hand the money back on top of it.
+   */
+  resolved?: boolean;
+}
 
 async function reserveFunding(
   tenantId: number,
@@ -88,16 +114,40 @@ async function reserveFunding(
   used: number,
   kind: CreditKind,
 ): Promise<Funding | null> {
-  if (limit === -1 || used < limit) return "quota";
+  if (await isWalletFunded(tenantId)) {
+    const reservation = await reserveWallet(tenantId, kind);
+    return reservation ? { source: "wallet", reservation } : null;
+  }
+  if (limit === -1 || used < limit) return { source: "quota" };
   const reserved = await spendCredit(tenantId, kind);
-  return reserved ? "credit" : null;
+  return reserved ? { source: "credit" } : null;
 }
 
 /**
- * Record the cost of a successful generation. Quota-funded work counts
- * against the plan; credit-funded work was already debited at reservation
- * time but still gets a usage row (funding="credit", excluded from quota
- * counting) so AI data consumption is metered for every generation.
+ * The 402 message for an exhausted workspace, phrased for the rail it is
+ * actually on: "recharge" for wallet workspaces, "upgrade or buy credits"
+ * for everyone else.
+ */
+async function outOfFundsMessage(
+  tenantId: number,
+  kind: CreditKind,
+  quotaMessage: string,
+): Promise<string> {
+  if (await isWalletFunded(tenantId)) {
+    return `Your wallet balance can't cover this ${kind}. Recharge to continue.`;
+  }
+  return quotaMessage;
+}
+
+/**
+ * Record the cost of a successful generation.
+ *
+ * Quota-funded work counts against the plan. Credit-funded work was already
+ * debited at reservation time. Wallet-funded work settles here: the up-front
+ * estimate is trued up to the real provider cost (`meta.costPaise`, from the
+ * same cost engine that powers the Actual Cost Report) plus the platform fee.
+ * Every rail still gets a usage row so AI data consumption is metered for
+ * every generation; credit and wallet rows are excluded from quota counting.
  */
 async function settleFunding(
   req: Request,
@@ -105,20 +155,50 @@ async function settleFunding(
   kind: CreditKind,
   meta: Omit<UsageMeta, "funding"> = {},
 ): Promise<void> {
-  await recordUsage(req.tenantId, kind, { ...meta, funding });
+  // Point of no return: the work succeeded, so nothing after this may refund.
+  funding.resolved = true;
+  if (funding.source === "wallet" && funding.reservation) {
+    try {
+      await settleWallet(req.tenantId, funding.reservation, {
+        kind,
+        costPaise: meta.costPaise ?? null,
+        provider: meta.provider ?? null,
+        model: meta.model ?? null,
+        inputTokens: meta.inputTokens ?? null,
+        outputTokens: meta.outputTokens ?? null,
+      });
+    } catch (error) {
+      // The estimate is already debited, so a settle failure overcharges or
+      // undercharges by the difference rather than losing the whole charge.
+      req.log.error({ err: error, kind }, "Failed to settle wallet charge");
+    }
+  }
+  // Metering is best-effort and must not throw into the caller's catch block:
+  // there it would look like a failed generation and trigger a refund of a
+  // charge that has already been settled.
+  try {
+    await recordUsage(req.tenantId, kind, { ...meta, funding: funding.source });
+  } catch (error) {
+    req.log.error({ err: error, kind }, "Failed to record usage after settling");
+  }
 }
 
-/** Return a reserved credit when the funded generation failed. */
+/** Return the reserved funding when the generation failed. */
 async function releaseFunding(
   req: Request,
   funding: Funding,
   kind: CreditKind,
 ): Promise<void> {
-  if (funding !== "credit") return;
+  if (funding.resolved) return;
+  funding.resolved = true;
   try {
-    await refundCredits(req.tenantId, kind, 1, `${kind} generation failed`);
+    if (funding.source === "credit") {
+      await refundCredits(req.tenantId, kind, 1, `${kind} generation failed`);
+    } else if (funding.source === "wallet" && funding.reservation) {
+      await refundWallet(req.tenantId, funding.reservation, `${kind} generation failed`);
+    }
   } catch (error) {
-    req.log.error({ err: error, kind }, "Failed to refund reserved credit");
+    req.log.error({ err: error, kind }, "Failed to refund reserved funding");
   }
 }
 
@@ -353,8 +433,11 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
   );
   if (!captionFunding) {
     res.status(402).json({
-      error:
+      error: await outOfFundsMessage(
+        req.tenantId,
+        "caption",
         "Monthly caption quota reached and no caption credits left. Upgrade your plan or buy a credit pack.",
+      ),
     });
     return;
   }
@@ -496,8 +579,11 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
   );
   if (!captionFunding) {
     res.status(402).json({
-      error:
+      error: await outOfFundsMessage(
+        req.tenantId,
+        "caption",
         "Monthly caption quota reached and no caption credits left. Upgrade your plan or buy a credit pack.",
+      ),
     });
     return;
   }
@@ -678,8 +764,11 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
   );
   if (!imageFunding) {
     res.status(402).json({
-      error:
+      error: await outOfFundsMessage(
+        req.tenantId,
+        "image",
         "Monthly image quota reached and no image credits left. Upgrade your plan or buy a credit pack.",
+      ),
     });
     return;
   }
@@ -941,8 +1030,11 @@ router.post("/ai/platform-pack", async (req: Request, res: Response) => {
   const funding = await reserveFunding(req.tenantId, limits.captions, usage.captions, "caption");
   if (!funding) {
     res.status(402).json({
-      error:
+      error: await outOfFundsMessage(
+        req.tenantId,
+        "caption",
         "Monthly caption quota reached and no caption credits left. Upgrade your plan or buy a credit pack.",
+      ),
     });
     return;
   }
@@ -1274,9 +1366,31 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
   // A campaign costs one caption per platform. Cover as much as possible from
   // the remaining plan quota, then top up from prepaid credits; 402 only when
   // the two together cannot cover the whole campaign.
+  // Wallet workspaces pay per campaign from the rupee balance: one
+  // all-or-nothing debit covering every platform, settled to the real
+  // provider cost once the model reports back. Quota workspaces keep the
+  // original split — as much as the plan allows, the rest from credits.
+  const campaignOnWallet = await isWalletFunded(req.tenantId);
+  const campaignWallet = campaignOnWallet
+    ? await reserveWallet(
+        req.tenantId,
+        "caption",
+        { model: textGen.model, provider: textGen.provider },
+        platforms.length,
+      )
+    : null;
   let quotaFunded = platforms.length;
   let creditFunded = 0;
-  if (limits.captions !== -1) {
+  if (campaignOnWallet) {
+    quotaFunded = 0;
+    if (!campaignWallet) {
+      res.status(402).json({
+        error:
+          "Your wallet balance can't cover this campaign. Recharge to continue, or pick fewer platforms.",
+      });
+      return;
+    }
+  } else if (limits.captions !== -1) {
     const remainingQuota = Math.max(0, limits.captions - usage.captions);
     quotaFunded = Math.min(platforms.length, remainingQuota);
     creditFunded = platforms.length - quotaFunded;
@@ -1294,6 +1408,29 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
       }
     }
   }
+
+  /**
+   * Give back whatever was reserved for this campaign, on either rail.
+   * Once-only, and refuses after the charge has settled: a throw AFTER a
+   * successful settle must not refund the reservation on top of it.
+   */
+  let campaignFundingResolved = false;
+  const refundCampaignFunding = async (reason: string) => {
+    if (campaignFundingResolved) return;
+    campaignFundingResolved = true;
+    try {
+      if (campaignWallet) {
+        await refundWallet(req.tenantId, campaignWallet, reason);
+      } else if (creditFunded > 0) {
+        await refundCredits(req.tenantId, "caption", creditFunded, reason);
+      }
+    } catch (refundError) {
+      req.log.error(
+        { err: refundError },
+        "Failed to refund reserved campaign funding",
+      );
+    }
+  };
 
   const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
   const tone = parsed.data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
@@ -1382,18 +1519,7 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     // The model asked for more input instead of generating: give back any
     // reserved credits (nothing was made) and return the questions.
     if (clarifyingQuestions && postsRaw.length === 0) {
-      if (creditFunded > 0) {
-        try {
-          await refundCredits(
-            req.tenantId,
-            "caption",
-            creditFunded,
-            "campaign needs more input",
-          );
-        } catch (refundError) {
-          req.log.error({ err: refundError }, "Failed to refund reserved campaign credits");
-        }
-      }
+      await refundCampaignFunding("campaign needs more input");
       res.json({ posts: [], clarifyingQuestions });
       return;
     }
@@ -1441,7 +1567,7 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     await Promise.all(
       posts.map((post, i) =>
         recordUsage(req.tenantId, "caption", {
-          funding: i < quotaFunded ? "quota" : "credit",
+          funding: campaignWallet ? "wallet" : i < quotaFunded ? "quota" : "credit",
           requestBytes: perPlatformRequest,
           responseBytes: Buffer.byteLength(JSON.stringify(post)),
           durationMs: Date.now() - startedAt,
@@ -1455,20 +1581,27 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
         }),
       ),
     );
-    res.json({ posts, campaignId, ...(title ? { title } : {}) });
-  } catch (error) {
-    if (creditFunded > 0) {
+    // Wallet: true the up-front estimate up to the real cost of the one
+    // completion that produced every platform, plus the platform fee. Marked
+    // resolved first so nothing downstream can refund a settled charge.
+    campaignFundingResolved = true;
+    if (campaignWallet) {
       try {
-        await refundCredits(
-          req.tenantId,
-          "caption",
-          creditFunded,
-          "campaign generation failed",
-        );
-      } catch (refundError) {
-        req.log.error({ err: refundError }, "Failed to refund reserved campaign credits");
+        await settleWallet(req.tenantId, campaignWallet, {
+          kind: "caption",
+          costPaise: costMeta.costPaise ?? null,
+          provider: costMeta.provider ?? null,
+          model: textGen.model,
+          inputTokens: costMeta.inputTokens ?? null,
+          outputTokens: costMeta.outputTokens ?? null,
+        });
+      } catch (settleError) {
+        req.log.error({ err: settleError }, "Failed to settle campaign wallet charge");
       }
     }
+    res.json({ posts, campaignId, ...(title ? { title } : {}) });
+  } catch (error) {
+    await refundCampaignFunding("campaign generation failed");
     req.log.error({ err: error }, "Campaign generation failed");
     res.status(500).json({ error: "Failed to generate campaign" });
   }
@@ -1589,9 +1722,31 @@ router.post(
 
     const limits = await getPlanLimits(tenant.plan);
     const usage = await getUsage(req.tenantId);
+    // Wallet workspaces pay per campaign from the rupee balance: one
+    // all-or-nothing debit covering every platform, settled to the real
+    // provider cost once the model reports back. Quota workspaces keep the
+    // original split — as much as the plan allows, the rest from credits.
+    const campaignOnWallet = await isWalletFunded(req.tenantId);
+    const campaignWallet = campaignOnWallet
+      ? await reserveWallet(
+          req.tenantId,
+          "caption",
+          { model: textGen.model, provider: textGen.provider },
+          platforms.length,
+        )
+      : null;
     let quotaFunded = platforms.length;
     let creditFunded = 0;
-    if (limits.captions !== -1) {
+    if (campaignOnWallet) {
+      quotaFunded = 0;
+      if (!campaignWallet) {
+        res.status(402).json({
+          error:
+            "Your wallet balance can't cover this campaign. Recharge to continue, or pick fewer platforms.",
+        });
+        return;
+      }
+    } else if (limits.captions !== -1) {
       const remainingQuota = Math.max(0, limits.captions - usage.captions);
       quotaFunded = Math.min(platforms.length, remainingQuota);
       creditFunded = platforms.length - quotaFunded;
@@ -1606,6 +1761,29 @@ router.post(
         }
       }
     }
+
+    /**
+     * Give back whatever was reserved for this campaign, on either rail.
+     * Once-only, and refuses after the charge has settled: a throw AFTER a
+     * successful settle must not refund the reservation on top of it.
+     */
+    let campaignFundingResolved = false;
+    const refundCampaignFunding = async (reason: string) => {
+      if (campaignFundingResolved) return;
+      campaignFundingResolved = true;
+      try {
+        if (campaignWallet) {
+          await refundWallet(req.tenantId, campaignWallet, reason);
+        } else if (creditFunded > 0) {
+          await refundCredits(req.tenantId, "caption", creditFunded, reason);
+        }
+      } catch (refundError) {
+        req.log.error(
+          { err: refundError },
+          "Failed to refund reserved campaign funding",
+        );
+      }
+    };
 
     const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
     const tone = parsed.data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
@@ -1679,13 +1857,7 @@ router.post(
     const refundOnce = async (reason: string) => {
       if (fundingResolved) return;
       fundingResolved = true;
-      if (creditFunded > 0) {
-        try {
-          await refundCredits(req.tenantId, "caption", creditFunded, reason);
-        } catch (refundError) {
-          req.log.error({ err: refundError }, "Failed to refund reserved campaign credits");
-        }
-      }
+      await refundCampaignFunding(reason);
     };
     /** Record the per-platform usage rows (no funding-state guard). */
     const settleRows = async (
@@ -1703,7 +1875,11 @@ router.post(
         await Promise.all(
           posts.map((post, i) =>
             recordUsage(req.tenantId, "caption", {
-              funding: i < quotaFunded ? "quota" : "credit",
+              funding: campaignWallet
+                ? "wallet"
+                : i < quotaFunded
+                  ? "quota"
+                  : "credit",
               requestBytes: perPlatformRequest,
               responseBytes: Buffer.byteLength(JSON.stringify(post)),
               durationMs: Date.now() - startedAt,
@@ -1725,6 +1901,24 @@ router.post(
         );
       } catch (usageError) {
         req.log.error({ err: usageError }, "Failed to record streamed campaign usage");
+      }
+      // Wallet: true the up-front estimate up to the real cost of the one
+      // completion that produced every platform, plus the platform fee. Marked
+      // resolved first so nothing downstream can refund a settled charge.
+      campaignFundingResolved = true;
+      if (campaignWallet) {
+        try {
+          await settleWallet(req.tenantId, campaignWallet, {
+            kind: "caption",
+            costPaise: costMeta.costPaise ?? null,
+            provider: costMeta.provider ?? null,
+            model: textGen.model,
+            inputTokens: costMeta.inputTokens ?? null,
+            outputTokens: costMeta.outputTokens ?? null,
+          });
+        } catch (settleError) {
+          req.log.error({ err: settleError }, "Failed to settle campaign wallet charge");
+        }
       }
     };
     /** Build the per-platform post list from whatever JSON arrived so far. */
@@ -1896,8 +2090,11 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
   );
   if (!captionFunding) {
     res.status(402).json({
-      error:
+      error: await outOfFundsMessage(
+        req.tenantId,
+        "caption",
         "You've used your monthly caption quota and have no caption credits left. Upgrade your plan or buy a credit pack to keep generating.",
+      ),
     });
     return;
   }

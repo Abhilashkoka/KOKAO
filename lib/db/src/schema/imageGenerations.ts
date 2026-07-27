@@ -25,12 +25,19 @@ export const imageGenerationsTable = pgTable("image_generations", {
   /** Requested output size, e.g. "1024x1024". */
   size: text("size").notNull().default("1024x1024"),
   /**
-   * How the route paid for this job: "quota" | "credit", recorded at enqueue
-   * time so both cancel (still-queued jobs) and the stuck-job sweep know
-   * whether a credit refund is owed. Nullable for legacy rows created before
-   * the column existed (swept without refund).
+   * How the route paid for this job: "quota" | "credit" | "wallet", recorded
+   * at enqueue time so both cancel (still-queued jobs) and the stuck-job sweep
+   * know whether a refund is owed. Nullable for legacy rows created before the
+   * column existed (swept without refund).
    */
   funding: text("funding"),
+  /**
+   * Wallet-funded jobs: the wallet_ledger reserve row and the paise it took,
+   * so the runner can settle it to the real cost — and cancel/sweep can hand
+   * it back — long after the enqueueing request has gone.
+   */
+  walletReservationId: integer("wallet_reservation_id"),
+  walletReservedPaise: integer("wallet_reserved_paise"),
   brandKitId: integer("brand_kit_id"),
   /** Optional /objects/... path of a tenant-scoped reference image. */
   referenceImagePath: text("reference_image_path"),

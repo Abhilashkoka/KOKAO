@@ -78,6 +78,12 @@ export const FEATURES = [
       "Multi-slide carousel generation in AI Studio (per-slide images) and LinkedIn document-carousel publishing.",
   },
   {
+    id: "wallet",
+    label: "Prepaid Wallet (₹)",
+    description:
+      "Master switch for rupee wallet billing: recharge with GST added at checkout, and every AI generation charged the real provider cost plus your platform fee. When off, every workspace falls back to plan quotas and unit credits regardless of its per-tenant setting — nothing is deducted and the wallet is hidden.",
+  },
+  {
     id: "aiSpend",
     label: "AI Spend Display",
     description:

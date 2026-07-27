@@ -6,17 +6,20 @@ import { loadReferenceImage, ReferenceImageError } from "./referenceGuide";
 import { ImageGenNotConfiguredError, ImageGenProviderError } from "./imageGen";
 import { recordUsage } from "./usage";
 import { refundCredits } from "./credits";
+import { settleWallet, refundWallet, reservationFromRow } from "./wallet";
 import { logger } from "./logger";
 
 /**
  * Executes one queued image_generations row to completion, mirroring the
  * video job runner: the route reserved funding BEFORE enqueueing, so this
- * only settles — a usage row on success, a credit refund on failure. Every
- * outcome is persisted to the row; clients poll GET /ai/image-jobs/{id}.
+ * only settles — a usage row on success, a refund on failure. Wallet-funded
+ * jobs additionally true their reserved estimate up to the real provider cost
+ * here, using the reservation persisted on the row. Every outcome is persisted
+ * to the row; clients poll GET /ai/image-jobs/{id}.
  */
 export async function runImageGenerationJob(
   jobId: number,
-  funding: "quota" | "credit",
+  funding: "quota" | "credit" | "wallet",
 ): Promise<void> {
   // Dev-only test hook: hold the runner back before its claim so a browser
   // e2e can observe (and cancel) a genuinely "queued" job. Ignored in
@@ -101,6 +104,20 @@ export async function runImageGenerationJob(
       return;
     }
 
+    const reservation = reservationFromRow(job);
+    if (reservation) {
+      await settleWallet(job.tenantId, reservation, {
+        kind: "image",
+        costPaise: outcome.meta.costPaise ?? null,
+        provider: outcome.meta.provider ?? null,
+        model: outcome.meta.model ?? null,
+        inputTokens: outcome.meta.inputTokens ?? null,
+        outputTokens: outcome.meta.outputTokens ?? null,
+      }).catch((err) =>
+        logger.error({ err, jobId }, "Failed to settle image job wallet charge"),
+      );
+    }
+
     await recordUsage(job.tenantId, "image", {
       funding,
       ...outcome.meta,
@@ -136,10 +153,17 @@ export async function runImageGenerationJob(
         logger.error({ err, jobId }, "Failed to persist image job failure");
         return [] as { id: number }[];
       });
-    if (failed.length > 0 && funding === "credit") {
-      await refundCredits(job.tenantId, "image", 1, "image generation failed").catch(
-        (err) => logger.error({ err, jobId }, "Failed to refund image credit"),
-      );
+    if (failed.length > 0) {
+      const reservation = reservationFromRow(job);
+      if (reservation) {
+        await refundWallet(job.tenantId, reservation, "image generation failed").catch(
+          (err) => logger.error({ err, jobId }, "Failed to refund image job wallet"),
+        );
+      } else if (funding === "credit") {
+        await refundCredits(job.tenantId, "image", 1, "image generation failed").catch(
+          (err) => logger.error({ err, jobId }, "Failed to refund image credit"),
+        );
+      }
     }
   }
 }
@@ -188,13 +212,27 @@ export async function sweepStuckImageJobs(): Promise<number> {
         id: imageGenerationsTable.id,
         tenantId: imageGenerationsTable.tenantId,
         funding: imageGenerationsTable.funding,
+        walletReservationId: imageGenerationsTable.walletReservationId,
+        walletReservedPaise: imageGenerationsTable.walletReservedPaise,
       });
     for (const row of reclaimed) {
       logger.warn(
         { jobId: row.id, tenantId: row.tenantId },
         "Failed abandoned image job stuck in queued/processing",
       );
-      if (row.funding === "credit") {
+      const reservation = reservationFromRow(row);
+      if (reservation) {
+        await refundWallet(
+          row.tenantId,
+          reservation,
+          "image job abandoned by restart",
+        ).catch((err) =>
+          logger.error(
+            { err, jobId: row.id },
+            "Failed to refund wallet for abandoned image job",
+          ),
+        );
+      } else if (row.funding === "credit") {
         await refundCredits(
           row.tenantId,
           "image",

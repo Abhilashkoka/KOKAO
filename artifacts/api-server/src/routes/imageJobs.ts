@@ -6,6 +6,13 @@ import { compileImagePrompt } from "../lib/imageGen/promptCompiler";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage } from "../lib/usage";
 import { spendCredit, refundCredits } from "../lib/credits";
+import {
+  isWalletFunded,
+  reserveWallet,
+  refundWallet,
+  reservationFromRow,
+  type WalletReservation,
+} from "../lib/wallet";
 import { enqueueBackgroundJob } from "../lib/backgroundJobs";
 import { isFeatureEnabled } from "../lib/featureFlags";
 import { runImageGenerationJob } from "../lib/imageJobs";
@@ -74,8 +81,20 @@ router.post("/ai/generate-image-async", async (req: Request, res: Response) => {
 
   const limits = await getPlanLimits(tenant.plan);
   const usage = await getUsage(req.tenantId);
-  let funding: "quota" | "credit";
-  if (limits.images === -1 || usage.images < limits.images) {
+  // The reservation is persisted on the job row: the runner settles it to the
+  // real provider cost minutes later, long after this request is gone.
+  let funding: "quota" | "credit" | "wallet";
+  let reservation: WalletReservation | null = null;
+  if (await isWalletFunded(req.tenantId)) {
+    reservation = await reserveWallet(req.tenantId, "image");
+    if (!reservation) {
+      res.status(402).json({
+        error: "Your wallet balance can't cover this image. Recharge to continue.",
+      });
+      return;
+    }
+    funding = "wallet";
+  } else if (limits.images === -1 || usage.images < limits.images) {
     funding = "quota";
   } else if (await spendCredit(req.tenantId, "image", 1)) {
     funding = "credit";
@@ -94,6 +113,8 @@ router.post("/ai/generate-image-async", async (req: Request, res: Response) => {
         tenantId: req.tenantId,
         status: "queued",
         funding,
+        walletReservationId: reservation?.id ?? null,
+        walletReservedPaise: reservation?.amountPaise ?? null,
         // Compiled here, not in the runner: the stored prompt is what the
         // gallery shows and what a re-run sends back, so it has to be the
         // finished text rather than a brief plus a recipe the runner ate.
@@ -120,7 +141,9 @@ router.post("/ai/generate-image-async", async (req: Request, res: Response) => {
       .update(imageGenerationsTable)
       .set({ status: "failed", error: "Server restarting; please retry." })
       .where(eq(imageGenerationsTable.id, job.id));
-    if (funding === "credit") {
+    if (reservation) {
+      await refundWallet(req.tenantId, reservation, "image enqueue rejected");
+    } else if (funding === "credit") {
       await refundCredits(req.tenantId, "image", 1, "image enqueue rejected");
     }
     res.status(503).json({ error: "Server is restarting. Please retry in a moment." });
@@ -180,6 +203,7 @@ router.post("/ai/image-jobs/:jobId/cancel", async (req: Request, res: Response) 
   }
   // The status flip and the credit refund share one transaction so a job can
   // never end up cancelled without its refund (or vice versa).
+  let cancelledReservation: WalletReservation | null = null;
   const cancelled = await db.transaction(async (tx) => {
     const row = (
       await tx
@@ -194,12 +218,28 @@ router.post("/ai/image-jobs/:jobId/cancel", async (req: Request, res: Response) 
         )
         .returning()
     )[0];
-    if (row && row.funding === "credit") {
-      await refundCredits(req.tenantId, "image", 1, "image job cancelled", tx);
+    if (row) {
+      const held = reservationFromRow(row);
+      if (held) {
+        // The wallet refund runs on its own connection rather than `tx`, so
+        // it is issued only after the cancel has actually committed (below).
+        cancelledReservation = held;
+      } else if (row.funding === "credit") {
+        await refundCredits(req.tenantId, "image", 1, "image job cancelled", tx);
+      }
     }
     return row;
   });
   if (cancelled) {
+    if (cancelledReservation) {
+      await refundWallet(
+        req.tenantId,
+        cancelledReservation,
+        "image job cancelled",
+      ).catch((error) =>
+        req.log.error({ err: error, jobId: id }, "Failed to refund cancelled image job"),
+      );
+    }
     res.json(serializeImageJob(cancelled));
     return;
   }

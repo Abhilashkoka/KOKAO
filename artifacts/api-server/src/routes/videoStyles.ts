@@ -6,6 +6,13 @@ import { AnalyzeVideoStyleBody } from "@workspace/api-zod";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage, recordUsage } from "../lib/usage";
 import { spendCredit, refundCredits } from "../lib/credits";
+import {
+  isWalletFunded,
+  reserveWallet,
+  settleWallet,
+  refundWallet,
+  type WalletReservation,
+} from "../lib/wallet";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import {
   analyzeReferenceVideo,
@@ -47,19 +54,34 @@ function serializeProfile(profile: VideoStyleProfile) {
   };
 }
 
-type Funding = "quota" | "credit";
+interface Funding {
+  source: "quota" | "credit" | "wallet";
+  reservation?: WalletReservation;
+}
 
-/** Reserve caption funding (monthly quota first, then a credit). */
+/** Reserve caption funding on whichever rail this workspace is on. */
 async function reserveCaptionFunding(tenantId: number, plan: string): Promise<Funding | null> {
+  if (await isWalletFunded(tenantId)) {
+    const reservation = await reserveWallet(tenantId, "caption");
+    return reservation ? { source: "wallet", reservation } : null;
+  }
   const limits = await getPlanLimits(plan);
   const usage = await getUsage(tenantId);
-  if (limits.captions === -1 || usage.captions < limits.captions) return "quota";
-  if (await spendCredit(tenantId, "caption")) return "credit";
+  if (limits.captions === -1 || usage.captions < limits.captions) return { source: "quota" };
+  if (await spendCredit(tenantId, "caption")) return { source: "credit" };
   return null;
 }
 
 async function releaseCaptionFunding(req: Request, funding: Funding): Promise<void> {
-  if (funding !== "credit") return;
+  if (funding.source === "wallet" && funding.reservation) {
+    await refundWallet(
+      req.tenantId,
+      funding.reservation,
+      "reference video analysis failed",
+    ).catch((err) => req.log.error({ err }, "Failed to refund style analysis wallet"));
+    return;
+  }
+  if (funding.source !== "credit") return;
   await refundCredits(req.tenantId, "caption", 1, "reference video analysis failed").catch(
     (err) => req.log.error({ err }, "Failed to refund style analysis credit"),
   );
@@ -165,12 +187,24 @@ router.post("/ai/video-styles", async (req: Request, res: Response) => {
     return;
   }
 
+  if (funding.source === "wallet" && funding.reservation) {
+    // The analysis helper does not surface a provider cost, so this settles
+    // at the admin display rate (flagged `estimated`) rather than free.
+    await settleWallet(req.tenantId, funding.reservation, {
+      kind: "caption",
+      costPaise: null,
+      provider: "video-style-analysis",
+      model: tenant.aiModel,
+    }).catch((err) =>
+      req.log.error({ err }, "Failed to settle style analysis wallet charge"),
+    );
+  }
   await recordUsage(req.tenantId, "caption", {
     durationMs: Date.now() - startedAt,
     responseBytes: JSON.stringify(payload).length,
     model: tenant.aiModel,
     provider: "video-style-analysis",
-    funding,
+    funding: funding.source,
   });
 
   // Re-check the cap under a tenant row lock so parallel analyses cannot both

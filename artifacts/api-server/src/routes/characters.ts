@@ -6,6 +6,13 @@ import { CreateCharacterBody, CreateCharacterOutfitBody } from "@workspace/api-z
 import { getPlanLimits } from "../lib/plans";
 import { getUsage } from "../lib/usage";
 import { spendCredit, refundCredits } from "../lib/credits";
+import {
+  isWalletFunded,
+  reserveWallet,
+  settleWallet,
+  refundWallet,
+  type WalletReservation,
+} from "../lib/wallet";
 import { recordUsage } from "../lib/usage";
 import { uploadBufferToStorage } from "../lib/storageUpload";
 import {
@@ -53,18 +60,28 @@ function serializeCharacter(character: Character, outfits: CharacterOutfit[]) {
   };
 }
 
-type Funding = "quota" | "credit";
+interface Funding {
+  source: "quota" | "credit" | "wallet";
+  reservation?: WalletReservation;
+}
 
-/** Reserve image funding (quota first, then a credit). Null → caller 402s. */
+/**
+ * Reserve image funding on whichever rail this workspace is on: the rupee
+ * wallet, or the original quota-then-credit path. Null → caller 402s.
+ */
 async function reserveImageFunding(req: Request): Promise<Funding | null> {
   const tenant = (
     await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId)).limit(1)
   )[0];
   if (!tenant) return null;
+  if (await isWalletFunded(req.tenantId)) {
+    const reservation = await reserveWallet(req.tenantId, "image");
+    return reservation ? { source: "wallet", reservation } : null;
+  }
   const limits = await getPlanLimits(tenant.plan);
   const usage = await getUsage(req.tenantId);
-  if (limits.images === -1 || usage.images < limits.images) return "quota";
-  if (await spendCredit(req.tenantId, "image")) return "credit";
+  if (limits.images === -1 || usage.images < limits.images) return { source: "quota" };
+  if (await spendCredit(req.tenantId, "image")) return { source: "credit" };
   return null;
 }
 
@@ -73,11 +90,32 @@ async function settleImageFunding(
   funding: Funding,
   meta: { durationMs: number; responseBytes: number; model: string; provider: string },
 ): Promise<void> {
-  await recordUsage(req.tenantId, "image", { ...meta, funding });
+  if (funding.source === "wallet" && funding.reservation) {
+    // Character references go through a helper that does not surface a
+    // provider cost, so this settles at the admin display rate (flagged
+    // `estimated` in the ledger) rather than charging nothing.
+    await settleWallet(req.tenantId, funding.reservation, {
+      kind: "image",
+      costPaise: null,
+      provider: meta.provider,
+      model: meta.model,
+    }).catch((err) =>
+      req.log.error({ err }, "Failed to settle character image wallet charge"),
+    );
+  }
+  await recordUsage(req.tenantId, "image", { ...meta, funding: funding.source });
 }
 
 async function releaseImageFunding(req: Request, funding: Funding): Promise<void> {
-  if (funding !== "credit") return;
+  if (funding.source === "wallet" && funding.reservation) {
+    await refundWallet(
+      req.tenantId,
+      funding.reservation,
+      "character image generation failed",
+    ).catch((err) => req.log.error({ err }, "Failed to refund character image wallet"));
+    return;
+  }
+  if (funding.source !== "credit") return;
   await refundCredits(req.tenantId, "image", 1, "character image generation failed").catch(
     (err) => req.log.error({ err }, "Failed to refund character image credit"),
   );

@@ -175,7 +175,20 @@ export const videoGenerationsTable = pgTable("video_generations", {
   durationMs: integer("duration_ms"),
   /** How the route paid for this job, so a sweep that settles an abandoned
    * one knows whether there are credits to give back. */
-  funding: text("funding").$type<"quota" | "credit">(),
+  funding: text("funding").$type<"quota" | "credit" | "wallet">(),
+  /**
+   * Wallet-funded jobs: the first wallet_ledger reserve row plus the TOTAL
+   * paise and units reserved for this job, so the runner can settle it to the
+   * real cost — and cancel/sweep can hand it back — long after the enqueueing
+   * request has gone.
+   *
+   * The totals are aggregates, not a copy of the first reserve row: a scene
+   * added during storyboard review reserves again and folds its paise/unit
+   * into these columns, so every later refund covers the whole job.
+   */
+  walletReservationId: integer("wallet_reservation_id"),
+  walletReservedPaise: integer("wallet_reserved_paise"),
+  walletReservedUnits: integer("wallet_reserved_units"),
   /** The editable plan; only set while status is awaiting_review (and kept
    * afterwards as a record of what was approved). */
   storyboard: jsonb("storyboard").$type<VideoStoryboard>(),

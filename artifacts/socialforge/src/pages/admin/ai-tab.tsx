@@ -69,6 +69,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { ExternalLink } from "lucide-react";
 import { CollapsibleCardHeader } from "@/components/ui/collapsible-card-header";
+import { WalletCard } from "./wallet-card";
 
 const ASR_KEY_PAGES: Record<string, string> = {
   groq: "https://console.groq.com/keys",
@@ -2527,6 +2528,7 @@ export function AiTab() {
     <div className="space-y-8">
       <DesignSkillCard />
       <AiSpendCard />
+      {flags.wallet && <WalletCard />}
       {flags.aiCostTracking && (
         <>
           <AiCostCard />

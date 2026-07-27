@@ -54,6 +54,9 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   ai_spend_settings_change: "AI spend rates changed",
   signup_credit_settings_change: "Signup credits changed",
   ai_cost_change: "AI cost pricing changed",
+  wallet_settings_change: "Wallet settings changed",
+  billing_mode_change: "Billing mode changed",
+  wallet_adjust: "Wallet balance adjusted",
 };
 function formatAuditValue(action: string, value: string | null): string {
   if (value === null || value === "") return "—";

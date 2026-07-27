@@ -10,6 +10,7 @@ import { ObjectStorageService, ObjectNotFoundError } from "../objectStorage";
 import { recordUsage } from "../usage";
 import { computeVideoCostPaise } from "../aiCost";
 import { refundCredits } from "../credits";
+import { settleWallet, refundWallet, reservationFromRow } from "../wallet";
 import { logger } from "../logger";
 import { generateVideo, VideoGenNotConfiguredError, VideoGenProviderError } from "./index";
 import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
@@ -544,7 +545,7 @@ function isStockSourceChoice(value: string | undefined): value is StockSourceCho
  */
 export async function runVideoGenerationJob(
   jobId: number,
-  funding: "quota" | "credit",
+  funding: "quota" | "credit" | "wallet",
 ): Promise<void> {
   // Atomic claim: only one runner can move a job out of queued, so a retry or
   // a restart cannot double-spend a reservation.
@@ -603,7 +604,7 @@ export async function refreshStoryboardScenePreview(
 
 async function executeVideoJob(
   job: VideoGeneration,
-  funding: "quota" | "credit",
+  funding: "quota" | "credit" | "wallet",
 ): Promise<void> {
   const jobId = job.id;
   const startedAt = Date.now();
@@ -676,6 +677,21 @@ async function executeVideoJob(
       model: usageModel,
       durationSec: clipDurationSec,
     }).catch(() => null);
+    // Wallet: settle the reserved estimate. When the price catalog yields a
+    // real cost for this render it settles at actual cost + fee; an
+    // uncataloged model settles at the admin display rate and is flagged
+    // `estimated` in the ledger.
+    const reservation = reservationFromRow(job);
+    if (reservation) {
+      await settleWallet(job.tenantId, reservation, {
+        kind: "video",
+        costPaise,
+        provider: usageProvider,
+        model: usageModel,
+      }).catch((err) =>
+        logger.error({ err, jobId }, "Failed to settle video job wallet charge"),
+      );
+    }
     await recordUsage(job.tenantId, "video", {
       funding,
       durationMs,
@@ -711,7 +727,12 @@ async function executeVideoJob(
       storyboardExpiresAt: null,
       durationMs: (job.durationMs ?? 0) + (Date.now() - startedAt),
     }).catch(() => {});
-    if (funding === "credit") {
+    const reservation = reservationFromRow(job);
+    if (reservation) {
+      await refundWallet(job.tenantId, reservation, "video generation failed").catch(
+        (err) => logger.error({ err, jobId }, "Failed to refund video job wallet"),
+      );
+    } else if (funding === "credit") {
       const units = videoJobUnits(job.engine, job.options);
       await refundCredits(job.tenantId, "video", units, "video generation failed").catch(
         (err) => logger.error({ err, jobId }, "Failed to refund video credits"),

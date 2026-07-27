@@ -6,6 +6,8 @@ import {
   useAdminUpdateTenantSuperadmin,
   useAdminUpdateTenantDesignSkill,
   useAdminGrantCredits,
+  useAdminUpdateTenantBillingMode,
+  useAdminAdjustTenantWallet,
   useAdminListSeatRequests,
   useAdminDecideSeatRequest,
   getAdminListSeatRequestsQueryKey,
@@ -54,8 +56,17 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { useFeatureFlags } from "@/lib/features";
 
 import { PLAN_LABELS } from "./shared";
+
+/** Paise → a compact rupee string for the admin table. */
+function formatInr(paise: number): string {
+  return `₹${(paise / 100).toLocaleString("en-IN", {
+    minimumFractionDigits: paise % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
 
 function SeatRequestsCard() {
   const queryClient = useQueryClient();
@@ -255,6 +266,45 @@ export function TenantsTab() {
   const [grantNote, setGrantNote] = useState("");
   const updateSuperadmin = useAdminUpdateTenantSuperadmin();
   const updateTenantDesignSkill = useAdminUpdateTenantDesignSkill();
+  // Wallet billing: hidden entirely unless the platform switch is on, so the
+  // table looks exactly as it did before when the feature is off.
+  const { flags } = useFeatureFlags();
+  const walletEnabled = flags.wallet;
+  const updateBillingMode = useAdminUpdateTenantBillingMode();
+  const adjustWallet = useAdminAdjustTenantWallet();
+  const [walletTarget, setWalletTarget] = useState<{
+    id: number;
+    name: string;
+    balancePaise: number;
+  } | null>(null);
+  const [walletAmount, setWalletAmount] = useState("");
+  const [walletNote, setWalletNote] = useState("");
+
+  const handleBillingModeChange = (tenantId: number, mode: string) => {
+    updateBillingMode.mutate(
+      { id: tenantId, data: { billingMode: mode as "quota" | "wallet" } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getAdminListTenantsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getAdminListAuditLogsQueryKey() });
+          toast({
+            title: mode === "wallet" ? "Moved to wallet billing" : "Moved to quota billing",
+            description:
+              mode === "wallet"
+                ? "Generations for this workspace are now charged to its ₹ wallet."
+                : "This workspace is back on plan quotas and unit credits.",
+          });
+        },
+        onError: () => {
+          toast({
+            title: "Update failed",
+            description: "Could not change the billing mode.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
 
   const handleDesignSkillChange = (tenantId: number, value: string) => {
     const enabled = value === "default" ? null : value === "on";
@@ -397,6 +447,10 @@ export function TenantsTab() {
                     <TableHead>Plan</TableHead>
                     <TableHead>Design Skill</TableHead>
                     <TableHead>Credits</TableHead>
+                    {walletEnabled && <TableHead>Billing</TableHead>}
+                    {walletEnabled && (
+                      <TableHead className="text-right">Wallet</TableHead>
+                    )}
                     <TableHead>Superadmin</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -491,6 +545,46 @@ export function TenantsTab() {
                           Grant
                         </Button>
                       </TableCell>
+                      {walletEnabled && (
+                        <TableCell>
+                          <Select
+                            value={t.billingMode === "wallet" ? "wallet" : "quota"}
+                            onValueChange={(value) =>
+                              handleBillingModeChange(t.id, value)
+                            }
+                            disabled={updateBillingMode.isPending}
+                          >
+                            <SelectTrigger
+                              className="w-28"
+                              data-testid={`select-billing-mode-${t.id}`}
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="quota">Quota</SelectItem>
+                              <SelectItem value="wallet">Wallet</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                      )}
+                      {walletEnabled && (
+                        <TableCell className="text-right">
+                          <button
+                            type="button"
+                            className="tabular-nums underline-offset-4 hover:underline"
+                            onClick={() =>
+                              setWalletTarget({
+                                id: t.id,
+                                name: t.name,
+                                balancePaise: t.walletBalancePaise ?? 0,
+                              })
+                            }
+                            data-testid={`button-wallet-${t.id}`}
+                          >
+                            {formatInr(t.walletBalancePaise ?? 0)}
+                          </button>
+                        </TableCell>
+                      )}
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Switch
@@ -651,6 +745,120 @@ export function TenantsTab() {
                 </>
               ) : (
                 "Apply adjustment"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={walletTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setWalletTarget(null);
+            setWalletAmount("");
+            setWalletNote("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Adjust wallet — {walletTarget?.name}</DialogTitle>
+            <DialogDescription>
+              Current balance {formatInr(walletTarget?.balancePaise ?? 0)}. Enter
+              a positive amount in ₹ to add, or a negative one to deduct. No GST
+              is applied — an admin adjustment is not a sale.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium" htmlFor="wallet-amount">
+                Amount (₹)
+              </label>
+              <Input
+                id="wallet-amount"
+                type="number"
+                step="0.01"
+                placeholder="500"
+                value={walletAmount}
+                onChange={(e) => setWalletAmount(e.target.value)}
+                data-testid="input-wallet-amount"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium" htmlFor="wallet-note">
+                Note (optional)
+              </label>
+              <Input
+                id="wallet-note"
+                placeholder="Goodwill credit"
+                value={walletNote}
+                onChange={(e) => setWalletNote(e.target.value)}
+                data-testid="input-wallet-note"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={adjustWallet.isPending}
+              onClick={() => setWalletTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={adjustWallet.isPending}
+              data-testid="button-apply-wallet-adjust"
+              onClick={() => {
+                if (!walletTarget) return;
+                const rupees = Number(walletAmount);
+                if (!Number.isFinite(rupees) || rupees === 0) {
+                  toast({
+                    variant: "destructive",
+                    title: "Enter an amount",
+                    description: "Use a positive number to add, negative to deduct.",
+                  });
+                  return;
+                }
+                adjustWallet.mutate(
+                  {
+                    id: walletTarget.id,
+                    data: {
+                      amountPaise: Math.round(rupees * 100),
+                      ...(walletNote.trim() ? { note: walletNote.trim() } : {}),
+                    },
+                  },
+                  {
+                    onSuccess: (result) => {
+                      queryClient.invalidateQueries({
+                        queryKey: getAdminListTenantsQueryKey(),
+                      });
+                      queryClient.invalidateQueries({
+                        queryKey: getAdminListAuditLogsQueryKey(),
+                      });
+                      setWalletTarget(null);
+                      setWalletAmount("");
+                      setWalletNote("");
+                      toast({
+                        title: "Wallet updated",
+                        description: `New balance ${formatInr(result.balancePaise)}.`,
+                      });
+                    },
+                    onError: () => {
+                      toast({
+                        variant: "destructive",
+                        title: "Adjustment failed",
+                        description: "Could not change the wallet balance.",
+                      });
+                    },
+                  },
+                );
+              }}
+            >
+              {adjustWallet.isPending ? (
+                <RippleSpinner className="h-4 w-4" />
+              ) : (
+                "Apply"
               )}
             </Button>
           </DialogFooter>

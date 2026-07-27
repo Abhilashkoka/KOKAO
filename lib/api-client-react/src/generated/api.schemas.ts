@@ -849,6 +849,17 @@ export interface AdminTenantCounts {
   connectedAccounts: number;
 }
 
+/**
+ * Which rail funds this workspace's generations. Only takes effect while the platform `wallet` switch is on.
+ */
+export type AdminTenantBillingMode = typeof AdminTenantBillingMode[keyof typeof AdminTenantBillingMode];
+
+
+export const AdminTenantBillingMode = {
+  quota: 'quota',
+  wallet: 'wallet',
+} as const;
+
 export interface AdminTenant {
   id: number;
   /** @nullable */
@@ -865,6 +876,10 @@ export interface AdminTenant {
      * @nullable
      */
   designSkillEnabled?: boolean | null;
+  /** Which rail funds this workspace's generations. Only takes effect while the platform `wallet` switch is on. */
+  billingMode: AdminTenantBillingMode;
+  /** Prepaid rupee wallet balance, GST-exclusive paise. */
+  walletBalancePaise: number;
   createdAt: string;
   counts?: AdminTenantCounts;
   usage?: Usage;
@@ -4663,6 +4678,7 @@ export interface FeatureFlags {
   referenceImages: boolean;
   assetLibrary: boolean;
   carousel: boolean;
+  wallet: boolean;
   aiSpend: boolean;
   aiCostTracking: boolean;
   videoGen: boolean;
@@ -4967,6 +4983,183 @@ export interface AdsBudgetCapsInput {
      * @nullable
      */
   maxLifetimeBudget: number | null;
+}
+
+export type WalletLedgerEntryKind = typeof WalletLedgerEntryKind[keyof typeof WalletLedgerEntryKind];
+
+
+export const WalletLedgerEntryKind = {
+  topup: 'topup',
+  reserve: 'reserve',
+  settle: 'settle',
+  refund: 'refund',
+  true_up: 'true_up',
+  admin_credit: 'admin_credit',
+  admin_debit: 'admin_debit',
+} as const;
+
+export interface WalletLedgerEntry {
+  id: number;
+  kind: WalletLedgerEntryKind;
+  /** Signed delta applied to the balance, GST-exclusive. */
+  amountPaise: number;
+  /**
+     * Top-ups - the amount credited to the wallet, before GST.
+     * @nullable
+     */
+  baseAmountPaise?: number | null;
+  /**
+     * Top-ups - GST charged on top at checkout, never credited.
+     * @nullable
+     */
+  gstAmountPaise?: number | null;
+  /** @nullable */
+  gstPercent?: number | null;
+  /**
+     * caption, image, or video - what the charge was for.
+     * @nullable
+     */
+  usageKind?: string | null;
+  /** @nullable */
+  model?: string | null;
+  /** True when the charge used the admin display rate because the model had no catalog price. */
+  estimated: boolean;
+  /** @nullable */
+  note?: string | null;
+  createdAt: string;
+}
+
+/**
+ * Indicative per-generation charges with the platform fee folded in, GST-exclusive. The real charge settles to the actual provider cost.
+ */
+export interface WalletRates {
+  captionPaise: number;
+  imagePaise: number;
+  videoPaise: number;
+}
+
+export interface WalletOverview {
+  /** True when this workspace's generations are actually funded from the wallet (platform switch on AND the workspace set to wallet mode). */
+  walletBilling: boolean;
+  /** Whether online payments are set up by the platform admin. */
+  configured: boolean;
+  /**
+     * Razorpay public key id for Checkout (null when unconfigured).
+     * @nullable
+     */
+  keyId: string | null;
+  balancePaise: number;
+  gstPercent: number;
+  minTopupPaise: number;
+  /** 0 = no low-balance warning configured. */
+  lowBalanceThresholdPaise: number;
+  lowBalance: boolean;
+  rates: WalletRates;
+  history: WalletLedgerEntry[];
+}
+
+export interface WalletRechargeInput {
+  /**
+     * GST-exclusive amount to credit to the wallet, in paise.
+     * @minimum 100
+     * @maximum 10000000
+     */
+  amountPaise: number;
+}
+
+export interface WalletRechargeOrder {
+  razorpayOrderId: string;
+  /** What the wallet will be credited. */
+  basePaise: number;
+  gstPaise: number;
+  gstPercent: number;
+  /** What Razorpay Checkout charges, GST included. */
+  totalPaise: number;
+  /** @nullable */
+  keyId: string | null;
+}
+
+export interface WalletVerifyRechargeInput {
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  razorpayOrderId: string;
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  razorpayPaymentId: string;
+  /**
+     * @minLength 1
+     * @maxLength 300
+     */
+  razorpaySignature: string;
+}
+
+export interface WalletSettings {
+  /** Whole-number GST percentage added at checkout. */
+  gstPercent: number;
+  minTopupPaise: number;
+  lowBalanceThresholdPaise: number;
+  /** Display-rate fallback for video generations. Caption and image fallbacks come from the AI Spend Display settings. */
+  videoCostPaise: number;
+}
+
+export interface WalletSettingsInput {
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  gstPercent: number;
+  /**
+     * @minimum 100
+     * @maximum 10000000
+     */
+  minTopupPaise: number;
+  /**
+     * @minimum 0
+     * @maximum 10000000
+     */
+  lowBalanceThresholdPaise: number;
+  /**
+     * @minimum 0
+     * @maximum 10000000
+     */
+  videoCostPaise: number;
+}
+
+export interface WalletPendingPrice {
+  usageKind: string;
+  /** @nullable */
+  provider: string | null;
+  /** @nullable */
+  model: string | null;
+  chargeCount: number;
+  chargedPaise: number;
+}
+
+export type TenantBillingModeInputBillingMode = typeof TenantBillingModeInputBillingMode[keyof typeof TenantBillingModeInputBillingMode];
+
+
+export const TenantBillingModeInputBillingMode = {
+  quota: 'quota',
+  wallet: 'wallet',
+} as const;
+
+export interface TenantBillingModeInput {
+  billingMode: TenantBillingModeInputBillingMode;
+}
+
+export interface WalletAdjustInput {
+  /**
+     * Positive credits the wallet, negative deducts from it.
+     * @minimum -10000000
+     * @maximum 10000000
+     */
+  amountPaise: number;
+  /** @maxLength 200 */
+  note?: string;
 }
 
 /**
@@ -5398,5 +5591,30 @@ connectionId: AdsConnectionIdParameter;
  * Reporting date range (defaults to last_30d).
  */
 datePreset?: AdsDatePresetParameter;
+};
+
+export type WalletVerifyRecharge200 = {
+  ok: boolean;
+  balancePaise: number;
+};
+
+export type AdminUpdateTenantBillingMode200BillingMode = typeof AdminUpdateTenantBillingMode200BillingMode[keyof typeof AdminUpdateTenantBillingMode200BillingMode];
+
+
+export const AdminUpdateTenantBillingMode200BillingMode = {
+  quota: 'quota',
+  wallet: 'wallet',
+} as const;
+
+export type AdminUpdateTenantBillingMode200 = {
+  tenantId: number;
+  billingMode: AdminUpdateTenantBillingMode200BillingMode;
+};
+
+export type AdminAdjustTenantWallet200 = {
+  ok: boolean;
+  balancePaise: number;
+  /** The delta actually applied. A deduction larger than the balance is clamped so the wallet never goes negative. */
+  appliedPaise: number;
 };
 

@@ -11,7 +11,16 @@ import {
   adminAuditLogsTable,
   sweepStatusTable,
   subscriptionsTable,
+  walletBalancesTable,
 } from "@workspace/db";
+import {
+  getWalletConfig,
+  setWalletConfig,
+  getWalletBalancePaise,
+  adminAdjustWallet,
+  listPendingPricedModels,
+  trueUpModel,
+} from "../lib/wallet";
 import { eq, sql, desc, gte, lt, lte, and, or, ilike, inArray, isNotNull } from "drizzle-orm";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import {
@@ -98,6 +107,9 @@ import {
   AdminCreatePromoCodesBody,
   AdminUpdatePromoCodeBody,
   AdminUpdateSignupCreditSettingsBody,
+  AdminUpdateWalletSettingsBody,
+  AdminUpdateTenantBillingModeBody,
+  AdminAdjustTenantWalletBody,
 } from "@workspace/api-zod";
 import {
   notificationPoliciesTable,
@@ -197,7 +209,7 @@ router.param("id", (req, res, next, value) => {
   next();
 });
 
-function serializeAdminTenant(t: Tenant) {
+function serializeAdminTenant(t: Tenant, walletBalancePaise = 0) {
   const isAllowlisted = isSuperadminEmail(t.email);
   return {
     id: t.id,
@@ -209,8 +221,18 @@ function serializeAdminTenant(t: Tenant) {
     isSuperadmin: t.isSuperadmin || isAllowlisted,
     isAllowlisted,
     designSkillEnabled: t.designSkillEnabled ?? null,
+    // Wallet billing: which rail funds this workspace, and what it holds.
+    // Only consulted while the platform `wallet` switch is on.
+    billingMode: t.billingMode === "wallet" ? "wallet" : "quota",
+    walletBalancePaise,
     createdAt: t.createdAt.toISOString(),
   };
+}
+
+/** Wallet balance per tenant, for the admin tenants table. */
+async function walletBalancesByTenant(): Promise<Map<number, number>> {
+  const rows = await db.select().from(walletBalancesTable);
+  return new Map(rows.map((r) => [r.tenantId, r.balancePaise]));
 }
 
 async function countByTenant(
@@ -244,6 +266,7 @@ router.get("/admin/tenants", async (_req: Request, res: Response) => {
     scheduleCounts,
     accountCounts,
     usageRows,
+    walletBalances,
   ] = await Promise.all([
     db.select().from(tenantsTable).orderBy(desc(tenantsTable.createdAt)),
     countByTenant(contentItemsTable),
@@ -259,6 +282,7 @@ router.get("/admin/tenants", async (_req: Request, res: Response) => {
       .from(usageEventsTable)
       .where(gte(usageEventsTable.createdAt, periodStart))
       .groupBy(usageEventsTable.tenantId, usageEventsTable.kind),
+    walletBalancesByTenant(),
   ]);
 
   const captionUsage = new Map<number, number>();
@@ -270,7 +294,7 @@ router.get("/admin/tenants", async (_req: Request, res: Response) => {
 
   res.json(
     tenants.map((t) => ({
-      ...serializeAdminTenant(t),
+      ...serializeAdminTenant(t, walletBalances.get(t.id) ?? 0),
       counts: {
         content: contentCounts.get(t.id) ?? 0,
         brandKits: brandKitCounts.get(t.id) ?? 0,
@@ -486,7 +510,9 @@ router.patch("/admin/tenants/:id", async (req: Request, res: Response) => {
     }
   }
 
-  res.json(serializeAdminTenant(updated));
+  res.json(
+    serializeAdminTenant(updated, await getWalletBalancePaise(updated.id)),
+  );
 });
 
 /**
@@ -568,7 +594,9 @@ router.patch(
       }
     }
 
-    res.json(serializeAdminTenant(updated));
+    res.json(
+    serializeAdminTenant(updated, await getWalletBalancePaise(updated.id)),
+  );
   },
 );
 
@@ -622,7 +650,9 @@ router.patch(
       }
     }
 
-    res.json(serializeAdminTenant(updated));
+    res.json(
+    serializeAdminTenant(updated, await getWalletBalancePaise(updated.id)),
+  );
   },
 );
 
@@ -1347,6 +1377,22 @@ router.put("/admin/ai-cost/prices", async (req: Request, res: Response) => {
     null,
     `${row.kind}:${row.provider}/${row.model} in=${row.inputUsdPerMtok ?? "-"} out=${row.outputUsdPerMtok ?? "-"} img=${row.usdPerImage ?? "-"} sec=${row.usdPerSecond ?? "-"} vid=${row.usdPerVideo ?? "-"}`,
   );
+  // Wallet true-up: generations already charged at the display-rate fallback
+  // for this model now have a real price, so collect (or refund) the
+  // difference. Fire-and-forget — pricing a model must not hang on it, and a
+  // failure just leaves the rows pending for the next price save.
+  void trueUpModel({ kind: row.kind as "text" | "image", provider: row.provider, model: row.model })
+    .then((result) => {
+      if (result.rowsTruedUp > 0) {
+        req.log.info(
+          { model: row.model, ...result },
+          "Trued up wallet charges after a price was added",
+        );
+      }
+    })
+    .catch((error) => {
+      req.log.error({ err: error, model: row.model }, "Wallet true-up failed");
+    });
   res.json(await serializeAiCostConfig());
 });
 
@@ -3082,6 +3128,9 @@ const AUDIT_ACTIONS = new Set([
   "ai_spend_settings_change",
   "signup_credit_settings_change",
   "ai_cost_change",
+  "wallet_settings_change",
+  "billing_mode_change",
+  "wallet_adjust",
 ]);
 
 function escapeLike(value: string): string {
@@ -3608,5 +3657,156 @@ router.patch(
     });
   },
 );
+
+// ---------------------------------------------------------------------------
+// Prepaid rupee wallet (superadmin)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /admin/wallet/settings
+ * GST rate, minimum top-up, low-balance threshold, and the video display-rate
+ * fallback. The platform fee and the caption/image fallback rates are NOT
+ * duplicated here — they come from AI Spend Display, so one set of numbers
+ * drives both what tenants see and what the wallet charges.
+ */
+router.get("/admin/wallet/settings", async (_req: Request, res: Response) => {
+  res.json(await getWalletConfig());
+});
+
+/**
+ * PUT /admin/wallet/settings
+ */
+router.put("/admin/wallet/settings", async (req: Request, res: Response) => {
+  const parsed = AdminUpdateWalletSettingsBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const before = await getWalletConfig();
+  const after = await setWalletConfig(parsed.data);
+  if (before.gstPercent !== after.gstPercent) {
+    try {
+      await recordAdminAction({
+        action: "wallet_settings_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: `gst:${before.gstPercent}%`,
+        newValue: `gst:${after.gstPercent}%`,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write wallet settings audit log");
+    }
+  }
+  res.json(after);
+});
+
+/**
+ * GET /admin/wallet/pending-prices
+ * Models that have been charged at the display-rate fallback because they are
+ * missing from the price catalog. Adding a price on the AI tab clears the
+ * entry and collects the difference automatically.
+ */
+router.get("/admin/wallet/pending-prices", async (_req: Request, res: Response) => {
+  res.json(await listPendingPricedModels());
+});
+
+/**
+ * PUT /admin/tenants/:id/billing-mode
+ * Move a workspace between quota billing and wallet billing. Takes effect
+ * only while the platform `wallet` switch is on.
+ */
+router.put("/admin/tenants/:id/billing-mode", async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  const parsed = AdminUpdateTenantBillingModeBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const tenant = (
+    await db.select().from(tenantsTable).where(eq(tenantsTable.id, id)).limit(1)
+  )[0];
+  if (!tenant) {
+    res.status(404).json({ error: "Tenant not found" });
+    return;
+  }
+  const billingMode = parsed.data.billingMode;
+  if (tenant.billingMode !== billingMode) {
+    await db
+      .update(tenantsTable)
+      .set({ billingMode, updatedAt: new Date() })
+      .where(eq(tenantsTable.id, id));
+    try {
+      await recordAdminAction({
+        action: "billing_mode_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: id,
+        targetEmail: tenant.email ?? null,
+        oldValue: tenant.billingMode,
+        newValue: billingMode,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write billing-mode audit log");
+    }
+  }
+  res.json({ tenantId: id, billingMode });
+});
+
+/**
+ * POST /admin/tenants/:id/wallet
+ * Manually add to (positive) or deduct from (negative) a workspace's wallet.
+ * No GST — an admin grant is not a sale. A deduction larger than the balance
+ * is clamped so the wallet never goes negative, and the ledger records the
+ * delta that was actually applied.
+ */
+router.post("/admin/tenants/:id/wallet", async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  const parsed = AdminAdjustTenantWalletBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  if (parsed.data.amountPaise === 0) {
+    res.status(400).json({ error: "Enter an amount." });
+    return;
+  }
+  const tenant = (
+    await db.select().from(tenantsTable).where(eq(tenantsTable.id, id)).limit(1)
+  )[0];
+  if (!tenant) {
+    res.status(404).json({ error: "Tenant not found" });
+    return;
+  }
+
+  const { appliedPaise, balancePaise } = await adminAdjustWallet({
+    tenantId: id,
+    amountPaise: parsed.data.amountPaise,
+    note: parsed.data.note ?? "Adjusted by an administrator",
+  });
+  try {
+    await recordAdminAction({
+      action: "wallet_adjust",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: id,
+      targetEmail: tenant.email ?? null,
+      oldValue: String(balancePaise - appliedPaise),
+      newValue: String(balancePaise),
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write wallet adjustment audit log");
+  }
+  res.json({ ok: true, balancePaise, appliedPaise });
+});
 
 export default router;

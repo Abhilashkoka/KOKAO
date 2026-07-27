@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { AdminTenantBillingMode } from './adminTenantBillingMode';
 import type { AdminTenantCounts } from './adminTenantCounts';
 import type { Usage } from './usage';
 
@@ -24,6 +25,10 @@ export interface AdminTenant {
      * @nullable
      */
   designSkillEnabled?: boolean | null;
+  /** Which rail funds this workspace's generations. Only takes effect while the platform `wallet` switch is on. */
+  billingMode: AdminTenantBillingMode;
+  /** Prepaid rupee wallet balance, GST-exclusive paise. */
+  walletBalancePaise: number;
   createdAt: Date;
   counts?: AdminTenantCounts;
   usage?: Usage;

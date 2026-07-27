@@ -1,6 +1,7 @@
 import { db, videoGenerationsTable } from "@workspace/db";
 import { and, inArray, isNotNull, lt } from "drizzle-orm";
 import { refundCredits } from "../credits";
+import { refundWallet, reservationFromRow } from "../wallet";
 import { logger } from "../logger";
 import { videoJobUnits } from "./units";
 
@@ -46,11 +47,21 @@ async function refundRow(
     id: number;
     tenantId: number;
     engine: string;
-    funding: "quota" | "credit" | null;
+    funding: "quota" | "credit" | "wallet" | null;
+    walletReservationId: number | null;
+    walletReservedPaise: number | null;
+    walletReservedUnits: number | null;
     options: typeof videoGenerationsTable.$inferSelect.options;
   },
   reason: string,
 ): Promise<void> {
+  const reservation = reservationFromRow(row);
+  if (reservation) {
+    await refundWallet(row.tenantId, reservation, reason).catch((err) =>
+      logger.error({ err, jobId: row.id }, "Failed to refund video job wallet"),
+    );
+    return;
+  }
   if (row.funding !== "credit") return;
   await refundCredits(row.tenantId, "video", videoJobUnits(row.engine, row.options), reason).catch(
     (err) => logger.error({ err, jobId: row.id }, "Failed to refund video credits"),
@@ -62,6 +73,9 @@ const SETTLE_COLUMNS = {
   tenantId: videoGenerationsTable.tenantId,
   engine: videoGenerationsTable.engine,
   funding: videoGenerationsTable.funding,
+  walletReservationId: videoGenerationsTable.walletReservationId,
+  walletReservedPaise: videoGenerationsTable.walletReservedPaise,
+  walletReservedUnits: videoGenerationsTable.walletReservedUnits,
   options: videoGenerationsTable.options,
 };
 

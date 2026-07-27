@@ -38,9 +38,15 @@ Four platforms are integrated:
   optional AI draft from a URL/notes; skippable first-login onboarding wizard.
 - **Scheduling** — plan posts on a calendar.
 - **Settings** — workspace name, AI model, plan; view available plans.
+- **Prepaid ₹ wallet** — an optional money rail alongside plan quotas. A
+  workspace on wallet billing recharges a rupee balance (GST added only at
+  Razorpay checkout; the wallet receives the base amount) and every generation
+  is deducted at the real provider cost plus the platform fee. Behind the
+  `wallet` platform kill switch plus a per-tenant `billingMode`, so it is off
+  for everyone until an admin turns it on.
 - **Admin dashboard** (superadmin only) — platform stats, all-tenants table with
-  usage, per-tenant plan changes, and (owners only) grant/revoke of the superadmin
-  role.
+  usage, per-tenant plan changes, per-tenant billing mode and wallet top-ups,
+  and (owners only) grant/revoke of the superadmin role.
 
 ## Stack
 
@@ -95,6 +101,23 @@ Optional:
   auto-provisioned on the first authenticated request. No manual signup step.
 - **Quotas.** AI caption/image endpoints enforce per-tenant monthly limits and
   return HTTP 402 when exceeded; usage is metered via `usageEvents`.
+- **Two funding rails, one at a time.** `tenants.billingMode` decides how a
+  workspace's generations are funded: `quota` (monthly plan quota, then prepaid
+  unit credits — the original behaviour and the default) or `wallet` (a rupee
+  balance in `wallet_balances`). The `wallet` feature switch is a hard override:
+  with it off, every workspace uses the quota rail regardless of its own
+  setting, so the switch is a true kill switch and needs no migration.
+- **Reserve then settle.** Both rails debit BEFORE the provider call, so two
+  concurrent generations can never spend the same last credit or rupee. The
+  wallet reserves an estimate (the admin display rate) and settles it to the
+  real provider cost — from the same cost engine as the Actual Cost Report —
+  once the provider reports back. A model missing from the price catalog is
+  charged the display rate and flagged `estimated` in `wallet_ledger`; adding
+  its price later collects the difference automatically. Nothing is ever
+  generated for free silently.
+- **GST is exclusive everywhere.** Balances, per-generation costs and recharge
+  amounts are all base rupees. GST is added once, when the Razorpay order is
+  created, and only the base is credited to the wallet.
 - **Tenant-scoped object storage.** Uploads are keyed under
   `/objects/<tenantId>/…` and every read/publish path asserts the prefix matches
   the caller's tenant (404 on mismatch). This key namespacing is the security
@@ -108,8 +131,11 @@ Optional:
 - **Scheduling does not execute.** The calendar RECORDS scheduled posts only —
   there is no cron/executor that publishes them at the scheduled time. All
   publishing is manual from the Content Library.
-- **Billing is manual.** Plans are set per tenant by an admin; there is no
-  automated (e.g. Stripe) billing integration.
+- **Wallet true-up needs token counts.** A text model priced after the fact can
+  only be trued up when the provider reported input/output tokens on the
+  original generation; rows without them stay flagged `estimated`. Video
+  providers report no cost at all, so video always settles at the admin's video
+  display rate.
 - Mobile app.
 
 ## Repository layout

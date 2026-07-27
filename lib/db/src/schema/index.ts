@@ -31,6 +31,7 @@ export * from "./notificationPolicies";
 export * from "./adminAuditLogs";
 export * from "./planSettings";
 export * from "./billing";
+export * from "./wallet";
 export * from "./sweepStatus";
 export * from "./team";
 export * from "./tasteProfiles";

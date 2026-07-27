@@ -33,39 +33,10 @@ import { useFeatureFlags } from "@/lib/features";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { CreditCard, Coins, ReceiptText, TicketPercent } from "lucide-react";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import { openCheckout, formatInr } from "@/lib/razorpay-checkout";
+import { WalletCard } from "@/components/wallet-balance";
 
-declare global {
-  interface Window {
-    Razorpay?: new (options: Record<string, unknown>) => { open: () => void };
-  }
-}
 
-let checkoutScriptPromise: Promise<void> | null = null;
-
-/** Load the Razorpay Checkout script once, on demand. */
-function loadCheckoutScript(): Promise<void> {
-  if (window.Razorpay) return Promise.resolve();
-  if (!checkoutScriptPromise) {
-    checkoutScriptPromise = new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "https://checkout.razorpay.com/v1/checkout.js";
-      script.onload = () => resolve();
-      script.onerror = () => {
-        checkoutScriptPromise = null;
-        reject(new Error("Could not load the payment window. Check your connection."));
-      };
-      document.body.appendChild(script);
-    });
-  }
-  return checkoutScriptPromise;
-}
-
-function formatInr(paise: number): string {
-  return `₹${(paise / 100).toLocaleString("en-IN", {
-    minimumFractionDigits: paise % 100 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
 
 export function BillingSettings() {
   const { data: me } = useGetMe();
@@ -118,12 +89,6 @@ export function BillingSettings() {
   const sub = billing.subscription;
   const hasActiveSub =
     !!sub && (sub.status === "active" || sub.status === "authenticated");
-
-  const openCheckout = async (options: Record<string, unknown>) => {
-    await loadCheckoutScript();
-    if (!window.Razorpay) throw new Error("Payment window unavailable");
-    new window.Razorpay(options).open();
-  };
 
   const handleSubscribe = async (planId: string) => {
     setBusyId(planId);
@@ -256,6 +221,9 @@ export function BillingSettings() {
 
   return (
     <div className="space-y-6">
+      {/* Renders only for workspaces actually on wallet billing. */}
+      <WalletCard />
+
       {!billing.configured && (
         <Card className="border-border shadow-sm">
           <CardContent className="pt-6 text-sm text-muted-foreground">

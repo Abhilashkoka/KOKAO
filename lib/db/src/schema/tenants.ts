@@ -15,6 +15,14 @@ export const tenantsTable = pgTable("tenants", {
   email: text("email"),
   name: text("name").notNull(),
   plan: text("plan").notNull().default("free"),
+  // Which billing rail funds this workspace's AI generations:
+  //   "quota"  — the monthly plan quota, then prepaid unit credits (default,
+  //              and exactly what every workspace did before the wallet)
+  //   "wallet" — the prepaid rupee wallet (wallet_balances), charged the real
+  //              provider cost plus the platform fee per generation
+  // Only ever consulted while the `wallet` platform switch is on, so flipping
+  // that switch off restores quota behaviour for everyone without a migration.
+  billingMode: text("billing_mode").notNull().default("quota"),
   aiModel: text("ai_model").notNull().default("gpt-5.4"),
   industry: text("industry"),
   brandOnboardingComplete: boolean("brand_onboarding_complete")

@@ -25,6 +25,7 @@ import type {
   ActivateVersionInput,
   AdAccountChoice,
   AdAccountConnection,
+  AdminAdjustTenantWallet200,
   AdminAdsSettings,
   AdminAdsSettingsInput,
   AdminAuditLogPage,
@@ -43,6 +44,7 @@ import type {
   AdminSweepRunResult,
   AdminTenant,
   AdminUpdateGamificationPlanRequest,
+  AdminUpdateTenantBillingMode200,
   AdsBudgetCaps,
   AdsBudgetCapsInput,
   AdsCampaignDetail,
@@ -244,6 +246,7 @@ import type {
   TeamInviteCreateInput,
   TeamOverview,
   Tenant,
+  TenantBillingModeInput,
   TenantSettings,
   TextGenSettingsView,
   ThreadsAppCredentialInput,
@@ -281,6 +284,15 @@ import type {
   VideoModelPricingView,
   VideoStyleProfile,
   VisualAsset,
+  WalletAdjustInput,
+  WalletOverview,
+  WalletPendingPrice,
+  WalletRechargeInput,
+  WalletRechargeOrder,
+  WalletSettings,
+  WalletSettingsInput,
+  WalletVerifyRecharge200,
+  WalletVerifyRechargeInput,
   YoutubeAppCredentialInput,
   YoutubeAppCredentialStatus,
   YoutubeAuthUrlResult,
@@ -21220,5 +21232,590 @@ export const useAdminUpdateAdsSettings = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAdminUpdateAdsSettingsMutationOptions(options));
+    }
+
+export const getWalletGetOverviewUrl = () => {
+
+
+
+
+  return `/api/wallet`
+}
+
+/**
+ * All amounts are GST-exclusive paise. GST is added only at the Razorpay checkout step; the wallet is credited the base amount.
+ * @summary Prepaid rupee wallet overview for the current workspace
+ */
+export const walletGetOverview = async ( options?: RequestInit): Promise<WalletOverview> => {
+
+  return customFetch<WalletOverview>(getWalletGetOverviewUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getWalletGetOverviewQueryKey = () => {
+    return [
+    `/api/wallet`
+    ] as const;
+    }
+
+
+export const getWalletGetOverviewQueryOptions = <TData = Awaited<ReturnType<typeof walletGetOverview>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof walletGetOverview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getWalletGetOverviewQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof walletGetOverview>>> = ({ signal }) => walletGetOverview({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof walletGetOverview>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type WalletGetOverviewQueryResult = NonNullable<Awaited<ReturnType<typeof walletGetOverview>>>
+export type WalletGetOverviewQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Prepaid rupee wallet overview for the current workspace
+ */
+
+export function useWalletGetOverview<TData = Awaited<ReturnType<typeof walletGetOverview>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof walletGetOverview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getWalletGetOverviewQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getWalletRechargeUrl = () => {
+
+
+
+
+  return `/api/wallet/recharge`
+}
+
+/**
+ * `amountPaise` is the GST-exclusive amount that will land in the wallet. The returned `totalPaise` is what Razorpay Checkout charges, GST included.
+ * @summary Create a Razorpay order to top the wallet up (owner only)
+ */
+export const walletRecharge = async (walletRechargeInput: WalletRechargeInput, options?: RequestInit): Promise<WalletRechargeOrder> => {
+
+  return customFetch<WalletRechargeOrder>(getWalletRechargeUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(walletRechargeInput)
+  }
+);}
+
+
+
+
+export const getWalletRechargeMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof walletRecharge>>, TError,{data: BodyType<WalletRechargeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof walletRecharge>>, TError,{data: BodyType<WalletRechargeInput>}, TContext> => {
+
+const mutationKey = ['walletRecharge'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof walletRecharge>>, {data: BodyType<WalletRechargeInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  walletRecharge(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type WalletRechargeMutationResult = NonNullable<Awaited<ReturnType<typeof walletRecharge>>>
+    export type WalletRechargeMutationBody = BodyType<WalletRechargeInput>
+    export type WalletRechargeMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create a Razorpay order to top the wallet up (owner only)
+ */
+export const useWalletRecharge = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof walletRecharge>>, TError,{data: BodyType<WalletRechargeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof walletRecharge>>,
+        TError,
+        {data: BodyType<WalletRechargeInput>},
+        TContext
+      > => {
+      return useMutation(getWalletRechargeMutationOptions(options));
+    }
+
+export const getWalletVerifyRechargeUrl = () => {
+
+
+
+
+  return `/api/wallet/verify-recharge`
+}
+
+/**
+ * @summary Verify a paid top-up and credit the wallet (owner only)
+ */
+export const walletVerifyRecharge = async (walletVerifyRechargeInput: WalletVerifyRechargeInput, options?: RequestInit): Promise<WalletVerifyRecharge200> => {
+
+  return customFetch<WalletVerifyRecharge200>(getWalletVerifyRechargeUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(walletVerifyRechargeInput)
+  }
+);}
+
+
+
+
+export const getWalletVerifyRechargeMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof walletVerifyRecharge>>, TError,{data: BodyType<WalletVerifyRechargeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof walletVerifyRecharge>>, TError,{data: BodyType<WalletVerifyRechargeInput>}, TContext> => {
+
+const mutationKey = ['walletVerifyRecharge'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof walletVerifyRecharge>>, {data: BodyType<WalletVerifyRechargeInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  walletVerifyRecharge(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type WalletVerifyRechargeMutationResult = NonNullable<Awaited<ReturnType<typeof walletVerifyRecharge>>>
+    export type WalletVerifyRechargeMutationBody = BodyType<WalletVerifyRechargeInput>
+    export type WalletVerifyRechargeMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Verify a paid top-up and credit the wallet (owner only)
+ */
+export const useWalletVerifyRecharge = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof walletVerifyRecharge>>, TError,{data: BodyType<WalletVerifyRechargeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof walletVerifyRecharge>>,
+        TError,
+        {data: BodyType<WalletVerifyRechargeInput>},
+        TContext
+      > => {
+      return useMutation(getWalletVerifyRechargeMutationOptions(options));
+    }
+
+export const getAdminGetWalletSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/wallet/settings`
+}
+
+/**
+ * @summary Wallet settings - GST rate, minimum top-up, low-balance threshold (superadmin only)
+ */
+export const adminGetWalletSettings = async ( options?: RequestInit): Promise<WalletSettings> => {
+
+  return customFetch<WalletSettings>(getAdminGetWalletSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetWalletSettingsQueryKey = () => {
+    return [
+    `/api/admin/wallet/settings`
+    ] as const;
+    }
+
+
+export const getAdminGetWalletSettingsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetWalletSettings>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetWalletSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetWalletSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetWalletSettings>>> = ({ signal }) => adminGetWalletSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetWalletSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetWalletSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetWalletSettings>>>
+export type AdminGetWalletSettingsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Wallet settings - GST rate, minimum top-up, low-balance threshold (superadmin only)
+ */
+
+export function useAdminGetWalletSettings<TData = Awaited<ReturnType<typeof adminGetWalletSettings>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetWalletSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetWalletSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateWalletSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/wallet/settings`
+}
+
+/**
+ * @summary Update wallet settings (superadmin only)
+ */
+export const adminUpdateWalletSettings = async (walletSettingsInput: WalletSettingsInput, options?: RequestInit): Promise<WalletSettings> => {
+
+  return customFetch<WalletSettings>(getAdminUpdateWalletSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(walletSettingsInput)
+  }
+);}
+
+
+
+
+export const getAdminUpdateWalletSettingsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateWalletSettings>>, TError,{data: BodyType<WalletSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateWalletSettings>>, TError,{data: BodyType<WalletSettingsInput>}, TContext> => {
+
+const mutationKey = ['adminUpdateWalletSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateWalletSettings>>, {data: BodyType<WalletSettingsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateWalletSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateWalletSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateWalletSettings>>>
+    export type AdminUpdateWalletSettingsMutationBody = BodyType<WalletSettingsInput>
+    export type AdminUpdateWalletSettingsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update wallet settings (superadmin only)
+ */
+export const useAdminUpdateWalletSettings = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateWalletSettings>>, TError,{data: BodyType<WalletSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateWalletSettings>>,
+        TError,
+        {data: BodyType<WalletSettingsInput>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateWalletSettingsMutationOptions(options));
+    }
+
+export const getAdminListWalletPendingPricesUrl = () => {
+
+
+
+
+  return `/api/admin/wallet/pending-prices`
+}
+
+/**
+ * @summary Models charged at the display-rate fallback, awaiting a catalog price (superadmin only)
+ */
+export const adminListWalletPendingPrices = async ( options?: RequestInit): Promise<WalletPendingPrice[]> => {
+
+  return customFetch<WalletPendingPrice[]>(getAdminListWalletPendingPricesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListWalletPendingPricesQueryKey = () => {
+    return [
+    `/api/admin/wallet/pending-prices`
+    ] as const;
+    }
+
+
+export const getAdminListWalletPendingPricesQueryOptions = <TData = Awaited<ReturnType<typeof adminListWalletPendingPrices>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListWalletPendingPrices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListWalletPendingPricesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListWalletPendingPrices>>> = ({ signal }) => adminListWalletPendingPrices({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListWalletPendingPrices>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListWalletPendingPricesQueryResult = NonNullable<Awaited<ReturnType<typeof adminListWalletPendingPrices>>>
+export type AdminListWalletPendingPricesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Models charged at the display-rate fallback, awaiting a catalog price (superadmin only)
+ */
+
+export function useAdminListWalletPendingPrices<TData = Awaited<ReturnType<typeof adminListWalletPendingPrices>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListWalletPendingPrices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListWalletPendingPricesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateTenantBillingModeUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/tenants/${id}/billing-mode`
+}
+
+/**
+ * @summary Put a workspace on quota billing or wallet billing (superadmin only)
+ */
+export const adminUpdateTenantBillingMode = async (id: number,
+    tenantBillingModeInput: TenantBillingModeInput, options?: RequestInit): Promise<AdminUpdateTenantBillingMode200> => {
+
+  return customFetch<AdminUpdateTenantBillingMode200>(getAdminUpdateTenantBillingModeUrl(id),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(tenantBillingModeInput)
+  }
+);}
+
+
+
+
+export const getAdminUpdateTenantBillingModeMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateTenantBillingMode>>, TError,{id: number;data: BodyType<TenantBillingModeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateTenantBillingMode>>, TError,{id: number;data: BodyType<TenantBillingModeInput>}, TContext> => {
+
+const mutationKey = ['adminUpdateTenantBillingMode'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateTenantBillingMode>>, {id: number;data: BodyType<TenantBillingModeInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminUpdateTenantBillingMode(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateTenantBillingModeMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateTenantBillingMode>>>
+    export type AdminUpdateTenantBillingModeMutationBody = BodyType<TenantBillingModeInput>
+    export type AdminUpdateTenantBillingModeMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Put a workspace on quota billing or wallet billing (superadmin only)
+ */
+export const useAdminUpdateTenantBillingMode = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateTenantBillingMode>>, TError,{id: number;data: BodyType<TenantBillingModeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateTenantBillingMode>>,
+        TError,
+        {id: number;data: BodyType<TenantBillingModeInput>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateTenantBillingModeMutationOptions(options));
+    }
+
+export const getAdminAdjustTenantWalletUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/tenants/${id}/wallet`
+}
+
+/**
+ * @summary Manually add to or deduct from a workspace's wallet (superadmin only)
+ */
+export const adminAdjustTenantWallet = async (id: number,
+    walletAdjustInput: WalletAdjustInput, options?: RequestInit): Promise<AdminAdjustTenantWallet200> => {
+
+  return customFetch<AdminAdjustTenantWallet200>(getAdminAdjustTenantWalletUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(walletAdjustInput)
+  }
+);}
+
+
+
+
+export const getAdminAdjustTenantWalletMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminAdjustTenantWallet>>, TError,{id: number;data: BodyType<WalletAdjustInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminAdjustTenantWallet>>, TError,{id: number;data: BodyType<WalletAdjustInput>}, TContext> => {
+
+const mutationKey = ['adminAdjustTenantWallet'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminAdjustTenantWallet>>, {id: number;data: BodyType<WalletAdjustInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminAdjustTenantWallet(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminAdjustTenantWalletMutationResult = NonNullable<Awaited<ReturnType<typeof adminAdjustTenantWallet>>>
+    export type AdminAdjustTenantWalletMutationBody = BodyType<WalletAdjustInput>
+    export type AdminAdjustTenantWalletMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Manually add to or deduct from a workspace's wallet (superadmin only)
+ */
+export const useAdminAdjustTenantWallet = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminAdjustTenantWallet>>, TError,{id: number;data: BodyType<WalletAdjustInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminAdjustTenantWallet>>,
+        TError,
+        {id: number;data: BodyType<WalletAdjustInput>},
+        TContext
+      > => {
+      return useMutation(getAdminAdjustTenantWalletMutationOptions(options));
     }
 

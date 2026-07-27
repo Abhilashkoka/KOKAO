@@ -22,6 +22,7 @@ const ALL_ON: FeatureFlags = {
   referenceImages: true,
   assetLibrary: true,
   carousel: true,
+  wallet: true,
   aiSpend: true,
   aiCostTracking: true,
   videoGen: true,

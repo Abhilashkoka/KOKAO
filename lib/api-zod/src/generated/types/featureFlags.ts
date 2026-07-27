@@ -24,6 +24,7 @@ export interface FeatureFlags {
   referenceImages: boolean;
   assetLibrary: boolean;
   carousel: boolean;
+  wallet: boolean;
   aiSpend: boolean;
   aiCostTracking: boolean;
   videoGen: boolean;

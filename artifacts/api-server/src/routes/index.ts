@@ -32,6 +32,7 @@ import aiSpendRouter from "./aiSpend";
 import tasteProfileRouter from "./tasteProfile";
 import emailSettingsRouter from "./emailSettings";
 import billingRouter from "./billing";
+import walletRouter from "./wallet";
 import razorpayWebhookRouter from "./razorpayWebhook";
 import adminRouter from "./admin";
 import consentRouter from "./consent";
@@ -133,6 +134,11 @@ router.use(
   sensitiveLimiter,
   requireFeature("upgradeRequests"),
 );
+// Prepaid rupee wallet: its own switch, and a tight rate-limit bucket since
+// top-ups create Razorpay orders.
+router.use("/wallet", requireFeature("wallet"));
+router.use("/wallet/recharge", sensitiveLimiter);
+router.use("/wallet/verify-recharge", sensitiveLimiter);
 router.use("/push-tokens", requireFeature("pushNotifications"));
 router.use("/ai-spend", requireFeature("aiSpend"));
 router.use("/metrics", requireFeature("postMetrics"));
@@ -180,6 +186,7 @@ router.use(aiSpendRouter);
 router.use(tasteProfileRouter);
 router.use(emailSettingsRouter);
 router.use(billingRouter);
+router.use(walletRouter);
 router.use(adminRouter);
 router.use(protectedAppBrandRouter);
 router.use(consentRouter);

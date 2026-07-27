@@ -30,6 +30,8 @@ tags:
     description: Connected social accounts.
   - name: admin
     description: Cross-tenant superadmin operations.
+  - name: wallet
+    description: Prepaid rupee wallet - balance, GST-exclusive recharge, and spend history.
   - name: notifications
     description: In-app and email notification preferences and policies.
   - name: analytics
@@ -7637,6 +7639,285 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /wallet:
+    get:
+      operationId: walletGetOverview
+      tags: [wallet]
+      summary: Prepaid rupee wallet overview for the current workspace
+      description: >-
+        All amounts are GST-exclusive paise. GST is added only at the Razorpay
+        checkout step; the wallet is credited the base amount.
+      responses:
+        "200":
+          description: Wallet overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletOverview"
+        "403":
+          description: Wallet billing is disabled platform-wide
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /wallet/recharge:
+    post:
+      operationId: walletRecharge
+      tags: [wallet]
+      summary: Create a Razorpay order to top the wallet up (owner only)
+      description: >-
+        `amountPaise` is the GST-exclusive amount that will land in the wallet.
+        The returned `totalPaise` is what Razorpay Checkout charges, GST
+        included.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletRechargeInput"
+      responses:
+        "200":
+          description: Order created; open Razorpay Checkout with it
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletRechargeOrder"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Payments are not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /wallet/verify-recharge:
+    post:
+      operationId: walletVerifyRecharge
+      tags: [wallet]
+      summary: Verify a paid top-up and credit the wallet (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletVerifyRechargeInput"
+      responses:
+        "200":
+          description: Credited
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, balancePaise]
+                properties:
+                  ok:
+                    type: boolean
+                  balancePaise:
+                    type: integer
+        "400":
+          description: Verification failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Payment not confirmed yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/wallet/settings:
+    get:
+      operationId: adminGetWalletSettings
+      tags: [admin]
+      summary: Wallet settings - GST rate, minimum top-up, low-balance threshold (superadmin only)
+      responses:
+        "200":
+          description: Wallet settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletSettings"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminUpdateWalletSettings
+      tags: [admin]
+      summary: Update wallet settings (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletSettingsInput"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletSettings"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/wallet/pending-prices:
+    get:
+      operationId: adminListWalletPendingPrices
+      tags: [admin]
+      summary: Models charged at the display-rate fallback, awaiting a catalog price (superadmin only)
+      responses:
+        "200":
+          description: Models needing a price
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WalletPendingPrice"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/tenants/{id}/billing-mode:
+    put:
+      operationId: adminUpdateTenantBillingMode
+      tags: [admin]
+      summary: Put a workspace on quota billing or wallet billing (superadmin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantBillingModeInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tenantId, billingMode]
+                properties:
+                  tenantId:
+                    type: integer
+                  billingMode:
+                    type: string
+                    enum: [quota, wallet]
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/tenants/{id}/wallet:
+    post:
+      operationId: adminAdjustTenantWallet
+      tags: [admin]
+      summary: Manually add to or deduct from a workspace's wallet (superadmin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletAdjustInput"
+      responses:
+        "200":
+          description: Adjusted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, balancePaise, appliedPaise]
+                properties:
+                  ok:
+                    type: boolean
+                  balancePaise:
+                    type: integer
+                  appliedPaise:
+                    type: integer
+                    description: >-
+                      The delta actually applied. A deduction larger than the
+                      balance is clamped so the wallet never goes negative.
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
 components:
   parameters:
     AnalyticsFrom:
@@ -8694,7 +8975,18 @@ components:
     AdminTenant:
       type: object
       required:
-        [id, email, name, plan, aiModel, isSuperadmin, isAllowlisted, createdAt]
+        [
+          id,
+          email,
+          name,
+          plan,
+          aiModel,
+          isSuperadmin,
+          isAllowlisted,
+          billingMode,
+          walletBalancePaise,
+          createdAt,
+        ]
       properties:
         id:
           type: integer
@@ -8719,6 +9011,15 @@ components:
           description: >-
             Per-tenant design-skill override. null = follow the global
             switch.
+        billingMode:
+          type: string
+          enum: [quota, wallet]
+          description: >-
+            Which rail funds this workspace's generations. Only takes effect
+            while the platform `wallet` switch is on.
+        walletBalancePaise:
+          type: integer
+          description: Prepaid rupee wallet balance, GST-exclusive paise.
         createdAt:
           type: string
           format: date-time
@@ -13377,6 +13678,7 @@ components:
           referenceImages,
           assetLibrary,
           carousel,
+          wallet,
           aiSpend,
           aiCostTracking,
           videoGen,
@@ -13429,6 +13731,8 @@ components:
         assetLibrary:
           type: boolean
         carousel:
+          type: boolean
+        wallet:
           type: boolean
         aiSpend:
           type: boolean
@@ -13834,3 +14138,209 @@ components:
           type: ["integer", "null"]
           minimum: 1
           description: Maximum allowed lifetime budget in minor currency units; null clears the cap.
+    WalletLedgerEntry:
+      type: object
+      required: [id, kind, amountPaise, estimated, createdAt]
+      properties:
+        id:
+          type: integer
+        kind:
+          type: string
+          enum: [topup, reserve, settle, refund, true_up, admin_credit, admin_debit]
+        amountPaise:
+          type: integer
+          description: Signed delta applied to the balance, GST-exclusive.
+        baseAmountPaise:
+          type: ["integer", "null"]
+          description: Top-ups - the amount credited to the wallet, before GST.
+        gstAmountPaise:
+          type: ["integer", "null"]
+          description: Top-ups - GST charged on top at checkout, never credited.
+        gstPercent:
+          type: ["integer", "null"]
+        usageKind:
+          type: ["string", "null"]
+          description: caption, image, or video - what the charge was for.
+        model:
+          type: ["string", "null"]
+        estimated:
+          type: boolean
+          description: >-
+            True when the charge used the admin display rate because the model
+            had no catalog price.
+        note:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+    WalletRates:
+      type: object
+      required: [captionPaise, imagePaise, videoPaise]
+      description: >-
+        Indicative per-generation charges with the platform fee folded in,
+        GST-exclusive. The real charge settles to the actual provider cost.
+      properties:
+        captionPaise:
+          type: integer
+        imagePaise:
+          type: integer
+        videoPaise:
+          type: integer
+    WalletOverview:
+      type: object
+      required:
+        [
+          walletBilling,
+          configured,
+          keyId,
+          balancePaise,
+          gstPercent,
+          minTopupPaise,
+          lowBalanceThresholdPaise,
+          lowBalance,
+          rates,
+          history,
+        ]
+      properties:
+        walletBilling:
+          type: boolean
+          description: >-
+            True when this workspace's generations are actually funded from the
+            wallet (platform switch on AND the workspace set to wallet mode).
+        configured:
+          type: boolean
+          description: Whether online payments are set up by the platform admin.
+        keyId:
+          type: ["string", "null"]
+          description: Razorpay public key id for Checkout (null when unconfigured).
+        balancePaise:
+          type: integer
+        gstPercent:
+          type: integer
+        minTopupPaise:
+          type: integer
+        lowBalanceThresholdPaise:
+          type: integer
+          description: 0 = no low-balance warning configured.
+        lowBalance:
+          type: boolean
+        rates:
+          $ref: "#/components/schemas/WalletRates"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/WalletLedgerEntry"
+    WalletRechargeInput:
+      type: object
+      required: [amountPaise]
+      properties:
+        amountPaise:
+          type: integer
+          minimum: 100
+          maximum: 10000000
+          description: GST-exclusive amount to credit to the wallet, in paise.
+    WalletRechargeOrder:
+      type: object
+      required: [razorpayOrderId, basePaise, gstPaise, gstPercent, totalPaise, keyId]
+      properties:
+        razorpayOrderId:
+          type: string
+        basePaise:
+          type: integer
+          description: What the wallet will be credited.
+        gstPaise:
+          type: integer
+        gstPercent:
+          type: integer
+        totalPaise:
+          type: integer
+          description: What Razorpay Checkout charges, GST included.
+        keyId:
+          type: ["string", "null"]
+    WalletVerifyRechargeInput:
+      type: object
+      required: [razorpayOrderId, razorpayPaymentId, razorpaySignature]
+      properties:
+        razorpayOrderId:
+          type: string
+          minLength: 1
+          maxLength: 100
+        razorpayPaymentId:
+          type: string
+          minLength: 1
+          maxLength: 100
+        razorpaySignature:
+          type: string
+          minLength: 1
+          maxLength: 300
+    WalletSettings:
+      type: object
+      required:
+        [gstPercent, minTopupPaise, lowBalanceThresholdPaise, videoCostPaise]
+      properties:
+        gstPercent:
+          type: integer
+          description: Whole-number GST percentage added at checkout.
+        minTopupPaise:
+          type: integer
+        lowBalanceThresholdPaise:
+          type: integer
+        videoCostPaise:
+          type: integer
+          description: >-
+            Display-rate fallback for video generations. Caption and image
+            fallbacks come from the AI Spend Display settings.
+    WalletSettingsInput:
+      type: object
+      required:
+        [gstPercent, minTopupPaise, lowBalanceThresholdPaise, videoCostPaise]
+      properties:
+        gstPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        minTopupPaise:
+          type: integer
+          minimum: 100
+          maximum: 10000000
+        lowBalanceThresholdPaise:
+          type: integer
+          minimum: 0
+          maximum: 10000000
+        videoCostPaise:
+          type: integer
+          minimum: 0
+          maximum: 10000000
+    WalletPendingPrice:
+      type: object
+      required: [usageKind, provider, model, chargeCount, chargedPaise]
+      properties:
+        usageKind:
+          type: string
+        provider:
+          type: ["string", "null"]
+        model:
+          type: ["string", "null"]
+        chargeCount:
+          type: integer
+        chargedPaise:
+          type: integer
+    TenantBillingModeInput:
+      type: object
+      required: [billingMode]
+      properties:
+        billingMode:
+          type: string
+          enum: [quota, wallet]
+    WalletAdjustInput:
+      type: object
+      required: [amountPaise]
+      properties:
+        amountPaise:
+          type: integer
+          minimum: -10000000
+          maximum: 10000000
+          description: Positive credits the wallet, negative deducts from it.
+        note:
+          type: string
+          maxLength: 200

@@ -23,6 +23,13 @@ import { ObjectStorageService } from "../lib/objectStorage";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage } from "../lib/usage";
 import { spendCredit, refundCredits } from "../lib/credits";
+import {
+  isWalletFunded,
+  reserveWallet,
+  refundWallet,
+  reservationFromRow,
+  type WalletReservation,
+} from "../lib/wallet";
 import { enqueueBackgroundJob } from "../lib/backgroundJobs";
 import {
   runVideoGenerationJob,
@@ -41,6 +48,30 @@ import { serializeContent } from "../lib/serializers";
 import type { VideoGeneration } from "@workspace/db";
 
 const router: IRouter = Router();
+
+/**
+ * Adjust a wallet-funded job's reserved TOTALS in place.
+ *
+ * The job row holds the aggregate of every reserve made for it (the enqueue
+ * reservation plus any scene added during storyboard review), because the
+ * refund and settle paths rebuild exactly one reservation from those columns.
+ * Deltas are applied in SQL so two concurrent scene inserts cannot clobber
+ * each other's increment.
+ */
+async function addToJobReservation(
+  jobId: number,
+  paiseDelta: number,
+  unitsDelta: number,
+): Promise<void> {
+  await db
+    .update(videoGenerationsTable)
+    .set({
+      walletReservedPaise: sql`coalesce(${videoGenerationsTable.walletReservedPaise}, 0) + ${paiseDelta}`,
+      walletReservedUnits: sql`greatest(coalesce(${videoGenerationsTable.walletReservedUnits}, 1) + ${unitsDelta}, 1)`,
+      updatedAt: new Date(),
+    })
+    .where(eq(videoGenerationsTable.id, jobId));
+}
 
 /**
  * Video generation endpoints. Generation is long-running, so POST
@@ -289,8 +320,24 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   const units = videoJobUnits(body.engine, options);
   const limits = await getPlanLimits(tenant.plan);
   const usage = await getUsage(req.tenantId);
-  let funding: "quota" | "credit";
-  if (limits.videos === -1 || usage.videos + units <= limits.videos) {
+  // Wallet workspaces reserve one estimate per unit in a single
+  // all-or-nothing debit, persisted on the job row so the runner can settle
+  // it to the real cost minutes later.
+  let funding: "quota" | "credit" | "wallet";
+  let reservation: WalletReservation | null = null;
+  if (await isWalletFunded(req.tenantId)) {
+    reservation = await reserveWallet(req.tenantId, "video", {}, units);
+    if (!reservation) {
+      res.status(402).json({
+        error:
+          units > 1
+            ? `This video needs ${units} generations (one per scene) and your wallet balance can't cover it. Recharge to continue.`
+            : "Your wallet balance can't cover this video. Recharge to continue.",
+      });
+      return;
+    }
+    funding = "wallet";
+  } else if (limits.videos === -1 || usage.videos + units <= limits.videos) {
     funding = "quota";
   } else if (await spendCredit(req.tenantId, "video", units)) {
     funding = "credit";
@@ -316,8 +363,11 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
         options,
         // Persisted at creation, not at the runner's claim: if the process
         // restarts before the runner claims this row, the stuck-job sweep can
-        // only refund a credit reservation it knows about.
+        // only refund a reservation it knows about.
         funding,
+        walletReservationId: reservation?.id ?? null,
+        walletReservedPaise: reservation?.amountPaise ?? null,
+        walletReservedUnits: reservation?.units ?? null,
       })
       .returning()
   )[0]!;
@@ -329,7 +379,9 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       .update(videoGenerationsTable)
       .set({ status: "failed", error: "Server restarting; please retry." })
       .where(eq(videoGenerationsTable.id, job.id));
-    if (funding === "credit") {
+    if (reservation) {
+      await refundWallet(req.tenantId, reservation, "video enqueue rejected");
+    } else if (funding === "credit") {
       await refundCredits(req.tenantId, "video", units, "video enqueue rejected");
     }
     res.status(503).json({ error: "Server is restarting. Please retry in a moment." });
@@ -395,6 +447,7 @@ router.post("/ai/video-jobs/:jobId/cancel", async (req: Request, res: Response) 
   const id = Number(req.params.jobId);
   // The status flip and the credit refund share one transaction so a job can
   // never end up cancelled without its refund (or vice versa).
+  let cancelledReservation: WalletReservation | null = null;
   const cancelled = await db.transaction(async (tx) => {
     const row = (
       await tx
@@ -409,13 +462,28 @@ router.post("/ai/video-jobs/:jobId/cancel", async (req: Request, res: Response) 
         )
         .returning()
     )[0];
-    if (row && row.funding === "credit") {
-      const units = videoJobUnits(row.engine, row.options);
-      await refundCredits(req.tenantId, "video", units, "video job cancelled", tx);
+    if (row) {
+      const held = reservationFromRow(row);
+      if (held) {
+        // Issued after the cancel commits, on its own connection.
+        cancelledReservation = held;
+      } else if (row.funding === "credit") {
+        const units = videoJobUnits(row.engine, row.options);
+        await refundCredits(req.tenantId, "video", units, "video job cancelled", tx);
+      }
     }
     return row;
   });
   if (cancelled) {
+    if (cancelledReservation) {
+      await refundWallet(
+        req.tenantId,
+        cancelledReservation,
+        "video job cancelled",
+      ).catch((error) =>
+        req.log.error({ err: error, jobId: id }, "Failed to refund cancelled video job"),
+      );
+    }
     res.json(serializeVideoJob(cancelled));
     return;
   }
@@ -594,7 +662,21 @@ router.post("/ai/video-jobs/:jobId/storyboard/scenes", async (req: Request, res:
   // so success metering, discard and failure refunds all price it in.
   const options = job.options ?? { aspectRatio: "9:16" as const };
   const optionsAfter = { ...options, addedScenes: (options.addedScenes ?? 0) + 1 };
-  if (job.funding === "credit") {
+  let sceneReservation: WalletReservation | null = null;
+  if (job.funding === "wallet") {
+    sceneReservation = await reserveWallet(req.tenantId, "video");
+    if (!sceneReservation) {
+      res.status(402).json({
+        error: "Adding a scene needs another generation and your wallet can't cover it.",
+      });
+      return;
+    }
+    // Fold it into the job's reserved totals. The refund paths (render
+    // failure, storyboard discard, sweep) rebuild ONE reservation from these
+    // columns, so an extra reserve that is not folded in here is money the
+    // tenant can never get back.
+    await addToJobReservation(job.id, sceneReservation.amountPaise, 1);
+  } else if (job.funding === "credit") {
     if (!(await spendCredit(req.tenantId, "video", 1))) {
       res.status(402).json({
         error: "Adding a scene needs one video credit and you have none left.",
@@ -617,6 +699,24 @@ router.post("/ai/video-jobs/:jobId/storyboard/scenes", async (req: Request, res:
     }
   }
   const refundInsert = async (reason: string): Promise<void> => {
+    if (sceneReservation) {
+      // Unfold first, so the job's totals stop claiming a scene that never
+      // landed and a later refund cannot hand the same paise back twice.
+      await addToJobReservation(job.id, -sceneReservation.amountPaise, -1).catch(
+        (err) =>
+          req.log.error(
+            { err, jobId: job.id },
+            "Failed to unfold a scene reservation from the job totals",
+          ),
+      );
+      await refundWallet(req.tenantId, sceneReservation, reason).catch((err) => {
+        req.log.error(
+          { err, jobId: job.id, tenantId: req.tenantId, reason },
+          "Storyboard scene insert wallet refund FAILED — tenant may be owed a refund",
+        );
+      });
+      return;
+    }
     if (job.funding === "credit") {
       await refundCredits(req.tenantId, "video", 1, reason).catch((err) => {
         // A failed refund leaves the tenant charged for a scene that never
@@ -929,7 +1029,16 @@ router.post(
       res.status(400).json({ error: "This video is not waiting for storyboard review." });
       return;
     }
-    if (discarded.funding === "credit") {
+    const discardedReservation = reservationFromRow(discarded);
+    if (discardedReservation) {
+      await refundWallet(
+        req.tenantId,
+        discardedReservation,
+        "storyboard discarded",
+      ).catch((err) =>
+        req.log.error({ err, jobId: discarded.id }, "Failed to refund discarded storyboard"),
+      );
+    } else if (discarded.funding === "credit") {
       await refundCredits(
         req.tenantId,
         "video",

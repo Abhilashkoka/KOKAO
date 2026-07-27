@@ -83,6 +83,7 @@ export const ListFeatureFlagsResponse = zod.object({
   "referenceImages": zod.boolean(),
   "assetLibrary": zod.boolean(),
   "carousel": zod.boolean(),
+  "wallet": zod.boolean(),
   "aiSpend": zod.boolean(),
   "aiCostTracking": zod.boolean(),
   "videoGen": zod.boolean(),
@@ -635,6 +636,8 @@ export const AdminListTenantsResponseItem = zod.object({
   "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
   "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
   "designSkillEnabled": zod.boolean().nullish().describe('Per-tenant design-skill override. null = follow the global switch.'),
+  "billingMode": zod.enum(['quota', 'wallet']).describe('Which rail funds this workspace\'s generations. Only takes effect while the platform `wallet` switch is on.'),
+  "walletBalancePaise": zod.number().describe('Prepaid rupee wallet balance, GST-exclusive paise.'),
   "createdAt": zod.coerce.date(),
   "counts": zod.object({
   "content": zod.number(),
@@ -677,6 +680,8 @@ export const AdminUpdateTenantPlanResponse = zod.object({
   "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
   "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
   "designSkillEnabled": zod.boolean().nullish().describe('Per-tenant design-skill override. null = follow the global switch.'),
+  "billingMode": zod.enum(['quota', 'wallet']).describe('Which rail funds this workspace\'s generations. Only takes effect while the platform `wallet` switch is on.'),
+  "walletBalancePaise": zod.number().describe('Prepaid rupee wallet balance, GST-exclusive paise.'),
   "createdAt": zod.coerce.date(),
   "counts": zod.object({
   "content": zod.number(),
@@ -858,6 +863,8 @@ export const AdminUpdateTenantSuperadminResponse = zod.object({
   "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
   "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
   "designSkillEnabled": zod.boolean().nullish().describe('Per-tenant design-skill override. null = follow the global switch.'),
+  "billingMode": zod.enum(['quota', 'wallet']).describe('Which rail funds this workspace\'s generations. Only takes effect while the platform `wallet` switch is on.'),
+  "walletBalancePaise": zod.number().describe('Prepaid rupee wallet balance, GST-exclusive paise.'),
   "createdAt": zod.coerce.date(),
   "counts": zod.object({
   "content": zod.number(),
@@ -894,6 +901,8 @@ export const AdminUpdateTenantDesignSkillResponse = zod.object({
   "isSuperadmin": zod.boolean().describe('Effective superadmin status (granted in-app or allowlisted).'),
   "isAllowlisted": zod.boolean().describe('Built-in\/env allowlisted superadmin. Locked: cannot be revoked in-app.'),
   "designSkillEnabled": zod.boolean().nullish().describe('Per-tenant design-skill override. null = follow the global switch.'),
+  "billingMode": zod.enum(['quota', 'wallet']).describe('Which rail funds this workspace\'s generations. Only takes effect while the platform `wallet` switch is on.'),
+  "walletBalancePaise": zod.number().describe('Prepaid rupee wallet balance, GST-exclusive paise.'),
   "createdAt": zod.coerce.date(),
   "counts": zod.object({
   "content": zod.number(),
@@ -9288,6 +9297,185 @@ export const AdminUpdateAdsSettingsResponse = zod.object({
   "configured": zod.boolean(),
   "note": zod.string().nullish().describe('Where this platform\'s credentials come from (e.g. reuses the Meta app credentials).')
 }))
+})
+
+
+/**
+ * All amounts are GST-exclusive paise. GST is added only at the Razorpay checkout step; the wallet is credited the base amount.
+ * @summary Prepaid rupee wallet overview for the current workspace
+ */
+export const WalletGetOverviewResponse = zod.object({
+  "walletBilling": zod.boolean().describe('True when this workspace\'s generations are actually funded from the wallet (platform switch on AND the workspace set to wallet mode).'),
+  "configured": zod.boolean().describe('Whether online payments are set up by the platform admin.'),
+  "keyId": zod.string().nullable().describe('Razorpay public key id for Checkout (null when unconfigured).'),
+  "balancePaise": zod.number(),
+  "gstPercent": zod.number(),
+  "minTopupPaise": zod.number(),
+  "lowBalanceThresholdPaise": zod.number().describe('0 = no low-balance warning configured.'),
+  "lowBalance": zod.boolean(),
+  "rates": zod.object({
+  "captionPaise": zod.number(),
+  "imagePaise": zod.number(),
+  "videoPaise": zod.number()
+}).describe('Indicative per-generation charges with the platform fee folded in, GST-exclusive. The real charge settles to the actual provider cost.'),
+  "history": zod.array(zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['topup', 'reserve', 'settle', 'refund', 'true_up', 'admin_credit', 'admin_debit']),
+  "amountPaise": zod.number().describe('Signed delta applied to the balance, GST-exclusive.'),
+  "baseAmountPaise": zod.number().nullish().describe('Top-ups - the amount credited to the wallet, before GST.'),
+  "gstAmountPaise": zod.number().nullish().describe('Top-ups - GST charged on top at checkout, never credited.'),
+  "gstPercent": zod.number().nullish(),
+  "usageKind": zod.string().nullish().describe('caption, image, or video - what the charge was for.'),
+  "model": zod.string().nullish(),
+  "estimated": zod.boolean().describe('True when the charge used the admin display rate because the model had no catalog price.'),
+  "note": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * `amountPaise` is the GST-exclusive amount that will land in the wallet. The returned `totalPaise` is what Razorpay Checkout charges, GST included.
+ * @summary Create a Razorpay order to top the wallet up (owner only)
+ */
+export const walletRechargeBodyAmountPaiseMin = 100;
+export const walletRechargeBodyAmountPaiseMax = 10000000;
+
+
+
+export const WalletRechargeBody = zod.object({
+  "amountPaise": zod.number().min(walletRechargeBodyAmountPaiseMin).max(walletRechargeBodyAmountPaiseMax).describe('GST-exclusive amount to credit to the wallet, in paise.')
+})
+
+export const WalletRechargeResponse = zod.object({
+  "razorpayOrderId": zod.string(),
+  "basePaise": zod.number().describe('What the wallet will be credited.'),
+  "gstPaise": zod.number(),
+  "gstPercent": zod.number(),
+  "totalPaise": zod.number().describe('What Razorpay Checkout charges, GST included.'),
+  "keyId": zod.string().nullable()
+})
+
+
+/**
+ * @summary Verify a paid top-up and credit the wallet (owner only)
+ */
+export const walletVerifyRechargeBodyRazorpayOrderIdMax = 100;
+
+export const walletVerifyRechargeBodyRazorpayPaymentIdMax = 100;
+
+export const walletVerifyRechargeBodyRazorpaySignatureMax = 300;
+
+
+
+export const WalletVerifyRechargeBody = zod.object({
+  "razorpayOrderId": zod.string().min(1).max(walletVerifyRechargeBodyRazorpayOrderIdMax),
+  "razorpayPaymentId": zod.string().min(1).max(walletVerifyRechargeBodyRazorpayPaymentIdMax),
+  "razorpaySignature": zod.string().min(1).max(walletVerifyRechargeBodyRazorpaySignatureMax)
+})
+
+export const WalletVerifyRechargeResponse = zod.object({
+  "ok": zod.boolean(),
+  "balancePaise": zod.number()
+})
+
+
+/**
+ * @summary Wallet settings - GST rate, minimum top-up, low-balance threshold (superadmin only)
+ */
+export const AdminGetWalletSettingsResponse = zod.object({
+  "gstPercent": zod.number().describe('Whole-number GST percentage added at checkout.'),
+  "minTopupPaise": zod.number(),
+  "lowBalanceThresholdPaise": zod.number(),
+  "videoCostPaise": zod.number().describe('Display-rate fallback for video generations. Caption and image fallbacks come from the AI Spend Display settings.')
+})
+
+
+/**
+ * @summary Update wallet settings (superadmin only)
+ */
+export const adminUpdateWalletSettingsBodyGstPercentMin = 0;
+export const adminUpdateWalletSettingsBodyGstPercentMax = 100;
+
+export const adminUpdateWalletSettingsBodyMinTopupPaiseMin = 100;
+export const adminUpdateWalletSettingsBodyMinTopupPaiseMax = 10000000;
+
+export const adminUpdateWalletSettingsBodyLowBalanceThresholdPaiseMin = 0;
+export const adminUpdateWalletSettingsBodyLowBalanceThresholdPaiseMax = 10000000;
+
+export const adminUpdateWalletSettingsBodyVideoCostPaiseMin = 0;
+export const adminUpdateWalletSettingsBodyVideoCostPaiseMax = 10000000;
+
+
+
+export const AdminUpdateWalletSettingsBody = zod.object({
+  "gstPercent": zod.number().min(adminUpdateWalletSettingsBodyGstPercentMin).max(adminUpdateWalletSettingsBodyGstPercentMax),
+  "minTopupPaise": zod.number().min(adminUpdateWalletSettingsBodyMinTopupPaiseMin).max(adminUpdateWalletSettingsBodyMinTopupPaiseMax),
+  "lowBalanceThresholdPaise": zod.number().min(adminUpdateWalletSettingsBodyLowBalanceThresholdPaiseMin).max(adminUpdateWalletSettingsBodyLowBalanceThresholdPaiseMax),
+  "videoCostPaise": zod.number().min(adminUpdateWalletSettingsBodyVideoCostPaiseMin).max(adminUpdateWalletSettingsBodyVideoCostPaiseMax)
+})
+
+export const AdminUpdateWalletSettingsResponse = zod.object({
+  "gstPercent": zod.number().describe('Whole-number GST percentage added at checkout.'),
+  "minTopupPaise": zod.number(),
+  "lowBalanceThresholdPaise": zod.number(),
+  "videoCostPaise": zod.number().describe('Display-rate fallback for video generations. Caption and image fallbacks come from the AI Spend Display settings.')
+})
+
+
+/**
+ * @summary Models charged at the display-rate fallback, awaiting a catalog price (superadmin only)
+ */
+export const AdminListWalletPendingPricesResponseItem = zod.object({
+  "usageKind": zod.string(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "chargeCount": zod.number(),
+  "chargedPaise": zod.number()
+})
+export const AdminListWalletPendingPricesResponse = zod.array(AdminListWalletPendingPricesResponseItem)
+
+
+/**
+ * @summary Put a workspace on quota billing or wallet billing (superadmin only)
+ */
+export const AdminUpdateTenantBillingModeParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AdminUpdateTenantBillingModeBody = zod.object({
+  "billingMode": zod.enum(['quota', 'wallet'])
+})
+
+export const AdminUpdateTenantBillingModeResponse = zod.object({
+  "tenantId": zod.number(),
+  "billingMode": zod.enum(['quota', 'wallet'])
+})
+
+
+/**
+ * @summary Manually add to or deduct from a workspace's wallet (superadmin only)
+ */
+export const AdminAdjustTenantWalletParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const adminAdjustTenantWalletBodyAmountPaiseMin = -10000000;
+export const adminAdjustTenantWalletBodyAmountPaiseMax = 10000000;
+
+export const adminAdjustTenantWalletBodyNoteMax = 200;
+
+
+
+export const AdminAdjustTenantWalletBody = zod.object({
+  "amountPaise": zod.number().min(adminAdjustTenantWalletBodyAmountPaiseMin).max(adminAdjustTenantWalletBodyAmountPaiseMax).describe('Positive credits the wallet, negative deducts from it.'),
+  "note": zod.string().max(adminAdjustTenantWalletBodyNoteMax).optional()
+})
+
+export const AdminAdjustTenantWalletResponse = zod.object({
+  "ok": zod.boolean(),
+  "balancePaise": zod.number(),
+  "appliedPaise": zod.number().describe('The delta actually applied. A deduction larger than the balance is clamped so the wallet never goes negative.')
 })
 
 

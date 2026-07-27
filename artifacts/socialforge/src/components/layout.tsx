@@ -27,6 +27,7 @@ import { LogoLoader } from "@/components/logo-loader";
 import { PendingInviteBanner } from "@/components/pending-invite-banner";
 import { OnboardingWizard } from "@/components/onboarding-wizard";
 import { TeamWelcomeDialog } from "@/components/team-welcome-dialog";
+import { WalletBalancePill } from "@/components/wallet-balance";
 import { useBrand } from "@/lib/brand";
 import { useFeatureFlags, type FeatureId } from "@/lib/features";
 
@@ -131,6 +132,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="h-7" aria-hidden="true" />
         )}
         <div className="flex items-center gap-3">
+          <WalletBalancePill />
           <UserButton />
           <Sheet>
             <SheetTrigger asChild>
@@ -164,8 +166,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <NavLinks />
         </div>
         
-        <div className="mt-auto pt-6 border-t border-border flex items-center gap-3 px-2">
-          <UserButton showName />
+        <div className="mt-auto pt-6 border-t border-border space-y-3 px-2">
+          <WalletBalancePill />
+          <div className="flex items-center gap-3">
+            <UserButton showName />
+          </div>
         </div>
       </div>
 
