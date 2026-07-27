@@ -1,3 +1,4 @@
+import { WalletBalancePill } from "@/components/wallet-balance";
 import { useEffect, useRef, useState } from "react";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { useForm } from "react-hook-form";
@@ -331,6 +332,8 @@ function StudioHeader() {
             <Lightbulb className="h-3.5 w-3.5" />
             Ideas, research &amp; briefs: unlimited
           </span>
+          {/* Wallet workspaces also see their balance right where quotas live. */}
+          <WalletBalancePill />
         </div>
       )}
     </div>
