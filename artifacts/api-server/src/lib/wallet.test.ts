@@ -60,10 +60,11 @@ async function setWalletFeature(enabled: boolean): Promise<void> {
 beforeAll(async () => {
   const t = await createTenant();
   tenantId = t.tenantId;
-  // ₹2.00 per caption, ₹5.00 per image, 20% platform fee.
+  // ₹2.00 per caption, ₹5.00 per image, ₹10.00 per video, 20% platform fee.
   await setAiSpendConfig({
     captionCostPaise: 200,
     imageCostPaise: 500,
+    videoCostPaise: 1_000,
     feePercent: 20,
   });
   await setWalletConfig({

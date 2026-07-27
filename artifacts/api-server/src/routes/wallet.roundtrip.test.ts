@@ -117,7 +117,12 @@ beforeAll(async () => {
     webhookSecret: "test_webhook_secret",
   });
 
-  await setAiSpendConfig({ captionCostPaise: 200, imageCostPaise: 500, feePercent: 20 });
+  await setAiSpendConfig({
+    captionCostPaise: 200,
+    imageCostPaise: 500,
+    videoCostPaise: 1_000,
+    feePercent: 20,
+  });
   await setWalletConfig({
     gstPercent: 18,
     minTopupPaise: 10_000,
