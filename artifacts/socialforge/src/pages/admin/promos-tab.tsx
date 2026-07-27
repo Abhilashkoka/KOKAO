@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CollapsibleCardHeader } from "@/components/ui/collapsible-card-header";
 import {
   useAdminListPromoCodes,
   useAdminCreatePromoCodes,
@@ -122,6 +123,7 @@ export function PromosTab() {
     null,
   );
   const [lastBatch, setLastBatch] = useState<PromoCode[] | null>(null);
+  const [failuresOpen, setFailuresOpen] = useState(true);
 
   const set = (patch: Partial<FormState>) =>
     setForm((prev) => ({ ...prev, ...patch }));
@@ -651,14 +653,18 @@ export function PromosTab() {
       </Card>
 
       <Card className="border-border shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-primary" /> Recent failed attempts
-          </CardTitle>
-          <CardDescription>
-            Rejected redemptions — useful for spotting expired campaigns or abuse.
-          </CardDescription>
-        </CardHeader>
+        <CollapsibleCardHeader
+          title={
+            <span className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-primary" /> Recent failed attempts
+            </span>
+          }
+          description="Rejected redemptions — useful for spotting expired campaigns or abuse."
+          open={failuresOpen}
+          onToggle={() => setFailuresOpen((o) => !o)}
+          testId="toggle-failed-attempts-card"
+        />
+        {failuresOpen && (
         <CardContent>
           {(failures?.length ?? 0) === 0 ? (
             <p className="text-sm text-muted-foreground">No failed attempts.</p>
@@ -682,6 +688,7 @@ export function PromosTab() {
             </div>
           )}
         </CardContent>
+        )}
       </Card>
 
       <ConfirmDialog
