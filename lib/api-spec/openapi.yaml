@@ -3265,6 +3265,64 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/storyboard/scenes:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: insertVideoStoryboardScene
+      tags: [ai]
+      summary: Add a scene to a paused narrated storyboard
+      description: >-
+        Only valid while the job is awaiting_review, and only on narrated
+        (topic) storyboards. Costs one extra video unit — the new scene is a
+        real generation, priced exactly as if it had been planned up front —
+        funded the same way as the job (quota or credits) and refunded with it
+        on discard or failure. The scene's preview still is generated before
+        anything is charged for good; the narration re-records to include the
+        new line when the storyboard is approved.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InsertStoryboardSceneRequest"
+      responses:
+        "200":
+          description: The job with the new scene in its storyboard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "400":
+          description: >-
+            Not awaiting review, not a narrated storyboard, unknown
+            afterSceneId, or the scene cap was reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Not enough quota or credits for another scene
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: The preview image provider failed; nothing was charged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/video-jobs/{jobId}/storyboard/scenes/{sceneId}/preview:
     parameters:
       - name: jobId
@@ -10618,8 +10676,9 @@ components:
         text:
           type: string
           description: >-
-            The narration this scene plays under. Read-only: it comes from
-            audio that has already been recorded. Empty on the engines that
+            The narration this scene plays under. Editable on narrated (topic)
+            storyboards — the voiceover is re-recorded to match on approve, and
+            scene lengths follow the new recording. Empty on the engines that
             voice no script.
         visual:
           type: string
@@ -10747,6 +10806,35 @@ components:
                 description: >-
                   Rejected while the storyboard is timelineLocked, and clamped
                   into the plan's durationBounds otherwise.
+              text:
+                type: string
+                maxLength: 600
+                description: >-
+                  New narration for this scene. Only accepted on narrated
+                  (topic) storyboards, where the voiceover re-records to match
+                  on approve and the scene's length follows the new recording.
+                  Blank leaves the narration alone; a narrated scene can never
+                  be emptied.
+    InsertStoryboardSceneRequest:
+      type: object
+      required: [text]
+      properties:
+        afterSceneId:
+          type: ["string", "null"]
+          description: >-
+            Where the new scene goes: after this scene id, at the very start
+            when null, or at the end when omitted.
+        text:
+          type: string
+          minLength: 1
+          maxLength: 600
+          description: The narration line the new scene plays under.
+        visual:
+          type: string
+          maxLength: 1000
+          description: >-
+            What the scene shows (a generation prompt). Defaults to the
+            narration text when omitted.
     VideoJob:
       type: object
       required:

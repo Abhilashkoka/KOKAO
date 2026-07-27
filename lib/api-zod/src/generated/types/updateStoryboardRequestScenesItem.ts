@@ -19,4 +19,9 @@ export type UpdateStoryboardRequestScenesItem = {
      * @maximum 20
      */
   durationSec?: number;
+  /**
+     * New narration for this scene. Only accepted on narrated (topic) storyboards, where the voiceover re-records to match on approve and the scene's length follows the new recording. Blank leaves the narration alone; a narrated scene can never be emptied.
+     * @maxLength 600
+     */
+  text?: string;
 };

@@ -103,6 +103,104 @@ describe("synthesizeNarration", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Re-recording an edited storyboard's narration
+
+describe("refreshEditedNarration", () => {
+  const board = (scenes: { id: string; text: string }[], cueTexts: string[]) => ({
+    version: 1 as const,
+    visualsSource: "character" as const,
+    timelineLocked: true,
+    model: null,
+    provider: null,
+    regenerations: 0,
+    narration: {
+      audioPath: "/objects/1/uploads/narration.wav",
+      totalDurationSec: cueTexts.length * 2,
+      cues: cueTexts.map((text, i) => ({ text, startSec: i * 2, endSec: i * 2 + 2 })),
+    },
+    scenes: scenes.map((s) => ({
+      ...s,
+      visual: s.text,
+      durationSec: 2,
+      previewPath: "/objects/1/uploads/still.png",
+      outfitId: null,
+    })),
+  });
+
+  it("returns null when the scene texts still match the recording", async () => {
+    const { refreshEditedNarration } = await import("./index");
+    const untouched = board(
+      [
+        { id: "s1", text: "First sentence here." },
+        { id: "s2", text: "Second sentence here." },
+      ],
+      ["First sentence here.", "Second sentence here."],
+    );
+    expect(
+      await refreshEditedNarration({
+        storyboard: untouched,
+        voice: "alloy",
+        upload: async () => "/objects/1/uploads/new.wav",
+      }),
+    ).toBeNull();
+  });
+
+  it("re-voices edited scenes and recomputes their lengths from the new cues", async () => {
+    const { refreshEditedNarration } = await import("./index");
+    const edited = board(
+      [
+        { id: "s1", text: "A completely new opening line." },
+        { id: "s2", text: "Second sentence here." },
+      ],
+      ["First sentence here.", "Second sentence here."],
+    );
+    const uploads: string[] = [];
+    const refreshed = await refreshEditedNarration({
+      storyboard: edited,
+      voice: "alloy",
+      upload: async (_bytes, contentType) => {
+        uploads.push(contentType);
+        return "/objects/1/uploads/re-recorded.wav";
+      },
+    });
+    expect(refreshed).not.toBeNull();
+    expect(uploads).toEqual(["audio/wav"]);
+    expect(refreshed!.narration!.audioPath).toBe("/objects/1/uploads/re-recorded.wav");
+    expect(refreshed!.narration!.cues.map((c) => c.text)).toEqual([
+      "A completely new opening line.",
+      "Second sentence here.",
+    ]);
+    // Scene lengths follow the new recording: every cue is a 2s mocked TTS
+    // clip, so each scene owns roughly its clip plus the inter-sentence gap.
+    const total = refreshed!.narration!.totalDurationSec;
+    const summed = refreshed!.scenes.reduce((sum, s) => sum + s.durationSec, 0);
+    expect(summed).toBeCloseTo(total, 1);
+    // Stills and prompts are untouched — only the audio and timings moved.
+    expect(refreshed!.scenes.map((s) => s.previewPath)).toEqual(
+      edited.scenes.map((s) => s.previewPath),
+    );
+  });
+
+  it("refuses to record a scene that has no words", async () => {
+    const { refreshEditedNarration } = await import("./index");
+    const blank = board(
+      [
+        { id: "s1", text: "   " },
+        { id: "s2", text: "Second sentence here." },
+      ],
+      ["First sentence here.", "Second sentence here."],
+    );
+    await expect(
+      refreshEditedNarration({
+        storyboard: blank,
+        voice: "alloy",
+        upload: async () => "/objects/1/uploads/new.wav",
+      }),
+    ).rejects.toThrow(/no narration text/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Script prompt + cleanup
 
 describe("script generation helpers", () => {

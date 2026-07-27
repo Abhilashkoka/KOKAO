@@ -2656,7 +2656,7 @@ export interface VideoGenerateRequest {
 export interface VideoStoryboardScene {
   /** Stable scene address for edits ("s1", "s2", ...). */
   id: string;
-  /** The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script. */
+  /** The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script. */
   text: string;
   /** What this beat shows, and the field you edit. A generation prompt on every plan except "slide", where it is the caption burned over that photo (empty for no caption). */
   visual: string;
@@ -2759,6 +2759,11 @@ export type UpdateStoryboardRequestScenesItem = {
      * @maximum 20
      */
   durationSec?: number;
+  /**
+     * New narration for this scene. Only accepted on narrated (topic) storyboards, where the voiceover re-records to match on approve and the scene's length follows the new recording. Blank leaves the narration alone; a narrated scene can never be emptied.
+     * @maxLength 600
+     */
+  text?: string;
 };
 
 export interface UpdateStoryboardRequest {
@@ -2768,6 +2773,25 @@ export interface UpdateStoryboardRequest {
      * @maxItems 24
      */
   scenes: UpdateStoryboardRequestScenesItem[];
+}
+
+export interface InsertStoryboardSceneRequest {
+  /**
+     * Where the new scene goes: after this scene id, at the very start when null, or at the end when omitted.
+     * @nullable
+     */
+  afterSceneId?: string | null;
+  /**
+     * The narration line the new scene plays under.
+     * @minLength 1
+     * @maxLength 600
+     */
+  text: string;
+  /**
+     * What the scene shows (a generation prompt). Defaults to the narration text when omitted.
+     * @maxLength 1000
+     */
+  visual?: string;
 }
 
 export type VideoJobEngine = typeof VideoJobEngine[keyof typeof VideoJobEngine];

@@ -725,7 +725,7 @@ describe("Video Studio", () => {
     await waitFor(() => expect(screen.getByTestId("storyboard-review")).toBeTruthy());
     expect(screen.queryByTestId("select-length-s1")).toBeNull();
     expect(screen.getByTestId("text-storyboard-summary").textContent).toContain(
-      "lengths follow the narration",
+      "the voiceover re-records to match",
     );
     // Stills on a character plan were drawn, so those can be re-rolled.
     expect(screen.getByTestId("button-redraw-s1")).toBeTruthy();

@@ -263,6 +263,7 @@ export * from './importDriveFilesResult';
 export * from './importDriveFilesResultFailedItem';
 export * from './importDriveFilesResultImportedItem';
 export * from './importLibraryMusicRequest';
+export * from './insertStoryboardSceneRequest';
 export * from './instagramCredentialInput';
 export * from './leaveTeamResult';
 export * from './libraryMusicImportResult';

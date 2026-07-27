@@ -68,6 +68,11 @@ export interface VideoJobOptions {
    * expensive half runs. Honoured by every engine except topic_to_video's stock
    * branch, whose visuals are searched rather than prompted. */
   reviewStoryboard?: boolean;
+  /** Scenes added to the storyboard during review, each funded as one extra
+   * unit at insert time. Lives in options so every path that recomputes the
+   * job's price from engine+options (usage metering on success, refunds on
+   * failure/discard/sweep) stays consistent without knowing about inserts. */
+  addedScenes?: number;
 }
 
 /** One reviewable beat of a video: the narration it covers, the prompt that
@@ -75,9 +80,9 @@ export interface VideoJobOptions {
 export interface VideoStoryboardScene {
   /** Stable address for edits ("s1", "s2", ...); never reused or renumbered. */
   id: string;
-  /** The narration this scene plays under. Read-only: it comes from the voiced
-   * audio, so changing it would desync the timeline from the recording. Empty
-   * on engines that voice no script. */
+  /** The narration this scene plays under. Editable on narrated (topic)
+   * plans: the voiceover is re-recorded to match on approve, and scene lengths
+   * follow the new recording. Empty on engines that voice no script. */
   text: string;
   /** What this beat shows. The field the user edits — a generation prompt on
    * every engine except "slide", where it is the caption burned over the photo

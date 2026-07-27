@@ -631,6 +631,71 @@ export async function planTopicStoryboard(
   };
 }
 
+/** Whitespace-insensitive text comparison for edit detection. */
+function normalizeNarrationText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Re-record the narration of a storyboard whose scene texts were edited (or
+ * whose scene list grew) during review. Returns the storyboard with a fresh
+ * recording, new cues and recomputed scene lengths — or null when the scene
+ * texts still match the stored recording, so the approve path stays free for
+ * untouched boards. Unedited boards compare equal because the planner built
+ * each scene's text by joining its cues.
+ */
+export async function refreshEditedNarration(params: {
+  storyboard: VideoStoryboard;
+  voice: NarrationVoice;
+  upload: (bytes: Buffer, contentType: string) => Promise<string>;
+  onStage?: (stage: string) => void;
+}): Promise<VideoStoryboard | null> {
+  const board = params.storyboard;
+  const narration = board.narration;
+  if (!narration || board.scenes.length === 0) return null;
+  const sceneText = normalizeNarrationText(board.scenes.map((s) => s.text).join(" "));
+  const cueText = normalizeNarrationText(narration.cues.map((c) => c.text).join(" "));
+  if (sceneText === cueText) return null;
+
+  params.onStage?.("Re-recording the narration");
+  // Chunk each scene's text exactly the way the planner does, remembering
+  // which chunks belong to which scene so the new cue timings can be summed
+  // back into per-scene lengths.
+  const sentences: string[] = [];
+  const ranges: { first: number; last: number }[] = [];
+  for (const scene of board.scenes) {
+    const chunks = splitIntoSentences(scene.text);
+    if (chunks.length === 0) {
+      throw new VideoGenProviderError("A scene has no narration text to record.");
+    }
+    ranges.push({ first: sentences.length, last: sentences.length + chunks.length - 1 });
+    sentences.push(...chunks);
+  }
+  const recorded = await synthesizeNarration(sentences, params.voice);
+  const durations = sceneDurations(recorded.cues, recorded.totalDurationSec);
+  const audioPath = await params.upload(recorded.wav, "audio/wav");
+  return {
+    ...board,
+    narration: {
+      audioPath,
+      totalDurationSec: recorded.totalDurationSec,
+      cues: recorded.cues.map((cue) => ({
+        text: cue.text,
+        startSec: cue.startSec,
+        endSec: cue.endSec,
+      })),
+    },
+    scenes: board.scenes.map((scene, i) => {
+      const range = ranges[i]!;
+      let durationSec = 0;
+      for (let cue = range.first; cue <= range.last; cue++) {
+        durationSec += durations[cue] ?? 0;
+      }
+      return { ...scene, durationSec: Math.max(durationSec, 0.2) };
+    }),
+  };
+}
+
 /** Render an approved storyboard: animate the stills the plan already made,
  * then compose against the narration it already voiced. */
 export async function renderTopicStoryboard(params: {

@@ -9,7 +9,7 @@
 export interface VideoStoryboardScene {
   /** Stable scene address for edits ("s1", "s2", ...). */
   id: string;
-  /** The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script. */
+  /** The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script. */
   text: string;
   /** What this beat shows, and the field you edit. A generation prompt on every plan except "slide", where it is the caption burned over that photo (empty for no caption). */
   visual: string;

@@ -22,6 +22,7 @@ import {
   generateTopicVideo,
   planTopicStoryboard,
   renderTopicStoryboard,
+  refreshEditedNarration,
   regenerateStoryboardPreview,
   NARRATION_VOICES,
   type NarrationVoice,
@@ -418,10 +419,24 @@ async function produceVideo(
     // A storyboard already on the row means this run is the resume: the plan
     // was approved, so render it instead of planning again.
     if (job.storyboard) {
+      // Scene texts edited (or scenes added) during review desynced the plan
+      // from its recording, so re-voice it first. The refreshed narration and
+      // recomputed scene lengths are persisted before the render starts —
+      // a render retry must resume from the recording it will actually use.
+      const refreshed = await refreshEditedNarration({
+        storyboard: job.storyboard,
+        voice: isNarrationVoice(options.voice) ? options.voice : "alloy",
+        upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
+        onStage,
+      });
+      if (refreshed) {
+        await setJob(job.id, { storyboard: refreshed });
+      }
+      const board = refreshed ?? job.storyboard;
       // MusicGen tops out at 30s; the composer loops the bed, so 30 is enough.
       const music = await resolveMusic(job, options, 30, onStage);
       const result = await renderTopicStoryboard({
-        storyboard: job.storyboard,
+        storyboard: board,
         aspectRatio,
         subtitles: options.subtitles ?? true,
         captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",

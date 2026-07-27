@@ -5243,7 +5243,7 @@ export const GenerateVideoResponse = zod.object({
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.'),
   "scenes": zod.array(zod.object({
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
-  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script.'),
+  "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
@@ -5343,7 +5343,7 @@ export const ListVideoJobsResponseItem = zod.object({
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.'),
   "scenes": zod.array(zod.object({
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
-  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script.'),
+  "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
@@ -5400,7 +5400,7 @@ export const GetVideoJobResponse = zod.object({
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.'),
   "scenes": zod.array(zod.object({
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
-  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script.'),
+  "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
@@ -5457,7 +5457,7 @@ export const CancelVideoJobResponse = zod.object({
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.'),
   "scenes": zod.array(zod.object({
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
-  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script.'),
+  "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
@@ -5482,6 +5482,8 @@ export const updateVideoStoryboardBodyScenesItemVisualMax = 1000;
 
 export const updateVideoStoryboardBodyScenesItemDurationSecMax = 20;
 
+export const updateVideoStoryboardBodyScenesItemTextMax = 600;
+
 export const updateVideoStoryboardBodyScenesMax = 24;
 
 
@@ -5490,7 +5492,8 @@ export const UpdateVideoStoryboardBody = zod.object({
   "scenes": zod.array(zod.object({
   "id": zod.string(),
   "visual": zod.string().max(updateVideoStoryboardBodyScenesItemVisualMax).optional().describe('The prompt for this scene, or its caption on a \"slide\" plan — where an empty string is meaningful and clears the caption. On every other plan an empty value leaves the prompt alone, because a scene with no prompt has nothing to generate.'),
-  "durationSec": zod.number().min(1).max(updateVideoStoryboardBodyScenesItemDurationSecMax).optional().describe('Rejected while the storyboard is timelineLocked, and clamped into the plan\'s durationBounds otherwise.')
+  "durationSec": zod.number().min(1).max(updateVideoStoryboardBodyScenesItemDurationSecMax).optional().describe('Rejected while the storyboard is timelineLocked, and clamped into the plan\'s durationBounds otherwise.'),
+  "text": zod.string().max(updateVideoStoryboardBodyScenesItemTextMax).optional().describe('New narration for this scene. Only accepted on narrated (topic) storyboards, where the voiceover re-records to match on approve and the scene\'s length follows the new recording. Blank leaves the narration alone; a narrated scene can never be emptied.')
 })).min(1).max(updateVideoStoryboardBodyScenesMax).describe('Scenes to edit, addressed by id. Only the fields you send change; unlisted scenes are untouched. Never accepts image paths — a preview is replaced by regenerating it, not by pointing at a file.')
 })
 
@@ -5530,7 +5533,76 @@ export const UpdateVideoStoryboardResponse = zod.object({
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.'),
   "scenes": zod.array(zod.object({
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
-  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script.'),
+  "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
+  "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
+  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
+  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+  "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
+}))
+}),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+  "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * Only valid while the job is awaiting_review, and only on narrated (topic) storyboards. Costs one extra video unit — the new scene is a real generation, priced exactly as if it had been planned up front — funded the same way as the job (quota or credits) and refunded with it on discard or failure. The scene's preview still is generated before anything is charged for good; the narration re-records to include the new line when the storyboard is approved.
+ * @summary Add a scene to a paused narrated storyboard
+ */
+export const InsertVideoStoryboardSceneParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const insertVideoStoryboardSceneBodyTextMax = 600;
+
+export const insertVideoStoryboardSceneBodyVisualMax = 1000;
+
+
+
+export const InsertVideoStoryboardSceneBody = zod.object({
+  "afterSceneId": zod.string().nullish().describe('Where the new scene goes: after this scene id, at the very start when null, or at the end when omitted.'),
+  "text": zod.string().min(1).max(insertVideoStoryboardSceneBodyTextMax).describe('The narration line the new scene plays under.'),
+  "visual": zod.string().max(insertVideoStoryboardSceneBodyVisualMax).optional().describe('What the scene shows (a generation prompt). Defaults to the narration text when omitted.')
+})
+
+export const InsertVideoStoryboardSceneResponse = zod.object({
+  "id": zod.number(),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
+  "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
+  "prompt": zod.string().nullish(),
+  "sourceImagePaths": zod.array(zod.string()),
+  "aspectRatio": zod.string(),
+  "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+  "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+  "provider": zod.string().nullish(),
+  "model": zod.string().nullish(),
+  "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
+  "durationMs": zod.number().nullish(),
+  "storyboard": zod.union([zod.object({
+  "version": zod.literal(1),
+  "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
+  "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
+  "durationBounds": zod.object({
+  "minSec": zod.number(),
+  "maxSec": zod.number()
+}).nullish().describe('The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.'),
+  "model": zod.string().nullish(),
+  "provider": zod.string().nullish(),
+  "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+  "narration": zod.object({
+  "audioPath": zod.string(),
+  "totalDurationSec": zod.number(),
+  "cues": zod.array(zod.object({
+  "text": zod.string(),
+  "startSec": zod.number(),
+  "endSec": zod.number()
+})).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+}).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.'),
+  "scenes": zod.array(zod.object({
+  "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+  "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
@@ -5588,7 +5660,7 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.'),
   "scenes": zod.array(zod.object({
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
-  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script.'),
+  "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
@@ -5645,7 +5717,7 @@ export const ApproveVideoStoryboardResponse = zod.object({
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.'),
   "scenes": zod.array(zod.object({
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
-  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script.'),
+  "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
@@ -5701,7 +5773,7 @@ export const DiscardVideoStoryboardResponse = zod.object({
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.'),
   "scenes": zod.array(zod.object({
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
-  "text": zod.string().describe('The narration this scene plays under. Read-only: it comes from audio that has already been recorded. Empty on the engines that voice no script.'),
+  "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),

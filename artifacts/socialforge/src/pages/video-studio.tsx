@@ -5,6 +5,7 @@ import {
   useListVideoJobs,
   useSaveVideoToLibrary,
   useUpdateVideoStoryboard,
+  useInsertVideoStoryboardScene,
   useRegenerateStoryboardScenePreview,
   useApproveVideoStoryboard,
   useDiscardVideoStoryboard,
@@ -95,6 +96,7 @@ import {
   Shirt,
   Trash2,
   Gauge,
+  Plus,
 } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { SavedVisualPickerDialog } from "@/components/saved-visuals";
@@ -1638,7 +1640,7 @@ export function VideoStudioPage() {
 const SLIDE_CROSSFADE_SEC = 0.5;
 
 /** Unsaved edits to one scene. Absent fields are untouched. */
-type SceneDraft = { visual?: string; durationSec?: number };
+type SceneDraft = { visual?: string; durationSec?: number; text?: string };
 
 /**
  * What the finished video will run to. Mirrors the renderers: a recording wins
@@ -1664,6 +1666,7 @@ function sceneEdit(
   draft: SceneDraft | undefined,
   slides: boolean,
   lengthEditable: boolean,
+  narrated: boolean,
 ): SceneDraft | null {
   const edit: SceneDraft = {};
   const visual = draft?.visual?.trim();
@@ -1672,6 +1675,12 @@ function sceneEdit(
   }
   if (lengthEditable && draft?.durationSec != null && draft.durationSec !== scene.durationSec) {
     edit.durationSec = draft.durationSec;
+  }
+  // Narration text: only on narrated boards, and never blanked — a scene with
+  // no words has no length once the voiceover re-records.
+  const text = draft?.text?.trim();
+  if (narrated && text != null && text.length > 0 && text !== scene.text) {
+    edit.text = text;
   }
   return Object.keys(edit).length > 0 ? edit : null;
 }
@@ -1699,8 +1708,14 @@ function StoryboardReview({
   /** Local edits per scene, so typing doesn't round-trip on every keystroke. */
   const [drafts, setDrafts] = useState<Record<string, SceneDraft>>({});
   const [rollingScene, setRollingScene] = useState<string | null>(null);
+  /** Add-scene dialog: closed, or where the new scene goes — after a scene id,
+   * or "end". */
+  const [addAfter, setAddAfter] = useState<string | null>(null);
+  const [addText, setAddText] = useState("");
+  const [addVisual, setAddVisual] = useState("");
 
   const update = useUpdateVideoStoryboard();
+  const insertScene = useInsertVideoStoryboardScene();
   const regenerate = useRegenerateStoryboardScenePreview();
   const approve = useApproveVideoStoryboard();
   const discard = useDiscardVideoStoryboard();
@@ -1717,6 +1732,8 @@ function StoryboardReview({
     });
 
   const source = storyboard.visualsSource;
+  /** Narrated (topic) boards: text is the script and re-records on render. */
+  const narrated = storyboard.narration != null;
   /** Slide plans caption a photo rather than prompt for one. */
   const slides = source === "slide";
   /** Only generated stills can be redrawn; the rest are the user's own photos. */
@@ -1741,7 +1758,7 @@ function StoryboardReview({
   const count = storyboard.scenes.length;
 
   const blurb = storyboard.narration
-    ? `${count} shots · ${totalSec}s narrated. Reword any shot, then render. Shot lengths follow the narration, so they are fixed.`
+    ? `${count} shots · ${totalSec}s narrated. Reword what's said or shown — the voiceover re-records to match when you render, and shot lengths follow it.`
     : slides
       ? `${count} ${count === 1 ? "photo" : "photos"} · about ${totalSec}s. Edit any caption and how long its photo holds, then render.`
       : source === "photo"
@@ -1752,7 +1769,7 @@ function StoryboardReview({
 
   /** Push one scene's edits, then optionally re-roll its preview. */
   const saveScene = (scene: VideoStoryboardScene, thenRoll: boolean) => {
-    const edit = sceneEdit(scene, drafts[scene.id], slides, lengths.length > 1);
+    const edit = sceneEdit(scene, drafts[scene.id], slides, lengths.length > 1, narrated);
     const roll = () => {
       if (!thenRoll) return;
       setRollingScene(scene.id);
@@ -1790,7 +1807,7 @@ function StoryboardReview({
    * prevent, so Render never means "discard what is on screen". */
   const renderNow = () => {
     const scenes = storyboard.scenes.flatMap((scene) => {
-      const edit = sceneEdit(scene, drafts[scene.id], slides, lengths.length > 1);
+      const edit = sceneEdit(scene, drafts[scene.id], slides, lengths.length > 1, narrated);
       return edit ? [{ id: scene.id, ...edit }] : [];
     });
     const start = () =>
@@ -1842,7 +1859,7 @@ function StoryboardReview({
             Math.max(Math.round(draft?.durationSec ?? scene.durationSec), lengths[0] ?? 0),
             lengths.at(-1) ?? 0,
           );
-          const dirty = sceneEdit(scene, draft, slides, lengths.length > 1) !== null;
+          const dirty = sceneEdit(scene, draft, slides, lengths.length > 1, narrated) !== null;
           const rolling = rollingScene === scene.id;
           return (
             <div
@@ -1877,10 +1894,35 @@ function StoryboardReview({
                     Shot {i + 1} · {Math.round(scene.durationSec)}s
                   </Badge>
                 )}
-                {scene.text.trim().length > 0 && (
-                  <p className="text-xs text-muted-foreground line-clamp-3" title={scene.text}>
-                    “{scene.text}”
-                  </p>
+                {narrated ? (
+                  <>
+                    <Label
+                      htmlFor={`narration-${scene.id}`}
+                      className="text-xs text-muted-foreground"
+                    >
+                      What's said
+                    </Label>
+                    <Textarea
+                      id={`narration-${scene.id}`}
+                      rows={2}
+                      maxLength={600}
+                      value={draft?.text ?? scene.text}
+                      onChange={(e) =>
+                        setDrafts((d) => ({
+                          ...d,
+                          [scene.id]: { ...d[scene.id], text: e.target.value },
+                        }))
+                      }
+                      className="text-xs resize-none"
+                      data-testid={`input-narration-${scene.id}`}
+                    />
+                  </>
+                ) : (
+                  scene.text.trim().length > 0 && (
+                    <p className="text-xs text-muted-foreground line-clamp-3" title={scene.text}>
+                      “{scene.text}”
+                    </p>
+                  )
                 )}
                 <Label htmlFor={`shot-${scene.id}`} className="sr-only">
                   {slides
@@ -1963,12 +2005,122 @@ function StoryboardReview({
                       Save
                     </Button>
                   )}
+                  {narrated && drawn && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      title="Add a scene after this one"
+                      disabled={rolling || workingOn || insertScene.isPending}
+                      onClick={() => {
+                        setAddText("");
+                        setAddVisual("");
+                        setAddAfter(scene.id);
+                      }}
+                      data-testid={`button-add-after-${scene.id}`}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
           );
         })}
+        {narrated && drawn && (
+          <button
+            type="button"
+            className="rounded-xl border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-foreground/40 flex flex-col items-center justify-center gap-2 min-h-32 p-4 text-sm"
+            disabled={workingOn || insertScene.isPending}
+            onClick={() => {
+              setAddText("");
+              setAddVisual("");
+              setAddAfter("end");
+            }}
+            data-testid="button-add-scene-end"
+          >
+            <Plus className="h-5 w-5" />
+            Add a scene at the end
+            <span className="text-xs">Uses 1 video credit</span>
+          </button>
+        )}
       </div>
+
+      <Dialog open={addAfter !== null} onOpenChange={(open) => !open && setAddAfter(null)}>
+        <DialogContent data-testid="dialog-add-scene">
+          <DialogHeader>
+            <DialogTitle>Add a scene</DialogTitle>
+            <DialogDescription>
+              Uses 1 video credit. The voiceover re-records to include the new line when you
+              render.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="add-scene-text">What's said</Label>
+              <Textarea
+                id="add-scene-text"
+                rows={2}
+                maxLength={600}
+                value={addText}
+                onChange={(e) => setAddText(e.target.value)}
+                placeholder="The narration line this scene plays under"
+                data-testid="input-add-scene-text"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="add-scene-visual">What it shows (optional)</Label>
+              <Textarea
+                id="add-scene-visual"
+                rows={2}
+                maxLength={1000}
+                value={addVisual}
+                onChange={(e) => setAddVisual(e.target.value)}
+                placeholder="Defaults to the narration line"
+                data-testid="input-add-scene-visual"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setAddAfter(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={addText.trim().length === 0 || insertScene.isPending}
+              onClick={() =>
+                insertScene.mutate(
+                  {
+                    jobId: job.id,
+                    data: {
+                      ...(addAfter !== "end" && addAfter !== null
+                        ? { afterSceneId: addAfter }
+                        : {}),
+                      text: addText.trim(),
+                      ...(addVisual.trim() ? { visual: addVisual.trim() } : {}),
+                    },
+                  },
+                  {
+                    onSuccess: (updated) => {
+                      settle(updated);
+                      setAddAfter(null);
+                      toast({ title: "Scene added", description: "One video credit was used." });
+                    },
+                    onError: fail("Could not add that scene"),
+                  },
+                )
+              }
+              data-testid="button-confirm-add-scene"
+            >
+              {insertScene.isPending ? (
+                <>
+                  <RippleSpinner className="mr-2 h-4 w-4" /> Drawing it…
+                </>
+              ) : (
+                "Add scene"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="flex flex-wrap items-center gap-2">
         <Button

@@ -159,6 +159,7 @@ import type {
   ImportDriveFilesRequest,
   ImportDriveFilesResult,
   ImportLibraryMusicRequest,
+  InsertStoryboardSceneRequest,
   InstagramCredentialInput,
   LeaveTeamResult,
   LibraryMusicImportResult,
@@ -8918,6 +8919,78 @@ export const useUpdateVideoStoryboard = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getUpdateVideoStoryboardMutationOptions(options));
+    }
+
+export const getInsertVideoStoryboardSceneUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/storyboard/scenes`
+}
+
+/**
+ * Only valid while the job is awaiting_review, and only on narrated (topic) storyboards. Costs one extra video unit — the new scene is a real generation, priced exactly as if it had been planned up front — funded the same way as the job (quota or credits) and refunded with it on discard or failure. The scene's preview still is generated before anything is charged for good; the narration re-records to include the new line when the storyboard is approved.
+ * @summary Add a scene to a paused narrated storyboard
+ */
+export const insertVideoStoryboardScene = async (jobId: number,
+    insertStoryboardSceneRequest: InsertStoryboardSceneRequest, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getInsertVideoStoryboardSceneUrl(jobId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(insertStoryboardSceneRequest)
+  }
+);}
+
+
+
+
+export const getInsertVideoStoryboardSceneMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof insertVideoStoryboardScene>>, TError,{jobId: number;data: BodyType<InsertStoryboardSceneRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof insertVideoStoryboardScene>>, TError,{jobId: number;data: BodyType<InsertStoryboardSceneRequest>}, TContext> => {
+
+const mutationKey = ['insertVideoStoryboardScene'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof insertVideoStoryboardScene>>, {jobId: number;data: BodyType<InsertStoryboardSceneRequest>}> = (props) => {
+          const {jobId,data} = props ?? {};
+
+          return  insertVideoStoryboardScene(jobId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type InsertVideoStoryboardSceneMutationResult = NonNullable<Awaited<ReturnType<typeof insertVideoStoryboardScene>>>
+    export type InsertVideoStoryboardSceneMutationBody = BodyType<InsertStoryboardSceneRequest>
+    export type InsertVideoStoryboardSceneMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Add a scene to a paused narrated storyboard
+ */
+export const useInsertVideoStoryboardScene = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof insertVideoStoryboardScene>>, TError,{jobId: number;data: BodyType<InsertStoryboardSceneRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof insertVideoStoryboardScene>>,
+        TError,
+        {jobId: number;data: BodyType<InsertStoryboardSceneRequest>},
+        TContext
+      > => {
+      return useMutation(getInsertVideoStoryboardSceneMutationOptions(options));
     }
 
 export const getRegenerateStoryboardScenePreviewUrl = (jobId: number,

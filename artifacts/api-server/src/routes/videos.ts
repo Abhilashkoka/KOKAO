@@ -12,6 +12,7 @@ import {
   ImportLibraryMusicBody,
   SaveVideoToLibraryBody,
   UpdateVideoStoryboardBody,
+  InsertVideoStoryboardSceneBody,
 } from "@workspace/api-zod";
 import {
   searchLibraryMusic,
@@ -470,6 +471,15 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
     });
     return;
   }
+  // Narration text is only editable where narration exists to re-record: the
+  // narrated (topic) plans. Everywhere else `text` is empty by construction,
+  // so accepting an edit would invent a script no engine will voice.
+  if (!storyboard.narration && parsed.data.scenes.some((s) => s.text?.trim())) {
+    res.status(400).json({
+      error: "This video has no narration, so there is no scene text to edit.",
+    });
+    return;
+  }
 
   // On a slideshow plan, `visual` is the burned-in caption, so clearing it is a
   // real edit. Everywhere else it is the generation prompt, and an empty prompt
@@ -481,8 +491,12 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
       const edit = edits.get(scene.id);
       if (!edit) return scene;
       const visual = edit.visual?.trim();
+      // Blank never clears narration: a narrated scene with no words has no
+      // length. The voiceover re-records to match edited text on approve.
+      const text = edit.text?.trim();
       return {
         ...scene,
+        text: text || scene.text,
         visual: visual || (blankClearsVisual && visual === "" ? "" : scene.visual),
         // Clamped rather than rejected: the bounds are what the renderer can
         // actually deliver, and a client that asks for 30s meant "the longest
@@ -508,6 +522,191 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
       .returning()
   )[0];
   if (!saved) {
+    res.status(400).json({ error: "This video is not waiting for storyboard review." });
+    return;
+  }
+  res.json(serializeVideoJob(saved));
+});
+
+/** Hard ceiling on scenes per narrated storyboard: the largest planned board
+ * (character, 3 paragraphs) is 12 scenes, and each added scene lengthens the
+ * recording and the render, so growth past this needs a new video instead. */
+const MAX_NARRATED_STORYBOARD_SCENES = 16;
+
+/** Add a scene to a paused narrated storyboard. Costs one extra video unit,
+ * funded the same way as the job so every refund path stays consistent. */
+router.post("/ai/video-jobs/:jobId/storyboard/scenes", async (req: Request, res: Response) => {
+  const parsed = InsertVideoStoryboardSceneBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const loaded = await loadPausedJob(req, res);
+  if (!loaded) return;
+  const { job, storyboard } = loaded;
+
+  // Phase 1: narrated topic boards only. Their scenes are generated stills, so
+  // a new one can be drawn from a prompt; the voiceover re-records on approve.
+  if (!storyboard.narration || !storyboardPreviewsAreGenerated(storyboard.visualsSource)) {
+    res.status(400).json({
+      error: "Scenes can only be added to narrated topic storyboards.",
+    });
+    return;
+  }
+  if (storyboard.scenes.length >= MAX_NARRATED_STORYBOARD_SCENES) {
+    res.status(400).json({
+      error: `This storyboard is at its maximum of ${MAX_NARRATED_STORYBOARD_SCENES} scenes.`,
+    });
+    return;
+  }
+  const afterSceneId = parsed.data.afterSceneId;
+  if (afterSceneId != null && !storyboard.scenes.some((s) => s.id === afterSceneId)) {
+    res.status(400).json({ error: "That scene is not in this storyboard." });
+    return;
+  }
+  const text = parsed.data.text.trim();
+  if (!text) {
+    res.status(400).json({ error: "The new scene needs narration text." });
+    return;
+  }
+
+  // Fund the extra unit the same way the job was funded — mixed funding would
+  // break the refund paths, which give back videoJobUnits(engine, options)
+  // only when funding is "credit". The unit is recorded in options.addedScenes
+  // so success metering, discard and failure refunds all price it in.
+  const options = job.options ?? { aspectRatio: "9:16" as const };
+  const optionsAfter = { ...options, addedScenes: (options.addedScenes ?? 0) + 1 };
+  if (job.funding === "credit") {
+    if (!(await spendCredit(req.tenantId, "video", 1))) {
+      res.status(402).json({
+        error: "Adding a scene needs one video credit and you have none left.",
+      });
+      return;
+    }
+  } else {
+    const tenant = (
+      await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId))
+    )[0];
+    const limits = await getPlanLimits(tenant?.plan ?? "free");
+    const usage = await getUsage(req.tenantId);
+    const unitsAfter = videoJobUnits(job.engine, optionsAfter);
+    if (limits.videos !== -1 && usage.videos + unitsAfter > limits.videos) {
+      res.status(402).json({
+        error:
+          "Adding a scene needs one more video unit than your monthly quota has left. Upgrade your plan or start a smaller video.",
+      });
+      return;
+    }
+  }
+  const refundInsert = async (reason: string): Promise<void> => {
+    if (job.funding === "credit") {
+      await refundCredits(req.tenantId, "video", 1, reason).catch((err) => {
+        // A failed refund leaves the tenant charged for a scene that never
+        // landed — surface it loudly so it can be reconciled by hand.
+        req.log.error(
+          { err, jobId: job.id, tenantId: req.tenantId, reason },
+          "Storyboard scene insert refund FAILED — tenant may be owed 1 video credit",
+        );
+      });
+    }
+  };
+
+  // Give back the funding if anything below fails; quota jobs only meter on
+  // success, so there the checks above were the whole reservation.
+  const nextId = `s${storyboard.scenes.reduce((max, s) => {
+    const m = /^s(\d+)$/.exec(s.id);
+    return m ? Math.max(max, Number(m[1])) : max;
+  }, 0) + 1}`;
+  // Length placeholder only: the re-recorded narration dictates the real
+  // duration when the storyboard is approved.
+  const durationSec =
+    storyboard.scenes.reduce((sum, s) => sum + s.durationSec, 0) / storyboard.scenes.length;
+  const newScene = {
+    id: nextId,
+    text,
+    visual: parsed.data.visual?.trim() || text,
+    durationSec: Math.round(durationSec * 10) / 10,
+    previewPath: null as string | null,
+    outfitId: null as number | null,
+  };
+
+  // Generate the preview still BEFORE persisting anything, so a provider
+  // failure charges nothing and leaves the board exactly as it was.
+  let previewBoard;
+  try {
+    previewBoard = await refreshStoryboardScenePreview(
+      job,
+      { ...storyboard, scenes: [...storyboard.scenes, newScene] },
+      newScene,
+    );
+  } catch (error) {
+    req.log.warn({ err: error, jobId: job.id }, "Storyboard scene insert preview failed");
+    await refundInsert("storyboard scene insert failed");
+    const message =
+      error instanceof VideoGenProviderError
+        ? error.message
+        : "Generating the new scene's image failed. Please try again.";
+    res.status(502).json({ error: message });
+    return;
+  }
+  const generated = previewBoard.scenes.find((s) => s.id === nextId) ?? newScene;
+
+  // Re-read under lock and splice into the CURRENT board, so edits made while
+  // the image generated are kept and two parallel inserts cannot lose one.
+  let saved;
+  try {
+    saved = await db.transaction(async (tx) => {
+    const fresh = (
+      await tx
+        .select()
+        .from(videoGenerationsTable)
+        .where(
+          and(
+            eq(videoGenerationsTable.id, job.id),
+            eq(videoGenerationsTable.tenantId, req.tenantId),
+          ),
+        )
+        .for("update")
+    )[0];
+    if (
+      !fresh ||
+      fresh.status !== "awaiting_review" ||
+      !fresh.storyboard ||
+      fresh.storyboard.scenes.length >= MAX_NARRATED_STORYBOARD_SCENES ||
+      fresh.storyboard.scenes.some((s) => s.id === nextId)
+    ) {
+      return null;
+    }
+    const scenes = [...fresh.storyboard.scenes];
+    const at =
+      afterSceneId === null
+        ? 0
+        : afterSceneId === undefined
+          ? scenes.length
+          : scenes.findIndex((s) => s.id === afterSceneId) + 1 || scenes.length;
+    scenes.splice(at, 0, generated);
+    const freshOptions = fresh.options ?? options;
+    return (
+      await tx
+        .update(videoGenerationsTable)
+        .set({
+          storyboard: { ...fresh.storyboard, scenes },
+          options: { ...freshOptions, addedScenes: (freshOptions.addedScenes ?? 0) + 1 },
+          updatedAt: new Date(),
+        })
+        .where(eq(videoGenerationsTable.id, job.id))
+        .returning()
+    )[0];
+    });
+  } catch (error) {
+    // The DB write failed after funding was taken — give it back before 500ing.
+    req.log.error({ err: error, jobId: job.id }, "Storyboard scene insert persist failed");
+    await refundInsert("storyboard scene insert failed");
+    res.status(500).json({ error: "Saving the new scene failed. You were not charged." });
+    return;
+  }
+  if (!saved) {
+    await refundInsert("storyboard scene insert rejected");
     res.status(400).json({ error: "This video is not waiting for storyboard review." });
     return;
   }

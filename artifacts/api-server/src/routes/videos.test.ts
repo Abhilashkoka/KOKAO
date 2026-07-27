@@ -116,12 +116,12 @@ import {
   type VideoStoryboardScene,
 } from "@workspace/db";
 import { VideoGenProviderError } from "../lib/videoGen";
+import { grantCredits, getCreditBalances } from "../lib/credits";
 import { eq } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import videosRouter from "./videos";
 import { actAs, resetAuthState } from "../test/authState";
 import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
-import { grantCredits, getCreditBalances } from "../lib/credits";
 import { waitForPendingJobs } from "../lib/backgroundJobs";
 
 function createVideosTestApp(): Express {
@@ -906,6 +906,162 @@ describe("PATCH /api/ai/video-jobs/:jobId/storyboard", () => {
     const res = await request(app)
       .patch(`/api/ai/video-jobs/${job.id}/storyboard`)
       .send({ scenes: [{ id: "s1", visual: "not mine" }] });
+    expect(res.status).toBe(404);
+  });
+
+  it("rewrites a narrated scene's text and never blanks it", async () => {
+    const tenant = await newTenant();
+    const job = await seedPausedJob(tenant.tenantId);
+    const res = await request(app)
+      .patch(`/api/ai/video-jobs/${job.id}/storyboard`)
+      .send({ scenes: [{ id: "s1", text: "A brand new opening line." }, { id: "s2", text: "   " }] });
+    expect(res.status).toBe(200);
+    expect(res.body.storyboard.scenes[0].text).toBe("A brand new opening line.");
+    // Blank leaves the narration alone: a scene with no words has no length.
+    expect(res.body.storyboard.scenes[1].text).toBe("Line 2");
+  });
+
+  it("rejects text edits on a plan that voices no script", async () => {
+    const tenant = await newTenant();
+    const clip = await seedPausedJob(
+      tenant.tenantId,
+      { engine: "text_to_video", options: { aspectRatio: "9:16", shotCount: 2 } },
+      clipBoardFixture(tenant.tenantId, "prompt"),
+    );
+    const res = await request(app)
+      .patch(`/api/ai/video-jobs/${clip.id}/storyboard`)
+      .send({ scenes: [{ id: "s1", text: "invented narration" }] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/no narration/i);
+  });
+});
+
+describe("POST /api/ai/video-jobs/:jobId/storyboard/scenes", () => {
+  it("appends a scene at the end, draws its preview and records the extra unit", async () => {
+    // Pro: a quota-funded insert needs quota headroom for the extra unit
+    // (free's 3 videos/month are already below this 4-scene board's price).
+    const tenant = await newTenant("pro");
+    const job = await seedPausedJob(tenant.tenantId);
+    const res = await request(app)
+      .post(`/api/ai/video-jobs/${job.id}/storyboard/scenes`)
+      .send({ text: "A closing thought.", visual: "sunset over the city" });
+    expect(res.status).toBe(200);
+    const scenes = res.body.storyboard.scenes;
+    expect(scenes).toHaveLength(3);
+    expect(scenes[2].id).toBe("s3");
+    expect(scenes[2].text).toBe("A closing thought.");
+    expect(scenes[2].visual).toBe("sunset over the city");
+    expect(scenes[2].previewPath).toBe(`/objects/${tenant.tenantId}/uploads/reroll-s3.png`);
+    // The extra unit lives in options so every refund path reprices with it.
+    expect((await readJob(job.id)).options?.addedScenes).toBe(1);
+    expect(runnerState.previews).toEqual([{ jobId: job.id, sceneId: "s3" }]);
+  });
+
+  it("inserts after a named scene, and at the start for afterSceneId null", async () => {
+    const tenant = await newTenant("pro");
+    const job = await seedPausedJob(tenant.tenantId);
+    const mid = await request(app)
+      .post(`/api/ai/video-jobs/${job.id}/storyboard/scenes`)
+      .send({ afterSceneId: "s1", text: "A bridge between the two." });
+    expect(mid.status).toBe(200);
+    expect(mid.body.storyboard.scenes.map((s: { id: string }) => s.id)).toEqual([
+      "s1",
+      "s3",
+      "s2",
+    ]);
+    const front = await request(app)
+      .post(`/api/ai/video-jobs/${job.id}/storyboard/scenes`)
+      .send({ afterSceneId: null, text: "A cold open." });
+    expect(front.status).toBe(200);
+    expect(front.body.storyboard.scenes.map((s: { id: string }) => s.id)).toEqual([
+      "s4",
+      "s1",
+      "s3",
+      "s2",
+    ]);
+    expect((await readJob(job.id)).options?.addedScenes).toBe(2);
+  });
+
+  it("rejects an unknown afterSceneId and boards that are not narrated", async () => {
+    const tenant = await newTenant();
+    const job = await seedPausedJob(tenant.tenantId);
+    const unknown = await request(app)
+      .post(`/api/ai/video-jobs/${job.id}/storyboard/scenes`)
+      .send({ afterSceneId: "s9", text: "lost" });
+    expect(unknown.status).toBe(400);
+    expect(unknown.body.error).toMatch(/not in this storyboard/i);
+
+    const clip = await seedPausedJob(
+      tenant.tenantId,
+      { engine: "text_to_video", options: { aspectRatio: "9:16", shotCount: 2 } },
+      clipBoardFixture(tenant.tenantId, "prompt"),
+    );
+    const res = await request(app)
+      .post(`/api/ai/video-jobs/${clip.id}/storyboard/scenes`)
+      .send({ text: "no recording to extend" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/narrated topic storyboards/i);
+  });
+
+  it("spends one credit on credit-funded jobs and refunds it when the preview fails", async () => {
+    const tenant = await newTenant();
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 2,
+      kind: "admin_grant",
+    });
+    const job = await seedPausedJob(tenant.tenantId, { funding: "credit" });
+
+    runnerState.previewError = new VideoGenProviderError("The image provider failed.");
+    const failed = await request(app)
+      .post(`/api/ai/video-jobs/${job.id}/storyboard/scenes`)
+      .send({ text: "This one never draws." });
+    expect(failed.status).toBe(502);
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(2);
+    expect((await readJob(job.id)).storyboard?.scenes).toHaveLength(2);
+    expect((await readJob(job.id)).options?.addedScenes).toBeUndefined();
+
+    runnerState.previewError = null;
+    const ok = await request(app)
+      .post(`/api/ai/video-jobs/${job.id}/storyboard/scenes`)
+      .send({ text: "This one lands." });
+    expect(ok.status).toBe(200);
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(1);
+  });
+
+  it("402s a credit-funded job with no credits left", async () => {
+    const tenant = await newTenant();
+    const job = await seedPausedJob(tenant.tenantId, { funding: "credit" });
+    const res = await request(app)
+      .post(`/api/ai/video-jobs/${job.id}/storyboard/scenes`)
+      .send({ text: "cannot pay for this" });
+    expect(res.status).toBe(402);
+    expect((await readJob(job.id)).storyboard?.scenes).toHaveLength(2);
+  });
+
+  it("refuses to grow past the scene cap", async () => {
+    const tenant = await newTenant();
+    const job = await seedPausedJob(
+      tenant.tenantId,
+      {},
+      storyboardFixture(tenant.tenantId, 16),
+    );
+    const res = await request(app)
+      .post(`/api/ai/video-jobs/${job.id}/storyboard/scenes`)
+      .send({ text: "one too many" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/maximum/i);
+  });
+
+  it("404s on another tenant's storyboard", async () => {
+    const other = await newTenant();
+    const job = await seedPausedJob(other.tenantId);
+    await newTenant();
+    const res = await request(app)
+      .post(`/api/ai/video-jobs/${job.id}/storyboard/scenes`)
+      .send({ text: "not mine" });
     expect(res.status).toBe(404);
   });
 });

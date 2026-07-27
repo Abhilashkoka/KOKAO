@@ -32,6 +32,11 @@ export function videoJobUnits(engine: string, options: VideoJobOptions | null): 
     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
     units = 2 * paragraphs;
   }
+  // Scenes added during storyboard review were each funded as one extra unit
+  // when they were inserted; counting them here keeps every price
+  // recomputation (usage on success, refunds on failure/discard) in sync with
+  // what was actually reserved.
+  units += Math.max(0, Math.trunc(options?.addedScenes ?? 0));
   // An AI-composed music bed is its own real generation: +1 unit, on any
   // engine. Only charged when no uploaded track takes precedence.
   if (!options?.musicPath && options?.musicPrompt?.trim()) {
