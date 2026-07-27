@@ -1325,16 +1325,38 @@ function TextGenProviderCard() {
                 </div>
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Default model</p>
-                  <Input
-                    placeholder={modelList[0] ?? "openai/gpt-4o-mini"}
-                    value={defaultModelValue}
-                    onChange={(e) => setDefaultModelInput(e.target.value)}
-                    className="w-96"
-                    data-testid="input-text-gen-default-model"
-                  />
+                  <Select
+                    value={defaultModelValue || "__first__"}
+                    onValueChange={(v) => setDefaultModelInput(v === "__first__" ? "" : v)}
+                    disabled={modelList.length === 0}
+                  >
+                    <SelectTrigger className="w-96" data-testid="input-text-gen-default-model">
+                      <SelectValue
+                        placeholder={
+                          modelList.length === 0 ? "Add models above first" : "Select a model"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__first__">
+                        First listed model{modelList[0] ? ` (${modelList[0]})` : ""}
+                      </SelectItem>
+                      {modelList.map((m) => (
+                        <SelectItem key={m} value={m}>
+                          {m}
+                        </SelectItem>
+                      ))}
+                      {/* Keep a previously saved default selectable even if it
+                          was removed from the list above. */}
+                      {defaultModelValue && !modelList.includes(defaultModelValue) && (
+                        <SelectItem value={defaultModelValue}>
+                          {defaultModelValue} (not in list)
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
                   <p className="text-xs text-muted-foreground">
-                    Used when a user's saved model is not in the list. Leave
-                    empty to use the first listed model.
+                    Used when a user's saved model is not in the list.
                   </p>
                 </div>
                 <Button
