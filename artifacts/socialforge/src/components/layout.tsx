@@ -138,7 +138,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 <Menu className="h-5 w-5" />
               </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="w-64 p-6 flex flex-col gap-8">
+            <SheetContent side="left" className="w-64 p-6 flex flex-col gap-8 overflow-y-auto">
               {logoUrl ? (
                 <img src={logoUrl} alt={appName} className="h-7 w-auto" />
               ) : (
@@ -160,7 +160,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         </div>
         
-        <div className="flex-1">
+        <div className="flex-1 min-h-0 overflow-y-auto">
           <NavLinks />
         </div>
         
