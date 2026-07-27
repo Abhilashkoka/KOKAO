@@ -29,7 +29,14 @@ if (!Element.prototype.scrollIntoView) {
 const mockState: {
   settings: ImageGenSettingsView;
   lastUpdateVars: { data: Record<string, unknown> } | null;
-} = { settings: baseSettings("openai", []), lastUpdateVars: null };
+  costReport: Record<string, unknown> | undefined;
+  campaignReport: Record<string, unknown> | undefined;
+} = {
+  settings: baseSettings("openai", []),
+  lastUpdateVars: null,
+  costReport: undefined,
+  campaignReport: undefined,
+};
 
 const updateMutate = vi.fn((vars: { data: Record<string, unknown> }) => {
   mockState.lastUpdateVars = vars;
@@ -43,12 +50,20 @@ vi.mock("@workspace/api-client-react", async () => {
       isLoading: false,
     }),
     useAdminUpdateImageGenSettings: () => ({ mutate: updateMutate, isPending: false }),
+    useAdminGetAiCostReport: () => ({
+      data: mockState.costReport,
+      isLoading: false,
+    }),
+    useAdminGetAiCostCampaigns: () => ({
+      data: mockState.campaignReport,
+      isLoading: false,
+    }),
   });
 });
 
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 
-import { ImageGenProviderCard } from "./ai-tab";
+import { ImageGenProviderCard, AiCostReportCard } from "./ai-tab";
 
 function ranked(
   id: string,
@@ -103,6 +118,8 @@ beforeEach(() => {
   updateMutate.mockClear();
   mockState.lastUpdateVars = null;
   mockState.settings = baseSettings("openai", []);
+  mockState.costReport = undefined;
+  mockState.campaignReport = undefined;
 });
 
 describe("image provider card ranking", () => {
@@ -178,5 +195,99 @@ describe("image provider card ranking", () => {
     // "auto" is not in the catalog, so there is no provider whose model or key
     // could be edited here.
     expect(screen.queryByTestId("input-image-gen-model")).toBeNull();
+  });
+});
+
+describe("campaign costs table", () => {
+  function baseCostReport() {
+    return {
+      month: "2026-07",
+      months: ["2026-07"],
+      summary: {
+        totalCostPaise: 0,
+        displaySpendPaise: 0,
+        captionCount: 0,
+        imageCount: 0,
+        videoCount: 0,
+        unknownCount: 0,
+      },
+      tenants: [],
+      trend: [],
+    };
+  }
+
+  function campaignRow(overrides: Record<string, unknown>) {
+    return {
+      tenantId: 1,
+      tenantName: "Acme",
+      tenantEmail: "owner@acme.test",
+      campaignId: "42",
+      campaignName: "Summer Launch",
+      captionCount: 2,
+      imageCount: 1,
+      videoCount: 0,
+      totalCostPaise: 950,
+      unknownCount: 0,
+      ...overrides,
+    };
+  }
+
+  async function renderOpenCard() {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <AiCostReportCard />
+      </QueryClientProvider>,
+    );
+    // The card is collapsed by default; the report only renders once opened.
+    await userEvent
+      .setup()
+      .click(screen.getByTestId("toggle-ai-cost-report-card"));
+  }
+
+  it("renders per-campaign rows with the resolved name", async () => {
+    mockState.costReport = baseCostReport();
+    mockState.campaignReport = {
+      month: "2026-07",
+      campaigns: [campaignRow({})],
+    };
+    await renderOpenCard();
+
+    const section = screen.getByTestId("section-campaign-costs");
+    expect(section.textContent).toContain("Campaign costs");
+    const row = screen.getByTestId("row-campaign-cost-1-42");
+    expect(row.textContent).toContain("Acme");
+    expect(row.textContent).toContain("Summer Launch");
+  });
+
+  it("falls back to a deleted-campaign label and flags unknown costs", async () => {
+    mockState.costReport = baseCostReport();
+    mockState.campaignReport = {
+      month: "2026-07",
+      campaigns: [
+        // Unresolved name (deleted campaign, or an id borrowed from another
+        // tenant — the API returns null either way) with an unknown-cost event.
+        campaignRow({
+          tenantId: 2,
+          tenantName: "Beta Co",
+          campaignId: "42",
+          campaignName: null,
+          unknownCount: 3,
+        }),
+      ],
+    };
+    await renderOpenCard();
+
+    const row = screen.getByTestId("row-campaign-cost-2-42");
+    // Never shows another tenant's name — only the id-based fallback.
+    expect(row.textContent).not.toContain("Summer Launch");
+    expect(row.textContent).toContain("Campaign #42 (deleted)");
+    expect(row.textContent).toContain("3 events");
+  });
+
+  it("hides the section entirely when no campaign usage exists", async () => {
+    mockState.costReport = baseCostReport();
+    mockState.campaignReport = { month: "2026-07", campaigns: [] };
+    await renderOpenCard();
+    expect(screen.queryByTestId("section-campaign-costs")).toBeNull();
   });
 });

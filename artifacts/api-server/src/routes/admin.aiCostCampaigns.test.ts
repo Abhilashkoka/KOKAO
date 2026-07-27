@@ -60,6 +60,7 @@ interface CampaignRow {
 
 let admin: TestTenant;
 let tenant: TestTenant;
+let otherTenant: TestTenant;
 let campaignId: number;
 const createdEventIds: number[] = [];
 
@@ -79,6 +80,7 @@ async function seedEvent(
 beforeAll(async () => {
   admin = await createTenant({ isSuperadmin: true });
   tenant = await createTenant();
+  otherTenant = await createTenant();
   const [c] = await db
     .insert(campaignsTable)
     .values({ tenantId: tenant.tenantId, name: "Summer Launch", goal: "sales" })
@@ -94,6 +96,7 @@ afterAll(async () => {
   }
   await db.delete(campaignsTable).where(eq(campaignsTable.id, campaignId));
   await deleteTenant(tenant.tenantId);
+  await deleteTenant(otherTenant.tenantId);
   await deleteTenant(admin.tenantId);
   await pool.end();
 });
@@ -139,6 +142,33 @@ describe("GET /admin/ai-cost/campaigns", () => {
     for (let i = 1; i < all.length; i++) {
       expect(all[i - 1].totalCostPaise).toBeGreaterThanOrEqual(all[i].totalCostPaise);
     }
+  });
+
+  it("never borrows another tenant's campaign name for a matching id", async () => {
+    // Tenant B's usage rows carry a campaign id TEXT that happens to equal
+    // tenant A's live campaign id. The name lookup is keyed by
+    // tenantId:campaignId, so tenant B's row must show no name at all —
+    // resolving "Summer Launch" here would leak tenant A's campaign name.
+    const cid = String(campaignId);
+    await seedEvent(otherTenant.tenantId, "caption", 250, cid);
+
+    actAs(admin.clerkUserId, admin.email);
+    const res = await request(app).get(`/api/admin/ai-cost/campaigns?month=${MONTH}`);
+    expect(res.status).toBe(200);
+    const all = res.body.campaigns as CampaignRow[];
+
+    const borrowed = all.find(
+      (r) => r.tenantId === otherTenant.tenantId && r.campaignId === cid,
+    )!;
+    expect(borrowed).toBeTruthy();
+    expect(borrowed.campaignName).toBeNull();
+    expect(borrowed.totalCostPaise).toBe(250);
+
+    // The real owner's row still resolves its own name.
+    const owner = all.find(
+      (r) => r.tenantId === tenant.tenantId && r.campaignId === cid,
+    )!;
+    expect(owner.campaignName).toBe("Summer Launch");
   });
 
   it("rejects an invalid month and non-superadmins", async () => {

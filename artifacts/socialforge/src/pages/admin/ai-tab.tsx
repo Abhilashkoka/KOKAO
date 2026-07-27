@@ -2192,7 +2192,7 @@ function AiCostCard() {
   );
 }
 
-function AiCostReportCard() {
+export function AiCostReportCard() {
   const [month, setMonth] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const { data: report, isLoading } = useAdminGetAiCostReport(
