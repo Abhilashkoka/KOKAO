@@ -65,7 +65,7 @@ describe("verifyRenderedVideo", () => {
         expectedDurationSec: 2,
         expectAudio: true,
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ durationSec: expect.any(Number) });
   });
 
   it("rejects an unplayable buffer", async () => {
@@ -107,6 +107,6 @@ describe("verifyRenderedVideo", () => {
   it("ignores audio entirely when none is expected", async () => {
     await expect(
       verifyRenderedVideo(await fixture("noaudio.mp4"), { expectedDurationSec: 2 }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ durationSec: expect.any(Number) });
   });
 });

@@ -1405,7 +1405,7 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
         and(
           gte(usageEventsTable.createdAt, start),
           lt(usageEventsTable.createdAt, end),
-          inArray(usageEventsTable.kind, ["caption", "image"]),
+          inArray(usageEventsTable.kind, ["caption", "image", "video"]),
         ),
       )
       .groupBy(usageEventsTable.tenantId, usageEventsTable.kind),
@@ -1414,8 +1414,9 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
         month: sql<string>`to_char(${usageEventsTable.createdAt} at time zone 'UTC', 'YYYY-MM')`,
         captionCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} = 'caption')::int`,
         imageCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} = 'image')::int`,
-        knownCostPaise: sql<number>`coalesce(sum(${usageEventsTable.costPaise}) filter (where ${usageEventsTable.kind} in ('caption', 'image')), 0)::int`,
-        unknownCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} in ('caption', 'image') and ${usageEventsTable.costPaise} is null)::int`,
+        videoCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} = 'video')::int`,
+        knownCostPaise: sql<number>`coalesce(sum(${usageEventsTable.costPaise}) filter (where ${usageEventsTable.kind} in ('caption', 'image', 'video')), 0)::int`,
+        unknownCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} in ('caption', 'image', 'video') and ${usageEventsTable.costPaise} is null)::int`,
         snapshotDisplayPaise: sql<number>`coalesce(sum(${usageEventsTable.displayPaise}) filter (where ${usageEventsTable.kind} in ('caption', 'image')), 0)::int`,
         noSnapshotCaptionCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} = 'caption' and ${usageEventsTable.displayPaise} is null)::int`,
         noSnapshotImageCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} = 'image' and ${usageEventsTable.displayPaise} is null)::int`,
@@ -1431,10 +1432,13 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
     {
       captionCount: number;
       imageCount: number;
+      videoCount: number;
       captionCostPaise: number;
       imageCostPaise: number;
+      videoCostPaise: number;
       unknownCaptionCount: number;
       unknownImageCount: number;
+      unknownVideoCount: number;
       snapshotDisplayPaise: number;
       noSnapshotCaptionCount: number;
       noSnapshotImageCount: number;
@@ -1446,10 +1450,13 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
       {
         captionCount: 0,
         imageCount: 0,
+        videoCount: 0,
         captionCostPaise: 0,
         imageCostPaise: 0,
+        videoCostPaise: 0,
         unknownCaptionCount: 0,
         unknownImageCount: 0,
+        unknownVideoCount: 0,
         snapshotDisplayPaise: 0,
         noSnapshotCaptionCount: 0,
         noSnapshotImageCount: 0,
@@ -1459,11 +1466,18 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
       agg.captionCostPaise = row.knownCostPaise;
       agg.unknownCaptionCount = row.unknownCount;
       agg.noSnapshotCaptionCount = row.noSnapshotCount;
-    } else {
+    } else if (row.kind === "image") {
       agg.imageCount = row.count;
       agg.imageCostPaise = row.knownCostPaise;
       agg.unknownImageCount = row.unknownCount;
       agg.noSnapshotImageCount = row.noSnapshotCount;
+    } else {
+      // Video: no tenant-facing display rate exists yet, so rows without a
+      // display snapshot deliberately add NOTHING to displaySpendPaise —
+      // charging current caption/image rates for them would be wrong.
+      agg.videoCount = row.count;
+      agg.videoCostPaise = row.knownCostPaise;
+      agg.unknownVideoCount = row.unknownCount;
     }
     agg.snapshotDisplayPaise += row.snapshotDisplayPaise;
     byTenant.set(row.tenantId, agg);
@@ -1496,7 +1510,7 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
         name: info?.name ?? null,
         email: info?.email ?? null,
         ...agg,
-        totalCostPaise: agg.captionCostPaise + agg.imageCostPaise,
+        totalCostPaise: agg.captionCostPaise + agg.imageCostPaise + agg.videoCostPaise,
         // Snapshotted amounts (rates in effect at event time) plus a
         // current-rate fallback for rows that predate snapshotting.
         displaySpendPaise:
@@ -1511,6 +1525,7 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
     month: string;
     captionCount: number;
     imageCount: number;
+    videoCount: number;
     knownCostPaise: number;
     unknownCount: number;
     snapshotDisplayPaise: number;
@@ -1520,6 +1535,7 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
     month: r.month,
     captionCount: r.captionCount,
     imageCount: r.imageCount,
+    videoCount: r.videoCount,
     totalCostPaise: r.knownCostPaise,
     // Historical months keep the rates in effect at the time (per-event
     // snapshots); only pre-snapshot rows fall back to current rates.
@@ -1537,6 +1553,7 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
         month,
         captionCount: 0,
         imageCount: 0,
+        videoCount: 0,
         totalCostPaise: 0,
         displaySpendPaise: 0,
         unknownCount: 0,

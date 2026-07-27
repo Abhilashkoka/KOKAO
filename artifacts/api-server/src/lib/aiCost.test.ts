@@ -9,6 +9,7 @@ import {
   usdToPaise,
   computeTextCostPaise,
   computeImageCostPaise,
+  computeVideoCostPaise,
   usageAccountingParams,
   streamUsageParams,
   imageUnitCostsPaise,
@@ -151,6 +152,65 @@ describe("cost computation with catalog + rate", () => {
     ).toBeNull();
     expect(await computeImageCostPaise({ provider: "gemini", model: IMAGE_MODEL })).toBeNull();
     await setAiCostConfig({ usdToInrPaise: 8600 });
+  });
+
+  it("computes video cost per second when a $/second rate and duration exist", async () => {
+    const videoPrice = await upsertModelPrice({
+      kind: "video",
+      provider: "replicate",
+      model: `${RUN}-video-model`,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: null,
+      usdPerSecond: 0.4,
+      usdPerVideo: 2,
+    });
+    createdPriceIds.push(videoPrice.id);
+
+    // 8s × $0.4 = $3.2 at ₹86 => 27520 paise
+    expect(
+      await computeVideoCostPaise({
+        provider: "replicate",
+        model: `${RUN}-video-model`,
+        durationSec: 8,
+      }),
+    ).toBe(27520);
+    // No measured duration → falls back to the flat per-video price ($2)
+    expect(
+      await computeVideoCostPaise({ provider: "replicate", model: `${RUN}-video-model` }),
+    ).toBe(17200);
+    // Unknown model → null, never guessed
+    expect(
+      await computeVideoCostPaise({
+        provider: "replicate",
+        model: `${RUN}-unknown-video`,
+        durationSec: 8,
+      }),
+    ).toBeNull();
+  });
+
+  it("video cost is null when only $/second is priced and duration is unknown", async () => {
+    const perSecondOnly = await upsertModelPrice({
+      kind: "video",
+      provider: "replicate",
+      model: `${RUN}-persecond-only`,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: null,
+      usdPerSecond: 0.5,
+      usdPerVideo: null,
+    });
+    createdPriceIds.push(perSecondOnly.id);
+    expect(
+      await computeVideoCostPaise({ provider: "replicate", model: `${RUN}-persecond-only` }),
+    ).toBeNull();
+    expect(
+      await computeVideoCostPaise({
+        provider: "replicate",
+        model: `${RUN}-persecond-only`,
+        durationSec: 10,
+      }),
+    ).toBe(43000); // 10s × $0.5 = $5 at ₹86
   });
 
   it("upsert updates the existing row instead of duplicating", async () => {

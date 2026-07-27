@@ -307,11 +307,45 @@ describe("GET /admin/ai-cost/report", () => {
     }
   });
 
+  it("includes video events in counts and costs but never in display spend", async () => {
+    const t = await createTenant();
+    try {
+      const when = new Date(Date.UTC(CUR_YEAR, CUR_MONTH0, 3));
+      await seedEvent(t.tenantId, "video", 5000, when); // known cost
+      await seedEvent(t.tenantId, "video", null, when); // unknown cost
+      await seedEvent(t.tenantId, "caption", 100, when, 700);
+
+      const report = await fetchReport(MONTH_B);
+      const row = report.tenants.find((r) => r.tenantId === t.tenantId) as
+        | (Report["tenants"][number] & {
+            videoCount: number;
+            videoCostPaise: number;
+            unknownVideoCount: number;
+          })
+        | undefined;
+      expect(row).toBeDefined();
+      expect(row!.videoCount).toBe(2);
+      expect(row!.videoCostPaise).toBe(5000);
+      expect(row!.unknownVideoCount).toBe(1);
+      expect(row!.totalCostPaise).toBe(5100); // caption 100 + video 5000
+      // Videos have no tenant-facing display rate: only the caption's
+      // snapshot contributes; the un-snapshotted video rows add NOTHING.
+      expect(row!.displaySpendPaise).toBe(700);
+
+      const summary = report.summary as Report["summary"] & { videoCount: number };
+      expect(summary.videoCount).toBeGreaterThanOrEqual(2);
+      expect(summary.unknownCount).toBeGreaterThanOrEqual(1);
+    } finally {
+      await deleteTenant(t.tenantId);
+    }
+  });
+
   it("returns a zeroed fallback summary for a month with no events", async () => {
     const report = await fetchReport(EMPTY_MONTH);
     expect(report.months).not.toContain(EMPTY_MONTH);
     expect(report.summary).toEqual({
       month: EMPTY_MONTH,
+      videoCount: 0,
       captionCount: 0,
       imageCount: 0,
       totalCostPaise: 0,

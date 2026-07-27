@@ -13584,11 +13584,14 @@ components:
           email,
           captionCount,
           imageCount,
+          videoCount,
           captionCostPaise,
           imageCostPaise,
+          videoCostPaise,
           totalCostPaise,
           unknownCaptionCount,
           unknownImageCount,
+          unknownVideoCount,
           displaySpendPaise,
         ]
       properties:
@@ -13602,12 +13605,17 @@ components:
           type: integer
         imageCount:
           type: integer
+        videoCount:
+          type: integer
         captionCostPaise:
           type: integer
           description: Sum of known caption costs, in paise.
         imageCostPaise:
           type: integer
           description: Sum of known image costs, in paise.
+        videoCostPaise:
+          type: integer
+          description: Sum of known video costs, in paise.
         totalCostPaise:
           type: integer
         unknownCaptionCount:
@@ -13615,9 +13623,12 @@ components:
           description: Caption events with no computed cost (unknown model or unset rate).
         unknownImageCount:
           type: integer
+        unknownVideoCount:
+          type: integer
+          description: Video events with no computed cost (uncataloged model or rows predating video costing).
         displaySpendPaise:
           type: integer
-          description: What the tenant-facing "AI amount spent" rates would show for the same volume (fee included), for margin comparison.
+          description: What the tenant-facing "AI amount spent" rates would show for the same volume (fee included), for margin comparison. Videos have no display rate yet and add nothing here.
     AiCostReportView:
       type: object
       required: [month, months, displayRates, summary, trend, tenants]
@@ -13651,6 +13662,7 @@ components:
           month,
           captionCount,
           imageCount,
+          videoCount,
           totalCostPaise,
           displaySpendPaise,
           unknownCount,
@@ -13662,6 +13674,8 @@ components:
         captionCount:
           type: integer
         imageCount:
+          type: integer
+        videoCount:
           type: integer
         totalCostPaise:
           type: integer

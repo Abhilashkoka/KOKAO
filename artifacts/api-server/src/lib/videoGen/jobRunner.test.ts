@@ -16,7 +16,11 @@ const state = vi.hoisted(() => ({
   rendered: [] as unknown[],
   /** Set by a test to make the render throw. */
   renderError: null as unknown,
-  usage: [] as { tenantId: number; funding: string | undefined }[],
+  usage: [] as {
+    tenantId: number;
+    funding: string | undefined;
+    costPaise: number | undefined;
+  }[],
   refunds: [] as { tenantId: number; units: number }[],
   music: [] as number[],
 }));
@@ -67,7 +71,7 @@ vi.mock("./clipStoryboard", async (importOriginal) => {
 
 vi.mock("./qaGate", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./qaGate")>()),
-  verifyRenderedVideo: vi.fn(async () => {}),
+  verifyRenderedVideo: vi.fn(async () => ({ durationSec: 8 })),
 }));
 
 vi.mock("./slideshow", async (importOriginal) => ({
@@ -87,8 +91,12 @@ vi.mock("./musicGen", async (importOriginal) => ({
 vi.mock("../usage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../usage")>()),
   recordUsage: vi.fn(
-    async (tenantId: number, _kind: string, meta?: { funding?: string }) => {
-      state.usage.push({ tenantId, funding: meta?.funding });
+    async (
+      tenantId: number,
+      _kind: string,
+      meta?: { funding?: string; costPaise?: number },
+    ) => {
+      state.usage.push({ tenantId, funding: meta?.funding, costPaise: meta?.costPaise });
     },
   ),
 }));
@@ -265,7 +273,10 @@ describe("the clip storyboard pause", () => {
     expect(row.model).toBe("veo-test");
     // Planning time already on the row is kept, so cost meters see the whole job.
     expect(row.durationMs ?? 0).toBeGreaterThanOrEqual(1_200);
-    expect(state.usage).toEqual([{ tenantId: tenant.tenantId, funding: "credit" }]);
+    expect(state.usage).toEqual([
+      // Uncataloged test model → unknown cost (undefined), never guessed.
+      { tenantId: tenant.tenantId, funding: "credit", costPaise: undefined },
+    ]);
   });
 
   it("still splits the shots a declined review was funded for", async () => {
@@ -285,8 +296,11 @@ describe("the clip storyboard pause", () => {
     // Planned in memory and rendered in one pass, so nothing was ever awaiting
     // review and no plan was parked on the row.
     expect(row.storyboard).toBeNull();
-    // One usage row per funded unit.
+    // One usage row per funded unit. The render's actual cost lives on the
+    // FIRST row only; supplemental unit rows are explicitly 0 so they never
+    // read as "unknown cost" in the admin report.
     expect(state.usage).toHaveLength(3);
+    expect(state.usage.slice(1).map((u) => u.costPaise)).toEqual([0, 0]);
   });
 
   it("refunds every funded shot when the render fails", async () => {

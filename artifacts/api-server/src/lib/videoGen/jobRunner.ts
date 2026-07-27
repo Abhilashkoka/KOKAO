@@ -8,6 +8,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { ObjectStorageService, ObjectNotFoundError } from "../objectStorage";
 import { recordUsage } from "../usage";
+import { computeVideoCostPaise } from "../aiCost";
 import { refundCredits } from "../credits";
 import { logger } from "../logger";
 import { generateVideo, VideoGenNotConfiguredError, VideoGenProviderError } from "./index";
@@ -635,7 +636,7 @@ async function executeVideoJob(
     // Quality gate: never deliver (or charge for) a broken render. A failure
     // here throws VideoGenProviderError and lands in the refund path below.
     onStage("Running quality checks");
-    await verifyRenderedVideo(buffer, qa);
+    const { durationSec: clipDurationSec } = await verifyRenderedVideo(buffer, qa);
 
     onStage("Saving to your library");
     const videoPath = await uploadToStorage(job.tenantId, buffer, "video/mp4");
@@ -664,19 +665,35 @@ async function executeVideoJob(
     // Multi-unit jobs (character story videos: one unit per scene) meter one
     // usage row per unit so quota accounting matches what was reserved.
     const units = videoJobUnits(job.engine, job.options);
+    const usageModel = model ?? `slideshow/${job.sourceImagePaths?.length ?? 0}-images`;
+    const usageProvider = provider ?? "ffmpeg";
+    // Actual provider cost from the admin price catalog ($/second of output
+    // when priced per second, else flat $/video). Best-effort: a lookup
+    // failure or an uncataloged model stores NULL (unknown), never a guess,
+    // and must never fail the job itself.
+    const costPaise = await computeVideoCostPaise({
+      provider: usageProvider,
+      model: usageModel,
+      durationSec: clipDurationSec,
+    }).catch(() => null);
     await recordUsage(job.tenantId, "video", {
       funding,
       durationMs,
       responseBytes: buffer.length,
-      model: model ?? `slideshow/${job.sourceImagePaths?.length ?? 0}-images`,
-      provider: provider ?? "ffmpeg",
+      model: usageModel,
+      provider: usageProvider,
       requestBytes: job.prompt ? Buffer.byteLength(job.prompt) : 0,
+      ...(costPaise !== null ? { costPaise } : {}),
     });
     for (let i = 1; i < units; i++) {
       await recordUsage(job.tenantId, "video", {
         funding,
         model: model ?? undefined,
         provider: provider ?? undefined,
+        // The whole render's actual cost sits on the FIRST usage row;
+        // supplemental unit rows cost 0 so cost reports never mistake them
+        // for events with an unknown (uncataloged) cost.
+        costPaise: 0,
       });
     }
   } catch (error) {

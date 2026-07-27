@@ -2237,10 +2237,13 @@ function AiCostReportCard() {
               <div className="rounded-md border p-3">
                 <div className="text-xs text-muted-foreground">Generations</div>
                 <div className="text-lg font-semibold" data-testid="text-summary-generations">
-                  {report.summary.captionCount + report.summary.imageCount}
+                  {report.summary.captionCount +
+                    report.summary.imageCount +
+                    report.summary.videoCount}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {report.summary.captionCount} captions, {report.summary.imageCount} images
+                  {report.summary.captionCount} captions, {report.summary.imageCount} images,{" "}
+                  {report.summary.videoCount} videos
                   {report.summary.unknownCount > 0
                     ? ` · ${report.summary.unknownCount} unknown cost`
                     : ""}
@@ -2249,7 +2252,7 @@ function AiCostReportCard() {
             </div>
             {report.tenants.length === 0 ? (
               <p className="text-sm text-muted-foreground" data-testid="text-no-report-rows">
-                No caption or image usage recorded for this month.
+                No caption, image, or video usage recorded for this month.
               </p>
             ) : (
               <div className="overflow-x-auto">
@@ -2261,6 +2264,8 @@ function AiCostReportCard() {
                       <th className="py-2 pr-3 font-medium text-right">Caption cost (avg)</th>
                       <th className="py-2 pr-3 font-medium text-right">Images</th>
                       <th className="py-2 pr-3 font-medium text-right">Image cost (avg)</th>
+                      <th className="py-2 pr-3 font-medium text-right">Videos</th>
+                      <th className="py-2 pr-3 font-medium text-right">Video cost (avg)</th>
                       <th className="py-2 pr-3 font-medium text-right">Actual cost</th>
                       <th className="py-2 pr-3 font-medium text-right">Displayed spend</th>
                       <th className="py-2 pr-3 font-medium text-right">Margin</th>
@@ -2269,15 +2274,19 @@ function AiCostReportCard() {
                   </thead>
                   <tbody>
                     {report.tenants.map((t) => {
-                      const unknown = t.unknownCaptionCount + t.unknownImageCount;
+                      const unknown =
+                        t.unknownCaptionCount + t.unknownImageCount + t.unknownVideoCount;
                       const margin = t.displaySpendPaise - t.totalCostPaise;
                       // Averages cover only events with a known cost.
                       const knownCaptions = t.captionCount - t.unknownCaptionCount;
                       const knownImages = t.imageCount - t.unknownImageCount;
+                      const knownVideos = t.videoCount - t.unknownVideoCount;
                       const avgCaption =
                         knownCaptions > 0 ? Math.round(t.captionCostPaise / knownCaptions) : null;
                       const avgImage =
                         knownImages > 0 ? Math.round(t.imageCostPaise / knownImages) : null;
+                      const avgVideo =
+                        knownVideos > 0 ? Math.round(t.videoCostPaise / knownVideos) : null;
                       return (
                         <tr
                           key={t.tenantId}
@@ -2304,6 +2313,14 @@ function AiCostReportCard() {
                             <span className="text-xs text-muted-foreground">
                               {" "}
                               ({avgImage !== null ? paiseToInr(avgImage) : "—"})
+                            </span>
+                          </td>
+                          <td className="py-2 pr-3 text-right">{t.videoCount}</td>
+                          <td className="py-2 pr-3 text-right">
+                            {paiseToInr(t.videoCostPaise)}
+                            <span className="text-xs text-muted-foreground">
+                              {" "}
+                              ({avgVideo !== null ? paiseToInr(avgVideo) : "—"})
                             </span>
                           </td>
                           <td className="py-2 pr-3 text-right">{paiseToInr(t.totalCostPaise)}</td>
@@ -2337,6 +2354,7 @@ function AiCostReportCard() {
                         <th className="py-2 pr-3 font-medium">Month</th>
                         <th className="py-2 pr-3 font-medium text-right">Captions</th>
                         <th className="py-2 pr-3 font-medium text-right">Images</th>
+                        <th className="py-2 pr-3 font-medium text-right">Videos</th>
                         <th className="py-2 pr-3 font-medium text-right">Actual cost</th>
                         <th className="py-2 pr-3 font-medium text-right">Displayed spend</th>
                         <th className="py-2 pr-3 font-medium text-right">Margin</th>
@@ -2357,6 +2375,7 @@ function AiCostReportCard() {
                             <td className="py-2 pr-3 font-medium">{m.month}</td>
                             <td className="py-2 pr-3 text-right">{m.captionCount}</td>
                             <td className="py-2 pr-3 text-right">{m.imageCount}</td>
+                            <td className="py-2 pr-3 text-right">{m.videoCount}</td>
                             <td className="py-2 pr-3 text-right">
                               {paiseToInr(m.totalCostPaise)}
                             </td>

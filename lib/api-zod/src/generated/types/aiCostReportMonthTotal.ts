@@ -11,6 +11,7 @@ export interface AiCostReportMonthTotal {
   month: string;
   captionCount: number;
   imageCount: number;
+  videoCount: number;
   /** Sum of known per-event costs, in paise. */
   totalCostPaise: number;
   /** What the current tenant-facing rates would display for this volume, in paise. */

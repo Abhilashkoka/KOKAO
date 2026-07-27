@@ -161,6 +161,28 @@ export async function computeImageCostPaise(args: {
 }
 
 /**
+ * Cost of one video generation in paise, or null when unknown.
+ * Per-second when the price row has a $/second rate AND the caller measured
+ * the output duration; otherwise the flat per-video price. Never guessed.
+ */
+export async function computeVideoCostPaise(args: {
+  provider: string;
+  model: string;
+  /** Measured output clip length in seconds (ffprobe), not wall-clock time. */
+  durationSec?: number | null;
+}): Promise<number | null> {
+  const price = await findPrice("video", args.provider, args.model);
+  if (!price) return null;
+  const { usdToInrPaise } = await getAiCostConfig();
+  const durationSec = args.durationSec ?? null;
+  if (price.usdPerSecond !== null && durationSec !== null && durationSec > 0) {
+    return usdToPaise(durationSec * price.usdPerSecond, usdToInrPaise);
+  }
+  if (price.usdPerVideo === null) return null;
+  return usdToPaise(price.usdPerVideo, usdToInrPaise);
+}
+
+/**
  * Best-effort flat per-image price in paise for each candidate, keyed by the
  * caller's id. One query for the whole price table rather than one per
  * candidate, because this runs while choosing a provider.

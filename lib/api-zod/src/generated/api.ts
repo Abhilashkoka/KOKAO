@@ -1916,6 +1916,7 @@ export const AdminGetAiCostReportResponse = zod.object({
   "month": zod.string().describe('Month, YYYY-MM (UTC).'),
   "captionCount": zod.number(),
   "imageCount": zod.number(),
+  "videoCount": zod.number(),
   "totalCostPaise": zod.number().describe('Sum of known per-event costs, in paise.'),
   "displaySpendPaise": zod.number().describe('What the current tenant-facing rates would display for this volume, in paise.'),
   "unknownCount": zod.number().describe('Events in the month with no computed cost.')
@@ -1924,6 +1925,7 @@ export const AdminGetAiCostReportResponse = zod.object({
   "month": zod.string().describe('Month, YYYY-MM (UTC).'),
   "captionCount": zod.number(),
   "imageCount": zod.number(),
+  "videoCount": zod.number(),
   "totalCostPaise": zod.number().describe('Sum of known per-event costs, in paise.'),
   "displaySpendPaise": zod.number().describe('What the current tenant-facing rates would display for this volume, in paise.'),
   "unknownCount": zod.number().describe('Events in the month with no computed cost.')
@@ -1934,12 +1936,15 @@ export const AdminGetAiCostReportResponse = zod.object({
   "email": zod.string().nullable(),
   "captionCount": zod.number(),
   "imageCount": zod.number(),
+  "videoCount": zod.number(),
   "captionCostPaise": zod.number().describe('Sum of known caption costs, in paise.'),
   "imageCostPaise": zod.number().describe('Sum of known image costs, in paise.'),
+  "videoCostPaise": zod.number().describe('Sum of known video costs, in paise.'),
   "totalCostPaise": zod.number(),
   "unknownCaptionCount": zod.number().describe('Caption events with no computed cost (unknown model or unset rate).'),
   "unknownImageCount": zod.number(),
-  "displaySpendPaise": zod.number().describe('What the tenant-facing \"AI amount spent\" rates would show for the same volume (fee included), for margin comparison.')
+  "unknownVideoCount": zod.number().describe('Video events with no computed cost (uncataloged model or rows predating video costing).'),
+  "displaySpendPaise": zod.number().describe('What the tenant-facing \"AI amount spent\" rates would show for the same volume (fee included), for margin comparison. Videos have no display rate yet and add nothing here.')
 }).describe('One tenant\'s actual AI cost for the reporting month.'))
 })
 

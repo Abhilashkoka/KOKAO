@@ -17,14 +17,19 @@ export interface AiCostReportTenantRow {
   email: string | null;
   captionCount: number;
   imageCount: number;
+  videoCount: number;
   /** Sum of known caption costs, in paise. */
   captionCostPaise: number;
   /** Sum of known image costs, in paise. */
   imageCostPaise: number;
+  /** Sum of known video costs, in paise. */
+  videoCostPaise: number;
   totalCostPaise: number;
   /** Caption events with no computed cost (unknown model or unset rate). */
   unknownCaptionCount: number;
   unknownImageCount: number;
-  /** What the tenant-facing "AI amount spent" rates would show for the same volume (fee included), for margin comparison. */
+  /** Video events with no computed cost (uncataloged model or rows predating video costing). */
+  unknownVideoCount: number;
+  /** What the tenant-facing "AI amount spent" rates would show for the same volume (fee included), for margin comparison. Videos have no display rate yet and add nothing here. */
   displaySpendPaise: number;
 }

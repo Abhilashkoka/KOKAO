@@ -110,7 +110,7 @@ async function frameLuma(dir: string, seekSec: number, index: number): Promise<n
 export async function verifyRenderedVideo(
   video: Buffer,
   expectations: VideoQaExpectations = {},
-): Promise<void> {
+): Promise<{ durationSec: number }> {
   const label = expectations.label ?? "video";
   const dir = await mkdtemp(join(tmpdir(), "kokao-qa-"));
   try {
@@ -175,6 +175,7 @@ export async function verifyRenderedVideo(
     }
 
     logger.debug({ label, durationSec }, "Video passed post-render QA");
+    return { durationSec };
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
