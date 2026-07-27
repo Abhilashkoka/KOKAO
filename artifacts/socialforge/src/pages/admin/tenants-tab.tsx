@@ -17,6 +17,7 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { CollapsibleCardHeader } from "@/components/ui/collapsible-card-header";
 import {
   Dialog,
   DialogContent,
@@ -243,6 +244,7 @@ export function TenantsTab() {
   const { data: planCatalog } = useListPlans();
   const updatePlan = useAdminUpdateTenantPlan();
   const grantCredits = useAdminGrantCredits();
+  const [tenantsOpen, setTenantsOpen] = useState(true);
   const [grantTarget, setGrantTarget] = useState<{ id: number; name: string } | null>(null);
   const [planOverrideConfirm, setPlanOverrideConfirm] = useState<{
     tenantId: number;
@@ -365,12 +367,14 @@ export function TenantsTab() {
   return (
     <div className="space-y-8">
       <Card>
-        <CardHeader>
-          <CardTitle>Tenants</CardTitle>
-          <CardDescription>
-            Every workspace on the platform. Change a plan to override quotas.
-          </CardDescription>
-        </CardHeader>
+        <CollapsibleCardHeader
+          title="Tenants"
+          description="Every workspace on the platform. Change a plan to override quotas."
+          open={tenantsOpen}
+          onToggle={() => setTenantsOpen((o) => !o)}
+          testId="toggle-tenants-card"
+        />
+        {tenantsOpen && (
         <CardContent>
           {tenantsLoading ? (
             <div className="space-y-3">
@@ -518,6 +522,7 @@ export function TenantsTab() {
             </div>
           )}
         </CardContent>
+        )}
       </Card>
 
       <SeatRequestsCard />
