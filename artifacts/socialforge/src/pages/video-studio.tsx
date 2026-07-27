@@ -100,6 +100,7 @@ import {
 } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { SavedVisualPickerDialog } from "@/components/saved-visuals";
+import { VoiceNoteButton } from "@/components/voice-note-button";
 import { VIDEO_TOPIC_TEMPLATES } from "@/lib/viral-templates";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { useFeatureFlags } from "@/lib/features";
@@ -752,13 +753,20 @@ export function VideoStudioPage() {
         <CardContent className="space-y-5">
           {engine !== "slideshow" && (
             <div className="space-y-2">
-              <Label htmlFor="video-prompt">
-                {engine === "text_to_video"
-                  ? "Describe your video"
-                  : engine === "topic_to_video"
-                    ? "What's your video about?"
-                    : "Motion hint (optional)"}
-              </Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="video-prompt">
+                  {engine === "text_to_video"
+                    ? "Describe your video"
+                    : engine === "topic_to_video"
+                      ? "What's your video about?"
+                      : "Motion hint (optional)"}
+                </Label>
+                <VoiceNoteButton
+                  testId="button-voice-video-prompt"
+                  onTranscript={(text) => setPrompt((prev) => (prev ? `${prev} ${text}` : text))}
+                  disabled={generateVideo.isPending || busy}
+                />
+              </div>
               <Textarea
                 id="video-prompt"
                 data-testid="input-video-prompt"
@@ -868,7 +876,16 @@ export function VideoStudioPage() {
                     onManage={() => setCharactersOpen(true)}
                   />
                   <div className="space-y-2">
-                    <Label htmlFor="wardrobe-notes">Costume changes (optional)</Label>
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="wardrobe-notes">Costume changes (optional)</Label>
+                      <VoiceNoteButton
+                        testId="button-voice-wardrobe-notes"
+                        onTranscript={(text) =>
+                          setWardrobeNotes((prev) => (prev ? `${prev} ${text}` : text))
+                        }
+                        disabled={generateVideo.isPending || busy}
+                      />
+                    </div>
                     <Input
                       id="wardrobe-notes"
                       data-testid="input-wardrobe-notes"
@@ -1166,7 +1183,16 @@ export function VideoStudioPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               {engine === "slideshow" ? (
                 <div className="space-y-2">
-                  <Label htmlFor="overlay-text">Caption on video (optional)</Label>
+                  <div className="flex items-center justify-between gap-2">
+                    <Label htmlFor="overlay-text">Caption on video (optional)</Label>
+                    <VoiceNoteButton
+                      testId="button-voice-overlay-text"
+                      onTranscript={(text) =>
+                        setOverlayText((prev) => (prev ? `${prev} ${text}` : text))
+                      }
+                      disabled={generateVideo.isPending || busy}
+                    />
+                  </div>
                   <Input
                     id="overlay-text"
                     data-testid="input-overlay-text"
@@ -1528,7 +1554,16 @@ export function VideoStudioPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="save-caption">Caption (optional)</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="save-caption">Caption (optional)</Label>
+                <VoiceNoteButton
+                  testId="button-voice-save-caption"
+                  onTranscript={(text) =>
+                    setSaveCaption((prev) => (prev ? `${prev} ${text}` : text))
+                  }
+                  disabled={saveToLibrary.isPending}
+                />
+              </div>
               <Textarea
                 id="save-caption"
                 value={saveCaption}
@@ -1913,12 +1948,30 @@ function StoryboardReview({
                 )}
                 {narrated ? (
                   <>
-                    <Label
-                      htmlFor={`narration-${scene.id}`}
-                      className="text-xs text-muted-foreground"
-                    >
-                      What's said
-                    </Label>
+                    <div className="flex items-center justify-between gap-2">
+                      <Label
+                        htmlFor={`narration-${scene.id}`}
+                        className="text-xs text-muted-foreground"
+                      >
+                        What's said
+                      </Label>
+                      <VoiceNoteButton
+                        testId={`button-voice-narration-${scene.id}`}
+                        onTranscript={(text) =>
+                          setDrafts((d) => {
+                            const prev = d[scene.id]?.text ?? scene.text;
+                            return {
+                              ...d,
+                              [scene.id]: {
+                                ...d[scene.id],
+                                text: prev ? `${prev} ${text}` : text,
+                              },
+                            };
+                          })
+                        }
+                        disabled={rolling || workingOn}
+                      />
+                    </div>
                     <Textarea
                       id={`narration-${scene.id}`}
                       rows={2}
@@ -1941,13 +1994,31 @@ function StoryboardReview({
                     </p>
                   )
                 )}
-                <Label htmlFor={`shot-${scene.id}`} className="sr-only">
-                  {slides
-                    ? `Caption for photo ${i + 1}`
-                    : source === "photo"
-                      ? "What the photo should do"
-                      : `What shot ${i + 1} shows`}
-                </Label>
+                <div className="flex items-center justify-end gap-2">
+                  <Label htmlFor={`shot-${scene.id}`} className="sr-only">
+                    {slides
+                      ? `Caption for photo ${i + 1}`
+                      : source === "photo"
+                        ? "What the photo should do"
+                        : `What shot ${i + 1} shows`}
+                  </Label>
+                  <VoiceNoteButton
+                    testId={`button-voice-shot-${scene.id}`}
+                    onTranscript={(text) =>
+                      setDrafts((d) => {
+                        const prev = d[scene.id]?.visual ?? scene.visual;
+                        return {
+                          ...d,
+                          [scene.id]: {
+                            ...d[scene.id],
+                            visual: prev ? `${prev} ${text}` : text,
+                          },
+                        };
+                      })
+                    }
+                    disabled={rolling || workingOn}
+                  />
+                </div>
                 <Textarea
                   id={`shot-${scene.id}`}
                   rows={3}
@@ -2073,7 +2144,16 @@ function StoryboardReview({
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="add-scene-text">What's said</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="add-scene-text">What's said</Label>
+                <VoiceNoteButton
+                  testId="button-voice-add-scene-text"
+                  onTranscript={(text) =>
+                    setAddText((prev) => (prev ? `${prev} ${text}` : text))
+                  }
+                  disabled={insertScene.isPending}
+                />
+              </div>
               <Textarea
                 id="add-scene-text"
                 rows={2}
@@ -2085,7 +2165,16 @@ function StoryboardReview({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="add-scene-visual">What it shows (optional)</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="add-scene-visual">What it shows (optional)</Label>
+                <VoiceNoteButton
+                  testId="button-voice-add-scene-visual"
+                  onTranscript={(text) =>
+                    setAddVisual((prev) => (prev ? `${prev} ${text}` : text))
+                  }
+                  disabled={insertScene.isPending}
+                />
+              </div>
               <Textarea
                 id="add-scene-visual"
                 rows={2}
@@ -2592,7 +2681,16 @@ function CharacterManagerDialog({
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="character-description">Appearance</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="character-description">Appearance</Label>
+              <VoiceNoteButton
+                testId="button-voice-character-description"
+                onTranscript={(text) =>
+                  setDescription((prev) => (prev ? `${prev} ${text}` : text))
+                }
+                disabled={uploading || createCharacter.isPending}
+              />
+            </div>
             <Textarea
               id="character-description"
               data-testid="input-character-description"

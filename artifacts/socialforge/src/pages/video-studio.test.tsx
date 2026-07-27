@@ -32,6 +32,8 @@ const mockState: {
   styleProfiles: any[];
   storyboardEdits: any[];
   approvals: number[];
+  transcript: string;
+  transcribeError: any;
 } = {
   lastGenerateVars: null,
   generateError: null,
@@ -42,7 +44,36 @@ const mockState: {
   styleProfiles: [],
   storyboardEdits: [],
   approvals: [],
+  transcript: "",
+  transcribeError: null,
 };
+
+// Voice notes: a fake MediaRecorder that yields one non-empty chunk on stop,
+// so the VoiceNoteButton flow (record -> stop -> transcribe) runs in jsdom.
+class FakeMediaRecorder {
+  static isTypeSupported = () => true;
+  stream: any;
+  state = "inactive";
+  mimeType = "audio/webm";
+  ondataavailable: ((e: any) => void) | null = null;
+  onstop: (() => void) | null = null;
+  constructor(stream: any) {
+    this.stream = stream;
+  }
+  start() {
+    this.state = "recording";
+  }
+  stop() {
+    this.state = "inactive";
+    this.ondataavailable?.({ data: new Blob(["voice"], { type: "audio/webm" }) });
+    this.onstop?.();
+  }
+}
+(globalThis as any).MediaRecorder = FakeMediaRecorder;
+Object.defineProperty(navigator, "mediaDevices", {
+  configurable: true,
+  value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [] }) },
+});
 
 const toastSpy = vi.fn();
 const cancelVideoJobSpy = vi.fn();
@@ -100,6 +131,16 @@ vi.mock("@workspace/api-client-react", async () => {
       },
     }),
     cancelVideoJob: (...args: unknown[]) => cancelVideoJobSpy(...args),
+    useTranscribeAudio: () => ({
+      isPending: false,
+      mutate: (_vars: unknown, opts: any) => {
+        if (mockState.transcribeError) {
+          opts?.onError?.(mockState.transcribeError);
+          return;
+        }
+        opts?.onSuccess?.({ text: mockState.transcript });
+      },
+    }),
     useListCharacters: () => ({ data: mockState.characters }),
     useListBrandKits: () => ({ data: mockState.brandKits }),
     useListVideoStyles: () => ({ data: mockState.styleProfiles }),
@@ -220,6 +261,8 @@ beforeEach(() => {
   mockState.styleProfiles = [];
   mockState.storyboardEdits = [];
   mockState.approvals = [];
+  mockState.transcript = "";
+  mockState.transcribeError = null;
   toastSpy.mockClear();
   cancelVideoJobSpy.mockReset().mockResolvedValue({ id: 42, status: "cancelled" });
   cleanup();
@@ -765,5 +808,183 @@ describe("Video Studio", () => {
     renderPage();
     fireEvent.click(screen.getByTestId("job-card-9"));
     expect(screen.getByTestId("text-job-stage").textContent).toBe("Rendering your video…");
+  });
+});
+
+/** Record then stop on the same voice button, driving the fake recorder. */
+async function dictate(user: ReturnType<typeof userEvent.setup>, testId: string) {
+  await user.click(screen.getByTestId(testId));
+  await waitFor(() =>
+    expect(screen.getByTestId(testId).textContent).toContain("Stop recording"),
+  );
+  await user.click(screen.getByTestId(testId));
+}
+
+describe("Video Studio voice notes", () => {
+  it("fills the brief from a voice note on every engine", async () => {
+    mockState.transcript = "a sunrise over the mountains";
+    const user = userEvent.setup();
+    for (const tab of ["tab-text-to-video", "tab-topic-to-video", "tab-image-to-video"]) {
+      cleanup();
+      renderPage();
+      await user.click(screen.getByTestId(tab));
+      await dictate(user, "button-voice-video-prompt");
+      await waitFor(() =>
+        expect((screen.getByTestId("input-video-prompt") as HTMLTextAreaElement).value).toBe(
+          "a sunrise over the mountains",
+        ),
+      );
+    }
+  });
+
+  it("appends the transcript after existing typed text instead of overwriting it", async () => {
+    mockState.transcript = "with soft morning light";
+    renderPage();
+    const user = userEvent.setup();
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "A calm ocean at dusk" },
+    });
+    await dictate(user, "button-voice-video-prompt");
+    await waitFor(() =>
+      expect((screen.getByTestId("input-video-prompt") as HTMLTextAreaElement).value).toBe(
+        "A calm ocean at dusk with soft morning light",
+      ),
+    );
+  });
+
+  it("shows the failure toast and leaves the field untouched when transcription errors", async () => {
+    mockState.transcribeError = new Error("Speech-to-text is not configured");
+    renderPage();
+    const user = userEvent.setup();
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "A calm ocean at dusk" },
+    });
+    await dictate(user, "button-voice-video-prompt");
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Transcription failed",
+          description: "Speech-to-text is not configured",
+          variant: "destructive",
+        }),
+      ),
+    );
+    expect((screen.getByTestId("input-video-prompt") as HTMLTextAreaElement).value).toBe(
+      "A calm ocean at dusk",
+    );
+  });
+
+  it("dictates the slideshow overlay caption", async () => {
+    mockState.transcript = "Summer collection twenty six";
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-slideshow"));
+    await dictate(user, "button-voice-overlay-text");
+    await waitFor(() =>
+      expect((screen.getByTestId("input-overlay-text") as HTMLInputElement).value).toBe(
+        "Summer collection twenty six",
+      ),
+    );
+  });
+
+  it("dictates wardrobe notes in topic character mode", async () => {
+    mockState.transcript = "switch to gym wear halfway";
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    await user.click(screen.getByTestId("toggle-visuals-character"));
+    await dictate(user, "button-voice-wardrobe-notes");
+    await waitFor(() =>
+      expect((screen.getByTestId("input-wardrobe-notes") as HTMLInputElement).value).toBe(
+        "switch to gym wear halfway",
+      ),
+    );
+  });
+
+  it("dictates a scene's narration and visual in the storyboard review, appending to each", async () => {
+    mockState.activeJob = pausedJob(narratedBoard());
+    mockState.jobs = [mockState.activeJob];
+    mockState.transcript = "spoken addition";
+    renderPage();
+    const user = userEvent.setup();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+    await waitFor(() => expect(screen.getByTestId("storyboard-review")).toBeTruthy());
+    await dictate(user, "button-voice-narration-s1");
+    await waitFor(() =>
+      expect((screen.getByTestId("input-narration-s1") as HTMLTextAreaElement).value).toBe(
+        "Line 1 spoken addition",
+      ),
+    );
+    await dictate(user, "button-voice-shot-s1");
+    await waitFor(() =>
+      expect((screen.getByTestId("input-shot-s1") as HTMLTextAreaElement).value).toBe(
+        "wide shot 1 spoken addition",
+      ),
+    );
+  });
+
+  it("dictates both fields of the add-scene dialog", async () => {
+    mockState.activeJob = pausedJob(narratedBoard());
+    mockState.jobs = [mockState.activeJob];
+    mockState.transcript = "a brand new line";
+    renderPage();
+    const user = userEvent.setup();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+    await waitFor(() => expect(screen.getByTestId("storyboard-review")).toBeTruthy());
+    await user.click(screen.getByTestId("button-add-scene-end"));
+    await dictate(user, "button-voice-add-scene-text");
+    await waitFor(() =>
+      expect((screen.getByTestId("input-add-scene-text") as HTMLTextAreaElement).value).toBe(
+        "a brand new line",
+      ),
+    );
+    await dictate(user, "button-voice-add-scene-visual");
+    await waitFor(() =>
+      expect((screen.getByTestId("input-add-scene-visual") as HTMLTextAreaElement).value).toBe(
+        "a brand new line",
+      ),
+    );
+  });
+
+  it("dictates the character appearance description", async () => {
+    mockState.transcript = "a cheerful woman in her late twenties";
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    await user.click(screen.getByTestId("toggle-visuals-character"));
+    await user.click(screen.getByTestId("button-manage-characters"));
+    await dictate(user, "button-voice-character-description");
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("input-character-description") as HTMLTextAreaElement).value,
+      ).toBe("a cheerful woman in her late twenties"),
+    );
+  });
+
+  it("dictates the save-to-library caption", async () => {
+    mockState.activeJob = {
+      id: 7,
+      engine: "text_to_video",
+      status: "succeeded",
+      prompt: "sunset",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      videoPath: "/objects/1/uploads/v.mp4",
+      thumbnailPath: "/objects/1/uploads/p.png",
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+    mockState.transcript = "golden hour vibes";
+    renderPage();
+    const user = userEvent.setup();
+    fireEvent.click(screen.getByTestId("job-card-7"));
+    await user.click(screen.getByTestId("button-save-video"));
+    await dictate(user, "button-voice-save-caption");
+    await waitFor(() =>
+      expect((document.getElementById("save-caption") as HTMLTextAreaElement).value).toBe(
+        "golden hour vibes",
+      ),
+    );
   });
 });

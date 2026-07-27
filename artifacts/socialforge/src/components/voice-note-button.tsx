@@ -8,10 +8,12 @@ import { Mic, Square } from "lucide-react";
 interface VoiceNoteButtonProps {
   onTranscript: (text: string) => void;
   disabled?: boolean;
+  /** Distinct test id when several voice buttons share a screen. */
+  testId?: string;
 }
 
 /** Record a short voice note and turn it into text via the transcribe API. */
-export function VoiceNoteButton({ onTranscript, disabled }: VoiceNoteButtonProps) {
+export function VoiceNoteButton({ onTranscript, disabled, testId = "button-voice-note" }: VoiceNoteButtonProps) {
   const { toast } = useToast();
   const transcribe = useTranscribeAudio();
   const [recording, setRecording] = useState(false);
@@ -88,7 +90,7 @@ export function VoiceNoteButton({ onTranscript, disabled }: VoiceNoteButtonProps
 
   if (transcribe.isPending) {
     return (
-      <Button type="button" variant="outline" size="sm" disabled data-testid="button-voice-note">
+      <Button type="button" variant="outline" size="sm" disabled data-testid={testId}>
         <RippleSpinner className="h-4 w-4 mr-2" />
         Transcribing...
       </Button>
@@ -101,7 +103,7 @@ export function VoiceNoteButton({ onTranscript, disabled }: VoiceNoteButtonProps
       variant="destructive"
       size="sm"
       onClick={stopRecording}
-      data-testid="button-voice-note"
+      data-testid={testId}
     >
       <Square className="h-4 w-4 mr-2" />
       Stop recording
@@ -113,7 +115,7 @@ export function VoiceNoteButton({ onTranscript, disabled }: VoiceNoteButtonProps
       size="sm"
       onClick={startRecording}
       disabled={disabled}
-      data-testid="button-voice-note"
+      data-testid={testId}
     >
       <Mic className="h-4 w-4 mr-2" />
       Voice note
