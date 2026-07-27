@@ -22,6 +22,8 @@ import {
   useAdminClearStockSourceKey,
   getAdminGetVideoGenSettingsQueryKey,
   useAdminGetTextGenSettings,
+  useAdminListTextGenModelPricing,
+  getAdminListTextGenModelPricingQueryKey,
   useAdminUpdateTextGenSettings,
   useAdminSetTextGenKey,
   useAdminClearTextGenKey,
@@ -1175,6 +1177,18 @@ function TextGenProviderCard() {
   const defaultModelValue = defaultModelInput ?? settings?.defaultModel ?? "";
   const isDraft = draftProvider !== null && draftProvider !== settings?.provider;
 
+  // Live provider pricing for the models being edited (works on unsaved
+  // drafts too). Fail-soft: unknown models simply show no price.
+  const pricingParams = { models: modelList.join(",") };
+  const { data: modelPricing } = useAdminListTextGenModelPricing(pricingParams, {
+    query: {
+      // Orval partial options drop the generated key, so pass it explicitly.
+      queryKey: getAdminListTextGenModelPricingQueryKey(pricingParams),
+      enabled: modelList.length > 0 && effectiveProvider === "openrouter",
+    },
+  });
+  const priceFor = (model: string) => modelPricing?.find((p) => p.model === model);
+
   const saveSelection = (provider: string) => {
     updateSettings.mutate(
       {
@@ -1268,6 +1282,16 @@ function TextGenProviderCard() {
 
   const showOpenRouterConfig = effectiveProvider === "openrouter";
 
+  /** "In $0.15 / Out $0.60" from live pricing; placeholders while loading. */
+  function formatModelPricing(
+    p: { inputPerMTokens?: number | null; outputPerMTokens?: number | null } | undefined,
+  ): string {
+    if (!p) return "…";
+    if (p.inputPerMTokens == null && p.outputPerMTokens == null) return "Pricing unavailable";
+    const fmt = (v: number | null | undefined) => (v == null ? "—" : `$${v}`);
+    return `In ${fmt(p.inputPerMTokens)} / Out ${fmt(p.outputPerMTokens)}`;
+  }
+
   return (
     <Card data-testid="card-text-gen-provider">
       <CardHeader>
@@ -1322,6 +1346,24 @@ function TextGenProviderCard() {
                     onChange={(e) => setModelsInput(e.target.value)}
                     data-testid="input-text-gen-models"
                   />
+                  {modelList.length > 0 && (
+                    <div className="w-96 space-y-0.5 pt-1" data-testid="list-text-gen-model-pricing">
+                      {modelList.map((m) => (
+                        <div
+                          key={m}
+                          className="flex items-baseline justify-between gap-3 text-xs"
+                        >
+                          <span className="font-mono truncate">{m}</span>
+                          <span className="shrink-0 text-muted-foreground">
+                            {formatModelPricing(priceFor(m))}
+                          </span>
+                        </div>
+                      ))}
+                      <p className="pt-1 text-xs text-muted-foreground">
+                        Live prices from openrouter.ai, USD per 1M tokens.
+                      </p>
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Default model</p>
@@ -1343,7 +1385,12 @@ function TextGenProviderCard() {
                       </SelectItem>
                       {modelList.map((m) => (
                         <SelectItem key={m} value={m}>
-                          {m}
+                          <span className="flex flex-col items-start">
+                            <span>{m}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {formatModelPricing(priceFor(m))}
+                            </span>
+                          </span>
                         </SelectItem>
                       ))}
                       {/* Keep a previously saved default selectable even if it

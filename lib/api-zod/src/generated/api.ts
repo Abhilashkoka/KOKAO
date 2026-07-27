@@ -1931,6 +1931,21 @@ export const AdminGetAiCostReportResponse = zod.object({
 
 
 /**
+ * @summary Live OpenRouter pricing for a list of model ids (superadmin only)
+ */
+export const AdminListTextGenModelPricingQueryParams = zod.object({
+  "models": zod.coerce.string().describe('Comma-separated OpenRouter model ids.')
+})
+
+export const AdminListTextGenModelPricingResponseItem = zod.object({
+  "model": zod.string(),
+  "inputPerMTokens": zod.number().nullable().describe('USD per 1M input (prompt) tokens.'),
+  "outputPerMTokens": zod.number().nullable().describe('USD per 1M output (completion) tokens.')
+})
+export const AdminListTextGenModelPricingResponse = zod.array(AdminListTextGenModelPricingResponseItem)
+
+
+/**
  * @summary Get the text generation provider selection (superadmin only)
  */
 export const AdminGetTextGenSettingsResponse = zod.object({
@@ -1997,7 +2012,12 @@ export const AdminClearTextGenKeyResponse = zod.object({
 export const ListAiModelsResponse = zod.object({
   "provider": zod.enum(['builtin', 'openrouter']),
   "models": zod.array(zod.string()),
-  "defaultModel": zod.string()
+  "defaultModel": zod.string(),
+  "pricing": zod.array(zod.object({
+  "model": zod.string(),
+  "inputPerMTokens": zod.number().nullable().describe('USD per 1M input (prompt) tokens.'),
+  "outputPerMTokens": zod.number().nullable().describe('USD per 1M output (completion) tokens.')
+})).optional().describe('Live provider pricing per model (OpenRouter provider only; omitted for the built-in provider). Prices are null when the provider\'s catalog does not list the model or is unreachable.')
 })
 
 

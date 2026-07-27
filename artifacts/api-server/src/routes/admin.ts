@@ -66,6 +66,7 @@ import {
   clearStoredOpenRouterKey,
   type TextGenProvider,
 } from "../lib/textGen";
+import { lookupOpenRouterPricing } from "../lib/openrouterCatalog";
 import {
   AdminUpdateTenantPlanBody,
   AdminUpdateTenantSuperadminBody,
@@ -1539,6 +1540,28 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
  */
 router.get("/admin/text-gen-settings", async (_req: Request, res: Response) => {
   res.json(await serializeTextGenSettings());
+});
+
+/**
+ * GET /admin/text-gen-model-pricing?models=a,b
+ * Live OpenRouter catalog pricing for the model ids being edited in the admin
+ * dashboard (works for unsaved drafts, unlike GET /ai/models).
+ */
+router.get("/admin/text-gen-model-pricing", async (req: Request, res: Response) => {
+  const raw = typeof req.query.models === "string" ? req.query.models : "";
+  // Every submitted id gets an entry back (null prices when unknown) so the
+  // UI never shows a permanent "loading" placeholder for a skipped model.
+  const models = [...new Set(raw.split(",").map((m) => m.trim()).filter(Boolean))];
+  if (models.length === 0) {
+    res.status(400).json({ error: "Provide at least one model id in ?models=" });
+    return;
+  }
+  const looked = await lookupOpenRouterPricing(models.slice(0, 200));
+  // Ids past the abuse cap still get explicit null-priced entries.
+  const rest = models
+    .slice(200)
+    .map((model) => ({ model, inputPerMTokens: null, outputPerMTokens: null }));
+  res.json([...looked, ...rest]);
 });
 
 /**

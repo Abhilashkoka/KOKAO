@@ -36,6 +36,9 @@ import { applyMadeWithWatermark } from "../lib/watermark";
 import {
   getTextGenClient,
   listTenantModelChoices,
+} from "../lib/textGen";
+import { lookupOpenRouterPricing } from "../lib/openrouterCatalog";
+import {
   TextGenNotConfiguredError,
   type TextGenClient,
 } from "../lib/textGen";
@@ -153,7 +156,14 @@ async function getTextGenOrRespond(
  * the ACTIVE platform-wide text generation provider.
  */
 router.get("/ai/models", async (_req: Request, res: Response) => {
-  res.json(await listTenantModelChoices());
+  const choices = await listTenantModelChoices();
+  // Decorate OpenRouter choices with live catalog pricing (fail-soft: null
+  // prices when the public catalog is unreachable).
+  if (choices.provider === "openrouter") {
+    res.json({ ...choices, pricing: await lookupOpenRouterPricing(choices.models) });
+    return;
+  }
+  res.json(choices);
 });
 
 /** Resolve the active brand payload for an optional brand id, or null. */

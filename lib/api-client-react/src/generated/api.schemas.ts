@@ -1098,10 +1098,26 @@ export const AiModelChoicesViewProvider = {
   openrouter: 'openrouter',
 } as const;
 
+export interface ModelPricingView {
+  model: string;
+  /**
+     * USD per 1M input (prompt) tokens.
+     * @nullable
+     */
+  inputPerMTokens: number | null;
+  /**
+     * USD per 1M output (completion) tokens.
+     * @nullable
+     */
+  outputPerMTokens: number | null;
+}
+
 export interface AiModelChoicesView {
   provider: AiModelChoicesViewProvider;
   models: string[];
   defaultModel: string;
+  /** Live provider pricing per model (OpenRouter provider only; omitted for the built-in provider). Prices are null when the provider's catalog does not list the model or is unreachable. */
+  pricing?: ModelPricingView[];
 }
 
 export interface AudioUploadInput {
@@ -4918,6 +4934,13 @@ export type AdminGetAiCostReportParams = {
  * @pattern ^\d{4}-\d{2}$
  */
 month?: string;
+};
+
+export type AdminListTextGenModelPricingParams = {
+/**
+ * Comma-separated OpenRouter model ids.
+ */
+models: string;
 };
 
 export type AdminListAuditLogsParams = {

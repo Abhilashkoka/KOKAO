@@ -1911,6 +1911,33 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/text-gen-model-pricing:
+    get:
+      operationId: adminListTextGenModelPricing
+      tags: [admin]
+      summary: Live OpenRouter pricing for a list of model ids (superadmin only)
+      parameters:
+        - name: models
+          in: query
+          required: true
+          description: Comma-separated OpenRouter model ids.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Per-model pricing (null when unknown)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ModelPricingView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/text-gen-settings:
     get:
       operationId: adminGetTextGenSettings
@@ -8858,6 +8885,26 @@ components:
             type: string
         defaultModel:
           type: string
+        pricing:
+          type: array
+          description: >-
+            Live provider pricing per model (OpenRouter provider only; omitted
+            for the built-in provider). Prices are null when the provider's
+            catalog does not list the model or is unreachable.
+          items:
+            $ref: "#/components/schemas/ModelPricingView"
+    ModelPricingView:
+      type: object
+      required: [model, inputPerMTokens, outputPerMTokens]
+      properties:
+        model:
+          type: string
+        inputPerMTokens:
+          type: ["number", "null"]
+          description: USD per 1M input (prompt) tokens.
+        outputPerMTokens:
+          type: ["number", "null"]
+          description: USD per 1M output (completion) tokens.
     AudioUploadInput:
       type: object
       required: [audio]

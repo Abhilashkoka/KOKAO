@@ -32,6 +32,16 @@ const BUILTIN_MODEL_LABELS: Record<string, string> = {
   "gpt-5.6-luna": "GPT-5.6 Luna (Fast)",
 };
 
+/** "In $0.15 / Out $0.60 per 1M tokens" from live provider pricing. */
+export function formatModelPrice(p: {
+  inputPerMTokens?: number | null;
+  outputPerMTokens?: number | null;
+}): string {
+  const fmt = (v: number | null | undefined) => (v == null ? "—" : `$${v}`);
+  if (p.inputPerMTokens == null && p.outputPerMTokens == null) return "Pricing unavailable";
+  return `In ${fmt(p.inputPerMTokens)} / Out ${fmt(p.outputPerMTokens)} per 1M tokens`;
+}
+
 export function SettingsPage() {
   const search = useSearch();
   const requestedTab = new URLSearchParams(search).get("tab");
@@ -138,11 +148,21 @@ export function SettingsPage() {
                 <Select value={aiModel} onValueChange={setAiModel}>
                   <SelectTrigger data-testid="select-ai-model"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {(modelChoices?.models ?? []).map((m) => (
-                      <SelectItem key={m} value={m}>
-                        {BUILTIN_MODEL_LABELS[m] ?? m}
-                      </SelectItem>
-                    ))}
+                    {(modelChoices?.models ?? []).map((m) => {
+                      const price = modelChoices?.pricing?.find((p) => p.model === m);
+                      return (
+                        <SelectItem key={m} value={m}>
+                          <span className="flex flex-col items-start">
+                            <span>{BUILTIN_MODEL_LABELS[m] ?? m}</span>
+                            {price && (
+                              <span className="text-xs text-muted-foreground">
+                                {formatModelPrice(price)}
+                              </span>
+                            )}
+                          </span>
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               </div>

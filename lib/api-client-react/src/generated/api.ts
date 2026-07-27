@@ -35,6 +35,7 @@ import type {
   AdminGetAiCostReportParams,
   AdminGrantCredits200,
   AdminListAuditLogsParams,
+  AdminListTextGenModelPricingParams,
   AdminSeatRequest,
   AdminStats,
   AdminSweepRunResult,
@@ -175,6 +176,7 @@ import type {
   MeProfile,
   MetaAppCredentialInput,
   MetaAppCredentialStatus,
+  ModelPricingView,
   MusicSearchResults,
   Notification,
   NotificationPolicy,
@@ -5302,6 +5304,90 @@ export function useAdminGetAiCostReport<TData = Awaited<ReturnType<typeof adminG
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getAdminGetAiCostReportQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminListTextGenModelPricingUrl = (params: AdminListTextGenModelPricingParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/text-gen-model-pricing?${stringifiedParams}` : `/api/admin/text-gen-model-pricing`
+}
+
+/**
+ * @summary Live OpenRouter pricing for a list of model ids (superadmin only)
+ */
+export const adminListTextGenModelPricing = async (params: AdminListTextGenModelPricingParams, options?: RequestInit): Promise<ModelPricingView[]> => {
+
+  return customFetch<ModelPricingView[]>(getAdminListTextGenModelPricingUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListTextGenModelPricingQueryKey = (params?: AdminListTextGenModelPricingParams,) => {
+    return [
+    `/api/admin/text-gen-model-pricing`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getAdminListTextGenModelPricingQueryOptions = <TData = Awaited<ReturnType<typeof adminListTextGenModelPricing>>, TError = ErrorType<ErrorEnvelope>>(params: AdminListTextGenModelPricingParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListTextGenModelPricing>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListTextGenModelPricingQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListTextGenModelPricing>>> = ({ signal }) => adminListTextGenModelPricing(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListTextGenModelPricing>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListTextGenModelPricingQueryResult = NonNullable<Awaited<ReturnType<typeof adminListTextGenModelPricing>>>
+export type AdminListTextGenModelPricingQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Live OpenRouter pricing for a list of model ids (superadmin only)
+ */
+
+export function useAdminListTextGenModelPricing<TData = Awaited<ReturnType<typeof adminListTextGenModelPricing>>, TError = ErrorType<ErrorEnvelope>>(
+ params: AdminListTextGenModelPricingParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListTextGenModelPricing>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListTextGenModelPricingQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
