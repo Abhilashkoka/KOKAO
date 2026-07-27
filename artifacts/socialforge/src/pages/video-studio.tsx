@@ -1325,6 +1325,23 @@ export function VideoStudioPage() {
                   </div>
                 </div>
                 <Progress value={stageProgress(activeJob)} />
+                {activeJob.aiPrompt && (
+                  <details className="rounded-lg border border-border bg-muted/40 px-3 py-2">
+                    <summary className="text-sm font-medium cursor-pointer select-none" data-testid="toggle-ai-prompt">
+                      Prompt sent to the AI
+                    </summary>
+                    <p
+                      className="mt-2 text-sm text-muted-foreground whitespace-pre-wrap"
+                      data-testid="text-ai-prompt"
+                    >
+                      {activeJob.aiPrompt}
+                    </p>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Your photo is sent along with this prompt, exactly as written — nothing is
+                      added or rewritten. To change the result, edit your prompt and generate again.
+                    </p>
+                  </details>
+                )}
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm text-muted-foreground" data-testid="text-video-job-elapsed">
                     {jobElapsed >= 60

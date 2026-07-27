@@ -12,7 +12,7 @@ import { isTransientStatus } from "./retry";
 import { VideoGenNotConfiguredError, VideoGenProviderError } from "./types";
 import type { SourceImage, VideoAspect, VideoGenInput, VideoGenResult } from "./types";
 
-export { VideoGenNotConfiguredError, VideoGenProviderError } from "./types";
+export { VideoGenNotConfiguredError, VideoGenProviderError, compiledClipPrompt } from "./types";
 export type { SourceImage, VideoAspect, VideoGenInput, VideoGenResult } from "./types";
 
 export const DEFAULT_VIDEO_GEN_PROVIDER = "replicate";

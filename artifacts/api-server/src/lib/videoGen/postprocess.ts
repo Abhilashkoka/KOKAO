@@ -155,6 +155,53 @@ export async function concatClips(clips: Buffer[]): Promise<Buffer> {
   }
 }
 
+/**
+ * Fit a user photo into the requested video frame WITHOUT cropping the
+ * subject: the photo is scaled to fit inside the frame and the leftover space
+ * is filled with a blurred, darkened copy of the same photo. Animate-photo
+ * providers otherwise reframe/crop a photo whose shape doesn't match the
+ * requested aspect — which is how faces get cut off — and normalizeVideo's
+ * cover-crop would do it again on the way out.
+ *
+ * Fail-soft: any error returns the ORIGINAL image, since a fitting hiccup
+ * must never fail a generation.
+ */
+export async function fitImageToAspect(
+  image: { buffer: Buffer; mimeType: string },
+  aspectRatio: VideoAspect,
+): Promise<{ buffer: Buffer; mimeType: string }> {
+  const { width, height } = ASPECT_DIMENSIONS[aspectRatio];
+  const dir = await mkdtemp(join(tmpdir(), "kokao-fit-image-"));
+  try {
+    await writeFile(join(dir, "in.img"), image.buffer);
+    await runFfmpeg(
+      [
+        "-y",
+        "-i",
+        "in.img",
+        "-filter_complex",
+        `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,` +
+          `crop=${width}:${height},boxblur=40,eq=brightness=-0.15[bg];` +
+          `[0:v]scale=${width}:${height}:force_original_aspect_ratio=decrease[fg];` +
+          `[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuvj420p`,
+        "-frames:v",
+        "1",
+        "-q:v",
+        "2",
+        "out.jpg",
+      ],
+      dir,
+    );
+    const out = await readFile(join(dir, "out.jpg"));
+    return out.length > 0 ? { buffer: out, mimeType: "image/jpeg" } : image;
+  } catch (error) {
+    logger.warn({ err: error }, "Image aspect fit failed; sending the original photo");
+    return image;
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 /** Whether the file has at least one audio stream (ffprobe; false on failure). */
 function probeHasAudio(file: string, cwd: string): Promise<boolean> {
   return new Promise((resolve) => {

@@ -4,6 +4,7 @@ import {
   VideoGenNotConfiguredError,
   VideoGenProviderError,
   VIDEO_GEN_TOTAL_DEADLINE_MS,
+  compiledClipPrompt,
   type VideoGenInput,
   type VideoGenResult,
 } from "../types";
@@ -46,7 +47,7 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
   // Most video models have no (or a very limited) duration parameter, so the
   // requested length is always baked into the prompt too — models that pace
   // action to the prompt benefit, others ignore it harmlessly.
-  const prompt = `${input.prompt.trim()}\n\nTarget clip length: about ${input.durationSec} seconds of continuous action, paced to fill the full duration.`;
+  const prompt = compiledClipPrompt(input.prompt, input.durationSec);
 
   if (model.includes("happyhorse")) {
     // Alibaba Happy Horse: reference images go in an "images" ARRAY (an

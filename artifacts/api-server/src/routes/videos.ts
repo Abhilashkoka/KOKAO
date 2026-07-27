@@ -30,7 +30,7 @@ import {
   refreshStoryboardScenePreview,
   STORYBOARD_REGENERATIONS_PER_SCENE,
 } from "../lib/videoGen/jobRunner";
-import { VideoGenProviderError } from "../lib/videoGen";
+import { VideoGenProviderError, compiledClipPrompt } from "../lib/videoGen";
 import { MAX_SLIDESHOW_IMAGES } from "../lib/videoGen/slideshow";
 import { clampSceneDuration, clipShotCount } from "../lib/videoGen/clipStoryboard";
 import { videoJobUnits } from "../lib/videoGen/units";
@@ -49,12 +49,30 @@ const router: IRouter = Router();
  * background job. Clients poll GET /ai/video-jobs/{id} until the job settles.
  */
 
+/** The exact clip prompt an animate-photo render sends (see serializeVideoJob). */
+function animatePhotoAiPrompt(job: VideoGeneration): string {
+  const scene = job.storyboard?.scenes[0];
+  if (job.storyboard && scene) {
+    return compiledClipPrompt(
+      scene.visual,
+      clampSceneDuration(job.storyboard, scene.durationSec),
+    );
+  }
+  return compiledClipPrompt(job.prompt ?? "", job.options?.durationSec ?? 5);
+}
+
 function serializeVideoJob(job: VideoGeneration) {
   return {
     id: job.id,
     engine: job.engine,
     status: job.status,
     prompt: job.prompt ?? null,
+    // Transparency: the exact prompt the video model receives. Storyboard
+    // engines show their per-scene prompts in the storyboard instead. When an
+    // animate-photo job HAS a storyboard, the render uses the (editable) scene
+    // prompt and its clamped length — so derive from those, never job.prompt,
+    // or the shown text could diverge from what was actually sent.
+    aiPrompt: job.engine === "image_to_video" ? animatePhotoAiPrompt(job) : null,
     sourceImagePaths: job.sourceImagePaths ?? [],
     aspectRatio: job.options?.aspectRatio ?? "9:16",
     videoPath: job.videoPath ?? null,

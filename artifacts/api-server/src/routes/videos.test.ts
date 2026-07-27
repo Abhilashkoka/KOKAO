@@ -936,6 +936,50 @@ describe("PATCH /api/ai/video-jobs/:jobId/storyboard", () => {
   });
 });
 
+describe("animate-photo aiPrompt transparency", () => {
+  const suffix = (sec: number) =>
+    `\n\nTarget clip length: about ${sec} seconds of continuous action, paced to fill the full duration.`;
+
+  it("mirrors the exact provider prompt for a direct job and a storyboard job", async () => {
+    const tenant = await newTenant();
+    // (a) Direct job (no storyboard): user prompt + options duration.
+    const direct = await seedPausedJob(tenant.tenantId, {
+      engine: "image_to_video",
+      status: "processing",
+      storyboard: null,
+      storyboardExpiresAt: null,
+      prompt: "make her wave",
+      options: { aspectRatio: "9:16", durationSec: 8 },
+    });
+    // (b) Storyboard job with an edited scene prompt and an out-of-bounds
+    // duration: aiPrompt must track the scene (what actually renders) with
+    // the duration clamped the same way the renderer clamps it.
+    const board = clipBoardFixture(tenant.tenantId, "photo", 1);
+    board.scenes[0]!.visual = "she slowly smiles at the camera";
+    board.scenes[0]!.durationSec = 99;
+    const withBoard = await seedPausedJob(
+      tenant.tenantId,
+      { engine: "image_to_video", prompt: "original brief" },
+      board,
+    );
+
+    const res = await request(app).get("/api/ai/video-jobs");
+    expect(res.status).toBe(200);
+    const byId = new Map(res.body.map((j: { id: number; aiPrompt: string | null }) => [j.id, j]));
+    expect((byId.get(direct.id) as { aiPrompt: string }).aiPrompt).toBe(
+      `make her wave${suffix(8)}`,
+    );
+    expect((byId.get(withBoard.id) as { aiPrompt: string }).aiPrompt).toBe(
+      `she slowly smiles at the camera${suffix(10)}`,
+    );
+    // Other engines expose per-scene prompts via the storyboard instead.
+    const topic = await seedPausedJob(tenant.tenantId);
+    const res2 = await request(app).get("/api/ai/video-jobs");
+    const topicJob = res2.body.find((j: { id: number }) => j.id === topic.id);
+    expect(topicJob.aiPrompt).toBeNull();
+  });
+});
+
 describe("POST /api/ai/video-jobs/:jobId/storyboard/scenes", () => {
   it("appends a scene at the end, draws its preview and records the extra unit", async () => {
     // Pro: a quota-funded insert needs quota headroom for the extra unit

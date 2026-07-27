@@ -72,5 +72,6 @@
 - [Topic-video uniformity](topic-video-uniformity.md) — costume locked unless real wardrobe notes (parser clamp is the guarantee); b-roll consistency is style-only, never first-image anchoring.
 - [DIY Playwright e2e fallback](diy-playwright-e2e.md) — when the testing subagent kind errors, drive Playwright + nix chromium yourself; Clerk ticket sign-in; dismiss the consent dialog; regen missing api-client codegen.
 - [Storyboard review pause](storyboard-review.md) — persist funding at job creation (sweep refunds need it); jsonb counters spend via atomic conditional UPDATE, never read-then-write; approve reuses the exact previewed stills.
+- [Animate-photo framing](animate-photo-framing.md) — pad (never crop) user photos to the target aspect before video gen; aiPrompt must derive from the provider-bound input, not job.prompt.
 - [Storyboard scene editing](storyboard-scene-editing.md) — narration re-voices on approve via texts-vs-cues drift; inserts bill via options.addedScenes so all refund paths reprice automatically.
 - [Replicate video input mapping](replicate-video-inputs.md) — wrong start-image field name is silently ignored; photo subject vanishes with a "successful" job; verify each model schema.

@@ -10853,6 +10853,12 @@ components:
             and is waiting on approve or discard; it resumes no other way.
         prompt:
           type: ["string", "null"]
+        aiPrompt:
+          type: ["string", "null"]
+          description: >-
+            The exact prompt string sent to the video model, for transparency.
+            Set for animate-photo (image_to_video) jobs; storyboard-driven
+            engines expose their per-scene prompts in the storyboard instead.
         sourceImagePaths:
           type: array
           items:

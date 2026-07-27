@@ -12,7 +12,7 @@ import { refundCredits } from "../credits";
 import { logger } from "../logger";
 import { generateVideo, VideoGenNotConfiguredError, VideoGenProviderError } from "./index";
 import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
-import { normalizeVideo, mixMusicIntoVideo } from "./postprocess";
+import { normalizeVideo, mixMusicIntoVideo, fitImageToAspect } from "./postprocess";
 import { generateMusicBed } from "./musicGen";
 import { loadVideoBranding } from "./branding";
 import { loadStyleGuidance } from "./referenceAnalyzer";
@@ -312,7 +312,12 @@ async function produceVideo(
     const sourcePath = job.sourceImagePaths?.[0];
     if (!sourcePath) throw new VideoJobInputError("No source image provided.");
     const music = await resolveMusic(job, options, options.durationSec ?? 5, onStage);
-    const image = await loadSourceImage(sourcePath, job.tenantId);
+    // Pad (never crop) the photo into the requested frame first, so the model
+    // composes for that shape and the subject's face survives intact.
+    const image = await fitImageToAspect(
+      await loadSourceImage(sourcePath, job.tenantId),
+      aspectRatio,
+    );
     onStage("Animating your image");
     const result = await generateVideo({
       mode: "image",

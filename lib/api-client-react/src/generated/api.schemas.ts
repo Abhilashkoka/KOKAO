@@ -2826,6 +2826,11 @@ export interface VideoJob {
   status: VideoJobStatus;
   /** @nullable */
   prompt?: string | null;
+  /**
+     * The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.
+     * @nullable
+     */
+  aiPrompt?: string | null;
   sourceImagePaths: string[];
   aspectRatio: string;
   /**

@@ -82,3 +82,13 @@ export async function videoGenFetch(url: string, init: RequestInit): Promise<Res
 }
 
 export { errorDetail } from "../aiProviderFetch";
+
+/**
+ * The exact prompt string sent to the video model for a single AI clip: the
+ * caller's prompt plus a pacing hint, since most video models have no (or a
+ * very limited) duration parameter. Exported so the API can show users
+ * precisely what the AI receives — keep this and the providers in lockstep.
+ */
+export function compiledClipPrompt(prompt: string, durationSec: number): string {
+  return `${prompt.trim()}\n\nTarget clip length: about ${durationSec} seconds of continuous action, paced to fill the full duration.`;
+}

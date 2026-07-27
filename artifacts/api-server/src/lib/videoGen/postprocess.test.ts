@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { renderSlideshow } from "./slideshow";
-import { normalizeVideo } from "./postprocess";
+import { normalizeVideo, fitImageToAspect } from "./postprocess";
 import { withRetries, withTimeout } from "./retry";
 import { VideoGenProviderError } from "./types";
 
@@ -33,6 +33,24 @@ describe("normalizeVideo", () => {
     const garbage = Buffer.from("definitely not a video");
     const out = await normalizeVideo(garbage, "9:16");
     expect(out.equals(garbage)).toBe(true);
+  }, 60_000);
+});
+
+describe("fitImageToAspect", () => {
+  it("pads a photo into the target frame as a JPEG with real ffmpeg", async () => {
+    const fitted = await fitImageToAspect({ buffer: PNG_1PX, mimeType: "image/png" }, "9:16");
+    // A real fit happened (not the fail-soft passthrough): JPEG out.
+    expect(fitted.mimeType).toBe("image/jpeg");
+    expect(fitted.buffer.length).toBeGreaterThan(2);
+    expect(fitted.buffer[0]).toBe(0xff);
+    expect(fitted.buffer[1]).toBe(0xd8);
+  }, 60_000);
+
+  it("fails soft: garbage input returns the original image untouched", async () => {
+    const garbage = { buffer: Buffer.from("not an image"), mimeType: "image/png" };
+    const out = await fitImageToAspect(garbage, "9:16");
+    expect(out.buffer.equals(garbage.buffer)).toBe(true);
+    expect(out.mimeType).toBe("image/png");
   }, 60_000);
 });
 

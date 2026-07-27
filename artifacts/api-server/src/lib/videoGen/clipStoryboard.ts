@@ -12,7 +12,7 @@ import { getTextGenClient } from "../textGen";
 import { usageAccountingParams } from "../aiCost";
 import { logger } from "../logger";
 import { generateVideo } from "./index";
-import { concatClips, enforceClipDuration, mixMusicIntoVideo, normalizeVideo } from "./postprocess";
+import { concatClips, enforceClipDuration, mixMusicIntoVideo, normalizeVideo, fitImageToAspect } from "./postprocess";
 import {
   renderSlideshow,
   slideshowTotalSec,
@@ -354,7 +354,12 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
     const path = scenes[0]?.previewPath;
     if (!path) throw new VideoGenProviderError("No source image provided.");
     const loaded = await params.load(path);
-    photo = { buffer: loaded.buffer, mimeType: loaded.mimeType };
+    // Pad (never crop) the photo into the requested frame, so the animation
+    // model composes for that shape and the subject's face survives intact.
+    photo = await fitImageToAspect(
+      { buffer: loaded.buffer, mimeType: loaded.mimeType },
+      aspectRatio,
+    );
   }
 
   const clips: Buffer[] = [];
