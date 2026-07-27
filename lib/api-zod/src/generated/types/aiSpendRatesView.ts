@@ -14,4 +14,6 @@ export interface AiSpendRatesView {
   captionPaise: number;
   /** Amount shown per generated image, in paise (fee included). */
   imagePaise: number;
+  /** Amount shown per generated video, in paise (fee included). */
+  videoPaise: number;
 }

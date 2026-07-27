@@ -1207,6 +1207,7 @@ router.put("/admin/ai-spend-settings", async (req: Request, res: Response) => {
   const changed =
     before.captionCostPaise !== after.captionCostPaise ||
     before.imageCostPaise !== after.imageCostPaise ||
+    before.videoCostPaise !== after.videoCostPaise ||
     before.feePercent !== after.feePercent;
   if (changed) {
     try {
@@ -1216,8 +1217,8 @@ router.put("/admin/ai-spend-settings", async (req: Request, res: Response) => {
         actorEmail: req.tenantEmail,
         targetTenantId: null,
         targetEmail: null,
-        oldValue: `caption=${before.captionCostPaise} image=${before.imageCostPaise} fee=${before.feePercent}%`,
-        newValue: `caption=${after.captionCostPaise} image=${after.imageCostPaise} fee=${after.feePercent}%`,
+        oldValue: `caption=${before.captionCostPaise} image=${before.imageCostPaise} video=${before.videoCostPaise} fee=${before.feePercent}%`,
+        newValue: `caption=${after.captionCostPaise} image=${after.imageCostPaise} video=${after.videoCostPaise} fee=${after.feePercent}%`,
       });
     } catch (error) {
       req.log?.error({ err: error }, "Failed to audit AI spend settings change");
@@ -1418,9 +1419,10 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
         videoCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} = 'video')::int`,
         knownCostPaise: sql<number>`coalesce(sum(${usageEventsTable.costPaise}) filter (where ${usageEventsTable.kind} in ('caption', 'image', 'video')), 0)::int`,
         unknownCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} in ('caption', 'image', 'video') and ${usageEventsTable.costPaise} is null)::int`,
-        snapshotDisplayPaise: sql<number>`coalesce(sum(${usageEventsTable.displayPaise}) filter (where ${usageEventsTable.kind} in ('caption', 'image')), 0)::int`,
+        snapshotDisplayPaise: sql<number>`coalesce(sum(${usageEventsTable.displayPaise}) filter (where ${usageEventsTable.kind} in ('caption', 'image', 'video')), 0)::int`,
         noSnapshotCaptionCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} = 'caption' and ${usageEventsTable.displayPaise} is null)::int`,
         noSnapshotImageCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} = 'image' and ${usageEventsTable.displayPaise} is null)::int`,
+        noSnapshotVideoCount: sql<number>`count(*) filter (where ${usageEventsTable.kind} = 'video' and ${usageEventsTable.displayPaise} is null)::int`,
       })
       .from(usageEventsTable)
       .groupBy(sql`1`)
@@ -1443,6 +1445,7 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
       snapshotDisplayPaise: number;
       noSnapshotCaptionCount: number;
       noSnapshotImageCount: number;
+      noSnapshotVideoCount: number;
     }
   >();
   for (const row of rows) {
@@ -1461,6 +1464,7 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
         snapshotDisplayPaise: 0,
         noSnapshotCaptionCount: 0,
         noSnapshotImageCount: 0,
+        noSnapshotVideoCount: 0,
       };
     if (row.kind === "caption") {
       agg.captionCount = row.count;
@@ -1473,12 +1477,10 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
       agg.unknownImageCount = row.unknownCount;
       agg.noSnapshotImageCount = row.noSnapshotCount;
     } else {
-      // Video: no tenant-facing display rate exists yet, so rows without a
-      // display snapshot deliberately add NOTHING to displaySpendPaise —
-      // charging current caption/image rates for them would be wrong.
       agg.videoCount = row.count;
       agg.videoCostPaise = row.knownCostPaise;
       agg.unknownVideoCount = row.unknownCount;
+      agg.noSnapshotVideoCount = row.noSnapshotCount;
     }
     agg.snapshotDisplayPaise += row.snapshotDisplayPaise;
     byTenant.set(row.tenantId, agg);
@@ -1503,6 +1505,7 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
         snapshotDisplayPaise,
         noSnapshotCaptionCount,
         noSnapshotImageCount,
+        noSnapshotVideoCount,
         ...agg
       } = byTenant.get(tenantId)!;
       const info = tenantInfo.get(tenantId);
@@ -1517,7 +1520,8 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
         displaySpendPaise:
           snapshotDisplayPaise +
           noSnapshotCaptionCount * displayRates.captionPaise +
-          noSnapshotImageCount * displayRates.imagePaise,
+          noSnapshotImageCount * displayRates.imagePaise +
+          noSnapshotVideoCount * displayRates.videoPaise,
       };
     })
     .sort((a, b) => b.totalCostPaise - a.totalCostPaise);
@@ -1532,6 +1536,7 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
     snapshotDisplayPaise: number;
     noSnapshotCaptionCount: number;
     noSnapshotImageCount: number;
+    noSnapshotVideoCount: number;
   }) => ({
     month: r.month,
     captionCount: r.captionCount,
@@ -1543,7 +1548,8 @@ router.get("/admin/ai-cost/report", async (req: Request, res: Response) => {
     displaySpendPaise:
       r.snapshotDisplayPaise +
       r.noSnapshotCaptionCount * displayRates.captionPaise +
-      r.noSnapshotImageCount * displayRates.imagePaise,
+      r.noSnapshotImageCount * displayRates.imagePaise +
+      r.noSnapshotVideoCount * displayRates.videoPaise,
     unknownCount: r.unknownCount,
   });
   const trend = monthRows.slice(0, 12).map(toMonthTotal);

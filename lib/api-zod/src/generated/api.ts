@@ -1740,7 +1740,8 @@ export const DeleteVideoStyleResponse = zod.void()
  */
 export const GetAiSpendRatesResponse = zod.object({
   "captionPaise": zod.number().describe('Amount shown per generated caption, in paise (fee included).'),
-  "imagePaise": zod.number().describe('Amount shown per generated image, in paise (fee included).')
+  "imagePaise": zod.number().describe('Amount shown per generated image, in paise (fee included).'),
+  "videoPaise": zod.number().describe('Amount shown per generated video, in paise (fee included).')
 }).describe('Effective per-unit display amounts (base cost + platform fee, combined).')
 
 
@@ -1750,6 +1751,7 @@ export const GetAiSpendRatesResponse = zod.object({
 export const AdminGetAiSpendSettingsResponse = zod.object({
   "captionCostPaise": zod.number().describe('Base AI cost per generated caption, in paise (before the platform fee).'),
   "imageCostPaise": zod.number().describe('Base AI cost per generated image, in paise (before the platform fee).'),
+  "videoCostPaise": zod.number().describe('Base AI cost per generated video, in paise (before the platform fee).'),
   "feePercent": zod.number().describe('Whole-number platform fee percentage added on top of the base costs.')
 }).describe('Platform-wide \"AI amount spent\" display configuration (superadmin).')
 
@@ -1761,6 +1763,8 @@ export const adminUpdateAiSpendSettingsBodyCaptionCostPaiseMin = 0;
 
 export const adminUpdateAiSpendSettingsBodyImageCostPaiseMin = 0;
 
+export const adminUpdateAiSpendSettingsBodyVideoCostPaiseMin = 0;
+
 export const adminUpdateAiSpendSettingsBodyFeePercentMin = 0;
 export const adminUpdateAiSpendSettingsBodyFeePercentMax = 1000;
 
@@ -1769,12 +1773,14 @@ export const adminUpdateAiSpendSettingsBodyFeePercentMax = 1000;
 export const AdminUpdateAiSpendSettingsBody = zod.object({
   "captionCostPaise": zod.number().min(adminUpdateAiSpendSettingsBodyCaptionCostPaiseMin),
   "imageCostPaise": zod.number().min(adminUpdateAiSpendSettingsBodyImageCostPaiseMin),
+  "videoCostPaise": zod.number().min(adminUpdateAiSpendSettingsBodyVideoCostPaiseMin),
   "feePercent": zod.number().min(adminUpdateAiSpendSettingsBodyFeePercentMin).max(adminUpdateAiSpendSettingsBodyFeePercentMax)
 })
 
 export const AdminUpdateAiSpendSettingsResponse = zod.object({
   "captionCostPaise": zod.number().describe('Base AI cost per generated caption, in paise (before the platform fee).'),
   "imageCostPaise": zod.number().describe('Base AI cost per generated image, in paise (before the platform fee).'),
+  "videoCostPaise": zod.number().describe('Base AI cost per generated video, in paise (before the platform fee).'),
   "feePercent": zod.number().describe('Whole-number platform fee percentage added on top of the base costs.')
 }).describe('Platform-wide \"AI amount spent\" display configuration (superadmin).')
 
@@ -1910,7 +1916,8 @@ export const AdminGetAiCostReportResponse = zod.object({
   "months": zod.array(zod.string()).describe('Months that have any usage, newest first.'),
   "displayRates": zod.object({
   "captionPaise": zod.number().describe('Amount shown per generated caption, in paise (fee included).'),
-  "imagePaise": zod.number().describe('Amount shown per generated image, in paise (fee included).')
+  "imagePaise": zod.number().describe('Amount shown per generated image, in paise (fee included).'),
+  "videoPaise": zod.number().describe('Amount shown per generated video, in paise (fee included).')
 }).describe('Effective per-unit display amounts (base cost + platform fee, combined).'),
   "summary": zod.object({
   "month": zod.string().describe('Month, YYYY-MM (UTC).'),
@@ -1944,7 +1951,7 @@ export const AdminGetAiCostReportResponse = zod.object({
   "unknownCaptionCount": zod.number().describe('Caption events with no computed cost (unknown model or unset rate).'),
   "unknownImageCount": zod.number(),
   "unknownVideoCount": zod.number().describe('Video events with no computed cost (uncataloged model or rows predating video costing).'),
-  "displaySpendPaise": zod.number().describe('What the tenant-facing \"AI amount spent\" rates would show for the same volume (fee included), for margin comparison. Videos have no display rate yet and add nothing here.')
+  "displaySpendPaise": zod.number().describe('What the tenant-facing \"AI amount spent\" rates would show for the same volume (fee included), for margin comparison. Includes captions, images, and videos.')
 }).describe('One tenant\'s actual AI cost for the reporting month.'))
 })
 

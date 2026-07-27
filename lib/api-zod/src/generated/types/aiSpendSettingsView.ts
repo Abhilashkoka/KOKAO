@@ -14,6 +14,8 @@ export interface AiSpendSettingsView {
   captionCostPaise: number;
   /** Base AI cost per generated image, in paise (before the platform fee). */
   imageCostPaise: number;
+  /** Base AI cost per generated video, in paise (before the platform fee). */
+  videoCostPaise: number;
   /** Whole-number platform fee percentage added on top of the base costs. */
   feePercent: number;
 }

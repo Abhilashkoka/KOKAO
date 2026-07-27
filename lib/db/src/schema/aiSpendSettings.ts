@@ -13,6 +13,7 @@ export const aiSpendSettingsTable = pgTable("ai_spend_settings", {
   id: serial("id").primaryKey(),
   captionCostPaise: integer("caption_cost_paise").notNull().default(0),
   imageCostPaise: integer("image_cost_paise").notNull().default(0),
+  videoCostPaise: integer("video_cost_paise").notNull().default(0),
   /** Whole-number percentage added as the platform fee (0-1000). */
   feePercent: integer("fee_percent").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

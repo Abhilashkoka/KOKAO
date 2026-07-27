@@ -11,6 +11,8 @@ export interface UpdateAiSpendSettingsRequest {
   captionCostPaise: number;
   /** @minimum 0 */
   imageCostPaise: number;
+  /** @minimum 0 */
+  videoCostPaise: number;
   /**
      * @minimum 0
      * @maximum 1000

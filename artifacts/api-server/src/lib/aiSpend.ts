@@ -12,10 +12,16 @@ import { and, eq, isNull } from "drizzle-orm";
 export type AiSpendConfig = {
   captionCostPaise: number;
   imageCostPaise: number;
+  videoCostPaise: number;
   feePercent: number;
 };
 
-const DEFAULTS: AiSpendConfig = { captionCostPaise: 0, imageCostPaise: 0, feePercent: 0 };
+const DEFAULTS: AiSpendConfig = {
+  captionCostPaise: 0,
+  imageCostPaise: 0,
+  videoCostPaise: 0,
+  feePercent: 0,
+};
 
 export async function getAiSpendConfig(): Promise<AiSpendConfig> {
   const [row] = await db.select().from(aiSpendSettingsTable).limit(1);
@@ -23,6 +29,7 @@ export async function getAiSpendConfig(): Promise<AiSpendConfig> {
   return {
     captionCostPaise: row.captionCostPaise,
     imageCostPaise: row.imageCostPaise,
+    videoCostPaise: row.videoCostPaise,
     feePercent: row.feePercent,
   };
 }
@@ -39,8 +46,9 @@ export async function setAiSpendConfig(config: AiSpendConfig): Promise<AiSpendCo
       const oldRates = {
         caption: withFee(existing.captionCostPaise, existing.feePercent),
         image: withFee(existing.imageCostPaise, existing.feePercent),
+        video: withFee(existing.videoCostPaise, existing.feePercent),
       };
-      for (const kind of ["caption", "image"] as const) {
+      for (const kind of ["caption", "image", "video"] as const) {
         await tx
           .update(usageEventsTable)
           .set({ displayPaise: oldRates[kind] })
@@ -65,10 +73,15 @@ export function withFee(basePaise: number, feePercent: number): number {
 }
 
 /** The per-unit amounts tenants see (fee already included). */
-export async function getAiSpendRates(): Promise<{ captionPaise: number; imagePaise: number }> {
+export async function getAiSpendRates(): Promise<{
+  captionPaise: number;
+  imagePaise: number;
+  videoPaise: number;
+}> {
   const config = await getAiSpendConfig();
   return {
     captionPaise: withFee(config.captionCostPaise, config.feePercent),
     imagePaise: withFee(config.imageCostPaise, config.feePercent),
+    videoPaise: withFee(config.videoCostPaise, config.feePercent),
   };
 }

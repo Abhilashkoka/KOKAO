@@ -71,14 +71,12 @@ export async function recordUsage(
   let displayPaise: number | null = null;
   try {
     const rates = await getAiSpendRates();
-    // No tenant-facing display rate exists for video yet; stored as NULL so
-    // spend reports simply omit it rather than showing a wrong figure.
     displayPaise =
       kind === "caption"
         ? rates.captionPaise
         : kind === "image"
           ? rates.imagePaise
-          : null;
+          : rates.videoPaise;
   } catch {
     displayPaise = null;
   }

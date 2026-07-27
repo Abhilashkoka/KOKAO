@@ -30,6 +30,6 @@ export interface AiCostReportTenantRow {
   unknownImageCount: number;
   /** Video events with no computed cost (uncataloged model or rows predating video costing). */
   unknownVideoCount: number;
-  /** What the tenant-facing "AI amount spent" rates would show for the same volume (fee included), for margin comparison. Videos have no display rate yet and add nothing here. */
+  /** What the tenant-facing "AI amount spent" rates would show for the same volume (fee included), for margin comparison. Includes captions, images, and videos. */
   displaySpendPaise: number;
 }

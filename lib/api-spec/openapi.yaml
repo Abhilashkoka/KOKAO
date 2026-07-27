@@ -13479,7 +13479,7 @@ components:
     AiSpendSettingsView:
       type: object
       description: Platform-wide "AI amount spent" display configuration (superadmin).
-      required: [captionCostPaise, imageCostPaise, feePercent]
+      required: [captionCostPaise, imageCostPaise, videoCostPaise, feePercent]
       properties:
         captionCostPaise:
           type: integer
@@ -13487,17 +13487,23 @@ components:
         imageCostPaise:
           type: integer
           description: Base AI cost per generated image, in paise (before the platform fee).
+        videoCostPaise:
+          type: integer
+          description: Base AI cost per generated video, in paise (before the platform fee).
         feePercent:
           type: integer
           description: Whole-number platform fee percentage added on top of the base costs.
     UpdateAiSpendSettingsRequest:
       type: object
-      required: [captionCostPaise, imageCostPaise, feePercent]
+      required: [captionCostPaise, imageCostPaise, videoCostPaise, feePercent]
       properties:
         captionCostPaise:
           type: integer
           minimum: 0
         imageCostPaise:
+          type: integer
+          minimum: 0
+        videoCostPaise:
           type: integer
           minimum: 0
         feePercent:
@@ -13507,7 +13513,7 @@ components:
     AiSpendRatesView:
       type: object
       description: Effective per-unit display amounts (base cost + platform fee, combined).
-      required: [captionPaise, imagePaise]
+      required: [captionPaise, imagePaise, videoPaise]
       properties:
         captionPaise:
           type: integer
@@ -13515,6 +13521,9 @@ components:
         imagePaise:
           type: integer
           description: Amount shown per generated image, in paise (fee included).
+        videoPaise:
+          type: integer
+          description: Amount shown per generated video, in paise (fee included).
     AiModelPriceView:
       type: object
       description: One admin-maintained provider price row (USD) used for actual-cost computation.
@@ -13660,7 +13669,7 @@ components:
           description: Video events with no computed cost (uncataloged model or rows predating video costing).
         displaySpendPaise:
           type: integer
-          description: What the tenant-facing "AI amount spent" rates would show for the same volume (fee included), for margin comparison. Videos have no display rate yet and add nothing here.
+          description: What the tenant-facing "AI amount spent" rates would show for the same volume (fee included), for margin comparison. Includes captions, images, and videos.
     AiCostReportView:
       type: object
       required: [month, months, displayRates, summary, trend, tenants]

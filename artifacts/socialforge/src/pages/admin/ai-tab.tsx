@@ -1629,19 +1629,22 @@ function AiSpendCard() {
   const updateSettings = useAdminUpdateAiSpendSettings();
   const [captionRupees, setCaptionRupees] = useState<string | null>(null);
   const [imageRupees, setImageRupees] = useState<string | null>(null);
+  const [videoRupees, setVideoRupees] = useState<string | null>(null);
   const [feePercent, setFeePercent] = useState<string | null>(null);
 
   const paiseToRupees = (paise: number) => (paise / 100).toString();
   const captionValue = captionRupees ?? (settings ? paiseToRupees(settings.captionCostPaise) : "");
   const imageValue = imageRupees ?? (settings ? paiseToRupees(settings.imageCostPaise) : "");
+  const videoValue = videoRupees ?? (settings ? paiseToRupees(settings.videoCostPaise) : "");
   const feeValue = feePercent ?? (settings ? String(settings.feePercent) : "");
 
   const handleSave = () => {
     const caption = Math.round(Number(captionValue) * 100);
     const image = Math.round(Number(imageValue) * 100);
+    const video = Math.round(Number(videoValue) * 100);
     const fee = Math.round(Number(feeValue));
     if (
-      [caption, image, fee].some((n) => !Number.isFinite(n) || n < 0) ||
+      [caption, image, video, fee].some((n) => !Number.isFinite(n) || n < 0) ||
       fee > 1000
     ) {
       toast({
@@ -1652,7 +1655,14 @@ function AiSpendCard() {
       return;
     }
     updateSettings.mutate(
-      { data: { captionCostPaise: caption, imageCostPaise: image, feePercent: fee } },
+      {
+        data: {
+          captionCostPaise: caption,
+          imageCostPaise: image,
+          videoCostPaise: video,
+          feePercent: fee,
+        },
+      },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getAdminGetAiSpendSettingsQueryKey() });
@@ -1660,6 +1670,7 @@ function AiSpendCard() {
           queryClient.invalidateQueries({ queryKey: getAdminListAuditLogsQueryKey() });
           setCaptionRupees(null);
           setImageRupees(null);
+          setVideoRupees(null);
           setFeePercent(null);
           toast({
             title: "AI spend rates saved",
@@ -1685,9 +1696,12 @@ function AiSpendCard() {
     })}`;
   const captionPaiseNow = Math.round(Number(captionValue || "0") * 100);
   const imagePaiseNow = Math.round(Number(imageValue || "0") * 100);
+  const videoPaiseNow = Math.round(Number(videoValue || "0") * 100);
   const feeNow = Number(feeValue || "0");
   const previewsValid =
-    [captionPaiseNow, imagePaiseNow, feeNow].every((n) => Number.isFinite(n) && n >= 0);
+    [captionPaiseNow, imagePaiseNow, videoPaiseNow, feeNow].every(
+      (n) => Number.isFinite(n) && n >= 0,
+    );
 
   return (
     <Card data-testid="card-ai-spend">
@@ -1735,6 +1749,20 @@ function AiSpendCard() {
                 />
               </div>
               <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="ai-spend-video">
+                  Cost per video ({"\u20B9"})
+                </label>
+                <Input
+                  id="ai-spend-video"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={videoValue}
+                  onChange={(e) => setVideoRupees(e.target.value)}
+                  data-testid="input-ai-spend-video"
+                />
+              </div>
+              <div className="space-y-1.5">
                 <label className="text-sm font-medium" htmlFor="ai-spend-fee">
                   Platform fee (%)
                 </label>
@@ -1753,8 +1781,8 @@ function AiSpendCard() {
             {previewsValid && (
               <p className="text-sm text-muted-foreground" data-testid="text-ai-spend-preview">
                 Users will see: {preview(captionPaiseNow, feeNow)} per caption,{" "}
-                {preview(imagePaiseNow, feeNow)} per image (fee included, shown only as "AI
-                amount spent").
+                {preview(imagePaiseNow, feeNow)} per image, {preview(videoPaiseNow, feeNow)} per
+                video (fee included, shown only as "AI amount spent").
               </p>
             )}
             <Button

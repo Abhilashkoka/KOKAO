@@ -66,7 +66,7 @@ interface MonthTotal {
 interface Report {
   month: string;
   months: string[];
-  displayRates: { captionPaise: number; imagePaise: number };
+  displayRates: { captionPaise: number; imagePaise: number; videoPaise: number };
   summary: MonthTotal;
   trend: MonthTotal[];
   tenants: Array<{
@@ -271,6 +271,7 @@ describe("GET /admin/ai-cost/report", () => {
     const original = originalRes.body as {
       captionCostPaise: number;
       imageCostPaise: number;
+      videoCostPaise: number;
       feePercent: number;
     };
     try {
@@ -292,6 +293,7 @@ describe("GET /admin/ai-cost/report", () => {
       const changed = await request(app).put("/api/admin/ai-spend-settings").send({
         captionCostPaise: original.captionCostPaise + 111,
         imageCostPaise: original.imageCostPaise + 222,
+        videoCostPaise: original.videoCostPaise + 333,
         feePercent: original.feePercent,
       });
       expect(changed.status).toBe(200);
@@ -307,7 +309,7 @@ describe("GET /admin/ai-cost/report", () => {
     }
   });
 
-  it("includes video events in counts and costs but never in display spend", async () => {
+  it("includes video events in counts, costs, and display spend at the video rate", async () => {
     const t = await createTenant();
     try {
       const when = new Date(Date.UTC(CUR_YEAR, CUR_MONTH0, 3));
@@ -328,9 +330,9 @@ describe("GET /admin/ai-cost/report", () => {
       expect(row!.videoCostPaise).toBe(5000);
       expect(row!.unknownVideoCount).toBe(1);
       expect(row!.totalCostPaise).toBe(5100); // caption 100 + video 5000
-      // Videos have no tenant-facing display rate: only the caption's
-      // snapshot contributes; the un-snapshotted video rows add NOTHING.
-      expect(row!.displaySpendPaise).toBe(700);
+      // The caption's snapshot contributes directly; the un-snapshotted
+      // video rows fall back to the CURRENT video display rate.
+      expect(row!.displaySpendPaise).toBe(700 + 2 * report.displayRates.videoPaise);
 
       const summary = report.summary as Report["summary"] & { videoCount: number };
       expect(summary.videoCount).toBeGreaterThanOrEqual(2);
