@@ -12,4 +12,5 @@ export type UpsertAiModelPriceRequestKind = typeof UpsertAiModelPriceRequestKind
 export const UpsertAiModelPriceRequestKind = {
   text: 'text',
   image: 'image',
+  video: 'video',
 } as const;

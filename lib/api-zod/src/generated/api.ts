@@ -1786,12 +1786,14 @@ export const AdminGetAiCostConfigResponse = zod.object({
   "usdToInrPaise": zod.number().describe('Paise per 1 USD (0 = unset; computed costs stay unknown).'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
-  "kind": zod.enum(['text', 'image']),
+  "kind": zod.enum(['text', 'image', 'video']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
   "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
-  "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.')
+  "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
+  "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 
@@ -1812,12 +1814,14 @@ export const AdminUpdateAiCostRateResponse = zod.object({
   "usdToInrPaise": zod.number().describe('Paise per 1 USD (0 = unset; computed costs stay unknown).'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
-  "kind": zod.enum(['text', 'image']),
+  "kind": zod.enum(['text', 'image', 'video']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
   "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
-  "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.')
+  "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
+  "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 
@@ -1835,27 +1839,35 @@ export const adminUpsertAiModelPriceBodyOutputUsdPerMtokMin = 0;
 
 export const adminUpsertAiModelPriceBodyUsdPerImageMin = 0;
 
+export const adminUpsertAiModelPriceBodyUsdPerSecondMin = 0;
+
+export const adminUpsertAiModelPriceBodyUsdPerVideoMin = 0;
+
 
 
 export const AdminUpsertAiModelPriceBody = zod.object({
-  "kind": zod.enum(['text', 'image']),
+  "kind": zod.enum(['text', 'image', 'video']),
   "provider": zod.string().min(1).max(adminUpsertAiModelPriceBodyProviderMax),
   "model": zod.string().min(1).max(adminUpsertAiModelPriceBodyModelMax),
   "inputUsdPerMtok": zod.number().min(adminUpsertAiModelPriceBodyInputUsdPerMtokMin).nullish(),
   "outputUsdPerMtok": zod.number().min(adminUpsertAiModelPriceBodyOutputUsdPerMtokMin).nullish(),
-  "usdPerImage": zod.number().min(adminUpsertAiModelPriceBodyUsdPerImageMin).nullish()
+  "usdPerImage": zod.number().min(adminUpsertAiModelPriceBodyUsdPerImageMin).nullish(),
+  "usdPerSecond": zod.number().min(adminUpsertAiModelPriceBodyUsdPerSecondMin).nullish(),
+  "usdPerVideo": zod.number().min(adminUpsertAiModelPriceBodyUsdPerVideoMin).nullish()
 })
 
 export const AdminUpsertAiModelPriceResponse = zod.object({
   "usdToInrPaise": zod.number().describe('Paise per 1 USD (0 = unset; computed costs stay unknown).'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
-  "kind": zod.enum(['text', 'image']),
+  "kind": zod.enum(['text', 'image', 'video']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
   "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
-  "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.')
+  "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
+  "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 
@@ -1871,12 +1883,14 @@ export const AdminDeleteAiModelPriceResponse = zod.object({
   "usdToInrPaise": zod.number().describe('Paise per 1 USD (0 = unset; computed costs stay unknown).'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
-  "kind": zod.enum(['text', 'image']),
+  "kind": zod.enum(['text', 'image', 'video']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
   "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
-  "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.')
+  "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
+  "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 

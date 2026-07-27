@@ -34,4 +34,14 @@ export interface UpsertAiModelPriceRequest {
      * @nullable
      */
   usdPerImage?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  usdPerSecond?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  usdPerVideo?: number | null;
 }

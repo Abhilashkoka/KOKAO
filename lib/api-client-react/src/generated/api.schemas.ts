@@ -4728,6 +4728,7 @@ export type AiModelPriceViewKind = typeof AiModelPriceViewKind[keyof typeof AiMo
 export const AiModelPriceViewKind = {
   text: 'text',
   image: 'image',
+  video: 'video',
 } as const;
 
 /**
@@ -4754,6 +4755,16 @@ export interface AiModelPriceView {
      * @nullable
      */
   usdPerImage: number | null;
+  /**
+     * Video models — USD per second of output video.
+     * @nullable
+     */
+  usdPerSecond: number | null;
+  /**
+     * Video models — flat USD per generated video.
+     * @nullable
+     */
+  usdPerVideo: number | null;
 }
 
 /**
@@ -4779,6 +4790,7 @@ export type UpsertAiModelPriceRequestKind = typeof UpsertAiModelPriceRequestKind
 export const UpsertAiModelPriceRequestKind = {
   text: 'text',
   image: 'image',
+  video: 'video',
 } as const;
 
 export interface UpsertAiModelPriceRequest {
@@ -4808,6 +4820,16 @@ export interface UpsertAiModelPriceRequest {
      * @nullable
      */
   usdPerImage?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  usdPerSecond?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  usdPerVideo?: number | null;
 }
 
 /**

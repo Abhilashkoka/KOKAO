@@ -1238,6 +1238,8 @@ async function serializeAiCostConfig() {
       inputUsdPerMtok: p.inputUsdPerMtok,
       outputUsdPerMtok: p.outputUsdPerMtok,
       usdPerImage: p.usdPerImage,
+      usdPerSecond: p.usdPerSecond,
+      usdPerVideo: p.usdPerVideo,
     })),
   };
 }
@@ -1320,18 +1322,28 @@ router.put("/admin/ai-cost/prices", async (req: Request, res: Response) => {
     });
     return;
   }
+  // Video rows may be per-second (most Replicate video models), flat
+  // per-video, or both.
+  if (data.kind === "video" && data.usdPerSecond == null && data.usdPerVideo == null) {
+    res.status(400).json({
+      error: "Video model prices need a USD per second amount, a USD per video amount, or both.",
+    });
+    return;
+  }
   const row = await upsertModelPrice({
     kind: data.kind,
     provider: data.provider.trim(),
     model: data.model.trim(),
-    inputUsdPerMtok: hasTokenPair ? (data.inputUsdPerMtok ?? null) : null,
-    outputUsdPerMtok: hasTokenPair ? (data.outputUsdPerMtok ?? null) : null,
+    inputUsdPerMtok: data.kind !== "video" && hasTokenPair ? (data.inputUsdPerMtok ?? null) : null,
+    outputUsdPerMtok: data.kind !== "video" && hasTokenPair ? (data.outputUsdPerMtok ?? null) : null,
     usdPerImage: data.kind === "image" ? (data.usdPerImage ?? null) : null,
+    usdPerSecond: data.kind === "video" ? (data.usdPerSecond ?? null) : null,
+    usdPerVideo: data.kind === "video" ? (data.usdPerVideo ?? null) : null,
   });
   await auditAiCostChange(
     req,
     null,
-    `${row.kind}:${row.provider}/${row.model} in=${row.inputUsdPerMtok ?? "-"} out=${row.outputUsdPerMtok ?? "-"} img=${row.usdPerImage ?? "-"}`,
+    `${row.kind}:${row.provider}/${row.model} in=${row.inputUsdPerMtok ?? "-"} out=${row.outputUsdPerMtok ?? "-"} img=${row.usdPerImage ?? "-"} sec=${row.usdPerSecond ?? "-"} vid=${row.usdPerVideo ?? "-"}`,
   );
   res.json(await serializeAiCostConfig());
 });

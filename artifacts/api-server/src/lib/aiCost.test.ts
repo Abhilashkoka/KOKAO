@@ -83,6 +83,8 @@ describe("cost computation with catalog + rate", () => {
       inputUsdPerMtok: 2, // $2 / 1M input tokens
       outputUsdPerMtok: 8, // $8 / 1M output tokens
       usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null
     });
     createdPriceIds.push(textPrice.id);
 
@@ -93,6 +95,8 @@ describe("cost computation with catalog + rate", () => {
       inputUsdPerMtok: null,
       outputUsdPerMtok: null,
       usdPerImage: 0.04,
+      usdPerSecond: null,
+      usdPerVideo: null
     });
     createdPriceIds.push(imagePrice.id);
 
@@ -157,6 +161,8 @@ describe("cost computation with catalog + rate", () => {
       inputUsdPerMtok: 4,
       outputUsdPerMtok: 16,
       usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null
     });
     expect(updated.id).toBe(createdPriceIds[0]);
     expect(
@@ -266,7 +272,9 @@ describe("token-based image costing", () => {
       model: TOKEN_IMAGE_MODEL,
       inputUsdPerMtok: 10, // $10 / 1M input tokens
       outputUsdPerMtok: 40, // $40 / 1M output tokens
-      usdPerImage: 0.05, // flat fallback
+      usdPerImage: 0.05, // flat fallback,
+      usdPerSecond: null,
+      usdPerVideo: null
     });
     createdPriceIds.push(price.id);
 
@@ -304,6 +312,8 @@ describe("token-based image costing", () => {
       inputUsdPerMtok: 10,
       outputUsdPerMtok: 40,
       usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null,
     });
     createdPriceIds.push(price.id);
     expect(
@@ -359,6 +369,8 @@ describe("imageUnitCostsPaise", () => {
         inputUsdPerMtok: null,
         outputUsdPerMtok: null,
         usdPerImage: usd,
+        usdPerSecond: null,
+        usdPerVideo: null
       });
       createdPriceIds.push(row.id);
     }
@@ -369,6 +381,8 @@ describe("imageUnitCostsPaise", () => {
       inputUsdPerMtok: 10,
       outputUsdPerMtok: 40,
       usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null
     });
     createdPriceIds.push(tokensOnly.id);
   });
@@ -424,6 +438,8 @@ describe("deleteModelPrice", () => {
       inputUsdPerMtok: null,
       outputUsdPerMtok: null,
       usdPerImage: 0.05,
+      usdPerSecond: null,
+      usdPerVideo: null,
     });
     expect(await deleteModelPrice(price.id)).toBe(true);
     expect(await deleteModelPrice(price.id)).toBe(false);

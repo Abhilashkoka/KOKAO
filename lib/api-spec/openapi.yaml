@@ -13486,13 +13486,24 @@ components:
     AiModelPriceView:
       type: object
       description: One admin-maintained provider price row (USD) used for actual-cost computation.
-      required: [id, kind, provider, model, inputUsdPerMtok, outputUsdPerMtok, usdPerImage]
+      required:
+        [
+          id,
+          kind,
+          provider,
+          model,
+          inputUsdPerMtok,
+          outputUsdPerMtok,
+          usdPerImage,
+          usdPerSecond,
+          usdPerVideo,
+        ]
       properties:
         id:
           type: integer
         kind:
           type: string
-          enum: [text, image]
+          enum: [text, image, video]
         provider:
           type: string
           description: Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).
@@ -13507,6 +13518,12 @@ components:
         usdPerImage:
           type: ["number", "null"]
           description: Image models — USD per generated image.
+        usdPerSecond:
+          type: ["number", "null"]
+          description: Video models — USD per second of output video.
+        usdPerVideo:
+          type: ["number", "null"]
+          description: Video models — flat USD per generated video.
     AiCostConfigView:
       type: object
       description: Actual-cost configuration — USD→INR rate plus the model price catalog.
@@ -13533,7 +13550,7 @@ components:
       properties:
         kind:
           type: string
-          enum: [text, image]
+          enum: [text, image, video]
         provider:
           type: string
           minLength: 1
@@ -13549,6 +13566,12 @@ components:
           type: ["number", "null"]
           minimum: 0
         usdPerImage:
+          type: ["number", "null"]
+          minimum: 0
+        usdPerSecond:
+          type: ["number", "null"]
+          minimum: 0
+        usdPerVideo:
           type: ["number", "null"]
           minimum: 0
     AiCostReportTenantRow:

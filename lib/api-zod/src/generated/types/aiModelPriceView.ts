@@ -31,4 +31,14 @@ export interface AiModelPriceView {
      * @nullable
      */
   usdPerImage: number | null;
+  /**
+     * Video models — USD per second of output video.
+     * @nullable
+     */
+  usdPerSecond: number | null;
+  /**
+     * Video models — flat USD per generated video.
+     * @nullable
+     */
+  usdPerVideo: number | null;
 }

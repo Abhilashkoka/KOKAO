@@ -12,4 +12,5 @@ export type AiModelPriceViewKind = typeof AiModelPriceViewKind[keyof typeof AiMo
 export const AiModelPriceViewKind = {
   text: 'text',
   image: 'image',
+  video: 'video',
 } as const;

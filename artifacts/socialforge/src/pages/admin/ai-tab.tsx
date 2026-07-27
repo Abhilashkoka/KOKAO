@@ -1784,12 +1784,14 @@ function AiCostCard() {
   const deletePrice = useAdminDeleteAiModelPrice();
 
   const [rateInput, setRateInput] = useState<string | null>(null);
-  const [kind, setKind] = useState<"text" | "image">("text");
+  const [kind, setKind] = useState<"text" | "image" | "video">("text");
   const [provider, setProvider] = useState("");
   const [model, setModel] = useState("");
   const [inputUsd, setInputUsd] = useState("");
   const [outputUsd, setOutputUsd] = useState("");
   const [imageUsd, setImageUsd] = useState("");
+  const [secondUsd, setSecondUsd] = useState("");
+  const [videoUsd, setVideoUsd] = useState("");
 
   const rateValue =
     rateInput ?? (config ? (config.usdToInrPaise / 100).toString() : "");
@@ -1843,21 +1845,30 @@ function AiCostCard() {
     const validNum = (s: string) => Number.isFinite(Number(s)) && Number(s) >= 0;
     const hasTokenPair = inputUsd.trim() !== "" && outputUsd.trim() !== "";
     const hasImagePrice = imageUsd.trim() !== "";
+    const hasSecondPrice = secondUsd.trim() !== "";
+    const hasVideoPrice = videoUsd.trim() !== "";
     const invalid =
       kind === "text"
         ? !validNum(inputUsd) || !validNum(outputUsd) || !hasTokenPair
-        : // Image rows: flat $/image, token pair (OpenAI/Gemini image models), or both.
-          (!hasImagePrice && !hasTokenPair) ||
-          (hasImagePrice && !validNum(imageUsd)) ||
-          (hasTokenPair && (!validNum(inputUsd) || !validNum(outputUsd))) ||
-          (inputUsd.trim() !== "") !== (outputUsd.trim() !== "");
+        : kind === "image"
+          ? // Image rows: flat $/image, token pair (OpenAI/Gemini image models), or both.
+            (!hasImagePrice && !hasTokenPair) ||
+            (hasImagePrice && !validNum(imageUsd)) ||
+            (hasTokenPair && (!validNum(inputUsd) || !validNum(outputUsd))) ||
+            (inputUsd.trim() !== "") !== (outputUsd.trim() !== "")
+          : // Video rows: $/second (most Replicate video models), flat $/video, or both.
+            (!hasSecondPrice && !hasVideoPrice) ||
+            (hasSecondPrice && !validNum(secondUsd)) ||
+            (hasVideoPrice && !validNum(videoUsd));
     if (invalid) {
       toast({
         title: "Invalid price",
         description:
           kind === "text"
             ? "Enter USD per 1M input and output tokens (0 or more)."
-            : "Enter USD per image, or both token prices for models that report token usage.",
+            : kind === "image"
+              ? "Enter USD per image, or both token prices for models that report token usage."
+              : "Enter USD per second of output video, USD per video, or both.",
         variant: "destructive",
       });
       return;
@@ -1868,9 +1879,11 @@ function AiCostCard() {
           kind,
           provider: trimmedProvider,
           model: trimmedModel,
-          inputUsdPerMtok: hasTokenPair ? Number(inputUsd) : null,
-          outputUsdPerMtok: hasTokenPair ? Number(outputUsd) : null,
+          inputUsdPerMtok: kind !== "video" && hasTokenPair ? Number(inputUsd) : null,
+          outputUsdPerMtok: kind !== "video" && hasTokenPair ? Number(outputUsd) : null,
           usdPerImage: kind === "image" && hasImagePrice ? Number(imageUsd) : null,
+          usdPerSecond: kind === "video" && hasSecondPrice ? Number(secondUsd) : null,
+          usdPerVideo: kind === "video" && hasVideoPrice ? Number(videoUsd) : null,
         },
       },
       {
@@ -1880,6 +1893,8 @@ function AiCostCard() {
           setInputUsd("");
           setOutputUsd("");
           setImageUsd("");
+          setSecondUsd("");
+          setVideoUsd("");
           toast({ title: "Model price saved" });
         },
         onError: () => {
@@ -1917,7 +1932,7 @@ function AiCostCard() {
       <CardHeader>
         <CardTitle>Actual AI Cost Tracking</CardTitle>
         <CardDescription>
-          Record the real provider cost of every caption and image in paise. Costs use
+          Record the real provider cost of every caption, image and video in paise. Costs use
           the USD prices below converted at your rate; generations from unknown models
           (or with no rate set) are stored with an unknown cost — nothing is guessed.
           This never changes what tenants see.
@@ -1978,14 +1993,21 @@ function AiCostCard() {
                       <span className="ml-auto text-muted-foreground">
                         {p.kind === "text"
                           ? `$${p.inputUsdPerMtok ?? 0} in / $${p.outputUsdPerMtok ?? 0} out per 1M tokens`
-                          : [
-                              p.usdPerImage !== null ? `$${p.usdPerImage} per image` : null,
-                              p.inputUsdPerMtok !== null && p.outputUsdPerMtok !== null
-                                ? `$${p.inputUsdPerMtok} in / $${p.outputUsdPerMtok} out per 1M tokens`
-                                : null,
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
+                          : p.kind === "video"
+                            ? [
+                                p.usdPerSecond !== null ? `$${p.usdPerSecond} per second` : null,
+                                p.usdPerVideo !== null ? `$${p.usdPerVideo} per video` : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")
+                            : [
+                                p.usdPerImage !== null ? `$${p.usdPerImage} per image` : null,
+                                p.inputUsdPerMtok !== null && p.outputUsdPerMtok !== null
+                                  ? `$${p.inputUsdPerMtok} in / $${p.outputUsdPerMtok} out per 1M tokens`
+                                  : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
                       </span>
                       <Button
                         variant="ghost"
@@ -2004,13 +2026,14 @@ function AiCostCard() {
               <div className="grid gap-3 sm:grid-cols-6 items-end">
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Type</label>
-                  <Select value={kind} onValueChange={(v) => setKind(v as "text" | "image")}>
+                  <Select value={kind} onValueChange={(v) => setKind(v as "text" | "image" | "video")}>
                     <SelectTrigger data-testid="select-price-kind">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="text">Text</SelectItem>
                       <SelectItem value="image">Image</SelectItem>
+                      <SelectItem value="video">Video</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -2032,7 +2055,7 @@ function AiCostCard() {
                   </label>
                   <Input
                     id="price-model"
-                    placeholder="gpt-4o-mini"
+                    placeholder={kind === "video" ? "google/veo-3" : "gpt-4o-mini"}
                     value={model}
                     onChange={(e) => setModel(e.target.value)}
                     data-testid="input-price-model"
@@ -2054,7 +2077,40 @@ function AiCostCard() {
                     />
                   </div>
                 )}
-                <>
+                {kind === "video" && (
+                  <>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium" htmlFor="price-second-usd">
+                        $ / second
+                      </label>
+                      <Input
+                        id="price-second-usd"
+                        type="number"
+                        min="0"
+                        step="0.001"
+                        value={secondUsd}
+                        onChange={(e) => setSecondUsd(e.target.value)}
+                        data-testid="input-price-second-usd"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium" htmlFor="price-video-usd">
+                        $ / video (optional)
+                      </label>
+                      <Input
+                        id="price-video-usd"
+                        type="number"
+                        min="0"
+                        step="0.001"
+                        value={videoUsd}
+                        onChange={(e) => setVideoUsd(e.target.value)}
+                        data-testid="input-price-video-usd"
+                      />
+                    </div>
+                  </>
+                )}
+                {kind !== "video" && (
+                  <>
                     <div className="space-y-1.5">
                       <label className="text-sm font-medium" htmlFor="price-input-usd">
                         {kind === "text" ? "$ / 1M input" : "$ / 1M input (optional)"}
@@ -2083,7 +2139,8 @@ function AiCostCard() {
                         data-testid="input-price-output-usd"
                       />
                     </div>
-                </>
+                  </>
+                )}
                 <Button
                   onClick={handleAddPrice}
                   disabled={upsertPrice.isPending}

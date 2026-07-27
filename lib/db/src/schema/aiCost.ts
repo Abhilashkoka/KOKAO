@@ -16,6 +16,7 @@ import {
  * Provider prices are quoted in USD:
  *   - text models: USD per MILLION input tokens / per MILLION output tokens
  *   - image models: USD per generated image
+ *   - video models: USD per second of output video and/or USD per video
  * Unknown models (no matching row) yield a NULL cost on the usage event —
  * never a guessed number.
  */
@@ -23,7 +24,7 @@ export const aiModelPricesTable = pgTable(
   "ai_model_prices",
   {
     id: serial("id").primaryKey(),
-    /** "text" or "image". */
+    /** "text", "image" or "video". */
     kind: text("kind").notNull(),
     /** Provider id, e.g. "builtin", "openrouter", "gemini", "bfl". */
     provider: text("provider").notNull(),
@@ -35,6 +36,10 @@ export const aiModelPricesTable = pgTable(
     outputUsdPerMtok: doublePrecision("output_usd_per_mtok"),
     /** Image models: USD per generated image. */
     usdPerImage: doublePrecision("usd_per_image"),
+    /** Video models: USD per second of output video. */
+    usdPerSecond: doublePrecision("usd_per_second"),
+    /** Video models: flat USD per generated video. */
+    usdPerVideo: doublePrecision("usd_per_video"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()

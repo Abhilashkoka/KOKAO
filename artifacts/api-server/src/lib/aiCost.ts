@@ -43,12 +43,14 @@ export async function listModelPrices(): Promise<AiModelPrice[]> {
 }
 
 export interface UpsertModelPriceInput {
-  kind: "text" | "image";
+  kind: "text" | "image" | "video";
   provider: string;
   model: string;
   inputUsdPerMtok: number | null;
   outputUsdPerMtok: number | null;
   usdPerImage: number | null;
+  usdPerSecond: number | null;
+  usdPerVideo: number | null;
 }
 
 export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<AiModelPrice> {
@@ -61,6 +63,8 @@ export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<Ai
         inputUsdPerMtok: input.inputUsdPerMtok,
         outputUsdPerMtok: input.outputUsdPerMtok,
         usdPerImage: input.usdPerImage,
+        usdPerSecond: input.usdPerSecond,
+        usdPerVideo: input.usdPerVideo,
         updatedAt: new Date(),
       },
     })
@@ -81,7 +85,7 @@ export function usdToPaise(usd: number, usdToInrPaise: number): number | null {
 }
 
 async function findPrice(
-  kind: "text" | "image",
+  kind: "text" | "image" | "video",
   provider: string,
   model: string,
 ): Promise<AiModelPrice | null> {
