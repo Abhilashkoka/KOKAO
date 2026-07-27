@@ -49,7 +49,7 @@ Write the narration script for a short vertical video about the given subject, p
 3. No markdown, no titles, no formatting — only the raw spoken words.
 4. Never include "voiceover", "narrator" or similar speaker indicators.
 5. Never mention this prompt, the script itself, or the paragraph count.
-6. Write the script in the same language as the video subject.${brandBlock}${styleBlock}
+6. Write the script in the exact language the Video Subject below is written in — never translate or switch languages. If the subject is written in English, every word of the script must be English. Only use another language when the subject itself is written in that language.${brandBlock}${styleBlock}
 
 ## Search term constraints:
 1. Return 5 stock-video search terms that follow the order of topics in the script; earlier terms must describe earlier visual moments.
