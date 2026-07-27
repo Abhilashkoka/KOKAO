@@ -101,8 +101,8 @@ export function WalletCard() {
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: getWalletGetOverviewQueryKey() });
 
-  const handleRecharge = async () => {
-    if (!amountValid) {
+  const startRecharge = async (rechargePaise: number) => {
+    if (!Number.isFinite(rechargePaise) || rechargePaise < wallet.minTopupPaise) {
       toast({
         variant: "destructive",
         title: "Enter a larger amount",
@@ -112,7 +112,7 @@ export function WalletCard() {
     }
     setBusy(true);
     try {
-      const order = await recharge.mutateAsync({ data: { amountPaise: basePaise } });
+      const order = await recharge.mutateAsync({ data: { amountPaise: rechargePaise } });
       await openCheckout({
         key: order.keyId,
         order_id: order.razorpayOrderId,
@@ -171,13 +171,46 @@ export function WalletCard() {
   return (
     <Card className="border-border shadow-sm" data-testid="card-wallet">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Wallet className="h-5 w-5 text-primary" /> Wallet
-        </CardTitle>
-        <CardDescription>
-          Generations are charged to this balance as you use them. All amounts
-          are shown excluding GST — GST is added at the payment step.
-        </CardDescription>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1.5">
+            <CardTitle className="flex items-center gap-2">
+              <Wallet className="h-5 w-5 text-primary" /> Wallet
+            </CardTitle>
+            <CardDescription>
+              Generations are charged to this balance as you use them. All amounts
+              are shown excluding GST — GST is added at the payment step.
+            </CardDescription>
+          </div>
+          {/* Always-visible top-up entry point. Uses the typed amount when one
+              is entered, otherwise the minimum top-up, and goes straight to
+              Razorpay checkout. */}
+          <Button
+            onClick={() => {
+              if (!wallet.configured) {
+                toast({
+                  variant: "destructive",
+                  title: "Payments not set up",
+                  description:
+                    "Ask your administrator to add payment keys, or to top your wallet up manually.",
+                });
+                return;
+              }
+              if (!isOwner) {
+                toast({
+                  variant: "destructive",
+                  title: "Owner only",
+                  description: "Only the workspace owner can recharge the wallet.",
+                });
+                return;
+              }
+              void startRecharge(basePaise > 0 ? basePaise : wallet.minTopupPaise);
+            }}
+            disabled={busy}
+            data-testid="button-wallet-add-credit"
+          >
+            {busy ? <RippleSpinner className="h-4 w-4" /> : "Add credit"}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-5">
         <div
@@ -247,7 +280,7 @@ export function WalletCard() {
                 />
               </div>
               <Button
-                onClick={handleRecharge}
+                onClick={() => void startRecharge(basePaise)}
                 disabled={busy || !amountValid}
                 data-testid="button-wallet-recharge"
               >
