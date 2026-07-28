@@ -474,20 +474,24 @@ describe("guessed / nonexistent ids are rejected cleanly (real mock server)", ()
       .where(eq(creditLedgerTable.tenantId, tenantId));
   }
 
-  it("verify-purchase with a random order id fails with a generic 400 and no credits", async () => {
+  it("verify-purchase with an order Razorpay lost returns the clear 400 and no credits", async () => {
     actAs(clerkUserId);
     const before = await tenantALedger();
+    // A stored order id Razorpay no longer knows (e.g. deleted from the
+    // dashboard after checkout began). The mock answers the order fetch
+    // with a 404 "order not found" — exactly what live Razorpay does.
     const fakeOrderId = "order_XXXX00000000";
-    // Even with a technically valid signature over the fake id (attacker who
-    // somehow knows the secret can't mint credits from a nonexistent order).
     const res = await request(app).post("/api/billing/verify-purchase").send({
       razorpayOrderId: fakeOrderId,
       razorpayPaymentId: "pay_RT_GUESS1",
       razorpaySignature: signOrder(fakeOrderId, "pay_RT_GUESS1"),
     });
+    // Clean actionable 4xx, not a 502 "Payment provider error". Reaching the
+    // order fetch already required a valid signature, so this is no oracle.
     expect(res.status).toBe(400);
-    // Same generic message as a bad signature — no order-existence oracle.
-    expect(res.body.error).toBe("Payment verification failed");
+    expect(res.body.error).toBe(
+      "Razorpay no longer recognizes this order. Please start a new purchase or contact support.",
+    );
     const after = await tenantALedger();
     expect(after).toHaveLength(before.length);
   });
@@ -501,9 +505,46 @@ describe("guessed / nonexistent ids are rejected cleanly (real mock server)", ()
       razorpaySignature: signOrder(malformed, "pay_RT_GUESS2"),
     });
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe("Payment verification failed");
+    expect(res.body.error).toBe(
+      "Razorpay no longer recognizes this order. Please start a new purchase or contact support.",
+    );
     const after = await tenantALedger();
     expect(after).toHaveLength(before.length);
+  });
+
+  it("verify-purchase hitting a non-lost 4xx (throttling) stays a provider error", async () => {
+    actAs(clerkUserId);
+    // A one-off Razorpay stand-in that answers every request with 429 —
+    // a 4xx that does NOT mean the order id is gone.
+    const throttle = http.createServer((_req, res) => {
+      res.writeHead(429, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({ error: { description: "Too many requests, please retry" } }),
+      );
+    });
+    await new Promise<void>((resolve) => throttle.listen(0, "127.0.0.1", resolve));
+    const port = (throttle.address() as { port: number }).port;
+    const prevBase = process.env.RAZORPAY_API_BASE_URL;
+    process.env.RAZORPAY_API_BASE_URL = `http://127.0.0.1:${port}`;
+    try {
+      const before = await tenantALedger();
+      const orderId = "order_THROTTLE1";
+      const res = await request(app).post("/api/billing/verify-purchase").send({
+        razorpayOrderId: orderId,
+        razorpayPaymentId: "pay_RT_THR1",
+        razorpaySignature: signOrder(orderId, "pay_RT_THR1"),
+      });
+      // Generic 400, NOT the "lost order" message and never a 5xx.
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Payment verification failed");
+      const after = await tenantALedger();
+      expect(after).toHaveLength(before.length);
+    } finally {
+      process.env.RAZORPAY_API_BASE_URL = prevBase;
+      await new Promise<void>((resolve, reject) =>
+        throttle.close((e) => (e ? reject(e) : resolve())),
+      );
+    }
   });
 
   it("verify-subscription with a nonexistent sub id returns 404 and leaves the plan alone", async () => {

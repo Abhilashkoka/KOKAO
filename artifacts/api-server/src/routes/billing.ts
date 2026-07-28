@@ -64,11 +64,12 @@ function handleRazorpayError(req: Request, res: Response, error: unknown, msg: s
 }
 
 /**
- * True only when Razorpay explicitly reports the subscription id as unknown
- * (deleted / never existed) — a 400/404 whose description says the id is not
- * valid or not found. Auth failures, throttling, and other 4xx do NOT match.
+ * True only when Razorpay explicitly reports an id (subscription or order) as
+ * unknown (deleted / never existed) — a 400/404 whose description says the id
+ * is not valid or not found. Auth failures, throttling, and other 4xx do NOT
+ * match.
  */
-function isRazorpaySubscriptionLostError(error: unknown): boolean {
+function isRazorpayLostIdError(error: unknown): boolean {
   if (!(error instanceof RazorpayApiError)) return false;
   if (error.status !== 400 && error.status !== 404) return false;
   return /not a valid id|not found|does not exist|no such/i.test(error.message);
@@ -362,7 +363,7 @@ router.post("/billing/cancel", async (req: Request, res: Response) => {
     // the stale local row cancelled so the user isn't stuck with an
     // uncancellable ghost subscription. Other 4xx (auth, throttling, ...)
     // stay on the generic provider-error path with no local mutation.
-    if (isRazorpaySubscriptionLostError(error)) {
+    if (isRazorpayLostIdError(error)) {
       await db
         .update(subscriptionsTable)
         .set({ status: "cancelled", cancelAtPeriodEnd: true, updatedAt: new Date() })
@@ -533,9 +534,21 @@ router.post("/billing/verify-purchase", async (req: Request, res: Response) => {
     // Duplicate grants (webhook raced us) are fine — balance is already right.
     res.json({ ok: true, credits: await getCreditBalances(req.tenantId) });
   } catch (error) {
-    // A nonexistent or malformed order id makes Razorpay's order fetch fail
-    // with a 4xx. Treat that exactly like a bad signature: a generic 400 that
-    // never reveals whether an order exists, and never a 5xx.
+    // A stored order id Razorpay no longer knows (deleted in the dashboard,
+    // or never existed) makes the order fetch fail with a 4xx saying the id
+    // is invalid. Surface that as the same clear, actionable 400 the
+    // subscription flows use — not a confusing 502 "Payment provider error".
+    // Reaching this point already required a valid signature over the order
+    // id, so this is no order-existence oracle.
+    if (isRazorpayLostIdError(error)) {
+      res.status(400).json({
+        error:
+          "Razorpay no longer recognizes this order. Please start a new purchase or contact support.",
+      });
+      return;
+    }
+    // Any other Razorpay 4xx (auth failure, throttling, malformed request)
+    // stays a generic 400, never a 5xx.
     if (
       error instanceof RazorpayApiError &&
       error.status >= 400 &&
