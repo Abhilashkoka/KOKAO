@@ -29,6 +29,7 @@ export const ADS_CONNECTION_FAILED = "ads_connection_failed";
 export const ADS_DRAFT_PENDING = "ads_draft_pending";
 export const ADS_CHANGE_APPLIED = "ads_change_applied";
 export const ADS_CHANGE_FAILED = "ads_change_failed";
+export const ADS_VERIFY_MISMATCH = "ads_verify_mismatch";
 export const SCHEDULED_POST_PUBLISHED = "scheduled_post_published";
 export const SCHEDULED_PUBLISH_FAILED = "scheduled_publish_failed";
 export const SEAT_REQUEST_DECIDED = "seat_request_decided";
@@ -2449,5 +2450,62 @@ export async function notifyAdsChangeFailed(
     }
   } catch (err) {
     logger.error({ err, tenantId }, "Failed to record ads-change-failed notification");
+  }
+}
+
+/**
+ * Tell a tenant an approved ads change was applied but the post-apply
+ * read-back shows the platform silently ignored it (verify mismatch). The
+ * approve-time toast is ephemeral, so this leaves a durable in-app row plus
+ * best-effort email per effective settings, linking to the change history.
+ * Never throws.
+ */
+export async function notifyAdsVerifyMismatch(
+  tenantId: number,
+  targetName: string,
+  platform: string,
+): Promise<void> {
+  try {
+    const effective = await getEffectiveSetting(tenantId, ADS_VERIFY_MISMATCH);
+    if (!effective.enabled) return;
+    const message = `${platformLabel(platform)} accepted the approved advertising change to "${targetName}", but checking back shows it did not take effect. Review the change history and re-apply if needed.`;
+    await db.insert(notificationsTable).values({
+      tenantId,
+      type: ADS_VERIFY_MISMATCH,
+      platform,
+      title: "Ad change didn't stick",
+      message,
+      linkUrl: "/ads?tab=history",
+      inApp: effective.inApp,
+    });
+
+    await sendTenantPush(tenantId, ADS_VERIFY_MISMATCH, {
+      title: "Ad change didn't stick",
+      message,
+      linkUrl: "/ads?tab=history",
+    });
+    const owner = await db
+      .select({ clerkUserId: tenantsTable.clerkUserId })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, tenantId))
+      .limit(1);
+    const ownerClerkUserId = owner[0]?.clerkUserId ?? null;
+    if (effective.email && ownerClerkUserId) {
+      try {
+        const email = await fetchVerifiedEmail(ownerClerkUserId);
+        if (email) {
+          await sendEmail({
+            to: email,
+            subject: "An applied ad change didn't stick",
+            text: message,
+            html: `<p>${escapeHtml(message)}</p>`,
+          });
+        }
+      } catch (err) {
+        logger.error({ err, tenantId }, "Failed to email ads-verify-mismatch alert");
+      }
+    }
+  } catch (err) {
+    logger.error({ err, tenantId }, "Failed to record ads-verify-mismatch notification");
   }
 }

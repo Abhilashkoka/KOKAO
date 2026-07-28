@@ -138,6 +138,12 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
       "An approved advertising change was successfully applied to your ad account.",
   },
   {
+    type: "ads_verify_mismatch",
+    label: "Ad changes that didn't stick",
+    description:
+      "An approved advertising change was accepted by the ad platform but a follow-up check shows it never took effect.",
+  },
+  {
     type: "ads_change_failed",
     label: "Ad change failures",
     description:

@@ -54,7 +54,7 @@ import {
   tenantMembersTable,
   notificationsTable,
 } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   readObjectState,
   updateObject,
@@ -774,6 +774,21 @@ describe("post-apply verification", () => {
         .where(eq(adsChangeLogsTable.tenantId, tenant.tenantId));
       expect(logs.length).toBe(1);
       expect(logs[0]!.verifyStatus).toBe("mismatch");
+
+      // The ephemeral toast aside, a durable notification is left for the
+      // workspace pointing at the change history.
+      const notifs = await db
+        .select()
+        .from(notificationsTable)
+        .where(
+          and(
+            eq(notificationsTable.tenantId, tenant.tenantId),
+            eq(notificationsTable.type, "ads_verify_mismatch"),
+          ),
+        );
+      expect(notifs.length).toBe(1);
+      expect(notifs[0]!.linkUrl).toBe("/ads?tab=history");
+      expect(notifs[0]!.message).toContain("did not take effect");
     } finally {
       await deleteTenant(tenant.tenantId);
     }

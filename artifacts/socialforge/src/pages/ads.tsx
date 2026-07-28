@@ -583,7 +583,15 @@ export function AdsPage() {
       {connectedConn && <BudgetCapsCard isOwner={isOwner} currency={connectedConn.currency ?? null} />}
 
       {connectedConn && (
-        <Tabs defaultValue="campaigns">
+        <Tabs
+          defaultValue={
+            new URLSearchParams(window.location.search).get("tab") === "history"
+              ? "history"
+              : new URLSearchParams(window.location.search).get("tab") === "approvals"
+                ? "approvals"
+                : "campaigns"
+          }
+        >
           <TabsList>
             <TabsTrigger value="campaigns" data-testid="tab-campaigns">
               Campaigns

@@ -68,7 +68,11 @@ import {
   handleLinkedinAdsAuthFailure,
 } from "./linkedinAdsRefresh";
 import { tryAcquireResendLock } from "./resendLock";
-import { notifyAdsChangeApplied, notifyAdsChangeFailed } from "./notifications";
+import {
+  notifyAdsChangeApplied,
+  notifyAdsChangeFailed,
+  notifyAdsVerifyMismatch,
+} from "./notifications";
 import { logger } from "./logger";
 
 /**
@@ -1416,7 +1420,11 @@ async function finishApplied(
     approvedByClerkUserId: approver.clerkUserId,
     approvedByEmail: approver.email,
   });
-  await notifyAdsChangeApplied(draft.tenantId, draft.targetName, draft.platform);
+  if (verifyStatus === "mismatch") {
+    await notifyAdsVerifyMismatch(draft.tenantId, draft.targetName, draft.platform);
+  } else {
+    await notifyAdsChangeApplied(draft.tenantId, draft.targetName, draft.platform);
+  }
   return { kind: "applied", draft: updated };
 }
 
