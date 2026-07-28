@@ -292,6 +292,22 @@ router.post("/billing/verify-subscription", async (req: Request, res: Response) 
 
     res.json({ ok: true, plan: sub.planId });
   } catch (error) {
+    // A local subscription row can point at an id Razorpay no longer knows
+    // (e.g. deleted in the dashboard). Razorpay answers the live-state fetch
+    // with a 4xx — surface that as a clear, actionable 400 instead of a
+    // confusing "payment provider error" gateway 502. Nothing was mutated
+    // yet: the fetch happens before any plan/subscription-row writes.
+    if (
+      error instanceof RazorpayApiError &&
+      error.status >= 400 &&
+      error.status < 500
+    ) {
+      res.status(400).json({
+        error:
+          "Razorpay no longer recognizes this subscription. Please start a new subscription or contact support.",
+      });
+      return;
+    }
     handleRazorpayError(req, res, error, "Failed to verify subscription");
   }
 });

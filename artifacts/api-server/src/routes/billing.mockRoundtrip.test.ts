@@ -508,6 +508,48 @@ describe("guessed / nonexistent ids are rejected cleanly (real mock server)", ()
     expect(res.body.error).toBe("Subscription not found");
     expect((await getTenant(tenantId)).plan).toBe(planBefore);
   });
+
+  it("verify-subscription with a DB row Razorpay lost returns a clear 400 and mutates nothing", async () => {
+    actAs(clerkUserId);
+    const planBefore = (await getTenant(tenantId)).plan;
+    // Locally-known subscription whose Razorpay id does NOT exist on the mock
+    // (e.g. deleted from the Razorpay dashboard after checkout began).
+    const ghostSubId = `sub_GHOST${Date.now()}`;
+    const [row] = await db
+      .insert(subscriptionsTable)
+      .values({
+        tenantId,
+        planId: PLAN_ID,
+        razorpaySubscriptionId: ghostSubId,
+        status: "created",
+        billingCycle: "monthly",
+      })
+      .returning();
+    try {
+      const res = await request(app)
+        .post("/api/billing/verify-subscription")
+        .send({
+          razorpaySubscriptionId: ghostSubId,
+          razorpayPaymentId: "pay_RT_GHOST1",
+          razorpaySignature: signSubscription(ghostSubId, "pay_RT_GHOST1"),
+        });
+      // Clean actionable 4xx, not a 502 "Payment provider error".
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe(
+        "Razorpay no longer recognizes this subscription. Please start a new subscription or contact support.",
+      );
+      // No tenant plan or subscription-row mutation happened.
+      expect((await getTenant(tenantId)).plan).toBe(planBefore);
+      const [after] = await db
+        .select()
+        .from(subscriptionsTable)
+        .where(eq(subscriptionsTable.id, row.id));
+      expect(after.status).toBe("created");
+      expect(after.currentPeriodEnd).toBeNull();
+    } finally {
+      await db.delete(subscriptionsTable).where(eq(subscriptionsTable.id, row.id));
+    }
+  });
 });
 
 describe("retried purchase after a failed checkout (real mock server)", () => {
