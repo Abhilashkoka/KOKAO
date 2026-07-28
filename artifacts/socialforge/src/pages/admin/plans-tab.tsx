@@ -40,6 +40,7 @@ interface PlanDraft {
   priceRupeesYearly: string;
   captions: string;
   images: string;
+  videos: string;
   brandKits: string;
   scheduledPosts: string;
   teamSeats: string;
@@ -59,9 +60,10 @@ function limitToInput(n: number): string {
   return n === -1 ? "unlimited" : String(n);
 }
 
-const LIMIT_FIELDS: { key: keyof Pick<PlanDraft, "captions" | "images" | "brandKits" | "scheduledPosts">; label: string }[] = [
+const LIMIT_FIELDS: { key: keyof Pick<PlanDraft, "captions" | "images" | "videos" | "brandKits" | "scheduledPosts">; label: string }[] = [
   { key: "captions", label: "AI captions / month" },
   { key: "images", label: "AI images / month" },
+  { key: "videos", label: "AI videos / month" },
   { key: "brandKits", label: "Brand kits" },
   { key: "scheduledPosts", label: "Scheduled posts" },
 ];
@@ -73,6 +75,7 @@ const EMPTY_NEW_PLAN: PlanDraft = {
   priceRupeesYearly: "",
   captions: "",
   images: "",
+  videos: "",
   brandKits: "",
   scheduledPosts: "",
   teamSeats: "0",
@@ -430,6 +433,7 @@ function PlansCard() {
     const limits = {
       captions: parseLimit(draft.captions),
       images: parseLimit(draft.images),
+      videos: parseLimit(draft.videos),
       brandKits: parseLimit(draft.brandKits),
       scheduledPosts: parseLimit(draft.scheduledPosts),
     };
@@ -475,6 +479,7 @@ function PlansCard() {
       limits: {
         captions: limits.captions!,
         images: limits.images!,
+        videos: limits.videos!,
         brandKits: limits.brandKits!,
         scheduledPosts: limits.scheduledPosts!,
       },
@@ -555,6 +560,7 @@ function PlansCard() {
                 : "",
             captions: limitToInput(p.limits.captions),
             images: limitToInput(p.limits.images),
+            videos: limitToInput(p.limits.videos ?? 0),
             brandKits: limitToInput(p.limits.brandKits),
             scheduledPosts: limitToInput(p.limits.scheduledPosts),
             teamSeats: String(p.teamSeats ?? 0),
