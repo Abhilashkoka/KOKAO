@@ -7,6 +7,7 @@
  */
 import type { AdminTenantBillingMode } from './adminTenantBillingMode';
 import type { AdminTenantCounts } from './adminTenantCounts';
+import type { CreditBalances } from './creditBalances';
 import type { Usage } from './usage';
 
 export interface AdminTenant {
@@ -32,4 +33,5 @@ export interface AdminTenant {
   createdAt: Date;
   counts?: AdminTenantCounts;
   usage?: Usage;
+  credits?: CreditBalances;
 }

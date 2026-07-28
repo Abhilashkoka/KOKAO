@@ -884,6 +884,7 @@ export interface AdminTenant {
   createdAt: string;
   counts?: AdminTenantCounts;
   usage?: Usage;
+  credits?: CreditBalances;
 }
 
 export interface DesignSkillSettings {

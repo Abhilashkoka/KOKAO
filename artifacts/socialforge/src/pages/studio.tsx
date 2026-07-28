@@ -268,12 +268,23 @@ function PlatformFitPreview({ src }: { src: string }) {
 
 function StudioHeader() {
   const { data: me } = useGetMe();
+  const { flags } = useFeatureFlags();
   const captionsLeft =
     me && me.limits.captions !== -1 ? Math.max(0, me.limits.captions - me.usage.captions) : null;
   const imagesLeft =
     me && me.limits.images !== -1 ? Math.max(0, me.limits.images - me.usage.images) : null;
   const captionCredits = me?.credits?.captionCredits ?? 0;
   const imageCredits = me?.credits?.imageCredits ?? 0;
+  // Video quota mirrors captions/images, but only renders when video
+  // generation is enabled at all. limits.videos is optional (pre-video
+  // plans); treat a missing limit like the feature being absent.
+  const videoLimit = me?.limits.videos;
+  const videosLeft =
+    me && videoLimit !== undefined && videoLimit !== -1
+      ? Math.max(0, videoLimit - (me.usage.videos ?? 0))
+      : null;
+  const videoCredits = me?.credits?.videoCredits ?? 0;
+  const showVideos = flags.videoGen && videoLimit !== undefined;
 
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
@@ -325,6 +336,25 @@ function StudioHeader() {
               }`
             )}
           </span>
+          {showVideos && (
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${
+                videosLeft === 0 && videoCredits === 0 ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+              }`}
+              data-testid="quota-videos"
+            >
+              <Clapperboard className="h-3.5 w-3.5" />
+              {videosLeft === null ? (
+                <>
+                  <InfinityIcon className="h-3.5 w-3.5" /> videos
+                </>
+              ) : (
+                `${videosLeft} video${videosLeft === 1 ? "" : "s"} left${
+                  videoCredits > 0 ? ` +${videoCredits} credits` : ""
+                }`
+              )}
+            </span>
+          )}
           <span
             className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground"
             data-testid="quota-helpers"

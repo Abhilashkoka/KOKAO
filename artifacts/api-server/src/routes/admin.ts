@@ -12,6 +12,7 @@ import {
   sweepStatusTable,
   subscriptionsTable,
   walletBalancesTable,
+  creditBalancesTable,
 } from "@workspace/db";
 import {
   getWalletConfig,
@@ -243,6 +244,23 @@ async function walletBalancesByTenant(): Promise<Map<number, number>> {
   return new Map(rows.map((r) => [r.tenantId, r.balancePaise]));
 }
 
+/** Prepaid credit balances per tenant, for the admin tenants table Credits column. */
+async function creditBalancesByTenant(): Promise<
+  Map<number, { captionCredits: number; imageCredits: number; videoCredits: number }>
+> {
+  const rows = await db.select().from(creditBalancesTable);
+  return new Map(
+    rows.map((r) => [
+      r.tenantId,
+      {
+        captionCredits: r.captionCredits ?? 0,
+        imageCredits: r.imageCredits ?? 0,
+        videoCredits: r.videoCredits ?? 0,
+      },
+    ]),
+  );
+}
+
 async function countByTenant(
   table:
     | typeof contentItemsTable
@@ -275,6 +293,7 @@ router.get("/admin/tenants", async (_req: Request, res: Response) => {
     accountCounts,
     usageRows,
     walletBalances,
+    creditBalances,
   ] = await Promise.all([
     db.select().from(tenantsTable).orderBy(desc(tenantsTable.createdAt)),
     countByTenant(contentItemsTable),
@@ -291,6 +310,7 @@ router.get("/admin/tenants", async (_req: Request, res: Response) => {
       .where(gte(usageEventsTable.createdAt, periodStart))
       .groupBy(usageEventsTable.tenantId, usageEventsTable.kind),
     walletBalancesByTenant(),
+    creditBalancesByTenant(),
   ]);
 
   const captionUsage = new Map<number, number>();
@@ -313,6 +333,11 @@ router.get("/admin/tenants", async (_req: Request, res: Response) => {
         captions: captionUsage.get(t.id) ?? 0,
         images: imageUsage.get(t.id) ?? 0,
         periodStart: periodStart.toISOString(),
+      },
+      credits: creditBalances.get(t.id) ?? {
+        captionCredits: 0,
+        imageCredits: 0,
+        videoCredits: 0,
       },
     })),
   );

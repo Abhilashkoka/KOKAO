@@ -9083,6 +9083,8 @@ components:
           $ref: "#/components/schemas/AdminTenantCounts"
         usage:
           $ref: "#/components/schemas/Usage"
+        credits:
+          $ref: "#/components/schemas/CreditBalances"
     DesignSkillSettings:
       type: object
       required: [enabled]

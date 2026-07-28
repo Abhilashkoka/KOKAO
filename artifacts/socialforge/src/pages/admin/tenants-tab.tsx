@@ -585,15 +585,25 @@ export function TenantsTab() {
                         </Select>
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            setGrantTarget({ id: t.id, name: t.name })
-                          }
-                        >
-                          Grant
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="text-xs text-muted-foreground tabular-nums whitespace-nowrap"
+                            data-testid={`text-credits-${t.id}`}
+                            title="Caption / image / video credits"
+                          >
+                            {t.credits?.captionCredits ?? 0}C · {t.credits?.imageCredits ?? 0}I ·{" "}
+                            {t.credits?.videoCredits ?? 0}V
+                          </span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              setGrantTarget({ id: t.id, name: t.name })
+                            }
+                          >
+                            Grant
+                          </Button>
+                        </div>
                       </TableCell>
                       {walletEnabled && (
                         <TableCell>

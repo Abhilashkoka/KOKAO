@@ -650,6 +650,11 @@ export const AdminListTenantsResponseItem = zod.object({
   "images": zod.number(),
   "videos": zod.number().optional().describe('AI videos generated this month against the plan quota.'),
   "periodStart": zod.coerce.date()
+}).optional(),
+  "credits": zod.object({
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number().optional().describe('Prepaid AI video generation credits.')
 }).optional()
 })
 export const AdminListTenantsResponse = zod.array(AdminListTenantsResponseItem)
@@ -694,6 +699,11 @@ export const AdminUpdateTenantPlanResponse = zod.object({
   "images": zod.number(),
   "videos": zod.number().optional().describe('AI videos generated this month against the plan quota.'),
   "periodStart": zod.coerce.date()
+}).optional(),
+  "credits": zod.object({
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number().optional().describe('Prepaid AI video generation credits.')
 }).optional()
 })
 
@@ -877,6 +887,11 @@ export const AdminUpdateTenantSuperadminResponse = zod.object({
   "images": zod.number(),
   "videos": zod.number().optional().describe('AI videos generated this month against the plan quota.'),
   "periodStart": zod.coerce.date()
+}).optional(),
+  "credits": zod.object({
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number().optional().describe('Prepaid AI video generation credits.')
 }).optional()
 })
 
@@ -915,6 +930,11 @@ export const AdminUpdateTenantDesignSkillResponse = zod.object({
   "images": zod.number(),
   "videos": zod.number().optional().describe('AI videos generated this month against the plan quota.'),
   "periodStart": zod.coerce.date()
+}).optional(),
+  "credits": zod.object({
+  "captionCredits": zod.number(),
+  "imageCredits": zod.number(),
+  "videoCredits": zod.number().optional().describe('Prepaid AI video generation credits.')
 }).optional()
 })
 
