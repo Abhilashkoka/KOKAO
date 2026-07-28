@@ -12,6 +12,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const subscribeMutateAsync = vi.fn();
 const purchaseMutateAsync = vi.fn();
 const cancelMutate = vi.fn();
+const requestUpgradeMutate = vi.fn();
 const switchPaygMutate = vi.fn();
 
 const mockState: {
@@ -87,6 +88,10 @@ vi.mock("@workspace/api-client-react", async () => {
       ...idleMutation(),
       mutate: switchPaygMutate,
     }),
+    useBillingRequestUpgrade: () => ({
+      ...idleMutation(),
+      mutate: requestUpgradeMutate,
+    }),
   });
 });
 
@@ -128,6 +133,7 @@ beforeEach(() => {
   purchaseMutateAsync.mockReset();
   cancelMutate.mockReset();
   switchPaygMutate.mockReset();
+  requestUpgradeMutate.mockReset();
   mockState.team = null;
   mockState.configured = true;
   mockState.plans = [paidPlan];
@@ -315,6 +321,46 @@ describe("Mobile Plan & Billing purchase actions", () => {
     await waitFor(() =>
       expect(
         screen.getByText("Subscription is already scheduled to cancel."),
+      ).toBeTruthy(),
+    );
+  });
+
+  it("shows a friendly cooldown notice when an upgrade request hits 429", async () => {
+    mockState.team = { role: "member", workspaceName: "Owner WS" };
+    requestUpgradeMutate.mockImplementation((_vars, opts) =>
+      opts?.onError?.(
+        Object.assign(new Error("HTTP 429"), {
+          status: 429,
+          data: {
+            error:
+              "You already asked for an upgrade recently. Give the owner a little time to respond.",
+          },
+        }),
+      ),
+    );
+    renderScreen();
+
+    fireEvent.click(screen.getByText("Request upgrade"));
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "You already asked for an upgrade recently. Give the owner a little time to respond.",
+        ),
+      ).toBeTruthy(),
+    );
+  });
+
+  it("shows a generic error when an upgrade request fails for another reason", async () => {
+    mockState.team = { role: "member", workspaceName: "Owner WS" };
+    requestUpgradeMutate.mockImplementation((_vars, opts) =>
+      opts?.onError?.(new Error("network down")),
+    );
+    renderScreen();
+
+    fireEvent.click(screen.getByText("Request upgrade"));
+    await waitFor(() =>
+      expect(
+        screen.getByText("Could not send the request. Please try again."),
       ).toBeTruthy(),
     );
   });

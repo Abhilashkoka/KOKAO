@@ -466,14 +466,27 @@ export default function SettingsScreen() {
                         kind: "success",
                         text: "Request sent. The workspace owner has been notified that you'd like an upgrade.",
                       }),
-                    onError: (error) =>
+                    onError: (error) => {
+                      const status = (error as { status?: number } | null)
+                        ?.status;
+                      if (status === 429) {
+                        setNotice({
+                          kind: "info",
+                          text: apiErrorMessage(
+                            error,
+                            "You already asked for an upgrade recently. Give the owner a little time to respond.",
+                          ),
+                        });
+                        return;
+                      }
                       setNotice({
                         kind: "error",
                         text: apiErrorMessage(
                           error,
                           "Could not send the request. Please try again.",
                         ),
-                      }),
+                      });
+                    },
                   });
                 }}
               >

@@ -253,7 +253,19 @@ export function BillingSettings() {
                         description:
                           "The workspace owner has been notified that you'd like an upgrade.",
                       }),
-                    onError: (error) =>
+                    onError: (error) => {
+                      const status = (error as { status?: number } | null)
+                        ?.status;
+                      if (status === 429) {
+                        toast({
+                          title: "Already requested recently",
+                          description: apiErrorMessage(
+                            error,
+                            "You already asked for an upgrade recently. Give the owner a little time to respond.",
+                          ),
+                        });
+                        return;
+                      }
                       toast({
                         title: "Could not send the request",
                         description: apiErrorMessage(
@@ -261,7 +273,8 @@ export function BillingSettings() {
                           "Please try again in a moment.",
                         ),
                         variant: "destructive",
-                      }),
+                      });
+                    },
                   })
                 }
               >
