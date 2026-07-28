@@ -11,11 +11,12 @@
  * server's real HTTP client talks to the spawned mock over RAZORPAY_API_BASE_URL
  * and real HMAC signatures are computed with the seeded key secret.
  */
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import request from "supertest";
 import express, { type Express } from "express";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHmac } from "node:crypto";
+import http from "node:http";
 import path from "node:path";
 import {
   pool,
@@ -189,6 +190,17 @@ beforeAll(async () => {
     sortOrder: 99,
   });
   invalidatePlanCache();
+});
+
+// Concurrent validation runs share the dev DB and snapshot/restore the same
+// global "razorpay" credentials row; re-seed before every test so a mid-run
+// external restore can't turn the rest of this suite into spurious 503s.
+beforeEach(async () => {
+  await setAppCredentialRow("razorpay", {
+    keyId: "rzp_test_roundtrip",
+    keySecret: KEY_SECRET,
+    webhookSecret: "test_webhook_secret",
+  });
 });
 
 afterAll(async () => {
@@ -548,6 +560,90 @@ describe("guessed / nonexistent ids are rejected cleanly (real mock server)", ()
       expect(after.currentPeriodEnd).toBeNull();
     } finally {
       await db.delete(subscriptionsTable).where(eq(subscriptionsTable.id, row.id));
+    }
+  });
+
+  it("cancel with a DB row Razorpay lost returns a clear 400 and marks the row cancelled", async () => {
+    actAs(clerkUserId);
+    // Locally-active subscription whose Razorpay id does NOT exist on the
+    // mock server (e.g. deleted from the Razorpay dashboard).
+    const ghostSubId = `sub_GHOSTC${Date.now()}`;
+    const [row] = await db
+      .insert(subscriptionsTable)
+      .values({
+        tenantId,
+        planId: PLAN_ID,
+        razorpaySubscriptionId: ghostSubId,
+        status: "active",
+        billingCycle: "monthly",
+      })
+      .returning();
+    try {
+      const res = await request(app).post("/api/billing/cancel").send({});
+      // Clean actionable 4xx, not a 502 "Payment provider error".
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe(
+        "Razorpay no longer recognizes this subscription, so there is nothing to cancel there. It has been marked cancelled here — you can start a new subscription anytime.",
+      );
+      // The stale local row is resolved so the user isn't stuck.
+      const [after] = await db
+        .select()
+        .from(subscriptionsTable)
+        .where(eq(subscriptionsTable.id, row.id));
+      expect(after.status).toBe("cancelled");
+      expect(after.cancelAtPeriodEnd).toBe(true);
+      // A repeat cancel now reports there is nothing active to cancel.
+      const again = await request(app).post("/api/billing/cancel").send({});
+      expect(again.status).toBe(400);
+      expect(again.body.error).toBe("No active subscription to cancel");
+    } finally {
+      await db.delete(subscriptionsTable).where(eq(subscriptionsTable.id, row.id));
+    }
+  });
+
+  it("cancel hitting a non-lost 4xx (throttling) stays a provider error and mutates nothing", async () => {
+    actAs(clerkUserId);
+    // A one-off Razorpay stand-in that answers every request with 429 —
+    // a 4xx that does NOT mean the subscription id is gone.
+    const throttle = http.createServer((_req, res) => {
+      res.writeHead(429, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({ error: { description: "Too many requests, please retry" } }),
+      );
+    });
+    await new Promise<void>((resolve) => throttle.listen(0, "127.0.0.1", resolve));
+    const port = (throttle.address() as { port: number }).port;
+    const prevBase = process.env.RAZORPAY_API_BASE_URL;
+    process.env.RAZORPAY_API_BASE_URL = `http://127.0.0.1:${port}`;
+
+    const [row] = await db
+      .insert(subscriptionsTable)
+      .values({
+        tenantId,
+        planId: PLAN_ID,
+        razorpaySubscriptionId: `sub_THROTTLE${Date.now()}`,
+        status: "active",
+        billingCycle: "monthly",
+      })
+      .returning();
+    try {
+      const res = await request(app).post("/api/billing/cancel").send({});
+      // Generic provider-error handling, NOT the "lost subscription" path.
+      expect(res.status).toBe(502);
+      expect(res.body.error).toMatch(/^Payment provider error/);
+      // The local row is untouched — still active, not force-cancelled.
+      const [after] = await db
+        .select()
+        .from(subscriptionsTable)
+        .where(eq(subscriptionsTable.id, row.id));
+      expect(after.status).toBe("active");
+      expect(after.cancelAtPeriodEnd).toBe(false);
+    } finally {
+      process.env.RAZORPAY_API_BASE_URL = prevBase;
+      await db.delete(subscriptionsTable).where(eq(subscriptionsTable.id, row.id));
+      await new Promise<void>((resolve, reject) =>
+        throttle.close((e) => (e ? reject(e) : resolve())),
+      );
     }
   });
 });

@@ -63,6 +63,17 @@ function handleRazorpayError(req: Request, res: Response, error: unknown, msg: s
   res.status(500).json({ error: msg });
 }
 
+/**
+ * True only when Razorpay explicitly reports the subscription id as unknown
+ * (deleted / never existed) — a 400/404 whose description says the id is not
+ * valid or not found. Auth failures, throttling, and other 4xx do NOT match.
+ */
+function isRazorpaySubscriptionLostError(error: unknown): boolean {
+  if (!(error instanceof RazorpayApiError)) return false;
+  if (error.status !== 400 && error.status !== 404) return false;
+  return /not a valid id|not found|does not exist|no such/i.test(error.message);
+}
+
 /** The tenant's most recent subscription row, if any. */
 async function latestSubscription(tenantId: number) {
   return (
@@ -345,6 +356,23 @@ router.post("/billing/cancel", async (req: Request, res: Response) => {
     });
     res.json({ ok: true });
   } catch (error) {
+    // Razorpay may no longer know the stored subscription id (e.g. it was
+    // deleted from the Razorpay dashboard). Only when the error explicitly
+    // says the id is unknown do we surface a clear, actionable 400 and mark
+    // the stale local row cancelled so the user isn't stuck with an
+    // uncancellable ghost subscription. Other 4xx (auth, throttling, ...)
+    // stay on the generic provider-error path with no local mutation.
+    if (isRazorpaySubscriptionLostError(error)) {
+      await db
+        .update(subscriptionsTable)
+        .set({ status: "cancelled", cancelAtPeriodEnd: true, updatedAt: new Date() })
+        .where(eq(subscriptionsTable.id, sub.id));
+      res.status(400).json({
+        error:
+          "Razorpay no longer recognizes this subscription, so there is nothing to cancel there. It has been marked cancelled here — you can start a new subscription anytime.",
+      });
+      return;
+    }
     handleRazorpayError(req, res, error, "Failed to cancel subscription");
   }
 });
