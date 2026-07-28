@@ -32,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { PendingPostsWarnings } from "@/components/pending-posts-warning";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { track, trackFeatureUse } from "@/lib/analytics";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
 export function SchedulePage() {
   const { data: schedules, isLoading: sLoading } = useListSchedules();
@@ -126,8 +127,7 @@ export function SchedulePage() {
         setRetryingId(null);
         queryClient.invalidateQueries({ queryKey: getListSchedulesQueryKey() });
         queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
-        const serverMessage = err?.data?.error || err?.response?.data?.error;
-        const base = serverMessage || `Could not publish to ${label}. ${target?.connectHint ?? ""}`.trim();
+        const base = apiErrorMessage(err, `Could not publish to ${label}. ${target?.connectHint ?? ""}`.trim());
         toast({
           title: "Retry failed",
           description: retried ? `The automatic retry also failed. ${base}` : base,

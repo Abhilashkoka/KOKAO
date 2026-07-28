@@ -50,6 +50,7 @@ import { FacebookIcon, InstagramIcon, LinkedinIcon, XIcon, ThreadsIcon, YoutubeI
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ReconnectHelpDialog } from "@/components/reconnect-help-dialog";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
 function adPlatformLabel(platform: string) {
   if (platform === "meta") return "Meta Ads";
@@ -109,7 +110,7 @@ function FacebookCredentialsCard() {
         toast({ title: "Facebook disconnected", description: "Your stored Page credentials were cleared." });
       },
       onError: (err: any) => {
-        toast({ variant: "destructive", title: "Could not disconnect", description: err?.response?.data?.error || "Please try again." });
+        toast({ variant: "destructive", title: "Could not disconnect", description: apiErrorMessage(err, "Please try again.") });
       },
     });
   };
@@ -125,7 +126,7 @@ function FacebookCredentialsCard() {
         }
       },
       onError: (err: any) => {
-        toast({ variant: "destructive", title: "Could not re-test", description: err?.response?.data?.error || "Please try again." });
+        toast({ variant: "destructive", title: "Could not re-test", description: apiErrorMessage(err, "Please try again.") });
       },
     });
   };
@@ -162,7 +163,7 @@ function FacebookCredentialsCard() {
           toast({
             variant: "destructive",
             title: "Could not save",
-            description: err?.response?.data?.error || "Please try again.",
+            description: apiErrorMessage(err, "Please try again."),
           });
         },
       },
@@ -308,7 +309,7 @@ function InstagramCredentialsCard() {
         toast({ title: "Instagram disconnected", description: "Your stored Instagram account was cleared." });
       },
       onError: (err: any) => {
-        toast({ variant: "destructive", title: "Could not disconnect", description: err?.response?.data?.error || "Please try again." });
+        toast({ variant: "destructive", title: "Could not disconnect", description: apiErrorMessage(err, "Please try again.") });
       },
     });
   };
@@ -324,7 +325,7 @@ function InstagramCredentialsCard() {
         }
       },
       onError: (err: any) => {
-        toast({ variant: "destructive", title: "Could not re-test", description: err?.response?.data?.error || "Please try again." });
+        toast({ variant: "destructive", title: "Could not re-test", description: apiErrorMessage(err, "Please try again.") });
       },
     });
   };
@@ -361,7 +362,7 @@ function InstagramCredentialsCard() {
           toast({
             variant: "destructive",
             title: "Could not save",
-            description: err?.response?.data?.error || "Please try again.",
+            description: apiErrorMessage(err, "Please try again."),
           });
         },
       },
@@ -569,8 +570,7 @@ function TwitterCredentialsCard() {
         variant: "destructive",
         title: "Couldn't start X connection",
         description:
-          err?.response?.data?.error ||
-          "X isn't configured yet. Please try again later.",
+          apiErrorMessage(err, "X isn't configured yet. Please try again later."),
       });
     }
   };
@@ -582,7 +582,7 @@ function TwitterCredentialsCard() {
         toast({ title: "X disconnected", description: "Your stored X connection was cleared." });
       },
       onError: (err: any) => {
-        toast({ variant: "destructive", title: "Could not disconnect", description: err?.response?.data?.error || "Please try again." });
+        toast({ variant: "destructive", title: "Could not disconnect", description: apiErrorMessage(err, "Please try again.") });
       },
     });
   };
@@ -598,7 +598,7 @@ function TwitterCredentialsCard() {
         }
       },
       onError: (err: any) => {
-        toast({ variant: "destructive", title: "Could not re-test", description: err?.response?.data?.error || "Please try again." });
+        toast({ variant: "destructive", title: "Could not re-test", description: apiErrorMessage(err, "Please try again.") });
       },
     });
   };
@@ -785,7 +785,7 @@ export function AccountsPage() {
         toast({
           variant: "destructive",
           title: "Couldn't disconnect LinkedIn",
-          description: err?.response?.data?.error || "Please try again.",
+          description: apiErrorMessage(err, "Please try again."),
         });
       },
     });
@@ -812,7 +812,7 @@ export function AccountsPage() {
         toast({
           variant: "destructive",
           title: "Couldn't re-test LinkedIn",
-          description: err?.response?.data?.error || "Please try again.",
+          description: apiErrorMessage(err, "Please try again."),
         });
       },
     });
@@ -839,7 +839,7 @@ export function AccountsPage() {
         toast({
           variant: "destructive",
           title: "Couldn't disconnect YouTube",
-          description: err?.response?.data?.error || "Please try again.",
+          description: apiErrorMessage(err, "Please try again."),
         });
       },
     });
@@ -866,7 +866,7 @@ export function AccountsPage() {
         toast({
           variant: "destructive",
           title: "Couldn't re-test YouTube",
-          description: err?.response?.data?.error || "Please try again.",
+          description: apiErrorMessage(err, "Please try again."),
         });
       },
     });
@@ -888,8 +888,7 @@ export function AccountsPage() {
         variant: "destructive",
         title: "Couldn't start YouTube connection",
         description:
-          err?.response?.data?.error ||
-          "YouTube isn't configured yet. Please try again later.",
+          apiErrorMessage(err, "YouTube isn't configured yet. Please try again later."),
       });
     }
   };
@@ -1015,7 +1014,7 @@ export function AccountsPage() {
         toast({
           variant: "destructive",
           title: "Couldn't disconnect Threads",
-          description: err?.response?.data?.error || "Please try again.",
+          description: apiErrorMessage(err, "Please try again."),
         });
       },
     });
@@ -1042,7 +1041,7 @@ export function AccountsPage() {
         toast({
           variant: "destructive",
           title: "Couldn't re-test Threads",
-          description: err?.response?.data?.error || "Please try again.",
+          description: apiErrorMessage(err, "Please try again."),
         });
       },
     });
@@ -1064,8 +1063,7 @@ export function AccountsPage() {
         variant: "destructive",
         title: "Couldn't start Threads connection",
         description:
-          err?.response?.data?.error ||
-          "Threads isn't configured yet. Please try again later.",
+          apiErrorMessage(err, "Threads isn't configured yet. Please try again later."),
       });
     }
   };
@@ -1115,8 +1113,7 @@ export function AccountsPage() {
         variant: "destructive",
         title: "Couldn't start LinkedIn connection",
         description:
-          err?.response?.data?.error ||
-          "LinkedIn isn't configured yet. Please try again later.",
+          apiErrorMessage(err, "LinkedIn isn't configured yet. Please try again later."),
       });
     }
   };
@@ -1136,7 +1133,7 @@ export function AccountsPage() {
         toast({
           variant: "destructive",
           title: "Couldn't connect account",
-          description: err?.response?.data?.message || err?.message || "Please try again.",
+          description: apiErrorMessage(err, "Please try again."),
         });
       },
     });

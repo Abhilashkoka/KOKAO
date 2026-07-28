@@ -61,6 +61,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useFeatureFlags } from "@/lib/features";
 
 import { PLAN_LABELS } from "./shared";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
 /** Paise → a compact rupee string for the admin table. */
 function formatInr(paise: number): string {
@@ -131,7 +132,7 @@ function SeatRequestsCard() {
           toast({
             variant: "destructive",
             title: "Could not save decision",
-            description: err?.response?.data?.error || "Please try again.",
+            description: apiErrorMessage(err, "Please try again."),
           });
           setDecidingId(null);
         },
@@ -406,7 +407,7 @@ export function TenantsTab() {
           toast({
             title: "Update failed",
             description:
-              err?.response?.data?.error || "Could not update the tenant plan.",
+              apiErrorMessage(err, "Could not update the tenant plan."),
             variant: "destructive",
           });
         },
@@ -860,7 +861,7 @@ export function TenantsTab() {
                         variant: "destructive",
                         title: "Could not adjust credits",
                         description:
-                          err?.response?.data?.error || "Please try again.",
+                          apiErrorMessage(err, "Please try again."),
                       });
                     },
                   },

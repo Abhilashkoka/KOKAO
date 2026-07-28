@@ -30,6 +30,7 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle2, AlertCircle } from "lucide-react";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
 function EmailDeliveryCard() {
   const queryClient = useQueryClient();
@@ -82,7 +83,7 @@ function EmailDeliveryCard() {
           toast({
             variant: "destructive",
             title: "Could not save",
-            description: err?.response?.data?.error || "Please try again.",
+            description: apiErrorMessage(err, "Please try again."),
           });
         },
       },
@@ -115,7 +116,7 @@ function EmailDeliveryCard() {
           toast({
             variant: "destructive",
             title: "Could not send test",
-            description: err?.response?.data?.error || "Please try again.",
+            description: apiErrorMessage(err, "Please try again."),
           });
         },
       },

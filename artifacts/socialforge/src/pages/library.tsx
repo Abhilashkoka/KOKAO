@@ -44,6 +44,7 @@ import { PendingPostsWarnings, usePendingResendActions } from "@/components/pend
 import { ComposerSheet, type ComposerItem } from "@/components/composer";
 import { Send } from "lucide-react";
 import { track } from "@/lib/analytics";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
 const PLATFORM_NAMES: Record<string, string> = {
   instagram: "Instagram",
@@ -192,8 +193,7 @@ export function LibraryPage() {
     });
 
   const publishErrorDescription = (err: any, fallback: string, retried: boolean) => {
-    const serverMessage = err?.data?.error || err?.response?.data?.error;
-    const base = serverMessage || fallback;
+    const base = apiErrorMessage(err, fallback);
     return retried ? `The automatic retry also failed. ${base}` : base;
   };
 

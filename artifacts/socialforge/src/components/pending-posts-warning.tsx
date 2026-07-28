@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { ToastAction } from "@/components/ui/toast";
 import { useToast } from "@/hooks/use-toast";
 import { AlertCircle, RotateCw, ExternalLink } from "lucide-react";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
 // The subset of a content item this warning block needs. Kept loose (any
 // content list/detail shape satisfies it).
@@ -72,8 +73,8 @@ export function usePendingResendActions() {
   // teammate) already posted everything — that's good news, so show a
   // positive toast and refresh the list so the warning disappears.
   const resendErrorToast = (err: any, fallback: string) => {
-    const message = err?.data?.error || err?.response?.data?.error;
-    const code = err?.data?.code || err?.response?.data?.code;
+    const message = apiErrorMessage(err, "") || undefined;
+    const code = err?.data?.code;
     if (code === "already_complete") {
       toast({
         title: "Already completed",

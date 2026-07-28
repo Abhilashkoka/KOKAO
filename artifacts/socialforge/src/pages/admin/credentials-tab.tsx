@@ -40,6 +40,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle2, AlertCircle } from "lucide-react";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
 function MetaCredentialsCard() {
   const queryClient = useQueryClient();
@@ -91,7 +92,7 @@ function MetaCredentialsCard() {
             variant: "destructive",
             title: "Could not save",
             description:
-              err?.response?.data?.error || "Please try again.",
+              apiErrorMessage(err, "Please try again."),
           });
         },
       },
@@ -391,7 +392,7 @@ function TwitterCredentialsCard() {
           toast({
             variant: "destructive",
             title: "Could not save",
-            description: err?.response?.data?.error || "Please try again.",
+            description: apiErrorMessage(err, "Please try again."),
           });
         },
       },
@@ -539,7 +540,7 @@ function LinkedinCredentialsCard() {
           toast({
             variant: "destructive",
             title: "Could not save",
-            description: err?.response?.data?.error || "Please try again.",
+            description: apiErrorMessage(err, "Please try again."),
           });
         },
       },
@@ -695,7 +696,7 @@ function RazorpayCredentialsCard() {
           toast({
             variant: "destructive",
             title: "Could not save",
-            description: err?.response?.data?.error || "Please try again.",
+            description: apiErrorMessage(err, "Please try again."),
           });
         },
       },
@@ -845,7 +846,7 @@ function YoutubeCredentialsCard() {
           toast({
             variant: "destructive",
             title: "Could not save",
-            description: err?.response?.data?.error || "Please try again.",
+            description: apiErrorMessage(err, "Please try again."),
           });
         },
       },
@@ -993,7 +994,7 @@ function ThreadsCredentialsCard() {
           toast({
             variant: "destructive",
             title: "Could not save",
-            description: err?.response?.data?.error || "Please try again.",
+            description: apiErrorMessage(err, "Please try again."),
           });
         },
       },
@@ -1143,7 +1144,7 @@ function TiktokCredentialsCard() {
           toast({
             variant: "destructive",
             title: "Could not save",
-            description: err?.response?.data?.error || "Please try again.",
+            description: apiErrorMessage(err, "Please try again."),
           });
         },
       },

@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Users, Trash2, X, LogOut } from "lucide-react";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
 export function TeamSettings() {
   const { data: me } = useGetMe();
@@ -90,7 +91,7 @@ export function TeamSettings() {
           toast({
             variant: "destructive",
             title: "Could not send invite",
-            description: err?.response?.data?.error || "Please try again.",
+            description: apiErrorMessage(err, "Please try again."),
           });
         },
       },
@@ -124,7 +125,7 @@ export function TeamSettings() {
           toast({
             variant: "destructive",
             title: "Could not send request",
-            description: err?.response?.data?.error || "Please try again.",
+            description: apiErrorMessage(err, "Please try again."),
           });
         },
       },
@@ -160,7 +161,7 @@ export function TeamSettings() {
         toast({
           variant: "destructive",
           title: "Could not leave the workspace",
-          description: err?.response?.data?.error || "Please try again.",
+          description: apiErrorMessage(err, "Please try again."),
         });
       },
     });
@@ -346,8 +347,7 @@ export function TeamSettings() {
                                   variant: "destructive",
                                   title: "Could not cancel invite",
                                   description:
-                                    err?.response?.data?.error ||
-                                    "Please try again.",
+                                    apiErrorMessage(err, "Please try again."),
                                 });
                               },
                             },
@@ -508,7 +508,7 @@ export function TeamSettings() {
                         variant: "destructive",
                         title: "Could not remove member",
                         description:
-                          err?.response?.data?.error || "Please try again.",
+                          apiErrorMessage(err, "Please try again."),
                       });
                     },
                   },
