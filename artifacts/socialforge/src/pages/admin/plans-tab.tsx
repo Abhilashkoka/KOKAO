@@ -32,6 +32,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { Plus, Trash2 } from "lucide-react";
 
 interface PlanDraft {
@@ -291,7 +292,7 @@ function CreditPacksCard() {
     toast({
       variant: "destructive",
       title: "Could not save credit pack",
-      description: err?.response?.data?.error || "Please try again.",
+      description: apiErrorMessage(err, "Please try again."),
     });
 
   return (
@@ -637,7 +638,7 @@ function PlansCard() {
           toast({
             variant: "destructive",
             title: "Could not create plan",
-            description: err?.response?.data?.error || "Please try again.",
+            description: apiErrorMessage(err, "Please try again."),
           });
         },
       },
@@ -661,7 +662,7 @@ function PlansCard() {
           toast({
             variant: "destructive",
             title: "Could not delete plan",
-            description: err?.response?.data?.error || "Please try again.",
+            description: apiErrorMessage(err, "Please try again."),
           });
         },
       },
@@ -732,7 +733,7 @@ function PlansCard() {
           toast({
             variant: "destructive",
             title: "Could not save plan",
-            description: err?.response?.data?.error || "Please try again.",
+            description: apiErrorMessage(err, "Please try again."),
           });
           setSavingId(null);
         },
