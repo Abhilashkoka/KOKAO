@@ -105,4 +105,40 @@ describe("QuotaErrorNotice + QuotaInfoSheet", () => {
     fireEvent.click(screen.getByText("Got it"));
     expect(screen.queryByText(/About your AI quota/)).toBeNull();
   });
+
+  it("owner sheet keeps the upgrade/credit-pack advice and the web-app Billing row", () => {
+    render(<QuotaInfoSheet visible onClose={() => {}} isOwner upgradeRequestsEnabled />);
+    expect(
+      screen.getByText(/Upgrade your plan or buy a credit pack\. Credits are used automatically/i),
+    ).toBeTruthy();
+    expect(screen.getByText(/Settings, then\s+Billing/i)).toBeTruthy();
+  });
+
+  it("member sheet with upgrade requests on points at the studio upgrade request", () => {
+    render(
+      <QuotaInfoSheet visible onClose={() => {}} isOwner={false} upgradeRequestsEnabled />,
+    );
+    expect(
+      screen.getByText(/send them an upgrade request from the studio/i),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Settings, then\s+Billing/i)).toBeNull();
+  });
+
+  it("member sheet with upgrade requests off shows plain ask-your-owner copy", () => {
+    render(
+      <QuotaInfoSheet
+        visible
+        onClose={() => {}}
+        isOwner={false}
+        upgradeRequestsEnabled={false}
+      />,
+    );
+    expect(
+      screen.getByText(
+        /Ask your workspace owner to upgrade the plan or buy a credit pack\.$/i,
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/upgrade request from the studio/i)).toBeNull();
+    expect(screen.queryByText(/Settings, then\s+Billing/i)).toBeNull();
+  });
 });
