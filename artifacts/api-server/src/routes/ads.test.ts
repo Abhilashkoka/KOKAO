@@ -599,7 +599,8 @@ describe("budget caps", () => {
       actAs(tenant.clerkUserId);
       const res = await request(app).post(`/api/ads/drafts/${draftId}/approve`);
       expect(res.status).toBe(400);
-      expect(res.body.error).toMatch(/lifetime budget cap/i);
+      expect(res.body.error).toMatch(/current lifetime budget cap/i);
+      expect(res.body.error).toMatch(/raise the cap/i);
       expect(mockUpdate).not.toHaveBeenCalled();
 
       const [row] = await db
@@ -607,6 +608,15 @@ describe("budget caps", () => {
         .from(adChangeRequestsTable)
         .where(eq(adChangeRequestsTable.id, draftId));
       expect(row!.status).toBe("draft");
+
+      // Raising the cap back lets the same draft be approved.
+      await db
+        .update(tenantsTable)
+        .set({ adsMaxLifetimeBudget: 2000000 })
+        .where(eq(tenantsTable.id, tenant.tenantId));
+      const approved = await request(app).post(`/api/ads/drafts/${draftId}/approve`);
+      expect(approved.status).toBe(200);
+      expect(approved.body.status).toBe("applied");
     } finally {
       await deleteTenant(tenant.tenantId);
     }
