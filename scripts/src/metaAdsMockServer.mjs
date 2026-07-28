@@ -167,9 +167,25 @@ const server = http.createServer(async (req, res) => {
     try {
       const ctl = JSON.parse(body || "{}");
       if (typeof ctl.revoked === "boolean") state.revoked = ctl.revoked;
+      // {"ignoreBidUpdates":true} makes adset updates ACCEPT bid fields but
+      // silently not apply them (real Meta does this in several situations),
+      // for verify-mismatch e2e runs.
+      if (typeof ctl.ignoreBidUpdates === "boolean") {
+        state.ignoreBidUpdates = ctl.ignoreBidUpdates;
+      }
       saveState();
-      record({ method: "POST", path, kind: "control", revoked: state.revoked });
-      return send({ ok: true, revoked: !!state.revoked });
+      record({
+        method: "POST",
+        path,
+        kind: "control",
+        revoked: state.revoked,
+        ignoreBidUpdates: !!state.ignoreBidUpdates,
+      });
+      return send({
+        ok: true,
+        revoked: !!state.revoked,
+        ignoreBidUpdates: !!state.ignoreBidUpdates,
+      });
     } catch {
       return send({ error: { message: "Bad control body" } }, 400);
     }
@@ -362,6 +378,15 @@ const server = http.createServer(async (req, res) => {
       ]) {
         const v = params.get(key);
         if (v != null) {
+          if (
+            state.ignoreBidUpdates &&
+            (key === "bid_amount" || key === "bid_strategy")
+          ) {
+            // Silently accept but don't apply — mirrors Meta ignoring
+            // ad-set bid changes; the POST still succeeds.
+            changed[`${key}_ignored`] = v;
+            continue;
+          }
           s[key] = v;
           changed[key] = v;
         }
