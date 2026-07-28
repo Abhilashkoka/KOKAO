@@ -16,6 +16,8 @@ import {
   getAdminListAuditLogsQueryKey,
   useListPlans,
   useGetMe,
+  useAdminGetAiSpendSettings,
+  useAdminGetAiCostConfig,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -263,7 +265,26 @@ export function TenantsTab() {
   } | null>(null);
   const [grantCaptions, setGrantCaptions] = useState("0");
   const [grantImages, setGrantImages] = useState("0");
+  const [grantVideos, setGrantVideos] = useState("0");
   const [grantNote, setGrantNote] = useState("");
+  // Money → video credits converter. The admin types an amount in ₹ or $ and
+  // it converts to whole videos at the per-video display rate; USD uses the
+  // same USD→INR rate the cost tracker uses.
+  const [convertAmount, setConvertAmount] = useState("");
+  const [convertCurrency, setConvertCurrency] = useState<"INR" | "USD">("INR");
+  const { data: aiSpendSettings } = useAdminGetAiSpendSettings();
+  const { data: aiCostConfig } = useAdminGetAiCostConfig();
+  const videoRatePaise = aiSpendSettings?.videoCostPaise ?? 0;
+  const usdToInrPaise = aiCostConfig?.usdToInrPaise ?? 0;
+  const convertPaise = (() => {
+    const n = Number(convertAmount);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return convertCurrency === "USD"
+      ? Math.round(n * usdToInrPaise)
+      : Math.round(n * 100);
+  })();
+  const convertedVideos =
+    videoRatePaise > 0 ? Math.floor(convertPaise / videoRatePaise) : 0;
   const updateSuperadmin = useAdminUpdateTenantSuperadmin();
   const updateTenantDesignSkill = useAdminUpdateTenantDesignSkill();
   // Wallet billing: hidden entirely unless the platform switch is on, so the
@@ -278,6 +299,7 @@ export function TenantsTab() {
     balancePaise: number;
   } | null>(null);
   const [walletAmount, setWalletAmount] = useState("");
+  const [walletCurrency, setWalletCurrency] = useState<"INR" | "USD">("INR");
   const [walletNote, setWalletNote] = useState("");
   // Client-side name/email filter so a specific workspace is easy to find in
   // the full list. Empty search shows every tenant.
@@ -674,22 +696,26 @@ export function TenantsTab() {
             setGrantTarget(null);
             setGrantCaptions("0");
             setGrantImages("0");
+            setGrantVideos("0");
             setGrantNote("");
+            setConvertAmount("");
+            setConvertCurrency("INR");
           }
         }}
       >
-        <DialogContent className="sm:max-w-[420px]">
+        <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
             <DialogTitle>
               Adjust credits{grantTarget ? ` for ${grantTarget.name}` : ""}
             </DialogTitle>
             <DialogDescription>
-              Adds or deducts caption and image credits for this workspace
-              (use negative numbers to deduct; balances never go below zero).
-              Credits are used after the monthly plan quota runs out.
+              Adds or deducts caption, image, and video credits for this
+              workspace (use negative numbers to deduct; balances never go
+              below zero). Credits are used after the monthly plan quota runs
+              out.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div className="space-y-2">
               <label className="text-sm font-medium">Caption credits</label>
               <Input
@@ -704,6 +730,63 @@ export function TenantsTab() {
                 onChange={(e) => setGrantImages(e.target.value)}
               />
             </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Video credits</label>
+              <Input
+                value={grantVideos}
+                onChange={(e) => setGrantVideos(e.target.value)}
+                data-testid="input-grant-videos"
+              />
+            </div>
+          </div>
+          <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+            <label className="text-sm font-medium">
+              Convert money into video credits
+            </label>
+            <div className="flex items-center gap-2">
+              <Select
+                value={convertCurrency}
+                onValueChange={(v) => setConvertCurrency(v as "INR" | "USD")}
+              >
+                <SelectTrigger className="w-20" data-testid="select-convert-currency">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="INR">₹</SelectItem>
+                  <SelectItem value="USD">$</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                type="number"
+                min="0"
+                placeholder="Amount"
+                value={convertAmount}
+                onChange={(e) => setConvertAmount(e.target.value)}
+                data-testid="input-convert-amount"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={convertedVideos <= 0}
+                onClick={() => setGrantVideos(String(convertedVideos))}
+                data-testid="button-apply-conversion"
+              >
+                Apply
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {videoRatePaise <= 0
+                ? "Set a per-video rate in the AI tab's spend display card first."
+                : convertCurrency === "USD" && usdToInrPaise <= 0
+                  ? "Set the USD→INR rate in the AI tab first to convert dollars."
+                  : convertPaise > 0
+                    ? `= ${convertedVideos} video credit${convertedVideos === 1 ? "" : "s"} at ₹${(videoRatePaise / 100).toFixed(2)} per video${
+                        convertCurrency === "USD"
+                          ? ` (₹${(convertPaise / 100).toFixed(2)})`
+                          : ""
+                      }`
+                    : `Rate: ₹${(videoRatePaise / 100).toFixed(2)} per video. Enter an amount to see the conversion.`}
+            </p>
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium">Note (optional)</label>
@@ -720,10 +803,12 @@ export function TenantsTab() {
                 if (!grantTarget) return;
                 const captions = Number(grantCaptions);
                 const images = Number(grantImages);
+                const videos = Number(grantVideos);
                 if (
                   !Number.isInteger(captions) ||
                   !Number.isInteger(images) ||
-                  (captions === 0 && images === 0)
+                  !Number.isInteger(videos) ||
+                  (captions === 0 && images === 0 && videos === 0)
                 ) {
                   toast({
                     variant: "destructive",
@@ -739,6 +824,7 @@ export function TenantsTab() {
                     data: {
                       captionCredits: captions,
                       imageCredits: images,
+                      videoCredits: videos,
                       note: grantNote.trim() || undefined,
                     },
                   },
@@ -754,7 +840,10 @@ export function TenantsTab() {
                       setGrantTarget(null);
                       setGrantCaptions("0");
                       setGrantImages("0");
+                      setGrantVideos("0");
                       setGrantNote("");
+                      setConvertAmount("");
+                      setConvertCurrency("INR");
                     },
                     onError: (err: any) => {
                       toast({
@@ -786,6 +875,7 @@ export function TenantsTab() {
           if (!open) {
             setWalletTarget(null);
             setWalletAmount("");
+            setWalletCurrency("INR");
             setWalletNote("");
           }
         }}
@@ -804,15 +894,38 @@ export function TenantsTab() {
               <label className="text-sm font-medium" htmlFor="wallet-amount">
                 Amount (₹)
               </label>
-              <Input
-                id="wallet-amount"
-                type="number"
-                step="0.01"
-                placeholder="500"
-                value={walletAmount}
-                onChange={(e) => setWalletAmount(e.target.value)}
-                data-testid="input-wallet-amount"
-              />
+              <div className="flex items-center gap-2">
+                <Select
+                  value={walletCurrency}
+                  onValueChange={(v) => setWalletCurrency(v as "INR" | "USD")}
+                >
+                  <SelectTrigger className="w-20" data-testid="select-wallet-currency">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="INR">₹</SelectItem>
+                    <SelectItem value="USD">$</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input
+                  id="wallet-amount"
+                  type="number"
+                  step="0.01"
+                  placeholder="500"
+                  value={walletAmount}
+                  onChange={(e) => setWalletAmount(e.target.value)}
+                  data-testid="input-wallet-amount"
+                />
+              </div>
+              {walletCurrency === "USD" && (
+                <p className="text-xs text-muted-foreground">
+                  {usdToInrPaise > 0
+                    ? Number(walletAmount) !== 0 && Number.isFinite(Number(walletAmount))
+                      ? `Credited as ₹${((Number(walletAmount) * usdToInrPaise) / 100).toFixed(2)} at the AI tab's USD→INR rate.`
+                      : "Dollars convert to rupees at the AI tab's USD→INR rate."
+                    : "Set the USD→INR rate in the AI tab first to use dollars."}
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium" htmlFor="wallet-note">
@@ -840,8 +953,8 @@ export function TenantsTab() {
               data-testid="button-apply-wallet-adjust"
               onClick={() => {
                 if (!walletTarget) return;
-                const rupees = Number(walletAmount);
-                if (!Number.isFinite(rupees) || rupees === 0) {
+                const entered = Number(walletAmount);
+                if (!Number.isFinite(entered) || entered === 0) {
                   toast({
                     variant: "destructive",
                     title: "Enter an amount",
@@ -849,11 +962,24 @@ export function TenantsTab() {
                   });
                   return;
                 }
+                if (walletCurrency === "USD" && usdToInrPaise <= 0) {
+                  toast({
+                    variant: "destructive",
+                    title: "USD rate not set",
+                    description:
+                      "Set the USD→INR rate in the AI tab first, or enter the amount in rupees.",
+                  });
+                  return;
+                }
+                const amountPaise =
+                  walletCurrency === "USD"
+                    ? Math.round(entered * usdToInrPaise)
+                    : Math.round(entered * 100);
                 adjustWallet.mutate(
                   {
                     id: walletTarget.id,
                     data: {
-                      amountPaise: Math.round(rupees * 100),
+                      amountPaise,
                       ...(walletNote.trim() ? { note: walletNote.trim() } : {}),
                     },
                   },
@@ -867,6 +993,7 @@ export function TenantsTab() {
                       });
                       setWalletTarget(null);
                       setWalletAmount("");
+                      setWalletCurrency("INR");
                       setWalletNote("");
                       toast({
                         title: "Wallet updated",

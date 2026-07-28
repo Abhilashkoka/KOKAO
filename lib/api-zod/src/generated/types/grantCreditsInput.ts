@@ -9,6 +9,7 @@
 export interface GrantCreditsInput {
   captionCredits: number;
   imageCredits: number;
+  videoCredits?: number;
   /** @maxLength 200 */
   note?: string;
 }

@@ -8561,6 +8561,8 @@ components:
           type: integer
         imageCredits:
           type: integer
+        videoCredits:
+          type: integer
         note:
           type: string
           maxLength: 200

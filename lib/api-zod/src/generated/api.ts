@@ -7484,6 +7484,7 @@ export const adminGrantCreditsBodyNoteMax = 200;
 export const AdminGrantCreditsBody = zod.object({
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
+  "videoCredits": zod.number().optional(),
   "note": zod.string().max(adminGrantCreditsBodyNoteMax).optional()
 })
 

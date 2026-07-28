@@ -3064,10 +3064,12 @@ router.post("/admin/tenants/:id/credits", async (req: Request, res: Response) =>
     return;
   }
   const { captionCredits, imageCredits, note } = parsed.data;
+  const videoCredits = parsed.data.videoCredits ?? 0;
   if (
     !Number.isInteger(captionCredits) ||
     !Number.isInteger(imageCredits) ||
-    (captionCredits === 0 && imageCredits === 0)
+    !Number.isInteger(videoCredits) ||
+    (captionCredits === 0 && imageCredits === 0 && videoCredits === 0)
   ) {
     res.status(400).json({ error: "Grant at least one credit (whole numbers)" });
     return;
@@ -3083,6 +3085,7 @@ router.post("/admin/tenants/:id/credits", async (req: Request, res: Response) =>
     tenantId: id,
     captionCredits,
     imageCredits,
+    videoCredits,
     kind: "admin_grant",
     note: note?.trim() || "Granted by admin",
   });
@@ -3094,7 +3097,7 @@ router.post("/admin/tenants/:id/credits", async (req: Request, res: Response) =>
       targetTenantId: tenant.id,
       targetEmail: tenant.email ?? null,
       oldValue: null,
-      newValue: JSON.stringify({ captionCredits, imageCredits }),
+      newValue: JSON.stringify({ captionCredits, imageCredits, videoCredits }),
     });
   } catch (error) {
     req.log.error({ err: error }, "Failed to write credit-grant audit log");
