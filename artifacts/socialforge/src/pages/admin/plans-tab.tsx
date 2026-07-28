@@ -799,7 +799,7 @@ function PlansCard() {
                       onChange={(e) =>
                         setField(p.id, "priceLabel", e.target.value)
                       }
-                      placeholder="$29 / mo"
+                      placeholder="₹999 / mo"
                     />
                   </div>
                   <div className="space-y-2">
@@ -993,7 +993,7 @@ function PlansCard() {
                           priceLabel: e.target.value,
                         }))
                       }
-                      placeholder="$199 / mo"
+                      placeholder="₹4999 / mo"
                     />
                   </div>
                   <div className="space-y-2">
