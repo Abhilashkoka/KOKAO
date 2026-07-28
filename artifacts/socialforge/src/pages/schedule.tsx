@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useLocation, useSearch } from "wouter";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { 
   useListSchedules, 
@@ -135,6 +136,38 @@ export function SchedulePage() {
       },
     });
   };
+
+  // Deep link handling: /schedule?item=<contentItemId> (the same ?item=
+  // shape notification links use for /library). If the linked post was
+  // deleted (or the id is malformed), show the same friendly "that post no
+  // longer exists" notice the library shows instead of a silent no-op, then
+  // clean the URL so a refresh doesn't re-trigger it. Guarded per search
+  // string (not a one-shot latch) so a second alert click while the page
+  // stays mounted still works.
+  const search = useSearch();
+  const [, setLocation] = useLocation();
+  const handledDeepLinkRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!search) {
+      handledDeepLinkRef.current = null;
+      return;
+    }
+    if (!content || handledDeepLinkRef.current === search) return;
+    const raw = new URLSearchParams(search).get("item");
+    if (!raw) return;
+    handledDeepLinkRef.current = search;
+    const id = Number(raw);
+    const exists =
+      Number.isInteger(id) && id > 0 && content.some((c) => c.id === id);
+    if (!exists) {
+      toast({
+        title: "That post no longer exists",
+        description: "It may have been deleted after this alert was sent.",
+      });
+    }
+    setLocation("/schedule", { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content, search]);
 
   const [open, setOpen] = useState(false);
   const [contentId, setContentId] = useState<string>("");
