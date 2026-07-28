@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -26,6 +27,7 @@ import {
   useBillingCancelSubscription,
   useBillingSwitchPayg,
   useBillingRequestUpgrade,
+  useBillingRedeemPromo,
   useListFeatureFlags,
   getListFeatureFlagsQueryKey,
 } from "@workspace/api-client-react";
@@ -126,6 +128,7 @@ export default function SettingsScreen() {
   const cancelSubscription = useBillingCancelSubscription();
   const switchPayg = useBillingSwitchPayg();
   const requestUpgrade = useBillingRequestUpgrade();
+  const redeemPromo = useBillingRedeemPromo();
   const featureFlags = useListFeatureFlags({
     query: { queryKey: getListFeatureFlagsQueryKey(), staleTime: 60_000 },
   });
@@ -140,6 +143,31 @@ export default function SettingsScreen() {
     text: string;
   } | null>(null);
   const [confirmAction, setConfirmAction] = useState<"cancel" | "payg" | null>(null);
+  const [promoCode, setPromoCode] = useState("");
+
+  const submitRedeem = () => {
+    const code = promoCode.trim();
+    if (!code || redeemPromo.isPending) return;
+    setNotice(null);
+    redeemPromo.mutate(
+      { data: { code } },
+      {
+        onSuccess: (result) => {
+          setPromoCode("");
+          setNotice({
+            kind: "success",
+            text: result.message ?? "Code redeemed. Credits added to your workspace.",
+          });
+          refreshAfterPurchase();
+        },
+        onError: (error) =>
+          setNotice({
+            kind: "error",
+            text: apiErrorMessage(error, "Could not redeem the code. Please try again."),
+          }),
+      },
+    );
+  };
 
   const refreshing = me.isRefetching || billing.isRefetching;
   const refetchAll = () => {
@@ -444,6 +472,38 @@ export default function SettingsScreen() {
                 </View>
               );
             })}
+          </View>
+        ) : null}
+        {isOwner ? (
+          <View style={styles.redeemSection}>
+            <Text style={styles.redeemLabel}>Have an invite or promo code?</Text>
+            <View style={styles.redeemRow}>
+              <TextInput
+                style={styles.redeemInput}
+                value={promoCode}
+                onChangeText={setPromoCode}
+                placeholder="Enter code"
+                placeholderTextColor={c.mutedForeground}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                editable={!redeemPromo.isPending}
+                onSubmitEditing={submitRedeem}
+                testID="input-promo-code"
+              />
+              <TouchableOpacity
+                style={[
+                  styles.buyButton,
+                  (!promoCode.trim() || redeemPromo.isPending) && styles.buttonDisabled,
+                ]}
+                disabled={!promoCode.trim() || redeemPromo.isPending}
+                onPress={submitRedeem}
+                testID="button-redeem-promo"
+              >
+                <Text style={styles.buyButtonText}>
+                  {redeemPromo.isPending ? "Redeeming..." : "Redeem"}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : null}
         {!isOwner ? (
@@ -791,6 +851,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: c.mutedForeground,
     marginTop: 2,
+  },
+  redeemSection: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: c.border,
+    paddingTop: 10,
+    gap: 6,
+  },
+  redeemLabel: { fontFamily: fonts.medium, fontSize: 13, color: c.foreground },
+  redeemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  redeemInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: c.border,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    color: c.foreground,
   },
   buyButton: {
     backgroundColor: c.primary,
