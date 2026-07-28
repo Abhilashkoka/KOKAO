@@ -14,6 +14,7 @@ import {
   emailSettingsTable,
   planSettingsTable,
   type AppCredential,
+  type CarouselSlide,
   type NotificationPolicy,
   type EmailSettings,
 } from "@workspace/db";
@@ -347,7 +348,12 @@ export async function getConnectedAccount(tenantId: number, platform: string) {
 
 export async function insertContentItem(
   tenantId: number,
-  opts: { imagePath?: string | null; caption?: string; title?: string } = {},
+  opts: {
+    imagePath?: string | null;
+    caption?: string;
+    title?: string;
+    carouselSlides?: CarouselSlide[] | null;
+  } = {},
 ): Promise<number> {
   const [row] = await db
     .insert(contentItemsTable)
@@ -356,6 +362,7 @@ export async function insertContentItem(
       title: opts.title ?? "",
       caption: opts.caption ?? "hello world",
       imagePath: opts.imagePath ?? null,
+      carouselSlides: opts.carouselSlides ?? null,
     })
     .returning();
   return row.id;

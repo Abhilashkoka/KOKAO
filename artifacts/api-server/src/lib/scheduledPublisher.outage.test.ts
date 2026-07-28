@@ -3,6 +3,7 @@ import {
   db,
   scheduledPostsTable,
   contentItemsTable,
+  featureFlagsTable,
   pool,
   type AppCredential,
 } from "@workspace/db";
@@ -49,12 +50,19 @@ vi.mock("./tasteMemory", async (importOriginal) => {
   return { ...actual, recordTasteSignalFromContent: vi.fn(async () => {}) };
 });
 
+// A real, minimal 1x1 PNG: the LinkedIn carousel path feeds downloaded slide
+// bytes into pdf-lib's embedPng, which rejects garbage bytes.
+const TINY_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
 vi.mock("./objectStorage", () => ({
   ObjectStorageService: class {
     async getObjectEntityFile() {
       return {
         async download() {
-          return [Buffer.from("fake-image-bytes")] as [Buffer];
+          return [TINY_PNG] as [Buffer];
         },
       };
     }
@@ -73,6 +81,7 @@ import {
   IG_PUBLISH_RETRY,
   IG_CONTAINER_POLL,
 } from "../routes/meta";
+import { invalidateFeatureFlagCache } from "./featureFlags";
 
 interface FetchCall {
   url: string;
@@ -120,6 +129,20 @@ function routePlatformCall(url: string, method: string): Response {
   }
   if (url.includes("linkedin-upload.test/dms-uploads")) {
     return jsonRes(201, {}); // binary PUT of the image bytes
+  }
+  if (url.includes("api.linkedin.com/rest/documents")) {
+    // Carousel PDF register (documents initializeUpload) — happens BEFORE
+    // the post-creating write; a 500 here must be classified transient.
+    if (outage) return jsonRes(500, { message: "temporarily down" });
+    return jsonRes(200, {
+      value: {
+        uploadUrl: "https://linkedin-upload.test/doc-uploads/doc1",
+        document: "urn:li:document:doc1",
+      },
+    });
+  }
+  if (url.includes("linkedin-upload.test/doc-uploads")) {
+    return jsonRes(201, {}); // binary PUT of the carousel PDF
   }
   if (url.includes("api.linkedin.com/rest/posts")) {
     if (method === "GET") return jsonRes(200, { elements: [] }); // dedupe probe
@@ -213,8 +236,26 @@ const saved = {
 
 let originalFetch: typeof fetch;
 let twitterAppSnapshot: AppCredential | null = null;
+/** Pre-test state of the real DB carousel flag row (null = no row). */
+let carouselFlagSnapshot: { enabled: boolean } | null = null;
 
 beforeAll(async () => {
+  // The LinkedIn carousel case requires the REAL carousel feature-flag row to
+  // be enabled (isFeatureEnabled reads the DB, not a module mock). Snapshot
+  // whatever the shared dev DB holds and restore it afterwards.
+  const flagRows = await db
+    .select()
+    .from(featureFlagsTable)
+    .where(eq(featureFlagsTable.feature, "carousel"));
+  carouselFlagSnapshot = flagRows[0] ? { enabled: flagRows[0].enabled } : null;
+  await db
+    .insert(featureFlagsTable)
+    .values({ feature: "carousel", enabled: true })
+    .onConflictDoUpdate({
+      target: featureFlagsTable.feature,
+      set: { enabled: true, updatedAt: new Date() },
+    });
+  invalidateFeatureFlagCache();
   // The X core needs app-level OAuth client credentials to exist; snapshot
   // whatever the shared dev DB holds and restore it afterwards.
   twitterAppSnapshot = await snapshotTwitterRow();
@@ -230,6 +271,17 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (carouselFlagSnapshot) {
+    await db
+      .update(featureFlagsTable)
+      .set({ enabled: carouselFlagSnapshot.enabled, updatedAt: new Date() })
+      .where(eq(featureFlagsTable.feature, "carousel"));
+  } else {
+    await db
+      .delete(featureFlagsTable)
+      .where(eq(featureFlagsTable.feature, "carousel"));
+  }
+  invalidateFeatureFlagCache();
   await restoreTwitterRow(twitterAppSnapshot);
   Object.assign(SCHEDULED_TRANSIENT_RETRY, saved.transient);
   Object.assign(FB_PUBLISH_RETRY, saved.fb);
@@ -284,6 +336,8 @@ interface PlatformCase {
   label?: string;
   seed: (tenantId: number) => Promise<void>;
   withImage: boolean;
+  /** Carousel slides to store on the content item (LinkedIn document path). */
+  carouselSlides?: { heading: string; body: string; imagePrompt: string; imagePath: string | null }[];
   /**
    * True when the outage hits a step BEFORE the post-creating write (e.g. the
    * X media upload), so tick 1 sees zero create writes instead of a failed one.
@@ -313,6 +367,26 @@ const CASES: PlatformCase[] = [
     },
     withImage: true,
     // The 500 lands on the image register (initializeUpload), before any
+    // post-creating write — the schedule must still re-queue and publish.
+    outageBeforeCreate: true,
+    isCreateWrite: (c) =>
+      c.method === "POST" && c.url.includes("api.linkedin.com/rest/posts"),
+    expectedPostId: "urn:li:share:9001",
+  },
+  {
+    platform: "linkedin",
+    label: "carousel",
+    seed: async (tenantId) => {
+      await insertLinkedinAccount(tenantId);
+    },
+    withImage: false,
+    // 2+ slides with generated images route the publish through the
+    // Documents API (PDF upload) instead of the single-image path.
+    carouselSlides: [
+      { heading: "Slide 1", body: "First", imagePrompt: "p1", imagePath: "/objects/slides/s1.png" },
+      { heading: "Slide 2", body: "Second", imagePrompt: "p2", imagePath: "/objects/slides/s2.png" },
+    ],
+    // The 500 lands on the document register (initializeUpload), before any
     // post-creating write — the schedule must still re-queue and publish.
     outageBeforeCreate: true,
     isCreateWrite: (c) =>
@@ -452,6 +526,7 @@ describe("scheduled publish survives a platform outage (real cores, mocked HTTP)
           imagePath: tc.withImage
             ? `/objects/${tenant.tenantId}/uploads/test-image.png`
             : null,
+          carouselSlides: tc.carouselSlides ?? null,
         });
         const scheduleId = await insertDueSchedule(
           tenant.tenantId,
