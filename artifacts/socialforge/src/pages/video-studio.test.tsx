@@ -34,6 +34,7 @@ const mockState: {
   approvals: number[];
   transcript: string;
   transcribeError: any;
+  aiSpendRates: any;
 } = {
   lastGenerateVars: null,
   generateError: null,
@@ -46,6 +47,7 @@ const mockState: {
   approvals: [],
   transcript: "",
   transcribeError: null,
+  aiSpendRates: undefined,
 };
 
 // Voice notes: a fake MediaRecorder that yields one non-empty chunk on stop,
@@ -144,6 +146,7 @@ vi.mock("@workspace/api-client-react", async () => {
     useListCharacters: () => ({ data: mockState.characters }),
     useListBrandKits: () => ({ data: mockState.brandKits }),
     useListVideoStyles: () => ({ data: mockState.styleProfiles }),
+    useGetAiSpendRates: () => ({ data: mockState.aiSpendRates, isLoading: false }),
   });
 });
 
@@ -263,6 +266,7 @@ beforeEach(() => {
   mockState.approvals = [];
   mockState.transcript = "";
   mockState.transcribeError = null;
+  mockState.aiSpendRates = undefined;
   toastSpy.mockClear();
   cancelVideoJobSpy.mockReset().mockResolvedValue({ id: 42, status: "cancelled" });
   cleanup();
@@ -666,6 +670,49 @@ describe("Video Studio", () => {
     const video = screen.getByTestId("video-preview") as HTMLVideoElement;
     expect(video.getAttribute("src")).toBe("/api/storage/objects/1/uploads/v.mp4");
     expect(screen.getByTestId("button-save-video")).toBeTruthy();
+  });
+
+  it("shows the AI amount spent line on a finished video when a rate is set", () => {
+    mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100, videoPaise: 2500 };
+    mockState.activeJob = {
+      id: 7,
+      engine: "text_to_video",
+      status: "succeeded",
+      prompt: "sunset",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      videoPath: "/objects/1/uploads/v.mp4",
+      thumbnailPath: "/objects/1/uploads/p.png",
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-7"));
+    const line = screen.getByTestId("text-video-ai-spent");
+    expect(line.textContent).toContain("AI amount spent");
+    expect(line.textContent).toContain("25.00");
+  });
+
+  it("hides the AI amount spent line when the video rate is zero", () => {
+    mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100, videoPaise: 0 };
+    mockState.activeJob = {
+      id: 7,
+      engine: "text_to_video",
+      status: "succeeded",
+      prompt: "sunset",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      videoPath: "/objects/1/uploads/v.mp4",
+      thumbnailPath: null,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-7"));
+    expect(screen.getByTestId("video-preview")).toBeTruthy();
+    expect(screen.queryByTestId("text-video-ai-spent")).toBeNull();
   });
 
   it("shows the server-reported pipeline stage while a job is processing", () => {

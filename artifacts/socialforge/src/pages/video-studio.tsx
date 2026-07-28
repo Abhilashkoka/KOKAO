@@ -23,6 +23,8 @@ import {
   useSearchMusicLibrary,
   useImportLibraryMusic,
   useGenerateHooks,
+  useGetAiSpendRates,
+  getGetAiSpendRatesQueryKey,
   useListBrandKits,
   useListVideoStyles,
   useAnalyzeVideoStyle,
@@ -233,6 +235,19 @@ export function VideoStudioPage() {
   const musicInputRef = useRef<HTMLInputElement>(null);
 
   const { flags } = useFeatureFlags();
+
+  // "AI amount spent" display (kill-switch gated): admin-set per-video amount
+  // with the platform fee already folded in, matching the caption/image line in
+  // the Studio. Nothing renders while the rate is zero or the switch is off.
+  const { data: aiSpendRates } = useGetAiSpendRates({
+    query: {
+      queryKey: getGetAiSpendRatesQueryKey(),
+      staleTime: 60_000,
+      enabled: flags.aiSpend,
+    },
+  });
+  const videoSpendPaise = flags.aiSpend && aiSpendRates ? aiSpendRates.videoPaise : 0;
+
   const requestUploadUrl = useRequestUploadUrl();
   const generateVideo = useGenerateVideo();
   const generateHooks = useGenerateHooks();
@@ -1442,6 +1457,15 @@ export function VideoStudioPage() {
                   }`}
                   data-testid="video-preview"
                 />
+                {videoSpendPaise > 0 && (
+                  <p className="text-xs text-muted-foreground" data-testid="text-video-ai-spent">
+                    AI amount spent: {"\u20B9"}
+                    {(videoSpendPaise / 100).toLocaleString("en-IN", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </p>
+                )}
                 <div className="flex flex-wrap gap-2">
                   <Button
                     onClick={() => {
