@@ -2267,14 +2267,16 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
   if (nextPriceInrYearly === null) {
     nextRazorpayPlanIdYearly = null;
   }
+  // Without Razorpay keys the plan still saves — the price is stored and the
+  // Razorpay plan is minted lazily (next priced save with keys, or at first
+  // purchase attempt). A missing razorpayPlanId simply means "not purchasable
+  // online yet". Crucially, a cycle that NEEDS a fresh mint must drop its
+  // stale id: keeping the old Razorpay plan would charge the old price.
   if (needsMonthlyMint || needsYearlyMint) {
     if (!(await isRazorpayConfigured())) {
-      res.status(400).json({
-        error:
-          "Add Razorpay API keys before setting plan prices (see the Razorpay card).",
-      });
-      return;
-    }
+      if (needsMonthlyMint) nextRazorpayPlanId = null;
+      if (needsYearlyMint) nextRazorpayPlanIdYearly = null;
+    } else {
     try {
       if (needsMonthlyMint) {
         const rzpPlan = await createRazorpayPlan(name.trim(), nextPriceInr!);
@@ -2294,6 +2296,7 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
         error: "Razorpay rejected the plan price. Check the API keys and try again.",
       });
       return;
+    }
     }
   }
 
@@ -2444,14 +2447,9 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
   }
   let newRazorpayPlanId: string | null = null;
   let newRazorpayPlanIdYearly: string | null = null;
-  if (newPriceInr !== null) {
-    if (!(await isRazorpayConfigured())) {
-      res.status(400).json({
-        error:
-          "Add Razorpay API keys before setting plan prices (see the Razorpay card).",
-      });
-      return;
-    }
+  // Like plan updates: missing Razorpay keys never block the save; the
+  // Razorpay plan is minted lazily once keys exist.
+  if (newPriceInr !== null && (await isRazorpayConfigured())) {
     try {
       const rzpPlan = await createRazorpayPlan(name.trim(), newPriceInr);
       newRazorpayPlanId = rzpPlan.id;

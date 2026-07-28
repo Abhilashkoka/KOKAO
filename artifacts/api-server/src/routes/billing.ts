@@ -4,6 +4,7 @@ import {
   tenantsTable,
   subscriptionsTable,
   creditPacksTable,
+  planSettingsTable,
 } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
 import {
@@ -21,13 +22,19 @@ import {
   fetchRazorpaySubscription,
   cancelRazorpaySubscription,
   createRazorpayOrder,
+  createRazorpayPlan,
   fetchRazorpayOrder,
   verifyPaymentSignature,
   verifySubscriptionSignature,
   RazorpayNotConfiguredError,
   RazorpayApiError,
 } from "../lib/razorpay";
-import { applyPlanBillingMode, getPlan, listPlans } from "../lib/plans";
+import {
+  applyPlanBillingMode,
+  getPlan,
+  invalidatePlanCache,
+  listPlans,
+} from "../lib/plans";
 import { recordServerEvent } from "../lib/analytics";
 import { getCreditBalances, grantCredits, listCreditHistory } from "../lib/credits";
 import { notifyUpgradeRequested } from "../lib/notifications";
@@ -169,9 +176,32 @@ router.post("/billing/subscribe", async (req: Request, res: Response) => {
     return;
   }
   const cycle = parsed.data.billingCycle ?? "monthly";
-  const cyclePlanId =
+  let cyclePlanId =
     cycle === "yearly" ? plan.razorpayPlanIdYearly : plan.razorpayPlanId;
   const cyclePrice = cycle === "yearly" ? plan.priceInrYearly : plan.priceInr;
+  // Lazy mint: an admin may have priced this plan before Razorpay keys were
+  // configured (that save no longer blocks). Heal the link at first purchase.
+  if (cyclePrice && !cyclePlanId && (await isRazorpayConfigured())) {
+    try {
+      const minted = await createRazorpayPlan(
+        plan.name,
+        cyclePrice,
+        cycle === "yearly" ? "yearly" : "monthly",
+      );
+      await db
+        .update(planSettingsTable)
+        .set(
+          cycle === "yearly"
+            ? { razorpayPlanIdYearly: minted.id, updatedAt: new Date() }
+            : { razorpayPlanId: minted.id, updatedAt: new Date() },
+        )
+        .where(eq(planSettingsTable.id, plan.id));
+      invalidatePlanCache();
+      cyclePlanId = minted.id;
+    } catch (error) {
+      req.log.error({ err: error }, "Lazy Razorpay plan mint failed");
+    }
+  }
   if (!cyclePrice || !cyclePlanId) {
     res.status(400).json({
       error:

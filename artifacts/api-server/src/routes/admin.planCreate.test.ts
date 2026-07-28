@@ -112,7 +112,7 @@ describe("POST /admin/plans — price sync on create", () => {
     }
   });
 
-  it("rejects a priced create when Razorpay is not configured, writing no row", async () => {
+  it("saves a priced create without Razorpay keys, leaving the plan unpurchasable (no mint)", async () => {
     vi.mocked(isRazorpayConfigured).mockResolvedValue(false);
     const tenant = await createTenant({
       email: `plan-create-${randomUUID()}@example.com`,
@@ -130,10 +130,13 @@ describe("POST /admin/plans — price sync on create", () => {
         limits: { captions: 10, images: 5, brandKits: 1, scheduledPosts: 10 },
         features: ["test feature"],
       });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
       expect(vi.mocked(createRazorpayPlan)).not.toHaveBeenCalled();
-      expect(await getPlanSettingsRow(planId)).toBeUndefined();
+      const row = await getPlanSettingsRow(planId);
+      expect(row?.priceInr).toBe(49900);
+      expect(row?.razorpayPlanId).toBeNull();
     } finally {
+      await db.delete(planSettingsTable).where(eq(planSettingsTable.id, planId));
       await deleteTenant(tenant.tenantId);
     }
   });
