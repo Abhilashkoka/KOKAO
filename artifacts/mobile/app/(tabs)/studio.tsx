@@ -356,6 +356,16 @@ export default function StudioScreen() {
     me && me.limits.images !== -1 ? Math.max(0, me.limits.images - me.usage.images) : null;
   const captionCredits = me?.credits?.captionCredits ?? 0;
   const imageCredits = me?.credits?.imageCredits ?? 0;
+  // Video quota mirrors captions/images, but only renders when video
+  // generation is enabled at all. limits.videos is optional (pre-video
+  // plans); treat a missing limit like the feature being absent.
+  const videoLimit = me?.limits.videos;
+  const videosLeft =
+    me && videoLimit !== undefined && videoLimit !== -1
+      ? Math.max(0, videoLimit - (me.usage.videos ?? 0))
+      : null;
+  const videoCredits = me?.credits?.videoCredits ?? 0;
+  const showVideos = (featureFlags.data?.videoGen ?? false) && videoLimit !== undefined;
   const imagesExhausted =
     !!me &&
     me.limits.images !== -1 &&
@@ -436,6 +446,33 @@ export default function StudioScreen() {
                     }`}
               </Text>
             </View>
+            {showVideos ? (
+              <View
+                style={[
+                  styles.quotaPill,
+                  videosLeft === 0 && videoCredits === 0 && styles.quotaPillEmpty,
+                ]}
+                testID="quota-videos"
+              >
+                <Feather
+                  name="video"
+                  size={12}
+                  color={videosLeft === 0 && videoCredits === 0 ? c.destructive : c.primary}
+                />
+                <Text
+                  style={[
+                    styles.quotaPillText,
+                    videosLeft === 0 && videoCredits === 0 && styles.quotaPillTextEmpty,
+                  ]}
+                >
+                  {videosLeft === null
+                    ? "Unlimited videos"
+                    : `${videosLeft} video${videosLeft === 1 ? "" : "s"} left${
+                        videoCredits > 0 ? ` +${videoCredits} credits` : ""
+                      }`}
+                </Text>
+              </View>
+            ) : null}
           </View>
         ) : null}
 
