@@ -21,6 +21,7 @@ import {
 
 import { Badge, Card, ErrorState, Skeleton } from "@/components/ui";
 import { ConsentPrompt } from "@/components/ConsentPrompt";
+import { WelcomeCreditsBanner } from "@/components/WelcomeCreditsBanner";
 import {
   TeamMembershipCard,
   TeamWelcomeModal,
@@ -161,6 +162,7 @@ export default function HomeScreen() {
       ) : (
         <>
           <ConsentPrompt />
+          <WelcomeCreditsBanner />
           <TeamWelcomeModal />
           <TeamMembershipCard />
           <Card style={{ marginTop: 20 }}>
