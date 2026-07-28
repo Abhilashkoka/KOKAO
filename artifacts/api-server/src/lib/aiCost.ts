@@ -1,6 +1,7 @@
 import { db, aiModelPricesTable, aiCostSettingsTable, type AiModelPrice } from "@workspace/db";
 import { and, eq, asc } from "drizzle-orm";
 import { isFeatureEnabled } from "./featureFlags";
+import { platformFetch } from "./platformFetch";
 import type { UsageMeta } from "./usage";
 import type { TextGenClient } from "./textGen";
 
@@ -17,20 +18,81 @@ import type { TextGenClient } from "./textGen";
 export interface AiCostConfig {
   /** Paise per 1 USD (0 = unset; every computed cost stays unknown). */
   usdToInrPaise: number;
+  /** Markup (paise) added on top of the fetched market rate on auto-refresh. */
+  rateMarkupPaise: number;
+  /** Raw market rate (paise per 1 USD) from the last successful auto-refresh. */
+  marketRatePaise: number | null;
+  /** When the rate was last auto-refreshed successfully; null = never. */
+  rateAutoUpdatedAt: Date | null;
 }
+
+/** Default markup added to the market rate when the admin never set one. */
+export const DEFAULT_RATE_MARKUP_PAISE = 200;
 
 export async function getAiCostConfig(): Promise<AiCostConfig> {
   const [row] = await db.select().from(aiCostSettingsTable).limit(1);
-  return { usdToInrPaise: row?.usdToInrPaise ?? 0 };
+  return {
+    usdToInrPaise: row?.usdToInrPaise ?? 0,
+    rateMarkupPaise: row?.rateMarkupPaise ?? DEFAULT_RATE_MARKUP_PAISE,
+    marketRatePaise: row?.marketRatePaise ?? null,
+    rateAutoUpdatedAt: row?.rateAutoUpdatedAt ?? null,
+  };
 }
 
-export async function setAiCostConfig(config: AiCostConfig): Promise<AiCostConfig> {
+/** Manual rate override — leaves the auto-refresh metadata untouched. */
+export async function setAiCostConfig(config: { usdToInrPaise: number }): Promise<AiCostConfig> {
   await db
     .insert(aiCostSettingsTable)
     .values({ id: 1, usdToInrPaise: config.usdToInrPaise })
     .onConflictDoUpdate({
       target: aiCostSettingsTable.id,
       set: { usdToInrPaise: config.usdToInrPaise, updatedAt: new Date() },
+    });
+  return getAiCostConfig();
+}
+
+/** Update the auto-refresh markup; applies on the next refresh. */
+export async function setAiCostMarkup(rateMarkupPaise: number): Promise<AiCostConfig> {
+  await db
+    .insert(aiCostSettingsTable)
+    .values({ id: 1, rateMarkupPaise })
+    .onConflictDoUpdate({
+      target: aiCostSettingsTable.id,
+      set: { rateMarkupPaise, updatedAt: new Date() },
+    });
+  return getAiCostConfig();
+}
+
+/** Keyless USD→INR source. Overridable so tests can point at a mock. */
+export const USD_INR_RATE_URL =
+  process.env.USD_INR_RATE_URL ?? "https://open.er-api.com/v6/latest/USD";
+
+/**
+ * Fetch the live USD→INR market rate, add the stored markup (default ₹2.00
+ * when never set), and save the result as the conversion rate. Throws on any
+ * fetch/parse failure WITHOUT touching the stored rate — the last saved rate
+ * must never be zeroed or guessed.
+ */
+export async function refreshUsdInrRate(): Promise<AiCostConfig> {
+  const res = await platformFetch(USD_INR_RATE_URL);
+  if (!res.ok) {
+    throw new Error(`Exchange-rate API responded ${res.status}`);
+  }
+  const body = (await res.json()) as { rates?: Record<string, unknown> };
+  const inr = body?.rates?.INR;
+  if (typeof inr !== "number" || !Number.isFinite(inr) || inr <= 0) {
+    throw new Error("Exchange-rate API returned no usable INR rate");
+  }
+  const marketRatePaise = Math.round(inr * 100);
+  const { rateMarkupPaise } = await getAiCostConfig();
+  const usdToInrPaise = marketRatePaise + rateMarkupPaise;
+  const now = new Date();
+  await db
+    .insert(aiCostSettingsTable)
+    .values({ id: 1, usdToInrPaise, marketRatePaise, rateAutoUpdatedAt: now })
+    .onConflictDoUpdate({
+      target: aiCostSettingsTable.id,
+      set: { usdToInrPaise, marketRatePaise, rateAutoUpdatedAt: now, updatedAt: now },
     });
   return getAiCostConfig();
 }

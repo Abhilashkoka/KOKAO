@@ -1821,6 +1821,60 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ai-cost/markup:
+    put:
+      operationId: adminUpdateAiCostMarkup
+      tags: [admin]
+      summary: Set the markup added to the market rate on each auto-refresh (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAiCostMarkupRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiCostConfigView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden or feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ai-cost/rate/refresh:
+    post:
+      operationId: adminRefreshAiCostRate
+      tags: [admin]
+      summary: Fetch the live USD→INR market rate now, add the markup, and save it (superadmin only)
+      responses:
+        "200":
+          description: Refreshed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiCostConfigView"
+        "403":
+          description: Forbidden or feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: The exchange-rate fetch failed; the stored rate is unchanged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/ai-cost/prices:
     put:
       operationId: adminUpsertAiModelPrice
@@ -13874,11 +13928,21 @@ components:
     AiCostConfigView:
       type: object
       description: Actual-cost configuration — USD→INR rate plus the model price catalog.
-      required: [usdToInrPaise, prices]
+      required: [usdToInrPaise, rateMarkupPaise, marketRatePaise, rateAutoUpdatedAt, prices]
       properties:
         usdToInrPaise:
           type: integer
           description: Paise per 1 USD (0 = unset; computed costs stay unknown).
+        rateMarkupPaise:
+          type: integer
+          description: Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.
+        marketRatePaise:
+          type: ["integer", "null"]
+          description: Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.
+        rateAutoUpdatedAt:
+          type: ["string", "null"]
+          format: date-time
+          description: When the rate was last auto-refreshed successfully; null = never.
         prices:
           type: array
           items:
@@ -13891,6 +13955,15 @@ components:
           type: integer
           minimum: 0
           maximum: 100000
+    UpdateAiCostMarkupRequest:
+      type: object
+      required: [rateMarkupPaise]
+      properties:
+        rateMarkupPaise:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          description: Markup in paise added to the market rate on each auto-refresh.
     UpsertAiModelPriceRequest:
       type: object
       required: [kind, provider, model]

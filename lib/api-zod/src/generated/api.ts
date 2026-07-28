@@ -1799,6 +1799,9 @@ export const AdminUpdateAiSpendSettingsResponse = zod.object({
  */
 export const AdminGetAiCostConfigResponse = zod.object({
   "usdToInrPaise": zod.number().describe('Paise per 1 USD (0 = unset; computed costs stay unknown).'),
+  "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
+  "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
+  "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
   "kind": zod.enum(['text', 'image', 'video']),
@@ -1827,6 +1830,62 @@ export const AdminUpdateAiCostRateBody = zod.object({
 
 export const AdminUpdateAiCostRateResponse = zod.object({
   "usdToInrPaise": zod.number().describe('Paise per 1 USD (0 = unset; computed costs stay unknown).'),
+  "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
+  "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
+  "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "prices": zod.array(zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['text', 'image', 'video']),
+  "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
+  "model": zod.string(),
+  "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
+  "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
+  "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
+  "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+}).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
+}).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
+
+
+/**
+ * @summary Set the markup added to the market rate on each auto-refresh (superadmin only)
+ */
+export const adminUpdateAiCostMarkupBodyRateMarkupPaiseMin = 0;
+export const adminUpdateAiCostMarkupBodyRateMarkupPaiseMax = 100000;
+
+
+
+export const AdminUpdateAiCostMarkupBody = zod.object({
+  "rateMarkupPaise": zod.number().min(adminUpdateAiCostMarkupBodyRateMarkupPaiseMin).max(adminUpdateAiCostMarkupBodyRateMarkupPaiseMax).describe('Markup in paise added to the market rate on each auto-refresh.')
+})
+
+export const AdminUpdateAiCostMarkupResponse = zod.object({
+  "usdToInrPaise": zod.number().describe('Paise per 1 USD (0 = unset; computed costs stay unknown).'),
+  "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
+  "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
+  "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "prices": zod.array(zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['text', 'image', 'video']),
+  "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
+  "model": zod.string(),
+  "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
+  "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
+  "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
+  "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+}).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
+}).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
+
+
+/**
+ * @summary Fetch the live USD→INR market rate now, add the markup, and save it (superadmin only)
+ */
+export const AdminRefreshAiCostRateResponse = zod.object({
+  "usdToInrPaise": zod.number().describe('Paise per 1 USD (0 = unset; computed costs stay unknown).'),
+  "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
+  "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
+  "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
   "kind": zod.enum(['text', 'image', 'video']),
@@ -1873,6 +1932,9 @@ export const AdminUpsertAiModelPriceBody = zod.object({
 
 export const AdminUpsertAiModelPriceResponse = zod.object({
   "usdToInrPaise": zod.number().describe('Paise per 1 USD (0 = unset; computed costs stay unknown).'),
+  "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
+  "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
+  "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
   "kind": zod.enum(['text', 'image', 'video']),
@@ -1896,6 +1958,9 @@ export const AdminDeleteAiModelPriceParams = zod.object({
 
 export const AdminDeleteAiModelPriceResponse = zod.object({
   "usdToInrPaise": zod.number().describe('Paise per 1 USD (0 = unset; computed costs stay unknown).'),
+  "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
+  "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
+  "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
   "kind": zod.enum(['text', 'image', 'video']),

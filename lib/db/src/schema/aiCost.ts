@@ -58,6 +58,14 @@ export const aiCostSettingsTable = pgTable("ai_cost_settings", {
   id: serial("id").primaryKey(),
   /** Paise per 1 USD (0 = unset; costs stay unknown). */
   usdToInrPaise: integer("usd_to_inr_paise").notNull().default(0),
+  /** Markup added on top of the fetched market rate on each auto-refresh,
+   * in paise (default ₹2.00). */
+  rateMarkupPaise: integer("rate_markup_paise").notNull().default(200),
+  /** The raw market rate (paise per 1 USD) from the last successful
+   * auto-refresh; null until the first refresh succeeds. */
+  marketRatePaise: integer("market_rate_paise"),
+  /** When the rate was last auto-refreshed successfully; null = never. */
+  rateAutoUpdatedAt: timestamp("rate_auto_updated_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

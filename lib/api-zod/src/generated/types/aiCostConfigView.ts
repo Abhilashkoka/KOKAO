@@ -13,5 +13,17 @@ import type { AiModelPriceView } from './aiModelPriceView';
 export interface AiCostConfigView {
   /** Paise per 1 USD (0 = unset; computed costs stay unknown). */
   usdToInrPaise: number;
+  /** Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set. */
+  rateMarkupPaise: number;
+  /**
+     * Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.
+     * @nullable
+     */
+  marketRatePaise: number | null;
+  /**
+     * When the rate was last auto-refreshed successfully; null = never.
+     * @nullable
+     */
+  rateAutoUpdatedAt: Date | null;
   prices: AiModelPriceView[];
 }

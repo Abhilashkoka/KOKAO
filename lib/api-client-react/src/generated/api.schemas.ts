@@ -4796,6 +4796,18 @@ export interface AiModelPriceView {
 export interface AiCostConfigView {
   /** Paise per 1 USD (0 = unset; computed costs stay unknown). */
   usdToInrPaise: number;
+  /** Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set. */
+  rateMarkupPaise: number;
+  /**
+     * Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.
+     * @nullable
+     */
+  marketRatePaise: number | null;
+  /**
+     * When the rate was last auto-refreshed successfully; null = never.
+     * @nullable
+     */
+  rateAutoUpdatedAt: string | null;
   prices: AiModelPriceView[];
 }
 
@@ -4805,6 +4817,15 @@ export interface UpdateAiCostRateRequest {
      * @maximum 100000
      */
   usdToInrPaise: number;
+}
+
+export interface UpdateAiCostMarkupRequest {
+  /**
+     * Markup in paise added to the market rate on each auto-refresh.
+     * @minimum 0
+     * @maximum 100000
+     */
+  rateMarkupPaise: number;
 }
 
 export type UpsertAiModelPriceRequestKind = typeof UpsertAiModelPriceRequestKind[keyof typeof UpsertAiModelPriceRequestKind];

@@ -417,6 +417,7 @@ export * from './twitterAppCredentialInput';
 export * from './twitterAppCredentialStatus';
 export * from './twitterAuthUrlResult';
 export * from './twitterStatus';
+export * from './updateAiCostMarkupRequest';
 export * from './updateAiCostRateRequest';
 export * from './updateAiSpendSettingsRequest';
 export * from './updateAsrSettingsRequest';

@@ -37,6 +37,8 @@ import {
   getGetAiSpendRatesQueryKey,
   useAdminGetAiCostConfig,
   useAdminUpdateAiCostRate,
+  useAdminUpdateAiCostMarkup,
+  useAdminRefreshAiCostRate,
   useAdminUpsertAiModelPrice,
   useAdminDeleteAiModelPrice,
   useAdminGetAiCostReport,
@@ -1809,10 +1811,13 @@ function AiCostCard() {
   const queryClient = useQueryClient();
   const { data: config, isLoading } = useAdminGetAiCostConfig();
   const updateRate = useAdminUpdateAiCostRate();
+  const updateMarkup = useAdminUpdateAiCostMarkup();
+  const refreshRate = useAdminRefreshAiCostRate();
   const upsertPrice = useAdminUpsertAiModelPrice();
   const deletePrice = useAdminDeleteAiModelPrice();
 
   const [rateInput, setRateInput] = useState<string | null>(null);
+  const [markupInput, setMarkupInput] = useState<string | null>(null);
   const [kind, setKind] = useState<"text" | "image" | "video">("text");
   const [provider, setProvider] = useState("");
   const [model, setModel] = useState("");
@@ -1824,6 +1829,8 @@ function AiCostCard() {
 
   const rateValue =
     rateInput ?? (config ? (config.usdToInrPaise / 100).toString() : "");
+  const markupValue =
+    markupInput ?? (config ? (config.rateMarkupPaise / 100).toString() : "");
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getAdminGetAiCostConfigQueryKey() });
@@ -1858,6 +1865,56 @@ function AiCostCard() {
         },
       },
     );
+  };
+
+  const handleSaveMarkup = () => {
+    const paise = Math.round(Number(markupValue) * 100);
+    if (!Number.isFinite(paise) || paise < 0 || paise > 100000) {
+      toast({
+        title: "Invalid markup",
+        description: "Enter the rupee markup added to the market rate (0 to 1000).",
+        variant: "destructive",
+      });
+      return;
+    }
+    updateMarkup.mutate(
+      { data: { rateMarkupPaise: paise } },
+      {
+        onSuccess: () => {
+          invalidate();
+          setMarkupInput(null);
+          toast({
+            title: "Markup saved",
+            description: "It applies on the next refresh (or refresh now).",
+          });
+        },
+        onError: () => {
+          toast({
+            title: "Save failed",
+            description: "Could not save the markup.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handleRefreshRate = () => {
+    refreshRate.mutate(undefined, {
+      onSuccess: () => {
+        invalidate();
+        setRateInput(null);
+        toast({ title: "Rate refreshed from the live market rate" });
+      },
+      onError: () => {
+        toast({
+          title: "Refresh failed",
+          description:
+            "Could not fetch the current USD→INR rate. The saved rate is unchanged.",
+          variant: "destructive",
+        });
+      },
+    });
   };
 
   const handleAddPrice = () => {
@@ -1995,12 +2052,62 @@ function AiCostCard() {
               >
                 Save rate
               </Button>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="ai-cost-markup">
+                  Markup ({"\u20B9"})
+                </label>
+                <Input
+                  id="ai-cost-markup"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="w-28"
+                  value={markupValue}
+                  onChange={(e) => setMarkupInput(e.target.value)}
+                  data-testid="input-ai-cost-markup"
+                />
+              </div>
+              <Button
+                variant="outline"
+                onClick={handleSaveMarkup}
+                disabled={updateMarkup.isPending}
+                data-testid="button-save-ai-cost-markup"
+              >
+                Save markup
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleRefreshRate}
+                disabled={refreshRate.isPending}
+                data-testid="button-refresh-ai-cost-rate"
+              >
+                {refreshRate.isPending ? "Refreshing…" : "Refresh now"}
+              </Button>
               {config.usdToInrPaise === 0 && (
                 <p className="text-sm text-destructive">
                   Rate unset — all costs are recorded as unknown.
                 </p>
               )}
             </div>
+            <p
+              className="text-sm text-muted-foreground"
+              data-testid="text-ai-cost-rate-auto"
+            >
+              {config.rateAutoUpdatedAt && config.marketRatePaise !== null ? (
+                <>
+                  Auto-updated daily: market {paiseToInr(config.marketRatePaise)} +{" "}
+                  {paiseToInr(config.rateMarkupPaise)} markup ={" "}
+                  {paiseToInr(config.marketRatePaise + config.rateMarkupPaise)}. Last
+                  refreshed {new Date(config.rateAutoUpdatedAt).toLocaleString()}.
+                </>
+              ) : (
+                <>
+                  The rate auto-updates daily from the live market rate plus your{" "}
+                  {paiseToInr(config.rateMarkupPaise)} markup. No successful refresh
+                  yet — use Refresh now, or the saved rate stays as-is.
+                </>
+              )}
+            </p>
 
             <div className="space-y-3">
               <p className="text-sm font-medium">Model price catalog (USD)</p>

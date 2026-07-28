@@ -262,6 +262,7 @@ import type {
   TwitterAppCredentialStatus,
   TwitterAuthUrlResult,
   TwitterStatus,
+  UpdateAiCostMarkupRequest,
   UpdateAiCostRateRequest,
   UpdateAiSpendSettingsRequest,
   UpdateAsrSettingsRequest,
@@ -5106,6 +5107,146 @@ export const useAdminUpdateAiCostRate = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAdminUpdateAiCostRateMutationOptions(options));
+    }
+
+export const getAdminUpdateAiCostMarkupUrl = () => {
+
+
+
+
+  return `/api/admin/ai-cost/markup`
+}
+
+/**
+ * @summary Set the markup added to the market rate on each auto-refresh (superadmin only)
+ */
+export const adminUpdateAiCostMarkup = async (updateAiCostMarkupRequest: UpdateAiCostMarkupRequest, options?: RequestInit): Promise<AiCostConfigView> => {
+
+  return customFetch<AiCostConfigView>(getAdminUpdateAiCostMarkupUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateAiCostMarkupRequest)
+  }
+);}
+
+
+
+
+export const getAdminUpdateAiCostMarkupMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAiCostMarkup>>, TError,{data: BodyType<UpdateAiCostMarkupRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAiCostMarkup>>, TError,{data: BodyType<UpdateAiCostMarkupRequest>}, TContext> => {
+
+const mutationKey = ['adminUpdateAiCostMarkup'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateAiCostMarkup>>, {data: BodyType<UpdateAiCostMarkupRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateAiCostMarkup(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateAiCostMarkupMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateAiCostMarkup>>>
+    export type AdminUpdateAiCostMarkupMutationBody = BodyType<UpdateAiCostMarkupRequest>
+    export type AdminUpdateAiCostMarkupMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Set the markup added to the market rate on each auto-refresh (superadmin only)
+ */
+export const useAdminUpdateAiCostMarkup = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAiCostMarkup>>, TError,{data: BodyType<UpdateAiCostMarkupRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateAiCostMarkup>>,
+        TError,
+        {data: BodyType<UpdateAiCostMarkupRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateAiCostMarkupMutationOptions(options));
+    }
+
+export const getAdminRefreshAiCostRateUrl = () => {
+
+
+
+
+  return `/api/admin/ai-cost/rate/refresh`
+}
+
+/**
+ * @summary Fetch the live USD→INR market rate now, add the markup, and save it (superadmin only)
+ */
+export const adminRefreshAiCostRate = async ( options?: RequestInit): Promise<AiCostConfigView> => {
+
+  return customFetch<AiCostConfigView>(getAdminRefreshAiCostRateUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getAdminRefreshAiCostRateMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRefreshAiCostRate>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminRefreshAiCostRate>>, TError,void, TContext> => {
+
+const mutationKey = ['adminRefreshAiCostRate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminRefreshAiCostRate>>, void> = () => {
+
+
+          return  adminRefreshAiCostRate(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminRefreshAiCostRateMutationResult = NonNullable<Awaited<ReturnType<typeof adminRefreshAiCostRate>>>
+
+    export type AdminRefreshAiCostRateMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Fetch the live USD→INR market rate now, add the markup, and save it (superadmin only)
+ */
+export const useAdminRefreshAiCostRate = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRefreshAiCostRate>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminRefreshAiCostRate>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getAdminRefreshAiCostRateMutationOptions(options));
     }
 
 export const getAdminUpsertAiModelPriceUrl = () => {

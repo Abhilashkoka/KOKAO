@@ -101,6 +101,7 @@ import {
   AdminSetTextGenKeyBody,
   AdminUpdateAiSpendSettingsBody,
   AdminUpdateAiCostRateBody,
+  AdminUpdateAiCostMarkupBody,
   AdminUpsertAiModelPriceBody,
   AdminUpdateNotificationPoliciesBody,
   AdminUpdatePlanBody,
@@ -167,6 +168,8 @@ import {
 import {
   getAiCostConfig,
   setAiCostConfig,
+  setAiCostMarkup,
+  refreshUsdInrRate,
   listModelPrices,
   upsertModelPrice,
   deleteModelPrice,
@@ -1311,6 +1314,9 @@ async function serializeAiCostConfig() {
   const [config, prices] = await Promise.all([getAiCostConfig(), listModelPrices()]);
   return {
     usdToInrPaise: config.usdToInrPaise,
+    rateMarkupPaise: config.rateMarkupPaise,
+    marketRatePaise: config.marketRatePaise,
+    rateAutoUpdatedAt: config.rateAutoUpdatedAt?.toISOString() ?? null,
     prices: prices.map((p) => ({
       id: p.id,
       kind: p.kind,
@@ -1376,6 +1382,54 @@ router.put("/admin/ai-cost/rate", async (req: Request, res: Response) => {
     );
   }
   res.json(await serializeAiCostConfig());
+});
+
+/**
+ * PUT /admin/ai-cost/markup
+ * Set the markup (paise) added on top of the fetched market rate on each
+ * auto-refresh. Applies on the next refresh (or an immediate manual one).
+ */
+router.put("/admin/ai-cost/markup", async (req: Request, res: Response) => {
+  const parsed = AdminUpdateAiCostMarkupBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const before = await getAiCostConfig();
+  const after = await setAiCostMarkup(parsed.data.rateMarkupPaise);
+  if (before.rateMarkupPaise !== after.rateMarkupPaise) {
+    await auditAiCostChange(
+      req,
+      `markup=${before.rateMarkupPaise}`,
+      `markup=${after.rateMarkupPaise}`,
+    );
+  }
+  res.json(await serializeAiCostConfig());
+});
+
+/**
+ * POST /admin/ai-cost/rate/refresh
+ * Fetch the live USD→INR market rate now, add the markup, and save it. On
+ * fetch failure the stored rate stays untouched and this responds 502.
+ */
+router.post("/admin/ai-cost/rate/refresh", async (req: Request, res: Response) => {
+  const before = await getAiCostConfig();
+  try {
+    const after = await refreshUsdInrRate();
+    if (before.usdToInrPaise !== after.usdToInrPaise) {
+      await auditAiCostChange(
+        req,
+        `rate=${before.usdToInrPaise}`,
+        `rate=${after.usdToInrPaise} (auto: market ${after.marketRatePaise} + markup ${after.rateMarkupPaise})`,
+      );
+    }
+    res.json(await serializeAiCostConfig());
+  } catch (error) {
+    req.log.error({ err: error }, "Manual USD→INR rate refresh failed");
+    res.status(502).json({
+      error: "Could not fetch the current USD→INR rate. The saved rate is unchanged.",
+    });
+  }
 });
 
 /**

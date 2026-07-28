@@ -5,6 +5,7 @@ import { logger } from "./lib/logger";
 import { recoverStuckPublishingItems } from "./lib/recoverStuckPublishes";
 import { createShutdownHandler } from "./lib/shutdown";
 import { startConnectionSweep, stopConnectionSweep } from "./lib/connectionSweep";
+import { startFxRateSweep, stopFxRateSweep } from "./lib/fxRateSweep";
 import {
   startScheduledPublisher,
   stopScheduledPublisher,
@@ -79,6 +80,10 @@ const server: Server = app.listen(port, (err) => {
   // whose review window closed, and jobs orphaned in queued/processing by a
   // restart. Both refund credit funding.
   startVideoJobSweep();
+
+  // Once a day, fetch the live USD→INR market rate, add the configured
+  // markup, and save it as the AI-cost conversion rate.
+  startFxRateSweep();
 });
 
 // Graceful shutdown: drain in-flight background publish jobs (bounded by a
@@ -93,6 +98,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     stopPostMetricsSweep();
     stopImageJobSweep();
     stopVideoJobSweep();
+    stopFxRateSweep();
     void shutdown(signal);
   });
 }
