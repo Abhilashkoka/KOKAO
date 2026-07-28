@@ -24,6 +24,11 @@ import {
 import { eq, sql, desc, gte, lt, lte, and, or, ilike, inArray, isNotNull } from "drizzle-orm";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import {
+  syncActivatedModelPricing,
+  syncModelPricingBestEffort,
+  missingPricingError,
+} from "../lib/modelPricingSync";
+import {
   recordAdminAction,
   sweepAbandonedEmailTestSends,
 } from "../lib/adminAudit";
@@ -840,6 +845,17 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
   // model to override and no base URL to enter, so both are forced to null
   // rather than trusting the client to omit them.
   if (parsed.data.provider === IMAGE_GEN_AUTO) {
+    // Auto routing can serve ANY provider's default model, so sync catalog
+    // prices for all of them best-effort (no gate: builtin providers have no
+    // public catalog and refusing auto until each is hand-priced would make
+    // it unusable — unpriced generations record NULL cost, visibly).
+    await syncModelPricingBestEffort(
+      IMAGE_GEN_PROVIDERS.map((p) => ({
+        kind: "image" as const,
+        provider: p.id,
+        model: p.defaultModel,
+      })),
+    );
     const before = await getImageGenSelection();
     await setImageGenSelection({ provider: IMAGE_GEN_AUTO, model: null, customBaseUrl: null });
     if (before.provider !== IMAGE_GEN_AUTO) {
@@ -878,6 +894,22 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
   if (def.requiresBaseUrl && !model) {
     res.status(400).json({ error: "This provider needs a model name" });
     return;
+  }
+
+  // Activation gate: the model that will actually serve generations must
+  // have a price row (live catalog when available, else a manual entry) so
+  // actual-cost tracking never runs blind.
+  {
+    const effectiveModel = (def.supportsModelOverride && model) || def.defaultModel;
+    const { missing } = await syncActivatedModelPricing({
+      kind: "image",
+      provider: def.id,
+      models: [effectiveModel],
+    });
+    if (missing.length > 0) {
+      res.status(400).json({ error: missingPricingError(missing) });
+      return;
+    }
   }
 
   const before = await getImageGenSelection();
@@ -1100,6 +1132,23 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
   }
   const textToVideoModel = parsed.data.textToVideoModel?.trim() || null;
   const imageToVideoModel = parsed.data.imageToVideoModel?.trim() || null;
+
+  // Activation gate: both engines' effective models must be priceable.
+  {
+    const effective = [
+      (def.supportsModelOverride && textToVideoModel) || def.defaultTextToVideoModel,
+      (def.supportsModelOverride && imageToVideoModel) || def.defaultImageToVideoModel,
+    ];
+    const { missing } = await syncActivatedModelPricing({
+      kind: "video",
+      provider: def.id,
+      models: effective,
+    });
+    if (missing.length > 0) {
+      res.status(400).json({ error: missingPricingError(missing) });
+      return;
+    }
+  }
 
   const before = await getVideoGenSelection();
   await setVideoGenSelection({
@@ -1816,6 +1865,17 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
             ? "Save an OpenRouter API key before switching text generation to OpenRouter"
             : "Save a Replicate API key (under Video Generation) before switching text generation to Replicate",
       });
+      return;
+    }
+  }
+
+  // Activation gate: every model must have a price (live catalog or manual
+  // row) so actual-cost tracking never runs blind. Catalog hits are synced
+  // into ai_model_prices as part of this call.
+  if (provider !== "builtin") {
+    const { missing } = await syncActivatedModelPricing({ kind: "text", provider, models });
+    if (missing.length > 0) {
+      res.status(400).json({ error: missingPricingError(missing) });
       return;
     }
   }

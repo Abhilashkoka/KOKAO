@@ -67,6 +67,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { ExternalLink } from "lucide-react";
 import { CollapsibleCardHeader } from "@/components/ui/collapsible-card-header";
 import { WalletCard } from "./wallet-card";
@@ -311,6 +312,8 @@ export function ImageGenProviderCard() {
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getAdminGetImageGenSettingsQueryKey() });
     queryClient.invalidateQueries({ queryKey: getAdminListAuditLogsQueryKey() });
+    // Activating a model auto-syncs its price row, so refresh the cost card.
+    queryClient.invalidateQueries({ queryKey: getAdminGetAiCostConfigQueryKey() });
   };
 
   const modelValue = modelInput ?? settings?.model ?? "";
@@ -343,10 +346,7 @@ export function ImageGenProviderCard() {
           });
         },
         onError: (err: unknown) => {
-          const message =
-            err && typeof err === "object" && "error" in err && typeof err.error === "string"
-              ? err.error
-              : "Could not change the image generation provider.";
+          const message = apiErrorMessage(err, "Could not change the image generation provider.");
           toast({ title: "Update failed", description: message, variant: "destructive" });
         },
       },
@@ -850,6 +850,8 @@ function VideoGenProviderCard() {
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getAdminGetVideoGenSettingsQueryKey() });
     queryClient.invalidateQueries({ queryKey: getAdminListAuditLogsQueryKey() });
+    // Activating a model auto-syncs its price row, so refresh the cost card.
+    queryClient.invalidateQueries({ queryKey: getAdminGetAiCostConfigQueryKey() });
   };
 
   const textModelValue = textModelInput ?? settings?.textToVideoModel ?? "";
@@ -879,10 +881,7 @@ function VideoGenProviderCard() {
           });
         },
         onError: (err: unknown) => {
-          const message =
-            err && typeof err === "object" && "error" in err && typeof err.error === "string"
-              ? err.error
-              : "Could not change the video generation settings.";
+          const message = apiErrorMessage(err, "Could not change the video generation settings.");
           toast({ title: "Update failed", description: message, variant: "destructive" });
         },
       },
@@ -1207,6 +1206,8 @@ function TextGenProviderCard() {
     queryClient.invalidateQueries({ queryKey: getAdminGetTextGenSettingsQueryKey() });
     queryClient.invalidateQueries({ queryKey: getListAiModelsQueryKey() });
     queryClient.invalidateQueries({ queryKey: getAdminListAuditLogsQueryKey() });
+    // Activating a model auto-syncs its price row, so refresh the cost card.
+    queryClient.invalidateQueries({ queryKey: getAdminGetAiCostConfigQueryKey() });
   };
 
   const effectiveProvider = draftProvider ?? settings?.provider ?? "builtin";
@@ -1262,10 +1263,7 @@ function TextGenProviderCard() {
           });
         },
         onError: (err: unknown) => {
-          const message =
-            err && typeof err === "object" && "error" in err && typeof err.error === "string"
-              ? err.error
-              : "Could not change the text generation provider.";
+          const message = apiErrorMessage(err, "Could not change the text generation provider.");
           toast({ title: "Update failed", description: message, variant: "destructive" });
         },
       },

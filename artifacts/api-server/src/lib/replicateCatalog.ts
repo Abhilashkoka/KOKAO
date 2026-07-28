@@ -135,6 +135,46 @@ function dollars(price: string): number | null {
  * entries titled "per million input tokens" / "per million output tokens";
  * models without such entries (e.g. video models) come back null/null.
  */
+export interface ReplicateUnitPricing {
+  model: string;
+  /** Highest advertised $/output image, when the page lists one. */
+  usdPerImage: number | null;
+  /** Highest advertised $/second of output video, when listed. */
+  usdPerSecond: number | null;
+  /** Highest advertised flat $/video, when listed. */
+  usdPerVideo: number | null;
+}
+
+/** Pick the highest matching entry (conservative when variants differ). */
+function maxDollars(entries: PriceEntry[], titleRe: RegExp): number | null {
+  const nums = entries
+    .filter((e) => titleRe.test(e.title))
+    .map((e) => dollars(e.price))
+    .filter((n): n is number => n !== null);
+  return nums.length > 0 ? Math.max(...nums) : null;
+}
+
+/**
+ * Structured per-unit pricing for Replicate-hosted IMAGE and VIDEO models,
+ * parsed from the same model-page price entries the display lookup uses.
+ * Models without matching entries come back all-null.
+ */
+export async function lookupReplicateUnitPricing(
+  models: string[],
+): Promise<ReplicateUnitPricing[]> {
+  return Promise.all(
+    models.map(async (model) => {
+      const entries = SLUG_RE.test(model) ? await getModelEntries(model) : [];
+      return {
+        model,
+        usdPerImage: maxDollars(entries, /per (output )?image/i),
+        usdPerSecond: maxDollars(entries, /per second/i),
+        usdPerVideo: maxDollars(entries, /per (output )?video(?! second)/i),
+      };
+    }),
+  );
+}
+
 export async function lookupReplicateTokenPricing(
   models: string[],
 ): Promise<ReplicateTokenPricing[]> {

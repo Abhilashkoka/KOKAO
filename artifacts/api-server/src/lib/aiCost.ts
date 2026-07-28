@@ -88,6 +88,7 @@ async function findPrice(
   kind: "text" | "image" | "video",
   provider: string,
   model: string,
+  opts?: { exactProviderOnly?: boolean },
 ): Promise<AiModelPrice | null> {
   const [row] = await db
     .select()
@@ -100,7 +101,7 @@ async function findPrice(
       ),
     )
     .limit(1);
-  if (row) return row;
+  if (row || opts?.exactProviderOnly) return row ?? null;
   // Fall back to a model-only match under any provider, so one price row
   // covers e.g. the same model reachable via builtin AND openrouter.
   const [anyProvider] = await db
@@ -109,6 +110,16 @@ async function findPrice(
     .where(and(eq(aiModelPricesTable.kind, kind), eq(aiModelPricesTable.model, model)))
     .limit(1);
   return anyProvider ?? null;
+}
+
+/** Exported price lookup used by the model activation pricing sync. */
+export async function findModelPrice(
+  kind: "text" | "image" | "video",
+  provider: string,
+  model: string,
+  opts?: { exactProviderOnly?: boolean },
+): Promise<AiModelPrice | null> {
+  return findPrice(kind, provider, model, opts);
 }
 
 /** Token-based cost of a text generation in paise, or null when unknown. */

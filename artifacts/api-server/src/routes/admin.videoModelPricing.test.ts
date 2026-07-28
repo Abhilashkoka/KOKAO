@@ -41,6 +41,17 @@ vi.mock("../lib/replicateCatalog", () => ({
       price: model === "google/veo-3" ? "$0.20–$0.40 per second of output video" : null,
     })),
   ),
+  lookupReplicateTokenPricing: vi.fn(async (models: string[]) =>
+    models.map((model) => ({ model, inputPerMTokens: null, outputPerMTokens: null })),
+  ),
+  lookupReplicateUnitPricing: vi.fn(async (models: string[]) =>
+    models.map((model) => ({
+      model,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null,
+    })),
+  ),
 }));
 
 import { pool } from "@workspace/db";

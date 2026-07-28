@@ -56,6 +56,14 @@ vi.mock("../lib/replicateCatalog", () => ({
       outputPerMTokens: model === "openai/gpt-oss-20b" ? 0.36 : null,
     })),
   ),
+  lookupReplicateUnitPricing: vi.fn(async (models: string[]) =>
+    models.map((model) => ({
+      model,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null,
+    })),
+  ),
 }));
 
 import { pool } from "@workspace/db";
