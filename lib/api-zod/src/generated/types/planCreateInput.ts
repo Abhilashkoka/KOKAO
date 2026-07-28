@@ -49,4 +49,6 @@ export interface PlanCreateInput {
      * @nullable
      */
   priceInrYearly?: number | null;
+  /** Stamp the "Made with KOKAO.in" watermark on this plan's AI images and videos. Defaults to false. */
+  watermark?: boolean;
 }

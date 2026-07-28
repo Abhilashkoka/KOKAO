@@ -145,9 +145,9 @@ export const FEATURES = [
   },
   {
     id: "freeWatermark",
-    label: "Free Plan Watermark",
+    label: "Plan Watermark",
     description:
-      "Stamps a 'Made with KOKAO.in' watermark on AI-generated images for workspaces on the free plan.",
+      "Stamps a 'Made with KOKAO.in' watermark on AI-generated images and videos for workspaces on plans with the watermark switch on (Plans tab).",
   },
   {
     id: "calendar",

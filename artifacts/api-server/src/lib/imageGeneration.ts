@@ -7,6 +7,7 @@ import { isDesignSkillEnabledFor, buildDesignedImagePrompt } from "./designSkill
 import { buildReferenceGuide } from "./referenceGuide";
 import { isFeatureEnabled } from "./featureFlags";
 import { applyMadeWithWatermark } from "./watermark";
+import { getPlan } from "./plans";
 import { getTextGenClient } from "./textGen";
 import { buildTasteGuidance } from "./tasteMemory";
 import { buildImageCostMeta } from "./aiCost";
@@ -168,11 +169,13 @@ export async function performImageGeneration(
     routingReason,
   } = await generateImage(prompt, input.size, input.referenceImage ?? undefined);
 
-  // Free-plan workspaces get a "Made with KOKAO.in" stamp, platform-wide
-  // switch "freeWatermark" (default-ON: a transient flag-read error fails
-  // OPEN); compositing errors fail soft to the original image.
+  // Plans with the watermark switch ON get a "Made with KOKAO.in" stamp,
+  // subject to the platform-wide "freeWatermark" kill switch (default-ON: a
+  // transient flag-read error fails OPEN); compositing errors fail soft to
+  // the original image. A plan-lookup error fails soft to no watermark —
+  // it must never break generation.
   const wantWatermark =
-    input.tenant.plan === "free" &&
+    (await getPlan(input.tenant.plan).catch(() => null))?.watermark === true &&
     (await isFeatureEnabled("freeWatermark").catch(() => true));
   const buffer = wantWatermark ? await applyMadeWithWatermark(rawBuffer) : rawBuffer;
 

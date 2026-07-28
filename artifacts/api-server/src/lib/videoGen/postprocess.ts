@@ -5,7 +5,62 @@ import { join } from "path";
 import { pickMusicStartOffsetSec } from "./musicOffset";
 import { runFfmpeg, probeDurationSec } from "./slideshow";
 import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "./types";
+import { renderWatermarkPill } from "../watermark";
 import { logger } from "../logger";
+
+/**
+ * Stamp the "Made with KOKAO.in" pill in the bottom-right corner of a
+ * finished video (plans with the watermark switch on). Audio is copied
+ * untouched. Fail-soft: any error returns the ORIGINAL buffer — a watermark
+ * hiccup must never fail a render that already cost money.
+ */
+export async function applyAppWatermarkToVideo(
+  video: Buffer,
+  aspectRatio: VideoAspect,
+): Promise<Buffer> {
+  const { width, height } = ASPECT_DIMENSIONS[aspectRatio];
+  const pill = await renderWatermarkPill(width, height);
+  if (!pill) return video;
+  const dir = await mkdtemp(join(tmpdir(), "kokao-watermark-"));
+  try {
+    await writeFile(join(dir, "in.mp4"), video);
+    await writeFile(join(dir, "wm.png"), pill.png);
+    await runFfmpeg(
+      [
+        "-y",
+        "-i",
+        "in.mp4",
+        "-i",
+        "wm.png",
+        "-filter_complex",
+        `[0:v][1:v]overlay=W-w-${pill.margin}:H-h-${pill.margin}[vout]`,
+        "-map",
+        "[vout]",
+        "-map",
+        "0:a?",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "20",
+        "-c:a",
+        "copy",
+        "-movflags",
+        "+faststart",
+        "out.mp4",
+      ],
+      dir,
+    );
+    const out = await readFile(join(dir, "out.mp4"));
+    return out.length > 0 ? out : video;
+  } catch (error) {
+    logger.warn({ err: error }, "App watermark overlay failed; delivering the unwatermarked video");
+    return video;
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
 
 /**
  * Normalize a raw AI provider clip to the aspect ratio and resolution the

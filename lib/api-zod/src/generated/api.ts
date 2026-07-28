@@ -153,7 +153,8 @@ export const ListPlansResponseItem = zod.object({
   "priceInr": zod.number().nullish().describe('Subscription price in paise (INR x 100). Null = not purchasable online.'),
   "razorpayPlanId": zod.string().nullish(),
   "priceInrYearly": zod.number().nullish().describe('Total yearly price in paise (charged once per year). Null = no annual billing option for this plan.'),
-  "razorpayPlanIdYearly": zod.string().nullish()
+  "razorpayPlanIdYearly": zod.string().nullish(),
+  "watermark": zod.boolean().describe('Stamp a \"Made with KOKAO.in\" watermark on AI-generated images and videos for workspaces on this plan.')
 })
 export const ListPlansResponse = zod.array(ListPlansResponseItem)
 
@@ -743,7 +744,8 @@ export const AdminCreatePlanBody = zod.object({
   "features": zod.array(zod.string().min(1).max(adminCreatePlanBodyFeaturesItemMax)).max(adminCreatePlanBodyFeaturesMax),
   "teamSeats": zod.number().min(adminCreatePlanBodyTeamSeatsMin).optional().describe('Default team seat allotment. 0 disables the team add-on.'),
   "priceInr": zod.number().min(1).nullish().describe('Subscription price in paise. Null clears the online price.'),
-  "priceInrYearly": zod.number().min(1).nullish().describe('Total yearly price in paise. Null = no annual option.')
+  "priceInrYearly": zod.number().min(1).nullish().describe('Total yearly price in paise. Null = no annual option.'),
+  "watermark": zod.boolean().optional().describe('Stamp the \"Made with KOKAO.in\" watermark on this plan\'s AI images and videos. Defaults to false.')
 })
 
 export const AdminCreatePlanResponseItem = zod.object({
@@ -762,7 +764,8 @@ export const AdminCreatePlanResponseItem = zod.object({
   "priceInr": zod.number().nullish().describe('Subscription price in paise (INR x 100). Null = not purchasable online.'),
   "razorpayPlanId": zod.string().nullish(),
   "priceInrYearly": zod.number().nullish().describe('Total yearly price in paise (charged once per year). Null = no annual billing option for this plan.'),
-  "razorpayPlanIdYearly": zod.string().nullish()
+  "razorpayPlanIdYearly": zod.string().nullish(),
+  "watermark": zod.boolean().describe('Stamp a \"Made with KOKAO.in\" watermark on AI-generated images and videos for workspaces on this plan.')
 })
 export const AdminCreatePlanResponse = zod.array(AdminCreatePlanResponseItem)
 
@@ -790,7 +793,8 @@ export const AdminDeletePlanResponseItem = zod.object({
   "priceInr": zod.number().nullish().describe('Subscription price in paise (INR x 100). Null = not purchasable online.'),
   "razorpayPlanId": zod.string().nullish(),
   "priceInrYearly": zod.number().nullish().describe('Total yearly price in paise (charged once per year). Null = no annual billing option for this plan.'),
-  "razorpayPlanIdYearly": zod.string().nullish()
+  "razorpayPlanIdYearly": zod.string().nullish(),
+  "watermark": zod.boolean().describe('Stamp a \"Made with KOKAO.in\" watermark on AI-generated images and videos for workspaces on this plan.')
 })
 export const AdminDeletePlanResponse = zod.array(AdminDeletePlanResponseItem)
 
@@ -829,7 +833,8 @@ export const AdminUpdatePlanBody = zod.object({
   "features": zod.array(zod.string().min(1).max(adminUpdatePlanBodyFeaturesItemMax)).max(adminUpdatePlanBodyFeaturesMax),
   "teamSeats": zod.number().min(adminUpdatePlanBodyTeamSeatsMin).optional().describe('Default team seat allotment. 0 disables the team add-on.'),
   "priceInr": zod.number().min(1).nullish().describe('Subscription price in paise. Null clears the online price.'),
-  "priceInrYearly": zod.number().min(1).nullish().describe('Total yearly price in paise. Null = no annual option.')
+  "priceInrYearly": zod.number().min(1).nullish().describe('Total yearly price in paise. Null = no annual option.'),
+  "watermark": zod.boolean().optional().describe('Stamp the \"Made with KOKAO.in\" watermark on this plan\'s AI images and videos. Omitted = keep the plan\'s current setting.')
 })
 
 export const AdminUpdatePlanResponseItem = zod.object({
@@ -848,7 +853,8 @@ export const AdminUpdatePlanResponseItem = zod.object({
   "priceInr": zod.number().nullish().describe('Subscription price in paise (INR x 100). Null = not purchasable online.'),
   "razorpayPlanId": zod.string().nullish(),
   "priceInrYearly": zod.number().nullish().describe('Total yearly price in paise (charged once per year). Null = no annual billing option for this plan.'),
-  "razorpayPlanIdYearly": zod.string().nullish()
+  "razorpayPlanIdYearly": zod.string().nullish(),
+  "watermark": zod.boolean().describe('Stamp a \"Made with KOKAO.in\" watermark on AI-generated images and videos for workspaces on this plan.')
 })
 export const AdminUpdatePlanResponse = zod.array(AdminUpdatePlanResponseItem)
 

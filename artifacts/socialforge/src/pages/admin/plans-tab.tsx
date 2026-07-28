@@ -45,6 +45,7 @@ interface PlanDraft {
   scheduledPosts: string;
   teamSeats: string;
   features: string;
+  watermark: boolean;
 }
 
 function parseLimit(value: string): number | null {
@@ -80,6 +81,7 @@ const EMPTY_NEW_PLAN: PlanDraft = {
   scheduledPosts: "",
   teamSeats: "0",
   features: "",
+  watermark: false,
 };
 interface CreditPackDraft {
   name: string;
@@ -476,6 +478,7 @@ function PlansCard() {
       priceInrYearly:
         priceRupeesYearly === null ? null : Math.round(priceRupeesYearly * 100),
       teamSeats,
+      watermark: draft.watermark,
       limits: {
         captions: limits.captions!,
         images: limits.images!,
@@ -565,6 +568,7 @@ function PlansCard() {
             scheduledPosts: limitToInput(p.limits.scheduledPosts),
             teamSeats: String(p.teamSeats ?? 0),
             features: p.features.join("\n"),
+            watermark: p.watermark ?? false,
           };
         }
       }
@@ -707,6 +711,27 @@ function PlansCard() {
                       />
                     </div>
                   ))}
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5 pr-3">
+                      <label className="text-sm font-medium">
+                        KOKAO watermark
+                      </label>
+                      <p className="text-xs text-muted-foreground">
+                        Stamp "Made with KOKAO.in" on AI images and videos.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={draft.watermark}
+                      onCheckedChange={(on) =>
+                        setDrafts((prev) => ({
+                          ...prev,
+                          [p.id]: { ...prev[p.id]!, watermark: on },
+                        }))
+                      }
+                      aria-label="Toggle KOKAO watermark"
+                      data-testid={`switch-watermark-${p.id}`}
+                    />
+                  </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="text-sm font-medium">
@@ -848,6 +873,24 @@ function PlansCard() {
                       />
                     </div>
                   ))}
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5 pr-3">
+                      <label className="text-sm font-medium">
+                        KOKAO watermark
+                      </label>
+                      <p className="text-xs text-muted-foreground">
+                        Stamp "Made with KOKAO.in" on AI images and videos.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={newPlan.watermark}
+                      onCheckedChange={(on) =>
+                        setNewPlan((prev) => ({ ...prev, watermark: on }))
+                      }
+                      aria-label="Toggle KOKAO watermark"
+                      data-testid="switch-watermark-new"
+                    />
+                  </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="text-sm font-medium">

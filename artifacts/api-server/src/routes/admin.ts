@@ -2204,7 +2204,7 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
     return;
   }
 
-  const { name, priceLabel, limits, features, teamSeats, priceInr, priceInrYearly } =
+  const { name, priceLabel, limits, features, teamSeats, priceInr, priceInrYearly, watermark } =
     parsed.data;
   if (invalidLimits(limits)) {
     res
@@ -2301,6 +2301,8 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
     videos: limits.videos ?? previous.limits.videos,
     brandKits: limits.brandKits,
     scheduledPosts: limits.scheduledPosts,
+    // Omitted by older admin clients: keep the plan's current setting.
+    watermark: watermark ?? previous.watermark,
     features: features.map((f) => f.trim()).filter(Boolean),
     sortOrder: catalog.findIndex((p) => p.id === planId),
     archived: false,
@@ -2321,8 +2323,8 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
       actorEmail: req.tenantEmail,
       targetTenantId: null,
       targetEmail: null,
-      oldValue: JSON.stringify(previous.limits),
-      newValue: JSON.stringify(limits),
+      oldValue: JSON.stringify({ ...previous.limits, watermark: previous.watermark }),
+      newValue: JSON.stringify({ ...limits, watermark: watermark ?? previous.watermark }),
     });
   } catch (error) {
     req.log.error({ err: error }, "Failed to write plan-edit audit log");
@@ -2345,7 +2347,7 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
     return;
   }
 
-  const { name, priceLabel, limits, features, teamSeats, priceInr, priceInrYearly } =
+  const { name, priceLabel, limits, features, teamSeats, priceInr, priceInrYearly, watermark } =
     parsed.data;
   if (teamSeats !== undefined && !Number.isInteger(teamSeats)) {
     res.status(400).json({ error: "Team seats must be a whole number" });
@@ -2455,6 +2457,7 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
     videos: limits.videos ?? 0,
     brandKits: limits.brandKits,
     scheduledPosts: limits.scheduledPosts,
+    watermark: watermark ?? false,
     features: features.map((f) => f.trim()).filter(Boolean),
     sortOrder: catalog.length,
     archived: false,
@@ -2470,7 +2473,12 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
       targetTenantId: null,
       targetEmail: null,
       oldValue: null,
-      newValue: JSON.stringify({ id, name: name.trim(), limits }),
+      newValue: JSON.stringify({
+        id,
+        name: name.trim(),
+        limits,
+        watermark: watermark ?? false,
+      }),
     });
   } catch (error) {
     req.log.error({ err: error }, "Failed to write plan-create audit log");

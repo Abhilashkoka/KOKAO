@@ -29,4 +29,6 @@ export interface Plan {
   priceInrYearly?: number | null;
   /** @nullable */
   razorpayPlanIdYearly?: string | null;
+  /** Stamp a "Made with KOKAO.in" watermark on AI-generated images and videos for workspaces on this plan. */
+  watermark: boolean;
 }

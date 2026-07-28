@@ -1,6 +1,7 @@
 import {
   db,
   videoGenerationsTable,
+  tenantsTable,
   type VideoGeneration,
   type VideoStoryboard,
   type VideoStoryboardScene,
@@ -14,7 +15,13 @@ import { settleWallet, refundWallet, reservationFromRow } from "../wallet";
 import { logger } from "../logger";
 import { generateVideo, VideoGenNotConfiguredError, VideoGenProviderError } from "./index";
 import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
-import { normalizeVideo, mixMusicIntoVideo, fitImageToAspect } from "./postprocess";
+import {
+  normalizeVideo,
+  mixMusicIntoVideo,
+  fitImageToAspect,
+  applyAppWatermarkToVideo,
+} from "./postprocess";
+import { getPlan } from "../plans";
 import { generateMusicBed } from "./musicGen";
 import { loadVideoBranding } from "./branding";
 import { loadStyleGuidance } from "./referenceAnalyzer";
@@ -602,6 +609,31 @@ export async function refreshStoryboardScenePreview(
   };
 }
 
+/**
+ * Whether the tenant's plan carries the app watermark, subject to the
+ * platform-wide "freeWatermark" kill switch (default-ON: a transient
+ * flag-read error fails OPEN). Tenant/plan lookup errors fail soft to no
+ * watermark — this must never break a render.
+ */
+async function shouldApplyAppWatermark(tenantId: number): Promise<boolean> {
+  try {
+    const tenant = (
+      await db
+        .select({ plan: tenantsTable.plan })
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, tenantId))
+        .limit(1)
+    )[0];
+    if (!tenant) return false;
+    const plan = await getPlan(tenant.plan);
+    if (!plan.watermark) return false;
+  } catch (error) {
+    logger.warn({ err: error, tenantId }, "Watermark plan lookup failed; skipping watermark");
+    return false;
+  }
+  return await isFeatureEnabled("freeWatermark").catch(() => true);
+}
+
 async function executeVideoJob(
   job: VideoGeneration,
   funding: "quota" | "credit" | "wallet",
@@ -632,12 +664,21 @@ async function executeVideoJob(
       });
       return;
     }
-    const { buffer, provider, model, qa } = produced;
+    let { buffer } = produced;
+    const { provider, model, qa } = produced;
 
     // Quality gate: never deliver (or charge for) a broken render. A failure
     // here throws VideoGenProviderError and lands in the refund path below.
     onStage("Running quality checks");
     const { durationSec: clipDurationSec } = await verifyRenderedVideo(buffer, qa);
+
+    // Plans with the watermark switch ON get a "Made with KOKAO.in" pill in
+    // the corner, subject to the platform-wide kill switch. Every step fails
+    // SOFT to the unwatermarked video — this must never fail a paid render.
+    if (await shouldApplyAppWatermark(job.tenantId)) {
+      const aspect = job.options?.aspectRatio ?? "9:16";
+      buffer = await applyAppWatermarkToVideo(buffer, aspect);
+    }
 
     onStage("Saving to your library");
     const videoPath = await uploadToStorage(job.tenantId, buffer, "video/mp4");

@@ -36,6 +36,11 @@ export interface Plan {
    * override per workspace via tenants.seatLimit (approved seat requests).
    */
   teamSeats: number;
+  /**
+   * "Made with KOKAO.in" watermark stamped on AI-generated images and videos
+   * for workspaces on this plan (subject to the platform-wide kill switch).
+   */
+  watermark: boolean;
 }
 
 export const DEFAULT_PLANS: Plan[] = [
@@ -45,6 +50,7 @@ export const DEFAULT_PLANS: Plan[] = [
     priceLabel: "$0 / mo",
     limits: { captions: 20, images: 10, videos: 3, brandKits: 1, scheduledPosts: 10 },
     teamSeats: 0,
+    watermark: true,
     priceInr: null,
     razorpayPlanId: null,
     priceInrYearly: null,
@@ -65,6 +71,7 @@ export const DEFAULT_PLANS: Plan[] = [
     // quota exhausted immediately", which routes then satisfy from credits.
     limits: { captions: 0, images: 0, videos: 0, brandKits: 3, scheduledPosts: 50 },
     teamSeats: 0,
+    watermark: false,
     priceInr: null,
     razorpayPlanId: null,
     priceInrYearly: null,
@@ -82,6 +89,7 @@ export const DEFAULT_PLANS: Plan[] = [
     priceLabel: "$29 / mo",
     limits: { captions: 500, images: 200, videos: 50, brandKits: 10, scheduledPosts: 200 },
     teamSeats: 0,
+    watermark: false,
     priceInr: null,
     razorpayPlanId: null,
     priceInrYearly: null,
@@ -100,6 +108,7 @@ export const DEFAULT_PLANS: Plan[] = [
     priceLabel: "$99 / mo",
     limits: { captions: -1, images: -1, videos: -1, brandKits: -1, scheduledPosts: -1 },
     teamSeats: 5,
+    watermark: false,
     priceInr: null,
     razorpayPlanId: null,
     priceInrYearly: null,
@@ -191,6 +200,7 @@ function rowToPlan(r: typeof planSettingsTable.$inferSelect): Plan {
     },
     features: r.features,
     teamSeats: r.teamSeats,
+    watermark: r.watermark,
     priceInr: r.priceInr,
     razorpayPlanId: r.razorpayPlanId,
     priceInrYearly: r.priceInrYearly,

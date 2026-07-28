@@ -364,6 +364,8 @@ export interface Plan {
   priceInrYearly?: number | null;
   /** @nullable */
   razorpayPlanIdYearly?: string | null;
+  /** Stamp a "Made with KOKAO.in" watermark on AI-generated images and videos for workspaces on this plan. */
+  watermark: boolean;
 }
 
 export interface PlanCreateInput {
@@ -408,6 +410,8 @@ export interface PlanCreateInput {
      * @nullable
      */
   priceInrYearly?: number | null;
+  /** Stamp the "Made with KOKAO.in" watermark on this plan's AI images and videos. Defaults to false. */
+  watermark?: boolean;
 }
 
 export interface PlanUpdateInput {
@@ -445,6 +449,8 @@ export interface PlanUpdateInput {
      * @nullable
      */
   priceInrYearly?: number | null;
+  /** Stamp the "Made with KOKAO.in" watermark on this plan's AI images and videos. Omitted = keep the plan's current setting. */
+  watermark?: boolean;
 }
 
 export interface RazorpayAppCredentialStatus {

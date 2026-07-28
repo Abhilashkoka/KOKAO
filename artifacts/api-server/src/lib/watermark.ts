@@ -43,6 +43,28 @@ function buildOverlaySvg(imageWidth: number): { svg: Buffer; width: number; heig
 }
 
 /**
+ * Render the watermark pill alone as a PNG buffer sized for a frame of the
+ * given width (used by the video pipeline, which overlays it via ffmpeg).
+ * Returns null when the pill would not fit or rendering fails.
+ */
+export async function renderWatermarkPill(
+  frameWidth: number,
+  frameHeight: number,
+): Promise<{ png: Buffer; width: number; height: number; margin: number } | null> {
+  try {
+    const overlay = buildOverlaySvg(frameWidth);
+    const margin = Math.max(8, Math.round(frameWidth * 0.02));
+    if (overlay.width + margin > frameWidth || overlay.height + margin > frameHeight) {
+      return null;
+    }
+    const png = await sharp(overlay.svg).png().toBuffer();
+    return { png, width: overlay.width, height: overlay.height, margin };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Stamp the watermark pill in the bottom-right corner of a PNG/JPEG buffer.
  * Output is always PNG (matches how generated images are stored).
  */

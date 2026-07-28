@@ -8403,7 +8403,7 @@ components:
           description: Browser-facing path where the uploaded asset will be served.
     Plan:
       type: object
-      required: [id, name, priceLabel, limits, features, teamSeats]
+      required: [id, name, priceLabel, limits, features, teamSeats, watermark]
       properties:
         id:
           type: string
@@ -8434,6 +8434,11 @@ components:
             annual billing option for this plan.
         razorpayPlanIdYearly:
           type: ["string", "null"]
+        watermark:
+          type: boolean
+          description: >-
+            Stamp a "Made with KOKAO.in" watermark on AI-generated images and
+            videos for workspaces on this plan.
 
     PlanCreateInput:
       type: object
@@ -8476,6 +8481,11 @@ components:
           type: ["integer", "null"]
           minimum: 1
           description: Total yearly price in paise. Null = no annual option.
+        watermark:
+          type: boolean
+          description: >-
+            Stamp the "Made with KOKAO.in" watermark on this plan's AI images
+            and videos. Defaults to false.
     PlanUpdateInput:
       type: object
       required: [name, priceLabel, limits, features]
@@ -8509,6 +8519,11 @@ components:
           type: ["integer", "null"]
           minimum: 1
           description: Total yearly price in paise. Null = no annual option.
+        watermark:
+          type: boolean
+          description: >-
+            Stamp the "Made with KOKAO.in" watermark on this plan's AI images
+            and videos. Omitted = keep the plan's current setting.
     RazorpayAppCredentialStatus:
       type: object
       required:

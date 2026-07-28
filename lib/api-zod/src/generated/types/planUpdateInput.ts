@@ -42,4 +42,6 @@ export interface PlanUpdateInput {
      * @nullable
      */
   priceInrYearly?: number | null;
+  /** Stamp the "Made with KOKAO.in" watermark on this plan's AI images and videos. Omitted = keep the plan's current setting. */
+  watermark?: boolean;
 }

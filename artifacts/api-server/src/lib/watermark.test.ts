@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import sharp from "sharp";
-import { applyMadeWithWatermark } from "./watermark";
+import { applyMadeWithWatermark, renderWatermarkPill } from "./watermark";
 
 async function solidPng(width: number, height: number): Promise<Buffer> {
   return sharp({
@@ -44,5 +44,21 @@ describe("applyMadeWithWatermark", () => {
     const junk = Buffer.from("definitely not an image");
     const out = await applyMadeWithWatermark(junk);
     expect(out.equals(junk)).toBe(true);
+  });
+});
+
+describe("renderWatermarkPill", () => {
+  it("renders a standalone PNG pill sized for the frame", async () => {
+    const pill = await renderWatermarkPill(1080, 1920);
+    expect(pill).not.toBeNull();
+    const meta = await sharp(pill!.png).metadata();
+    expect(meta.format).toBe("png");
+    expect(meta.width).toBe(pill!.width);
+    expect(meta.height).toBe(pill!.height);
+    expect(pill!.width + pill!.margin).toBeLessThanOrEqual(1080);
+  });
+
+  it("returns null when the pill would not fit the frame", async () => {
+    expect(await renderWatermarkPill(40, 40)).toBeNull();
   });
 });

@@ -28,6 +28,10 @@ export const planSettingsTable = pgTable("plan_settings", {
   // Monthly AI video quota. Default 0 (credit-funded only) so pre-existing
   // custom plan rows keep working after the column is added.
   videos: integer("videos").notNull().default(0),
+  // "Made with KOKAO.in" watermark on AI-generated images and videos for
+  // workspaces on this plan. Default false so existing custom rows are
+  // unaffected; the built-in free plan defaults to true in DEFAULT_PLANS.
+  watermark: boolean("watermark").notNull().default(false),
   brandKits: integer("brand_kits").notNull(),
   scheduledPosts: integer("scheduled_posts").notNull(),
   features: jsonb("features").$type<string[]>().notNull(),
