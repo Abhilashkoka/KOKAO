@@ -95,16 +95,14 @@ function renderScreen() {
   );
 }
 
-async function hitQuotaWall() {
+async function hitQuotaWall(expectedText: RegExp = /Monthly caption quota exceeded/i) {
   renderScreen();
   fireEvent.change(
     screen.getByPlaceholderText("e.g. Announcing our new summer collection"),
     { target: { value: "A prompt for a caption" } },
   );
   fireEvent.click(screen.getByText("Generate caption"));
-  await waitFor(() =>
-    expect(screen.getByText(/Monthly caption quota exceeded/i)).toBeTruthy(),
-  );
+  await waitFor(() => expect(screen.getByText(expectedText)).toBeTruthy());
 }
 
 beforeEach(() => {
@@ -117,7 +115,9 @@ beforeEach(() => {
 describe("Studio quota-wall upgrade-request nudge (mobile)", () => {
   it("offers 'Ask the owner for an upgrade' to a non-owner member and fires the request", async () => {
     mockState.team = { role: "member", workspaceName: "Acme" };
-    await hitQuotaWall();
+    // Members see role-appropriate copy, not the server's owner-directed text.
+    await hitQuotaWall(/Ask your workspace owner to upgrade/i);
+    expect(screen.queryByText(/Monthly caption quota exceeded/i)).toBeNull();
     const button = screen.getByText("Ask the owner for an upgrade");
     fireEvent.click(button);
     expect(requestUpgradeMutate).toHaveBeenCalledTimes(1);
@@ -143,7 +143,8 @@ describe("Studio quota-wall upgrade-request nudge (mobile)", () => {
   it("hides the request button when the upgradeRequests switch is off", async () => {
     mockState.team = { role: "member", workspaceName: "Acme" };
     mockState.flags = { upgradeRequests: false };
-    await hitQuotaWall();
+    // With upgrade requests off, members get a plain out-of-quota notice.
+    await hitQuotaWall(/The workspace is out of AI quota/i);
     expect(screen.queryByText("Ask the owner for an upgrade")).toBeNull();
   });
 });

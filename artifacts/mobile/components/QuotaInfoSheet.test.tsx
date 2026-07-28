@@ -25,6 +25,8 @@ import {
   isQuotaError,
   quotaErrorMessage,
   QUOTA_FALLBACK_MESSAGE,
+  QUOTA_MEMBER_ASK_OWNER_MESSAGE,
+  QUOTA_MEMBER_PLAIN_MESSAGE,
   QuotaErrorNotice,
   QuotaInfoSheet,
 } from "./QuotaInfoSheet";
@@ -50,6 +52,29 @@ describe("quotaErrorMessage", () => {
     expect(quotaErrorMessage({ status: 402 })).toBe(QUOTA_FALLBACK_MESSAGE);
     expect(quotaErrorMessage({ status: 402, data: { error: "" } })).toBe(
       QUOTA_FALLBACK_MESSAGE,
+    );
+  });
+
+  it("gives members role-appropriate copy instead of the server's owner advice", () => {
+    const err = {
+      status: 402,
+      data: { error: "Quota reached. Upgrade your plan or buy a credit pack." },
+    };
+    expect(
+      quotaErrorMessage(err, { isOwner: false, upgradeRequestsEnabled: true }),
+    ).toBe(QUOTA_MEMBER_ASK_OWNER_MESSAGE);
+    expect(
+      quotaErrorMessage(err, { isOwner: false, upgradeRequestsEnabled: false }),
+    ).toBe(QUOTA_MEMBER_PLAIN_MESSAGE);
+  });
+
+  it("owners keep the server's message", () => {
+    const err = {
+      status: 402,
+      data: { error: "Quota reached. Upgrade your plan or buy a credit pack." },
+    };
+    expect(quotaErrorMessage(err, { isOwner: true, upgradeRequestsEnabled: true })).toBe(
+      "Quota reached. Upgrade your plan or buy a credit pack.",
     );
   });
 });

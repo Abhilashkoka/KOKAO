@@ -692,6 +692,9 @@ describe("Studio 402 member upgrade-request nudge", () => {
     const toastArg = await trigger402();
     expect(toastArg.title).toBe("Quota Reached");
     expect(toastArg.action).toBeTruthy();
+    // Members never see the server's owner-directed advice.
+    expect(toastArg.description).toMatch(/ask your workspace owner/i);
+    expect(toastArg.description).not.toMatch(/quota exhausted/i);
     // Clicking the action fires the request-upgrade mutation.
     toastArg.action.props.onClick();
     expect(requestUpgradeSpy).toHaveBeenCalledTimes(1);
@@ -703,6 +706,8 @@ describe("Studio 402 member upgrade-request nudge", () => {
     const toastArg = await trigger402();
     expect(toastArg.title).toBe("Quota Reached");
     expect(toastArg.action).toBeUndefined();
+    // Owners keep the server's message — they can act on it.
+    expect(toastArg.description).toMatch(/quota exhausted/i);
   });
 
   it("does not offer the request action when the upgradeRequests switch is off", async () => {
@@ -712,6 +717,10 @@ describe("Studio 402 member upgrade-request nudge", () => {
     const toastArg = await trigger402();
     expect(toastArg.title).toBe("Quota Reached");
     expect(toastArg.action).toBeUndefined();
+    // With upgrade requests disabled a member just gets a plain notice —
+    // no owner-directed advice and no ask-the-owner nudge.
+    expect(toastArg.description).toMatch(/out of AI quota/i);
+    expect(toastArg.description).not.toMatch(/quota exhausted|upgrade/i);
   });
 
   it("does not offer the request action when there is no team context", async () => {

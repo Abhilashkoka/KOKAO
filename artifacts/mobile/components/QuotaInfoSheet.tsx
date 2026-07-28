@@ -17,8 +17,30 @@ export function isQuotaError(err: unknown): boolean {
 export const QUOTA_FALLBACK_MESSAGE =
   "You have reached your monthly AI quota. Upgrade your plan on the web app to continue.";
 
-/** Message for a quota (402) error: prefer the server's text. */
-export function quotaErrorMessage(err: unknown): string {
+/** Member-facing copy when they can ask the owner for an upgrade. */
+export const QUOTA_MEMBER_ASK_OWNER_MESSAGE =
+  "The workspace has run out of AI quota. Ask your workspace owner to upgrade.";
+
+/** Member-facing copy when upgrade requests are disabled. */
+export const QUOTA_MEMBER_PLAIN_MESSAGE = "The workspace is out of AI quota.";
+
+/**
+ * Message for a quota (402) error.
+ *
+ * Owners get the server's text (it tells them to upgrade or buy credits,
+ * which they can actually do). Team members can't act on that advice, so
+ * they get role-appropriate copy instead: "ask your owner" when upgrade
+ * requests are enabled, or a plain out-of-quota notice when they're not.
+ */
+export function quotaErrorMessage(
+  err: unknown,
+  opts?: { isOwner?: boolean; upgradeRequestsEnabled?: boolean },
+): string {
+  if (opts?.isOwner === false) {
+    return opts.upgradeRequestsEnabled
+      ? QUOTA_MEMBER_ASK_OWNER_MESSAGE
+      : QUOTA_MEMBER_PLAIN_MESSAGE;
+  }
   const data = (err as { data?: { error?: string } | null } | null)?.data;
   return (typeof data?.error === "string" && data.error) || QUOTA_FALLBACK_MESSAGE;
 }

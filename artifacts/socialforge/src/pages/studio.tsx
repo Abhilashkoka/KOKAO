@@ -958,13 +958,17 @@ function ImageStudio() {
   const handleError = (error: any) => {
     if (error?.status === 402 || error?.response?.status === 402) {
       const canRequestUpgrade = !isOwner && flags.upgradeRequests;
+      // Members can't upgrade the plan or buy credits, so never show them
+      // the server's owner-directed advice — give them copy they can act on.
+      const memberDescription = canRequestUpgrade
+        ? "The workspace has run out of AI quota. Ask your workspace owner to upgrade."
+        : "The workspace is out of AI quota.";
       toast({
         title: "Quota Reached",
-        description:
-          error?.message ||
-          (canRequestUpgrade
-            ? "You've reached your monthly AI limit."
-            : "You've reached your monthly AI limit. Please upgrade your plan."),
+        description: isOwner
+          ? error?.message ||
+            "You've reached your monthly AI limit. Please upgrade your plan."
+          : memberDescription,
         variant: "destructive",
         ...(canRequestUpgrade
           ? {

@@ -133,7 +133,10 @@ function BrandChip({
   );
 }
 
-function errorMessage(err: unknown): string {
+function errorMessage(
+  err: unknown,
+  quotaRole?: { isOwner?: boolean; upgradeRequestsEnabled?: boolean },
+): string {
   const anyErr = err as {
     status?: number;
     message?: string;
@@ -141,7 +144,7 @@ function errorMessage(err: unknown): string {
   };
   const serverMessage =
     anyErr?.data && typeof anyErr.data.error === "string" ? anyErr.data.error : null;
-  if (isQuotaError(err)) return quotaErrorMessage(err);
+  if (isQuotaError(err)) return quotaErrorMessage(err, quotaRole);
   return serverMessage || anyErr?.message || "Something went wrong. Please try again.";
 }
 
@@ -198,7 +201,7 @@ export default function StudioScreen() {
   const activeSwatches = activeKit ? kitSwatches(activeKit, 6) : [];
 
   const setFailure = (err: unknown) => {
-    setError(errorMessage(err));
+    setError(errorMessage(err, { isOwner, upgradeRequestsEnabled }));
     setUpgradeNotice(null);
     const isQuota = isQuotaError(err);
     setQuotaHit(isQuota);

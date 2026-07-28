@@ -31,6 +31,9 @@ import {
   useCreateSchedule,
   useDeleteSchedule,
   getListSchedulesQueryKey,
+  useGetMe,
+  useListFeatureFlags,
+  getListFeatureFlagsQueryKey,
 } from "@workspace/api-client-react";
 import { SchedulePicker } from "@/components/SchedulePicker";
 import {
@@ -197,6 +200,17 @@ export default function ContentDetailScreen() {
     return data?.error || (err as Error | null)?.message || fallback;
   };
 
+  // Role-aware quota copy: members can't upgrade or buy credits, so their
+  // 402 message must not repeat the server's owner-directed advice.
+  const meQuery = useGetMe();
+  const featureFlags = useListFeatureFlags({
+    query: { queryKey: getListFeatureFlagsQueryKey(), staleTime: 60_000 },
+  });
+  const quotaRole = {
+    isOwner: meQuery.data?.team ? meQuery.data.team.role === "owner" : true,
+    upgradeRequestsEnabled: featureFlags.data?.upgradeRequests ?? true,
+  };
+
   // Routes a 402 quota error to the shared tappable quota notice instead of
   // the given red-error setter. Returns true when the error was a quota hit.
   const failWithQuotaCheck = (
@@ -205,7 +219,7 @@ export default function ContentDetailScreen() {
     fallback: string,
   ): boolean => {
     if (isQuotaError(err)) {
-      setQuotaMsg(quotaErrorMessage(err));
+      setQuotaMsg(quotaErrorMessage(err, quotaRole));
       return true;
     }
     setError(apiErrorText(err, fallback));
@@ -273,7 +287,7 @@ export default function ContentDetailScreen() {
   const failPublish = (err: unknown, retried: boolean, fallback: string) => {
     if (retried) setPublishMsg(null);
     if (isQuotaError(err)) {
-      setQuotaMsg(quotaErrorMessage(err));
+      setQuotaMsg(quotaErrorMessage(err, quotaRole));
       return;
     }
     setPublishErr(
@@ -506,7 +520,7 @@ export default function ContentDetailScreen() {
       return;
     }
     if (isQuotaError(err)) {
-      setQuotaMsg(quotaErrorMessage(err));
+      setQuotaMsg(quotaErrorMessage(err, quotaRole));
       return;
     }
     setResendErr(message || fallback);
