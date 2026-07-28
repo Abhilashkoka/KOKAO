@@ -13,6 +13,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const mockState = {
   toast: vi.fn(),
   requestUpgradeMutate: vi.fn(),
+  requestUpgradePending: false,
 };
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -50,6 +51,7 @@ vi.mock("@workspace/api-client-react", async () => {
     useBillingRequestUpgrade: () => ({
       ...idleMutation(),
       mutate: mockState.requestUpgradeMutate,
+      isPending: mockState.requestUpgradePending,
     }),
   });
 });
@@ -79,9 +81,44 @@ describe("BillingSettings member request-upgrade error toasts", () => {
   beforeEach(() => {
     mockState.toast = vi.fn();
     mockState.requestUpgradeMutate = vi.fn();
+    mockState.requestUpgradePending = false;
   });
 
   afterEach(() => cleanup());
+
+  it("shows the 'Request sent' confirmation toast when the request succeeds", () => {
+    renderCard();
+    fireEvent.click(screen.getByRole("button", { name: /request upgrade/i }));
+    expect(mockState.requestUpgradeMutate).toHaveBeenCalledTimes(1);
+    const opts = mockState.requestUpgradeMutate.mock.calls[0][1] as {
+      onSuccess: () => void;
+    };
+    opts.onSuccess();
+
+    expect(mockState.toast).toHaveBeenCalledTimes(1);
+    const call = mockState.toast.mock.calls[0][0] as {
+      title: string;
+      description: string;
+      variant?: string;
+    };
+    expect(call.title).toBe("Request sent");
+    expect(call.description).toBe(
+      "The workspace owner has been notified that you'd like an upgrade.",
+    );
+    expect(call.variant).toBe(undefined);
+  });
+
+  it("shows a disabled 'Sending...' button while the request is in flight", () => {
+    mockState.requestUpgradePending = true;
+    renderCard();
+
+    const button = screen.getByRole("button", { name: /sending/i });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(button.textContent).toContain("Sending...");
+    expect(
+      screen.queryByRole("button", { name: /request upgrade/i }),
+    ).toBeNull();
+  });
 
   it("shows the friendly non-destructive 'Already requested recently' toast on 429", () => {
     renderCard();
