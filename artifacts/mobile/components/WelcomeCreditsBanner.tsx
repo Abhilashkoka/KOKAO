@@ -11,6 +11,7 @@ import {
 
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
 const c = colors.light;
 
@@ -31,6 +32,7 @@ export function WelcomeCreditsBanner() {
     query: { queryKey: getListNotificationsQueryKey() },
   });
   const markRead = useMarkNotificationRead();
+  const [dismissError, setDismissError] = React.useState<string | null>(null);
 
   const welcome = notifications?.find(
     (n) => n.type === SIGNUP_CREDITS_GRANTED,
@@ -39,6 +41,7 @@ export function WelcomeCreditsBanner() {
 
   const dismiss = () => {
     if (markRead.isPending) return;
+    setDismissError(null);
     markRead.mutate(
       { id: welcome.id },
       {
@@ -46,6 +49,10 @@ export function WelcomeCreditsBanner() {
           queryClient.invalidateQueries({
             queryKey: getListNotificationsQueryKey(),
           }),
+        onError: (err) =>
+          setDismissError(
+            apiErrorMessage(err, "Couldn't dismiss right now. Tap X to try again."),
+          ),
       },
     );
   };
@@ -58,6 +65,11 @@ export function WelcomeCreditsBanner() {
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={styles.title}>{welcome.title}</Text>
         <Text style={styles.message}>{welcome.message}</Text>
+        {dismissError ? (
+          <Text style={styles.dismissError} testID="text-dismiss-error">
+            {dismissError}
+          </Text>
+        ) : null}
         <Pressable
           onPress={() => router.push("/(tabs)/studio")}
           style={({ pressed }) => [styles.cta, { opacity: pressed ? 0.85 : 1 }]}
@@ -112,6 +124,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: c.mutedForeground,
     marginTop: 2,
+  },
+  dismissError: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: c.destructive,
+    marginTop: 6,
   },
   cta: {
     flexDirection: "row",

@@ -28,7 +28,10 @@ type ServerNotification = {
 
 // Mock server DB: the "list" endpoint returns unread rows only, mirroring
 // the real GET /notifications default.
-const serverState: { rows: ServerNotification[] } = { rows: [] };
+const serverState: { rows: ServerNotification[]; failMarkRead: unknown } = {
+  rows: [],
+  failMarkRead: null,
+};
 const markReadCalls: number[] = [];
 
 vi.mock("@workspace/api-client-react", async () => {
@@ -47,9 +50,13 @@ vi.mock("@workspace/api-client-react", async () => {
       // component's onSuccess invalidates the list query.
       const mutate = (
         vars: { id: number },
-        opts?: { onSuccess?: () => void },
+        opts?: { onSuccess?: () => void; onError?: (err: unknown) => void },
       ) => {
         markReadCalls.push(vars.id);
+        if (serverState.failMarkRead) {
+          opts?.onError?.(serverState.failMarkRead);
+          return;
+        }
         const row = serverState.rows.find((r) => r.id === vars.id);
         if (row) row.readAt = new Date("2026-07-28T10:00:00Z").toISOString();
         opts?.onSuccess?.();
@@ -95,6 +102,7 @@ function renderBanner() {
 
 beforeEach(() => {
   serverState.rows = [];
+  serverState.failMarkRead = null;
   markReadCalls.length = 0;
   routerPush.mockClear();
 });
@@ -146,6 +154,38 @@ describe("WelcomeCreditsBanner", () => {
       expect(screen.queryByTestId("banner-welcome-credits")).toBeNull(),
     );
     expect(markReadCalls).toEqual([row.id]);
+  });
+
+  it("shows an error message when dismiss fails and allows retry", async () => {
+    const row = seedWelcome();
+    serverState.failMarkRead = { data: { error: "You appear to be offline" } };
+    renderBanner();
+    fireEvent.click(await screen.findByTestId("button-dismiss-welcome"));
+
+    // Failure is surfaced inline; banner stays visible and dismissible.
+    expect(
+      (await screen.findByTestId("text-dismiss-error")).textContent,
+    ).toContain("You appear to be offline");
+    expect(screen.getByTestId("banner-welcome-credits")).toBeTruthy();
+    expect(row.readAt).toBeNull();
+
+    // Retry succeeds: error clears and the banner disappears.
+    serverState.failMarkRead = null;
+    fireEvent.click(screen.getByTestId("button-dismiss-welcome"));
+    expect(markReadCalls).toEqual([row.id, row.id]);
+    await waitFor(() =>
+      expect(screen.queryByTestId("banner-welcome-credits")).toBeNull(),
+    );
+  });
+
+  it("falls back to a generic dismiss error message when the failure has no body", async () => {
+    seedWelcome();
+    serverState.failMarkRead = new Error("network down");
+    renderBanner();
+    fireEvent.click(await screen.findByTestId("button-dismiss-welcome"));
+    expect(
+      (await screen.findByTestId("text-dismiss-error")).textContent,
+    ).toContain("Couldn't dismiss right now");
   });
 
   it("renders nothing when there is no unread welcome notification", async () => {
