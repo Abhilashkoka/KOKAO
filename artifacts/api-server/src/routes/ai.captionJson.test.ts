@@ -225,6 +225,60 @@ describe("JSON caption endpoint billing", () => {
     expect(await usageRows()).toHaveLength(0);
   });
 
+  it("releases the reserved credit when the model returns clarifying questions", async () => {
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 1,
+      imageCredits: 0,
+      kind: "admin_grant",
+    });
+
+    completionScript = async () => ({
+      choices: [
+        {
+          message: {
+            content:
+              '{"clarifyingQuestions":["What product is this about?","Who is the audience?"]}',
+          },
+        },
+      ],
+    });
+
+    const res = await postCaption();
+    expect(res.status).toBe(200);
+    expect(res.body.caption).toBe("");
+    expect(res.body.clarifyingQuestions).toEqual([
+      "What product is this about?",
+      "Who is the audience?",
+    ]);
+
+    // Nothing was generated: the credit must come back and no usage charged.
+    expect((await getCreditBalances(tenant.tenantId)).captionCredits).toBe(1);
+    const kinds = (await ledgerRows()).map((r) => r.kind).sort();
+    expect(kinds).toEqual(["admin_grant", "refund", "spend"]);
+    const refund = (await ledgerRows()).find((r) => r.kind === "refund")!;
+    expect(refund.captionDelta).toBe(1);
+    expect(await usageRows()).toHaveLength(0);
+  });
+
+  it("charges no quota usage when a quota-funded request gets clarifying questions", async () => {
+    planState.captions = 100; // quota funding
+
+    completionScript = async () => ({
+      choices: [
+        { message: { content: '{"clarifyingQuestions":["Which platform?"]}' } },
+      ],
+    });
+
+    const res = await postCaption();
+    expect(res.status).toBe(200);
+    expect(res.body.clarifyingQuestions).toEqual(["Which platform?"]);
+
+    // Quota funded: no usage event recorded and the ledger stays untouched.
+    expect(await usageRows()).toHaveLength(0);
+    expect(await ledgerRows()).toHaveLength(0);
+  });
+
   it("returns 402 and spends nothing when quota and credits are both exhausted", async () => {
     // planState.captions is 0 and no credits were granted.
     completionScript = async () => {
