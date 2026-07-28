@@ -916,7 +916,12 @@ export default function StudioScreen() {
         </View>
       </Modal>
 
-      <QuotaInfoSheet visible={quotaSheetOpen} onClose={() => setQuotaSheetOpen(false)} />
+      <QuotaInfoSheet
+        visible={quotaSheetOpen}
+        onClose={() => setQuotaSheetOpen(false)}
+        isOwner={isOwner}
+        upgradeRequestsEnabled={upgradeRequestsEnabled}
+      />
     </>
   );
 }

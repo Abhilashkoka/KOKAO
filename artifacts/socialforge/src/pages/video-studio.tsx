@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useGenerateVideo,
+  useGetMe,
+  useBillingRequestUpgrade,
   useGetVideoJob,
   useListVideoJobs,
   useSaveVideoToLibrary,
@@ -76,6 +78,7 @@ import { Progress } from "@/components/ui/progress";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import {
   Clapperboard,
   Download,
@@ -186,6 +189,8 @@ const ENGINE_META: Record<Engine, { title: string; blurb: string }> = {
 export function VideoStudioPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { data: me } = useGetMe();
+  const requestUpgrade = useBillingRequestUpgrade();
 
   const [engine, setEngine] = useState<Engine>("text_to_video");
   const [prompt, setPrompt] = useState("");
@@ -503,6 +508,24 @@ export function VideoStudioPage() {
     activeJob.status === "awaiting_review" &&
     activeJob.storyboard != null;
 
+  const isOwner = me?.team ? me.team.role === "owner" : true;
+
+  const onRequestUpgrade = () => {
+    requestUpgrade.mutate(undefined, {
+      onSuccess: () =>
+        toast({
+          title: "Request sent",
+          description: "The workspace owner has been notified that you'd like an upgrade.",
+        }),
+      onError: (err: any) =>
+        toast({
+          title: "Could not send request",
+          description: err?.message || "Please try again in a moment.",
+          variant: "destructive",
+        }),
+    });
+  };
+
   const onGenerate = () => {
     generateVideo.mutate(
       {
@@ -557,10 +580,32 @@ export function VideoStudioPage() {
         },
         onError: (error: any) => {
           if (error?.status === 402) {
+            const canRequestUpgrade = !isOwner && flags.upgradeRequests;
+            // Members can't upgrade the plan or buy credits, so never show
+            // them the server's owner-directed advice — give them copy they
+            // can act on (same behavior as the AI Studio's 402 handler).
+            const memberDescription = canRequestUpgrade
+              ? "The workspace has run out of video quota. Ask your workspace owner to upgrade."
+              : "The workspace is out of video quota.";
             toast({
               title: "Video quota reached",
-              description: error?.message || "Upgrade your plan or buy a credit pack.",
+              description: isOwner
+                ? error?.message || "Upgrade your plan or buy a credit pack."
+                : memberDescription,
               variant: "destructive",
+              ...(canRequestUpgrade
+                ? {
+                    action: (
+                      <ToastAction
+                        altText="Ask the owner for an upgrade"
+                        onClick={onRequestUpgrade}
+                        data-testid="button-request-upgrade-toast"
+                      >
+                        Ask the owner for an upgrade
+                      </ToastAction>
+                    ),
+                  }
+                : {}),
             });
           } else {
             toast({

@@ -81,12 +81,24 @@ export function QuotaErrorNotice({
 export function QuotaInfoSheet({
   visible,
   onClose,
+  isOwner = true,
+  upgradeRequestsEnabled = true,
 }: {
   visible: boolean;
   onClose: () => void;
+  /** Defaults to owner copy; pass false for team members so the "get more" advice is actionable. */
+  isOwner?: boolean;
+  upgradeRequestsEnabled?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   if (!visible) return null;
+  // Members can't upgrade the plan or buy credit packs, so the "need more?"
+  // guidance points them at the workspace owner instead of Settings > Billing.
+  const getMoreText = isOwner
+    ? "Need more right away? Upgrade your plan or buy a credit pack. Credits are used automatically once your monthly allowance runs out."
+    : upgradeRequestsEnabled
+      ? "Need more right away? Ask your workspace owner to upgrade the plan or buy a credit pack — you can send them an upgrade request from the studio."
+      : "Need more right away? Ask your workspace owner to upgrade the plan or buy a credit pack.";
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
@@ -109,19 +121,18 @@ export function QuotaInfoSheet({
 
           <View style={styles.row}>
             <Feather name="zap" size={16} color={c.primary} style={styles.rowIcon} />
-            <Text style={styles.rowText}>
-              Need more right away? Upgrade your plan or buy a credit pack. Credits are used
-              automatically once your monthly allowance runs out.
-            </Text>
+            <Text style={styles.rowText}>{getMoreText}</Text>
           </View>
 
-          <View style={styles.row}>
-            <Feather name="globe" size={16} color={c.primary} style={styles.rowIcon} />
-            <Text style={styles.rowText}>
-              Upgrades and credit packs are managed on the KOKAO web app: open Settings, then
-              Billing.
-            </Text>
-          </View>
+          {isOwner ? (
+            <View style={styles.row}>
+              <Feather name="globe" size={16} color={c.primary} style={styles.rowIcon} />
+              <Text style={styles.rowText}>
+                Upgrades and credit packs are managed on the KOKAO web app: open Settings, then
+                Billing.
+              </Text>
+            </View>
+          ) : null}
 
           <Button title="Got it" onPress={onClose} style={{ marginTop: 18 }} />
         </View>

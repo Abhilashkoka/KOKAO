@@ -1075,6 +1075,8 @@ export default function ContentDetailScreen() {
       <QuotaInfoSheet
         visible={quotaSheetOpen}
         onClose={() => setQuotaSheetOpen(false)}
+        isOwner={quotaRole.isOwner}
+        upgradeRequestsEnabled={quotaRole.upgradeRequestsEnabled}
       />
 
       {linkedinPending > 0 ? (
