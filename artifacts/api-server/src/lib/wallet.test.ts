@@ -31,7 +31,15 @@ import {
 } from "./wallet";
 import { setAiSpendConfig } from "./aiSpend";
 import { invalidateFeatureFlagCache } from "./featureFlags";
-import { createTenant, deleteTenant } from "../test/dbHelpers";
+import {
+  createTenant,
+  deleteTenant,
+  snapshotAiSpendSettings,
+  restoreAiSpendSettings,
+  snapshotWalletSettings,
+  restoreWalletSettings,
+} from "../test/dbHelpers";
+import type { AiSpendSettings, WalletSettings } from "@workspace/db";
 
 let tenantId: number;
 
@@ -57,9 +65,15 @@ async function setWalletFeature(enabled: boolean): Promise<void> {
   invalidateFeatureFlagCache();
 }
 
+let aiSpendSnapshot: AiSpendSettings | null = null;
+let walletSettingsSnapshot: WalletSettings | null = null;
+
 beforeAll(async () => {
   const t = await createTenant();
   tenantId = t.tenantId;
+  // Snapshot the real dev settings so cleanup can restore (never wipe) them.
+  aiSpendSnapshot = await snapshotAiSpendSettings();
+  walletSettingsSnapshot = await snapshotWalletSettings();
   // ₹2.00 per caption, ₹5.00 per image, ₹10.00 per video, 20% platform fee.
   await setAiSpendConfig({
     captionCostPaise: 200,
@@ -78,8 +92,8 @@ beforeAll(async () => {
 afterAll(async () => {
   await db.delete(walletLedgerTable).where(eq(walletLedgerTable.tenantId, tenantId));
   await db.delete(walletBalancesTable).where(eq(walletBalancesTable.tenantId, tenantId));
-  await db.delete(walletSettingsTable);
-  await db.delete(aiSpendSettingsTable);
+  await restoreWalletSettings(walletSettingsSnapshot);
+  await restoreAiSpendSettings(aiSpendSnapshot);
   await db.delete(featureFlagsTable).where(eq(featureFlagsTable.feature, "wallet"));
   invalidateFeatureFlagCache();
   await deleteTenant(tenantId);

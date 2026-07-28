@@ -13,6 +13,10 @@ import {
   adminAuditLogsTable,
   emailSettingsTable,
   planSettingsTable,
+  aiSpendSettingsTable,
+  walletSettingsTable,
+  type AiSpendSettings,
+  type WalletSettings,
   type AppCredential,
   type CarouselSlide,
   type NotificationPolicy,
@@ -747,6 +751,51 @@ export async function restoreNotificationPolicy(
       type: snapshot.type,
       enabled: snapshot.enabled,
       emailPolicy: snapshot.emailPolicy,
+      updatedAt: snapshot.updatedAt,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AI spend + wallet settings (singleton rows). Snapshot/restore so tests never
+// destroy the real dev configuration an admin has saved.
+// ---------------------------------------------------------------------------
+
+export async function snapshotAiSpendSettings(): Promise<AiSpendSettings | null> {
+  const row = (await db.select().from(aiSpendSettingsTable).limit(1))[0];
+  return row ?? null;
+}
+
+export async function restoreAiSpendSettings(
+  snapshot: AiSpendSettings | null,
+): Promise<void> {
+  await db.delete(aiSpendSettingsTable);
+  if (snapshot) {
+    await db.insert(aiSpendSettingsTable).values({
+      captionCostPaise: snapshot.captionCostPaise,
+      imageCostPaise: snapshot.imageCostPaise,
+      videoCostPaise: snapshot.videoCostPaise,
+      feePercent: snapshot.feePercent,
+      updatedAt: snapshot.updatedAt,
+    });
+  }
+}
+
+export async function snapshotWalletSettings(): Promise<WalletSettings | null> {
+  const row = (await db.select().from(walletSettingsTable).limit(1))[0];
+  return row ?? null;
+}
+
+export async function restoreWalletSettings(
+  snapshot: WalletSettings | null,
+): Promise<void> {
+  await db.delete(walletSettingsTable);
+  if (snapshot) {
+    await db.insert(walletSettingsTable).values({
+      gstPercent: snapshot.gstPercent,
+      minTopupPaise: snapshot.minTopupPaise,
+      lowBalanceThresholdPaise: snapshot.lowBalanceThresholdPaise,
+      videoCostPaise: snapshot.videoCostPaise,
       updatedAt: snapshot.updatedAt,
     });
   }

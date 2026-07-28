@@ -41,3 +41,6 @@ Suites testing "unconfigured provider" paths delete real app_credentials rows (v
 
 ## Admin settings tables need the same run-level guard as app_credentials
 The vitest globalSetup snapshot/restore guard (`test-credentials-guard.ts`) now covers a fixed list of admin-owned settings tables (video/image/text-gen, ASR, ads, plan, signup-credit settings), not just `app_credentials`. **Why:** suites delete these rows in beforeEach against the shared dev DB, so a full run silently wiped a superadmin's saved model override (looked like "settings vanish randomly"). **How to apply:** when adding a new admin-config table that any test deletes, add it to GUARDED_TABLES.
+
+## Singleton settings rows: snapshot/restore, never delete
+Tests run against the REAL dev DB. Any test touching singleton config tables (ai_spend_settings, wallet_settings, email_settings, app_credentials...) must snapshot in beforeAll and restore in afterAll via the dbHelpers snapshot/restore helpers — a blanket `db.delete(table)` silently wipes admin-entered dev configuration (this bit a user: their AI spend rates vanished after every full test run).

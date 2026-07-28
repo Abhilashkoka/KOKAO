@@ -64,7 +64,12 @@ import {
   snapshotAppCredentialRow,
   setAppCredentialRow,
   restoreAppCredentialRow,
+  snapshotAiSpendSettings,
+  restoreAiSpendSettings,
+  snapshotWalletSettings,
+  restoreWalletSettings,
 } from "../test/dbHelpers";
+import type { AiSpendSettings, WalletSettings } from "@workspace/db";
 
 function buildApp(): Express {
   const app = express();
@@ -89,6 +94,8 @@ function signOrder(orderId: string, paymentId: string): string {
 const app = buildApp();
 let mockServer: ChildProcess;
 let credsSnapshot: Awaited<ReturnType<typeof snapshotAppCredentialRow>>;
+let aiSpendSnapshot: AiSpendSettings | null = null;
+let walletSettingsSnapshot: WalletSettings | null = null;
 let tenantId: number;
 let clerkUserId: string;
 
@@ -111,6 +118,8 @@ beforeAll(async () => {
   }
 
   credsSnapshot = await snapshotAppCredentialRow("razorpay");
+  aiSpendSnapshot = await snapshotAiSpendSettings();
+  walletSettingsSnapshot = await snapshotWalletSettings();
   await setAppCredentialRow("razorpay", {
     keyId: "rzp_test_wallet",
     keySecret: KEY_SECRET,
@@ -140,8 +149,8 @@ afterAll(async () => {
   resetAuthState();
   await db.delete(walletLedgerTable).where(eq(walletLedgerTable.tenantId, tenantId));
   await db.delete(walletBalancesTable).where(eq(walletBalancesTable.tenantId, tenantId));
-  await db.delete(walletSettingsTable);
-  await db.delete(aiSpendSettingsTable);
+  await restoreWalletSettings(walletSettingsSnapshot);
+  await restoreAiSpendSettings(aiSpendSnapshot);
   await deleteTenant(tenantId);
   await restoreAppCredentialRow("razorpay", credsSnapshot);
   mockServer.kill();
