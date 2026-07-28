@@ -433,7 +433,7 @@ export function BillingSettings() {
             )}
           </div>
           <p className="text-xs text-muted-foreground">
-            Pay As You Go has no monthly quota — generations use prepaid credits instead.
+            Pay As You Go has no monthly quota — recharge your prepaid wallet and generations are paid from its balance.
           </p>
         </CardContent>
       </Card>

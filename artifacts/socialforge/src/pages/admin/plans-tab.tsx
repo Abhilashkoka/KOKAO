@@ -301,7 +301,8 @@ function CreditPacksCard() {
         <CardDescription>
           One-time purchases that top up a workspace's caption and image
           credits. Credits are spent automatically after the monthly plan quota
-          runs out, and are the only way to generate on the Pay As You Go plan.
+          runs out. Pay As You Go workspaces on wallet billing fund generations
+          by recharging their prepaid wallet instead.
         </CardDescription>
       </CardHeader>
       <CardContent>

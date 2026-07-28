@@ -718,8 +718,8 @@ export default function SettingsScreen() {
               </Text>
             </TouchableOpacity>
             <Text style={styles.hint}>
-              Pay As You Go has no monthly quota; generations use prepaid credits
-              instead.
+              Pay As You Go has no monthly quota; recharge your prepaid wallet and
+              generations are paid from its balance.
             </Text>
           </>
         ) : null}
@@ -745,7 +745,7 @@ export default function SettingsScreen() {
             <Text style={styles.confirmBody}>
               {confirmAction === "cancel"
                 ? "Your subscription will stay active until the end of the current paid period, then you will move to the free plan."
-                : "Pay As You Go has no monthly quota. Caption and image generations will use prepaid credits instead."}
+                : "Pay As You Go has no monthly quota. Generations are paid from your prepaid wallet balance — recharge it whenever you need."}
             </Text>
             <View style={styles.confirmActions}>
               <Pressable

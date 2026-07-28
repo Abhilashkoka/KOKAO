@@ -87,8 +87,8 @@ export const DEFAULT_PLANS: Plan[] = [
     priceInrYearly: null,
     razorpayPlanIdYearly: null,
     features: [
-      "No subscription — buy credit packs as needed",
-      "Credits never expire",
+      "No subscription — recharge your wallet as needed",
+      "Wallet balance never expires",
       "3 brand kits",
       "Schedule up to 50 posts",
     ],
