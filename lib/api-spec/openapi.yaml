@@ -11374,6 +11374,15 @@ components:
             processing; null otherwise.
         durationMs:
           type: ["integer", "null"]
+        units:
+          type: integer
+          minimum: 1
+          description: >-
+            How many video units this job charges. 1 for a simple single
+            generation; multi-shot clips, character/AI-visual scene groups,
+            scenes added during storyboard review, and an AI-composed music
+            bed each add units. Multiply the per-video AI-spend display rate
+            by this to show the true amount spent.
         storyboard:
           oneOf:
             - $ref: "#/components/schemas/VideoStoryboard"

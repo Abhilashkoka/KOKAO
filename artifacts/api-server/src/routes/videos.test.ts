@@ -1288,6 +1288,9 @@ describe("POST /api/ai/video-jobs/:jobId/storyboard/discard", () => {
     const res = await request(app).post(`/api/ai/video-jobs/${job.id}/storyboard/discard`);
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("failed");
+    // Serialized jobs expose the true charged unit count so the client can
+    // show the real AI amount spent (4 scenes here, not the 1-video rate).
+    expect(res.body.units).toBe(4);
     expect(res.body.error).toMatch(/Nothing was charged/i);
     expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(4);
 

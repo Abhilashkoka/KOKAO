@@ -5389,6 +5389,9 @@ export const GenerateVideoBody = zod.object({
   "reviewStoryboard": zod.boolean().default(generateVideoBodyReviewStoryboardDefault).describe('Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by every engine except topic_to_video\'s stock branch, whose visuals are searched rather than prompted. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST ...\/storyboard\/approve to render it.')
 })
 
+
+
+
 export const GenerateVideoResponse = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
@@ -5404,6 +5407,7 @@ export const GenerateVideoResponse = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
+  "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
@@ -5490,6 +5494,9 @@ export const ImportLibraryMusicResponse = zod.object({
 /**
  * @summary List this workspace's recent video generation jobs (newest first)
  */
+
+
+
 export const ListVideoJobsResponseItem = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
@@ -5505,6 +5512,7 @@ export const ListVideoJobsResponseItem = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
+  "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
@@ -5548,6 +5556,9 @@ export const GetVideoJobParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+
+
+
 export const GetVideoJobResponse = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
@@ -5563,6 +5574,7 @@ export const GetVideoJobResponse = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
+  "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
@@ -5606,6 +5618,9 @@ export const CancelVideoJobParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+
+
+
 export const CancelVideoJobResponse = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
@@ -5621,6 +5636,7 @@ export const CancelVideoJobResponse = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
+  "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
@@ -5683,6 +5699,9 @@ export const UpdateVideoStoryboardBody = zod.object({
 })).min(1).max(updateVideoStoryboardBodyScenesMax).describe('Scenes to edit, addressed by id. Only the fields you send change; unlisted scenes are untouched. Never accepts image paths — a preview is replaced by regenerating it, not by pointing at a file.')
 })
 
+
+
+
 export const UpdateVideoStoryboardResponse = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
@@ -5698,6 +5717,7 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
+  "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
@@ -5753,6 +5773,9 @@ export const InsertVideoStoryboardSceneBody = zod.object({
   "visual": zod.string().max(insertVideoStoryboardSceneBodyVisualMax).optional().describe('What the scene shows (a generation prompt). Defaults to the narration text when omitted.')
 })
 
+
+
+
 export const InsertVideoStoryboardSceneResponse = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
@@ -5768,6 +5791,7 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
+  "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
@@ -5812,6 +5836,9 @@ export const RegenerateStoryboardScenePreviewParams = zod.object({
   "sceneId": zod.coerce.string()
 })
 
+
+
+
 export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
@@ -5827,6 +5854,7 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
+  "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
@@ -5870,6 +5898,9 @@ export const ApproveVideoStoryboardParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+
+
+
 export const ApproveVideoStoryboardResponse = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
@@ -5885,6 +5916,7 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
+  "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
@@ -5927,6 +5959,9 @@ export const DiscardVideoStoryboardParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+
+
+
 export const DiscardVideoStoryboardResponse = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
@@ -5942,6 +5977,7 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
+  "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),

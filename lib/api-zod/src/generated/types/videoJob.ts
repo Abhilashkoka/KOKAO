@@ -49,6 +49,11 @@ export interface VideoJob {
   stage?: string | null;
   /** @nullable */
   durationMs?: number | null;
+  /**
+     * How many video units this job charges. 1 for a simple single generation; multi-shot clips, character/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.
+     * @minimum 1
+     */
+  units?: number;
   /** The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved. */
   storyboard?: VideoStoryboard | null;
   /**

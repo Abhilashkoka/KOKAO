@@ -694,6 +694,28 @@ describe("Video Studio", () => {
     expect(line.textContent).toContain("25.00");
   });
 
+  it("multiplies the AI amount spent by the job's charged unit count", () => {
+    mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100, videoPaise: 2500 };
+    mockState.activeJob = {
+      id: 7,
+      engine: "text_to_video",
+      status: "succeeded",
+      prompt: "sunset",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      videoPath: "/objects/1/uploads/v.mp4",
+      thumbnailPath: null,
+      units: 4,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-7"));
+    const line = screen.getByTestId("text-video-ai-spent");
+    expect(line.textContent).toContain("100.00");
+  });
+
   it("hides the AI amount spent line when the video rate is zero", () => {
     mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100, videoPaise: 0 };
     mockState.activeJob = {

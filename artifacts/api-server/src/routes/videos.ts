@@ -113,6 +113,12 @@ function serializeVideoJob(job: VideoGeneration) {
     error: job.error ?? null,
     stage: job.stage ?? null,
     durationMs: job.durationMs ?? null,
+    // How many video units this job actually charges (multi-shot clips,
+    // character/AI-visual scene groups, review-added scenes, AI music bed).
+    // Prefer the persisted wallet reservation when present (it tracks
+    // review-time additions transactionally); otherwise recompute from the
+    // options, which videoJobUnits keeps in sync with every funding path.
+    units: Math.max(1, job.walletReservedUnits ?? videoJobUnits(job.engine, job.options)),
     storyboard: job.storyboard ?? null,
     storyboardExpiresAt: job.storyboardExpiresAt?.toISOString() ?? null,
     createdAt: job.createdAt.toISOString(),

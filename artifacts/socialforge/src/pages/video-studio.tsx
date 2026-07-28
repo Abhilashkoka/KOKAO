@@ -1505,7 +1505,9 @@ export function VideoStudioPage() {
                 {videoSpendPaise > 0 && (
                   <p className="text-xs text-muted-foreground" data-testid="text-video-ai-spent">
                     AI amount spent: {"\u20B9"}
-                    {(videoSpendPaise / 100).toLocaleString("en-IN", {
+                    {/* Multi-scene jobs charge several video units; multiply so
+                        the shown figure matches what was really spent. */}
+                    {((videoSpendPaise * Math.max(1, activeJob.units ?? 1)) / 100).toLocaleString("en-IN", {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
                     })}
